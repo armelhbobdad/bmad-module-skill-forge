@@ -30,7 +30,8 @@ Covers:
     `ast_bridge` / `source_reading`, a non-string method,
     `skill_citations_matched`
   - CLI smoke: exit 0 clean, exit 1 findings, exit 2 on bad input (including
-    a `--skill-dir` with no SKILL.md)
+    a `--skill-dir` with no SKILL.md) and on an `-o` file that cannot be
+    written, for each subcommand
   - node kinds with `--check-node-kinds` (#530 BH4), ast-grep mocked: one
     test per I/O matrix row (invalid kind, valid kinds, `ERROR`, entries
     not checked, flag absent, no ast-grep, one call per (language, kind)),
@@ -43,6 +44,33 @@ Covers:
     ast-grep version package.json pins on PATH, its verdicts on real and
     invented kinds in every mapped language and a CLI run under a broken
     ancestor sgconfig.yml
+  - definition shapes the recipes cite (#560): later declarators, on one
+    line and over several as Prettier writes them (after a comma, inside a
+    bracket, after `=`, before a line starting `?`, `:` or `.`, after a
+    split keyword and a multi-line arrow), quoted export names, a name on
+    the line after its keyword (and the Python `def \\` form), decorators;
+    the negatives (a name in a string, a comment, a regular expression, a
+    generic's type parameters or JSX on a declarator line, a destructuring
+    default, a decorator argument, a line after the statement ended) and
+    the column-0 rule for a split name and a later declarator
+  - reference apps (#549): no missing / orphaned set-diff and
+    `summary.set_diff: not-applicable`; `entry_index` on each stale item
+  - definition-lines: each `line_check`, `line_is_definition`, the dropped
+    indented line, the default source root
+  - kind-at: recipes from markdown fences and each YAML file shape, the
+    language forms, and with the pinned ast-grep: every language the
+    recipes cover, the name filter, ambiguous, incomplete and skipped
+    answers, the Prettier layout's line; mocked: no ast-grep, the rule
+    passed in a file, the first timeout ending the calls, a backslash
+    `--file`
+  - fix (#584): a byte-for-byte fixture with the LIMIT/DEFAULT one-pass
+    move, ranges, a normalized path, a shared line and a [MANUAL] block
+    that must not change (manual-verify ok), a second verify and fix;
+    dry run, --no-line-moves, findings left for a person, entry lookup,
+    CRLF / BOM / non-UTF-8 bytes, writes through skf-atomic-write.py,
+    input errors, a failed re-check or `-o` after the writes (exit 2,
+    naming the files written), and the [MANUAL] markers pinned to
+    skf-hash-content.py (ASCII whitespace included)
 """
 
 from __future__ import annotations
@@ -58,6 +86,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import NamedTuple
 
 import pytest
 
@@ -1488,6 +1517,24 @@ class TestCliErrors:
         assert "skill dir is not a directory" in result.stderr
         assert "not found" not in result.stderr
 
+    def test_an_unwritable_result_exits_2(self, tmp_path: Path) -> None:
+        # never exit 1, which verify and kind-at give as an answer
+        meta, prov = self._inputs(tmp_path)
+        src = tmp_path / "src"
+        _write_text(src, "a.py", "def a(): pass\n")
+        gone = str(tmp_path / "gone" / "out.json")
+        runs = [
+            ["verify", "--metadata", str(meta), "--provenance", str(prov)],
+            ["definition-lines", "--source-root", str(src), "--file", "a.py", "--name", "a"],
+            ["kind-at", "--source-root", str(src), "--file", "a.py", "--line", "1",
+             "--recipes", str(EXTRACTION_PATTERNS)],
+        ]
+        for args in runs:
+            result = _run_cli(*args, "-o", gone)
+            assert (result.returncode, result.stdout) == (2, ""), args
+            assert result.stderr.startswith(f"error: writing {gone} failed: "), args
+            assert result.stderr.count("\n") == 1, args
+
 
 # --------------------------------------------------------------------------
 # Node kinds (--check-node-kinds, #530 BH4): ast-grep is mocked
@@ -1986,3 +2033,1261 @@ class TestNodeKindsRealAstGrep:
             ("add", mod.NODE_KIND_INVALID)]
         assert payload["node_kinds_unchecked"] == []
         assert payload["summary"]["node_kinds_checked"] == 2
+
+
+# --------------------------------------------------------------------------
+# Definition shapes the recipes cite (#560)
+# --------------------------------------------------------------------------
+
+# The repro in #560: each line is the one the recipes cite for its name.
+SHAPES_TS = """\
+export const a1 = 1, B2 = () => 2;
+export { "str-name" as strAlias, four as "quoted-out" } from "./m";
+export * as "strNs" from "./s";
+export function
+  Multi() {}
+@dec export class H {}
+export @sealed class Inner {}
+"""
+# Prettier 3.8's layout of declarator lists: a declarator with an
+# initializer goes on a line of its own, and a long one breaks inside its
+# brackets (type arguments included), after its `=` or before a `?`, `:`,
+# `.` or `|`. The local `B2` below is dropped: a later declarator takes the
+# column of its statement's line.
+PRETTIER_TS = """\
+export const a1 = 1,
+  B2 = () => 2;
+export const handler = (a: number) => {
+    return a + 1;
+  },
+  Next = 2;
+export const first = someVeryLongFunctionCall(
+    argumentOne,
+    argumentTwo,
+    argumentThree,
+  ),
+  Short = 2;
+export const cond = someCondition
+    ? someVeryLongConsequentExpression
+    : someVeryLongAlternateExpression,
+  After = 3;
+export const sum =
+    someVeryLongOperandNumberOne + someVeryLongOperandNumberTwo + three,
+  Later = 1;
+export const chain = someObject
+    .someVeryLongMethodName()
+    .anotherVeryLongMethodName()
+    .third(),
+  NextOne = 2;
+export const typed: Record<string, number> = { alpha: 1 },
+  Typed2: Map<string, number> = new Map();
+export const prevVal = previousValueFromTheStore as
+    | FieldState<
+        TParentDataTypeName,
+        TFieldNameType,
+        TFieldDataType,
+        TOnMountHandlerType
+      >
+    | undefined,
+  AfterCast = 2;
+export const handlers: Record<
+    SomeVeryLongKeyTypeName,
+    SomeVeryLongHandlerTypeName<WithArgument>
+  > = {},
+  AfterRecord = 1;
+function outer() {
+  const B2 = 3;
+}
+"""
+
+
+class TestDefinitionShapes:
+    def test_issue_repro(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        _write_text(src, "shapes.ts", SHAPES_TS)
+        _write_text(src, "split.py", "def \\\n    spaced():\n    pass\n")
+        cases = [
+            ("shapes.ts", 1, "B2"), ("shapes.ts", 2, "strAlias"),
+            ("shapes.ts", 2, "quoted-out"), ("shapes.ts", 3, "strNs"),
+            ("shapes.ts", 5, "Multi"), ("shapes.ts", 6, "H"),
+            ("shapes.ts", 7, "Inner"), ("split.py", 2, "spaced"),
+        ]
+        for rel, line, name in cases:
+            assert mod.find_definition_lines(rel, name, src) == [line], (rel, name)
+
+    def test_later_declarators(self, tmp_path: Path) -> None:
+        text = ("export const a1 = 1, B2 = () => 2;\n"
+                "export let x, Y;\n"
+                "export var p = f(1, 2), Q: number = 3;\n"
+                "export const { de } = obj, AfterDestr = 3;\n"
+                "export declare const amb: number, Other!: string;\n"
+                'export const s = "a, b", T = `c, ${d}`, U = [1, 2];\n'
+                "const local = 1, Hidden = 2;\n"
+                "export const half = total / 2, R = total / 4;\n"
+                "export const m = new Map<string, number>(), S = 1;\n"
+                "export const FLAG = 1 << 3, MASK = FLAG << 1;\n")
+        cases = {"a1": [1], "B2": [1], "x": [2], "Y": [2], "Q": [3],
+                 "AfterDestr": [4], "Other": [5], "T": [6], "U": [6],
+                 "Hidden": [7], "R": [8], "S": [9], "MASK": [10], "number": []}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "d.ts", text, name) == lines, name
+
+    def test_declarator_line_negatives(self, tmp_path: Path) -> None:
+        # the name inside a string, a comment, a destructuring default, a
+        # call's arguments, an array, a regular expression, a generic arrow
+        # function's type parameters, JSX or type arguments: none of them
+        # declares it
+        text = ('export const a = "B, C = 1", d = 2;\n'
+                "export const e = 1, /* B = 2 */ f = 3; // , C = 4\n"
+                "export const { g = B } = obj;\n"
+                "export const h = call(x, B = 2), i = [C, 1];\n"
+                "export const j = `${B}, C = 1`, k = 1;\n"
+                "export const l = 1; const m = 2, C = 3;\n"
+                "export const n = <T, U = string>(a: T) => a;\n"
+                "export const re = /[/,]x, B = 1/g, o = 2;\n"
+                "export const el = <A>x, B = 2</A>;\n"
+                "export let q = this.get<A, B, C>(hash), p = 1;\n"
+                "export const s: Handler<A, U, C> = h, t = 2;\n")
+        for name in ("B", "C", "U"):
+            assert _ts_lines(tmp_path, "n.ts", text, name) == [], name
+        cases = {"d": [1], "f": [2], "i": [4], "k": [5], "n": [7], "o": [8],
+                 "el": [9], "p": [10], "t": [11]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "n.ts", text, name) == lines, name
+
+    def test_prettier_declarator_lists(self, tmp_path: Path) -> None:
+        # the recipes cite each later declarator's own line
+        cases = {"a1": [1], "B2": [2], "handler": [3], "Next": [6], "first": [7],
+                 "Short": [12], "cond": [13], "After": [16], "sum": [17],
+                 "Later": [19], "chain": [20], "NextOne": [24], "typed": [25],
+                 "Typed2": [26], "prevVal": [27], "AfterCast": [35],
+                 "handlers": [36], "AfterRecord": [40]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "p.ts", PRETTIER_TS, name) == lines, name
+        # what finishes a declarator declares nothing, a type argument
+        # alone on its line included
+        for name in ("argumentOne", "someCondition", "someVeryLongConsequentExpression",
+                     "three", "someObject", "alpha", "number", "TParentDataTypeName",
+                     "TFieldNameType", "SomeVeryLongKeyTypeName", "WithArgument"):
+            assert _ts_lines(tmp_path, "p.ts", PRETTIER_TS, name) == [], name
+        assert _verify_one(tmp_path, "p.ts", PRETTIER_TS, "B2", 2)["stale"] == []
+
+    def test_split_keyword_list_over_several_lines(self, tmp_path: Path) -> None:
+        text = ("export const\n"   # 1
+                "  e = 1,\n"       # 2
+                "  F = 2;\n"       # 3
+                "export\n"         # 4
+                "let\n"            # 5
+                "  g,\n"           # 6
+                "  H;\n"           # 7
+                "export var\n"     # 8
+                "  i =\n"          # 9
+                "    j,\n"         # 10
+                "  K = 3;\n")      # 11
+        cases = {"e": [2], "F": [3], "g": [6], "H": [7], "i": [9], "j": [], "K": [11]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "s.ts", text, name) == lines, name
+
+    def test_later_declarator_after_a_multi_line_arrow(self, tmp_path: Path) -> None:
+        # every line of the initializer still goes through the other rules:
+        # a local, a list nested in it (at its own column), a method
+        text = ("export const handler = async (request: Request) => {\n"  # 1
+                "    const inner = 1,\n"                                   # 2
+                "      nested = 2;\n"                                      # 3
+                "    return [inner, nested].map((n) => n * 2);\n"          # 4
+                "  },\n"                                                   # 5
+                "  Next = 2;\n"                                            # 6
+                "export const api = {\n"                                   # 7
+                "    get(url: string) {\n"                                 # 8
+                "      return url;\n"                                      # 9
+                "    },\n"                                                 # 10
+                "  },\n"                                                   # 11
+                "  Other = 1;\n")                                          # 12
+        cases = {"handler": [1], "inner": [2], "nested": [3], "Next": [6], "api": [7],
+                 "api.get": [8], "Other": [12], "request": [], "n": [], "url": []}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "a.ts", text, name) == lines, name
+
+    def test_a_list_ends_where_its_statement_does(self, tmp_path: Path) -> None:
+        text = ("export const a = 1\n"   # 1  no `;`, and the next line starts
+                "foo(x), B = 2\n"        # 2  a statement of its own
+                "export const c = 1;\n"  # 3
+                "  D = 2,\n"             # 4
+                "  E = 3;\n"             # 5
+                "export const f = x\n"   # 6  a comma put first goes on
+                "  , G = 3;\n"           # 7
+                "export const q = `\n"   # 8  a template literal over several
+                "  H = 1,\n"             # 9  lines is not followed
+                "`;\n")                  # 10
+        cases = {"B": [], "D": [], "E": [], "G": [7], "H": []}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "e.ts", text, name) == lines, name
+
+    def test_const_enum_is_not_a_declarator_list(self, tmp_path: Path) -> None:
+        text = "export const enum Dir { Up, Down }\n"
+        assert _ts_lines(tmp_path, "e.ts", text, "Dir") == [1]
+        assert _ts_lines(tmp_path, "e.ts", text, "Down") == []
+
+    def test_quoted_export_names(self, tmp_path: Path) -> None:
+        text = ("export {\n"
+                "  one,\n"
+                '  "str-name" as strAlias,\n'
+                '  four as "quoted-out",\n'
+                "  'single' as 'also-quoted',\n"
+                '  "bare-string",\n'
+                '} from "./multi";\n'
+                "export * as \"strNs\" from './s';\n"
+                "export * as 'sq' from \"./t\";\n"
+                'export { x as "a,b", y };\n')
+        cases = {"one": [2], "strAlias": [3], "quoted-out": [4],
+                 "also-quoted": [5], "bare-string": [6], "strNs": [8],
+                 "sq": [9], "a,b": [10], "y": [10]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "q.ts", text, name) == lines, name
+        # the name before `as` is not exposed
+        for name in ("str-name", "four", "single", "x"):
+            assert _ts_lines(tmp_path, "q.ts", text, name) == [], name
+
+    def test_name_on_the_line_after_its_keyword(self, tmp_path: Path) -> None:
+        text = ("export function\n"        # 1
+                "  Multi<P>(p: P) {}\n"    # 2
+                "export interface\n"       # 3
+                "  MultiLineProps\n"       # 4
+                "  extends A {}\n"         # 5
+                "export\n"                 # 6
+                "const\n"                  # 7
+                "  Spread =\n"             # 8
+                "  1;\n"                   # 9
+                "export default class\n"   # 10
+                "  Deferred {}\n"          # 11
+                "export async function*\n"  # 12
+                "  gen() {}\n"             # 13
+                "export const\n"           # 14
+                "  first = 1, Second = 2;\n"  # 15
+                "export type\n"            # 16
+                "export const Z = 1;\n")   # 17
+        cases = {"Multi": [2], "MultiLineProps": [4], "Spread": [8],
+                 "Deferred": [11], "gen": [13], "first": [15],
+                 "Second": [15], "Z": [17]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "s.ts", text, name) == lines, name
+
+    def test_split_name_negatives(self, tmp_path: Path) -> None:
+        # `default` is not a declaration keyword, and the name must be on
+        # the very next line
+        text = ("export default\n"
+                "  C\n"
+                "export function\n"
+                "\n"
+                "  Late() {}\n")
+        assert _ts_lines(tmp_path, "n.ts", text, "C") == []
+        assert _ts_lines(tmp_path, "n.ts", text, "Late") == []
+
+    def test_split_name_takes_the_keyword_line_column(self, tmp_path: Path) -> None:
+        # the name line is indented, but its statement starts at column 0,
+        # so a local of the same name is still dropped
+        text = ("function outer() {\n"
+                "  const Multi = 1;\n"
+                "}\n"
+                "export function\n"
+                "  Multi() {}\n")
+        assert _ts_lines(tmp_path, "c.ts", text, "Multi") == [5]
+
+    def test_decorators(self, tmp_path: Path) -> None:
+        text = ("@dec export class H {}\n"
+                "export @sealed class Inner {}\n"
+                "@a.b() @c export default class D {}\n"
+                "export @x.y({ z: 1 }) abstract class E {}\n"
+                "@Inject(Foo) export class Bar {}\n"
+                "@a.b(Baz, { k: Qux(1) }) export class Quux {}\n")
+        cases = {"H": [1], "Inner": [2], "D": [3], "E": [4], "Bar": [5],
+                 "Quux": [6]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "d.ts", text, name) == lines, name
+        # a decorator's argument is not declared
+        for name in ("Foo", "Baz", "Qux", "dec", "sealed"):
+            assert _ts_lines(tmp_path, "d.ts", text, name) == [], name
+
+    def test_python_split_def_and_class(self, tmp_path: Path) -> None:
+        text = ("def \\\n"                  # 1
+                "    spaced (a,\n"          # 2
+                "            b): pass\n"    # 3
+                "class \\\n"                # 4
+                "  Split:\n"                # 5
+                "    pass\n"                # 6
+                "async def \\\n"            # 7
+                "    later(): pass\n"       # 8
+                '"""\n'                     # 9
+                "def \\\n"                  # 10
+                "    in_doc(): pass\n"      # 11
+                '"""\n')                    # 12
+        src = tmp_path / "src"
+        _write_text(src, "s.py", text)
+        cases = {"spaced": [2], "Split": [5], "later": [8], "in_doc": []}
+        for name, lines in cases.items():
+            assert mod.find_definition_lines("s.py", name, src) == lines, name
+
+    def test_split_def_recorded_at_the_keyword_line(self, tmp_path: Path) -> None:
+        result = _verify_one(tmp_path, "s.py", "def \\\n    spaced(): pass\n", "spaced", 1)
+        (item,) = result["stale"]
+        assert item["reason"] == mod.STALE_LINE_NOT_DEFINITION
+        assert item["definition_lines"] == [2]
+
+
+# --------------------------------------------------------------------------
+# Reference apps: no exports-vs-entries set-diff (#549)
+# --------------------------------------------------------------------------
+
+
+class TestReferenceAppSetDiff:
+    def _fixture(self, tmp_path: Path, metadata: dict, layout_line: int = 3) -> dict:
+        src = tmp_path / "src"
+        _write_text(src, "app.ts", "export function render() {}\n\nexport const Layout = 1;\n")
+        prov = {"entries": [
+            {"export_name": "render", "source_file": "app.ts", "source_line": 1},
+            {"export_name": "Layout", "source_file": "app.ts", "source_line": layout_line},
+        ]}
+        return mod.verify(metadata, prov, src)
+
+    def test_reference_app_skips_missing_and_orphaned(self, tmp_path: Path) -> None:
+        result = self._fixture(tmp_path, {"scope_type": "reference-app", "exports": []})
+        assert result["missing"] == [] and result["orphaned"] == []
+        assert result["status"] == "pass"
+        summary = result["summary"]
+        assert summary["set_diff"] == "not-applicable"
+        assert summary["missing_count"] == 0 and summary["orphaned_count"] == 0
+        assert summary["entries_checked"] == 2
+
+    def test_reference_app_still_reports_stale_lines(self, tmp_path: Path) -> None:
+        result = self._fixture(
+            tmp_path, {"scope_type": "reference-app", "exports": ["Other"]}, layout_line=9)
+        assert result["missing"] == [] and result["orphaned"] == []
+        assert [(s["export_name"], s["reason"]) for s in result["stale"]] == [
+            ("Layout", mod.STALE_LINE_OOB)]
+        assert result["status"] == "findings"
+
+    def test_other_scope_types_keep_the_set_diff(self, tmp_path: Path) -> None:
+        for metadata in ({"scope_type": "full-library", "exports": []}, {"exports": []},
+                         {"scope_type": ["reference-app"], "exports": []}):
+            result = self._fixture(tmp_path, metadata)
+            assert result["orphaned"] == ["Layout", "render"]
+            assert result["summary"]["set_diff"] == "checked"
+            assert result["status"] == "findings"
+
+    def test_cli_reads_scope_type_from_metadata(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        _write_text(src, "app.ts", "export function render() {}\n")
+        meta = _write_json(tmp_path / "metadata.json",
+                           {"scope_type": "reference-app", "exports": []})
+        prov = _write_json(tmp_path / "provenance-map.json", {
+            "source_root": str(src),
+            "entries": [{"export_name": "render", "source_file": "app.ts", "source_line": 1}],
+        })
+        result = _run_cli("verify", "--metadata", str(meta), "--provenance", str(prov))
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["summary"]["set_diff"] == "not-applicable"
+        assert payload["orphaned"] == []
+
+
+class TestStaleEntryIndex:
+    def test_each_stale_item_names_its_entry(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        _write_text(src, "a.ts", "// head\nexport const A = 1;\n")
+        prov = {"entries": [
+            "not an entry",
+            {"export_name": "A", "source_file": "a.ts", "source_line": 1},
+            {"export_name": "B", "source_file": "gone.ts", "source_line": 1},
+        ]}
+        result = mod.verify({"exports": ["A", "B"]}, prov, src)
+        assert [(s["export_name"], s["entry_index"]) for s in result["stale"]] == [
+            ("A", 1), ("B", 2)]
+
+
+# --------------------------------------------------------------------------
+# definition-lines
+# --------------------------------------------------------------------------
+
+PY_CONFIG = '''\
+"""Config."""
+
+import os
+
+
+# the limit
+LIMIT = 10
+DEFAULT = 3
+
+
+def search(query):
+    return []
+'''
+
+
+def _main_json(capsys, *argv: str) -> tuple[int, dict]:
+    code = mod.main(list(argv))
+    return code, json.loads(capsys.readouterr().out)
+
+
+class TestDefinitionLinesCommand:
+    def _src(self, tmp_path: Path) -> Path:
+        src = tmp_path / "src"
+        _write_text(src, "lib/config.py", PY_CONFIG)
+        return src
+
+    def test_recorded_line_one_early(self, tmp_path: Path, capsys) -> None:
+        src = self._src(tmp_path)
+        code, out = _main_json(capsys, "definition-lines", "--source-root", str(src),
+                               "--file", "lib/config.py", "--name", "LIMIT", "--line", "6")
+        assert code == 0
+        assert out == {"source_file": "lib/config.py", "export_name": "LIMIT",
+                       "line_check": "checked", "definition_lines": [7],
+                       "source_line": 6, "line_is_definition": False}
+
+    def test_recorded_line_is_the_definition(self, tmp_path: Path, capsys) -> None:
+        src = self._src(tmp_path)
+        _, out = _main_json(capsys, "definition-lines", "--source-root", str(src),
+                            "--file", "lib/config.py", "--name", "search", "--line", "11")
+        assert out["definition_lines"] == [11] and out["line_is_definition"] is True
+
+    def test_without_a_line(self, tmp_path: Path, capsys) -> None:
+        src = self._src(tmp_path)
+        _, out = _main_json(capsys, "definition-lines", "--source-root", str(src),
+                            "--file", "lib/config.py", "--name", "DEFAULT")
+        assert out["definition_lines"] == [8]
+        assert out["source_line"] is None and out["line_is_definition"] is None
+
+    def test_no_definition_line_is_an_empty_list(self, tmp_path: Path, capsys) -> None:
+        src = self._src(tmp_path)
+        _, out = _main_json(capsys, "definition-lines", "--source-root", str(src),
+                            "--file", "lib/config.py", "--name", "nothing", "--line", "3")
+        assert out["line_check"] == "checked"
+        assert out["definition_lines"] == [] and out["line_is_definition"] is False
+
+    def test_skips(self, tmp_path: Path, capsys) -> None:
+        src = self._src(tmp_path)
+        _write_text(src, "lib.rs", "pub fn add() {}\n")
+        cases = [
+            (["--file", "gone.py", "--name", "x"], "file-missing"),
+            (["--file", "lib/config.py", "--name", "config", "--export-type", "Module"],
+             "skipped-export-type"),
+            (["--file", "lib.rs", "--name", "add", "--line", "1"], "skipped-language"),
+        ]
+        for args, status in cases:
+            code, out = _main_json(capsys, "definition-lines", "--source-root", str(src), *args)
+            assert code == 0
+            assert out["line_check"] == status, args
+            assert out["definition_lines"] is None and out["line_is_definition"] is None
+
+    def test_a_dropped_indented_line_joins_the_answer(self, tmp_path: Path, capsys) -> None:
+        # as in verify: a method recorded under an undotted name beside a
+        # module-level function gives several lines, so nobody moves it
+        src = tmp_path / "src"
+        _write_text(src, "m.py", "def update():\n    pass\n\nclass App:\n    def update(self):\n        pass\n")
+        _, out = _main_json(capsys, "definition-lines", "--source-root", str(src),
+                            "--file", "m.py", "--name", "update", "--line", "5")
+        assert out["definition_lines"] == [1, 5] and out["line_is_definition"] is False
+        result = _verify_one(tmp_path, "m.py", (src / "m.py").read_text(encoding="utf-8"),
+                             "update", 5)
+        assert result["stale"][0]["definition_lines"] == out["definition_lines"]
+
+    def test_source_root_defaults_to_the_current_folder(
+        self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = self._src(tmp_path)
+        monkeypatch.chdir(src)
+        _, out = _main_json(capsys, "definition-lines", "--file", "lib/config.py",
+                            "--name", "LIMIT")
+        assert out["definition_lines"] == [7]
+
+    def test_missing_source_root_exit_2(self, tmp_path: Path) -> None:
+        result = _run_cli("definition-lines", "--source-root", str(tmp_path / "nope"),
+                          "--file", "a.py", "--name", "x")
+        assert result.returncode == 2
+        assert result.stdout == "" and "source root not found" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# kind-at
+# --------------------------------------------------------------------------
+
+EXTRACTION_PATTERNS = (
+    REPO_ROOT / "src" / "skf-create-skill" / "references" / "extraction-patterns.md"
+)
+FUNCTION_RECIPE = {
+    "id": "py-fn", "language": "python",
+    "rule": {"kind": "function_definition", "has": {"field": "name", "pattern": "$NAME"}},
+}
+NAME_RECIPE = {
+    "id": "py-name", "language": "python",
+    "rule": {"kind": "identifier", "pattern": "$NAME",
+             "inside": {"kind": "function_definition", "field": "name"}},
+}
+
+
+def _kind_at(tmp_path: Path, capsys, rel: str, text: str, line: int,
+             *flags: str, recipes: Path = EXTRACTION_PATTERNS) -> tuple[int, dict]:
+    src = tmp_path / "src"
+    _write_text(src, rel, text)
+    return _main_json(capsys, "kind-at", "--source-root", str(src), "--file", rel,
+                      "--line", str(line), "--recipes", str(recipes), *flags)
+
+
+class TestLoadRecipes:
+    def test_markdown_fences(self) -> None:
+        recipes = mod.load_recipes(EXTRACTION_PATTERNS)
+        kinds = {(r["id"], r["language"]): r["rule"]["kind"] for r in recipes}
+        assert kinds[("python-public-functions", "python")] == "function_definition"
+        assert kinds[("js-reexports", "typescript")] == "export_specifier"
+        assert kinds[("js-exported-functions", "javascript")] == "export_statement"
+
+    def test_templates_and_duplicates_are_skipped(self, tmp_path: Path) -> None:
+        md = _write_text(tmp_path, "r.md", (
+            "```yaml\nid: {recipe_id}\nlanguage: {lang}\n```\n\n"
+            "```yaml\nnot: [valid\n```\n\n"
+            "```yaml\nid: a\nlanguage: python\nrule:\n  kind: function_definition\n```\n\n"
+            "```yaml\nid: a\nlanguage: python\nrule:\n  kind: class_definition\n```\n\n"
+            "```yaml\nid: b\nlanguage: python\nrule:\n  pattern: $NAME\n```\n"))
+        assert [(r["id"], r["rule"]["kind"]) for r in mod.load_recipes(md)] == [
+            ("a", "function_definition")]
+
+    def test_yaml_file_shapes(self, tmp_path: Path) -> None:
+        import yaml
+
+        docs = _write_text(tmp_path, "docs.yaml", yaml.safe_dump(FUNCTION_RECIPE)
+                           + "---\n" + yaml.safe_dump(NAME_RECIPE))
+        listed = _write_text(tmp_path, "list.yaml", yaml.safe_dump([FUNCTION_RECIPE, NAME_RECIPE]))
+        keyed = _write_text(tmp_path, "keyed.yaml",
+                            yaml.safe_dump({"recipes": [FUNCTION_RECIPE, NAME_RECIPE]}))
+        for path in (docs, listed, keyed):
+            assert [r["id"] for r in mod.load_recipes(path)] == ["py-fn", "py-name"], path
+
+    def test_malformed_yaml_file_raises(self, tmp_path: Path) -> None:
+        bad = _write_text(tmp_path, "bad.yaml", "id: [\n")
+        with pytest.raises(ValueError):
+            mod.load_recipes(bad)
+
+    def test_language_forms(self) -> None:
+        recipes = [
+            {"id": "x", "language": "typescript", "rule": {"kind": "k1"}},
+            {"id": "x", "language": "javascript", "rule": {"kind": "k2"}},
+            {"id": "y", "language": "tsx", "rule": {"kind": "k3"}},
+            {"id": "z", "language": "python", "rule": {"kind": "k4"}},
+        ]
+
+        def runs(language: str) -> list[tuple[str, str, bool]]:
+            return [(r["id"], r["rule"]["kind"], r["_rewritten"])
+                    for r in mod.recipe_runs(recipes, language)]
+
+        assert runs("typescript") == [("x", "k1", False), ("y", "k3", True)]
+        assert runs("tsx") == [("x", "k1", True), ("y", "k3", False)]
+        assert runs("javascript") == [("x", "k2", False), ("y", "k3", True)]
+        assert runs("python") == [("z", "k4", False)]
+        assert runs("rust") == []
+        assert all(r["language"] == "tsx" for r in mod.recipe_runs(recipes, "tsx"))
+
+
+@pytest.mark.skipif(AST_GREP is None, reason="no ast-grep of the version package.json pins on PATH")
+class TestKindAtRealAstGrep:
+    def test_python(self, tmp_path: Path, capsys) -> None:
+        text = "def search():\n    pass\n\n\nclass Client:\n    pass\n"
+        code, out = _kind_at(tmp_path, capsys, "api.py", text, 1)
+        assert code == 0
+        assert out == {"file": "api.py", "language": "python", "line": 1, "name": None,
+                       "status": "found", "kind": "function_definition",
+                       "matches": [{"recipe": "python-public-functions",
+                                    "kind": "function_definition", "name": "search"}],
+                       "errors": []}
+        _, out = _kind_at(tmp_path, capsys, "api.py", text, 5, "--name", "Client")
+        assert (out["status"], out["kind"]) == ("found", "class_definition")
+
+    def test_typescript_tsx_and_javascript(self, tmp_path: Path, capsys) -> None:
+        ts = ("export const a1 = 1, B2 = () => 2;\n"
+              "export { a, b as c } from './x';\n"
+              "export interface ButtonProps { label: string }\n")
+        _, out = _kind_at(tmp_path, capsys, "m.ts", ts, 1, "--name", "B2")
+        assert (out["status"], out["kind"]) == ("found", "export_statement")
+        assert [m["recipe"] for m in out["matches"]] == [
+            "js-exported-arrow-functions", "react-component-arrow-functions"]
+        _, out = _kind_at(tmp_path, capsys, "m.ts", ts, 2, "--name", "c")
+        assert (out["status"], out["kind"]) == ("found", "export_specifier")
+        _, out = _kind_at(tmp_path, capsys, "m.ts", ts, 3, "--name", "ButtonProps")
+        assert out["matches"][0]["recipe"] == "react-props-interfaces"
+        # tsx runs the typescript forms
+        _, out = _kind_at(tmp_path, capsys, "c.tsx",
+                          "export function Card() { return <div />; }\n", 1)
+        assert out["language"] == "tsx"
+        assert {m["recipe"] for m in out["matches"]} == {
+            "js-exported-functions", "react-component-functions"}
+        # javascript: its own forms, TypeScript-only recipes skipped quietly
+        _, out = _kind_at(tmp_path, capsys, "a.js",
+                          "export const A = () => 1;\nexport function f() {}\n", 2)
+        assert (out["status"], out["kind"], out["errors"]) == ("found", "export_statement", [])
+
+    def test_prettier_layout(self, tmp_path: Path, capsys) -> None:
+        # the recipes cite a later declarator's own line, the line the
+        # definition-line rules give
+        _, out = _kind_at(tmp_path, capsys, "p.ts", PRETTIER_TS, 2, "--name", "B2")
+        assert (out["status"], out["kind"]) == ("found", "export_statement")
+        assert mod.find_definition_lines("p.ts", "B2", tmp_path / "src") == [2]
+
+    def test_rust_and_go(self, tmp_path: Path, capsys) -> None:
+        _, out = _kind_at(tmp_path, capsys, "lib.rs", "pub fn add() {}\n", 1)
+        assert (out["status"], out["kind"]) == ("found", "function_item")
+        _, out = _kind_at(tmp_path, capsys, "main.go",
+                          "package main\n\nfunc Exported() {}\n", 3)
+        assert (out["status"], out["kind"]) == ("found", "function_declaration")
+
+    def test_name_filter_and_no_match(self, tmp_path: Path, capsys) -> None:
+        text = "export const a = 1, B = () => 2;\n\n"
+        _, out = _kind_at(tmp_path, capsys, "m.ts", text, 1, "--name", "a")
+        assert [m["recipe"] for m in out["matches"]] == ["js-exported-constants"]
+        code, out = _kind_at(tmp_path, capsys, "m.ts", text, 1, "--name", "Z")
+        assert (code, out["status"], out["kind"]) == (1, "no-match", None)
+        code, out = _kind_at(tmp_path, capsys, "m.ts", text, 2)
+        assert (code, out["status"]) == (1, "no-match")
+
+    def test_ambiguous(self, tmp_path: Path, capsys) -> None:
+        import yaml
+
+        recipes = _write_text(tmp_path, "r.yaml", yaml.safe_dump([FUNCTION_RECIPE, NAME_RECIPE]))
+        code, out = _kind_at(tmp_path, capsys, "a.py", "def run():\n    pass\n", 1,
+                             recipes=recipes)
+        assert code == 1
+        assert (out["status"], out["kind"]) == ("ambiguous", None)
+        assert [(m["recipe"], m["kind"]) for m in out["matches"]] == [
+            ("py-fn", "function_definition"), ("py-name", "identifier")]
+
+    def test_a_recipe_ast_grep_rejects_makes_it_incomplete(self, tmp_path: Path, capsys) -> None:
+        import yaml
+
+        bad = dict(FUNCTION_RECIPE, id="bad",
+                   rule={"kind": "async_function_definition"})
+        recipes = _write_text(tmp_path, "r.yaml", yaml.safe_dump([FUNCTION_RECIPE, bad]))
+        code, out = _kind_at(tmp_path, capsys, "a.py", "def run():\n    pass\n", 1,
+                             recipes=recipes)
+        assert code == 1
+        assert (out["status"], out["kind"]) == ("incomplete", None)
+        assert [m["recipe"] for m in out["matches"]] == ["py-fn"]
+        assert [(e["recipe"], e["reason"]) for e in out["errors"]] == [
+            ("bad", mod.UNCHECKED_AST_GREP_ERROR)]
+
+    def test_skips(self, tmp_path: Path, capsys) -> None:
+        code, out = _kind_at(tmp_path, capsys, "notes.txt", "def run(): pass\n", 1)
+        assert (code, out["status"], out["language"]) == (1, "skipped-no-language", None)
+        _, out = _kind_at(tmp_path, capsys, "notes.txt", "def run(): pass\n", 1,
+                          "--language", "Python")
+        assert (out["status"], out["kind"]) == ("found", "function_definition")
+        _, out = _kind_at(tmp_path, capsys, "a.rb", "def run; end\n", 1)
+        assert out["status"] == "skipped-no-recipes"
+
+    def test_many_targets_in_one_file(self, tmp_path: Path) -> None:
+        recipes = mod.load_recipes(EXTRACTION_PATTERNS)
+        source = b"def a():\n    pass\n\nclass B:\n    pass\n"
+        results = mod.kinds_at(source, "python", [(1, "a"), (4, None), (2, None)], recipes)
+        assert [(r["status"], r["kind"]) for r in results] == [
+            ("found", "function_definition"), ("found", "class_definition"),
+            ("no-match", None)]
+
+
+class FakeScan:
+    """`subprocess.run` stand-in for kind-at: records each call and its rule
+    file, answers with `answer` (a result, or an exception to raise)."""
+
+    def __init__(self, answer: object) -> None:
+        self.answer = answer
+        self.calls: list[list[str]] = []
+        self.rules: list[dict] = []
+
+    def __call__(self, cmd: list[str], **kwargs: object) -> SimpleNamespace:
+        self.calls.append(list(cmd))
+        rule = Path(cmd[cmd.index("-r") + 1])
+        self.rules.append(json.loads(rule.read_text(encoding="utf-8")))
+        if isinstance(self.answer, BaseException):
+            raise self.answer
+        return self.answer
+
+
+class TestKindAtWithoutAstGrep:
+    RECIPES = [dict(FUNCTION_RECIPE), dict(NAME_RECIPE, id="second")]
+
+    def test_no_ast_grep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+        fake = FakeScan(AssertionError("ast-grep was run"))
+        monkeypatch.setattr(mod.subprocess, "run", fake)
+        (result,) = mod.kinds_at(b"def a(): pass\n", "python", [(1, None)], self.RECIPES)
+        assert result["status"] == "skipped-no-ast-grep" and fake.calls == []
+
+    def test_the_rule_goes_in_a_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _which_ast_grep(monkeypatch)
+        line = json.dumps({"metaVariables": {"single": {"NAME": {
+            "text": "a", "range": {"start": {"line": 0}}}}}})
+        fake = FakeScan(SimpleNamespace(returncode=0, stdout=(line + "\n").encode(), stderr=b""))
+        monkeypatch.setattr(mod.subprocess, "run", fake)
+        recipes = [{"id": "t", "language": "typescript",
+                    "rule": {"kind": "export_statement", "regex": "^[^_]|x"}}]
+        (result,) = mod.kinds_at(b"export const a = 1;\n", "tsx", [(1, "a")], recipes)
+        assert (result["status"], result["kind"]) == ("found", "export_statement")
+        (cmd,) = fake.calls
+        assert cmd[1:3] == ["scan", "--config"] and "--stdin" in cmd
+        assert "--json=stream" in cmd and "--inline-rules" not in cmd
+        assert fake.rules == [{"id": "t", "language": "tsx",
+                               "rule": {"kind": "export_statement", "regex": "^[^_]|x"}}]
+
+    def test_first_timeout_ends_the_calls(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _which_ast_grep(monkeypatch)
+        fake = FakeScan(subprocess.TimeoutExpired(["ast-grep"], 30))
+        monkeypatch.setattr(mod.subprocess, "run", fake)
+        (result,) = mod.kinds_at(b"def a(): pass\n", "python", [(1, None)], self.RECIPES)
+        assert result["status"] == "incomplete" and result["kind"] is None
+        assert len(fake.calls) == 1
+        assert [(e["recipe"], e["reason"]) for e in result["errors"]] == [
+            ("py-fn", mod.UNCHECKED_TIMEOUT), ("second", mod.UNCHECKED_TIMEOUT)]
+
+    def test_unreadable_output_is_an_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _which_ast_grep(monkeypatch)
+        fake = FakeScan(SimpleNamespace(returncode=0, stdout=b"not json\n", stderr=b""))
+        monkeypatch.setattr(mod.subprocess, "run", fake)
+        (result,) = mod.kinds_at(b"def a(): pass\n", "python", [(1, None)], self.RECIPES)
+        assert result["status"] == "incomplete"
+        assert {e["reason"] for e in result["errors"]} == {mod.UNCHECKED_AST_GREP_ERROR}
+
+    def test_a_backslash_path_resolves(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        # a source_file as an entry may record it, read as verify reads it
+        monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+        src = tmp_path / "src"
+        _write_text(src, "lib/a.py", "def a(): pass\n")
+        code, out = _main_json(capsys, "kind-at", "--source-root", str(src),
+                               "--file", "lib\\a.py", "--line", "1",
+                               "--recipes", str(EXTRACTION_PATTERNS))
+        assert (code, out["file"], out["language"], out["status"]) == (
+            1, "lib\\a.py", "python", "skipped-no-ast-grep")
+
+    def test_input_errors_exit_2(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        _write_text(src, "a.py", "def a(): pass\n")
+        empty = _write_text(tmp_path, "empty.md", "# no recipes\n")
+        cases = [
+            (["--file", "gone.py", "--recipes", str(EXTRACTION_PATTERNS)], "source file not found"),
+            (["--file", "a.py", "--recipes", str(tmp_path / "gone.md")], "recipes not found"),
+            (["--file", "a.py", "--recipes", str(empty)], "no ast-grep recipe"),
+        ]
+        for args, message in cases:
+            result = _run_cli("kind-at", "--source-root", str(src), "--line", "1", *args)
+            assert result.returncode == 2, args
+            assert result.stdout == "" and message in result.stderr
+
+
+# --------------------------------------------------------------------------
+# fix: a byte-for-byte fixture (#584)
+# --------------------------------------------------------------------------
+
+UTIL_TS = "export const WIDTH = 1;\n\nexport function size() {}\n"
+FIX_SKILL_MD = """\
+# demo
+
+`LIMIT` caps results [AST:src/lib/config.py:L6] and `DEFAULT` sets the page [AST:./src/lib/config.py:L7].
+Both at once [AST:src/lib/config.py:L6-L7] and [SRC:src\\lib\\config.py:L6-9].
+`search` [AST:src/lib/config.py:L11] finds.
+`size` [AST:src/lib/util.ts:L1] shares a line with `WIDTH`.
+
+<!-- [MANUAL:notes] -->
+Keep: [AST:src/lib/config.py:L6] and [AST:src/lib/config.py:L11].
+<!-- [/MANUAL:notes] -->
+"""
+FIX_API_MD = """\
+## API
+
+- `LIMIT` [AST:src/lib/config.py:L6]
+- `DEFAULT` [AST:src/lib/config.py:L7]
+- `search` [AST:src/lib/config.py:L11]
+"""
+FIX_ENTRIES = [
+    {"export_name": "LIMIT", "source_file": "src/lib/config.py", "source_line": 6,
+     "extraction_method": "ast-grep"},
+    {"export_name": "DEFAULT", "source_file": "src/lib/config.py", "source_line": 7,
+     "extraction_method": "ast-grep"},
+    {"export_name": "search", "source_file": "src/lib/config.py", "source_line": 11,
+     "extraction_method": "source-read"},
+    {"export_name": "WIDTH", "source_file": "src/lib/util.ts", "source_line": 1,
+     "extraction_method": "ast-grep"},
+    {"export_name": "size", "source_file": "src/lib/util.ts", "source_line": 1,
+     "extraction_method": "ast-grep"},
+]
+# LIMIT moves 6 -> 7 and DEFAULT 7 -> 8 in one pass: a citation of line 6
+# goes to 7 and stops there. search's [AST:] becomes [SRC:]. The util.ts
+# line 1 citation stays (WIDTH records that line too), and nothing inside
+# the [MANUAL] block changes.
+FIXED_SKILL_MD = """\
+# demo
+
+`LIMIT` caps results [AST:src/lib/config.py:L7] and `DEFAULT` sets the page [AST:./src/lib/config.py:L8].
+Both at once [AST:src/lib/config.py:L7-L8] and [AST:src\\lib\\config.py:L7-10].
+`search` [SRC:src/lib/config.py:L11] finds.
+`size` [AST:src/lib/util.ts:L1] shares a line with `WIDTH`.
+
+<!-- [MANUAL:notes] -->
+Keep: [AST:src/lib/config.py:L6] and [AST:src/lib/config.py:L11].
+<!-- [/MANUAL:notes] -->
+"""
+FIXED_API_MD = """\
+## API
+
+- `LIMIT` [AST:src/lib/config.py:L7]
+- `DEFAULT` [AST:src/lib/config.py:L8]
+- `search` [SRC:src/lib/config.py:L11]
+"""
+FIXED_PROVENANCE = """\
+{
+  "source_root": "unused",
+  "entries": [
+    {
+      "export_name": "LIMIT",
+      "source_file": "src/lib/config.py",
+      "source_line": 7,
+      "extraction_method": "ast-grep"
+    },
+    {
+      "export_name": "DEFAULT",
+      "source_file": "src/lib/config.py",
+      "source_line": 8,
+      "extraction_method": "ast-grep"
+    },
+    {
+      "export_name": "search",
+      "source_file": "src/lib/config.py",
+      "source_line": 11,
+      "extraction_method": "source-read"
+    },
+    {
+      "export_name": "WIDTH",
+      "source_file": "src/lib/util.ts",
+      "source_line": 1,
+      "extraction_method": "ast-grep"
+    },
+    {
+      "export_name": "size",
+      "source_file": "src/lib/util.ts",
+      "source_line": 3,
+      "extraction_method": "ast-grep"
+    }
+  ]
+}
+"""
+HASH_CONTENT = REPO_ROOT / "src" / "shared" / "scripts" / "skf-hash-content.py"
+
+
+def _write_bytes(root: Path, rel: str, text: str) -> Path:
+    """Write text as UTF-8 bytes, so LF line ends stay LF on Windows too."""
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(text.encode("utf-8"))
+    return p
+
+
+class FixPackage(NamedTuple):
+    root: Path
+    skill: Path
+    prov: Path
+    meta: Path
+
+
+def _fix_package(tmp_path: Path, skill_md: str = FIX_SKILL_MD, api_md: str = FIX_API_MD,
+                 entries: list | None = None) -> FixPackage:
+    root = tmp_path / "source"
+    _write_bytes(root, "src/lib/config.py", PY_CONFIG)
+    _write_bytes(root, "src/lib/util.ts", UTIL_TS)
+    skill = tmp_path / "skill"
+    _write_bytes(skill, "SKILL.md", skill_md)
+    _write_bytes(skill, "references/api.md", api_md)
+    entries = copy.deepcopy(FIX_ENTRIES if entries is None else entries)
+    names = [e["export_name"] for e in entries]
+    meta = _write_json(skill / "metadata.json", {"exports": names})
+    prov = _write_json(skill / "provenance-map.json", {"source_root": "unused", "entries": entries})
+    return FixPackage(root, skill, prov, meta)
+
+
+def _verify_to_file(pkg: FixPackage, out: Path) -> dict:
+    result = _run_cli("verify", "--metadata", str(pkg.meta), "--provenance", str(pkg.prov),
+                      "--source-root", str(pkg.root), "--skill-dir", str(pkg.skill), "-o", str(out))
+    assert result.returncode in (0, 1), result.stderr
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+def _fix(pkg: FixPackage, verify_json: Path, *flags: str) -> tuple[int, dict]:
+    result = _run_cli("fix", "--verify", str(verify_json), "--provenance", str(pkg.prov),
+                      "--skill-dir", str(pkg.skill), *flags)
+    assert result.returncode in (0, 1), result.stderr
+    return result.returncode, json.loads(result.stdout)
+
+
+def _manual_inventory(skill: Path, out: Path) -> Path:
+    result = subprocess.run([sys.executable, str(HASH_CONTENT), "manual-inventory",
+                             str(skill / "SKILL.md")], capture_output=True, check=True)
+    out.write_bytes(result.stdout)
+    return out
+
+
+class TestFixByteForByte:
+    def test_fixture(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        inventory = _manual_inventory(pkg.skill, tmp_path / "inventory.json")
+        code, out = _fix(pkg, verify_json, "--manual-inventory", str(inventory))
+
+        assert (pkg.skill / "SKILL.md").read_bytes() == FIXED_SKILL_MD.encode("utf-8")
+        assert (pkg.skill / "references" / "api.md").read_bytes() == FIXED_API_MD.encode("utf-8")
+        assert pkg.prov.read_bytes() == FIXED_PROVENANCE.encode("utf-8")
+
+        assert code == 1  # the [MANUAL] and shared-line citations are left
+        assert out["applied"] == [
+            {"kind": "citation-prefix", "file": "SKILL.md", "line": 4,
+             "citation": "[SRC:src\\lib\\config.py:L6-9]",
+             "fixed": "[AST:src\\lib\\config.py:L7-10]"},
+            {"kind": "citation-prefix", "file": "SKILL.md", "line": 5,
+             "citation": "[AST:src/lib/config.py:L11]",
+             "fixed": "[SRC:src/lib/config.py:L11]"},
+            {"kind": "citation-prefix", "file": "references/api.md", "line": 5,
+             "citation": "[AST:src/lib/config.py:L11]",
+             "fixed": "[SRC:src/lib/config.py:L11]"},
+            {"kind": "source-line", "entry_index": 0, "export_name": "LIMIT",
+             "source_file": "src/lib/config.py", "from": 6, "to": 7},
+            {"kind": "source-line", "entry_index": 1, "export_name": "DEFAULT",
+             "source_file": "src/lib/config.py", "from": 7, "to": 8},
+            {"kind": "source-line", "entry_index": 4, "export_name": "size",
+             "source_file": "src/lib/util.ts", "from": 1, "to": 3},
+            {"kind": "citation-line", "file": "SKILL.md", "line": 3,
+             "citation": "[AST:src/lib/config.py:L6]",
+             "fixed": "[AST:src/lib/config.py:L7]", "export_names": ["LIMIT"]},
+            {"kind": "citation-line", "file": "SKILL.md", "line": 3,
+             "citation": "[AST:./src/lib/config.py:L7]",
+             "fixed": "[AST:./src/lib/config.py:L8]", "export_names": ["DEFAULT"]},
+            {"kind": "citation-line", "file": "SKILL.md", "line": 4,
+             "citation": "[AST:src/lib/config.py:L6-L7]",
+             "fixed": "[AST:src/lib/config.py:L7-L8]", "export_names": ["LIMIT"]},
+            {"kind": "citation-line", "file": "SKILL.md", "line": 4,
+             "citation": "[SRC:src\\lib\\config.py:L6-9]",
+             "fixed": "[AST:src\\lib\\config.py:L7-10]", "export_names": ["LIMIT"]},
+            {"kind": "citation-line", "file": "references/api.md", "line": 3,
+             "citation": "[AST:src/lib/config.py:L6]",
+             "fixed": "[AST:src/lib/config.py:L7]", "export_names": ["LIMIT"]},
+            {"kind": "citation-line", "file": "references/api.md", "line": 4,
+             "citation": "[AST:src/lib/config.py:L7]",
+             "fixed": "[AST:src/lib/config.py:L8]", "export_names": ["DEFAULT"]},
+        ]
+        assert [(w["kind"], w["file"], w["line"], w["citation"], w["why"])
+                for w in out["left_as_warn"]] == [
+            ("citation-prefix", "SKILL.md", 9, "[AST:src/lib/config.py:L11]",
+             "inside-manual-block"),
+            ("citation-line", "SKILL.md", 6, "[AST:src/lib/util.ts:L1]", "shared-line"),
+            ("citation-line", "SKILL.md", 9, "[AST:src/lib/config.py:L6]",
+             "inside-manual-block"),
+        ]
+        assert out["left_as_warn"][1]["export_names"] == ["WIDTH", "size"]
+        expected_files = [str(pkg.skill / "SKILL.md"), str(pkg.skill / "references" / "api.md"),
+                          str(pkg.prov)]
+        assert out["files_changed"] == expected_files
+        assert out["files_written"] == expected_files
+        assert out["dry_run"] is False
+        assert out["manual_verify"]["ok"] is True
+        assert out["manual_verify"]["preserved"] == ["notes"]
+        assert out["summary"] == {"citation_prefixes_fixed": 3, "source_lines_moved": 3,
+                                  "citations_moved": 6, "left_as_warn_count": 3}
+
+    def test_verify_again_leaves_only_the_manual_citation(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        _fix(pkg, verify_json)
+        again = _verify_to_file(pkg, tmp_path / "again.json")
+        assert again["stale"] == []
+        assert [(c["file"], c["line"], c["citation"]) for c in again["citations"]] == [
+            ("SKILL.md", 9, "[AST:src/lib/config.py:L11]")]
+        # and a second fix changes nothing
+        code, out = _fix(pkg, tmp_path / "again.json")
+        assert out["applied"] == [] and out["files_written"] == []
+        assert pkg.prov.read_bytes() == FIXED_PROVENANCE.encode("utf-8")
+
+    def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        before = {p: p.read_bytes() for p in (pkg.skill / "SKILL.md", pkg.prov)}
+        _, out = _fix(pkg, verify_json, "--dry-run")
+        assert {p: p.read_bytes() for p in before} == before
+        assert out["dry_run"] is True and out["files_written"] == []
+        assert len(out["files_changed"]) == 3
+        assert out["summary"]["source_lines_moved"] == 3
+
+    def test_no_line_moves(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        _, out = _fix(pkg, verify_json, "--no-line-moves")
+        assert out["summary"]["source_lines_moved"] == 0
+        assert out["summary"]["citations_moved"] == 0
+        assert out["summary"]["citation_prefixes_fixed"] == 3
+        assert sorted(w["export_name"] for w in out["left_as_warn"]
+                      if w["why"] == "line-moves-skipped") == ["DEFAULT", "LIMIT", "size"]
+        assert json.loads(pkg.prov.read_text(encoding="utf-8"))["entries"] == FIX_ENTRIES
+
+
+def _fix_json(tmp_path: Path, verify_result: dict) -> Path:
+    return _write_json(tmp_path / "verify.json", verify_result)
+
+
+def _stale(name: str, source_file: str, line: int, defs: list[int], **extra: object) -> dict:
+    return dict({"export_name": name, "source_file": source_file, "source_line": line,
+                 "reason": mod.STALE_LINE_NOT_DEFINITION, "definition_lines": defs}, **extra)
+
+
+class TestFixPlan:
+    def test_findings_nobody_can_decide_alone_are_left(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path, skill_md="# s\n", api_md="")
+        verify_json = _fix_json(tmp_path, {"stale": [
+            _stale("LIMIT", "src/lib/config.py", 6, []),
+            _stale("DEFAULT", "src/lib/config.py", 7, [8, 9]),
+            {"export_name": "search", "source_file": "gone.py", "source_line": 1,
+             "reason": mod.STALE_FILE_MISSING},
+            _stale("size", "src/lib/util.ts", 1, [0]),
+            _stale("nobody", "src/lib/util.ts", 1, [3]),
+        ], "citations": []})
+        code, out = _fix(pkg, verify_json)
+        assert code == 1 and out["applied"] == []
+        assert [(w["export_name"], w["why"]) for w in out["left_as_warn"]] == [
+            ("LIMIT", "no-definition-line"), ("DEFAULT", "several-definition-lines"),
+            ("search", "needs-decision"), ("size", "needs-decision"),
+            ("nobody", "entry-not-found")]
+        assert out["files_written"] == []
+
+    def test_entry_index_falls_back_to_name_file_and_line(self, tmp_path: Path) -> None:
+        entries = copy.deepcopy(FIX_ENTRIES)
+        entries.insert(0, {"export_name": "extra", "source_file": "x.py", "source_line": 1})
+        pkg = _fix_package(tmp_path, skill_md="# s\n", api_md="", entries=entries)
+        # a stale entry_index (the map gained an entry since) and none at all
+        verify_json = _fix_json(tmp_path, {"stale": [
+            _stale("LIMIT", "src/lib/config.py", 6, [7], entry_index=0),
+            _stale("DEFAULT", "src/lib/config.py", 7, [8]),
+        ], "citations": []})
+        _, out = _fix(pkg, verify_json)
+        assert [(a["entry_index"], a["export_name"]) for a in out["applied"]] == [
+            (1, "LIMIT"), (2, "DEFAULT")]
+
+    def test_entries_moving_together_take_the_citation(self, tmp_path: Path) -> None:
+        # two entries on one line: moving to the same line, the citation
+        # follows; moving apart, it may cite either, so it stays
+        entries = [
+            {"export_name": "LIMIT", "source_file": "src/lib/config.py", "source_line": 6},
+            {"export_name": "LIMIT", "source_file": "src/lib/config.py", "source_line": 6},
+            {"export_name": "DEFAULT", "source_file": "src/lib/config.py", "source_line": 5},
+            {"export_name": "search", "source_file": "src/lib/config.py", "source_line": 5},
+        ]
+        pkg = _fix_package(tmp_path, skill_md="a [SRC:src/lib/config.py:L6] b [SRC:src/lib/config.py:L5]\n",
+                           api_md="", entries=entries)
+        verify_json = _fix_json(tmp_path, {"stale": [
+            _stale("LIMIT", "src/lib/config.py", 6, [7], entry_index=0),
+            _stale("LIMIT", "src/lib/config.py", 6, [7], entry_index=1),
+            _stale("DEFAULT", "src/lib/config.py", 5, [8], entry_index=2),
+            _stale("search", "src/lib/config.py", 5, [11], entry_index=3),
+        ], "citations": []})
+        _, out = _fix(pkg, verify_json)
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == (
+            "a [SRC:src/lib/config.py:L7] b [SRC:src/lib/config.py:L5]\n")
+        (left,) = out["left_as_warn"]
+        assert (left["why"], left["export_names"]) == ("shared-line", ["DEFAULT", "search"])
+
+    def test_prefix_fix_needs_the_citation_on_its_line(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path, skill_md="x\n[AST:src/lib/config.py:L11]\n", api_md="")
+        verify_json = _fix_json(tmp_path, {"stale": [], "citations": [
+            {"file": "SKILL.md", "line": 1, "citation": "[AST:src/lib/config.py:L11]",
+             "expected_prefix": "SRC"},
+            {"file": "../outside.md", "line": 1, "citation": "[AST:a:L1]",
+             "expected_prefix": "SRC"},
+            {"file": "SKILL.md", "line": "2", "citation": "[AST:src/lib/config.py:L11]",
+             "expected_prefix": "SRC"},
+        ]})
+        code, out = _fix(pkg, verify_json)
+        assert code == 1 and out["applied"] == []
+        assert [w["why"] for w in out["left_as_warn"]] == ["citation-not-found"] * 3
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == (
+            "x\n[AST:src/lib/config.py:L11]\n")
+
+    def test_line_ends_bom_and_other_bytes_survive(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path, skill_md="# s\n", api_md="")
+        raw = ("\ufeffone [AST:src/lib/config.py:L6]\r\n"
+               "two\rthree [AST:src/lib/config.py:L6-8]\n").encode("utf-8") + b"\xff\xfe end\r\n"
+        (pkg.skill / "SKILL.md").write_bytes(raw)
+        verify_json = _fix_json(tmp_path, {"stale": [
+            _stale("LIMIT", "src/lib/config.py", 6, [7], entry_index=0)], "citations": []})
+        code, out = _fix(pkg, verify_json)
+        assert code == 0 and out["left_as_warn"] == []
+        assert (pkg.skill / "SKILL.md").read_bytes() == raw.replace(b"L6]", b"L7]").replace(
+            b"L6-8]", b"L7-9]")
+        assert [a["line"] for a in out["applied"] if a["kind"] == "citation-line"] == [1, 3]
+
+    def test_writes_go_through_the_atomic_helper(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        real_run = subprocess.run
+        targets: list[str] = []
+
+        def spy(cmd: list[str], **kwargs: object):
+            assert Path(cmd[1]).name == "skf-atomic-write.py" and cmd[2] == "write"
+            targets.append(cmd[cmd.index("--target") + 1])
+            return real_run(cmd, **kwargs)
+
+        monkeypatch.setattr(mod.subprocess, "run", spy)
+        code = mod.main(["fix", "--verify", str(verify_json), "--provenance", str(pkg.prov),
+                         "--skill-dir", str(pkg.skill)])
+        assert code == 1
+        assert targets == [str(pkg.skill / "SKILL.md"), str(pkg.skill / "references" / "api.md"),
+                           str(pkg.prov)]
+        assert json.loads(capsys.readouterr().out)["files_written"] == targets
+        assert not list(pkg.skill.rglob("*.skf-tmp"))
+
+    def test_no_atomic_helper_writes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        before = pkg.prov.read_bytes()
+        monkeypatch.setattr(mod, "_sibling_helper", lambda filename: None)
+        code = mod.main(["fix", "--verify", str(verify_json), "--provenance", str(pkg.prov),
+                         "--skill-dir", str(pkg.skill)])
+        captured = capsys.readouterr()
+        assert code == 2 and captured.out == ""
+        assert "skf-atomic-write.py not found" in captured.err
+        assert pkg.prov.read_bytes() == before
+        assert (pkg.skill / "SKILL.md").read_bytes() == FIX_SKILL_MD.encode("utf-8")
+
+    def test_a_failed_write_names_what_was_written(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        calls: list[str] = []
+
+        def fail_second(helper: Path, target: Path, data: bytes) -> None:
+            calls.append(str(target))
+            if len(calls) == 2:
+                raise OSError(f"atomic write of {target} failed: disk full")
+            target.write_bytes(data)
+
+        monkeypatch.setattr(mod, "atomic_write", fail_second)
+        code = mod.main(["fix", "--verify", str(verify_json), "--provenance", str(pkg.prov),
+                         "--skill-dir", str(pkg.skill)])
+        captured = capsys.readouterr()
+        assert code == 2 and captured.out == ""
+        assert "disk full" in captured.err
+        assert f"already written: {pkg.skill / 'SKILL.md'}" in captured.err
+
+    def test_manual_verify_catches_a_changed_block(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        inventory = _manual_inventory(pkg.skill, tmp_path / "inventory.json")
+        data = json.loads(inventory.read_text(encoding="utf-8"))
+        data["blocks"][0]["content_hash"] = "sha256:" + "0" * 64
+        inventory.write_text(json.dumps(data), encoding="utf-8")
+        code, out = _fix(pkg, verify_json, "--manual-inventory", str(inventory))
+        assert code == 1
+        assert out["manual_verify"]["ok"] is False
+        assert out["manual_verify"]["modified"] == ["notes"]
+
+    def test_a_failed_manual_recheck_exits_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        # after the writes: exit 2 naming what was written, never exit 1
+        # (read as something left as a WARN)
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        inventory = _manual_inventory(pkg.skill, tmp_path / "inventory.json")
+        real_load = mod._load_sibling_module
+
+        def load(filename: str, module_name: str):
+            module = real_load(filename, module_name)
+
+            def unreadable(data: bytes) -> list:
+                raise OSError("SKILL.md vanished")
+
+            module.find_manual_blocks = unreadable
+            return module
+
+        monkeypatch.setattr(mod, "_load_sibling_module", load)
+        code = mod.main(["fix", "--verify", str(verify_json), "--provenance", str(pkg.prov),
+                         "--skill-dir", str(pkg.skill), "--manual-inventory", str(inventory)])
+        out, err = capsys.readouterr()
+        assert (code, out) == (2, "")
+        assert err.startswith(
+            "error: the [MANUAL] re-check failed: OSError: SKILL.md vanished; "
+            f"already written: {pkg.skill / 'SKILL.md'}, ")
+        assert err.rstrip("\n").endswith(str(pkg.prov)) and err.count("\n") == 1
+
+    def test_an_unwritable_result_exits_2(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        gone = str(tmp_path / "gone" / "out.json")
+        result = _run_cli("fix", "--verify", str(verify_json), "--provenance", str(pkg.prov),
+                          "--skill-dir", str(pkg.skill), "-o", gone)
+        assert (result.returncode, result.stdout) == (2, "")
+        assert result.stderr.startswith(f"error: writing {gone} failed: FileNotFoundError: ")
+        assert f"; already written: {pkg.skill / 'SKILL.md'}, " in result.stderr
+        assert result.stderr.count("\n") == 1
+
+    def test_input_errors_exit_2(self, tmp_path: Path) -> None:
+        pkg = _fix_package(tmp_path)
+        verify_json = tmp_path / "verify.json"
+        _verify_to_file(pkg, verify_json)
+        not_verify = _write_json(tmp_path / "other.json", {"status": "pass"})
+        bad_inventory = _write_text(tmp_path, "inv.json", "{nope")
+        no_skill = tmp_path / "empty"
+        no_skill.mkdir()
+        before = pkg.prov.read_bytes()
+        cases = [
+            (["--verify", str(not_verify), "--provenance", str(pkg.prov),
+              "--skill-dir", str(pkg.skill)], "is not a verify result"),
+            (["--verify", str(tmp_path / "gone.json"), "--provenance", str(pkg.prov),
+              "--skill-dir", str(pkg.skill)], "verify result not found"),
+            (["--verify", str(verify_json), "--provenance", str(pkg.prov),
+              "--skill-dir", str(no_skill)], "has no SKILL.md"),
+            (["--verify", str(verify_json), "--provenance", str(pkg.prov),
+              "--skill-dir", str(pkg.skill), "--manual-inventory", str(bad_inventory)],
+             "failed to read inventory"),
+        ]
+        for args, message in cases:
+            result = _run_cli("fix", *args)
+            assert result.returncode == 2, args
+            assert result.stdout == "" and message in result.stderr, result.stderr
+        assert pkg.prov.read_bytes() == before
+
+    def test_manual_markers_match_hash_content(self) -> None:
+        spec = importlib.util.spec_from_file_location("skf_hash_content_pin", HASH_CONTENT)
+        hash_content = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(hash_content)
+        assert mod._MANUAL_OPEN_RE.pattern.encode() == hash_content._OPEN_RE.pattern
+        assert mod._MANUAL_CLOSE_RE.pattern.encode() == hash_content._CLOSE_RE.pattern
+        # `\s` as the bytes patterns read it: ASCII whitespace only
+        assert mod._MANUAL_OPEN_RE.flags & re.ASCII
+        assert mod._MANUAL_CLOSE_RE.flags & re.ASCII
+        text = ("a <!-- [MANUAL:x] -->in<!-- [/MANUAL:y] --> <!-- [/MANUAL:x] -->"
+                " <!-- [MANUAL:open] --> tail")
+        (span,) = mod.manual_interiors(text)
+        assert text[span[0]:span[1]] == "in<!-- [/MANUAL:y] --> "
+        (block,) = hash_content.find_manual_blocks(text.encode("utf-8"))
+        assert block["name"] == "x"
+        # a marker spaced with U+00A0 is no marker to either
+        for nbsp in ("a <!--\u00a0[MANUAL:x] -->in<!-- [/MANUAL:x] -->",
+                     "a <!-- [MANUAL:x] -->in<!-- [/MANUAL:x]\u00a0-->"):
+            assert mod.manual_interiors(nbsp) == []
+            assert hash_content.find_manual_blocks(nbsp.encode("utf-8")) == []

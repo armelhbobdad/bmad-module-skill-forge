@@ -1,0 +1,30 @@
+{
+  "_comment": "Where each IDE reads the SKF managed section: the one mapping export-skill, drop-skill and rename-skill resolve their context files from, through `skf-rebuild-managed-sections.py resolve-targets`. Each key under `ides` is an IDE identifier as the installer writes it to config.yaml `ides`. `context_file` is the file that IDE reads for passive skill context, and `skill_root` is the folder the installer puts its skills in (its `target_dir` in tools/cli/lib/platform-codes.yaml, with a trailing slash). An IDE not listed here resolves to `unknown_ide`. skf-export-skill/assets/managed-section-format.md shows the same mapping as a table for readers, and test/test-skf-rebuild-managed-sections.py pins that table and platform-codes.yaml to this file.",
+  "unknown_ide": { "context_file": "AGENTS.md", "skill_root": ".agents/skills/" },
+  "ides": {
+    "claude-code": { "context_file": "CLAUDE.md", "skill_root": ".claude/skills/" },
+    "cursor": { "context_file": ".cursorrules", "skill_root": ".cursor/skills/" },
+    "github-copilot": { "context_file": "AGENTS.md", "skill_root": ".github/skills/" },
+    "codex": { "context_file": "AGENTS.md", "skill_root": ".agents/skills/" },
+    "windsurf": { "context_file": "AGENTS.md", "skill_root": ".windsurf/skills/" },
+    "cline": { "context_file": "AGENTS.md", "skill_root": ".cline/skills/" },
+    "roo": { "context_file": "AGENTS.md", "skill_root": ".roo/skills/" },
+    "auggie": { "context_file": "AGENTS.md", "skill_root": ".augment/skills/" },
+    "antigravity": { "context_file": "AGENTS.md", "skill_root": ".agent/skills/" },
+    "codebuddy": { "context_file": "AGENTS.md", "skill_root": ".codebuddy/skills/" },
+    "crush": { "context_file": "AGENTS.md", "skill_root": ".crush/skills/" },
+    "gemini": { "context_file": "AGENTS.md", "skill_root": ".gemini/skills/" },
+    "iflow": { "context_file": "AGENTS.md", "skill_root": ".iflow/skills/" },
+    "junie": { "context_file": "AGENTS.md", "skill_root": ".junie/skills/" },
+    "kilo": { "context_file": "AGENTS.md", "skill_root": ".kilocode/skills/" },
+    "kiro": { "context_file": "AGENTS.md", "skill_root": ".kiro/skills/" },
+    "ona": { "context_file": "AGENTS.md", "skill_root": ".ona/skills/" },
+    "opencode": { "context_file": "AGENTS.md", "skill_root": ".opencode/skills/" },
+    "pi": { "context_file": "AGENTS.md", "skill_root": ".pi/skills/" },
+    "qoder": { "context_file": "AGENTS.md", "skill_root": ".qoder/skills/" },
+    "qwen": { "context_file": "AGENTS.md", "skill_root": ".qwen/skills/" },
+    "rovo-dev": { "context_file": "AGENTS.md", "skill_root": ".rovodev/skills/" },
+    "trae": { "context_file": "AGENTS.md", "skill_root": ".trae/skills/" },
+    "other": { "context_file": "AGENTS.md", "skill_root": ".agents/skills/" }
+  }
+}

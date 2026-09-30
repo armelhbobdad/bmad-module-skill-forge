@@ -49,29 +49,22 @@ Step 1 §2 already ran the export gate (`python3 {validateOutputHelper} {resolve
 - `SKILL.md` present and non-empty; `metadata.json` present and valid JSON — `validation.skill_md.issues` / `validation.metadata.issues`
 - Required agentskills.io fields present (`name`, `version`, `skill_type`, `source_authority`, `exports`, `generation_date`, `confidence_tier`) — `validation.metadata.issues`
 - Enum membership (`skill_type`, `source_authority`, `confidence_tier`) — `validation.metadata.enum_issues`
+- Recommended metadata fields for the package's `skill_type`, each missing or empty one a low warning, in `validation.metadata.recommended_missing`
 - SKILL.md Section 7b ↔ on-disk `scripts/`/`assets/` cross-reference — `validation.crossref_7b.missing` (high: §7b-named file absent on disk) and `validation.crossref_7b.orphans` (low: on-disk file not referenced in §7b)
 
 If the step-1 JSON is not in context (e.g. this step was entered directly), re-run the command above to regenerate it — the verdict is deterministic. `references/` presence (at least one `.md`) remains a simple on-disk observation for the §4 report.
 
 ### 2. Validate Metadata Completeness
 
-Check metadata.json for recommended (non-required) fields:
-
-- `description` — Brief skill description
-- `source_repo` — Source repository URL
-- `language` — Primary language of source code
-- `ast_node_count` — Number of AST nodes analyzed
-- `tool_versions` — Tools used during generation
-
-**For each missing recommended field:** Note as warning, do not halt.
+Read `validation.metadata.recommended_missing` from the export-gate verdict, and do not check metadata.json by hand. The gate chooses the recommended (non-required) fields by `skill_type`, so a stack, whose metadata template has no `description` or `source_repo`, is never warned about them. Each entry names one missing or empty field in `field`. It is a low-severity warning, never a halt, and `export_status` already counts it.
 
 ### 3. Assess Package Readiness
 
 Read `export_status` directly from the export-gate verdict (step 1 §2) — do not re-compute the status by hand:
 
-- **READY** — the verdict has no issues (`export_status: "READY"`).
-- **WARNINGS** — only medium/low issues remain (`export_status: "WARNINGS"`): §7b orphans, an empty `exports` array, or the recommended-field notes from §2 above.
-- **NOT READY** — any high-severity issue (`export_status: "NOT_READY"`). Step 1 §2 halts on this, so a healthy run never reaches here; if it does, surface the high-severity messages and halt.
+- **READY**: the verdict has no issues (`export_status: "READY"`).
+- **WARNINGS**: only medium/low issues remain (`export_status: "WARNINGS"`), such as §7b orphans, an empty `exports` array, a forge tier in an older stack's `confidence_tier`, or the missing recommended fields in `validation.metadata.recommended_missing` (§2 above).
+- **NOT READY**: any high-severity issue (`export_status: "NOT_READY"`). Step 1 §2 halts on this, so a healthy run never reaches here; if it does, surface the high-severity messages and halt.
 
 ### 4. Report Package Status
 
@@ -86,7 +79,7 @@ Read `export_status` directly from the export-gate verdict (step 1 §2) — do n
 
 {If warnings (export_status: WARNINGS):}
 **Warnings:**
-- {list missing recommended fields from §2, plus any `validation.crossref_7b.orphans` and an empty `exports` warning from the verdict}
+- {list the `field` of each `validation.metadata.recommended_missing` entry, plus any `validation.crossref_7b.orphans` and the message of each low issue in `validation.metadata.issues` (an empty `exports` array, or a forge tier in an older stack's `confidence_tier`) from the verdict}
 
 **Package is ready for snippet generation.**"
 

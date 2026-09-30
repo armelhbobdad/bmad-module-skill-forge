@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-stack-skill
+summary: |
+  Stack Skill's manifest reference now lists the manifest files it actually scans: `setup.cfg`, `build.gradle.kts` and `Package.swift` are added, and `*.csproj`, which the scanner never read, is removed. The table also names each ecosystem's runtime and development dependency keys, and a test now fails whenever it drifts from `skf-scan-manifests.py`.
+prs: [617]
+issues: [596, 598]

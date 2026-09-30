@@ -14,6 +14,14 @@ Plus:
   - Ownership: only packages whose metadata.json carries an SKF marker are
     enumerated; other skill folders and top-level links go to
     `not_skf_output`, and unreadable metadata counts as a warning
+  - evidence_tier: the dominant confidence_distribution bin, ties to the
+    weaker tier, beside the exports-source `confidence`
+  - The metadata.json fields each entry carries (skill_type, language,
+    confidence_tier on its skill_type's scale, exports_documented,
+    metadata_schema_version, source_repo and source_root with basenames)
+  - --expect-hashes: changed, missing and new skills against a recorded run
+  - candidates: explicit, manifest and active-link candidates, the
+    exclusion reasons, stale manifest keys and manifest parse errors
   - CLI subprocess invocation produces valid JSON
   - Empty skills root → empty inventory, exit 0
   - Bad skills root → exit 1
@@ -25,6 +33,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -726,12 +735,13 @@ class TestVersionNestedLayout:
 # --------------------------------------------------------------------------
 
 
-def _run_cli(*args: str) -> subprocess.CompletedProcess:
+def _run_cli(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT_PATH), *args],
         capture_output=True,
         text=True,
         check=False,
+        input=stdin,
     )
 
 
@@ -1211,3 +1221,621 @@ class TestOwnership:
             "metadata", "references", "skill-md"]
         for entry in result["skills"]:
             assert entry["metadata_hash"] and entry["metadata_hash"].startswith("sha256:"), entry
+
+
+# --------------------------------------------------------------------------
+# evidence_tier: the dominant bin of metadata.json confidence_distribution
+# --------------------------------------------------------------------------
+
+
+class TestDominantTier:
+    @pytest.mark.parametrize("distribution, tier", [
+        ({"t1": 5}, "T1"),
+        ({"t1": 1, "t1_low": 4}, "T1-low"),
+        ({"t1": 1, "t2": 4, "t3": 2}, "T2"),
+        ({"t3": 7}, "T3"),
+        ({"t1": 9, "t1_low": 2, "t2": 3, "t3": 1}, "T1"),
+        ({"t1": 2.5, "t2": 2}, "T1"),
+    ])
+    def test_the_largest_bin_wins(self, distribution: dict, tier: str) -> None:
+        assert mod.dominant_tier(distribution) == tier
+
+    @pytest.mark.parametrize("distribution, tier", [
+        ({"t1": 3, "t1_low": 3}, "T1-low"),
+        ({"t1_low": 3, "t2": 3}, "T2"),
+        ({"t2": 3, "t3": 3}, "T3"),
+        ({"t1": 3, "t3": 3}, "T3"),
+        ({"t1": 2, "t1_low": 2, "t2": 2, "t3": 2}, "T3"),
+        ({"t1": 4, "t1_low": 4, "t2": 1}, "T1-low"),
+    ])
+    def test_a_tie_goes_to_the_weaker_tier(self, distribution: dict, tier: str) -> None:
+        assert mod.dominant_tier(distribution) == tier
+
+    @pytest.mark.parametrize("distribution", [
+        None, {}, [], "T1", {"t1": 0, "t1_low": 0, "t2": 0, "t3": 0},
+    ])
+    def test_no_recorded_evidence_reads_t1_low(self, distribution) -> None:
+        assert mod.dominant_tier(distribution) == "T1-low"
+
+    @pytest.mark.parametrize("value", [
+        True, "9", -9, None, [9], {"n": 9}, float("nan"), float("inf"),
+    ])
+    def test_a_bin_without_a_positive_number_does_not_count(self, value) -> None:
+        assert mod.dominant_tier({"t1": value, "t3": 1}) == "T3"
+
+    def test_only_the_canonical_bin_names_count(self) -> None:
+        assert mod.dominant_tier({"T1": 9, "t1-low": 9, "t3": 1}) == "T3"
+
+
+class TestEvidenceTier:
+    def test_docs_only_skill_reads_t3_while_its_confidence_reads_t1(self, tmp_path: Path) -> None:
+        # SKF's generators always write an exports array, so the exports
+        # source of a docs-only skill is metadata (T1) while all of its
+        # recorded evidence is T3.
+        _make_skill(tmp_path, "docs", metadata={
+            "name": "docs", "exports": [],
+            "confidence_distribution": {"t1": 0, "t1_low": 0, "t2": 0, "t3": 12}})
+        [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        assert (entry["confidence"], entry["evidence_tier"]) == ("T1", "T3")
+
+    def test_largest_bin_t1_low_is_not_read_as_t1(self, tmp_path: Path) -> None:
+        _make_nested_skill(tmp_path, "src-read", "1.0.0", active=False, metadata={
+            "name": "src-read", "exports": ["a", "b", "c"],
+            "confidence_distribution": {"t1": 1, "t1_low": 2, "t2": 0, "t3": 0}})
+        [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        assert (entry["confidence"], entry["evidence_tier"]) == ("T1", "T1-low")
+
+    def test_evidence_tier_does_not_follow_the_exports_source(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "refs", metadata={
+            "name": "refs", "confidence_distribution": {"t1": 8, "t2": 1}},
+            references={"api.md": "## API\n- r\n"})
+        [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        assert (entry["confidence"], entry["evidence_tier"]) == ("T2", "T1")
+
+    def test_no_distribution_reads_t1_low(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "bare", metadata={"name": "bare", "exports": ["b"]})
+        [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        assert entry["evidence_tier"] == "T1-low"
+
+
+# --------------------------------------------------------------------------
+# metadata.json fields on each skills[] entry
+# --------------------------------------------------------------------------
+
+
+ENTRY_KEYS = [
+    "name", "path", "exports", "exports_source", "confidence", "evidence_tier",
+    "metadata_hash", "skill_type", "language", "confidence_tier", "exports_documented",
+    "metadata_schema_version", "source_repo", "source_repo_basename", "source_root",
+    "source_root_basename",
+]
+
+METADATA_FIELD_KEYS = ENTRY_KEYS[ENTRY_KEYS.index("skill_type"):]
+
+
+class TestMetadataFields:
+    def test_an_entry_carries_every_field(self, tmp_path: Path) -> None:
+        _make_nested_skill(tmp_path, "cognee", "0.6.0", active=False, metadata={
+            "name": "cognee", "version": "0.6.0", "skill_type": "single",
+            "source_repo": "https://github.com/topoteretes/Cognee.git",
+            "source_root": "/work/repos/github.com/topoteretes/cognee/",
+            "confidence_tier": "Forge+", "spec_version": "1.3", "language": "python",
+            "exports": ["add", "cognify", "search"],
+            "confidence_distribution": {"t1": 3, "t1_low": 0, "t2": 0, "t3": 0},
+            "stats": {"exports_documented": 3, "exports_total": 9}})
+        [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        assert list(entry) == ENTRY_KEYS
+        assert {key: entry[key] for key in METADATA_FIELD_KEYS} == {
+            "skill_type": "single",
+            "language": "python",
+            "confidence_tier": "Forge+",
+            "exports_documented": 3,
+            "metadata_schema_version": "1.3",
+            "source_repo": "https://github.com/topoteretes/Cognee.git",
+            "source_repo_basename": "cognee",
+            "source_root": "/work/repos/github.com/topoteretes/cognee/",
+            "source_root_basename": "cognee",
+        }
+        assert (entry["confidence"], entry["evidence_tier"]) == ("T1", "T1")
+
+    def test_fields_are_null_when_metadata_lacks_them(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "bare", metadata={"name": "bare", "exports": ["b"]})
+        [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        assert list(entry) == ENTRY_KEYS
+        assert all(entry[key] is None for key in METADATA_FIELD_KEYS), entry
+
+    def test_resolve_skill_without_metadata_has_every_field(self, tmp_path: Path) -> None:
+        skill_dir = _make_skill(tmp_path, "nometa", skill_md="# n\n## Exports\n- n\n", metadata=None)
+        entry, _, _ = mod.resolve_skill(skill_dir, "nometa")
+        assert list(entry) == ENTRY_KEYS
+        assert entry["evidence_tier"] == "T1-low"
+        assert all(entry[key] is None for key in METADATA_FIELD_KEYS), entry
+
+    def test_quick_skill_metadata(self, tmp_path: Path) -> None:
+        # The shape skf-render-quick-metadata.py writes: an empty source_root.
+        _make_skill(tmp_path, "quick", metadata={
+            "name": "quick", "skill_type": "single", "generated_by": "quick-skill",
+            "source_repo": "https://github.com/x/Quick", "source_root": "",
+            "language": "typescript", "confidence_tier": "Quick", "spec_version": "1.3",
+            "exports": ["q"], "confidence_distribution": {"t1": 0, "t1_low": 1, "t2": 0, "t3": 0},
+            "stats": {"exports_documented": 1}})
+        [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        assert (entry["source_repo_basename"], entry["source_root"], entry["source_root_basename"]) == (
+            "quick", None, None)
+        assert (entry["confidence_tier"], entry["evidence_tier"]) == ("Quick", "T1-low")
+
+    @pytest.mark.parametrize("skill_type, tier, expected", [
+        ("single", "Forge+", "Forge+"),
+        ("single", "T1", None),
+        ("single", "forge", None),
+        ("single", 3, None),
+        ("individual", "Deep", "Deep"),
+        (None, "Quick", "Quick"),
+        (None, "T2", None),
+        ("stack", "T1-low", "T1-low"),
+        ("stack", "T3", "T3"),
+        ("stack", "Deep", None),  # a stack written before its tier was a T-code
+        ("pipeline", "Forge", "Forge"),
+        ("pipeline", "T2", "T2"),
+        (7, "Deep", "Deep"),  # a skill_type that is not a string counts as none
+    ])
+    def test_confidence_tier_follows_its_skill_type_scale(self, skill_type, tier, expected) -> None:
+        metadata = {"confidence_tier": tier}
+        if skill_type is not None:
+            metadata["skill_type"] = skill_type
+        fields = mod.metadata_fields(metadata)
+        assert fields["confidence_tier"] == expected
+        assert fields["skill_type"] == (skill_type if isinstance(skill_type, str) else None)
+
+    @pytest.mark.parametrize("language, expected", [
+        ("python", "python"),
+        ("  TypeScript ", "TypeScript"),
+        (["python", " rust ", "", 3], ["python", "rust"]),
+        ([], None),
+        ([""], None),
+        ("", None),
+        ("   ", None),
+        (7, None),
+        ({"primary": "go"}, None),
+    ])
+    def test_language(self, language, expected) -> None:
+        assert mod.metadata_fields({"language": language})["language"] == expected
+
+    @pytest.mark.parametrize("stats, expected", [
+        ({"exports_documented": 12}, 12),
+        ({"exports_documented": 0}, 0),
+        ({"exports_documented": 12.0}, 12),
+        ({"exports_documented": 12.5}, None),
+        ({"exports_documented": -1}, None),
+        ({"exports_documented": True}, None),
+        ({"exports_documented": "12"}, None),
+        ({}, None),
+        ("12", None),
+        (None, None),
+    ])
+    def test_exports_documented(self, stats, expected) -> None:
+        assert mod.metadata_fields({"stats": stats})["exports_documented"] == expected
+
+    @pytest.mark.parametrize("spec_version, expected", [
+        ("1.3", "1.3"),
+        (" 1.3 ", "1.3"),
+        ("", None),
+        (1.3, None),
+    ])
+    def test_metadata_schema_version_is_spec_version(self, spec_version, expected) -> None:
+        assert mod.metadata_fields({"spec_version": spec_version})["metadata_schema_version"] == expected
+
+    @pytest.mark.parametrize("source_repo, basename", [
+        ("https://github.com/Org/Repo", "repo"),
+        ("https://github.com/Org/Repo.git", "repo"),
+        ("https://github.com/Org/Repo.GIT/", "repo"),
+        ("github.com/foo/bar", "bar"),
+        ("vercel/next.js", "next.js"),
+        ("git@github.com:org/repo.git", "repo"),
+        ("/work/src/My-Lib/", "my-lib"),
+        ("C:\\work\\MyLib", "mylib"),
+        (" https://github.com/org/spaced ", "spaced"),
+        ("react", None),  # no separator: no URL, owner/repo pair or path
+        ("https://github.com/org/.git", None),
+        ("https://github.com/org/..", None),
+        ("///", None),
+        ("", None),
+        ("   ", None),
+        (42, None),
+    ])
+    def test_source_repo_basename(self, source_repo, basename) -> None:
+        assert mod.metadata_fields({"source_repo": source_repo})["source_repo_basename"] == basename
+
+    @pytest.mark.parametrize("source_root, basename", [
+        ("packages/Core", "core"),
+        ("packages/core/", "core"),
+        ("src\\Win\\Pkg", "pkg"),
+        ("/work/repos/Repo", "repo"),
+        ("mylib", "mylib"),
+        ("app.git", "app.git"),  # only source_repo drops .git
+        (".", None),
+        ("..", None),
+        ("/", None),
+        ("", None),
+    ])
+    def test_source_root_basename(self, source_root, basename) -> None:
+        assert mod.metadata_fields({"source_root": source_root})["source_root_basename"] == basename
+
+    def test_source_fields_are_trimmed(self) -> None:
+        fields = mod.metadata_fields({"source_repo": " https://github.com/a/b ", "source_root": " src/b "})
+        assert (fields["source_repo"], fields["source_root"]) == ("https://github.com/a/b", "src/b")
+
+    def test_a_stack_lists_its_languages(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "app-stack", metadata={
+            "name": "app-stack", "skill_type": "stack", "generated_by": "create-stack-skill",
+            "confidence_tier": "T1-low", "forge_tier": "Deep", "language": ["python", "typescript"],
+            "exports": [], "confidence_distribution": {"t1": 1, "t1_low": 2, "t2": 0, "t3": 0},
+            "stats": {"exports_documented": 14}})
+        [entry] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        assert (entry["skill_type"], entry["confidence_tier"], entry["evidence_tier"]) == (
+            "stack", "T1-low", "T1-low")
+        assert entry["language"] == ["python", "typescript"]
+        assert entry["exports_documented"] == 14
+        assert entry["source_repo"] is None and entry["source_repo_basename"] is None
+
+
+# --------------------------------------------------------------------------
+# --expect-hashes: which skills changed against a recorded run
+# --------------------------------------------------------------------------
+
+
+class TestExpectHashes:
+    def test_compare_hashes(self) -> None:
+        skills = [{"name": "a", "metadata_hash": "h1"}, {"name": "b", "metadata_hash": "h2-new"},
+                  {"name": "d", "metadata_hash": "h4"}]
+        expected = {"c": "h3", "b": "h2", "a": "h1"}
+        assert mod.compare_hashes(skills, expected) == {
+            "changed_skills": ["b"], "missing_skills": ["c"], "new_skills": ["d"]}
+
+    def test_a_null_recorded_hash_never_matches(self) -> None:
+        skills = [{"name": "a", "metadata_hash": "sha256:1"}]
+        assert mod.compare_hashes(skills, {"a": None})["changed_skills"] == ["a"]
+
+    def test_hashes_compare_as_written(self) -> None:
+        skills = [{"name": "a", "metadata_hash": "sha256:abc"}]
+        assert mod.compare_hashes(skills, {"a": "abc"})["changed_skills"] == ["a"]
+
+    def test_load_takes_an_enumerate_result(self) -> None:
+        text = json.dumps({"skills": [{"name": "a", "metadata_hash": "h1", "exports": []},
+                                      {"name": "b", "metadata_hash": "h2"}],
+                           "cycles": [], "warnings": [], "not_skf_output": ["m"]})
+        assert mod.load_expected_hashes(text) == {"a": "h1", "b": "h2"}
+
+    def test_load_takes_a_name_to_hash_object(self) -> None:
+        assert mod.load_expected_hashes('{"a": "h1", "skills": "h2", "c": null}') == {
+            "a": "h1", "skills": "h2", "c": None}
+        assert mod.load_expected_hashes("{}") == {}
+
+    @pytest.mark.parametrize("text", [
+        "[]",
+        '"sha256:1"',
+        '{"a": 1}',
+        '{"a": {"metadata_hash": "h"}}',
+        '{"skills": ["a"]}',
+        '{"skills": [{"metadata_hash": "h"}]}',
+        '{"skills": [{"name": "a", "metadata_hash": 5}]}',
+        '{"skills": [{"name": "a", "metadata_hash": "h"}, {"name": "a", "metadata_hash": "h"}]}',
+        "{not json",
+    ])
+    def test_load_refuses_any_other_shape(self, text: str) -> None:
+        with pytest.raises(ValueError):
+            mod.load_expected_hashes(text)
+
+    def test_cli_names_the_skills_that_changed_since_the_recorded_run(self, tmp_path: Path) -> None:
+        root = tmp_path / "skills"
+        for name in ("keep", "edit", "gone"):
+            _make_nested_skill(root, name, "1.0.0", metadata={"name": name, "exports": [name]},
+                               active=False)
+        first = _run_cli("enumerate", str(root))
+        assert first.returncode == 0, first.stderr
+        recorded = _write(tmp_path / "inventory.json", first.stdout)
+
+        meta = root / "edit" / "1.0.0" / "edit" / "metadata.json"
+        meta.write_text(json.dumps({**json.loads(meta.read_text()), "description": "edited"}))
+        shutil.rmtree(root / "gone")
+        _make_nested_skill(root, "added", "1.0.0", metadata={"name": "added", "exports": ["n"]},
+                           active=False)
+
+        result = _run_cli("enumerate", str(root), "--expect-hashes", str(recorded))
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert (payload["changed_skills"], payload["missing_skills"], payload["new_skills"]) == (
+            ["edit"], ["gone"], ["added"])
+        assert [s["name"] for s in payload["skills"]] == ["added", "edit", "keep"]
+
+    def test_cli_unchanged_run_reports_empty_lists(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            _make_skill(tmp_path / "skills", name, metadata={"name": name, "exports": [name]})
+        recorded = _write(tmp_path / "inventory.json", _run_cli("enumerate", str(tmp_path / "skills")).stdout)
+        payload = json.loads(
+            _run_cli("enumerate", str(tmp_path / "skills"), "--expect-hashes", str(recorded)).stdout)
+        assert (payload["changed_skills"], payload["missing_skills"], payload["new_skills"]) == ([], [], [])
+
+    def test_cli_reads_a_name_to_hash_object_from_stdin(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "a", metadata={"name": "a", "exports": ["a"]})
+        _make_skill(tmp_path, "b", metadata={"name": "b", "exports": ["b"]})
+        [a, _b] = mod.enumerate_stack_skills(tmp_path)["skills"]
+        stdin = json.dumps({"a": a["metadata_hash"], "b": "sha256:stale", "z": "sha256:gone"})
+        result = _run_cli("enumerate", str(tmp_path), "--expect-hashes", "-", stdin=stdin)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert (payload["changed_skills"], payload["missing_skills"], payload["new_skills"]) == (
+            ["b"], ["z"], [])
+
+    def test_cli_combines_with_the_other_flags(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            _make_skill(tmp_path, name, metadata={"name": name, "exports": [name]})
+        result = _run_cli("enumerate", str(tmp_path), "--pairs", "--reliability",
+                          "--expect-hashes", "-", stdin="{}")
+        payload = json.loads(result.stdout)
+        assert payload["pair_count"] == 1 and payload["inventory_reliable"] is True
+        assert payload["new_skills"] == ["a", "b"]
+
+    @pytest.mark.parametrize("content", [None, "{not json", '["a"]', '{"a": 1}'])
+    def test_cli_bad_expect_hashes_file_exits_1(self, tmp_path: Path, content: str | None) -> None:
+        _make_skill(tmp_path / "skills", "a", metadata={"name": "a", "exports": ["a"]})
+        recorded = tmp_path / "inventory.json"
+        if content is not None:
+            recorded.write_text(content, encoding="utf-8")
+        result = _run_cli("enumerate", str(tmp_path / "skills"), "--expect-hashes", str(recorded))
+        assert result.returncode == 1
+        assert result.stderr.startswith("error: --expect-hashes "), result.stderr
+        assert result.stdout == ""
+
+
+# --------------------------------------------------------------------------
+# candidates: pick the compose-mode candidates and gate them
+# --------------------------------------------------------------------------
+
+
+CANDIDATE_KEYS = {"candidate_source", "kept", "excluded", "stale_manifest_keys",
+                  "manifest_parse_error", "cycles", "warnings", "not_skf_output"}
+
+
+def _write_manifest(root: Path, content) -> None:
+    """Write `.export-manifest.json`: a dict of exports, or raw text or bytes."""
+    if isinstance(content, dict):
+        content = json.dumps({"schema_version": "2", "exports": content})
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    _write_bytes(root / ".export-manifest.json", content)
+
+
+def _gate(result: dict) -> tuple[list[str], list[tuple[str, str]]]:
+    """(kept names, [(skill_dir, reason)]) of a candidates result."""
+    return ([e["name"] for e in result["kept"]],
+            [(x["skill_dir"], x["reason"]) for x in result["excluded"]])
+
+
+def _stack_folder(root: Path) -> None:
+    """A skills folder holding each shape a candidate can take."""
+    for name in ("alpha", "beta"):
+        _make_nested_skill(root, name, "1.0.0", metadata={"name": name, "exports": [name]},
+                           active=False)
+    _make_nested_skill(root, "app-stack", "1.0.0", active=False, metadata={
+        "name": "app-stack", "skill_type": "stack", "generated_by": "create-stack-skill",
+        "exports": []})
+    _make_skill(root, "module", skill_md="# module\n")  # a module's own skill
+    pkg = _make_nested_skill(root, "corrupt", "1.0.0", metadata=None, active=False)
+    _write(pkg / "metadata.json", '{"generated_by":"create-skill", broken')
+    _write(root / "notes" / "README.md", "# notes\n")  # a folder that holds no skill
+
+
+class TestCandidates:
+    def test_manifest_keys_are_gated_against_the_roster(self, tmp_path: Path) -> None:
+        _stack_folder(tmp_path)
+        _write_manifest(tmp_path, {name: {} for name in (
+            "alpha", "app-stack", "module", "corrupt", "notes", "gone")})
+        result = mod.compute_candidates(tmp_path)
+        assert set(result) == CANDIDATE_KEYS
+        assert result["candidate_source"] == "manifest"
+        assert result["manifest_parse_error"] is None
+        assert _gate(result) == (["alpha"], [
+            ("app-stack", "not-a-skill"), ("corrupt", "roster-warning"),
+            ("module", "not-skf-output"), ("notes", "no-skf-package")])
+        assert result["stale_manifest_keys"] == ["gone"]
+
+    def test_each_exclusion_carries_its_log_line(self, tmp_path: Path) -> None:
+        _stack_folder(tmp_path)
+        result = mod.compute_candidates(
+            tmp_path, ["app-stack", "corrupt", "module", "notes", "gone"])
+        messages = {x["skill_dir"]: x["message"] for x in result["excluded"]}
+        assert messages["app-stack"] == "app-stack: not a skill (skill_type stack), excluding"
+        assert messages["module"] == "module: not SKF output, excluding"
+        assert messages["notes"] == "notes: no SKF skill package, excluding"
+        assert messages["gone"] == "gone: no such skill folder, excluding"
+        assert messages["corrupt"].startswith(
+            "corrupt: SKF cannot tell whether it generated this skill: "
+            "corrupt/1.0.0/corrupt/metadata.json is not valid JSON")
+        for excluded in result["excluded"]:
+            assert excluded["message"].startswith(excluded["skill_dir"] + ": ")
+            assert "\u2014" not in excluded["message"]
+
+    def test_explicit_names_replace_the_manifest(self, tmp_path: Path) -> None:
+        _stack_folder(tmp_path)
+        _write_manifest(tmp_path, "{broken")
+        result = mod.compute_candidates(tmp_path, ["beta", "gone", "module", "beta"])
+        assert result["candidate_source"] == "explicit"
+        assert result["manifest_parse_error"] is None  # the manifest is not read
+        assert _gate(result) == (["beta"], [("gone", "no-such-folder"), ("module", "not-skf-output")])
+        assert result["stale_manifest_keys"] == []
+
+    def test_kept_entries_are_the_roster_entries(self, tmp_path: Path) -> None:
+        _stack_folder(tmp_path)
+        roster = mod.enumerate_stack_skills(tmp_path)
+        result = mod.compute_candidates(tmp_path, ["beta", "alpha"])
+        assert result["kept"] == [s for s in roster["skills"] if s["name"] in ("alpha", "beta")]
+        assert [e["path"] for e in result["kept"]] == ["alpha/1.0.0/alpha", "beta/1.0.0/beta"]
+        for key in ("cycles", "warnings", "not_skf_output"):
+            assert result[key] == roster[key]
+
+    def test_single_individual_and_untyped_skills_are_kept(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "one", metadata={"skill_type": "single", "exports": ["o"]})
+        _make_skill(tmp_path, "old", metadata={"skill_type": "individual", "confidence_tier": "Forge",
+                                               "exports": ["i"]})
+        _make_skill(tmp_path, "quick", metadata={"generated_by": "quick-skill", "exports": ["q"]})
+        _make_skill(tmp_path, "pipe", metadata={"skill_type": "pipeline", "exports": ["p"]})
+        _make_skill(tmp_path, "stk", metadata={"skill_type": "stack", "exports": []})
+        result = mod.compute_candidates(tmp_path, ["one", "old", "quick", "pipe", "stk"])
+        assert _gate(result) == (["old", "one", "quick"], [
+            ("pipe", "not-a-skill"), ("stk", "not-a-skill")])
+        assert result["excluded"][0]["message"] == "pipe: not a skill (skill_type pipeline), excluding"
+
+    def test_unreadable_manifest_falls_back_to_the_active_folders(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path / "ra" / "active", "ra", metadata={"name": "ra", "exports": ["r"]})
+        _make_nested_skill(tmp_path, "alpha", "1.0.0", metadata={"name": "alpha", "exports": ["a"]},
+                           active=False)  # no `active`: not a candidate
+        _make_skill(tmp_path, "flat", metadata={"name": "flat", "exports": ["f"]})
+        _write(tmp_path / "mod" / "active" / "mod" / "SKILL.md", "# a module skill\n")
+        _write(tmp_path / "other" / "active" / "diff" / "SKILL.md", "# named elsewhere\n")
+        _write(tmp_path / "noskill" / "active" / "x" / "README.md", "# no SKILL.md\n")
+        _write(tmp_path / "dotted" / "active" / ".hidden" / "SKILL.md", "# dot name\n")
+        for skipped in (".hidden", "_batch", "st.skf-tmp"):
+            _write(tmp_path / skipped / "active" / "x" / "SKILL.md", "# skipped\n")
+        _write_manifest(tmp_path, "{broken")
+        result = mod.compute_candidates(tmp_path)
+        assert result["candidate_source"] == "active-links"
+        assert result["manifest_parse_error"].startswith(".export-manifest.json is not valid JSON (")
+        assert _gate(result) == (["ra"], [("mod", "not-skf-output"), ("other", "no-skf-package")])
+        assert result["kept"][0]["path"] == "ra/active/ra"
+
+    def test_an_active_link_is_a_candidate(self, tmp_path: Path) -> None:
+        _make_nested_skill(tmp_path, "linked", "2.0.0", metadata={"name": "linked", "exports": ["l"]})
+        result = mod.compute_candidates(tmp_path)
+        assert result["candidate_source"] == "active-links"
+        assert _gate(result) == (["linked"], [])
+        assert result["kept"][0]["path"] == "linked/active/linked"
+
+    @pytest.mark.parametrize("manifest", [
+        None,
+        {},
+        '{"schema_version": "2"}',
+        '{"schema_version": "2", "exports": null}',
+    ])
+    def test_a_manifest_that_lists_nothing_falls_back_without_an_error(
+            self, tmp_path: Path, manifest) -> None:
+        _make_skill(tmp_path / "ra" / "active", "ra", metadata={"name": "ra", "exports": ["r"]})
+        if manifest is not None:
+            _write_manifest(tmp_path, manifest)
+        result = mod.compute_candidates(tmp_path)
+        assert (result["candidate_source"], result["manifest_parse_error"]) == ("active-links", None)
+        assert _gate(result) == (["ra"], [])
+
+    @pytest.mark.parametrize("manifest, error", [
+        ("[]", ".export-manifest.json root is not an object"),
+        ('{"exports": ["alpha"]}', ".export-manifest.json exports is not an object"),
+        ("", ".export-manifest.json is not valid JSON ("),
+        (b"\xff\xfe{}", ".export-manifest.json is not valid JSON ("),
+        # An explicit id: pytest copies each test id into PYTEST_CURRENT_TEST,
+        # and Windows refuses an environment variable over 32767 characters.
+        pytest.param("[" * 200000, ".export-manifest.json is not valid JSON (", id="deeply-nested"),
+    ])
+    def test_a_manifest_of_another_shape_is_a_parse_error(self, tmp_path: Path, manifest, error) -> None:
+        _make_skill(tmp_path / "ra" / "active", "ra", metadata={"name": "ra", "exports": ["r"]})
+        _write_manifest(tmp_path, manifest)
+        result = mod.compute_candidates(tmp_path)
+        assert result["candidate_source"] == "active-links"
+        assert result["manifest_parse_error"].startswith(error), result["manifest_parse_error"]
+        assert _gate(result) == (["ra"], [])
+
+    def test_a_manifest_folder_is_an_unreadable_manifest(self, tmp_path: Path) -> None:
+        (tmp_path / ".export-manifest.json").mkdir()
+        result = mod.compute_candidates(tmp_path)
+        assert result["manifest_parse_error"].startswith(".export-manifest.json cannot be read (")
+
+    def test_a_manifest_key_that_names_no_folder_is_stale(self, tmp_path: Path) -> None:
+        root = tmp_path / "skills"
+        _make_skill(root, "alpha", metadata={"name": "alpha", "exports": ["a"]})
+        _write(root / "file.txt", "not a folder")
+        _write(tmp_path / "escape" / "SKILL.md", "# outside the skills folder\n")
+        _write_manifest(root, {name: {} for name in ("alpha", "../escape", "", "a/b", "file.txt", "gone")})
+        result = mod.compute_candidates(root)
+        assert _gate(result) == (["alpha"], [])
+        assert result["stale_manifest_keys"] == ["", "../escape", "a/b", "file.txt", "gone"]
+
+    def test_an_explicit_name_that_is_a_path_is_no_such_folder(self, tmp_path: Path) -> None:
+        root = tmp_path / "skills"
+        _make_skill(root, "alpha", metadata={"name": "alpha", "exports": ["a"]})
+        _make_skill(tmp_path, "outside", metadata={"name": "outside", "exports": ["o"]})
+        result = mod.compute_candidates(root, ["../outside", "alpha/.."])
+        assert _gate(result) == ([], [("../outside", "no-such-folder"), ("alpha/..", "no-such-folder")])
+
+    def test_candidates_sort_by_name_on_every_platform(self, tmp_path: Path) -> None:
+        # A Path sorts without case on Windows; the gate orders names as
+        # strings everywhere, so upper case comes first.
+        for name in ("alpha", "Zed"):
+            _write(tmp_path / name / "active" / name / "SKILL.md", "# a module skill\n")
+        result = mod.compute_candidates(tmp_path)
+        assert [x["skill_dir"] for x in result["excluded"]] == ["Zed", "alpha"]
+        explicit = mod.compute_candidates(tmp_path, ["gamma", "Beta", "gamma"])
+        assert [x["skill_dir"] for x in explicit["excluded"]] == ["Beta", "gamma"]
+
+    def test_a_composes_cycle_is_not_an_exclusion(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "a", metadata={"name": "a", "exports": ["a"], "composes": ["b"]})
+        _make_skill(tmp_path, "b", metadata={"name": "b", "exports": ["b"], "composes": ["a"]})
+        result = mod.compute_candidates(tmp_path, ["a", "b"])
+        assert _gate(result) == (["a", "b"], [])
+        assert result["cycles"] == ["a"]
+
+    def test_a_top_level_link_is_not_skf_output(self, tmp_path: Path) -> None:
+        root = tmp_path / "skills"
+        _make_skill(tmp_path / "elsewhere", "linked", metadata={"name": "linked", "exports": ["l"]})
+        _symlink(tmp_path / "elsewhere" / "linked", root / "linked")
+        result = mod.compute_candidates(root, ["linked"])
+        assert _gate(result) == ([], [("linked", "not-skf-output")])
+
+    @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                        reason="needs POSIX permissions that deny this user")
+    def test_a_folder_skf_cannot_read_is_not_a_stale_key(self, tmp_path: Path) -> None:
+        root = tmp_path / "skills"
+        _make_skill(root, "alpha", metadata={"name": "alpha", "exports": ["a"]})
+        locked = tmp_path / "locked"
+        _write(locked / "hidden" / "SKILL.md", "# behind a folder SKF cannot search\n")
+        _symlink(locked / "hidden", root / "hidden")
+        _write_manifest(root, {"alpha": {}, "hidden": {}})
+        locked.chmod(0)
+        try:
+            result = mod.compute_candidates(root)
+        finally:
+            locked.chmod(0o755)
+        assert result["stale_manifest_keys"] == []
+        assert _gate(result) == (["alpha"], [("hidden", "no-skf-package")])
+
+    def test_cli_candidates(self, tmp_path: Path) -> None:
+        _stack_folder(tmp_path)
+        result = _run_cli("candidates", str(tmp_path), "--explicit", " beta , beta,alpha,,app-stack ")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert set(payload) == CANDIDATE_KEYS
+        assert payload["candidate_source"] == "explicit"
+        assert _gate(payload) == (["alpha", "beta"], [("app-stack", "not-a-skill")])
+
+    def test_cli_candidates_reads_the_manifest(self, tmp_path: Path) -> None:
+        _stack_folder(tmp_path)
+        _write_manifest(tmp_path, {"beta": {}, "gone": {}})
+        payload = json.loads(_run_cli("candidates", str(tmp_path)).stdout)
+        assert payload["candidate_source"] == "manifest"
+        assert _gate(payload) == (["beta"], [])
+        assert payload["stale_manifest_keys"] == ["gone"]
+
+    def test_cli_explicit_list_naming_no_skill_exits_1(self, tmp_path: Path) -> None:
+        result = _run_cli("candidates", str(tmp_path), "--explicit", " , ")
+        assert result.returncode == 1
+        assert "--explicit names no skill" in result.stderr
+        assert result.stdout == ""
+
+    def test_cli_candidates_bad_root_exits_1(self, tmp_path: Path) -> None:
+        result = _run_cli("candidates", str(tmp_path / "does-not-exist"))
+        assert result.returncode == 1
+        assert "skills root" in result.stderr
+
+    def test_docstring_says_which_subcommand_reads_the_export_manifest(self) -> None:
+        doc = mod.__doc__
+        assert "The export manifest is never read." not in doc
+        assert "`enumerate` never reads the export manifest" in doc
+        assert "candidates <skills-root> [--explicit a,b]" in doc

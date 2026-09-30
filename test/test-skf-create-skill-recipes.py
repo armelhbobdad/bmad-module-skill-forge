@@ -17,7 +17,8 @@ recipe declares (#530). This test:
     under each other language extraction-patterns.md's language notes run it
     with (`language:` rewritten), checks the exact (file, $NAME's line, NAME)
     matches, that each Python / TS / JS line is a definition line by the
-    provenance verifier's rules, and that the recipe finds nothing once its
+    provenance verifier's rules, that the verifier's kind-at gives the
+    recipe's kind at each line, and that the recipe finds nothing once its
     declared kind is swapped for a neighbouring one. Every run has matches
     to find. It also runs the CLI streaming template's Python over a recipe's
     output. With no ast-grep binary, or another version, those runs are
@@ -1462,32 +1463,11 @@ def _verifier():
 # its line is a use, not a definition.
 NOT_DEFINITIONS = {"vue-define-props", "vue-define-props-tsx"}
 
-# Matches whose $NAME line the provenance verifier's definition rules do not
-# read as a definition, and why. Every other Python / TS / JS match must be.
-_LATER_DECLARATOR = "a declarator after the first in one `export const`"
-_STRING_NAME = "a re-export whose specifier or namespace name is a string"
-_SPLIT = "a declaration whose name sits on its own line"
-_INLINE_DECORATOR = "a decorator on the `export` line"
-DEFINITION_LINE_SKIPS: dict[tuple[str, int, str], str] = {
-    ("adv.ts", 10, "B2"): _LATER_DECLARATOR,
-    ("adv.ts", 11, "Upper"): _LATER_DECLARATOR,
-    ("adv.ts", 12, "AfterDestr"): _LATER_DECLARATOR,
-    ("adv.tsx", 3, "Comp"): _LATER_DECLARATOR,
-    ("adv.js", 2, "C"): _LATER_DECLARATOR,
-    ("adv.ts", 51, "strAlias"): _STRING_NAME,
-    ("adv.ts", 52, "quoted-out"): _STRING_NAME,
-    ("adv.ts", 55, "strNs"): _STRING_NAME,
-    ("edge.py", 13, "spaced"): _SPLIT,
-    ("tricky.tsx", 33, "Multi"): _SPLIT,
-    ("adv.tsx", 20, "MultiLineProps"): _SPLIT,
-    ("decls.ts", 31, "Inner"): _INLINE_DECORATOR,
-    ("adv.js", 7, "H"): _INLINE_DECORATOR,
-}
-
-
 def test_expected_lines_are_definition_lines(fixture_dir: Path) -> None:
     """Each Python / TS / JS line EXPECTED cites is one the provenance
-    verifier (`find_definition_lines`) accepts, except the listed skips."""
+    verifier (`find_definition_lines`) accepts: later declarators, string
+    names in re-exports, a name on the line after its keyword and a
+    decorator on the `export` line included (#560)."""
     verifier = _verifier()
     unread = []
     for (recipe_id, _), matches in EXPECTED.items():
@@ -1497,11 +1477,35 @@ def test_expected_lines_are_definition_lines(fixture_dir: Path) -> None:
             lines = verifier.find_definition_lines(file, name, fixture_dir)
             if lines is None:
                 continue  # no definition rule for this extension (.rs, .go, .vue)
-            if line not in lines and (file, line, name) not in DEFINITION_LINE_SKIPS:
+            if line not in lines:
                 unread.append((recipe_id, file, line, name, lines))
     assert unread == []
-    cited = {m for matches in EXPECTED.values() for m in matches}
-    assert set(DEFINITION_LINE_SKIPS) <= cited, "a skip no EXPECTED entry cites"
+
+
+@needs_ast_grep
+def test_kind_at_gives_each_recipe_kind(fixture_dir: Path) -> None:
+    """The provenance verifier's kind-at, reading extraction-patterns.md,
+    gives the kind the matching recipe declares at every Python / TS / JS /
+    Rust / Go line EXPECTED cites (a Vue recipe's $NAME is a type, so its
+    lines are looked up by line alone)."""
+    verifier = _verifier()
+    recipes = verifier.load_recipes(PATTERNS)
+    wanted: dict[str, dict[tuple[int, str | None], set[str]]] = {}
+    for (recipe_id, _), matches in EXPECTED.items():
+        for file, line, name in matches:
+            if verifier.ast_grep_language(file) is None:
+                continue  # .vue: read as HTML through an sgconfig.yml
+            target = (line, None if recipe_id in NOT_DEFINITIONS else name)
+            wanted.setdefault(file, {}).setdefault(target, set()).add(KINDS[recipe_id])
+    wrong = []
+    for file, targets in sorted(wanted.items()):
+        order = sorted(targets, key=lambda t: (t[0], t[1] or ""))
+        results = verifier.kinds_at((fixture_dir / file).read_bytes(),
+                                    verifier.ast_grep_language(file), order, recipes)
+        for target, result in zip(order, results):
+            if result["status"] != "found" or {result["kind"]} != targets[target]:
+                wrong.append((file, target, result["status"], result["kind"], targets[target]))
+    assert wrong == []
 
 
 @needs_ast_grep

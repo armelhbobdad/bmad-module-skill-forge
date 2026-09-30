@@ -142,9 +142,11 @@ Every generated skill includes a confidence distribution in `metadata.json`:
     "t2": 12,
     "t3": 3
   },
-  "confidence_tier": "Deep"  // valid values: "Quick", "Forge", "Forge+", "Deep"
+  "confidence_tier": "Deep"  // single skill: "Quick", "Forge", "Forge+" or "Deep"; stack: "T1", "T1-low", "T2" or "T3"
 }
 ```
+
+`confidence_tier` uses a different scale per `skill_type`. A single skill records the forge tier it was compiled at (Quick, Forge, Forge+ or Deep). A stack skill records the dominant confidence tier of its libraries (T1, T1-low, T2 or T3) and keeps its forge tier in `forge_tier`. The export gate checks the value against the scale of the skill's `skill_type`. An older stack may still hold its forge tier in `confidence_tier`: the gate accepts it with a low warning, and re-running Stack Skill records the dominant tier.
 
 The distribution counts each provenance entry once, by its `signature_source`, so it reports how each signature was obtained. It does not feed test-skill scoring: `compute-score.py` does not read these counts, and for library skills coverage-check §4b checks only that the bins sum to the documented-export count.
 

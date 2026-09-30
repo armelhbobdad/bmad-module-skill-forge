@@ -10,19 +10,30 @@ Covers:
   - excluded directories: node_modules / .venv / .git / dist are skipped
   - per-parser unit tests: each parser surfaces the canonical fields
   - CLI invocation: subprocess returns JSON with expected shape
+  - package identity: each manifest's own name and private flag
+  - internal_deps and umbrella_candidates across workspace members
+  - --include-dev: development dependencies tagged scope: dev
+  - searched_filenames, and manifest-patterns.md in skf-create-stack-skill
+    kept equal to MANIFEST_ECOSYSTEMS and EXCLUDED_DIRS
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-scan-manifests.py"
+MANIFEST_PATTERNS = (
+    REPO_ROOT / "src" / "skf-create-stack-skill" / "references" / "manifest-patterns.md"
+)
 
 spec = importlib.util.spec_from_file_location("skf_scan_manifests", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
@@ -464,6 +475,8 @@ dependencies = ["requests>=2.0", "click==8.0"]
             "manifests": [],
             "total_unique": 0,
             "monorepo": False,
+            "umbrella_candidates": [],
+            "searched_filenames": list(mod.MANIFEST_ECOSYSTEMS),
         }
 
     def test_malformed_manifest_emits_warning(self, tmp_path: Path) -> None:
@@ -542,6 +555,8 @@ class TestCli:
             "manifests": [],
             "total_unique": 0,
             "monorepo": False,
+            "umbrella_candidates": [],
+            "searched_filenames": list(mod.MANIFEST_ECOSYSTEMS),
         }
 
     def test_scan_bad_root_exits_1(self, tmp_path: Path) -> None:
@@ -562,3 +577,376 @@ class TestCli:
     def test_subcommand_required(self) -> None:
         result = _run_cli()
         assert result.returncode != 0
+
+    def test_scan_include_dev_flag(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "package.json",
+            json.dumps({"dependencies": {"react": "^18"}, "devDependencies": {"vitest": "^1"}}),
+        )
+        plain = json.loads(_run_cli("scan", str(tmp_path)).stdout)
+        assert _names(plain["manifests"][0]["deps"]) == ["react"]
+        result = _run_cli("scan", str(tmp_path), "--include-dev")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["manifests"][0]["deps"] == [
+            {"name": "react", "version": "^18"},
+            {"name": "vitest", "version": "^1", "scope": "dev"},
+        ]
+        assert payload["total_unique"] == 1
+        assert payload["total_unique_dev"] == 1
+
+
+# --------------------------------------------------------------------------
+# Package identity: name and private flag
+# --------------------------------------------------------------------------
+
+
+class TestIdentity:
+    @pytest.mark.parametrize(
+        ("filename", "text", "expected"),
+        [
+            ("package.json", '{"name": "@acme/core"}', ("@acme/core", False)),
+            ("package.json", '{"name": "root", "private": true}', ("root", True)),
+            ("package.json", '{"private": true}', (None, True)),
+            ("package.json", "{not json", (None, None)),
+            ("pyproject.toml", '[project]\nname = "acme-core"\n', ("acme-core", False)),
+            (
+                "pyproject.toml",
+                '[project]\nname = "internal"\n'
+                'classifiers = ["Private :: Do Not Upload"]\n',
+                ("internal", True),
+            ),
+            ("pyproject.toml", '[tool.poetry]\nname = "poetic"\n', ("poetic", False)),
+            (
+                "pyproject.toml",
+                '[tool.poetry]\nname = "app"\npackage-mode = false\n',
+                ("app", True),
+            ),
+            ("pyproject.toml", "[tool.black]\nline-length = 100\n", (None, None)),
+            ("setup.py", 'from setuptools import setup\nsetup(\n    name="legacy",\n)\n', ("legacy", False)),
+            ("setup.cfg", "[metadata]\nname = cfgpkg\nversion = 1.0\n", ("cfgpkg", False)),
+            ("Cargo.toml", '[package]\nname = "animato"\n', ("animato", False)),
+            ("Cargo.toml", '[package]\nname = "bench"\npublish = false\n', ("bench", True)),
+            ("Cargo.toml", '[package]\nname = "nope"\npublish = []\n', ("nope", True)),
+            ("Cargo.toml", '[package]\nname = "m"\npublish.workspace = true\n', ("m", None)),
+            ("Cargo.toml", '[workspace]\nmembers = ["crates/*"]\n', (None, None)),
+            ("go.mod", "module github.com/acme/kit\n\ngo 1.22\n", ("github.com/acme/kit", None)),
+            ("composer.json", '{"name": "acme/widgets"}', ("acme/widgets", None)),
+            ("Package.swift", 'let package = Package(\n    name: "Kit",\n)\n', ("Kit", None)),
+        ],
+    )
+    def test_readers(self, filename: str, text: str, expected: tuple) -> None:
+        assert mod.IDENTITY_READERS[filename](text) == expected
+
+    def test_pom_own_coordinates_not_parent_or_dependency(self) -> None:
+        text = """
+<project>
+  <!-- <artifactId>commented</artifactId> -->
+  <parent>
+    <groupId>com.acme</groupId>
+    <artifactId>acme-parent</artifactId>
+  </parent>
+  <artifactId>acme-core</artifactId>
+  <properties>
+    <maven.deploy.skip>true</maven.deploy.skip>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+    </dependency>
+  </dependencies>
+</project>
+"""
+        assert mod.identity_pom_xml(text) == ("com.acme:acme-core", True)
+
+    def test_formats_without_a_package_name(self, tmp_path: Path) -> None:
+        _write(tmp_path / "requirements.txt", "requests\n")
+        _write(tmp_path / "a" / "Gemfile", "gem 'rails'\n")
+        _write(tmp_path / "b" / "build.gradle", "dependencies { implementation 'a:b:1' }\n")
+        _write(tmp_path / "c" / "Pipfile", '[packages]\nrequests = "*"\n')
+        result = mod.scan(tmp_path)
+        assert [(m["name"], m["private"]) for m in result["manifests"]] == [(None, None)] * 4
+
+    def test_scan_reports_identity(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", json.dumps({"name": "root", "private": True}))
+        result = mod.scan(tmp_path)
+        manifest = result["manifests"][0]
+        assert list(manifest) == ["path", "ecosystem", "name", "private", "deps", "internal_deps"]
+        assert (manifest["name"], manifest["private"]) == ("root", True)
+
+
+# --------------------------------------------------------------------------
+# internal_deps and umbrella_candidates
+# --------------------------------------------------------------------------
+
+
+def _npm(root: Path, rel: str, name: str, deps: dict | None = None, **extra) -> None:
+    _write(root / rel / "package.json", json.dumps({"name": name, "dependencies": deps or {}, **extra}))
+
+
+class TestWorkspaceMembers:
+    def test_npm_internal_deps(self, tmp_path: Path) -> None:
+        _npm(tmp_path, ".", "root", private=True)
+        _npm(tmp_path, "packages/core", "@acme/core", {"zod": "^3"})
+        _npm(tmp_path, "packages/client", "@acme/client", {"@acme/core": "workspace:*", "zod": "^3"})
+        result = mod.scan(tmp_path)
+        by_path = {m["path"]: m for m in result["manifests"]}
+        assert by_path["packages/client/package.json"]["internal_deps"] == ["@acme/core"]
+        assert by_path["packages/core/package.json"]["internal_deps"] == []
+        assert by_path["package.json"]["internal_deps"] == []
+
+    def test_python_names_compare_as_pep_503(self, tmp_path: Path) -> None:
+        _write(tmp_path / "libs" / "core" / "pyproject.toml", '[project]\nname = "Acme_Core"\n')
+        _write(
+            tmp_path / "libs" / "app" / "pyproject.toml",
+            '[project]\nname = "acme-app"\ndependencies = ["acme.core>=1", "requests"]\n',
+        )
+        result = mod.scan(tmp_path)
+        app = next(m for m in result["manifests"] if m["name"] == "acme-app")
+        assert app["internal_deps"] == ["Acme_Core"]
+
+    def test_rust_dash_and_underscore_alike(self, tmp_path: Path) -> None:
+        _write(tmp_path / "crates" / "a" / "Cargo.toml", '[package]\nname = "anim-core"\n')
+        _write(
+            tmp_path / "crates" / "b" / "Cargo.toml",
+            '[package]\nname = "anim"\n\n[dependencies]\nanim_core = { path = "../a" }\n',
+        )
+        result = mod.scan(tmp_path)
+        anim = next(m for m in result["manifests"] if m["name"] == "anim")
+        assert anim["internal_deps"] == ["anim-core"]
+
+    def test_maven_project_group_id_resolves(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "core" / "pom.xml",
+            "<project><groupId>com.acme</groupId><artifactId>core</artifactId></project>",
+        )
+        _write(
+            tmp_path / "app" / "pom.xml",
+            "<project><groupId>com.acme</groupId><artifactId>app</artifactId>"
+            "<dependencies><dependency><groupId>${project.groupId}</groupId>"
+            "<artifactId>core</artifactId></dependency></dependencies></project>",
+        )
+        result = mod.scan(tmp_path)
+        app = next(m for m in result["manifests"] if m["name"] == "com.acme:app")
+        assert app["internal_deps"] == ["com.acme:core"]
+
+    def test_dev_dependencies_are_not_internal_deps(self, tmp_path: Path) -> None:
+        _npm(tmp_path, "packages/core", "@acme/core")
+        _npm(tmp_path, "packages/tests", "@acme/tests", devDependencies={"@acme/core": "*"})
+        result = mod.scan(tmp_path, include_dev=True)
+        tests = next(m for m in result["manifests"] if m["name"] == "@acme/tests")
+        assert tests["internal_deps"] == []
+
+    def test_umbrella_candidate(self, tmp_path: Path) -> None:
+        _npm(tmp_path, ".", "root", private=True)
+        for member in ("core", "client", "server"):
+            _npm(tmp_path, f"packages/{member}", f"@acme/{member}")
+        _npm(
+            tmp_path,
+            "packages/acme",
+            "acme",
+            {"@acme/core": "*", "@acme/client": "*", "@acme/server": "*"},
+        )
+        # a private example depends on the facade and is not a member
+        _npm(tmp_path, "examples/demo", "demo", {"acme": "*", "@acme/core": "*"}, private=True)
+        result = mod.scan(tmp_path)
+        assert result["umbrella_candidates"] == [
+            {
+                "path": "packages/acme/package.json",
+                "name": "acme",
+                "ecosystem": "npm",
+                "internal_dep_count": 3,
+                "member_count": 3,
+            }
+        ]
+
+    def test_below_half_is_not_an_umbrella(self, tmp_path: Path) -> None:
+        for member in ("a", "b", "c", "d", "e", "f"):
+            _npm(tmp_path, f"packages/{member}", member)
+        _npm(tmp_path, "packages/adapter", "adapter", {"a": "*", "b": "*"})
+        assert mod.scan(tmp_path)["umbrella_candidates"] == []
+
+    def test_one_internal_dep_is_not_an_umbrella(self, tmp_path: Path) -> None:
+        _npm(tmp_path, "packages/a", "a")
+        _npm(tmp_path, "packages/b", "b", {"a": "*"})
+        assert mod.scan(tmp_path)["umbrella_candidates"] == []
+
+
+# --------------------------------------------------------------------------
+# --include-dev
+# --------------------------------------------------------------------------
+
+
+class TestDevDependencies:
+    @pytest.mark.parametrize(
+        ("filename", "text", "dev_names"),
+        [
+            (
+                "package.json",
+                json.dumps({"dependencies": {"react": "1"}, "devDependencies": {"jest": "29"}}),
+                ["jest"],
+            ),
+            (
+                "pyproject.toml",
+                "[project]\n"
+                'dependencies = ["requests"]\n'
+                "[project.optional-dependencies]\n"
+                'dev = ["black"]\n'
+                'aws = ["boto3"]\n'
+                "[dependency-groups]\n"
+                'test = ["pytest>=8", {include-group = "lint"}]\n'
+                "[tool.poetry.dev-dependencies]\n"
+                'mypy = "^1"\n'
+                "[tool.poetry.group.docs.dependencies]\n"
+                'sphinx = "^7"\n'
+                "[tool.pdm.dev-dependencies]\n"
+                'lint = ["ruff"]\n'
+                "[tool.uv]\n"
+                'dev-dependencies = ["coverage"]\n',
+                ["pytest", "black", "mypy", "sphinx", "ruff", "coverage"],
+            ),
+            (
+                "setup.py",
+                "setup(install_requires=['requests'], tests_require=['pytest'],\n"
+                "      extras_require={'docs': ['sphinx'], 'aws': ['boto3']})\n",
+                ["pytest", "sphinx"],
+            ),
+            (
+                "setup.cfg",
+                "[options]\ninstall_requires =\n    requests\ntests_require =\n    pytest\n\n"
+                "[options.extras_require]\ndev =\n    black\n    mypy\naws = boto3\n",
+                ["pytest", "black", "mypy"],
+            ),
+            ("Pipfile", '[packages]\nflask = "*"\n\n[dev-packages]\npytest = "*"\n', ["pytest"]),
+            (
+                "Cargo.toml",
+                '[package]\nname = "x"\n\n[dependencies]\nserde = "1"\n\n'
+                '[dev-dependencies]\ncriterion = "0.5"\n',
+                ["criterion"],
+            ),
+            (
+                "pom.xml",
+                "<project><dependencies>"
+                "<dependency><groupId>junit</groupId><artifactId>junit</artifactId>"
+                "<scope>test</scope></dependency>"
+                "<dependency><groupId>javax</groupId><artifactId>api</artifactId>"
+                "<scope>provided</scope></dependency>"
+                "</dependencies></project>",
+                ["junit:junit"],
+            ),
+            (
+                "build.gradle",
+                "dependencies {\n  implementation 'a:b:1'\n  testImplementation 'junit:junit:4.13'\n"
+                "  androidTestImplementation(\"x:espresso:3\")\n}\n",
+                ["junit:junit", "x:espresso"],
+            ),
+            (
+                "build.gradle.kts",
+                "dependencies {\n  implementation(\"a:b:1\")\n"
+                "  testImplementation(kotlin(\"test\"))\n"
+                "  testImplementation(\"io.mockk:mockk:1.13.8\")\n"
+                "  testImplementation(\"org.junit.jupiter:junit-jupiter:5.10.0\")\n}\n",
+                ["io.mockk:mockk", "org.junit.jupiter:junit-jupiter"],
+            ),
+            (
+                "Gemfile",
+                "gem 'rails'\ngroup :development, :test do\n  gem 'rspec'\nend\n",
+                ["rspec"],
+            ),
+            (
+                "composer.json",
+                json.dumps({"require": {"monolog/monolog": "^3"},
+                            "require-dev": {"phpunit/phpunit": "^10", "ext-xdebug": "*"}}),
+                ["phpunit/phpunit"],
+            ),
+        ],
+    )
+    def test_dev_sections(self, tmp_path: Path, filename: str, text: str, dev_names: list) -> None:
+        _write(tmp_path / filename, text)
+        manifest = mod.scan(tmp_path, include_dev=True)["manifests"][0]
+        dev = [d for d in manifest["deps"] if d.get("scope") == "dev"]
+        assert _names(dev) == dev_names
+        runtime = [d for d in manifest["deps"] if "scope" not in d]
+        assert runtime == mod.PARSERS[filename](text)[0]
+
+    def test_formats_without_dev_sections(self, tmp_path: Path) -> None:
+        _write(tmp_path / "requirements.txt", "requests\n")
+        _write(tmp_path / "a" / "go.mod", "module x\n\nrequire github.com/a/b v1.0.0\n")
+        _write(tmp_path / "b" / "Package.swift", '.package(url: "https://github.com/a/b.git", from: "1.0.0")')
+        result = mod.scan(tmp_path, include_dev=True)
+        assert all("scope" not in d for m in result["manifests"] for d in m["deps"])
+        assert result["total_unique_dev"] == 0
+
+    def test_runtime_name_not_repeated_and_dev_only_total(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "package.json",
+            json.dumps({"dependencies": {"zod": "3"}, "devDependencies": {"zod": "3", "vitest": "1"}}),
+        )
+        _write(
+            tmp_path / "packages" / "a" / "package.json",
+            json.dumps({"dependencies": {"vitest": "1"}, "devDependencies": {"tsx": "4"}}),
+        )
+        result = mod.scan(tmp_path, include_dev=True)
+        root = next(m for m in result["manifests"] if m["path"] == "package.json")
+        assert root["deps"] == [
+            {"name": "zod", "version": "3"},
+            {"name": "vitest", "version": "1", "scope": "dev"},
+        ]
+        # vitest is a runtime dependency of packages/a, so only tsx is dev-only
+        assert result["total_unique"] == 2
+        assert result["total_unique_dev"] == 1
+
+    def test_default_scan_reads_runtime_only(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "Cargo.toml",
+            '[package]\nname = "x"\n\n[dependencies]\nserde = "1"\n\n[dev-dependencies]\nmockall = "0.12"\n',
+        )
+        result = mod.scan(tmp_path)
+        assert _names(result["manifests"][0]["deps"]) == ["serde"]
+        assert "total_unique_dev" not in result
+
+
+# --------------------------------------------------------------------------
+# searched_filenames and manifest-patterns.md
+# --------------------------------------------------------------------------
+
+
+def _section(text: str, heading: str) -> str:
+    return text.split(f"## {heading}\n", 1)[1].split("\n## ", 1)[0]
+
+
+def _documented_manifests() -> dict[str, str]:
+    """Manifest file -> ecosystem, from the Supported Ecosystems table."""
+    section = _section(MANIFEST_PATTERNS.read_text(encoding="utf-8"), "Supported Ecosystems")
+    table: dict[str, str] = {}
+    for line in section.splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        ecosystem = cells[0].strip("`")
+        for filename in re.findall(r"`([^`]+)`", cells[2]):
+            assert filename not in table, f"{filename} listed twice"
+            table[filename] = ecosystem
+    return table
+
+
+class TestManifestPatternsDoc:
+    def test_searched_filenames_are_the_ecosystem_table(self, tmp_path: Path) -> None:
+        _write(tmp_path / "go.mod", "module x\n")
+        assert mod.scan(tmp_path)["searched_filenames"] == list(mod.MANIFEST_ECOSYSTEMS)
+
+    def test_table_matches_the_script(self) -> None:
+        assert _documented_manifests() == mod.MANIFEST_ECOSYSTEMS
+
+    def test_table_names_the_formerly_missing_manifests(self) -> None:
+        documented = _documented_manifests()
+        for filename in ("setup.cfg", "build.gradle.kts", "Package.swift"):
+            assert filename in documented
+        assert not any("csproj" in name for name in documented)
+        assert "csproj" not in MANIFEST_PATTERNS.read_text(encoding="utf-8")
+
+    def test_scan_exclusions_match_the_script(self) -> None:
+        section = _section(MANIFEST_PATTERNS.read_text(encoding="utf-8"), "Scan Exclusion Patterns")
+        documented = {d.rstrip("/") for d in re.findall(r"`([^`]+/)`", section)}
+        assert documented == set(mod.EXCLUDED_DIRS)

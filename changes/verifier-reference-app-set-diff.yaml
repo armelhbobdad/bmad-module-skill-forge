@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill
+summary: |
+  The provenance check no longer compares a reference app's documented exports with its provenance entries. A reference app documents no exports by design while its entries follow each citation, so every entry came back as orphaned: Create Skill listed each one under Remaining Warnings, and Update Skill recorded `Provenance: WARN` on every run with one warning per entry. For a skill whose `metadata.json` has `scope_type: reference-app`, the check now reports no missing or orphaned exports, marks the comparison `set_diff: not-applicable`, and still checks source lines and citation prefixes.
+prs: [617]
+issues: [549]
