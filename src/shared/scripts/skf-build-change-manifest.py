@@ -26,14 +26,47 @@ schema, plus the provenance map for the denominator.
 
 Subcommands:
 
-  build [--input <file>] [--no-changes-on-empty]
+  build [--input <file>] [--category-a <file>] [--category-b-diff <file>]
       Reads category JSON from stdin or `--input <file>`, emits the
       unified manifest envelope.
 
   deletion-ratio --provenance-map <file> [--input <file>]
+                 [--category-a <file>] [--category-b-diff <file>]
       Same category JSON input. Reads provenance entries[] from
       <file>, computes the §2.2 trigger envelope. Auto-skips when
       degraded_mode or update_mode==gap-driven is set in the input.
+
+Helper files in place of typed slices (update-skill detect-changes §2.1):
+
+  --category-a <file>       the output of skf-classify-changed-files.py
+                            classify: its category_a is the Category A
+                            slice, and each of its moved_files (a
+                            same-content move) is a category_c.renamed_files
+                            item, ahead of the input's own
+  --category-b-diff <file>  the output of skf-structural-diff.py over the
+                            modified files: the Category B slice, mapped
+                              removed[]  -> deleted_exports {name, file, old_line}
+                              added[]    -> new_exports {name, file, line}
+                              changed[]  -> modified_exports {name, file,
+                                            old_line, new_line} for an export
+                                            with a field other than `line`, or
+                                            one signature_unverified[] lists
+                                            (its lines null when no field
+                                            changed); moved_exports for an
+                                            export whose only field is `line`
+                              moved[]    -> moved_exports {name, file:
+                                            current_file, old_line:
+                                            previous_line, new_line: line},
+                                            unless it is a modified export
+                            label_changes[] is not drift, and a name
+                            ambiguous_names[] lists stays removed and added
+  A given file replaces the input's own slice. Either way, every category_c
+  rename then takes its pair out of the lists it was found in: a renamed
+  file's old_path out of category_a.deleted and new_path out of
+  category_a.added; a renamed export's old_name out of
+  category_b.deleted_exports (the one in its `old_file` when the item gives
+  one, else preferably the one in its `file`) and its new_name out of
+  category_b.new_exports (preferably the one in its `file`).
 
 Input JSON shape (object on stdin or in --input file):
 
@@ -67,8 +100,9 @@ results) and degraded runs (which skip Category B) feed the same
 script without sentinel values.
 
 Exit codes:
-  0  — operation succeeded
-  1  — user error (malformed JSON, bad path, malformed provenance file)
+  0  operation succeeded
+  1  user error (malformed JSON, bad path, malformed provenance file, a
+     helper file that is not the output it names)
 """
 
 from __future__ import annotations
@@ -99,7 +133,10 @@ def _get_list(d: dict, *path: str) -> list:
 def _load_input(input_path: Path | None) -> dict:
     """Read JSON either from --input path or from stdin."""
     if input_path is not None:
-        text = input_path.read_text(encoding="utf-8")
+        try:
+            text = input_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValueError(f"cannot read input {input_path}: {exc}") from exc
     else:
         text = sys.stdin.read()
     try:
@@ -109,6 +146,130 @@ def _load_input(input_path: Path | None) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"input must be a JSON object, got {type(data).__name__}")
     return data
+
+
+def _load_helper_file(path: Path, what: str, key: str) -> dict:
+    """A helper's JSON output: an object holding `key`. Raises ValueError."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"cannot read {what} {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{what} {path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict) or key not in data:
+        raise ValueError(f"{what} {path} has no `{key}`: is it the helper's output?")
+    return data
+
+
+# --------------------------------------------------------------------------
+# Helper files (update-skill detect-changes §2.1)
+# --------------------------------------------------------------------------
+
+
+def category_b_from_diff(diff: dict) -> dict:
+    """Category B's four lists from a skf-structural-diff.py diff of the
+    modified files (see the module docstring for the mapping)."""
+    lists: dict[str, list] = {
+        "modified_exports": [], "new_exports": [], "deleted_exports": [], "moved_exports": [],
+    }
+    for item in _get_list(diff, "removed"):
+        if isinstance(item, dict):
+            lists["deleted_exports"].append(
+                {"name": item.get("name"), "file": item.get("file"), "old_line": item.get("line")})
+    for item in _get_list(diff, "added"):
+        if isinstance(item, dict):
+            lists["new_exports"].append({"name": item.get("name"), "file": item.get("file"), "line": item.get("line")})
+    changed: dict[tuple, dict] = {}
+    for item in _get_list(diff, "changed"):
+        if not isinstance(item, dict):
+            continue
+        record = changed.setdefault(
+            (item.get("name"), item.get("file")), {"fields": set(), "line": item.get("line"), "old_line": None})
+        record["fields"].add(item.get("field"))
+        if item.get("field") == "line":
+            record["old_line"] = item.get("baseline_value")
+    unverified = list(dict.fromkeys(
+        (item.get("name"), item.get("file")) for item in _get_list(diff, "signature_unverified")
+        if isinstance(item, dict)
+    ))
+    modified: set[tuple] = set()
+    for key, record in changed.items():
+        old_line = record["old_line"] if record["old_line"] is not None else record["line"]
+        entry = {"name": key[0], "file": key[1], "old_line": old_line, "new_line": record["line"]}
+        if record["fields"] - {"line"} or key in unverified:
+            lists["modified_exports"].append(entry)
+            modified.add(key)
+        else:
+            lists["moved_exports"].append(entry)
+    for key in unverified:
+        if key not in modified:
+            lists["modified_exports"].append({"name": key[0], "file": key[1], "old_line": None, "new_line": None})
+            modified.add(key)
+    for item in _get_list(diff, "moved"):
+        if isinstance(item, dict) and (item.get("name"), item.get("current_file")) not in modified:
+            lists["moved_exports"].append({
+                "name": item.get("name"), "file": item.get("current_file"),
+                "old_line": item.get("previous_line"), "new_line": item.get("line"),
+            })
+    return lists
+
+
+def _take_out(entries: list, name: object, files: tuple) -> None:
+    """Remove the first entry named `name`, preferring one in the first of
+    `files` that holds one (a None in `files` stands for any file)."""
+    for wanted in files:
+        for i, entry in enumerate(entries):
+            if isinstance(entry, dict) and entry.get("name") == name and wanted in (None, entry.get("file")):
+                del entries[i]
+                return
+
+
+def apply_renames(payload: dict) -> dict:
+    """Take each Category C rename's pair out of the Category A and B lists
+    it was found in (see the module docstring). payload holds category_a
+    and category_b as objects, as assemble leaves them."""
+    cat_a, cat_b = payload["category_a"], payload["category_b"]
+    cat_c = payload.get("category_c", {}) or {}
+    for move in _get_list(cat_c, "renamed_files"):
+        if not isinstance(move, dict):
+            continue
+        for key, path in (("deleted", move.get("old_path")), ("added", move.get("new_path"))):
+            listed = _get_list(cat_a, key)
+            if path in listed:
+                cat_a[key] = [p for p in listed if p != path]
+    for rename in _get_list(cat_c, "renamed_exports"):
+        if not isinstance(rename, dict):
+            continue
+        deleted = list(_get_list(cat_b, "deleted_exports"))
+        new = list(_get_list(cat_b, "new_exports"))
+        old_files = (rename["old_file"],) if rename.get("old_file") else (rename.get("file"), None)
+        _take_out(deleted, rename.get("old_name"), old_files)
+        _take_out(new, rename.get("new_name"), (rename.get("file"), None))
+        cat_b["deleted_exports"], cat_b["new_exports"] = deleted, new
+    return payload
+
+
+def assemble(payload: dict, *, category_a_doc: dict | None = None, diff: dict | None = None) -> dict:
+    """The category JSON build and deletion-ratio read: the input, with the
+    helper files' slices in place of its own, and Category C's renames taken
+    out of the A and B lists."""
+    out = dict(payload)
+    cat_c = dict(payload.get("category_c") or {})
+    if category_a_doc is not None:
+        out["category_a"] = {key: list(_get_list(category_a_doc, "category_a", key))
+                             for key in ("modified", "added", "deleted")}
+        moves = [m for m in _get_list(category_a_doc, "moved_files") if isinstance(m, dict)]
+        cat_c["renamed_files"] = moves + list(_get_list(cat_c, "renamed_files"))
+    else:
+        out["category_a"] = {key: list(_get_list(payload, "category_a", key))
+                             for key in ("modified", "added", "deleted")}
+    if diff is not None:
+        out["category_b"] = category_b_from_diff(diff)
+    else:
+        out["category_b"] = {key: list(_get_list(payload, "category_b", key))
+                             for key in ("modified_exports", "new_exports", "deleted_exports", "moved_exports")}
+    out["category_c"] = cat_c
+    return apply_renames(out)
 
 
 # --------------------------------------------------------------------------
@@ -342,9 +503,21 @@ def _ratio_skip(*, skip_reason: str) -> dict:
 # --------------------------------------------------------------------------
 
 
+def _payload(args: argparse.Namespace) -> dict:
+    """The category JSON of a build or deletion-ratio call: the input with
+    the helper files' slices assembled in. Raises ValueError."""
+    payload = _load_input(Path(args.input) if args.input else None)
+    category_a_doc = (
+        _load_helper_file(Path(args.category_a), "--category-a file", "category_a") if args.category_a else None
+    )
+    diff = _load_helper_file(Path(args.category_b_diff), "--category-b-diff file", "removed") \
+        if args.category_b_diff else None
+    return assemble(payload, category_a_doc=category_a_doc, diff=diff)
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     try:
-        payload = _load_input(Path(args.input) if args.input else None)
+        payload = _payload(args)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -356,7 +529,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
 def _cmd_deletion_ratio(args: argparse.Namespace) -> int:
     try:
-        payload = _load_input(Path(args.input) if args.input else None)
+        payload = _payload(args)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -390,9 +563,6 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_build = sub.add_parser("build", help="aggregate categories into manifest")
-    p_build.add_argument(
-        "--input", default=None, help="path to JSON input (default: stdin)"
-    )
     p_build.set_defaults(func=_cmd_build)
 
     p_ratio = sub.add_parser(
@@ -400,12 +570,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="compute §2.2 trigger; requires --provenance-map",
     )
     p_ratio.add_argument(
-        "--input", default=None, help="path to JSON input (default: stdin)"
-    )
-    p_ratio.add_argument(
         "--provenance-map", required=True, help="path to provenance-map.json"
     )
     p_ratio.set_defaults(func=_cmd_deletion_ratio)
+
+    for p in (p_build, p_ratio):
+        p.add_argument(
+            "--input", default=None, help="path to JSON input (default: stdin)"
+        )
+        p.add_argument(
+            "--category-a", metavar="FILE",
+            help="skf-classify-changed-files.py classify output: the Category A slice and its moves",
+        )
+        p.add_argument(
+            "--category-b-diff", metavar="FILE",
+            help="skf-structural-diff.py output over the modified files: the Category B slice",
+        )
 
     return parser
 

@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill with `--from-test-report` now reads every gap of a test report whose run Test Skill's hard gate stopped (`hard-gate-blocked`), with each gap's severity, `Source:` and remediation, from the gap ledger Test Skill writes beside the report (`test-findings-<run id>.json`). Before, it read only the report's Gap Report section, which such a run left as an empty placeholder, so the Critical and High gaps that stopped the test had nothing to repair from. A report older than the ledger is still read from its Gap Report. A script now reads the gaps, which were read by eye before: it expands the folders and globs a remediation names into their source files, and refuses a path that leaves the source tree, through a link too, which the run never scans; the `halted-for-remediation-path` message lists each refused path with its reason.
+issues: [546, 583]

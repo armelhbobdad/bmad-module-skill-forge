@@ -27,14 +27,20 @@ Where the gaps come from:
      twice (a placeholder and an appended copy) still yields its gaps; an id
      seen twice is kept once.
 
-Subcommand:
+Subcommands:
 
   parse [--report <test-report.md>] [--ledger <test-findings.json>]
         [--source-root <dir>] [--ext <extension> ...]
+        [--provenance-map <provenance-map.json>]
 
-  At least one of --report and --ledger. --ext (repeatable, `kt` or
-  `.vue`) adds a source file extension to the list below, for a skill whose
-  provenance map holds files of another language. Output (stdout):
+  paths --source-root <dir> [--ext <extension> ...]
+        [--provenance-map <provenance-map.json>] <path> [<path> ...]
+
+  `parse`: at least one of --report and --ledger. --ext (repeatable, `kt`
+  or `.vue`) adds a source file extension to the list below, and
+  --provenance-map adds the extension of each file its entries[]
+  source_file values name, for a skill whose source holds files of another
+  language. Output (stdout):
 
   {
     "status": "ok",
@@ -100,11 +106,17 @@ whose fixed folders do), when a link takes it outside
 directory or glob holds no file (`no-match`). `resolved_files` is the
 union over all gaps, each file once.
 
+`paths` resolves the paths it is given (each relative to the root, a
+`:line` suffix dropped) the same way, for a path a step names itself
+rather than a remediation text: {"status": "ok", "source_root",
+"resolved_paths", "rejected_paths"}.
+
 Exit codes:
   0  the gaps were printed (possibly none)
   1  the report or ledger is missing or unreadable, or an option value is
      unusable (no --report or --ledger, a --source-root that is not a
-     folder, an --ext that is not a file extension)
+     folder, an --ext that is not a file extension, a --provenance-map
+     that cannot be read as a JSON object)
   2  usage error (argparse: a missing or unknown argument, usage on stderr,
      no JSON)
 
@@ -801,29 +813,67 @@ def _emit(payload: dict) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
-def _cmd_parse(args: argparse.Namespace) -> int:
-    if args.report is None and args.ledger is None:
-        _emit({"status": "error", "code": "INVALID_INPUT", "error": "give --report, --ledger or both"})
-        return 1
+def map_extensions(path: Path) -> list[str]:
+    """The extension (no dot) of each file a provenance map's entries[]
+    source_file values name. Raises ParseError (INVALID_INPUT)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ParseError("INVALID_INPUT", f"cannot read --provenance-map {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ParseError("INVALID_INPUT", f"--provenance-map {path} is not a JSON object")
+    entries = data.get("entries") if isinstance(data.get("entries"), list) else []
+    found: list[str] = []
+    for entry in entries:
+        if isinstance(entry, dict) and isinstance(entry.get("source_file"), str):
+            m = _EXTENSION.search(entry["source_file"].strip())
+            if m and m.group(1) not in found:
+                found.append(m.group(1))
+    return found
+
+
+def _options(args: argparse.Namespace) -> tuple[Path | None, list[str]]:
+    """(--source-root, the extensions --ext and --provenance-map add). Raises
+    ParseError (INVALID_INPUT)."""
     root = None
     if args.source_root is not None:
         root = Path(args.source_root)
         if not root.is_dir():
-            _emit({"status": "error", "code": "INVALID_INPUT", "error": f"--source-root is not a folder: {root}"})
-            return 1
+            raise ParseError("INVALID_INPUT", f"--source-root is not a folder: {root}")
     extensions: list[str] = []
     for value in args.ext:
         m = _EXT_ARG.fullmatch(value)
         if not m:
-            _emit(
-                {
-                    "status": "error",
-                    "code": "INVALID_INPUT",
-                    "error": f"--ext takes a file extension such as kt or .vue, got {value!r}",
-                }
-            )
-            return 1
+            raise ParseError("INVALID_INPUT", f"--ext takes a file extension such as kt or .vue, got {value!r}")
         extensions.append(m.group(1))
+    if args.provenance_map is not None:
+        extensions += map_extensions(Path(args.provenance_map))
+    return root, extensions
+
+
+def _cmd_paths(args: argparse.Namespace) -> int:
+    try:
+        root, extensions = _options(args)
+    except ParseError as exc:
+        _emit({"status": "error", "code": exc.code, "error": str(exc)})
+        return 1
+    real = Path(os.path.realpath(root))
+    suffixes = _SOURCE_SUFFIXES | {f".{ext}" for ext in extensions}
+    tokens = [_LINE_SUFFIX.sub("", path.strip()) for path in args.path if path.strip()]
+    resolved, rejected = resolve_paths(tokens, real, suffixes)
+    _emit({"status": "ok", "source_root": str(real), "resolved_paths": resolved, "rejected_paths": rejected})
+    return 0
+
+
+def _cmd_parse(args: argparse.Namespace) -> int:
+    if args.report is None and args.ledger is None:
+        _emit({"status": "error", "code": "INVALID_INPUT", "error": "give --report, --ledger or both"})
+        return 1
+    try:
+        root, extensions = _options(args)
+    except ParseError as exc:
+        _emit({"status": "error", "code": exc.code, "error": str(exc)})
+        return 1
     try:
         out = parse_gaps(
             Path(args.report) if args.report else None,
@@ -849,13 +899,24 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--report", help="the test report (test-report-{skill}-{run_id}.md)")
     p.add_argument("--ledger", help="the gap ledger, when not the one beside the report")
     p.add_argument("--source-root", help="resolve remediation paths under this folder")
-    p.add_argument(
-        "--ext",
-        action="append",
-        default=[],
-        help="another source file extension, e.g. kt or .vue (repeatable)",
-    )
     p.set_defaults(func=_cmd_parse)
+
+    q = sub.add_parser("paths", help="resolve given paths under the source root")
+    q.add_argument("--source-root", required=True, help="resolve the paths under this folder")
+    q.add_argument("path", nargs="+", help="a path relative to the source root (a :line suffix is dropped)")
+    q.set_defaults(func=_cmd_paths)
+
+    for parser_ in (p, q):
+        parser_.add_argument(
+            "--ext",
+            action="append",
+            default=[],
+            help="another source file extension, e.g. kt or .vue (repeatable)",
+        )
+        parser_.add_argument(
+            "--provenance-map",
+            help="add the extension of each file this provenance map's entries[] name",
+        )
 
     return parser
 

@@ -126,7 +126,7 @@
         "warnings": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Non-fatal anomalies surfaced during the run. May include workspace_drift_overridden, scope_reconciliation_post entries, qmd indexing failures, source-tree:, source-not-fetched, source-version-lower, file-diff-unavailable, workspace-clone-not-updated, target-ref-not-recorded, source-tree-not-removed, run-lock-replaced (init.md §1b took over a stale run lock) and run-lock-not-released entries, etc. Empty when none."
+          "description": "Non-fatal anomalies surfaced during the run. May include workspace_drift_overridden, scope_reconciliation_post entries, qmd indexing failures, source-tree:, source-not-fetched, source-version-lower, file-diff-unavailable, no-baseline-time, moved-check-skipped and unknown-language (detect-changes.md §2.1 Category A), workspace-clone-not-updated, target-ref-not-recorded, source-tree-not-removed, run-lock-replaced (init.md §1b took over a stale run lock) and run-lock-not-released entries, unconsumed-test-report (init.md §4b: a failing test report newer than the skill that this normal run did not apply), test-report: entries (what the test report helpers could not read, and test-report: not routed: for each gap a gap-driven run does not repair), etc. Empty when none."
         },
         "error": {
           "oneOf": [

@@ -8,6 +8,9 @@ The one test-report lookup export-skill and update-skill share:
   - skf-test-skill-result-latest.json (versioned, then flat): the report its
     outputs[] names, or its summary when that report is gone
   - not-found, verdict and score normalization, CLI argument checks
+  - --newer-than (the later of the run id and testDate against the skill's
+    generation_date) and --provenance-map (a report a gap-driven repair
+    recorded as applied)
 """
 
 from __future__ import annotations
@@ -98,6 +101,7 @@ class TestGlobs:
         assert out["run_id"] == "20260930T101010Z-22-bbbb"
         assert out["test_date"] == "2026-09-30T10:10:10Z"
         assert out["result_path"] is None
+        assert out["report_exists"] is True
 
     def test_other_skill_with_same_prefix_is_ignored(self, forge: Path):
         folder = forge / SKILL / VERSION
@@ -161,6 +165,7 @@ class TestLatestJson:
         assert out["result_path"] == str(latest)
         assert out["testResult"] == "inconclusive"
         assert out["score"] == 64  # frontmatter score empty: taken from the summary
+        assert out["report_exists"] is True
 
     def test_relative_output_path_resolves_beside_the_result_file(self, forge: Path):
         folder = forge / SKILL / VERSION
@@ -192,6 +197,7 @@ class TestLatestJson:
         assert out["testResult"] == "fail"
         assert out["score"] == 70
         assert out["run_id"] == "20260930T101010Z-1-aaaa"
+        assert out["report_exists"] is False  # update-skill takes no gap from a report that is gone
         assert any("missing" in w for w in out["warnings"])
 
     def test_report_found_by_name_without_a_type(self, forge: Path):
@@ -215,6 +221,119 @@ class TestLatestJson:
         assert out["warnings"]
 
 
+def run_cli(forge: Path, *extra: str) -> tuple[int, dict]:
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "find", "--forge-data-folder", str(forge), "--skill-name", SKILL,
+         "--version", VERSION, *extra],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return proc.returncode, json.loads(proc.stdout)
+
+
+class TestNewerThan:
+    """update-skill asks whether the newest report came after the skill's generation_date."""
+
+    @pytest.mark.parametrize(
+        ("generation_date", "newer"),
+        [
+            ("2026-09-30T09:00:00Z", True),
+            ("2026-09-30T10:10:10Z", False),  # the same instant is not newer
+            ("2026-09-30T11:00:00+00:00", False),
+            ("2026-09-30T12:00:00+02:00", True),  # 10:00 UTC
+            ("2026-09-30", True),  # a date alone: the earliest instant of that day
+            ("2026-10-01", True),  # that day starts at 2026-09-30T10:00Z in UTC+14
+            ("2026-10-02", False),
+            ("2026-09-30T23:00:00", True),  # no zone: 09:00 UTC at the earliest
+            ("not a date", None),
+            ("", None),
+        ],
+        ids=["before", "same-instant", "after", "zone-offset", "date-alone", "next-day", "two-days-later", "no-zone",
+             "unreadable", "empty"],
+    )
+    def test_the_report_time_against_generation_date(self, forge: Path, generation_date: str, newer):
+        write_report(forge / SKILL / VERSION, "20260930T101010Z-22-bbbb")
+        code, out = run_cli(forge, "--newer-than", generation_date)
+        assert code == 0
+        assert out["newer"] is newer
+
+    def test_run_id_stands_in_for_a_missing_test_date(self, forge: Path):
+        folder = forge / SKILL / VERSION
+        folder.mkdir(parents=True)
+        (folder / f"test-report-{SKILL}-20260930T101010Z-22-bbbb.md").write_bytes(
+            b"---\ntestResult: 'fail'\n---\n")
+        assert run_cli(forge, "--newer-than", "2026-09-30T10:00:00Z")[1]["newer"] is True
+        assert run_cli(forge, "--newer-than", "2026-09-30T10:20:00Z")[1]["newer"] is False
+
+    def test_a_date_only_test_date_never_hides_a_later_run(self, forge: Path):
+        # testDate 2026-09-30 reads as that day's midnight; the run id dates the report 10:10:10.
+        folder = forge / SKILL / VERSION
+        folder.mkdir(parents=True)
+        (folder / f"test-report-{SKILL}-20260930T101010Z-22-bbbb.md").write_bytes(
+            b"---\ntestResult: 'fail'\ntestDate: '2026-09-30'\n---\n")
+        assert run_cli(forge, "--newer-than", "2026-09-30T08:00:00Z")[1]["newer"] is True
+        assert run_cli(forge, "--newer-than", "2026-09-30T10:30:00Z")[1]["newer"] is False
+
+    def test_a_repair_later_the_same_day_consumes_the_report(self, forge: Path):
+        # update-skill writes generation_date to the second, so the report a repair applied reads older.
+        write_report(forge / SKILL / VERSION, "20260930T101010Z-22-bbbb")
+        assert run_cli(forge, "--newer-than", "2026-09-30T10:42:07Z")[1]["newer"] is False
+
+    def test_no_report_is_null(self, forge: Path):
+        code, out = run_cli(forge, "--newer-than", "2026-09-30T10:00:00Z")
+        assert code == 0 and out["status"] == "not-found" and out["newer"] is None
+
+    def test_absent_without_the_flag(self, forge: Path):
+        write_report(forge / SKILL / VERSION, "20260930T101010Z-22-bbbb")
+        assert "newer" not in run_cli(forge)[1]
+
+
+def write_map(folder: Path, **update) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "provenance-map.json"
+    path.write_bytes(json.dumps({"entries": [], **update}).encode("utf-8"))
+    return path
+
+
+class TestApplied:
+    """update-skill asks whether its last gap-driven repair applied the newest report."""
+
+    RUN = "20260930T101010Z-22-bbbb"
+
+    @pytest.mark.parametrize(
+        ("update", "applied"),
+        [
+            ({"update_type": "gap-driven", "test_report_run_id": RUN}, True),
+            ({"update_type": "gap-driven", "test_report_run_id": "20260901T000000Z-1-aaaa"}, False),
+            ({"update_type": "incremental", "test_report_run_id": RUN}, False),
+            ({"update_type": "gap-driven", "test_report_run_id": None}, False),
+            ({}, False),
+        ],
+        ids=["this-report", "an-older-report", "not-gap-driven", "no-run-id", "no-update-block"],
+    )
+    def test_the_update_block_names_the_report(self, forge: Path, tmp_path: Path, update: dict, applied: bool):
+        write_report(forge / SKILL / VERSION, self.RUN)
+        code, out = run_cli(forge, "--provenance-map", str(write_map(tmp_path / "map", **update)))
+        assert code == 0 and out["applied"] is applied
+
+    def test_an_unreadable_map_is_null(self, forge: Path, tmp_path: Path):
+        write_report(forge / SKILL / VERSION, self.RUN)
+        bad = tmp_path / "provenance-map.json"
+        bad.write_bytes(b"[1, 2]")
+        assert run_cli(forge, "--provenance-map", str(bad))[1]["applied"] is None
+        assert run_cli(forge, "--provenance-map", str(tmp_path / "absent.json"))[1]["applied"] is None
+
+    def test_no_report_is_null(self, forge: Path, tmp_path: Path):
+        update = {"update_type": "gap-driven", "test_report_run_id": self.RUN}
+        out = run_cli(forge, "--provenance-map", str(write_map(tmp_path / "map", **update)))[1]
+        assert out["status"] == "not-found" and out["applied"] is None
+
+    def test_absent_without_the_flag(self, forge: Path):
+        write_report(forge / SKILL / VERSION, self.RUN)
+        assert "applied" not in run_cli(forge)[1]
+
+
 def test_not_found(forge: Path):
     out = find(forge)
     assert out == {
@@ -222,6 +341,7 @@ def test_not_found(forge: Path):
         "skill_name": SKILL,
         "version": VERSION,
         "path": None,
+        "report_exists": None,
         "source": None,
         "testResult": None,
         "score": None,

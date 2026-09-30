@@ -10,6 +10,9 @@ Covers:
     folders; promoted scope-expansion globs, changed or not
   - the same-content move check, through a real git repository
   - tree-without-diff and local modes, with the provenance map's time
+  - no brief (an empty scope), --language's extensions, and full mode (no
+    provenance map: every in-scope file is modified)
+  - --lists-dir: the modified and extract file lists the next steps read
   - the CLI: statuses, `null` values, exit codes
 """
 
@@ -395,6 +398,67 @@ class TestLocalMode:
 
 
 # --------------------------------------------------------------------------
+# no brief, --language, full mode and the file lists
+# --------------------------------------------------------------------------
+
+
+class TestNoBriefAndFullMode:
+    def test_without_a_brief_the_tracked_extensions_scope_the_walk(self, tmp_path: Path) -> None:
+        # A quick skill has no brief: its first update wrote a map, and the next one must not halt.
+        for rel in ("src/a.py", "lib/new.py", "docs/guide.md"):
+            _write(tmp_path, rel)
+        r = _diff(tmp_path, _provenance(entries=["src/a.py"]), {}, ("M", "src/a.py"), ("A", "lib/new.py"),
+                  ("A", "docs/guide.md"))
+        assert _a(r) == {"modified": ["src/a.py"], "added": ["lib/new.py"], "deleted": []}
+
+    def test_language_adds_its_extensions_to_an_empty_include(self, tmp_path: Path) -> None:
+        for rel in ("src/a.py", "web/app.tsx", "web/view.vue", "notes.txt"):
+            _write(tmp_path, rel)
+        rows = (("A", "web/app.tsx"), ("A", "web/view.vue"), ("A", "notes.txt"))
+        plain = _diff(tmp_path, _provenance(entries=["src/a.py"]), {}, *rows)
+        assert _a(plain)["added"] == []
+        spoken = _diff(tmp_path, _provenance(entries=["src/a.py"]), {}, *rows, languages=["TypeScript"])
+        assert _a(spoken)["added"] == ["web/app.tsx", "web/view.vue"]
+
+    def test_an_unknown_language_warns(self, tmp_path: Path) -> None:
+        _write(tmp_path, "src/a.py")
+        r = mod.classify(tmp_path, _provenance(entries=["src/a.py"]), {}, languages=["cobol", "null"])
+        assert r["warnings"] == ["unknown-language: no source file extension is known for 'cobol'"]
+
+    def test_full_mode_lists_every_in_scope_file_as_modified(self, tmp_path: Path) -> None:
+        for rel in ("src/a.py", "src/pkg/b.py", "tests/test_a.py", "node_modules/x/index.js", "src/AGENTS.md"):
+            _write(tmp_path, rel)
+        r = mod.classify(tmp_path, None, _brief(exclude=["tests/**"]), excludes=["src/AGENTS.md"],
+                         tree_status="ready", diff_status="ok", changed=_changed(("M", "src/a.py")))
+        assert r["mode"] == "full"
+        assert _a(r) == {"modified": ["src/a.py", "src/pkg/b.py"], "added": [], "deleted": []}
+        assert r["moved_files"] == [] and r["summary"]["tracked"] == 0
+
+    def test_full_mode_without_a_brief_reads_the_language(self, tmp_path: Path) -> None:
+        for rel in ("pkg/a.py", "pkg/b.pyi", "build/gen.py", "web/x.ts"):
+            _write(tmp_path, rel)
+        r = mod.classify(tmp_path, None, {}, languages=["python"])
+        assert _a(r)["modified"] == ["pkg/a.py", "pkg/b.pyi"]
+
+    def test_full_mode_with_nothing_to_scope_the_walk_is_an_error(self, tmp_path: Path) -> None:
+        _write(tmp_path, "pkg/a.py")
+        with pytest.raises(ValueError, match="nothing scopes the walk"):
+            mod.classify(tmp_path, None, {}, languages=["cobol"])
+
+    def test_the_lists_hold_the_files_the_next_steps_read(self, tmp_path: Path) -> None:
+        result = {"category_a": {"modified": ["b.py", "a.py"], "added": ["n.py"], "deleted": ["d.py"]},
+                  "moved_files": [{"old_path": "old.py", "new_path": "new/old.py"}]}
+        mod.write_lists(result, tmp_path)
+        assert json.loads((tmp_path / "modified-files.json").read_bytes()) == ["b.py", "a.py"]
+        assert json.loads((tmp_path / "extract-files.json").read_bytes()) == ["a.py", "b.py", "n.py", "new/old.py"]
+
+    def test_a_list_folder_that_does_not_exist_is_an_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="cannot write"):
+            mod.write_lists({"category_a": {"modified": [], "added": [], "deleted": []}, "moved_files": []},
+                            tmp_path / "absent")
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -484,6 +548,29 @@ class TestCli:
         res = _run_cli(*_base_args(paths), "--diff-status", "ok", "--changed-files", str(bad))
         assert res.returncode == 1
         assert res.stderr.startswith("error: ")
+
+    def test_no_brief_and_no_map_is_full_mode(self, tmp_path: Path) -> None:
+        paths = _inputs(tmp_path)
+        lists = tmp_path / "run"
+        lists.mkdir()
+        res = _run_cli("classify", "--source-root", str(paths["root"]), "--language", "python",
+                       "--lists-dir", str(lists))
+        assert res.returncode == 0, res.stderr
+        out = json.loads(res.stdout)
+        assert out["mode"] == "full" and out["category_a"]["modified"] == ["src/a.py", "src/new.py"]
+        assert json.loads((lists / "extract-files.json").read_bytes()) == ["src/a.py", "src/new.py"]
+
+    def test_nothing_to_scope_a_full_run_exits_1(self, tmp_path: Path) -> None:
+        paths = _inputs(tmp_path)
+        res = _run_cli("classify", "--source-root", str(paths["root"]))
+        assert res.returncode == 1
+        assert "nothing scopes the walk" in res.stderr
+
+    def test_an_unwritable_lists_dir_exits_1(self, tmp_path: Path) -> None:
+        paths = _inputs(tmp_path)
+        res = _run_cli(*_base_args(paths), "--lists-dir", str(tmp_path / "absent"))
+        assert res.returncode == 1
+        assert res.stderr.startswith("error: cannot write")
 
     def test_no_subcommand_exits_2(self) -> None:
         assert _run_cli().returncode == 2

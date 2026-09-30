@@ -16,6 +16,8 @@ helper:
     written, brackets literal in a glob, a glob walk that follows no link
     and enters a skipped folder only when named, outside-root and symlink
     rejection, not-found and no-match, dedupe
+  - --provenance-map: the extensions of the map's source files join the
+    list; `paths`: the same root check on paths a step names itself
 """
 
 from __future__ import annotations
@@ -647,6 +649,62 @@ def test_ext_must_be_a_file_extension(tmp_path: Path, value: str):
     code, out = parse("--ledger", str(ledger), "--ext", value)
     assert code == 1
     assert out["code"] == "INVALID_INPUT"
+
+
+def test_provenance_map_adds_its_source_extensions(tmp_path: Path):
+    root = tmp_path / "repo"
+    _write_files(root, "web/App.vue", "web/Button.vue", "web/util.ts")
+    gap = {"severity": "High", "category": "missing-export", "title": "Button undocumented",
+           "source": "web components", "remediation": "Re-extract `web/App.vue`."}
+    ledger = write_ledger(tmp_path / "findings.json", "coverage-check", [gap])
+    prov = tmp_path / "provenance-map.json"
+    prov.write_bytes(json.dumps({"entries": [{"export_name": "App", "source_file": "web/App.vue"},
+                                             {"export_name": "x", "source_file": "README"}],
+                                 "file_entries": [{"source_file": "docs/guide.md"}]}).encode("utf-8"))
+    code, out = parse("--ledger", str(ledger), "--source-root", str(root), "--provenance-map", str(prov))
+    assert code == 0, out
+    assert out["gaps"][0]["remediation_paths"] == ["web/App.vue"]
+    assert out["resolved_files"] == ["web/App.vue"]
+    assert mod.map_extensions(prov) == ["vue"]  # file_entries (docs, scripts) add no extension
+
+
+@pytest.mark.parametrize("content", [b"{nope", b"[1]"], ids=["invalid-json", "not-an-object"])
+def test_an_unreadable_provenance_map_is_invalid_input(tmp_path: Path, content: bytes):
+    ledger = write_ledger(tmp_path / "findings.json", "coverage-check", LEDGER_RECORDS)
+    prov = tmp_path / "provenance-map.json"
+    prov.write_bytes(content)
+    code, out = parse("--ledger", str(ledger), "--provenance-map", str(prov))
+    assert code == 1 and out["code"] == "INVALID_INPUT"
+
+
+def test_paths_checks_a_named_path_against_the_root(tmp_path: Path):
+    root = tmp_path / "repo"
+    _source_tree(root)
+    (tmp_path / "secret.ts").write_bytes(b"export {}\n")
+    proc = run(SCRIPT, "paths", "--source-root", str(root), "src/index.ts:12", "src/dates/", "../secret.ts",
+               "src/missing.ts")
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["status"] == "ok"
+    assert out["resolved_paths"] == ["src/index.ts", "src/dates/format.ts", "src/dates/parse.ts"]
+    assert out["rejected_paths"] == [{"path": "../secret.ts", "reason": "outside-root"},
+                                     {"path": "src/missing.ts", "reason": "not-found"}]
+
+
+def test_paths_refuses_a_link_out_of_the_root(tmp_path: Path):
+    root = tmp_path / "repo"
+    _write_files(root, "src/index.ts")
+    outside = tmp_path / "outside.ts"
+    outside.write_bytes(b"export {}\n")
+    _symlink_or_skip(outside, root / "src" / "linked.ts")
+    proc = run(SCRIPT, "paths", "--source-root", str(root), "src/linked.ts")
+    assert json.loads(proc.stdout)["rejected_paths"] == [{"path": "src/linked.ts", "reason": "symlink-outside-root"}]
+
+
+def test_paths_needs_a_folder_root(tmp_path: Path):
+    proc = run(SCRIPT, "paths", "--source-root", str(tmp_path / "nope"), "a.ts")
+    assert proc.returncode == 1 and json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+
 
 
 def test_usage_error_exits_2():
