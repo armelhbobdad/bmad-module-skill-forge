@@ -43,7 +43,7 @@ Wait for user choice.
 
 ### (a) clear
 
-The marker excision is deterministic surgery with one correct answer per input — a mis-parsed boundary silently corrupts the user's surrounding content. Delegate it to the tested `clear` action of `skf-rebuild-managed-sections.py`, the same helper `update-context.md` §9 uses for the between-marker swap; do not excise markers in-prompt. Resolve `{rebuildManagedSectionsHelper}` from `update-context.md`'s `{rebuildManagedSectionsProbeOrder}` frontmatter (first existing path wins). If no candidate exists, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) per `update-context.md` §9 — falling through to an in-prompt excision would regress the atomic-write + post-clear verify guarantee.
+The marker excision is deterministic surgery with one correct answer per input: a mis-parsed boundary silently corrupts the user's surrounding content. Delegate it to the tested `clear` action of `skf-rebuild-managed-sections.py`, the same helper `update-context.md` §9 writes the section with; do not excise markers in-prompt. `{rebuildManagedSectionsHelper}` is the path `update-context.md` §2 resolved, and §2 halts (exit code 4, `halt_reason: "context-rebuild-failed"`) when no candidate exists: falling through to an in-prompt excision would regress the atomic-write + post-clear verify guarantee.
 
 For each file in `orphaned_context_files`:
 
@@ -62,7 +62,7 @@ Record nothing. The orphaned files remain on disk, untouched. Proceed.
 
 ### (c) rewrite
 
-Add each entry in `orphaned_context_files` to a separate `rewrite_context_files` list. This list is kept distinct from `target_context_files` so the user's intent to only export to configured IDEs is preserved in the manifest update at §9b — `rewrite_context_files` participates in the §4–§9a write loop for this run only and is not promoted into the manifest's `ides` arrays.
+Add each entry in `orphaned_context_files` to a separate `rewrite_context_files` list. This list is kept distinct from `target_context_files` so the user's intent to only export to configured IDEs is preserved in the manifest update at §9b: `rewrite_context_files` joins the §4 to §9 writes for this run only and is not promoted into the manifest's `ides` arrays.
 
 Use `.agents/skills/` as the default skill root for rewritten orphans (the IDE-neutral path used when the original IDE mapping is no longer available).
 
@@ -74,9 +74,9 @@ After this protocol completes, §3b returns control to §4 with these workflow-c
 
 - `orphans_cleared: []` — set when the user chose (a) or stayed empty otherwise
 - `orphans_rewritten: []` — set when the user chose (c) or stayed empty otherwise
-- `rewrite_context_files: []` — extends the per-context-file iteration in §4–§9a when the user chose (c)
+- `rewrite_context_files: []`: joins the targets of §4 to §9 when the user chose (c)
 
-The §4–§9a loop iterates over `target_context_files + rewrite_context_files`. The §9b manifest update reads only `target_context_files` (rewritten orphans are not promoted into the manifest).
+§4 to §9 run over `target_context_files + rewrite_context_files`. The §9b manifest update reads only `target_context_files` (rewritten orphans are not promoted into the manifest).
 
 ## Scope note
 

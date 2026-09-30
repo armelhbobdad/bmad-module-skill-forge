@@ -2,14 +2,14 @@
 nextStepFile: 'execute.md'
 versionPathsKnowledge: 'knowledge/version-paths.md'
 # Read-side inventory helpers (reads, not atomicity-critical). §2 uses
-# `{manifestOpsHelper} read` (manifest parse + v1→v2 migration + corrupt-JSON
-# detection); §3 uses `{skillInventoryHelper}` (on-disk scan + exports∪on-disk
-# diff for orphan detection, plus each folder's `ownership` and, with
-# `--forge-data-folder`, each skill's forge-folder verdict (`forge_groups`),
-# which §4 and §8b read so a purge never deletes a folder SKF did not
-# generate) and
+# `{manifestOpsHelper} read` (manifest parse + v1 to v2 migration +
+# corrupt-JSON detection); §3 uses `{skillInventoryHelper}` (on-disk scan +
+# the exports and on-disk union for orphan detection) and
 # `{manifestOpsHelper} affected-versions <skill>` (numeric semver-descending
-# order, so 0.10.0 precedes 0.9.0 — LLM-unreliable).
+# order, so 0.10.0 precedes 0.9.0, which the LLM gets wrong); §8b runs
+# `{skillInventoryHelper} --purge-check`, the purge verdict for the skill
+# folder and its forge folder, so a purge never deletes a folder SKF did
+# not generate, and §9 takes the folders to delete from it.
 # Probe each in order (installed SKF path first, src/ fallback); first hit wins.
 # If neither candidate resolves, the section computes the result in-prompt;
 # without the inventory helper §3 offers manifest skills only and §8b allows
@@ -26,8 +26,15 @@ skillInventoryProbeOrder:
 headlessContract: 'headless-contract.md'
 # Deterministic recursive byte sizing + human formatting for the §9b
 # blast-radius line. Bundled with this skill (no probe order needed);
-# execute.md §4 reuses the same helper for the canonical `disk_freed`.
+# execute.md §4 formats guarded-delete's `bytes_freed` with it for the
+# canonical `disk_freed`.
 dirSizesHelper: 'scripts/dir-sizes.py'
+# Resolve `{rebuildManagedSectionsHelper}` similarly. §9b maps config.yaml
+# `ides` to the context files step 2 rebuilds with its `resolve-targets`
+# action, the IDE mapping export-skill writes the section with.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -95,7 +102,7 @@ python3 {manifestOpsHelper} {skills_output_folder} affected-versions {skill-name
 uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}
 ```
 
-Each `result.skills[]` entry carries `ownership` — `"skf"` (SKF generated everything in the folder), `"mixed"` (SKF output plus entries SKF did not generate, listed in `foreign_entries`) or `"foreign"` (no SKF marker in the folder) — and `skf_skill` (the folder holds a skill SKF generated). Each `result.forge_groups[]` entry classifies that skill's folder in `{forge_data_folder}` the same way (see §8b), and `result.same_folder` is true when both settings name one folder. A `result.skills[].name` that is **not** a key in `manifest.exports` is a draft or orphaned skill — record it as "(not in manifest — purge only)" only when its `skf_skill` is true; no other folder absent from the manifest is offered. When the manifest is empty, every SKF skill on disk lands here. Bind `{not_offered}` ← the names in `result.not_skf_output` (folders holding a skill SKF did not generate) that are not keys in `manifest.exports`; when it is non-empty, show one line under the list: "Not offered — not SKF output: {not_offered}". The inventory lists only skills with an on-disk directory, so a manifest entry whose files were already removed still appears above via `manifest.exports`.
+Each `result.skills[]` entry carries `skf_skill` (the folder holds a skill SKF generated). A `result.skills[].name` that is **not** a key in `manifest.exports` is a draft or orphaned skill: record it as "(not in manifest: purge only)" only when its `skf_skill` is true; no other folder absent from the manifest is offered. When the manifest is empty, every SKF skill on disk lands here. Bind `{not_offered}` ← the names in `result.not_skf_output` (folders holding a skill SKF did not generate) that are not keys in `manifest.exports`; when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_offered}". The inventory lists only skills with an on-disk directory, so a manifest entry whose files were already removed still appears above via `manifest.exports`.
 
 **If the combined roster is empty** (no `manifest.exports` entries AND no `result.skills[]` entry with `skf_skill` true):
 
@@ -114,12 +121,12 @@ Available skills:
    - 0.1.0 (deprecated)
 2. express
    - 4.18.0 (active) *
-3. legacy-helper (not in manifest — purge only)
+3. legacy-helper (not in manifest: purge only)
 
-Not offered — not SKF output: my-module-skill
+Not offered (not SKF output): my-module-skill
 ```
 
-**If a helper does not resolve** (Python/helper unavailable): fall back to the in-prompt computation. Without `{manifestOpsHelper}`, list each `manifest.exports` skill's versions with `status`, active marked `*`, ordered newest-first by comparing version components numerically. Without `{skillInventoryHelper}`, list the `manifest.exports` skills and nothing else: folders on disk that are absent from `manifest.exports` are not offered in this mode, because without the inventory helper SKF cannot check that it generated them. §4 then binds `{target_ownership}` and `{target_forge_ownership}` to `"unknown"`, so §8b allows no purge. If the list is empty, take the "nothing to drop" HALT above.
+**If a helper does not resolve** (Python/helper unavailable): fall back to the in-prompt computation. Without `{manifestOpsHelper}`, list each `manifest.exports` skill's versions with `status`, active marked `*`, ordered newest-first by comparing version components numerically. Without `{skillInventoryHelper}`, list the `manifest.exports` skills and nothing else: folders on disk that are absent from `manifest.exports` are not offered in this mode, because without the inventory helper SKF cannot check that it generated them. The §8b purge check then has no verdict (`"unknown"`), so §8b allows no purge. If the list is empty, take the "nothing to drop" HALT above.
 
 ### 4. Ask Which Skill
 
@@ -136,10 +143,6 @@ Wait for user input. Accept either the numeric index or the skill name (exact ma
   - **Headless (`{headless_mode}` is true):** the supplied `skill_name` argument resolves to no skill in the combined list — there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`): "headless mode: skill argument `{supplied value}` does not match any listed skill." Emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
 
 Store the selection as `target_skill`. Also store `target_in_manifest = true` if the selected skill has an entry in the manifest, `false` otherwise — subsequent sections use this flag to restrict the available drop options.
-
-Bind `{target_ownership}` ← the `ownership` of the `result.skills[]` entry named `target_skill` (`"absent"` when the inventory has no entry for it, meaning nothing is on disk; `"unknown"` when §3 ran without the inventory helper), `{target_foreign_entries}` ← that entry's `foreign_entries`, and `{target_errors}` ← that entry's `errors` (both `[]` when there is no entry). §8b reads all three.
-
-Also bind `{same_folder}` ← `same_folder` (false when the result has none), and `{target_forge_ownership}` ← the `ownership` of the `result.forge_groups[]` entry named `target_skill` (`"unknown"` when §3 ran without the inventory helper, when the result has no `same_folder` key, or when `{same_folder}` is false and no `forge_groups[]` entry has that name), `{target_forge_foreign_entries}` ← that entry's `foreign_entries` and `{target_forge_errors}` ← its `errors` (both `[]` without one). §8b reads them for the skill's forge folder.
 
 ### 5. Display Version Details
 
@@ -231,7 +234,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
 **Else if `{defaultMode}` is non-empty (`"deprecate"` or `"purge"`)**: skip the prompt, set `drop_mode = "{defaultMode}"`, and record the decision source `mode_source = "customize.toml.workflow.default_mode"` for the headless decision trail.
 
-**Otherwise (interactive):** If `{headless_mode}` is true at this point (no `mode` arg and no `{defaultMode}`), there is no input to prompt for — HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires `--mode deprecate|purge` or `default_mode` in customize.toml to set the drop mode." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`. Otherwise, prompt the user. Before showing the menu, check whether §8b would refuse a purge at the current scope; if so, leave out **[P]** and add the line "Purge is not offered: {the §8b refusal reason}."
+**Otherwise (interactive):** If `{headless_mode}` is true at this point (no `mode` arg and no `{defaultMode}`), there is no input to prompt for: HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires `--mode deprecate|purge` or `default_mode` in customize.toml to set the drop mode." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`. Otherwise, prompt the user. Before showing the menu, run the §8b purge check at the current scope; when `{purge_verdict}` is not `"ok"`, leave out **[P]** and add the line "Purge is not offered: {the §8b refusal message for `{purge_reason}`}."
 
 "**How should this be dropped?**
 
@@ -245,47 +248,32 @@ Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P), and record `mode_so
 
 ### 8b. Purge Guard
 
-A purge deletes only what SKF generated. Skip this section when `drop_mode == "deprecate"`. Otherwise decide from `{target_ownership}`:
+A purge deletes only what SKF generated, and the inventory helper decides what that is: never decide by hand whether SKF generated a folder.
 
-- `"skf"` or `"absent"`: the purge proceeds.
-- `"mixed"`: a skill-level purge (`is_skill_level = true`) deletes the whole folder, entries SKF did not generate included, so refuse it. A single-version purge proceeds unless `{target_foreign_entries}` lists the selected version, with or without a trailing `/`, or an entry inside it (`{version}/<entry>`). The helper lists a version folder SKF did not generate with the `/`, a linked one by its bare name, and an entry SKF did not put in a marked version folder as `{version}/<entry>`; a purge through a link would delete the files it points to, and a version purge deletes the whole `{version}/` folder.
-- `"foreign"` or `"unknown"`: refuse every purge. `"unknown"` means §3 ran without the inventory helper, so SKF cannot check what it would delete.
+**The purge check.** Run it once, at the scope §6 chose, and reuse its result wherever this step reads it (§8's menu, the guard below and §9):
 
-On a refusal, HALT (exit code 5, `halt_reason: "not-skf-output"`) with the message that fits. In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: "purge"`, `versions_affected: []`.
+```bash
+uv run {skillInventoryHelper} "{skills_output_folder}" --skill {target_skill} --purge-check [--purge-version {version}] --forge-data-folder "{forge_data_folder}"
+```
 
-- Mixed, whole skill: "**Purge refused — `{skills_output_folder}/{target_skill}/` also holds entries SKF did not generate:** {target_foreign_entries}. Nothing was deleted. Move them out of the folder and re-run. For a skill in the manifest, you can also purge a single version SKF generated, or use `--mode deprecate`. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
-- Mixed, selected version: "**Purge refused — SKF did not generate `{skills_output_folder}/{target_skill}/{version}`** (it has no SKF marker in its `metadata.json`, or it is a link). Nothing was deleted. Use `--mode deprecate` to mark the version deprecated in the manifest only, or remove it yourself." When `{target_foreign_entries}` lists entries inside the version instead, show them in place of the parenthesis: "(it also holds entries SKF did not generate: {those entries}; move them out and re-run)".
-- Foreign or unknown: "**Purge refused — SKF cannot confirm that it generated `{skills_output_folder}/{target_skill}/`:** {reason}. Nothing was deleted. Use `--mode deprecate` to remove the manifest entry only, or delete the folder yourself." `{reason}` is `{target_errors}` when it is non-empty (for example, the folder is a link), "the inventory helper is missing" for `"unknown"`, and otherwise "its `metadata.json` has no SKF marker".
+Pass `--purge-version {version}` for a single-version drop (`is_skill_level = false`) and leave it out for a whole skill. From its `purge_check`, bind `{purge_verdict}` ← `verdict`, `{purge_reason}` ← `reason`, `{purge_detail}` ← `detail`, `{purge_entries}` ← `offending_entries`, `{affected_directories}` ← `affected_directories`, `{forge_left_in_place}` ← `forge_left_in_place` and `{forge_errors}` ← `forge_errors`. The helper applies the purge rules to the skill folder and, unless both settings name one folder, to its forge folder, and `{purge_reason}` names the rule that refused. A single-version purge refuses only what touches the selected version (its folder, listed with or without a trailing `/`, or an entry inside it, `{version}/<entry>`), and a prefix of another version never counts: `0.1.0-rc/` is not version `0.1.0`. A forge folder SKF did not generate (another tool's folder of the same name, a link or a path that is not a folder), SKF's own `improvement-queue` and a forge version folder SKF did not generate never refuse the purge: the purge leaves that folder where it is, and `{forge_left_in_place}` names it.
 
-**Forge folder.** A purge also deletes the skill's folder in `{forge_data_folder}`: the whole folder for a skill-level purge, `{version}/` in it for a single-version purge. When `{same_folder}` is true, that folder is the skill folder the rules above already decided: skip this block. Otherwise decide from `{target_forge_ownership}`:
+When §3 ran without the inventory helper, the call exits non-zero, or its result has no `purge_check` (an installed `skf-skill-inventory.py` older than the flag), bind `{purge_verdict}` and `{purge_reason}` to `"unknown"`: SKF cannot check what it would delete.
 
-- `"skf"`, `"empty"` or `"absent"`: the purge covers the forge folder too (nothing to delete when absent).
-- `"foreign"` or `"reserved"`: the purge proceeds but leaves the forge folder where it is — SKF did not generate it: another tool's folder of the same name, a link or a path that is not a folder (`{target_forge_errors}` says which), or SKF's own `improvement-queue`. §9 leaves it out of `affected_directories` and binds `{forge_left_in_place}`.
-- `"mixed"`: refuse a skill-level purge. A single-version purge proceeds unless `{target_forge_foreign_entries}` lists an entry inside the selected version (`{version}/<entry>`); when it lists the version itself, with or without a trailing `/`, that forge version folder is not SKF output, so the purge leaves it where it is (§9 binds `{forge_left_in_place}` to it).
-- `"unknown"`: refuse every purge; the installed inventory helper does not report `forge_groups`, so SKF cannot check what it would delete there.
+**The guard.** Skip it when `drop_mode == "deprecate"`. When `{purge_verdict}` is not `"ok"`, HALT (exit code 5, `halt_reason: "not-skf-output"`) with the message for `{purge_reason}`. In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: "purge"`, `versions_affected: []`.
 
-Forge refusals take the same HALT (exit code 5, `halt_reason: "not-skf-output"`) and headless envelope as above, with the message that fits:
-
-- Mixed, whole skill: "**Purge refused — `{forge_data_folder}/{target_skill}/` also holds entries SKF did not generate:** {target_forge_foreign_entries}. Nothing was deleted. Move them out of the folder and re-run. For a skill in the manifest, you can also purge a single version SKF generated, or use `--mode deprecate`."
-- Mixed, selected version: "**Purge refused — `{forge_data_folder}/{target_skill}/{version}/` holds entries SKF did not generate:** {those entries}. Nothing was deleted. Move them out and re-run, or use `--mode deprecate`."
-- Unknown: "**Purge refused — SKF cannot check `{forge_data_folder}/{target_skill}/`:** the installed `skf-skill-inventory.py` does not classify the forge folder. Nothing was deleted. Re-install SKF and re-run, or use `--mode deprecate`."
+- `skill-mixed-whole`: "**Purge refused: `{skills_output_folder}/{target_skill}/` also holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out of the folder and re-run. For a skill in the manifest, you can also purge a single version SKF generated, or use `--mode deprecate`. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
+- `skill-version-not-skf`: "**Purge refused: SKF did not generate `{skills_output_folder}/{target_skill}/{version}`** (it has no SKF marker in its `metadata.json`, or it is a link). Nothing was deleted. Use `--mode deprecate` to mark the version deprecated in the manifest only, or remove it yourself."
+- `skill-version-mixed`: "**Purge refused: `{skills_output_folder}/{target_skill}/{version}` also holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out and re-run, or use `--mode deprecate`."
+- `skill-foreign`, `reserved-name` or `unknown`: "**Purge refused: SKF cannot confirm that it generated `{skills_output_folder}/{target_skill}/`:** {reason}. Nothing was deleted. Use `--mode deprecate` to remove the manifest entry only, or delete the folder yourself." `{reason}` is `{purge_detail}` (it names a link, or a `metadata.json` with no SKF marker), and for `unknown` "the inventory helper is missing, or the installed `skf-skill-inventory.py` has no purge check; re-install SKF".
+- `forge-mixed-whole`: "**Purge refused: `{forge_data_folder}/{target_skill}/` also holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out of the folder and re-run. For a skill in the manifest, you can also purge a single version SKF generated, or use `--mode deprecate`."
+- `forge-version-mixed`: "**Purge refused: `{forge_data_folder}/{target_skill}/{version}/` holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out and re-run, or use `--mode deprecate`."
 
 ### 9. Compute Affected Directories
 
-Using the templates from `{versionPathsKnowledge}`, resolve the list of directories that would be affected:
+`affected_directories` is the §8b purge check's list: the folders a purge at this scope deletes, the skill folder (`{skill_group}`), or its version folder for a single-version drop, then its forge folder (`{forge_group}` or `{forge_version}`), each only when something is there. The helper writes each path without a trailing separator, since a trailing `/` makes a delete or a size walk follow a link, and never lists a forge folder the purge leaves in place (`{forge_left_in_place}`), or a second path when both settings name one folder.
 
-**If `is_skill_level = false` (version-level drop):**
-
-- `{skill_package}` = `{skills_output_folder}/{target_skill}/{version}/{target_skill}`
-- The enclosing version directory = `{skills_output_folder}/{target_skill}/{version}`
-- `{forge_version}` = `{forge_data_folder}/{target_skill}/{version}`, unless §8b's forge block leaves it in place
-
-**If `is_skill_level = true` (skill-level drop):**
-
-- `{skill_group}` = `{skills_output_folder}/{target_skill}`
-- `{forge_group}` = `{forge_data_folder}/{target_skill}`, unless §8b's forge block leaves it in place
-
-Write every path without a trailing `/`: a trailing `/` makes a delete or a size walk follow a link. When `{same_folder}` is true, the forge path is the skill path: list it once. Bind `{forge_left_in_place}` ← the forge path §8b left in place, or null.
+In deprecate mode the list shows what the drop keeps on disk. When the purge check has no verdict (`"unknown"`), build it from the templates in `{versionPathsKnowledge}` instead: `{skills_output_folder}/{target_skill}/{version}` and `{forge_data_folder}/{target_skill}/{version}` for a single version, `{skills_output_folder}/{target_skill}` and `{forge_data_folder}/{target_skill}` for a whole skill, each without a trailing `/`, and only once when both settings name one folder.
 
 Store the list as `affected_directories`.
 
@@ -305,13 +293,15 @@ Compute three scalars to put in front of the path list at §10, so the user sees
    uv run {dirSizesHelper} sizes {each path in affected_directories, space-separated}
    ```
 
-   Read `total_human` (e.g. `"4.2 MB"`) as `bytes_total` and `total_bytes` as `bytes_total_raw`; non-existent paths report `exists: false` and drop out of the total. If the helper is unavailable, fall back to `du -sb` per path — the display is best-effort. execute.md §4 re-runs the same helper on the paths it actually deletes for the canonical `disk_freed`, so the two share one method and differ only if files change between this gate and execution.
+   Read `total_human` (e.g. `"4.2 MB"`) as `bytes_total` and `total_bytes` as `bytes_total_raw`; non-existent paths report `exists: false` and drop out of the total. If the helper is unavailable, fall back to `du -sb` per path: the display is best-effort. execute.md §4 measures each folder the same way (every file's size, a link counted as itself) just before it deletes it, and formats the total with the same helper for the canonical `disk_freed`, so the two differ only if files change between this gate and execution.
 
-3. **`context_files_count`** — the number of distinct context files the §3 rebuild loop will rewrite:
-   - Read `config.yaml.ides`
-   - For each entry, look up its `context_file` via the canonical mapping table in `skf-export-skill/assets/managed-section-format.md` (use the `{unknownIdeDefaultContextFile}` fallback for unknown IDEs)
-   - Deduplicate by `context_file`
-   - Count the result. If `config.yaml.ides` is absent or empty, default to `1` (the single `{unknownIdeDefaultContextFile}` fallback)
+3. **`context_files_count`**: the number of context files step 2 rebuilds. Resolve `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}`, and map the `ides` list of `config.yaml` (an absent key is an empty list) through the IDE mapping export-skill writes the section with:
+
+   ```bash
+   python3 {rebuildManagedSectionsHelper} resolve-targets --ides "{ides}"
+   ```
+
+   `{ides}` is the comma-joined list. Store `targets` as `target_context_files` (one `{context_file, skill_root, ides}` entry per file; an IDE the mapping does not list, and an empty list, resolve to AGENTS.md with `.agents/skills/`), set `context_files_count` to its length, and show each `warnings[]` and `notes[]` line. When no candidate exists or the helper exits non-zero, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "SKF cannot resolve the context files to rebuild: {the helper's `error`, or the missing helper}. Nothing was changed. Re-install SKF." In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: "{drop_mode}"`, `versions_affected: []`.
 
 Store as `blast_radius = {versions_count, bytes_total, bytes_total_raw, context_files_count}` for §10's summary line.
 
@@ -329,7 +319,7 @@ Display the full operation summary with the blast-radius summary line ahead of t
   Files:
     {for each path in affected_directories, list one per line}
     {or "(retained on disk — soft drop)" if drop_mode == "deprecate"}
-    {if forge_left_in_place:} Left in place (not SKF output): {forge_left_in_place}{if target_forge_errors is non-empty: " — " + target_forge_errors}
+    {if forge_left_in_place:} Left in place (not SKF output): {forge_left_in_place}{if forge_errors is non-empty: ": " + forge_errors}
 
 {if drop_mode == "purge":}
   ⚠️  This operation cannot be undone. Files will be permanently deleted.
@@ -373,16 +363,10 @@ Store the following decisions in workflow context for step 2:
 - `target_versions` — list of version strings (`[<version>]`) or the literal string `"all"`
 - `drop_mode` — `"deprecate"` or `"purge"` (always `"purge"` when `target_in_manifest = false`)
 - `is_skill_level` — boolean (true if all versions; always true when `target_in_manifest = false`)
-- `affected_directories` — list of absolute directory paths that step 2 will delete in purge mode (or retain in deprecate mode)
+- `affected_directories`: the absolute folder paths step 2 deletes in purge mode (or retains in deprecate mode), from the §8b purge check
 - `mode_source` — where `drop_mode` was decided, set inline at §8 (one of the four sources named there)
-- `target_ownership` — the §4 ownership verdict (`"skf"`, `"mixed"`, `"foreign"`, `"absent"` or `"unknown"`) that §8b checked
-- `target_foreign_entries` — the entries of the skill folder SKF did not generate (`[]` when none)
-- `target_errors` — the inventory's `errors` for the skill folder (`[]` when none)
-- `same_folder` — the §4 binding (true when `skills_output_folder` and `forge_data_folder` name one folder)
-- `target_forge_ownership` — the §4 forge-folder verdict (`"skf"`, `"mixed"`, `"empty"`, `"foreign"`, `"reserved"`, `"absent"` or `"unknown"`) that §8b checked
-- `target_forge_foreign_entries` — the entries of the forge folder SKF did not generate (`[]` when none)
-- `target_forge_errors` — the inventory's `errors` for the forge folder (`[]` when none)
-- `forge_left_in_place` — the forge path a purge leaves in place because SKF did not generate it, or null
+- `forge_left_in_place`: the forge path a purge leaves in place because SKF did not generate it, or null, from the §8b purge check
+- `target_context_files`: the §9b `resolve-targets` targets, which step 2 rebuilds
 - `confirm_source` — how the §10 gate was cleared, set inline at §10 (`"headless-auto"` or `"user-explicit"`)
 
 ### 12. Load Next Step

@@ -1,6 +1,17 @@
 ---
 nextStepFile: 'package.md'
-managedSectionData: '{managedSectionFormatPath}'
+# Resolve `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}` to the
+# first existing path of their probe orders (installed SKF module path first,
+# src/ dev-checkout fallback). §1 and §2 read the export manifest through
+# `skf-manifest-ops.py` (`read`, `get`), which returns it in the v2 shape
+# whatever is on disk, and §1 resolves the context files through
+# `resolve-targets`, the IDE mapping drop-skill and rename-skill also use.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 # Resolve `{validateOutputHelper}` by probing `{validateOutputProbeOrder}` in
 # order (installed SKF module path first, src/ dev-checkout fallback); first
 # existing path wins. §2 runs it with `--export-gate` to obtain the
@@ -38,15 +49,25 @@ To load the target skill's artifacts, validate they meet agentskills.io spec com
 
 "**Starting skill export...**"
 
-Determine the skill(s) to export and any flags:
+Determine the skill(s) to export and any flags.
+
+**Resolve the helpers** in parallel: `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}`, and `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}`. If either has no existing candidate, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "`{the missing helper}` is missing. Nothing was changed. Re-install SKF." In headless, emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
+
+**Read the export manifest** on every run, through the helper, which returns it in the v2 shape whatever is on disk (an absent file reads as an empty `exports`), so a manifest that does not parse stops the run here, before any later step reads it:
+
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} read
+```
+
+Use `result.manifest.exports`. On `status: "error"` (the file does not parse), HALT (exit code 3, `halt_reason: "resolution-failure"`): "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file, then re-run." In headless, emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
 
 **Skill Path Discovery (version-aware — see `knowledge/version-paths.md`):**
 - If user provided one or more skill names or paths as arguments, use that list directly
-- If `--all` was passed, build the list from every skill in `{skills_output_folder}/.export-manifest.json.exports` whose `active_version` entry is not `status: "deprecated"` (deprecated skills are excluded from all exports — see step 4 §4b). **First-export fallback:** if the manifest is absent or its `exports` object is empty (a fresh repo with skills on disk but no prior export), do not resolve to an empty set — enumerate skills on disk instead, with the same inventory scan as the no-argument branch below (steps 2-3), which keeps only skills SKF generated. Every disk-discovered skill is non-deprecated by definition — deprecation status lives only in the manifest.
+- If `--all` was passed, build the list from every skill in `result.manifest.exports` whose `versions.{active_version}.status` is not `"deprecated"` (deprecated skills are excluded from all exports; a skill a v1 manifest marks deprecated reads as such through the helper). **First-export fallback:** if the manifest is absent or its `exports` object is empty (a fresh repo with skills on disk but no prior export), do not resolve to an empty set: enumerate skills on disk instead, with the same inventory scan as the no-argument branch below (steps 2-3), which keeps only skills SKF generated. Every disk-discovered skill is non-deprecated by definition, since deprecation status lives only in the manifest.
 - If no explicit skill and no `--all`, then:
   - **Headless guard:** if `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`) — a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`. Emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
   - **Interactive:** discover available skills using the export manifest:
-    1. Read `{skills_output_folder}/.export-manifest.json` — list skill names from `exports`
+    1. List the skill names of `result.manifest.exports`
     2. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run `uv run {skillInventoryHelper} {skills_output_folder}` once. Add every `skills[]` entry whose `skf_skill` is true and whose `flat_skf` is true or `active_version` is not null (a flat SKF skill that §2 migrates, or a versioned skill with an SKF marker and an `active` link). Leave out every other folder. Bind `{not_skf_output}` ← `not_skf_output`; when it is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}".
     3. If no helper candidate resolves, add only the groups that have `{skills_output_folder}/{skill-name}/active/{skill-name}/SKILL.md`, and skip the flat path: without the helper SKF cannot check that a flat folder is its own.
 - If multiple skills are found, present the list and accept either a single selection or a comma-/space-separated multi-selection (e.g. `1, 2, 3` or `all`)
@@ -61,14 +82,17 @@ Store the resolved selection as `skill_batch` — a list of one or more skill na
 
 **Context File Resolution:**
 
-If `--context-file` is explicitly provided, use that single context file as the sole target. Determine the skill root from the first configured IDE that maps to that context file (or `.agents/skills/` for AGENTS.md if no matching IDE is configured). If other IDEs are configured in config.yaml, emit a note: "**Note:** Exporting to {context-file} only. config.yaml also lists: {other-ides}. Run without `--context-file` to export to all configured IDEs."
+Map the `ides` list of `config.yaml` (an absent key is an empty list) to the context files through the helper, which holds the IDE mapping of `shared/data/ide-context-files.json` and its rules: one target per context file with the first configured IDE's skill root, AGENTS.md with `.agents/skills/` for an IDE the mapping does not list (with a warning) and for an empty list (with a note):
 
-If `--context-file` is NOT provided, read the `ides` list from config.yaml and map each entry to its `context_file` and `skill_root` using the "IDE → Context File Mapping" table plus the "Resolution rules" in `{managedSectionData}` — that canonical file carries the deduplication (group by context file; first configured IDE's skill root wins), the unknown-IDE default-and-warn, and the missing-`ides`-key (treat as empty list) behavior, each with its exact warning/report string. Every IDE the installer offers has an explicit mapping — no silent skips.
+```bash
+python3 {rebuildManagedSectionsHelper} resolve-targets --ides "{ides}"
+```
 
-Apply those rules to `config.yaml.ides`, then:
+`{ides}` is the comma-joined `ides` list. Store `targets` as `target_context_files` (each entry `{context_file, skill_root, ides}`), bind `{other_context_files}` ← `other_context_files` (the known context files no configured IDE maps to, which step 4 §3b checks for a stale section), and display each `warnings[]` and `notes[]` line.
 
-- If mapping produces one or more context files (after dedup), store as `target_context_files` list — each entry has `{context_file, skill_root}`
-- If mapping produces zero entries (empty ides list and no recognized entries), fall back to `[{context_file: "AGENTS.md", skill_root: ".agents/skills/"}]` with note: "No IDEs configured in config.yaml — defaulting to AGENTS.md with `.agents/skills/`."
+If `--context-file` was passed (CLAUDE.md, .cursorrules or AGENTS.md), run the call again with `--context-file {context-file}` added and store its `targets` as `target_context_files` instead: that file alone, with the skill root of the first configured IDE that maps to it, else the one the mapping gives that file. Drop that file from `{other_context_files}`, and display the call's `notes[]` (it names the configured IDEs this run leaves out).
+
+A non-zero exit (an unknown `--context-file` value, or an IDE mapping the helper cannot read) is a HALT (exit code 3, `halt_reason: "resolution-failure"`) with the helper's `error`. In headless, emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
 
 "**Skill(s):** {skill-batch-list} ({N} total)
 **Context file(s):** {context-file-list} (skill root: {skill-root-list})
@@ -76,7 +100,7 @@ Apply those rules to `config.yaml.ides`, then:
 
 ### 1b. Detect Snippet Root Prefix Mismatch
 
-**Skip entirely if `snippet_skill_root_override` is set in `config.yaml`** — the authoring-repo escape hatch is already configured and any on-disk prefix that matches it is ground truth (see `{managedSectionData}` override rules).
+**Skip entirely if `snippet_skill_root_override` is set in `config.yaml`**: the authoring-repo escape hatch is already configured and any on-disk prefix that matches it is ground truth (see the override rules in `assets/managed-section-format.md`).
 
 **Otherwise:** load `references/preflight-snippet-root-probe.md` and follow its probe + (a) Set override / (b) Proceed with IDE mapping / (c) Cancel gate protocol. The reference handles candidate snippet collection (manifest-driven), prefix observation, the mismatch warning, and headless default ((b) Proceed). Returns control to §1c on no-mismatch fast path or after a (b) choice.
 
@@ -90,7 +114,7 @@ Apply those rules to `config.yaml.ides`, then:
 
 Resolve the skill's versioned path before loading artifacts:
 
-1. Read `{skills_output_folder}/.export-manifest.json` and look up `{skill-name}` in `exports` to get `active_version`
+1. Look the skill up in the export manifest through the helper: `python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`. On `status: "ok"`, `entry.active_version` is its `active_version`; `not_found` means the manifest does not list it.
 2. **Manifest-lag guard.** If the skill is in the manifest, also read the `active` symlink target at `{skills_output_folder}/{skill-name}/active`. If that symlink resolves to a *different* version than `active_version`, prefer the **symlink target** as `{resolved_version}` and emit an Info note: "manifest active_version {M} lags the active symlink {N} — exporting the symlink target (the just-forged version); the manifest active_version advances to {N} on this export." This is the canonical SS→TS→EX case: create-stack-skill flipped `active` to the new version, but the manifest only advances when *this* export runs. A bare manifest-first resolution would re-export the *previously exported* version, and step 4 §4b/step-5 (`update-context.md`) — which derives the published version from `{resolved_skill_package}/metadata.json` — would then write that stale version straight back as `active_version`, so the forged version could never be published. Resolving to the symlink target here makes this export publish {N} and reconcile the manifest. When the symlink matches `active_version` (or no `active` symlink exists), use `active_version`. See `knowledge/version-paths.md` "Reading Workflows".
 3. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{resolved_version}/{skill-name}/`
 4. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
@@ -145,7 +169,7 @@ Extract from `metadata.json`:
 
 Load `{sidecar_path}/preferences.yaml` (if exists):
 - Check `passive_context` setting
-- If `passive_context: false` — note that steps 03-04 (snippet + context update) will be skipped
+- If `passive_context: false`, note that steps 3 and 4 skip the snippet and the context files; step 4 still records the export in the manifest
 
 ### 4b. Check Test Report (Quality Gate)
 

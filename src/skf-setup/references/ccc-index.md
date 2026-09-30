@@ -30,10 +30,10 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 - The script owns `ccc init`, every `settings.yml` edit and the index decision — do not run `ccc init` or edit `settings.yml` yourself, and run `ccc index` only when `{ccc_index_action}` is `"index"`
 - Do not fail the workflow if settings preparation or ccc indexing fails
 - Every branch that leaves this step binds all four of `ccc_index_result`, `ccc_indexed_path`, `ccc_last_indexed`, and `ccc_file_count` — step 2 interpolates each bare into the `write-tools` JSON payload, so an unbound flag would emit its literal placeholder and fail the forge-tier.yaml write
-- Display messages only when `{headless_mode}` and `{quiet_mode}` are both false; the one exception is the envelope line a halt displays
-- When `{headless_mode}` or `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
+- Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
+- When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If no path in `mergeCccExclusionsProbeOrder` exists when section 2 runs (an install fault, not a settings failure), halt with phase `step 1b:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-merge-ccc-exclusions.py was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{headless_mode}` or `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 
@@ -87,7 +87,7 @@ The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for t
 
 **If `{ccc_daemon}` is `"error"`:** attempt indexing anyway — errors will be caught below.
 
-Unless `{headless_mode}` or `{quiet_mode}` is true, display: "**Building semantic index — this can take several minutes on large codebases (1000+ files). Run `ccc status` in another terminal to monitor progress.**"
+Unless `{quiet_mode}` is true, display: "**Building semantic index: this can take several minutes on large codebases (1000+ files). Run `ccc status` in another terminal to monitor progress.**"
 
 ```bash
 cd "{project-root}" && ccc index
@@ -95,10 +95,10 @@ cd "{project-root}" && ccc index
 
 Run with an extended timeout or in background mode. Use `ccc status` to verify completion — check that `Chunks` and `Files` counts are non-zero.
 
-**If it succeeds:** run `cd "{project-root}" && ccc status` to get the file count, then set `{ccc_index_result: "created", ccc_indexed_path: {project-root}, ccc_last_indexed: {current ISO timestamp}, ccc_file_count: {count from ccc status}}`. Unless `{headless_mode}` or `{quiet_mode}` is true, display "**CCC index created.** {ccc_file_count} files indexed for semantic discovery."
+**If it succeeds:** run `cd "{project-root}" && ccc status` to get the file count, then set `{ccc_index_result: "created", ccc_indexed_path: {project-root}, ccc_last_indexed: {current ISO timestamp}, ccc_file_count: {count from ccc status}}`. Unless `{quiet_mode}` is true, display "**CCC index created.** {ccc_file_count} files indexed for semantic discovery."
 
-**If it fails:** set `{ccc_index_result: "failed", ccc_indexed_path: null, ccc_last_indexed: null, ccc_file_count: null, ccc_indexing_failed_reason: {error}}` — replace any single quote in `{error}` with a backtick, since step 4 embeds it in a single-quoted payload. Unless `{headless_mode}` or `{quiet_mode}` is true, display "CCC indexing failed: {error}. Extraction will use direct AST scanning — semantic pre-ranking unavailable this session." Continue — this is not a workflow error.
+**If it fails:** set `{ccc_index_result: "failed", ccc_indexed_path: null, ccc_last_indexed: null, ccc_file_count: null, ccc_indexing_failed_reason: {error}}`. Unless `{quiet_mode}` is true, display "CCC indexing failed: {error}. Extraction will use direct AST scanning; semantic pre-ranking is unavailable this session." Continue: this is not a workflow error.
 
 ### 4. Auto-Proceed
 
-Unless `{headless_mode}` or `{quiet_mode}` is true, display "**Proceeding to write configuration...**". Then load `{nextStepFile}`, read it fully, and execute it.
+Unless `{quiet_mode}` is true, display "**Proceeding to write configuration...**". Then load `{nextStepFile}`, read it fully, and execute it.

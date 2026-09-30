@@ -31,11 +31,11 @@ Write the detected tool availability and calculated tier to `forge-tier.yaml` (p
 - Focus only on writing configuration files and creating directories
 - Do not re-detect tools — use results from step 1
 - Never inline a YAML template for forge-tier.yaml or preferences.yaml — the script owns the canonical format
-- File write failures are errors — halt the workflow; under `{headless_mode}` or `{quiet_mode}` the blocked envelope is the only output, otherwise report the failure clearly
-- Display messages only when `{headless_mode}` and `{quiet_mode}` are both false; the one exception is the envelope line a halt displays
-- When `{headless_mode}` or `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
+- File write failures are errors: halt the workflow; under `{quiet_mode}` the blocked envelope is the only output, otherwise report the failure clearly
+- Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
+- When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If no path in `forgeTierRwProbeOrder` exists, halt with phase `step 2:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-forge-tier-rw.py was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{headless_mode}` or `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 
@@ -69,13 +69,7 @@ echo '{
 
 The script atomically writes the file via temp + fsync + rename (crash-safe) and returns a JSON response with `wrote`, `preserved_arrays.qmd_collections` count, `preserved_arrays.ccc_index_registry` count, and the resolved `tier`.
 
-**Parse the response and set context flags for step 4:**
-
-- `{forge_tier_yaml_path}` ← `wrote`
-- `{forge_tier_qmd_collections_count}` ← `preserved_arrays.qmd_collections`
-- `{forge_tier_ccc_registry_count}` ← `preserved_arrays.ccc_index_registry`
-
-**If the script exits non-zero**: parse the stderr JSON `{"status":"error","message":...}` and halt the workflow before chaining to step 3, with phase `step 2:write-tools`, path `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` and the message as the reason. When `{headless_mode}` or `{quiet_mode}` is true, pipe that `{phase, reason, path}` payload, with each `'` in the reason replaced by a backtick and each `\` by `/`, to `uv run {emitEnvelopeHelper} emit-blocked`, display the helper's stdout line verbatim, and display nothing else — the envelope's `error` carries the path and reason (`{emitEnvelopeHelper}` resolves from this file's `emitEnvelopeProbeOrder`; the subcommand declares zero dependencies). If the helper exits non-zero or prints no line, display the reason alone. Otherwise display the failure with its path and reason.
+**If the script exits non-zero**: parse the stderr JSON `{"status":"error","message":...}` and halt the workflow before chaining to step 3, with phase `step 2:write-tools`, path `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` and the message as the reason. When `{quiet_mode}` is true, pipe that `{phase, reason, path}` payload, with each `'` in the reason replaced by a backtick and each `\` by `/`, to `uv run {emitEnvelopeHelper} emit-blocked`, display the helper's stdout line verbatim, and display nothing else: the envelope's `error` carries the path and reason (`{emitEnvelopeHelper}` resolves from this file's `emitEnvelopeProbeOrder`; the subcommand declares zero dependencies). If the helper exits non-zero or prints no line, display the reason alone. Otherwise display the failure with its path and reason.
 
 ### 2. Initialize preferences.yaml
 
@@ -98,4 +92,4 @@ Run `mkdir -p {forge_data_folder}`. The `-p` flag is idempotent (creates parents
 
 ### 4. Auto-Proceed
 
-After forge-tier.yaml has been written successfully and preferences.yaml exists (created or pre-existing), unless `{headless_mode}` or `{quiet_mode}` is true, display "**Proceeding to QMD collection hygiene...**". Then load `{nextStepFile}`, read it fully, and execute it.
+After forge-tier.yaml has been written successfully and preferences.yaml exists (created or pre-existing), unless `{quiet_mode}` is true, display "**Proceeding to QMD collection hygiene...**". Then load `{nextStepFile}`, read it fully, and execute it.

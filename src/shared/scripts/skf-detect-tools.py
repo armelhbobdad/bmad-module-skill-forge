@@ -6,14 +6,15 @@
 
 Replaces the prose-driven tool-detection sequence in `src/skf-setup/references/
 detect-and-tier.md` §3-§8b with one Python invocation. Probes ast-grep,
-gh, qmd, and ccc concurrently, applies the 4-rule tier decision table (see
-`src/skf-setup/references/tier-rules.md`), evaluates --tier-override (with
-sanity check) and --require-tier (with tool-prerequisite check independent of
-the tier name), and emits one JSON document on stdout.
+gh, qmd, and ccc concurrently, applies the 4-rule tier decision table
+(calculate_tier() below), evaluates --tier-override (with sanity check) and
+--require-tier (with tool-prerequisite check independent of the tier name),
+and emits one JSON document on stdout.
 
 Schema documented in DETECT_OUTPUT_SCHEMA at the bottom of this docstring.
 The output is consumed by step 1 prose, step 2 (forge-tier.yaml writer),
-and step 4 (status report + envelope).
+and step 4, where skf-emit-result-envelope.py reads the copy step 1 keeps
+in the run folder (detect-tools.json) for the status report and envelope.
 
 Tier rules (first match wins):
   Deep   = ast-grep + gh-cli + qmd (all healthy)
@@ -314,7 +315,7 @@ def calculate_tier(tools: dict) -> str:
 
 
 def suggest_valid_tier(bad_value: str) -> str | None:
-    """For an invalid --tier-override value, return the closest valid tier name.
+    """For an invalid --tier-override or --require-tier value, return the closest valid tier name.
 
     Two-stage match:
     1. Case-insensitive exact match — handles `deep` / `DEEP` / `forge+` /
@@ -338,6 +339,27 @@ def suggest_valid_tier(bad_value: str) -> str | None:
             return valid
     matches = difflib.get_close_matches(cleaned, VALID_TIERS, n=1, cutoff=0.6)
     return matches[0] if matches else None
+
+
+def require_tier_error(value) -> str | None:
+    """The user error for a --require-tier value that is not a tier, or None.
+
+    The check is exact (case-sensitive), so a typo fails closed instead of
+    switching the tier gate off. The message names the valid tiers, adds
+    suggest_valid_tier's did-you-mean when one clears its cutoff, and holds
+    no quote, backslash or control character, even when the value does:
+    skf-setup carries it into its blocked envelope's reason, inside a
+    single-quoted shell payload.
+    """
+    if value in VALID_TIERS:
+        return None
+    valid = ", ".join(VALID_TIERS)
+    safe = {"'": "`", '"': "`", "\\": "/"}
+    shown = "".join("?" if ord(ch) < 0x20 or ord(ch) == 0x7F else safe.get(ch, ch) for ch in str(value))
+    message = (f"--require-tier must be one of {valid} (case-sensitive), got "
+               + (shown if shown.strip() else "an empty value"))
+    suggestion = suggest_valid_tier(value)
+    return f"{message}; did you mean {suggestion}?" if suggestion else message
 
 
 def tier_prerequisites_met(tier: str, tools: dict) -> tuple[bool, list[str]]:
@@ -474,6 +496,13 @@ def compute_ccc_index_fresh(prior: dict, project_root, now: datetime) -> bool:
 
 
 def detect(args: argparse.Namespace) -> dict:
+    # A --require-tier that names no tier is a user error: stop before
+    # probing anything, so the caller's halt comes at once.
+    if args.require_tier is not None:
+        error = require_tier_error(args.require_tier)
+        if error:
+            _die(1, error)
+
     tools: dict = {}
     with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {
@@ -518,8 +547,6 @@ def detect(args: argparse.Namespace) -> dict:
     require_satisfied: bool | None
     require_missing: list[str] = []
     if args.require_tier is not None:
-        if args.require_tier not in VALID_TIERS:
-            _die(1, f"--require-tier must be one of {VALID_TIERS}, got {args.require_tier!r}")
         require_satisfied, require_missing = tier_prerequisites_met(args.require_tier, tools)
     else:
         require_satisfied = None
@@ -599,9 +626,10 @@ def main() -> None:
         "--require-tier",
         default=None,
         help="Require the calculated tier to satisfy this requirement (uses tool-prerequisite"
-             " check, not tier-name comparison — Deep does not subsume Forge+ because Deep"
+             " check, not tier-name comparison: Deep does not subsume Forge+ because Deep"
              " does not require ccc). Output reports satisfied/missing-tools; caller decides"
-             " whether to halt.",
+             " whether to halt. A value that is not exactly Quick, Forge, Forge+ or Deep exits 1"
+             " before any probe runs, naming the valid tiers.",
     )
     parser.add_argument(
         "--snyk-env-var",

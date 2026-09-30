@@ -61,9 +61,3 @@ default_mode = ""
 # string = no guard (default).
 
 forbid_purge_in_headless = ""
-
-# Fallback IDE → context-file mapping for unknown IDEs in `config.yaml.ides`.
-# Empty string = use bundled defaults (AGENTS.md / .agents/skills/).
-
-unknown_ide_default_context_file = ""
-unknown_ide_default_skill_root = ""

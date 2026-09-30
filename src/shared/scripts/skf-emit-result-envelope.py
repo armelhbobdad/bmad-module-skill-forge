@@ -45,6 +45,16 @@ Subcommands:
              error on failure. Useful for paranoid pipelines that want to
              validate a received envelope before consuming it.
 
+  render-report
+             skf-setup's interactive FORGE STATUS banner: reads the same
+             payload as `emit` on stdin (plus the banner keys below),
+             folds in the helper outputs --run-dir holds, and prints the
+             banner's lines in English, one per line. --tier-rules names
+             skf-setup's references/tier-rules.md, which holds the tier
+             descriptions and re-run messages (default: the copy beside
+             this script's folder, in the source tree and in an installed
+             project alike).
+
 Workflow schemas. A workflow's envelope schema is
 `schemas/skf-<name>-result-envelope.v<N>.json`, found beside this script in
 both the source tree and an installed project. --workflow takes the
@@ -132,15 +142,11 @@ A write that fails adds the warning `result_file_write_failed: <path>:
 workflow whose `result_file` is null writes none: it ignores --result-dir
 with the warning `result_dir_ignored: <workflow> writes no result file`.
 
-Clock. The helper imports only argparse, json, os, pathlib and sys, so the
-bare interpreters of skf-setup's halt contract run it, and none of those
-reads the wall clock. The time comes from the system clock through the
-filesystem: the modification time of an empty file created, and removed at
-once, in the first of these folders that takes it: the result folder, the
-run folder (created first when it is missing), the working directory, then
-the temporary folder (TMPDIR, TEMP, TMP or /tmp). When none takes it, a
-schema that declares a required, non-null `timestamp` cannot be met: the
-call exits 1 and prints no line.
+Clock. The timestamp is the system clock's time, read with time.time().
+The helper imports only argparse, json, os, pathlib, sys and time, all in
+the standard library of every Python the halt contract may run it under,
+so reading the clock needs no folder: a halt emits before any run folder
+exists, and the call creates none.
 
 skf-setup. setup keeps its own payload, which the emitter turns into the
 envelope below (`emit` and `emit-blocked` keep working without --workflow).
@@ -148,6 +154,20 @@ Its envelope follows `schemas/skf-setup-result-envelope.v1.json` and prints
 with sorted keys and raw UTF-8, except that U+2028, U+2029 and U+0085 are
 escaped so the line stays one line. --run-dir appends the sink's warnings
 that setup's own list does not already hold.
+
+A setup run also stages each helper's JSON output in its run folder, as
+the step that runs the helper writes it, so no step types those values
+back into a payload:
+
+  detect-tools.json    step 1, skf-detect-tools.py
+  qmd-classify.json    step 3, skf-qmd-classify-collections.py
+  clean-stale.json     step 3, skf-forge-tier-rw.py clean-stale
+
+With --run-dir, `emit` and `render-report` fold them into the payload:
+a staged output replaces the payload's own value of each field it is the
+source of (fold_staged lists them). A file that holds no JSON object means
+its helper failed (the classifier then reads as qmd unavailable); a file
+that is absent means its step did not run the helper.
 
 Context payload shape (consumed by `emit` for skf-setup):
 
@@ -171,23 +191,42 @@ Context payload shape (consumed by `emit` for skf-setup):
     "ccc_exclusion_warnings":        ["string", ...],
     "ccc_registry_stale_removed":    ["/path", ...],
     "ccc_indexing_failed_reason":    "string|null",
-    "orphan_auto_resolution":        null|{"action": "keep|remove", "count": int, "source": "headless-default|quiet-default|orphan-action-flag"},
+    "orphan_auto_resolution":        null|{"action": "keep|remove", "count": int, "source": "headless-default|quiet-default|orphan-action-flag", "removed": ["name", ...], "failed": ["name", ...]},
     "customization_resolver_unavailable": "string|null",
     "error":                         null|{"phase","path","reason"}
   }
+
+  The `tools` values may also be skf-detect-tools.py's own objects
+  ({"available": bool, "version": ..., ...}), as detect-tools.json holds
+  them. Without `files_written`, the emitter derives it: forge-tier.yaml,
+  then preferences.yaml, settings.yml and ccc_index when
+  `preferences_yaml_created`, `settings_yml_written` and a ccc_index
+  status of "created" say so (none when `error` is set).
 
   When the step-3 orphan-removal gate is resolved non-interactively
   (headless or quiet default Keep, or an explicit --orphan-action), pass
   `orphan_auto_resolution` so the audit trail lands in `warnings`: most
   importantly when the destructive `remove` ran headlessly, which a
   pipeline otherwise could not distinguish from a no-op by reading the
-  envelope alone.
+  envelope alone. Its `removed` and `failed` lists name the collections
+  the removal deleted and the ones it could not, and each becomes its own
+  warning (`orphan_removed: <name>`, `orphan_remove_failed: <name>`).
 
   When the On Activation customization resolver was missing or failed,
   pass its one-line reason as `customization_resolver_unavailable`: the
   run then used only the skill's own customize.toml, and the warning tells
   a pipeline that the `_bmad/custom/` overrides were not applied. The
   emit-blocked payload takes the same key.
+
+  The banner keys, which `render-report` reads (`emit` reads only the
+  two it derives files_written from): "project_root" and
+  "forge_data_folder" (resolved paths), "preferences_yaml_created",
+  "settings_yml_written" and "gitignore_updated" (bool),
+  "settings_yml_patterns_added" and "settings_yml_patterns_removed"
+  (int), "hygiene_result" ("completed|qmd_unavailable|skipped"), and
+  "hygiene_healthy", "hygiene_orphaned_removed", "hygiene_orphaned_kept",
+  "hygiene_stale_cleaned" and "ccc_registry_stale_cleaned" (int). The
+  staged helper outputs supply every hygiene key but the two orphan counts.
 
 Caller does NOT need to compute warnings, tools_added/removed, or
 tier_changed: the script derives them from the inputs above.
@@ -203,6 +242,8 @@ Activation halts, which can fire before `uv` is proven present, under
 the first of `uv run`, `python3`, `python` and `py -3` that works.
 
   echo '{...context payload...}' | uv run skf-emit-result-envelope.py emit
+  uv run skf-emit-result-envelope.py emit --run-dir "{run_dir}" < "{run_dir}/report-context.json"
+  uv run skf-emit-result-envelope.py render-report --run-dir "{run_dir}" --tier-rules "<skill>/references/tier-rules.md" < "{run_dir}/report-context.json"
   echo '{"phase":"...","reason":"...","path":"..."}' | uv run skf-emit-result-envelope.py emit-blocked
   echo '{"skf_setup":{...}}' | uv run skf-emit-result-envelope.py validate
   uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warning "customization_resolver_unavailable: <reason>"
@@ -219,6 +260,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 
@@ -228,6 +270,13 @@ TOOL_KEYS = ("ast_grep", "gh_cli", "qmd", "ccc")
 VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
 VALID_FILES = ("forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index")
 VALID_CCC_STATUS = ("fresh", "created", "failed", "none", "skipped")
+# The helper outputs a skf-setup run stages in its run folder, each by the
+# step that runs the helper; `emit` and `render-report` read them from
+# --run-dir (see "skf-setup" in the module docstring).
+STAGED_DETECT = "detect-tools.json"
+STAGED_CLASSIFY = "qmd-classify.json"
+STAGED_CLEAN_STALE = "clean-stale.json"
+STAGED_FILES = (STAGED_DETECT, STAGED_CLASSIFY, STAGED_CLEAN_STALE)
 
 SCHEMA_DIR = SCHEMA_FILE.parent
 SETUP_WORKFLOW = "skf-setup"
@@ -369,7 +418,19 @@ def _assemble_warnings(payload: dict) -> list[str]:
             f"orphan_auto_resolution: {action} {count} orphaned collection(s) "
             f"(non-interactive, {source})"
         )
+        # A removal nobody confirmed names each collection it deleted, and
+        # each it could not, so the audit trail says what to rebuild.
+        warnings += [f"orphan_removed: {name}" for name in _strings(orphan.get("removed"))]
+        warnings += [f"orphan_remove_failed: {name}" for name in _strings(orphan.get("failed"))]
     return warnings
+
+
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _strings(value) -> list[str]:
+    return [str(item) for item in value] if isinstance(value, list) else []
 
 
 def _normalize_files_written(maybe_files) -> list[str]:
@@ -386,6 +447,26 @@ def _normalize_files_written(maybe_files) -> list[str]:
     # caller-provided order so two callers with the same files get byte-identical
     # output.
     return [name for name in VALID_FILES if name in names]
+
+
+def _files_written(payload: dict, error) -> list[str]:
+    """files_written as the payload gives it, else derived from the run's flags.
+
+    A finished run always wrote forge-tier.yaml; preferences.yaml,
+    settings.yml and the ccc index count when preferences_yaml_created,
+    settings_yml_written and a ccc_index status of "created" say so. An
+    envelope with an error reports no file.
+    """
+    if "files_written" in payload:
+        return _normalize_files_written(payload["files_written"])
+    if error is not None:
+        return []
+    return _normalize_files_written({
+        "forge-tier.yaml": True,
+        "preferences.yaml": payload.get("preferences_yaml_created") is True,
+        "settings.yml": payload.get("settings_yml_written") is True,
+        "ccc_index": _dict(payload.get("ccc_index")).get("status") == "created",
+    })
 
 
 def _normalize_ccc_index(maybe_idx) -> dict:
@@ -460,7 +541,7 @@ def assemble_envelope(payload: dict) -> dict:
             "tools_removed": tools_removed,
             "config_path": config_path,
             "ccc_index": ccc_index,
-            "files_written": _normalize_files_written(payload.get("files_written")),
+            "files_written": _files_written(payload, error),
             "tier_override_active": bool(payload.get("tier_override_active", False)),
             "tier_override_invalid": bool(payload.get("tier_override_invalid", False)),
             "require_tier_satisfied": require_tier_satisfied,
@@ -502,6 +583,333 @@ def emit_envelope_line(envelope: dict) -> str:
     if "\n" in body:
         _die(2, "envelope serialization produced embedded newline (should be impossible)")
     return ENVELOPE_PREFIX + body
+
+
+# ─── skf-setup: staged helper outputs ───────────────────────────────────────
+
+
+def read_staged(run_dir: Path | None) -> dict:
+    """The helper outputs a setup run staged in its run folder, by file name.
+
+    Each value is the helper's JSON object, or None when the file holds
+    none: the helper exited non-zero, so its redirected stdout stayed
+    empty. A file that is absent is left out, because its step never ran
+    the helper (step 3 runs none below Deep tier without ccc).
+    """
+    staged: dict = {}
+    if run_dir is None:
+        return staged
+    for name in STAGED_FILES:
+        try:
+            # utf-8-sig: a shell that writes a byte-order mark still stages JSON.
+            text = (run_dir / name).read_text(encoding="utf-8-sig")
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        try:
+            value = json.loads(text) if text.strip() else None
+        except json.JSONDecodeError:
+            value = None
+        staged[name] = value if isinstance(value, dict) else None
+    return staged
+
+
+def fold_staged(payload: dict, staged: dict) -> dict:
+    """The setup payload with the fields each staged helper output is the source of.
+
+    A staged output replaces the payload's own value of every field it
+    holds: the step files no longer type those values, so the helper's are
+    the ones that count.
+
+      detect-tools.json   tier, previous_tier, tools, previous_tools, the
+                          tier_override_* and require_tier_* fields and
+                          qmd_status
+      qmd-classify.json   hygiene_result ("completed", or "qmd_unavailable"
+                          when the classifier failed) and hygiene_healthy
+      clean-stale.json    hygiene_stale_cleaned, ccc_registry_stale_cleaned
+                          and ccc_registry_stale_removed (none when it failed)
+    """
+    out = dict(payload)
+    detect = staged.get(STAGED_DETECT)
+    if detect is not None:
+        tier, prior = _dict(detect.get("tier")), _dict(detect.get("prior"))
+        required, tools = _dict(detect.get("require_tier")), _dict(detect.get("tools"))
+        out.update({
+            "tier": tier.get("calculated"),
+            "previous_tier": prior.get("previous_tier"),
+            "tools": tools,
+            "previous_tools": prior.get("previous_tools") or None,
+            "tier_override_active": tier.get("override_applied") is True,
+            "tier_override_invalid": tier.get("override_invalid") is True,
+            "tier_override_invalid_value": tier.get("override_invalid_value"),
+            "tier_override_invalid_suggestion": tier.get("override_invalid_suggestion"),
+            "tier_override_unsafe": tier.get("override_unsafe") is True,
+            "tier_override_unsafe_missing": _strings(tier.get("override_unsafe_missing")),
+            "require_tier_satisfied": required.get("satisfied"),
+            "require_tier_failure_missing": _strings(required.get("missing_tools")),
+            "qmd_status": _dict(tools.get("qmd")).get("status"),
+        })
+    if STAGED_CLASSIFY in staged:
+        healthy = _dict(staged[STAGED_CLASSIFY]).get("healthy")
+        completed = isinstance(healthy, list)
+        out["hygiene_result"] = "completed" if completed else "qmd_unavailable"
+        out["hygiene_healthy"] = len(healthy) if completed else 0
+    if STAGED_CLEAN_STALE in staged:
+        cleaned = _dict(staged[STAGED_CLEAN_STALE])
+        pruned = _strings(cleaned.get("ccc_removed"))
+        out["hygiene_stale_cleaned"] = len(_strings(cleaned.get("qmd_removed")))
+        out["ccc_registry_stale_cleaned"] = len(pruned)
+        out["ccc_registry_stale_removed"] = pruned
+    return out
+
+
+# ─── skf-setup: FORGE STATUS banner ─────────────────────────────────────────
+
+
+BANNER_RULE = "═" * 39
+# The name the banner gives each tool key.
+TOOL_NAMES = {"ast_grep": "ast-grep", "gh_cli": "gh", "qmd": "qmd", "ccc": "ccc"}
+# tier-rules.md sits beside this script's folder in the source tree
+# (src/skf-setup/) and in an installed project (_bmad/skf/skf-setup/).
+TIER_RULES_FILE = Path(__file__).resolve().parent.parent.parent / "skf-setup" / "references" / "tier-rules.md"
+# Each tier-rules.md heading the banner reads, and the key its copy goes under.
+TIER_RULES_HEADINGS = {"Quick Tier": "Quick", "Forge Tier": "Forge", "Forge+ Tier": "Forge+",
+                       "Deep Tier": "Deep", "Upgrade": "upgrade", "Downgrade": "downgrade",
+                       "Same": "same"}
+# The one exclusion note whose `{project-root}` names the placeholder
+# skf-merge-ccc-exclusions.py resolves, not the project folder.
+PLACEHOLDER_REFUSAL = "unresolved template placeholder"
+NEXT_STEPS = (
+    "  Next: the fastest start is `@Ferris forge-auto <repo-or-doc-url>`: one command auto-scopes, "
+    "briefs, compiles, tests at a 90% quality gate, and exports a verified skill with zero "
+    "configuration. Prefer to scope by hand? `/skf-brief-skill` scopes your first compilation "
+    "target, or `/skf-quick-skill` is a fast template-driven path. Already have a skill? "
+    "`/skf-audit-skill` drift-checks an existing skill against current sources."
+)
+
+
+def load_tier_rules(path: Path) -> dict:
+    """The tier descriptions and re-run messages of tier-rules.md, by key.
+
+    Each is the first non-blank line under its `### <heading>`, without its
+    surrounding double quotes, so the banner's tier wording lives in that
+    one file.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        _die(1, f"render-report: cannot read the tier copy {path.as_posix()}: {e}")
+    copy: dict[str, str] = {}
+    key = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            key = TIER_RULES_HEADINGS.get(stripped[4:].strip()) if stripped.startswith("### ") else None
+        elif key and stripped:
+            if len(stripped) > 1 and stripped[0] == stripped[-1] == '"':
+                stripped = stripped[1:-1]
+            copy.setdefault(key, stripped)
+            key = None
+    missing = [heading for heading, name in TIER_RULES_HEADINGS.items() if name not in copy]
+    if missing:
+        _die(1, f"render-report: {path.as_posix()} has no copy under: {', '.join(missing)}")
+    return copy
+
+
+def _count(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _names(keys) -> str:
+    return ", ".join(TOOL_NAMES.get(key, key) for key in keys)
+
+
+def _tool_line(key: str, probe, ccc_daemon) -> str:
+    """One Tools Detected line: the tool and its version, the probe's version
+    line without the tool's name or a leading "version" (gh prints
+    `gh version 2.91.0 (...)`). ccc has no version, so it shows its daemon."""
+    name = TOOL_NAMES[key]
+    if key == "ccc":
+        return f"  - ccc (daemon {ccc_daemon})" if ccc_daemon else "  - ccc"
+    version = str(_dict(probe).get("version") or "").strip()
+    for word in (name, "version"):
+        if version.lower().startswith(word + " "):
+            version = version[len(word) + 1:].lstrip()
+    return f"  - {name} {version}" if version else f"  - {name}"
+
+
+def _tier_change_message(copy: dict, previous: str, current: str, added, removed) -> str:
+    """tier-rules.md's upgrade or downgrade message, filled in.
+
+    With no tool to name (a tier_override moved the tier), the message
+    stops after its first sentence.
+    """
+    upgrade = VALID_TIERS.index(current) > VALID_TIERS.index(previous)
+    message = copy["upgrade" if upgrade else "downgrade"]
+    if not (added if upgrade else removed):
+        head, sep, _ = message.partition("{current}.")
+        message = head + sep
+    return (message.replace("{previous}", previous).replace("{current}", current)
+            .replace("{newly available tool(s)}", _names(added)).replace("{tool}", _names(removed)))
+
+
+def render_report(payload: dict, copy: dict) -> list[str]:
+    """The FORGE STATUS banner of a finished setup run, one string per line.
+
+    Implements the template in skf-setup's references/report.md section 2:
+    each of its `{if ...}` conditions is one test below, on the payload
+    (with the staged helper outputs folded in) and the envelope fields
+    derived from it. The lines are English; the step translates them.
+    """
+    inner = assemble_envelope(payload)["skf_setup"]
+    tier, previous, tools = inner["tier"], inner["previous_tier"], inner["tools"]
+    added, removed, changed = inner["tools_added"], inner["tools_removed"], inner["tier_changed"]
+    index = inner["ccc_index"]["status"]
+    probes = _dict(payload.get("tools"))
+    ccc_daemon = _dict(probes.get("ccc")).get("daemon")
+    root = str(payload.get("project_root") or "{project-root}").rstrip("/\\")
+    hygiene = payload.get("hygiene_result")
+    prefs_created = payload.get("preferences_yaml_created")
+    settings_written = payload.get("settings_yml_written")
+
+    blocks = [[BANNER_RULE, "  FORGE STATUS", BANNER_RULE], [f"  Tier:  {tier}", f"  {copy[tier]}"]]
+
+    detected = ["  Tools Detected:"]
+    detected += [_tool_line(key, probes.get(key), ccc_daemon) for key in TOOL_KEYS if tools[key]]
+    if not any(tools.values()):
+        detected.append('  (none yet, see "Climb to next tier" below)')
+    blocks.append(detected)
+
+    if tier != "Deep":
+        ast_grep, qmd_status = tools["ast_grep"], payload.get("qmd_status")
+        hints = [hint for holds, hint in (
+            (not ast_grep,
+             "- Install ast-grep (https://ast-grep.github.io): unlocks AST-backed code analysis (Forge tier)"),
+            (ast_grep and not tools["ccc"],
+             "- Install cocoindex-code (https://github.com/cocoindex-io/cocoindex-code): adds "
+             "semantic-guided precision compilation (Forge+ tier)"),
+            (ast_grep and not tools["gh_cli"],
+             "- Install GitHub CLI (https://cli.github.com): required for Deep tier "
+             "(cross-repository synthesis)"),
+            (ast_grep and not tools["qmd"] and qmd_status == "absent",
+             "- Install qmd (https://github.com/tobi/qmd): required for Deep tier (knowledge search)"),
+            (ast_grep and not tools["qmd"] and qmd_status == "daemon_stopped",
+             "- Start the qmd daemon (already installed): run `qmd start` (or your distribution's "
+             "qmd service command) to unlock Deep tier (knowledge search)"),
+            (tools["ccc"] and ccc_daemon == "error",
+             "- The ccc daemon is reporting errors: run `ccc doctor` to diagnose. CCC index will "
+             "fail until resolved"),
+        ) if holds]
+        blocks.append(["  Climb to next tier:"] + [f"  {hint}" for hint in hints])
+
+    if hygiene == "completed":
+        qmd = ["  QMD Registry:", f"  {_count(payload.get('hygiene_healthy'))} collection(s) healthy"]
+        for key, what in (("hygiene_orphaned_removed", "orphaned collection(s) removed"),
+                          ("hygiene_orphaned_kept", "orphaned collection(s) kept"),
+                          ("hygiene_stale_cleaned", "stale QMD registry entry/entries cleaned")):
+            if _count(payload.get(key)) > 0:
+                qmd.append(f"  {_count(payload.get(key))} {what}")
+        blocks.append(qmd)
+    if _count(payload.get("ccc_registry_stale_cleaned")) > 0:
+        blocks.append([f"  CCC Registry: {_count(payload.get('ccc_registry_stale_cleaned'))} stale "
+                       "entry/entries cleaned"])
+    if hygiene == "completed" and _count(payload.get("hygiene_healthy")) == 0:
+        blocks.append(["  QMD Registry: empty. Collections are created automatically when you run "
+                       "/skf-create-skill."])
+    if hygiene == "qmd_unavailable":
+        blocks.append(["  QMD Registry: skipped (qmd unavailable; if the daemon is stopped, "
+                       "`qmd start` restores it)."])
+
+    if tools["ccc"]:
+        ccc = ["  CCC Index:"]
+        # A failed `ccc index` can report on several lines; its line stays one line.
+        reason = " ".join(str(payload.get("ccc_indexing_failed_reason") or "").split())
+        ccc += [f"  {line}" for status, line in (
+            ("fresh", "up to date, semantic discovery ready"),
+            ("created", "indexed this run, semantic discovery ready"),
+            ("skipped", "skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to "
+                        "build or refresh the index when you're ready"),
+            ("failed", "indexing failed, semantic discovery unavailable this session"
+                       + (f" ({reason})" if reason else "")),
+        ) if index == status]
+        notes = _strings(payload.get("ccc_exclusion_warnings"))
+        if notes:
+            ccc.append("  CCC exclusion notes:")
+            ccc += [f"  - {note if PLACEHOLDER_REFUSAL in note else note.replace('{project-root}', root)}"
+                    for note in notes]
+        blocks.append(ccc)
+
+    config_path = inner["config_path"]
+    cut = max(config_path.rfind("/"), config_path.rfind("\\")) + 1
+    forge_data = str(payload.get("forge_data_folder") or "{forge_data_folder}").rstrip("/\\")
+    files = ["  Files written this run:", f"  - forge-tier.yaml: {config_path}"]
+    if prefs_created is True:
+        files.append(f"  - preferences.yaml: {config_path[:cut]}preferences.yaml (first-run defaults)")
+    files.append(f"  - {forge_data}/ (directory ensured)")
+    if settings_written is True:
+        pruned = _count(payload.get("settings_yml_patterns_removed"))
+        files.append(f"  - .cocoindex_code/settings.yml: {root}/.cocoindex_code/settings.yml "
+                     f"({_count(payload.get('settings_yml_patterns_added'))} SKF exclusion pattern(s) merged"
+                     + (f", {pruned} stale SKF pattern(s) removed" if pruned > 0 else "") + ")")
+    if payload.get("gitignore_updated") is True:
+        files.append(f"  - .gitignore: {root}/.gitignore (`/.cocoindex_code/` added by `ccc init`)")
+    if index == "created":
+        count = inner["ccc_index"]["file_count"]
+        files.append("  - .cocoindex_code/ ccc index" + (f": {count} files indexed" if count is not None else ""))
+    blocks.append(files)
+
+    if inner["tier_override_active"]:
+        blocks.append(["  Note: Tier override active (set in preferences.yaml)"])
+    if inner["tier_override_invalid"]:
+        suggestion = payload.get("tier_override_invalid_suggestion")
+        blocks.append([
+            f'  Note: tier_override value "{payload.get("tier_override_invalid_value")}" in '
+            "preferences.yaml is not valid.",
+            *([f'        Did you mean "{suggestion}"?'] if suggestion is not None else []),
+            "        Valid values are case-sensitive: Quick, Forge, Forge+, Deep. "
+            f"Using detected tier {tier}.",
+        ])
+    if payload.get("tier_override_unsafe") is True:
+        missing = ", ".join(_strings(payload.get("tier_override_unsafe_missing")))
+        blocks.append([
+            f"  Warning: tier_override is forcing {tier} but the underlying tool prerequisites are "
+            "not satisfied.",
+            f"           Missing: {missing}. The override is honored, but downstream skills that",
+            "           rely on the missing tool(s) will fail at runtime. Install the missing tool(s) "
+            "or remove",
+            "           the override from preferences.yaml.",
+        ])
+
+    if previous is None:
+        blocks.append([f"  Initial detection: {tier} tier established."])
+    if changed:
+        blocks.append([f"  {_tier_change_message(copy, previous, tier, added, removed)}"])
+    if not changed and not added and not removed and previous is not None:
+        same = [f"  {copy['same'].replace('{current}', tier)}"]
+        if prefs_created is False and settings_written is False and index == "fresh":
+            same.append("  Your preferences and ccc settings were left untouched, and the ccc index "
+                        "was already current.")
+        if prefs_created is False and settings_written is False and index == "skipped":
+            same.append("  Your preferences and ccc settings were left untouched; the ccc index was "
+                        "not checked (--ccc-skip-index).")
+        if prefs_created is False and index == "none":
+            same.append("  Your preferences were left untouched.")
+        blocks.append(same)
+    if not changed and (added or removed) and previous is not None:
+        delta = [f"  Tier unchanged: {tier}."]
+        if added:
+            deep_ccc = " ccc enhances Deep tier transparently." if "ccc" in added and tier == "Deep" else ""
+            delta.append(f"  Newly detected: {_names(added)}.{deep_ccc}")
+        if removed:
+            delta.append(f"  No longer detected: {_names(removed)}. Re-install to restore those capabilities.")
+        blocks.append(delta)
+
+    blocks += [[BANNER_RULE, f"  Forge ready. {tier} tier active.", BANNER_RULE], [NEXT_STEPS]]
+    lines: list[str] = []
+    for block in blocks:
+        lines += ([""] if lines else []) + block
+    return lines
 
 
 # ─── minimal stdlib JSON Schema validator ───────────────────────────────────
@@ -822,60 +1230,6 @@ def _payload_list(payload: dict, key: str, kind: type) -> list:
 # ─── clock ──────────────────────────────────────────────────────────────────
 
 
-def _is_dir(path: Path | None) -> bool:
-    """Path.is_dir() that reads a folder it may not stat as no folder."""
-    try:
-        return path is not None and path.is_dir()
-    except OSError:
-        return False
-
-
-def _clock_fallbacks() -> list[Path]:
-    """The folders _clock tries after the run's own: the working directory, then the temporary folder."""
-    folders = []
-    try:
-        folders.append(Path.cwd())
-    except OSError:
-        pass
-    folders += [Path(os.environ[name]) for name in ("TMPDIR", "TEMP", "TMP") if os.environ.get(name)]
-    return folders + [Path("/tmp")]
-
-
-def _clock(folders) -> int | None:
-    """Seconds since the epoch (UTC) now, or None when no folder can tell.
-
-    See "Clock" in the module docstring: the time is the modification time
-    the filesystem gives an empty file created, and removed at once, in the
-    first folder that exists and takes it.
-    """
-    for folder in folders:
-        if not _is_dir(folder):
-            continue
-        probe = folder / f".skf-emit-clock-{os.getpid()}"
-        for _ in range(2):
-            try:
-                os.close(os.open(probe, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            except FileExistsError:
-                # Left behind by a crashed run that had our pid: take it over.
-                try:
-                    probe.unlink()
-                except OSError:
-                    break
-                continue
-            except OSError:
-                break
-            try:
-                return int(probe.stat().st_mtime)
-            except OSError:
-                break
-            finally:
-                try:
-                    probe.unlink()
-                except OSError:
-                    pass
-    return None
-
-
 def _utc_parts(seconds: int) -> tuple[int, int, int, int, int, int]:
     """(year, month, day, hour, minute, second) of a Unix time, in UTC."""
     days, rest = divmod(seconds, 86400)
@@ -1070,6 +1424,14 @@ def envelope_line(schema: dict, envelope: dict) -> str:
 # ─── result files ───────────────────────────────────────────────────────────
 
 
+def _is_dir(path: Path | None) -> bool:
+    """Path.is_dir() that reads a folder it may not stat as no folder."""
+    try:
+        return path is not None and path.is_dir()
+    except OSError:
+        return False
+
+
 def _claim_result_path(result_dir: Path, stem: str, stamp: str) -> Path:
     """Create the run's per-run record, empty, under a name no run holds yet.
 
@@ -1145,6 +1507,8 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
     extra: list[str] = []
     stem = meta.get("result_file")
     run_path = Path(run_dir) if run_dir else None
+    if workflow == SETUP_WORKFLOW and not halt:
+        payload = fold_staged(payload, read_staged(run_path))
     result_path_dir = Path(result_dir) if result_dir else None
     if result_path_dir is not None and not stem:
         # Refusing would leave a halt that passed the flag by mistake with no line.
@@ -1157,24 +1521,8 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
         run_id = name[len(prefix):] if name.startswith(prefix) and len(name) > len(prefix) else name
 
     timestamp = file_stamp = None
-    props = _inner_schema(schema).get("properties", {})
-    if writes or "timestamp" in props:
-        if run_path is not None:
-            # An early halt may come before any `record` made the run folder.
-            try:
-                run_path.mkdir(parents=True, exist_ok=True)
-            except OSError:
-                pass
-        seconds = _clock([result_path_dir if writes else None, run_path, *_clock_fallbacks()])
-        if seconds is None:
-            if writes:
-                extra.append(f"result_file_write_failed: {result_path_dir.as_posix()}: folder not writable")
-                writes = False
-            if "timestamp" in props and not _allows(props["timestamp"], "null"):
-                _die(1, f"{label}: no folder takes the clock probe for {workflow}'s timestamp "
-                        "(the run folder, the working directory and the temporary folder all refused it)")
-        else:
-            timestamp, file_stamp = _stamps(seconds)
+    if writes or "timestamp" in _inner_schema(schema).get("properties", {}):
+        timestamp, file_stamp = _stamps(int(time.time()))
 
     sink_decisions, sink_warnings, problems = read_sink(run_path)
     item_schema = _decision_schema(schema)
@@ -1273,6 +1621,16 @@ def cmd_validate(workflow: str | None) -> None:
         _die(1, "; ".join(errors))
 
 
+def cmd_render_report(run_dir: str | None, tier_rules: str | None) -> None:
+    """Print skf-setup's FORGE STATUS banner for the payload on stdin."""
+    payload = _read_stdin_json("render-report")
+    if not isinstance(payload, dict):
+        _die(1, "render-report: the payload must be a JSON object")
+    payload = fold_staged(payload, read_staged(Path(run_dir) if run_dir else None))
+    copy = load_tier_rules(Path(tier_rules) if tier_rules else TIER_RULES_FILE)
+    print("\n".join(render_report(payload, copy)))
+
+
 def assemble_blocked_envelope(phase: str, reason: str, path: str | None = None) -> dict:
     """Assemble a minimal status='blocked' envelope for a halt.
 
@@ -1349,10 +1707,12 @@ def main() -> None:
     sub.add_parser("emit-blocked",           help="Emit skf-setup's status='blocked' envelope for early-halt paths.")
     p_record = sub.add_parser("record",      help="Append an auto-decision or a warning to the run's sink.")
     p_validate = sub.add_parser("validate",  help="Validate an envelope payload against the schema.")
+    p_render = sub.add_parser("render-report", help="Print skf-setup's FORGE STATUS banner for its payload.")
     for p in (p_emit, p_halt):
         p.add_argument("--workflow", required=p is p_halt, default=None,
                        help="Workflow folder name or schema stem (emit: skf-setup when omitted).")
-        p.add_argument("--run-dir", default=None, help="The run folder that holds the sink.")
+        p.add_argument("--run-dir", default=None,
+                       help="The run folder that holds the sink (and skf-setup's staged helper outputs).")
         p.add_argument("--result-dir", default=None,
                        help="Write the per-run and -latest result files here when the folder exists.")
         p.add_argument("--target", choices=["stdout", "stderr"], default="stdout",
@@ -1365,6 +1725,9 @@ def main() -> None:
     kind.add_argument("--warning", default=None, help="The warning text.")
     p_validate.add_argument("--workflow", default=None,
                             help="Workflow folder name or schema stem (skf-setup when omitted).")
+    p_render.add_argument("--run-dir", default=None, help="The setup run folder that holds the staged helper outputs.")
+    p_render.add_argument("--tier-rules", default=None,
+                          help="skf-setup's references/tier-rules.md (default: beside this script's folder).")
     args = parser.parse_args()
 
     cmd = args.cmd or "emit"
@@ -1378,6 +1741,8 @@ def main() -> None:
         cmd_record(args)
     elif cmd == "validate":
         cmd_validate(args.workflow)
+    elif cmd == "render-report":
+        cmd_render_report(args.run_dir, args.tier_rules)
 
 
 if __name__ == "__main__":

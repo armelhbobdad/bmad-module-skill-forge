@@ -17,7 +17,7 @@ Packages a completed skill as an agentskills.io-compliant package, generates con
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Cross-skill data coupling:** `assets/managed-section-format.md` (loaded by drop-skill and rename-skill's `execute.md`) and `references/update-context.md` §4a (v2 manifest schema enforced by `skf-manifest-ops.py`) are the source of truth for those contracts — schema-breaking changes here need coordinated updates across those skills.
+- **Cross-skill data coupling:** export-skill, drop-skill and rename-skill write the managed section through one helper, `shared/scripts/skf-rebuild-managed-sections.py` (`resolve-targets` over `shared/data/ide-context-files.json`, then `check`, `assemble`, `insert` and `replace`), in the format `assets/managed-section-format.md` documents, and change `.export-manifest.json` only through `shared/scripts/skf-manifest-ops.py` (v2 schema in `references/manifest-rebuild.md`). A change to either contract changes all three skills.
 
 ## Role
 
@@ -51,7 +51,7 @@ These rules apply to every step in this workflow:
 | **Inputs** | `skill_name` [one or more, required unless `--all`] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--all` (export every non-deprecated skill in `.export-manifest.json`); `--dry-run` (stage everything but write nothing — context files, manifest, and snippet are previewed only; the run completes read-only through the terminal step; `status="dry-run"`) |
 | **Gates** | step 1: single Confirm Gate [C] for the whole batch | step 4: single Confirm Gate [C] for the whole batch |
-| **Outputs** | Updated `.export-manifest.json` (every skill in the batch), updated context files (CLAUDE.md/AGENTS.md/.cursorrules), per-skill `context-snippet.md`, per-run result contract `export-skill-result-{timestamp}.json` and `export-skill-result-latest.json` |
+| **Outputs** | Updated `.export-manifest.json` (every skill in the batch, also when `passive_context` is off), updated context files (CLAUDE.md/AGENTS.md/.cursorrules), per-skill `context-snippet.md`, per-run result contract `export-skill-result-{timestamp}.json` and `export-skill-result-latest.json` |
 | **Multi-skill mode** | Activated when more than one skill is selected (via `--all`, multi-selection, or multi-argument invocation). See `references/load-skill.md` §1c for the per-step iteration map. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Each auto-resolved gate appends a `{gate, default_action, taken_action, reason}` entry to `headless_decisions[]`, surfaced in step 6's `SKF_EXPORT_RESULT_JSON` envelope so non-interactive runs can be audited post-hoc. |
 | **Exit codes** | See "Exit Codes" below |
@@ -64,9 +64,9 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | ---- | -------------------- | -------------------------------------------------------------------------------------------- |
 | 0    | success              | step 7 (terminal); also `status="dry-run"` when `--dry-run` is set                          |
 | 2    | input-missing        | step 1 §1 — headless run with no `skill_name` and no `--all` (a non-interactive run cannot answer the skill-selection menu) → `input-missing` |
-| 3    | resolution-failure   | step 1 §1 (discovery finds no skills on disk / in the manifest); step 1 §2 (a named skill's required artifacts are missing or its metadata is invalid — export-gate FAIL); multi-skill batch (any skill failing §2 validation halts the whole batch) → `resolution-failure`; step 1 §2 flat fallback (a flat `SKILL.md` with no SKF marker in its `metadata.json`, so SKF will not migrate or export it) → `not-skf-output` |
-| 4    | write-failure        | On-Activation §5 pre-flight write probe → `write-failed`; step 4 §3b / §9 / §4c.1 (managed-section create/append/rewrite/clear verify fails, or a required helper is unresolvable) → `context-rebuild-failed`; step 4 §9b manifest write → `manifest-write-failed` |
-| 5    | state-conflict       | step 4 §6 — malformed `<!-- SKF:BEGIN/END -->` markers in the target context file (`<!-- SKF:BEGIN` present, `<!-- SKF:END -->` missing) → `malformed-markers` |
+| 3    | resolution-failure   | step 1 §1 (discovery finds no skills on disk / in the manifest; the export manifest does not parse; context-file resolution refuses an unknown `--context-file` value or cannot read the IDE mapping); step 1 §2 (a named skill's required artifacts are missing or its metadata is invalid: export-gate FAIL); multi-skill batch (any skill failing §2 validation halts the whole batch) → `resolution-failure`; step 1 §2 flat fallback (a flat `SKILL.md` with no SKF marker in its `metadata.json`, so SKF will not migrate or export it) → `not-skf-output` |
+| 4    | write-failure        | On-Activation §5 pre-flight write probe → `write-failed`; step 1 §1, step 3 §4 or step 4 §2 (a required helper is unresolvable, or the token counter fails), step 4 §3b (an orphaned file's clear fails), §4b (the body cannot be built, for example a context file that is not UTF-8 text) or §9 (a write fails its check) → `context-rebuild-failed`; step 4 §9b manifest write → `manifest-write-failed` |
+| 5    | state-conflict       | step 4 §4b or §5: `check` finds a `<!-- SKF:BEGIN` marker that no `<!-- SKF:END -->` closes in a target context file → `malformed-markers` |
 | 6    | user-cancelled       | step 1 §6 gate `[X]`/cancel; step 1 §1b snippet-root probe (a)/(c); step 4 §8 gate `[X]`/cancel; step 4 §4c.1 orphan-row (c) Cancel; any prompt accepting `cancel`/`exit`/`:q` → `user-cancelled` |
 
 ## Result Contract (Headless)
@@ -104,15 +104,14 @@ SKF_EXPORT_RESULT_JSON: {"status":"success|error|dry-run","skills":[],"context_f
    - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
    - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
 
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly. The bundled defaults are an empty string for each scalar.
 
    Apply the fallback now so stage files don't have to repeat the conditional logic. For each scalar, if the merged value is empty or absent, use the bundled default:
 
-   - `{managedSectionFormatPath}` ← `workflow.managed_section_format_path` if non-empty, else `assets/managed-section-format.md`
    - `{snippetFormatPath}` ← `workflow.snippet_format_path` if non-empty, else `assets/snippet-format.md`
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — step 6 skips the hook invocation)
 
-   Stash all three as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
+   Stash both as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
 
    **Apply the array surfaces so they are not silent no-ops:** execute each entry in `workflow.activation_steps_prepend` in order now (org-wide pre-flight such as auth, network, or compliance); treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts — the bundled default loads any `project-context.md`); then, after activation completes and before the first stage runs, execute each entry in `workflow.activation_steps_append` in order.
 

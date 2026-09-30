@@ -68,8 +68,9 @@ Action-first actions (the action name comes first):
                 `observed_prefixes`, and flag `mismatch` against the reference.
   assemble <context-file> --skills-folder DIR --skill-root PREFIX
            [--skill-root-override PREFIX] [--include NAME@VERSION]...
-           [--snippet NAME=FILE]... [--renamed OLD:NEW] [--dropped NAME]...
-           [--orphan-sources FILE...] [--orphans keep|drop] [--out FILE]
+           [--snippet NAME=FILE]... [--snippet-dir DIR] [--renamed OLD:NEW]
+           [--dropped NAME]... [--orphan-sources FILE...] [--orphans keep|drop]
+           [--out FILE]
                 Build the body that replace and insert take for one context
                 file and write it to `<context-file>.skf-content`, or to
                 --out FILE (creating its folder), with no trailing newline, so
@@ -83,7 +84,9 @@ Action-first actions (the action name comes first):
                 version (which wins over the manifest). Each one's
                 context-snippet.md comes from its versioned package, else its
                 `active` link, else the flat layout (--snippet names the file
-                to use instead). Its `root:` becomes the effective prefix plus
+                to use instead, and --snippet-dir a folder of staged drafts,
+                read as DIR/<name>/context-snippet.md for each skill that has
+                one there). Its `root:` becomes the effective prefix plus
                 the skill name and `/`: --skill-root-override when given, else
                 --skill-root. A row found in the managed section of
                 <context-file> or of an --orphan-sources file is an orphan
@@ -774,6 +777,7 @@ def cmd_assemble(
     override=None,
     includes=(),
     snippets=None,
+    snippet_dir=None,
     renamed=None,
     dropped=(),
     orphan_sources=(),
@@ -783,9 +787,10 @@ def cmd_assemble(
     """Build the managed-section body for `context_file` and stage it for replace/insert.
 
     `includes` is a list of (name, version), `snippets` maps a skill name to
-    the snippet file to use, `renamed` is (old, new) and `dropped` a list of
-    names. The body goes to `out`, else to <context_file>.skf-content. See the
-    module docstring for the rules.
+    the snippet file to use, `snippet_dir` is a folder of staged drafts (a
+    `snippets` entry wins over it), `renamed` is (old, new) and `dropped` a
+    list of names. The body goes to `out`, else to
+    <context_file>.skf-content. See the module docstring for the rules.
     """
     snippets = snippets or {}
     prefix = _as_prefix(override) or _as_prefix(skill_root)
@@ -826,7 +831,10 @@ def cmd_assemble(
         warnings.append(f"--snippet {name}: not one of the section's skills, so its file was not read")
     for name in sorted(wanted):
         version = wanted[name]
-        path, source, package, tried = _find_snippet(skills_folder, name, version, snippets.get(name))
+        given = snippets.get(name)
+        if given is None and snippet_dir and (Path(snippet_dir) / name / SNIPPET_FILE).is_file():
+            given = str(Path(snippet_dir) / name / SNIPPET_FILE)
+        path, source, package, tried = _find_snippet(skills_folder, name, version, given)
         if path is None:
             skipped_missing.append({"skill_name": name, "version": version, "tried": tried})
             continue
@@ -1120,6 +1128,12 @@ def _action_parser(action):
             metavar="NAME=FILE",
             help="Read NAME's snippet from FILE instead of its package",
         )
+        parser.add_argument(
+            "--snippet-dir",
+            metavar="DIR",
+            help="A folder of staged snippet drafts: a skill with DIR/<name>/context-snippet.md "
+            "reads it instead of its package (--snippet wins over it)",
+        )
         parser.add_argument("--renamed", type=_renamed_pair, metavar="OLD:NEW", help="A rename: OLD's rows are not orphans")
         parser.add_argument(
             "--dropped",
@@ -1190,6 +1204,7 @@ def _run_action_first(argv):
             override=args.skill_root_override,
             includes=includes,
             snippets=dict(args.snippet),
+            snippet_dir=args.snippet_dir,
             renamed=args.renamed,
             dropped=[name for group in args.dropped for name in group],
             orphan_sources=args.orphan_sources,

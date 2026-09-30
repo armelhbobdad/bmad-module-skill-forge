@@ -4,13 +4,15 @@
 # ///
 """Deterministic directory-size measurement for skf-drop-skill.
 
-The drop workflow twice needs an exact recursive byte total plus a stable
-human label ("4.2 MB" / "812 KB"): select.md §9b renders the blast-radius
-line ahead of the confirmation gate, and execute.md §4 reports the canonical
-`disk_freed`. Summing file sizes and rounding a unit in the prompt has one
-correct answer per input, so it belongs here — identical input yields
-identical output, and the gate preview and the post-purge report agree on the
-method (they can still differ only because they read at different times).
+The drop workflow twice needs a stable human label ("4.2 MB" / "812 KB"):
+select.md §9b renders the blast-radius line ahead of the confirmation gate
+from the exact recursive byte total measured here, and execute.md §4 formats
+the canonical `disk_freed` from the `bytes_freed` that skf-skill-inventory.py
+guarded-delete measured just before it deleted each folder. Summing file sizes
+and rounding a unit in the prompt has one correct answer per input, so it
+belongs here: identical input yields identical output, and the gate preview
+and the post-purge report agree on the method (they can still differ only
+because they read at different times).
 
 Two operations:
 
@@ -19,8 +21,8 @@ Two operations:
                         excluded from the total). Symlinks are measured by the
                         size of the link itself, never followed.
   humanize <bytes>...   sum a set of already-measured byte counts and format
-                        one human label. execute.md §4 feeds it the sizes of
-                        the paths that were actually deleted.
+                        one human label. execute.md §4 feeds it the
+                        `bytes_freed` of guarded-delete.
 
 Output is a single JSON object on stdout. Exit codes: 0 ok; 2 usage error
 (missing/unknown op, or a non-integer byte count for `humanize`).

@@ -49,9 +49,9 @@ STEP_LABELS = {
 }
 STEP_FILES = list(STEP_LABELS)
 QUIET = "{quiet_mode}"
-DISPLAY_RULE = "Display messages only when `{headless_mode}` and `{quiet_mode}` are both false"
+DISPLAY_RULE = "Display messages only when `{quiet_mode}` is false"
 NO_NARRATION_RULE = (
-    "When `{headless_mode}` or `{quiet_mode}` is true, write no assistant text at all between "
+    "When `{quiet_mode}` is true, write no assistant text at all between "
     "tool calls: no status, progress or step-transition notes, however brief"
 )
 PIPELINE = "{pipeline_mode}"
@@ -216,7 +216,7 @@ UV_MISSING = {"phase": "on-activation:uv-missing",
 # Every module the envelope helper may import. Each is in the standard library
 # of Python 3.9, the oldest `python3` a runner may be (macOS Command Line
 # Tools); add one only after checking that it is.
-PY39_STDLIB_IMPORTS = frozenset({"__future__", "argparse", "json", "os", "pathlib", "sys"})
+PY39_STDLIB_IMPORTS = frozenset({"__future__", "argparse", "json", "os", "pathlib", "sys", "time"})
 
 
 def _emit_blocked(payload: dict, *flags: str, env=None) -> subprocess.CompletedProcess:
@@ -320,11 +320,12 @@ def test_detector_failure_branch_is_defined():
 
 
 def test_clean_stale_failure_binds_flags():
+    """The step's own display needs the QMD count; step 4 reads the ccc
+    prune from the empty staged output, so nothing else is bound."""
     section = _section(_read(REFS / "auto-index.md"), "### 4.")
     branch = next(b for _, _, b in _prose_blocks(section) if "exits non-zero" in b)
-    for binding in ("hygiene_stale_cleaned: 0", "ccc_registry_stale_cleaned: 0",
-                    "ccc_registry_stale_removed_paths: []"):
-        assert binding in branch, binding
+    assert re.findall(r"set `\{([^`]*)\}`", branch) == ["hygiene_stale_cleaned: 0"]
+    assert "ccc_registry_stale" not in section
     assert "WARNING line" not in section
     assert "logged in the script" not in section
     assert "carry every pruned path" not in section
@@ -368,7 +369,7 @@ def test_tier_miss_halt_emits_no_blocked_envelope():
 def test_on_complete_is_silent_under_quiet():
     chain = _section(_read(REFS / "report.md"), "### 5.")
     item = next(u for _, _, u in _prose_blocks(chain, items=True) if "{onCompleteCommand}" in u and "execute it now" in u)
-    assert "when `{headless_mode}` or `{quiet_mode}` is true, display nothing about it" in item
+    assert "when `{quiet_mode}` is true, display nothing about it" in item
 
 
 def test_report_envelope_failure_makes_no_stderr_claim():
@@ -598,6 +599,246 @@ def test_orphan_removal_rule_names_both_consents():
     assert "{orphan_auto_resolution}" in rule
 
 
+def test_unprompted_orphan_removals_are_recorded_by_name():
+    gate = _section(_read(REFS / "auto-index.md"), "### 3.")
+    assert "add `removed: {orphan_removed_names}` and `failed: {orphan_remove_failed}` to it" in gate
+    assert "Auto-decision (--orphan-action=remove): removed {len(orphan_removed_names)}" in gate
+    doc = ast.get_docstring(ast.parse(_read(EMIT_HELPER)))
+    assert '"removed": ["name", ...], "failed": ["name", ...]' in doc
+    assert "`orphan_removed: <name>`, `orphan_remove_failed: <name>`" in doc
+
+
+# ---------------------------------------------------------------- activation inputs fail closed
+
+
+DETECT_HELPER = SRC / "shared" / "scripts" / "skf-detect-tools.py"
+
+
+def _parse_flags_item() -> str:
+    return next(line for line in _on_activation(_read(SKILL_MD)).splitlines()
+                if "**Parse invocation flags first**" in line)
+
+
+def test_require_tier_is_bound_raw_and_checked_by_the_detector():
+    """A wrong-case tier used to become null, so the tier gate never ran."""
+    parse = _parse_flags_item()
+    assert ("`{require_tier}` and `{orphan_action}` (each flag's raw value exactly as given, "
+            "after `=` or a space; an empty string when nothing, or another flag, follows it; null only "
+            "when the flag is absent)") in parse
+    assert "unparseable" not in parse
+    assert "Step 1's detector rejects a `{require_tier}` that names no tier." in parse
+    detect = _section(_read(REFS / "detect-and-tier.md"), "### 2.")
+    # The = form: a raw value that starts with a dash is still the flag's
+    # value, so the detector's own message names the valid tiers.
+    assert '[--tier-override="{tier_override}"] [--require-tier="{require_tier}"]' in detect
+    assert "with the value exactly as activation bound it, even when it names no tier" in detect
+
+
+def test_a_wrong_case_require_tier_ends_blocked_naming_the_valid_tiers(tmp_path):
+    """`/skf-setup --headless --require-tier=deep`: step 1's detector call
+    fails, and its halt emits a blocked envelope whose reason names the tiers."""
+    proc = subprocess.run([sys.executable, str(DETECT_HELPER), "--project-root", str(tmp_path),
+                           "--require-tier", "deep"], capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 1 and proc.stdout == ""
+    message = json.loads(proc.stderr)["message"]
+    branch = _section(_read(REFS / "detect-and-tier.md"), "### 2.")
+    assert "reason `Setup cannot proceed: tool detection failed: <message>`" in branch
+    reason = "Setup cannot proceed: tool detection failed: " + message.replace("'", "`").replace("\\", "/")
+    done = _emit_blocked({"phase": "step 1:detect-tools", "reason": reason, "path": tmp_path.as_posix()})
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    [line] = done.stdout.decode("utf-8").splitlines()
+    envelope = json.loads(line[len("SKF_SETUP_RESULT_JSON: "):])["skf_setup"]
+    assert envelope["status"] == "blocked" and envelope["error"]["phase"] == "step 1:detect-tools"
+    assert "Quick, Forge, Forge+, Deep" in envelope["error"]["reason"]
+    assert envelope["error"]["reason"].endswith("did you mean Deep?")
+
+
+def test_orphan_action_other_than_keep_or_remove_halts_at_activation():
+    """The flag is the consent to delete collections: a value setup cannot read halts."""
+    parse = _parse_flags_item()
+    m = re.search(r"halt with phase `on-activation:orphan-action-invalid`, no `path`, and reason `([^`]+)`", parse)
+    assert m, "orphan-action halt not found"
+    reason = m.group(1)
+    assert reason.startswith("Setup cannot proceed: --orphan-action takes keep or remove, not <value>.")
+    assert not set(reason) & set("'\"\\")
+    done = _emit_blocked({"phase": "on-activation:orphan-action-invalid",
+                          "reason": reason.replace("<value>", "Remove")})
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    assert "not Remove." in done.stdout.decode("utf-8")
+    gate = _section(_read(REFS / "auto-index.md"), "### 3.")
+    assert "`{orphan_action}` is non-null (activation lets through only `keep` or `remove`)" in gate
+    contract = _section(_read(SKILL_MD), "## Invocation Contract")
+    failure = next(line for line in contract.splitlines() if line.startswith("| **Failure modes**"))
+    assert "an `--orphan-action` other than `keep` or `remove`" in failure
+
+
+def test_quiet_is_an_alias_of_headless_and_a_pipeline_implies_it():
+    parse = _parse_flags_item()
+    assert "`{headless_mode}` (true on `--headless` / `-H`, and when `{pipeline_mode}` is true)" in parse
+    assert ("`{quiet_mode}` (true on `--quiet`, the alias of `--headless`, and whenever `{headless_mode}` "
+            "is true)") in parse
+    contract = _section(_read(SKILL_MD), "## Invocation Contract")
+    flags = next(line for line in contract.splitlines() if line.startswith("| **Flags**"))
+    assert "`--quiet` (an alias of `--headless`" in flags
+    # One non-interactive case, and a --quiet run keeps labelling its orphan default quiet-default.
+    gate = _section(_read(REFS / "auto-index.md"), "### 3.")
+    assert ('- `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` when '
+            '`{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)') in gate
+    assert "- `{headless_mode}` is true →" not in gate
+
+
+SETUP_FILES = [SKILL_MD, *sorted(REFS.glob("*.md"))]
+
+
+@pytest.mark.parametrize("path", SETUP_FILES, ids=lambda p: p.name)
+def test_every_setup_guard_reads_quiet_mode_alone(path):
+    """--quiet is an alias of --headless, so setup has one envelope-only mode
+    and one switch for it: a guard that tests both variables could drift
+    into testing one of them and leak text into the envelope-only output."""
+    text = _read(path)
+    for doubled in ("`{headless_mode}` or `{quiet_mode}`", "`{headless_mode}` and `{quiet_mode}`",
+                    "`{quiet_mode}` or `{headless_mode}`"):
+        assert doubled not in text, doubled
+    # {headless_mode} is only parsed, folded with preferences.yaml, and named
+    # as the source of the step 3 orphan default.
+    allowed = {"SKILL.md": ("1. **Parse invocation flags first**", "3. **Reconcile `{headless_mode}`**"),
+               "auto-index.md": ("- `{quiet_mode}` is true → the default **Keep**",)}.get(path.name, ())
+    readers = [line.strip()[:60] for line in text.splitlines() if "{headless_mode}" in line]
+    assert [line for line in readers if not line.startswith(allowed)] == []
+
+
+# ---------------------------------------------------------------- step order, staged payloads, banner
+
+
+def test_preamble_and_rerun_notice_follow_the_bindings_they_read():
+    """Section 1 used to show them from `prior.previous_tier`, which only
+    section 2 produces and section 3 binds."""
+    text = _read(REFS / "detect-and-tier.md")
+    headings = re.findall(r"^### (\d+)\. (.+)$", text, re.MULTILINE)
+    assert [int(n) for n, _ in headings] == list(range(1, len(headings) + 1))
+    titles = [title.split(" (skip when ", 1)[0] for _, title in headings]
+    assert titles[1] == "Run Detection Helper"
+    order = [titles.index(t) for t in ("Run Detection Helper", "Parse Output and Set Context Flags",
+                                       "Show the First-Run Preamble or the Re-run Notice", "Auto-Proceed")]
+    assert order == sorted(order)
+    first = _section(text, "### 1.")
+    assert "`{tier_override}` ← its `tier_override` value" in first
+    assert "preamble" not in first.lower() and "prior" not in first and "helper" not in first
+    notice = _section(text, "### 4.")
+    assert notice.startswith("### 4. Show the First-Run Preamble or the Re-run Notice "
+                             "(skip when `{quiet_mode}` is true)\n")
+    assert ("Now that section 3 has bound `{previous_tier}` and `{previous_detection_date}`, and before "
+            "step 1b or step 2 writes anything") in notice
+    # Each notice states its condition once; the heading carries the quiet guard.
+    assert notice.count("**First-run preamble:** when `{previous_tier}` is null:") == 1
+    assert notice.count("**Re-run notice:** when `{previous_tier}` is non-null:") == 1
+    assert notice.count("`{previous_tier}` is") == 2 and notice.count(QUIET) == 1
+    # Step 1 made the run folder, so a user who stops here knows what to delete.
+    assert notice.count("(if you stop here, delete `{run_dir}`).\"") == 2
+    assert "§2 below" not in text
+
+
+# Every file a setup step writes into the run folder.
+RUN_DIR_WRITE_RE = re.compile(r'> "\{run_dir\}/([a-z-]+\.json)"')
+# Section 5's delete: the saved files by name, then the folder only if it is empty.
+RUN_DIR_DELETE_RE = re.compile(r'^rm -f ((?:"\{run_dir\}/[a-z-]+\.json" )+)&& rmdir "\{run_dir\}"$', re.M)
+
+
+def test_run_folder_is_made_in_step_1_and_removed_in_step_4():
+    detect = _section(_read(REFS / "detect-and-tier.md"), "### 2.")
+    assert 'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-setup-XXXXXXXX"' in detect
+    assert "Bind `{run_dir}` ← the path it prints" in detect
+    assert "halt with phase `step 1:run-folder`" in detect
+    report = _read(REFS / "report.md")
+    chain = _section(report, "### 5.")
+    delete = RUN_DIR_DELETE_RE.search(chain)
+    assert delete, "section 5 does not delete the run folder file by file"
+    written = {name for step in STEP_FILES for name in RUN_DIR_WRITE_RE.findall(_read(REFS / step))}
+    assert set(re.findall(r'"\{run_dir\}/([a-z-]+\.json)"', delete.group(1))) == written
+    # A recursive delete of a mis-bound {run_dir} could take every run's folder with it.
+    assert "rm -r" not in report
+    # Deleted before the tier-miss line shows, so that line stays the final message.
+    assert delete.start() < chain.index("`{require_tier_satisfied}` is `false`")
+    contract = _section(_read(SKILL_MD), "## Invocation Contract")
+    outputs = next(line for line in contract.splitlines() if line.startswith("| **Outputs**"))
+    assert "`{project-root}/_bmad-output/.skf-run/`" in outputs
+    assert "a halt that names a phase leaves it in place" in outputs
+
+
+STAGED_RE = re.compile(r'> "\{run_dir\}/([a-z-]+\.json)" && cat "\{run_dir\}/\1"')
+
+
+def test_every_staged_helper_output_is_one_the_emitter_reads():
+    staged = {name for step in STEP_FILES for name in STAGED_RE.findall(_read(REFS / step))}
+    declared = set(re.findall(r'^STAGED_[A-Z_]+ = "([a-z-]+\.json)"$', _read(EMIT_HELPER), re.MULTILINE))
+    assert staged == declared == {"detect-tools.json", "qmd-classify.json", "clean-stale.json"}
+
+
+def test_report_payload_is_staged_before_the_banner_and_shared_with_the_envelope():
+    report = _read(REFS / "report.md")
+    staged = _section(report, "### 1.")
+    assert "cat > \"{run_dir}/report-context.json\" <<'SKF_JSON'" in staged
+    keys = set(re.findall(r'^  "([a-z_]+)":', staged, re.MULTILINE))
+    # The banner flags the old headless-only payload lacked.
+    assert {"gitignore_updated", "settings_yml_patterns_added", "settings_yml_patterns_removed",
+            "hygiene_orphaned_removed", "hygiene_orphaned_kept"} <= keys
+    doc = ast.get_docstring(ast.parse(_read(EMIT_HELPER)))
+    assert all(f'"{key}"' in doc for key in keys), keys
+    banner = _section(report, "### 2.")
+    assert ('render-report --run-dir "{run_dir}" --tier-rules "{skill-root}/references/tier-rules.md" '
+            '< "{run_dir}/report-context.json"') in banner
+    assert (REFS / "tier-rules.md").is_file()
+    assert "`render-report` follows this template, kept for reference only;" in banner
+    emit = _section(report, "### 4.")
+    assert 'emit --run-dir "{run_dir}" < "{run_dir}/report-context.json"' in emit
+    assert "echo '" not in report and "tierRulesData" not in report
+    rules = _section(report, "## Rules")
+    assert "negative framing" not in rules
+    # The one place the step says who owns the FORGE STATUS lines.
+    assert "never compose, add or drop a line yourself" in rules
+    frontmatter, _ = _split_frontmatter(report)
+    assert "FORGE STATUS" not in frontmatter
+
+
+def test_a_banner_that_cannot_render_is_one_line_not_a_halt():
+    """An interactive run has written its configuration by step 4, so a
+    missing or failing helper costs the banner, never the rest of the run;
+    only the envelope-only run halts without the helper."""
+    report = _read(REFS / "report.md")
+    halt = next(line for line in _section(report, "## Rules").splitlines() if "`step 4:helper-missing`" in line)
+    assert halt.startswith("- If section 4 finds no existing path in `emitEnvelopeProbeOrder`")
+    frontmatter, _ = _split_frontmatter(report)
+    assert "halt if neither exists when section 4 emits the envelope" in " ".join(
+        line.lstrip("# ") for line in frontmatter.splitlines())
+    banner = _section(report, "### 2.")
+    fallback = next(b for _, _, b in _prose_blocks(banner) if "could not be rendered" in b)
+    assert "or no path in `emitEnvelopeProbeOrder` exists" in fallback
+    assert "`skf-emit-result-envelope.py was not found`" in fallback
+    assert "continue: the forge is configured either way" in fallback
+    assert "helper-missing" not in banner
+
+
+def test_payload_strings_escape_control_characters_and_a_bad_payload_is_rewritten_once():
+    """A failed `ccc index` reports on several lines, and a raw newline in the
+    heredoc would make both render-report and emit refuse the payload."""
+    report = _read(REFS / "report.md")
+    rule = next(b for _, _, b in _prose_blocks(_section(report, "### 1.")) if b.startswith("Write each value"))
+    assert "any `\"`, `\\` or control character in it escaped (a newline as `\\n`)" in rule
+    retry = "names invalid JSON on stdin, fix `report-context.json` once and run it again"
+    for prefix in ("### 2.", "### 4."):
+        assert retry in _section(report, prefix), prefix
+    emit_failure = next(b for _, _, b in _prose_blocks(_section(report, "### 4.")) if "exits non-zero" in b)
+    assert "failed schema validation" not in emit_failure
+
+
+def test_required_tier_block_points_at_no_section_a_deep_banner_lacks():
+    """Deep can miss `--require-tier=Forge+` (Deep does not require ccc), and
+    render-report prints "Climb to next tier" only below Deep."""
+    block = _section(_read(REFS / "report.md"), "### 3.")
+    assert "REQUIRED TIER NOT MET" in block
+    assert "Climb to next tier" not in block
+
+
 # ---------------------------------------------------------------- what the docs promise
 
 
@@ -709,6 +950,8 @@ def test_write_failure_phases_named_wherever_a_write_failure_is_described():
 def test_step_4_passes_a_null_error_and_step_2_binds_none():
     """A halt that names a phase never reaches step 4, so its payload's error is null."""
     report = _read(REFS / "report.md")
-    assert '"error": null' in _section(report, "### 4.")
+    staged = _section(report, "### 1.")
+    assert '"error": null' in staged
+    assert "`error` stays `null`: a halt that names a phase never reaches this step" in staged
     assert "{error_object_or_null}" not in report
     assert "set `{error:" not in _read(REFS / "write-config.md")

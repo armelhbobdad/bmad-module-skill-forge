@@ -44,10 +44,12 @@ persistent_facts = [
 
 on_complete = ""
 
-# --- Optional asset overrides ---
+# --- Optional asset override ---
 #
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
+# Lift the canonical snippet template path so orgs can substitute a
+# house-style copy without forking the skill. Empty string = use the bundled
+# default. The managed-section format and the IDE mapping have no override:
+# drop-skill and rename-skill rebuild the same section through the shared
+# helper, so a copy only export read would put them out of step.
 
-managed_section_format_path = ""
 snippet_format_path = ""

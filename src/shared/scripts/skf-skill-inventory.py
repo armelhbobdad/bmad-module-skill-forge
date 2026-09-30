@@ -6,11 +6,12 @@
 
 Scans the skills output folder, reads manifests and metadata, resolves active
 versions via symlinks, and outputs a JSON inventory. Read by drop-skill and
-rename-skill (roster, and the ownership of each skill folder and its forge
-folder), create-skill, quick-skill and create-stack-skill (the write check
-before a version is written), analyze-source (coexistence matches), the
-flat-layout fallback of update-skill, export-skill, audit-skill and test-skill
-(the ownership gate before a flat skill is migrated), and test-skill's report
+rename-skill (roster, the ownership of each skill folder and its forge
+folder, the purge and rename verdicts, and the guarded delete),
+create-skill, quick-skill and create-stack-skill (the write check before a
+version is written), analyze-source (coexistence matches), the flat-layout
+fallback of update-skill, export-skill, audit-skill and test-skill (the
+ownership gate before a flat skill is migrated), and test-skill's report
 (the discovery catalog).
 
 CLI: uv run skf-skill-inventory.py <skills-output-folder>
@@ -20,6 +21,11 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --forge-data-folder <path>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name> --write-check
          [--write-version <version>] [--forge-data-folder <path>]
+     uv run skf-skill-inventory.py <skills-output-folder> --skill <name> --purge-check
+         [--purge-version <version>] --forge-data-folder <path>
+     uv run skf-skill-inventory.py <skills-output-folder> --skill <name> --rename-check
+         --forge-data-folder <path>
+     uv run skf-skill-inventory.py guarded-delete --root <folder> [--root <folder>] [<path>...]
      uv run skf-skill-inventory.py resolve <skills-output-folder> --skill <name>
          --forge-data-folder <path> [--version <version>]
      uv run skf-skill-inventory.py version normalize <version>
@@ -29,10 +35,12 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
          --prior-libraries <a,b> --libraries <a,c>
      uv run skf-skill-inventory.py version primary <candidates.json|->
 
-Exit 0 when `status` is "ok" (a write check exits 0 whatever its verdict);
+Exit 0 when `status` is "ok" (a write, purge or rename check exits 0
+whatever its verdict, and a guarded delete whatever its `purge_status`);
 exit 1 on an error (`DIR_NOT_FOUND`, `SKILL_NOT_FOUND` for `--skill` or
-`resolve`, `USAGE` for a flag used wrongly or `--forge-data-folder` without
-a value, and for `version`: `NOT_A_VERSION`, `NOT_INCREASING` or
+`resolve`, `USAGE` for a flag used wrongly, two check flags in one call,
+`--forge-data-folder` without a value or missing from a purge or rename
+check, and for `version`: `NOT_A_VERSION`, `NOT_INCREASING` or
 `BAD_INPUT`).
 
 Ownership. The skills folder can hold skills SKF did not generate (a module's
@@ -79,6 +87,22 @@ Write check. `--skill <name> --write-check [--write-version <v>]` returns
 `write_check` (see `write_check`); the writers run it before creating any
 directory.
 
+Purge and rename checks. `--skill <name> --purge-check [--purge-version
+<v>]` returns `purge_check` (see `purge_check`): whether drop-skill may
+purge the whole skill or one version, the rule that refused it, and the
+folders the purge deletes and leaves in place. `--skill <name>
+--rename-check` returns `rename_check` (see `rename_check`): whether
+rename-skill may move the skill, and whether its forge folder moves with
+it. Both need `--forge-data-folder` and apply the same version rule as the
+write check (`0.1.0-rc/` is never version `0.1.0`).
+
+Guarded delete. `guarded-delete --root <folder>... [<path>...]` deletes
+each path that is a plain folder inside a root, reached through no link,
+and reports each outcome and a `purge_status` (see `guarded_delete`); with
+no path it deletes nothing and reports "success". drop-skill's purge and
+rename-skill's delete of the old folders go through it, with the skills
+and forge folders as roots.
+
 Resolve. `resolve` returns `resolve` (see `resolve_skill`) for one skill:
 the manifest's `active_version`, the `active` link's target, the version a
 reading workflow uses and why (the Manifest-lag guard of
@@ -111,6 +135,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import stat
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -774,14 +800,334 @@ def write_check(skills_folder, skill_name, version=None, forge_folder=None):
                       "has no SKF marker in any `metadata.json` and holds entries SKF did not "
                       "generate: " + ", ".join(own["foreign_entries"]))
     if version is not None:
-        listed = [e for e in own["foreign_entries"]
-                  if e == version or e == version + "/" or e.startswith(version + "/")]
+        listed = _version_entries(own["foreign_entries"], version)
         if listed:
             return refuse("not-skf-output", "version",
                           "is not a version SKF generated, or holds entries SKF did not "
                           "generate: " + ", ".join(listed), group / version)
     out["marked_active_version"] = _marked_active_version(group, skill_name)
     return out
+
+
+def _version_entries(entries, version):
+    """The `foreign_entries` that are version folder `version` or inside it.
+
+    A linked version folder is listed by its bare name (`v`), one SKF did not
+    generate as `v/` and an entry SKF did not put in a marked one as
+    `v/<entry>`. A prefix of another version is not that version: `0.1.0-rc/`
+    is never version `0.1.0`.
+    """
+    return [e for e in entries if e == version or e == version + "/" or e.startswith(version + "/")]
+
+
+def _is_reserved_group(skill_name):
+    """True for SKF's own `_batch` folder and its `.skf-` staging names, never a skill."""
+    return skill_name == "_batch" or ".skf-" in skill_name
+
+
+def purge_check(skills_folder, skill_name, forge_folder, version=None):
+    """Decide whether drop-skill may purge `skill_name`, whole or one version.
+
+    Returns {name, version, scope, verdict, reason, folder, detail,
+    offending_entries, ownership, foreign_entries, errors, same_folder,
+    forge_ownership, forge_foreign_entries, forge_errors,
+    affected_directories, forge_left_in_place}. `verdict` is "ok" or
+    "not-skf-output". A purge deletes only what SKF generated, so `reason`
+    names the rule that refused it:
+
+    - "reserved-name": `_batch` or a `.skf-` name, SKF's own folders.
+    - "skill-foreign": the skill folder is not SKF output (no marker, a link,
+      not a folder, or a folder SKF cannot list; `detail` says which).
+    - "skill-mixed-whole": a whole-skill purge of a skill folder that also
+      holds entries SKF did not generate.
+    - "skill-version-not-skf": version folder `version` is a link or not SKF
+      output (`v` or `v/` in `foreign_entries`).
+    - "skill-version-mixed": version folder `version` holds entries SKF did
+      not put there (`v/<entry>`).
+    - "forge-mixed-whole" and "forge-version-mixed": the same two rules for
+      the skill's forge folder, when the two settings name different folders.
+
+    A forge folder SKF did not generate (`foreign`, a link or a path that is
+    not a folder), SKF's own `reserved` folder, and a forge version folder
+    listed as `v` or `v/` do not refuse the purge: the purge leaves them in
+    place and `forge_left_in_place` names the path. `affected_directories`
+    lists the folders a purge at this scope deletes, whatever the verdict
+    (a deprecate keeps them): the skill folder, or its version folder, then
+    the forge one, each only when something is there, with no trailing
+    separator, and the forge one never when both settings name one folder.
+    """
+    skills_dir, forge_dir = Path(skills_folder), Path(forge_folder)
+    group, forge_group = skills_dir / skill_name, forge_dir / skill_name
+    same = _same_folder(skills_dir, forge_dir)
+    scope = "skill" if version is None else "version"
+    out = {"name": skill_name, "version": version, "scope": scope, "verdict": "ok", "reason": None,
+           "folder": str(group), "detail": None, "offending_entries": [], "ownership": "absent",
+           "foreign_entries": [], "errors": [], "same_folder": same, "forge_ownership": None,
+           "forge_foreign_entries": [], "forge_errors": [], "affected_directories": [],
+           "forge_left_in_place": None}
+
+    def refuse(reason, detail, folder, entries=()):
+        if out["verdict"] == "ok":
+            out.update(verdict="not-skf-output", reason=reason, detail=detail, folder=str(folder),
+                       offending_entries=list(entries))
+
+    if _is_reserved_group(skill_name):
+        refuse("reserved-name", "is a name SKF keeps for its own files, never a skill's", group)
+        return out
+    target = group if version is None else group / version
+    if os.path.lexists(group):
+        own = classify_ownership(group, skill_name, same)
+        out.update(ownership=own["ownership"], foreign_entries=own["foreign_entries"], errors=own["errors"])
+        if own["ownership"] == "foreign":
+            refuse("skill-foreign", "; ".join(own["errors"]) or "has no SKF marker in its `metadata.json`",
+                   group)
+        elif own["ownership"] == "mixed" and version is None:
+            refuse("skill-mixed-whole", "also holds entries SKF did not generate: "
+                   + ", ".join(own["foreign_entries"]), group, own["foreign_entries"])
+        elif own["ownership"] == "mixed":
+            listed = _version_entries(own["foreign_entries"], version)
+            inside = [e for e in listed if e.startswith(version + "/") and e != version + "/"]
+            if inside:
+                refuse("skill-version-mixed", "holds entries SKF did not generate: " + ", ".join(inside),
+                       target, inside)
+            elif listed:
+                refuse("skill-version-not-skf", "is a link or has no SKF marker in its `metadata.json`",
+                       target, listed)
+    if os.path.lexists(target):
+        out["affected_directories"].append(str(target))
+    if same:
+        return out
+
+    forge = classify_forge_group(forge_group, skill_name)
+    out.update(forge_ownership=forge["ownership"], forge_foreign_entries=forge["foreign_entries"],
+               forge_errors=forge["errors"])
+    forge_target = forge_group if version is None else forge_group / version
+    leave = forge["ownership"] in ("foreign", "reserved")
+    if forge["ownership"] == "mixed" and version is None:
+        refuse("forge-mixed-whole", "also holds entries SKF did not generate: "
+               + ", ".join(forge["foreign_entries"]), forge_group, forge["foreign_entries"])
+    elif forge["ownership"] == "mixed":
+        listed = _version_entries(forge["foreign_entries"], version)
+        inside = [e for e in listed if e.startswith(version + "/") and e != version + "/"]
+        if inside:
+            refuse("forge-version-mixed", "holds entries SKF did not generate: " + ", ".join(inside),
+                   forge_target, inside)
+        leave = bool(listed) and not inside
+    if not os.path.lexists(forge_target):
+        return out
+    if leave:
+        out["forge_left_in_place"] = str(forge_target)
+    else:
+        out["affected_directories"].append(str(forge_target))
+    return out
+
+
+def rename_check(skills_folder, skill_name, forge_folder):
+    """Decide whether rename-skill may move `skill_name` to a new name.
+
+    Rename copies `{skills_output_folder}/{name}/` and its forge folder, then
+    deletes the old ones, so it moves only a skill SKF generated in the
+    versioned layout. Returns {name, verdict, reason, folder, detail,
+    offending_entries, ownership, skf_skill, flat_skf, foreign_entries,
+    errors, same_folder, forge_ownership, forge_foreign_entries,
+    forge_errors, forge_move, forge_left_in_place}. `verdict` is "ok",
+    "not-skf-output" or "flat-layout" (the halt reason a refusal uses);
+    `reason` names the first rule that refused it:
+
+    - "reserved-name": `_batch` or a `.skf-` name.
+    - "absent": nothing at the skill folder.
+    - "foreign": the skill folder is not SKF output (no marker, a link, not
+      a folder, or one SKF cannot list; `detail` says which), or holds SKF's
+      files but no skill SKF generated.
+    - "mixed": it also holds entries SKF did not generate.
+    - "flat-layout": it still uses the flat layout.
+    - "forge-link", "forge-not-a-folder", "forge-unreadable": the forge
+      folder is a link, is not a folder, or cannot be listed.
+    - "forge-mixed": the forge folder also holds entries SKF did not
+      generate.
+
+    When both settings name one folder the skill folder is the forge folder,
+    so no forge rule applies and nothing else moves. Otherwise `forge_move`
+    is true when the forge folder is SKF output or holds no file of its own
+    ("skf" or "empty"), and `forge_left_in_place` names a forge folder SKF
+    did not generate, or SKF's own reserved one, which keeps its name.
+    """
+    skills_dir, forge_dir = Path(skills_folder), Path(forge_folder)
+    group, forge_group = skills_dir / skill_name, forge_dir / skill_name
+    same = _same_folder(skills_dir, forge_dir)
+    out = {"name": skill_name, "verdict": "ok", "reason": None, "folder": str(group), "detail": None,
+           "offending_entries": [], "ownership": "absent", "skf_skill": False, "flat_skf": False,
+           "foreign_entries": [], "errors": [], "same_folder": same, "forge_ownership": None,
+           "forge_foreign_entries": [], "forge_errors": [], "forge_move": False,
+           "forge_left_in_place": None}
+
+    def refuse(verdict, reason, detail, folder=group, entries=()):
+        out.update(verdict=verdict, reason=reason, detail=detail, folder=str(folder),
+                   offending_entries=list(entries))
+        return out
+
+    if _is_reserved_group(skill_name):
+        return refuse("not-skf-output", "reserved-name", "is a name SKF keeps for its own files, never a skill's")
+    if not os.path.lexists(group):
+        return refuse("not-skf-output", "absent", "has no folder in the skills folder")
+    own = classify_ownership(group, skill_name, same)
+    out.update(ownership=own["ownership"], skf_skill=own["skf_skill"], flat_skf=own["flat_skf"],
+               foreign_entries=own["foreign_entries"], errors=own["errors"])
+    if own["ownership"] == "foreign":
+        return refuse("not-skf-output", "foreign",
+                      "; ".join(own["errors"]) or "has no SKF marker in its `metadata.json`")
+    if own["ownership"] == "mixed":
+        return refuse("not-skf-output", "mixed", "also holds entries SKF did not generate: "
+                      + ", ".join(own["foreign_entries"]), group, own["foreign_entries"])
+    if not own["skf_skill"]:  # SKF's files, such as a brief, but no skill it generated
+        return refuse("not-skf-output", "foreign", "has no SKF marker in its `metadata.json`")
+    if own["flat_skf"]:
+        return refuse("flat-layout", "flat-layout", "still uses the flat layout")
+    if same:
+        return out
+    forge = classify_forge_group(forge_group, skill_name)
+    out.update(forge_ownership=forge["ownership"], forge_foreign_entries=forge["foreign_entries"],
+               forge_errors=forge["errors"])
+    if forge["errors"] and forge["ownership"] != "reserved":
+        if _is_link_or_junction(forge_group):
+            reason = "forge-link"
+        elif not forge_group.is_dir():
+            reason = "forge-not-a-folder"
+        else:
+            reason = "forge-unreadable"
+        return refuse("not-skf-output", reason, "; ".join(forge["errors"]), forge_group)
+    if forge["ownership"] == "mixed":
+        return refuse("not-skf-output", "forge-mixed", "also holds entries SKF did not generate: "
+                      + ", ".join(forge["foreign_entries"]), forge_group, forge["foreign_entries"])
+    out["forge_move"] = forge["ownership"] in ("skf", "empty")
+    if forge["ownership"] in ("foreign", "reserved"):
+        out["forge_left_in_place"] = str(forge_group)
+    return out
+
+
+# --------------------------------------------------------------------------
+# Guarded delete: a purge deletes only plain folders inside SKF's folders
+# --------------------------------------------------------------------------
+
+LINK_REFUSAL = "a link; SKF never deletes through a link"
+
+
+def _strip_trailing_separators(path):
+    """`path` without the trailing separators that make a delete follow a link."""
+    separators = "/" + os.sep + (os.altsep or "")
+    return path.rstrip(separators) or path
+
+
+def _parts_below(root, path):
+    """The folder names from `root` down to `path`, or None when `path` is not below `root`.
+
+    Both are made absolute without resolving links (a link at or above a
+    root is the user's configuration) and compared case-insensitively where
+    the platform is.
+    """
+    root_abs, path_abs = os.path.abspath(root), os.path.abspath(path)
+    try:
+        inside = os.path.commonpath([os.path.normcase(root_abs), os.path.normcase(path_abs)])
+    except ValueError:  # another drive on Windows
+        return None
+    if inside != os.path.normcase(root_abs) or os.path.normcase(path_abs) == inside:
+        return None
+    return Path(os.path.relpath(path_abs, root_abs)).parts
+
+
+def _tree_bytes(path):
+    """The bytes of the files under `path`, a link counted as itself and never followed."""
+    total = 0
+    for folder, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(folder, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def _remove_tree(path):
+    """shutil.rmtree, clearing a read-only bit (Windows) and retrying once."""
+
+    def retry(func, target, _error):
+        os.chmod(target, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
+        func(target)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=retry)
+    else:
+        shutil.rmtree(path, onerror=retry)
+
+
+def _delete_one(roots, path):
+    """("deleted", bytes), ("absent", None) or ("failed", reason) for one path of guarded_delete."""
+    if not Path(path).parts:  # "" or "." would name the working folder
+        return "failed", "names no folder"
+    if ".." in Path(path).parts:
+        return "failed", "has a `..` part; SKF deletes only a plain path"
+    below = [(root, parts) for root in roots if (parts := _parts_below(root, path)) is not None]
+    if not below:
+        return "failed", "is not inside " + " or ".join(roots) + "; SKF deletes only inside its folders"
+    root, parts = max(below, key=lambda b: len(os.path.abspath(b[0])))  # the closest root
+    for i in range(1, len(parts) + 1):
+        step = Path(root, *parts[:i])
+        if _is_link_or_junction(step):
+            return "failed", LINK_REFUSAL if i == len(parts) else f"{step} is {LINK_REFUSAL}"
+    if not os.path.lexists(path):
+        return "absent", None
+    if not os.path.isdir(path):
+        return "failed", "is not a folder; SKF deletes only folders here"
+    size = _tree_bytes(path)
+    try:
+        _remove_tree(path)
+    except OSError as e:
+        return "failed", f"cannot delete it: {e}"
+    if os.path.lexists(path):
+        return "failed", "is still there after the delete"
+    return "deleted", size
+
+
+def guarded_delete(roots, paths):
+    """Delete each folder of `paths` that lies inside one of `roots`, as drop-skill's purge.
+
+    rename-skill deletes its old folders the same way. Each path loses its
+    trailing separators first. It is refused, and listed in
+    `delete_failures` with the reason, when it names no folder or has a
+    `..` part, is not below a root (a root itself included), is a link or
+    junction or lies below one between the closest root and it (SKF never
+    deletes through a link: the delete would reach the files the link points
+    to), or is not a folder. A path with nothing at it goes to
+    `already_absent`. Otherwise its size is measured, the folder is deleted
+    and checked gone: then it goes to `files_deleted`, else to
+    `delete_failures`. Returns {roots, files_deleted, already_absent,
+    delete_failures, attempted, bytes_freed, purge_status}: `attempted`
+    counts the paths deleted or refused, and `purge_status` is "failed" when
+    it is above 0 and nothing was deleted, "partial" when some were, else
+    "success" (no path at all included: a purge whose folders are already
+    gone has nothing to delete).
+    """
+    deleted, absent, failures, freed = [], [], [], 0
+    for raw in paths:
+        path = _strip_trailing_separators(raw)
+        outcome, detail = _delete_one(roots, path)
+        if outcome == "deleted":
+            deleted.append(path)
+            freed += detail
+        elif outcome == "absent":
+            absent.append(path)
+        else:
+            failures.append({"path": path, "error": detail})
+    attempted = len(deleted) + len(failures)
+    if attempted and not deleted:
+        status = "failed"
+    elif failures:
+        status = "partial"
+    else:
+        status = "success"
+    return {"roots": list(roots), "files_deleted": deleted, "already_absent": absent,
+            "delete_failures": failures, "attempted": attempted, "bytes_freed": freed,
+            "purge_status": status}
 
 
 def _marked_version_names(skill_group_dir, skill_name):
@@ -1558,6 +1904,12 @@ USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "[--forge-data-folder <path>]\n"
          "       uv run skf-skill-inventory.py <skills-output-folder> --skill <name> "
          "--write-check [--write-version <version>] [--forge-data-folder <path>]\n"
+         "       uv run skf-skill-inventory.py <skills-output-folder> --skill <name> "
+         "--purge-check [--purge-version <version>] --forge-data-folder <path>\n"
+         "       uv run skf-skill-inventory.py <skills-output-folder> --skill <name> "
+         "--rename-check --forge-data-folder <path>\n"
+         "       uv run skf-skill-inventory.py guarded-delete --root <folder> [--root <folder>] "
+         "[<path>...]\n"
          "       uv run skf-skill-inventory.py resolve <skills-output-folder> --skill <name> "
          "--forge-data-folder <path> [--version <version>]\n"
          "       uv run skf-skill-inventory.py version normalize <version>\n"
@@ -1697,6 +2049,36 @@ def _main_version(argv):
     return 0
 
 
+def _main_guarded_delete(argv):
+    """`guarded-delete --root <folder> [--root <folder>]... [<path>...]`; exit 0 whatever
+    `purge_status` says (no path deletes nothing), exit 1 with `USAGE` on an error."""
+    roots, paths = [], []
+    try:
+        i = 0
+        while i < len(argv):
+            if argv[i] == "--root":
+                if i + 1 >= len(argv) or not argv[i + 1] or argv[i + 1].startswith("--"):
+                    raise ValueError("--root needs a folder")
+                roots.append(argv[i + 1])
+                i += 2
+                continue
+            if argv[i].startswith("--"):
+                raise ValueError(f"unexpected argument: {argv[i]!r}")
+            paths.append(argv[i])
+            i += 1
+        if not roots:
+            raise ValueError("guarded-delete needs --root <folder>")
+    except ValueError as e:
+        return _usage_error(str(e))
+    print(json.dumps({"status": "ok", "command": "guarded-delete", **guarded_delete(roots, paths)}, indent=2))
+    return 0
+
+
+# The verdict flags: at most one per call, each with --skill <name>.
+CHECK_FLAGS = ("--write-check", "--purge-check", "--rename-check")
+CHECK_KEYS = {"--write-check": "write_check", "--purge-check": "purge_check", "--rename-check": "rename_check"}
+
+
 def main(argv):
     if len(argv) < 1:
         print(USAGE, file=sys.stderr)
@@ -1705,38 +2087,54 @@ def main(argv):
         return _main_resolve(argv[1:])
     if argv[0] == "version":
         return _main_version(argv[1:])
+    if argv[0] == "guarded-delete":
+        return _main_guarded_delete(argv[1:])
     folder = argv[0]
-    write = "--write-check" in argv
+    checks = [flag for flag in CHECK_FLAGS if flag in argv]
+    check = checks[0] if checks else None
     try:
-        skill = _flag_value(argv, "--skill", required=write)
+        if len(checks) > 1:
+            raise ValueError("pass one of " + ", ".join(CHECK_FLAGS) + ", not several")
+        skill = _flag_value(argv, "--skill", required=check is not None)
         match_target = _flag_value(argv, "--match-target")
         forge_data_folder = _flag_value(argv, "--forge-data-folder", required=True)
-        write_version = _flag_value(argv, "--write-version", required=True)
-        if write and folder.startswith("--"):
-            raise ValueError("--write-check needs <skills-output-folder> first")
-        if write and not skill:
-            raise ValueError("--write-check needs --skill <name>")
-        if write_version is not None and not write:
-            raise ValueError("--write-version needs --write-check")
-        if write and not _safe_segment(skill):
+        versions = {flag: _flag_value(argv, flag, required=True)
+                    for flag in ("--write-version", "--purge-version")}
+        if check and folder.startswith("--"):
+            raise ValueError(f"{check} needs <skills-output-folder> first")
+        if check and not skill:
+            raise ValueError(f"{check} needs --skill <name>")
+        for flag, needs in (("--write-version", "--write-check"), ("--purge-version", "--purge-check")):
+            if versions[flag] is not None and check != needs:
+                raise ValueError(f"{flag} needs {needs}")
+        if check in ("--purge-check", "--rename-check") and not forge_data_folder:
+            raise ValueError(f"{check} needs --forge-data-folder <path>")
+        if check and not _safe_segment(skill):
             raise ValueError(f"--skill must be one folder name: {skill!r}")
-        if write_version is not None and not _safe_segment(write_version):
-            raise ValueError(f"--write-version must be one folder name: {write_version!r}")
+        for flag, value in versions.items():
+            if value is not None and not _safe_segment(value):
+                raise ValueError(f"{flag} must be one folder name: {value!r}")
     except ValueError as e:
         print(json.dumps({"status": "error", "error": str(e), "code": "USAGE"}, indent=2))
         print(USAGE, file=sys.stderr)
         return 1
-    if write:
+    if check:
         skills_dir = Path(folder)
         if os.path.lexists(skills_dir) and not skills_dir.is_dir():
             result = {"status": "error", "error": f"Skills directory not found: {skills_dir}",
                       "code": "DIR_NOT_FOUND"}
         else:
             forge_dir = Path(forge_data_folder) if forge_data_folder else None
+            if check == "--write-check":
+                verdict = write_check(skills_dir, skill, versions["--write-version"], forge_data_folder)
+            elif check == "--purge-check":
+                verdict = purge_check(skills_dir, skill, forge_data_folder, versions["--purge-version"])
+            else:
+                verdict = rename_check(skills_dir, skill, forge_data_folder)
             result = {"status": "ok", "skills_folder": str(skills_dir),
                       "forge_data_folder": forge_data_folder,
                       "same_folder": _same_folder(skills_dir, forge_dir),
-                      "write_check": write_check(skills_dir, skill, write_version, forge_data_folder)}
+                      CHECK_KEYS[check]: verdict}
     else:
         result = scan_inventory(
             folder,

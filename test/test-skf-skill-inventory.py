@@ -2033,3 +2033,424 @@ def test_cli_version(tmp_path):
         code, out, err = _run_inventory(*argv)
         assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv
         assert "Usage:" in err, argv
+
+
+# --------------------------------------------------------------------------
+# purge check: may drop-skill purge the skill, or one version of it?
+# --------------------------------------------------------------------------
+
+
+def _purge_fixture(tmp_path: Path, links: bool) -> tuple[Path, Path]:
+    """A skills folder and a forge folder holding one shape per purge rule."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge-data"
+    skills.mkdir()
+    forge.mkdir()
+    for name in ("clean", "rc", "vnotes", "mixedroot", "forgemixed", "forgevmixed", "forgevfolder",
+                 "forgeforeign", "forgeempty", "forgelink", "improvement-queue"):
+        _make_version(skills, name, "1.0.0", MARKED)
+        _link_active(skills / name / "active", "1.0.0")
+    _make_version(skills, "clean", "0.9.0", MARKED)
+    for rel in ("clean/skill-brief.yaml", "clean/1.0.0/provenance-map.json",
+                "clean/0.9.0/provenance-map.json"):
+        _write(forge / rel)
+    _make_version(skills, "rc", "1.0.0-rc")  # no marker: a foreign `1.0.0-rc/`
+    _write(skills / "vnotes" / "1.0.0" / "NOTES.md")  # a foreign `1.0.0/NOTES.md`
+    _write(skills / "mixedroot" / "README.md")  # a foreign entry beside the versions
+    for rel in ("forgemixed/skill-brief.yaml", "forgemixed/NOTES.md",
+                "forgevmixed/skill-brief.yaml", "forgevmixed/1.0.0/provenance-map.json",
+                "forgevmixed/1.0.0/NOTES.md",
+                "forgevfolder/skill-brief.yaml", "forgevfolder/1.0.0/data.csv",
+                "forgeforeign/config.toml", "improvement-queue/q.json"):
+        _write(forge / rel)
+    (forge / "forgeempty").mkdir()
+    _make_flat(skills, "module", extra=("references/guide.md",))
+    _write(skills / "afile")
+    if links:
+        ext = tmp_path / "ext"
+        _make_version(ext, "lk", "1.0.0", MARKED)
+        (skills / "lk").symlink_to(ext / "lk", target_is_directory=True)
+        _make_version(skills, "linkedver", "1.0.0", MARKED)
+        _make_version(ext, "linkedver", "2.0.0", MARKED)
+        (skills / "linkedver" / "2.0.0").symlink_to(ext / "linkedver" / "2.0.0", target_is_directory=True)
+        _write(ext / "forgelink" / "skill-brief.yaml")
+        (forge / "forgelink").symlink_to(ext / "forgelink", target_is_directory=True)
+    return skills, forge
+
+
+# (id, name, version, verdict, reason, offending entries). Each refusal cell of the purge rule, and
+# the cells beside it that must stay allowed.
+PURGE_CASES = [
+    ("clean-whole", "clean", None, "ok", None, []),
+    ("clean-version", "clean", "0.9.0", "ok", None, []),
+    ("absent", "nothing", None, "ok", None, []),
+    ("reserved-batch", "_batch", None, "not-skf-output", "reserved-name", []),
+    ("reserved-staging", "clean.skf-tmp", "1.0.0", "not-skf-output", "reserved-name", []),
+    ("foreign-whole", "module", None, "not-skf-output", "skill-foreign", []),
+    ("foreign-version", "module", "1.0.0", "not-skf-output", "skill-foreign", []),
+    ("not-a-folder", "afile", None, "not-skf-output", "skill-foreign", []),
+    ("mixed-whole", "mixedroot", None, "not-skf-output", "skill-mixed-whole", ["README.md"]),
+    ("mixed-other-version", "mixedroot", "1.0.0", "ok", None, []),
+    ("rc-folder-is-not-the-version", "rc", "1.0.0", "ok", None, []),
+    ("rc-folder-itself", "rc", "1.0.0-rc", "not-skf-output", "skill-version-not-skf", ["1.0.0-rc/"]),
+    ("rc-whole", "rc", None, "not-skf-output", "skill-mixed-whole", ["1.0.0-rc/"]),
+    ("entry-inside-the-version", "vnotes", "1.0.0", "not-skf-output", "skill-version-mixed", ["1.0.0/NOTES.md"]),
+    ("forge-mixed-whole", "forgemixed", None, "not-skf-output", "forge-mixed-whole", ["NOTES.md"]),
+    ("forge-mixed-other-version", "forgemixed", "1.0.0", "ok", None, []),
+    ("forge-entry-inside-the-version", "forgevmixed", "1.0.0", "not-skf-output", "forge-version-mixed",
+     ["1.0.0/NOTES.md"]),
+    ("forge-version-folder-left", "forgevfolder", "1.0.0", "ok", None, []),
+    ("forge-foreign-left", "forgeforeign", None, "ok", None, []),
+    ("forge-empty-deleted", "forgeempty", None, "ok", None, []),
+    ("forge-reserved-left", "improvement-queue", None, "ok", None, []),
+    ("link", "lk", None, "not-skf-output", "skill-foreign", []),
+    ("linked-version", "linkedver", "2.0.0", "not-skf-output", "skill-version-not-skf", ["2.0.0"]),
+    ("forge-link-left", "forgelink", None, "ok", None, []),
+]
+LINKED_PURGE_CASES = frozenset({"link", "linked-version", "forge-link-left"})
+
+
+class TestPurgeCheck:
+    """purge_check: the purge verdict drop-skill §8b reads, one test per cell."""
+
+    @pytest.mark.parametrize("case_id, name, version, verdict, reason, entries", PURGE_CASES,
+                             ids=[c[0] for c in PURGE_CASES])
+    def test_purge_verdict(self, tmp_path, case_id, name, version, verdict, reason, entries):
+        links = _symlinks_supported(tmp_path)
+        if case_id in LINKED_PURGE_CASES and not links:
+            pytest.skip("symlinks are not available")
+        skills, forge = _purge_fixture(tmp_path, links)
+        out = mod.purge_check(skills, name, forge, version)
+        assert (out["verdict"], out["reason"], out["offending_entries"]) == (verdict, reason, entries), out
+        assert (out["name"], out["version"], out["scope"]) == (name, version, "skill" if version is None else "version")
+        assert (out["detail"] is None) == (verdict == "ok")
+        if reason == "skill-foreign" and name in ("lk", "afile"):
+            assert out["errors"] and out["detail"] == "; ".join(out["errors"])
+        if reason == "skill-foreign" and name == "module":
+            assert out["detail"] == "has no SKF marker in its `metadata.json`"
+
+    def test_the_folders_a_purge_deletes(self, tmp_path):
+        skills, forge = _purge_fixture(tmp_path, links=False)
+        whole = mod.purge_check(skills, "clean", forge)
+        assert whole["affected_directories"] == [str(skills / "clean"), str(forge / "clean")]
+        version = mod.purge_check(skills, "clean", forge, "0.9.0")
+        assert version["affected_directories"] == [str(skills / "clean" / "0.9.0"), str(forge / "clean" / "0.9.0")]
+        # Nothing on disk, nothing to delete; an empty forge folder is deleted with the skill.
+        assert mod.purge_check(skills, "nothing", forge)["affected_directories"] == []
+        empty = mod.purge_check(skills, "forgeempty", forge)
+        assert empty["affected_directories"] == [str(skills / "forgeempty"), str(forge / "forgeempty")]
+        assert empty["forge_left_in_place"] is None
+        for path in whole["affected_directories"] + version["affected_directories"]:
+            assert not path.endswith(("/", "\\")), "a trailing separator makes a delete follow a link"
+
+    @pytest.mark.parametrize("name, version, left", [
+        ("forgeforeign", None, "forgeforeign"),
+        ("improvement-queue", None, "improvement-queue"),
+        ("forgevfolder", "1.0.0", "forgevfolder/1.0.0"),
+    ])
+    def test_a_forge_folder_skf_did_not_generate_stays(self, tmp_path, name, version, left):
+        skills, forge = _purge_fixture(tmp_path, links=False)
+        out = mod.purge_check(skills, name, forge, version)
+        assert out["verdict"] == "ok"
+        assert Path(out["forge_left_in_place"]).as_posix() == (forge / left).as_posix()
+        assert all(not Path(p).as_posix().startswith(forge.as_posix()) for p in out["affected_directories"])
+
+    def test_a_linked_forge_folder_stays_and_names_the_link(self, tmp_path):
+        if not _symlinks_supported(tmp_path):
+            pytest.skip("symlinks are not available")
+        skills, forge = _purge_fixture(tmp_path, links=True)
+        out = mod.purge_check(skills, "forgelink", forge)
+        assert out["forge_left_in_place"] == str(forge / "forgelink")
+        assert out["affected_directories"] == [str(skills / "forgelink")]
+        assert any("link" in e for e in out["forge_errors"])
+
+    def test_a_refused_purge_still_lists_its_folders(self, tmp_path):
+        """A deprecate keeps them, so the drop gate shows their size whatever the verdict."""
+        skills, forge = _purge_fixture(tmp_path, links=False)
+        out = mod.purge_check(skills, "mixedroot", forge)
+        assert out["verdict"] == "not-skf-output"
+        assert out["affected_directories"] == [str(skills / "mixedroot")]
+
+    def test_one_folder_for_both_settings(self, tmp_path):
+        out_dir = tmp_path / "out"
+        _same_folder_skill(out_dir)
+        result = mod.purge_check(out_dir, "cognee", out_dir)
+        assert (result["verdict"], result["same_folder"], result["forge_ownership"]) == ("ok", True, None)
+        assert result["affected_directories"] == [str(out_dir / "cognee")]
+        _write(out_dir / "cognee" / "0.1.0" / "NOTES.md")
+        refused = mod.purge_check(out_dir, "cognee", out_dir, "0.1.0")
+        assert (refused["reason"], refused["offending_entries"]) == ("skill-version-mixed", ["0.1.0/NOTES.md"])
+
+    def test_the_skill_folder_refusal_comes_first(self, tmp_path):
+        skills, forge = _purge_fixture(tmp_path, links=False)
+        _write(skills / "forgemixed" / "README.md")
+        out = mod.purge_check(skills, "forgemixed", forge)
+        assert out["reason"] == "skill-mixed-whole" and out["folder"] == str(skills / "forgemixed")
+
+    def test_write_check_uses_the_same_version_rule(self, tmp_path):
+        skills, forge = _purge_fixture(tmp_path, links=False)
+        assert mod._version_entries(["1.0.0-rc/", "1.0.0/x", "1.0.0", "10.0.0/"], "1.0.0") == ["1.0.0/x", "1.0.0"]
+        assert mod.write_check(skills, "rc", "1.0.0-rc", forge)["reason"] == "version"
+        assert mod.write_check(skills, "rc", "2.0.0", forge)["verdict"] == "ok"
+
+
+# --------------------------------------------------------------------------
+# rename check: may rename-skill move the skill, and its forge folder?
+# --------------------------------------------------------------------------
+
+
+def _rename_fixture(tmp_path: Path, links: bool) -> tuple[Path, Path]:
+    skills, forge = tmp_path / "skills", tmp_path / "forge-data"
+    skills.mkdir()
+    forge.mkdir()
+    for name in ("clean", "vnotes", "forgemixed", "forgeempty", "forgeforeign", "noforge",
+                 "forgefile", "forgelink", "improvement-queue"):
+        _make_version(skills, name, "1.0.0", MARKED)
+        _link_active(skills / name / "active", "1.0.0")
+    _write(skills / "vnotes" / "1.0.0" / "NOTES.md")
+    _make_flat(skills, "flat", MARKED)
+    _make_flat(skills, "module", extra=("references/guide.md",))
+    _write(skills / "afile")
+    for rel in ("clean/skill-brief.yaml", "clean/1.0.0/provenance-map.json",
+                "forgemixed/skill-brief.yaml", "forgemixed/NOTES.md",
+                "forgeforeign/config.toml", "improvement-queue/q.json"):
+        _write(forge / rel)
+    (forge / "forgeempty").mkdir()
+    _write(forge / "forgefile")
+    if links:
+        ext = tmp_path / "ext"
+        _make_version(ext, "lk", "1.0.0", MARKED)
+        (skills / "lk").symlink_to(ext / "lk", target_is_directory=True)
+        _write(ext / "forgelink" / "skill-brief.yaml")
+        (forge / "forgelink").symlink_to(ext / "forgelink", target_is_directory=True)
+    return skills, forge
+
+
+# (id, name, verdict, reason, forge_move, forge left in place under the forge folder)
+RENAME_CASES = [
+    ("clean", "clean", "ok", None, True, None),
+    ("forge-empty-moves", "forgeempty", "ok", None, True, None),
+    ("no-forge-folder", "noforge", "ok", None, False, None),
+    ("forge-foreign-stays", "forgeforeign", "ok", None, False, "forgeforeign"),
+    ("forge-reserved-stays", "improvement-queue", "ok", None, False, "improvement-queue"),
+    ("reserved-name", "_batch", "not-skf-output", "reserved-name", False, None),
+    ("absent", "nothing", "not-skf-output", "absent", False, None),
+    ("foreign", "module", "not-skf-output", "foreign", False, None),
+    ("not-a-folder", "afile", "not-skf-output", "foreign", False, None),
+    ("mixed", "vnotes", "not-skf-output", "mixed", False, None),
+    ("flat-layout", "flat", "flat-layout", "flat-layout", False, None),
+    ("forge-mixed", "forgemixed", "not-skf-output", "forge-mixed", False, None),
+    ("forge-not-a-folder", "forgefile", "not-skf-output", "forge-not-a-folder", False, None),
+    ("link", "lk", "not-skf-output", "foreign", False, None),
+    ("forge-link", "forgelink", "not-skf-output", "forge-link", False, None),
+]
+LINKED_RENAME_CASES = frozenset({"link", "forge-link"})
+
+
+class TestRenameCheck:
+    """rename_check: the rename verdict rename-skill §4a reads, one test per rule."""
+
+    @pytest.mark.parametrize("case_id, name, verdict, reason, forge_move, left", RENAME_CASES,
+                             ids=[c[0] for c in RENAME_CASES])
+    def test_rename_verdict(self, tmp_path, case_id, name, verdict, reason, forge_move, left):
+        links = _symlinks_supported(tmp_path)
+        if case_id in LINKED_RENAME_CASES and not links:
+            pytest.skip("symlinks are not available")
+        skills, forge = _rename_fixture(tmp_path, links)
+        out = mod.rename_check(skills, name, forge)
+        assert (out["verdict"], out["reason"], out["forge_move"]) == (verdict, reason, forge_move), out
+        assert out["forge_left_in_place"] == (str(forge / left) if left else None)
+        assert (out["detail"] is None) == (verdict == "ok")
+        if reason == "mixed":
+            assert out["offending_entries"] == ["1.0.0/NOTES.md"]
+        if reason == "forge-mixed":
+            assert out["offending_entries"] == ["NOTES.md"] and out["folder"] == str(forge / name)
+        if reason in ("forge-link", "forge-not-a-folder"):
+            assert out["detail"] == "; ".join(out["forge_errors"]) and out["folder"] == str(forge / name)
+        if case_id in ("link", "not-a-folder"):
+            assert out["errors"] and out["detail"] == "; ".join(out["errors"])
+
+    @pytest.mark.skipif(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                        reason="needs POSIX permissions and a non-root user")
+    def test_a_forge_folder_skf_cannot_list_is_refused(self, tmp_path):
+        skills, forge = _rename_fixture(tmp_path, links=False)
+        _make_version(skills, "locked", "1.0.0", MARKED)
+        _write(forge / "locked" / "skill-brief.yaml")
+        (forge / "locked").chmod(0)
+        try:
+            out = mod.rename_check(skills, "locked", forge)
+        finally:
+            (forge / "locked").chmod(0o755)
+        assert (out["verdict"], out["reason"]) == ("not-skf-output", "forge-unreadable")
+        assert "Cannot list" in out["detail"]
+
+    def test_one_folder_for_both_settings(self, tmp_path):
+        out_dir = tmp_path / "out"
+        _same_folder_skill(out_dir)
+        result = mod.rename_check(out_dir, "cognee", out_dir)
+        assert (result["verdict"], result["same_folder"], result["forge_move"], result["forge_left_in_place"]) == (
+            "ok", True, False, None)
+        # Where both settings name one folder, a brief alone is SKF's, but no skill to rename.
+        _write(out_dir / "briefonly" / "skill-brief.yaml")
+        assert mod.rename_check(out_dir, "briefonly", out_dir)["reason"] == "foreign"
+
+
+# --------------------------------------------------------------------------
+# guarded delete: drop-skill's purge deletes only plain folders inside its roots
+# --------------------------------------------------------------------------
+
+
+class TestGuardedDelete:
+    """guarded_delete: containment, link and junction checks, rmtree and the existence check."""
+
+    @pytest.fixture()
+    def roots(self, tmp_path):
+        skills, forge = tmp_path / "skills", tmp_path / "forge-data"
+        _write(skills / "a" / "1.0.0" / "a" / "SKILL.md", b"12345")
+        _write(skills / "a" / "0.9.0" / "a" / "SKILL.md", b"123")
+        _write(forge / "a" / "1.0.0" / "provenance-map.json", b"1234567")
+        return skills, forge
+
+    def test_it_deletes_folders_inside_the_roots(self, roots):
+        skills, forge = roots
+        out = mod.guarded_delete([str(skills), str(forge)], [str(skills / "a" / "1.0.0"), str(forge / "a")])
+        assert out["files_deleted"] == [str(skills / "a" / "1.0.0"), str(forge / "a")]
+        assert (out["delete_failures"], out["already_absent"], out["attempted"]) == ([], [], 2)
+        assert (out["bytes_freed"], out["purge_status"]) == (12, "success")
+        assert not (skills / "a" / "1.0.0").exists() and (skills / "a" / "0.9.0").is_dir()
+
+    def test_a_trailing_separator_is_dropped(self, roots):
+        skills, forge = roots
+        out = mod.guarded_delete([str(skills)], [str(skills / "a" / "1.0.0") + os.sep])
+        assert out["files_deleted"] == [str(skills / "a" / "1.0.0")]
+
+    @pytest.mark.parametrize("where, says", [
+        ("outside", "is not inside"),
+        ("the-root", "is not inside"),
+        ("dot-dot", "has a `..` part"),
+        ("empty", "names no folder"),
+        ("a-file", "is not a folder"),
+    ])
+    def test_it_refuses_what_is_not_a_plain_folder_inside_a_root(self, roots, tmp_path, where, says):
+        skills, forge = roots
+        _write(tmp_path / "elsewhere" / "keep.md")
+        path = {"outside": str(tmp_path / "elsewhere"), "the-root": str(skills),
+                "dot-dot": str(skills / "a" / ".." / "a"), "empty": "",
+                "a-file": str(skills / "a" / "1.0.0" / "a" / "SKILL.md")}[where]
+        out = mod.guarded_delete([str(skills), str(forge)], [path])
+        [failure] = out["delete_failures"]
+        assert says in failure["error"], failure
+        assert (out["files_deleted"], out["purge_status"]) == ([], "failed")
+        assert (tmp_path / "elsewhere" / "keep.md").is_file() and (skills / "a" / "1.0.0").is_dir()
+
+    def test_nothing_there_is_not_a_failure(self, roots):
+        skills, _forge = roots
+        out = mod.guarded_delete([str(skills)], [str(skills / "gone")])
+        assert (out["already_absent"], out["attempted"], out["purge_status"]) == ([str(skills / "gone")], 0, "success")
+
+    def test_no_path_deletes_nothing_and_succeeds(self, roots):
+        """A drop of a manifest entry whose folders are gone: the purge check lists no folder."""
+        skills, forge = roots
+        out = mod.guarded_delete([str(skills), str(forge)], [])
+        assert (out["files_deleted"], out["delete_failures"], out["attempted"]) == ([], [], 0)
+        assert (out["bytes_freed"], out["purge_status"]) == (0, "success")
+        assert (skills / "a" / "1.0.0").is_dir() and (forge / "a" / "1.0.0").is_dir()
+
+    def test_one_failure_among_deletes_is_partial(self, roots, tmp_path):
+        skills, forge = roots
+        out = mod.guarded_delete([str(skills)], [str(skills / "a" / "0.9.0"), str(tmp_path / "elsewhere")])
+        assert (out["attempted"], out["purge_status"]) == (2, "partial")
+        assert out["files_deleted"] == [str(skills / "a" / "0.9.0")]
+
+    def test_it_never_deletes_through_a_link(self, roots, tmp_path):
+        if not _symlinks_supported(tmp_path):
+            pytest.skip("symlinks are not available")
+        skills, forge = roots
+        outside = tmp_path / "outside"
+        _write(outside / "v" / "keep.md")
+        (skills / "linked").symlink_to(outside, target_is_directory=True)
+        (skills / "a" / "2.0.0").symlink_to(outside / "v", target_is_directory=True)
+        out = mod.guarded_delete([str(skills)], [str(skills / "linked" / "v"), str(skills / "a" / "2.0.0"),
+                                                 str(skills / "a" / "2.0.0") + os.sep])
+        errors = [f["error"] for f in out["delete_failures"]]
+        assert errors[0] == f"{skills / 'linked'} is a link; SKF never deletes through a link"
+        assert errors[1:] == ["a link; SKF never deletes through a link"] * 2
+        assert (out["files_deleted"], out["purge_status"]) == ([], "failed")
+        assert (outside / "v" / "keep.md").is_file()
+
+    def test_a_link_inside_a_deleted_folder_is_removed_not_followed(self, roots, tmp_path):
+        if not _symlinks_supported(tmp_path):
+            pytest.skip("symlinks are not available")
+        skills, forge = roots
+        outside = tmp_path / "outside"
+        _write(outside / "keep.md")
+        _link_active(skills / "a" / "active", "1.0.0")
+        (skills / "a" / "1.0.0" / "a" / "ref").symlink_to(outside, target_is_directory=True)
+        out = mod.guarded_delete([str(skills)], [str(skills / "a")])
+        assert out["files_deleted"] == [str(skills / "a")] and not (skills / "a").exists()
+        assert (outside / "keep.md").is_file()
+
+    def test_a_read_only_file_is_deleted(self, roots):
+        skills, _forge = roots
+        target = skills / "a" / "0.9.0" / "a" / "SKILL.md"
+        target.chmod(0o444)
+        out = mod.guarded_delete([str(skills)], [str(skills / "a" / "0.9.0")])
+        assert out["purge_status"] == "success" and not target.exists()
+
+    def test_the_closest_root_decides_which_folders_are_checked(self, tmp_path):
+        """A forge folder inside the skills folder: the link check starts below the forge root."""
+        if not _symlinks_supported(tmp_path):
+            pytest.skip("symlinks are not available")
+        skills = tmp_path / "skills"
+        real_forge = tmp_path / "real-forge"
+        _write(real_forge / "a" / "1.0.0" / "provenance-map.json")
+        skills.mkdir()
+        (skills / "forge").symlink_to(real_forge, target_is_directory=True)  # the user's configuration
+        out = mod.guarded_delete([str(skills), str(skills / "forge")], [str(skills / "forge" / "a" / "1.0.0")])
+        assert out["purge_status"] == "success" and not (real_forge / "a" / "1.0.0").exists()
+
+
+def test_cli_purge_rename_and_guarded_delete(tmp_path):
+    skills, forge = _purge_fixture(tmp_path, links=False)
+    code, out, _ = _run_inventory(str(skills), "--skill", "rc", "--purge-check", "--purge-version", "1.0.0-rc",
+                                  "--forge-data-folder", str(forge))
+    assert (code, out["status"], out["same_folder"]) == (0, "ok", False)
+    assert (out["purge_check"]["verdict"], out["purge_check"]["reason"]) == ("not-skf-output", "skill-version-not-skf")
+    code, out, _ = _run_inventory(str(skills), "--skill", "clean", "--purge-check", "--forge-data-folder", str(forge))
+    assert (code, out["purge_check"]["verdict"], out["purge_check"]["scope"]) == (0, "ok", "skill")
+    code, out, _ = _run_inventory(str(skills), "--skill", "clean", "--rename-check", "--forge-data-folder", str(forge))
+    assert (code, out["rename_check"]["verdict"], out["rename_check"]["forge_move"]) == (0, "ok", True)
+    assert "purge_check" not in out and "write_check" not in out
+    for argv in (
+        [str(skills), "--skill", "clean", "--purge-check"],
+        [str(skills), "--skill", "clean", "--rename-check"],
+        [str(skills), "--skill", "clean", "--purge-check", "--forge-data-folder"],
+        [str(skills), "--skill", "clean", "--purge-version", "1.0.0", "--forge-data-folder", str(forge)],
+        [str(skills), "--skill", "clean", "--rename-check", "--purge-version", "1.0.0", "--forge-data-folder", str(forge)],
+        [str(skills), "--skill", "clean", "--purge-check", "--rename-check", "--forge-data-folder", str(forge)],
+        [str(skills), "--skill", "clean", "--purge-check", "--write-check", "--forge-data-folder", str(forge)],
+        [str(skills), "--purge-check", "--forge-data-folder", str(forge)],
+        [str(skills), "--skill", "a/b", "--rename-check", "--forge-data-folder", str(forge)],
+        [str(skills), "--skill", "clean", "--purge-check", "--purge-version", "..", "--forge-data-folder", str(forge)],
+        ["--skill", "clean", "--rename-check", "--forge-data-folder", str(forge)],
+        ["guarded-delete", str(skills / "clean")],
+        ["guarded-delete"],
+        ["guarded-delete", "--root"],
+        ["guarded-delete", "--root", str(skills), "--force", str(skills / "clean")],
+    ):
+        code, out, err = _run_inventory(*argv)
+        assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv
+        assert "Usage:" in err, argv
+    code, out, _ = _run_inventory("guarded-delete", "--root", str(skills), "--root", str(forge),
+                                  str(skills / "clean" / "0.9.0"), str(tmp_path / "elsewhere"))
+    assert (code, out["status"], out["command"], out["purge_status"]) == (0, "ok", "guarded-delete", "partial")
+    assert out["files_deleted"] == [str(skills / "clean" / "0.9.0")]
+    code, out, _ = _run_inventory("guarded-delete", "--root", str(skills), str(tmp_path))
+    assert (code, out["purge_status"]) == (0, "failed")
+    # drop-skill runs it with every path of an empty `affected_directories`: nothing to delete succeeds.
+    code, out, _ = _run_inventory("guarded-delete", "--root", str(skills), "--root", str(forge))
+    assert (code, out["status"], out["attempted"], out["files_deleted"]) == (0, "ok", 0, [])
+    assert (out["bytes_freed"], out["purge_status"]) == (0, "success")
+    _write(tmp_path / "afile")
+    code, out, _ = _run_inventory(str(tmp_path / "afile"), "--skill", "a", "--purge-check",
+                                  "--forge-data-folder", str(forge))
+    assert (code, out["code"]) == (1, "DIR_NOT_FOUND")

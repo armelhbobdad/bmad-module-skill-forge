@@ -39,6 +39,8 @@ The forger also accepts common pipeline aliases:
 
 ## Pipeline Arguments
 
+An alias takes its arguments after it, and they go, in order, to the inputs of the alias's first workflow: `forge-auto <repo-or-doc-url>` gives AN its `project_path`, `forge <repo-url-or-path> <skill-name>` gives BS its `target_repo` and `skill_name`, `forge-quick <package-or-url>` gives QS its `target`, and `maintain <skill>` gives AS its `skill_name`. The forger's `parse-pipeline.py` script binds them and returns them as `args`. A missing or left-over argument, a flag the pipeline does not take, or a `--pin` with no value stops the pipeline before any workflow runs.
+
 Pipeline-level arguments (e.g., `--pin <version>`) are passed to the first workflow's data context. The workflow decides how to consume them. For the `forge-auto` pipeline, `--pin` flows to AN, where `step-auto-scope.md §0b` uses it for pin resolution.
 
 ## Data Flow
@@ -52,35 +54,37 @@ How outputs from one workflow become inputs to the next:
 | BS | CS | `skill-brief.yaml` path | Forger passes the brief path written by BS as `brief_path` to CS |
 | CS | TS | skill name (derived from brief) | Forger passes the `skill_name` from the completed CS to TS |
 | CS | EX | skill name | Same — forger resolves the created skill's name |
-| TS | EX | skill name + test result | Forger checks `result` field in test report; if FAIL and circuit breaker active, halts |
+| TS | EX | skill name + settled verdict | EX runs only when TS settled PASS (`next_workflow` is `export-skill`); FAIL, INCONCLUSIVE and pass-with-drift halt the pipeline before EX, with the verdict as the halt reason |
 | QS | TS | skill name (from `repo_name`) | Forger passes the quick-skill's output name to TS |
 | QS | EX | skill name | Same |
-| AS | US | skill name + drift severity | Forger checks `summary.severity` in `audit-skill-result-latest.json`; if CLEAN, skips US |
+| AS | US | skill name + drift severity | The forger's gate reads the drift severity from the envelope AS printed (`drift_score`); CLEAN skips US |
 | VS | RA | architecture doc path | Already known from VS invocation |
 
 ## Circuit Breakers
 
-Circuit breakers halt the pipeline when a workflow's output doesn't meet a quality threshold:
+Circuit breakers halt the pipeline when a workflow's output doesn't meet a quality threshold. The forger's `pipeline-gate.py` script applies the AN, TS, AS and VS rows to the result envelope a workflow printed (a field name after a slash is its spelling in the workflow's result record) and answers continue, skip or halt with a reason; CS's row is a hard halt, which stops the pipeline by itself.
 
 | Workflow | Check | Default Threshold | Halt Condition |
 |----------|-------|-------------------|----------------|
-| AN | recommended units count | min: 1 | Zero skillable units found |
+| AN | recommended units count (`unit_counts.confirmed`) | min: 1 | Fewer units than the minimum (by default, zero skillable units found) |
 | CS | compilation success | must complete | Hard error during compilation |
-| TS | completeness score | min: 60 (per-pipeline defaults apply — see init.md §1b) | Score below 80% floor (scores between 80% and per-pipeline threshold produce a fallback PASS with evidence report — pipeline continues) |
-| AS | drift score | not CRITICAL | Critical drift found |
-| VS | feasibility verdict | not BLOCKED | All integrations blocked |
+| TS | settled verdict (`verdict` / `summary.result`, with `next_workflow`) | TS's own: `TS[min:N]` reaches TS as `--threshold=N`, else the per-pipeline defaults apply (see init.md §1b) | Any verdict but PASS, reported as the halt reason: FAIL (including a FAIL that a post-score cap forced although the score clears the threshold), INCONCLUSIVE or pass-with-drift. TS owns its score, caps and 80% floor: a score between 80% and a higher threshold that TS settles as a fallback PASS with an evidence report continues |
+| AS | drift severity (`drift_score` / `summary.severity`) | not CRITICAL | CRITICAL drift found (CLEAN skips a US that comes next) |
+| VS | coverage (`coverage_percentage` / `summary.coveragePercentage`) with the overall verdict (`overall_verdict` / `summary.overallVerdict`) | coverage above 0% | Zero coverage (`zero-coverage`): VS verified none of the architecture's technologies. Every verdict with coverage continues, NOT_FEASIBLE included, since RA takes each Blocked integration as a critical issue |
 
-Override syntax: `TS[min:80]` sets the test-skill threshold to 80 for this pipeline run.
+Override syntax: `TS[min:80]` sets the test-skill threshold to 80 for this pipeline run (the forger passes it to TS as `--threshold=80`), and `AN[min:2]` asks AN for at least two units.
 
 ### Bracket Syntax
 
 Brackets after a workflow code (`CODE[value]`) are parsed as follows:
 
-- **Circuit breaker override**: `min:N` where N is a number — e.g., `TS[min:80]` sets the threshold for that workflow
+- **Circuit breaker override**: `min:N` where N is a number, on AN or TS (the override syntax above), e.g. `TS[min:80]`
 - **Mode flag**: `auto` — e.g., `AN[auto]` activates auto mode for that workflow. The workflow's first step reads the flag from pipeline data context and routes to the appropriate auto-mode step file.
 - **Target argument**: any other value — e.g., `CS[cocoindex]` passes "cocoindex" as the target to CS
 
-Only workflows with a circuit breaker entry (AN, CS, TS, AS, VS) accept `min:N` overrides. All other workflows ignore `min:N` brackets. Target arguments are valid for any workflow that accepts a named input (CS, QS, BS, US, etc.).
+The keywords `min` and `auto` match in any case (`TS[MIN:80]`). A bracket that starts like `min` but is not `min:<number>` (`TS[min:80%]`, `TS[min=80]`) is malformed: the pipeline stops before any workflow runs rather than pass it on as a target.
+
+Only AN (a unit count) and TS (a test threshold) take `min:N`. CS, AS and VS have circuit breakers with no number to set, so a `min:N` on them, as on any other code, is ignored, and the forger warns about it. Target arguments are valid for any workflow that accepts a named input (CS, QS, BS, US, etc.).
 
 ## Pipeline State
 
@@ -113,3 +117,4 @@ The forger validates the pipeline sequence and warns about:
 | CS without BS or AN | Compiling without brief | Need a brief — use QS for quick path, or AN for brownfield |
 | TS after EX | Testing after export | Move TS before EX |
 | Duplicate codes | Same workflow twice | Remove duplicate |
+| `min:N` on a code other than AN or TS | Threshold ignored | Remove it, or put it on TS |

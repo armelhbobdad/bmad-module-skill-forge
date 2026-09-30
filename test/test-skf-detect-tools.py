@@ -556,6 +556,41 @@ def test_detect_require_tier_invalid_value_dies():
     assert exc.value.code == 1
 
 
+VALID_LIST = "--require-tier must be one of Quick, Forge, Forge+, Deep (case-sensitive), got"
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("Deep", None),
+    ("Forge+", None),
+    ("deep", f"{VALID_LIST} deep; did you mean Deep?"),
+    ("FORGE+", f"{VALID_LIST} FORGE+; did you mean Forge+?"),
+    ("forge plus", f"{VALID_LIST} forge plus"),
+    ("", f"{VALID_LIST} an empty value"),
+    ("Deep\n", f"{VALID_LIST} Deep?; did you mean Deep?"),
+    ("it's \"x\"\\y", f"{VALID_LIST} it`s `x`/y"),
+], ids=["valid", "valid-plus", "wrong-case", "wrong-case-plus", "no-close-match", "empty", "control-char",
+        "quote-and-backslash"])
+def test_require_tier_error_names_the_valid_tiers(value, expected):
+    """setup carries the message into its blocked envelope's reason, so it
+    names every tier, stays on one line and holds no quote or backslash."""
+    message = mod.require_tier_error(value)
+    assert message == expected
+    if message:
+        assert not set(message) & set("'\"\\\n")
+
+
+def test_detect_rejects_a_bad_require_tier_before_any_probe(capsys):
+    """A typo fails at once: no probe (up to 8 seconds each) runs first."""
+    def never():
+        raise AssertionError("a probe ran before --require-tier was checked")
+
+    with patch.multiple(mod, probe_ast_grep=never, probe_gh_cli=never, probe_qmd=never, probe_ccc=never), \
+            pytest.raises(SystemExit) as exc:
+        mod.detect(_detect_args(require_tier="deep"))
+    assert exc.value.code == 1
+    assert json.loads(capsys.readouterr().err) == {"status": "error", "message": mod.require_tier_error("deep")}
+
+
 # ─── CCC index freshness (compute_ccc_index_fresh) ───────────────────────────
 
 from datetime import datetime, timedelta, timezone
@@ -825,3 +860,15 @@ def test_cli_with_require_tier_below_actual():
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["require_tier"]["satisfied"] is True
+
+
+@pytest.mark.parametrize("args", [["--require-tier", "deep"], ["--require-tier=deep"], ["--require-tier=-Deep"]],
+                         ids=["space", "equals", "equals-leading-dash"])
+def test_cli_rejects_a_wrong_case_require_tier_naming_the_valid_tiers(args):
+    """setup passes the = form, so even a value that starts with a dash
+    reaches this check instead of argparse's usage error."""
+    result = subprocess.run([sys.executable, str(SCRIPT_PATH), *args], capture_output=True, text=True,
+                            timeout=30)
+    assert result.returncode == 1 and result.stdout == ""
+    message = json.loads(result.stderr)["message"]
+    assert "Quick, Forge, Forge+, Deep" in message and message.endswith("did you mean Deep?")
