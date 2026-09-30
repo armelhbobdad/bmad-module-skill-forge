@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-refine-architecture
+summary: |
+  Refine Architecture's improvement step now suggests unused capabilities and cross-library synergies only for the skills in the document's scope, as its gap and issue steps already did. Before, it looked at every skill in the skills folder, so a skill that `--scope-skills` or the derived scope left out could still add an enhancement subsection to the refined document. An improvement or synergy that involves a skill outside the scope is now listed for awareness only and stays out of the refined document.
+issues: [529]

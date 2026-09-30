@@ -37,7 +37,9 @@ This creates a map of `{library} -> {described_usage[]}` for comparison against 
 
 ### 3. Compare Skill API Surfaces Against Architecture Usage
 
-For each skill in the inventory:
+**Scope routing (from Step 02 §2b):** Apply `{in_scope_skills}` and `{out_of_scope_skills}` here as gap analysis and issue detection do; if they are no longer in context, read them from the `[RA-SCOPE]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). This step suggests improvements for the document's scope only: §3 compares in-scope skills and §4 examines pairs of in-scope skills. An improvement or synergy that involves an out-of-scope skill, such as an in-scope capability that pays off only together with an out-of-scope skill, is not an improvement for this document even when it looks worthwhile: set it aside for the informational **Out-of-Scope** bucket (§6).
+
+For each skill in `{in_scope_skills}`:
 
 **Start from the surfaces already collected.** Reuse `{skill_api_surfaces}` (the compact `{exports, protocols, data_formats}` summaries from Step 02 §4) for exports, types, and protocol support — do not re-read SKILL.md in the parent.
 
@@ -54,7 +56,7 @@ For each skill in the inventory:
 
 ### 4. Detect Cross-Library Synergies
 
-Examine pairs of skills for complementary capabilities not exploited in the architecture:
+Examine pairs of in-scope skills (both skills in `{in_scope_skills}`) for complementary capabilities not exploited in the architecture. A pair with an out-of-scope skill is out of scope, as in Step 02 §2b: skip it, and route a synergy with an out-of-scope skill that the comparison brings up anyway to the Out-of-Scope bucket (§3 scope routing). For each in-scope pair, ask:
 
 - Does Library A export an event system that Library B could consume?
 - Does Library A produce a data format that Library B has an optimized processor for?
@@ -84,9 +86,11 @@ Suggestion: {how to incorporate this capability into the architecture}
 
 ### 6. Report Improvements & Store Findings
 
-Report the improvement count with its high/medium/low value breakdown, then list each improvement as a row of **# / Library / Improvement Type / Value / Summary** followed by its full §5 citation.
+Report the in-scope improvement count with its high/medium/low value breakdown, then list each improvement as a row of **# / Library / Improvement Type / Value / Summary** followed by its full §5 citation. One signal is not inferable from the counts and must survive regardless of format:
 
-Store the improvement findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-IMPROVEMENTS] ... -->` block (its citations carry the evidence, value rating, and suggestion).
+- **Out-of-scope improvements or synergies were set aside (from §3 and §4):** list them separately for awareness only (they were not counted as improvements) and note that re-running with `--scope-skills` pulls any that belong into scope.
+
+Store the **in-scope** improvement findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-IMPROVEMENTS] ... -->` block (its citations carry the evidence, value rating, and suggestion). Record any out-of-scope improvement or synergy under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker so Step 05 leaves it out of the refined document: it is informational only.
 
 ### 7. Auto-Proceed to Next Step
 
