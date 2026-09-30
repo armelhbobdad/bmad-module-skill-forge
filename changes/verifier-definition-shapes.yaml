@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill, skf-test-skill
+summary: |
+  The provenance check now accepts the definition lines the ast-grep recipes cite for four shapes it used to reject: a later name in one `export const` list, on the same line or on a line of its own as Prettier writes it (`export const a = 1, B = 2;`, or `export const a = 1,` with `B = 2;` on the next line), a quoted name in a re-export (`"str-name" as alias`, `export * as "ns" from`), a name on the line after its keyword (`export function` or `export interface` with the name below, or a Python `def \` continued on the next line) and a decorator on the `export` line (`@dec export class H {}`). Before, Create Skill and Update Skill listed these exports as unverified and Test Skill added an Info gap for each.
+issues: [560]
