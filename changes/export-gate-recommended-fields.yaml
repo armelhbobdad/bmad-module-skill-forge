@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-export-skill
+summary: |
+  Export Skill now reports a missing recommended metadata field through its export gate, so the package status it shows (`READY` or `WARNINGS`) is always the gate's own verdict. The gate lists each missing or empty field under `validation.metadata.recommended_missing` as a low warning: `description`, `source_repo`, `language` and `tool_versions` for a single skill, plus `ast_node_count` when the skill counts AST-verified (T1) signatures, and `language` and `tool_versions` for a stack. A package missing one of them shows `WARNINGS` and still exports, and a stack is no longer warned about fields its template does not write.
+issues: [607]

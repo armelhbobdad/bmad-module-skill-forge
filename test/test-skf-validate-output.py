@@ -3,17 +3,19 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import re
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import importlib.util
 import pytest
 
-spec = importlib.util.spec_from_file_location(
-    "skf_validate_output",
-    Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-validate-output.py",
-)
+SCRIPT = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-validate-output.py"
+spec = importlib.util.spec_from_file_location("skf_validate_output", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 validate_skill_package = mod.validate_skill_package
@@ -210,14 +212,52 @@ Header with project name, library count, integration count, forge tier.
 
 STACK_SNIPPET = "[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: Stack capstone\n|stack: lib-a, lib-b\n"
 
+# metadata.json as create-stack-skill writes it from
+# src/skf-create-stack-skill/assets/stack-skill-template.md, for a compose-mode
+# stack (no AST pass of its own, so no ast_node_count). make_stack_package
+# overlays the counts and name each test passes.
+STACK_TEMPLATE_META = {
+    "skill_type": "stack",
+    "name": "demo-stack",
+    "version": "1.0.0",
+    "generation_date": "2026-07-13",
+    "forge_tier": "Deep",
+    "confidence_tier": "T1-low",
+    "spec_version": "1.3",
+    "source_authority": "community",
+    "generated_by": "create-stack-skill",
+    "exports": [],
+    "library_count": 0,
+    "integration_count": 0,
+    "libraries": ["lib-a", "lib-b"],
+    "integration_pairs": [["lib-a", "lib-b"]],
+    "language": "typescript",
+    "confidence_distribution": {"t1": 0, "t1_low": 0, "t2": 0, "t3": 0},
+    "tool_versions": {"ast_grep": None, "qmd": None, "skf": "3.0.0"},
+    "stats": {
+        "exports_documented": 0,
+        "exports_public_api": 0,
+        "exports_internal": 0,
+        "exports_total": 0,
+        "public_api_coverage": 0.0,
+        "total_coverage": 0.0,
+        "scripts_count": 0,
+        "assets_count": 0,
+    },
+    "dependencies": [],
+    "compatibility": ">=1.0.0",
+}
+
 
 def make_stack_package(tmpdir, *, library_count, ref_libs, catalog, pair_files,
-                       integration_count, confidence_distribution, name="demo-stack"):
+                       integration_count, confidence_distribution, name="demo-stack",
+                       meta_overrides=None):
     """Build a stack skill package fixture on disk.
 
     ref_libs: list of per-library reference basenames (without .md).
     catalog: if True, also write references/stack-catalog.md (must NOT be counted).
     pair_files: list of integration pair basenames (without .md).
+    meta_overrides: fields to set on top of STACK_TEMPLATE_META and the counts.
     """
     pkg = Path(tmpdir) / name
     (pkg / "references" / "integrations").mkdir(parents=True)
@@ -229,15 +269,14 @@ def make_stack_package(tmpdir, *, library_count, ref_libs, catalog, pair_files,
         (pkg / "references" / "stack-catalog.md").write_text("# Catalog\n", encoding="utf-8")
     for pair in pair_files:
         (pkg / "references" / "integrations" / f"{pair}.md").write_text(f"# {pair}\n", encoding="utf-8")
-    meta = {
+    meta = copy.deepcopy(STACK_TEMPLATE_META)
+    meta.update({
         "name": name,
-        "skill_type": "stack",
-        "version": "1.0.0",
-        "generation_date": "2026-07-13",
         "library_count": library_count,
         "integration_count": integration_count,
         "confidence_distribution": confidence_distribution,
-    }
+    })
+    meta.update(meta_overrides or {})
     (pkg / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
     return pkg
 
@@ -335,15 +374,51 @@ class TestSkfValidateOutputStack:
 
 # --- Export-gate mode ------------------------------------------------------
 
+# A complete single skill compiled at Forge+: every required field, and every
+# recommended one (ast_node_count too, since it counts T1 signatures).
 EXPORT_GATE_META = {
     "name": "demo",
     "version": "1.0.0",
-    "skill_type": "stack",
+    "skill_type": "single",
     "source_authority": "community",
     "exports": ["foo", "bar"],
     "generation_date": "2026-07-13",
     "confidence_tier": "Forge+",
+    "description": "A demo skill for export-gate validation",
+    "source_repo": "https://github.com/test/demo",
+    "language": "typescript",
+    "ast_node_count": 34,
+    "confidence_distribution": {"t1": 2, "t1_low": 0, "t2": 0, "t3": 0},
+    "tool_versions": {"ast_grep": "0.45.3", "qmd": None, "skf": "3.0.0"},
 }
+
+# A complete Quick single skill as quick-skill writes it: no AST pass, so no
+# ast_node_count and no T1 signatures.
+QUICK_EXPORT_GATE_META = {
+    "name": "demo",
+    "version": "1.0.0",
+    "description": "A demo skill for export-gate validation",
+    "skill_type": "single",
+    "source_authority": "community",
+    "source_repo": "https://github.com/test/demo",
+    "language": "typescript",
+    "generated_by": "quick-skill",
+    "generation_date": "2026-07-13",
+    "confidence_tier": "Quick",
+    "exports": ["foo", "bar"],
+    "confidence_distribution": {"t1": 0, "t1_low": 2, "t2": 0, "t3": 0},
+    "tool_versions": {"ast_grep": None, "qmd": None, "skf": "3.0.0"},
+}
+
+REPO_ROOT = Path(__file__).parent.parent
+
+
+def template_metadata_keys(relpath):
+    """Top-level keys of the metadata.json block in a generator template."""
+    text = (REPO_ROOT / relpath).read_text(encoding="utf-8")
+    block = re.search(r"##[^\n]*metadata\.json[^\n]*\n+```json\n(.*?)\n```", text, re.DOTALL)
+    assert block, f"no metadata.json block in {relpath}"
+    return set(re.findall(r'^  "([a-z_]+)":', block.group(1), re.MULTILINE))
 
 EXPORT_GATE_SKILL_MD = """---
 name: demo
@@ -365,7 +440,7 @@ def make_export_gate_package(tmpdir, *, meta=None, skill_md=None, name="demo"):
     (pkg / "SKILL.md").write_text(
         skill_md if skill_md is not None else EXPORT_GATE_SKILL_MD, encoding="utf-8"
     )
-    m = dict(EXPORT_GATE_META) if meta is None else meta
+    m = copy.deepcopy(EXPORT_GATE_META) if meta is None else meta
     (pkg / "metadata.json").write_text(json.dumps(m), encoding="utf-8")
     return pkg
 
@@ -382,8 +457,9 @@ class TestSkfValidateOutputExportGate:
             assert r["export_status"] == "READY"
             assert r["summary"]["by_severity"]["high"] == 0
             assert r["result"] == "PASS"
-            # No enum or crossref issues on a clean package.
+            # No enum, recommended-field or crossref issues on a clean package.
             assert r["validation"]["metadata"]["enum_issues"] == []
+            assert r["validation"]["metadata"]["recommended_missing"] == []
             assert r["validation"]["crossref_7b"]["missing"] == []
             assert r["validation"]["crossref_7b"]["orphans"] == []
 
@@ -495,6 +571,24 @@ class TestSkfValidateOutputExportGate:
             assert r["export_status"] == "NOT_READY"
             assert any("parse error" in i["message"] for i in r["validation"]["metadata"]["issues"])
 
+    @pytest.mark.parametrize("text", ["[]", '"demo"', "null"])
+    def test_metadata_not_an_object_not_ready(self, text):
+        """metadata.json that parses to a non-object -> high issue, NOT_READY, no crash."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "demo"
+            pkg.mkdir()
+            (pkg / "SKILL.md").write_text(EXPORT_GATE_SKILL_MD, encoding="utf-8")
+            (pkg / "metadata.json").write_text(text, encoding="utf-8")
+            r = validate_skill_package(str(pkg), export_gate=True)
+            meta = r["validation"]["metadata"]
+            assert meta["issues"] == [
+                {"severity": "high", "field": "metadata.json", "message": "metadata.json is not a JSON object"}
+            ]
+            assert meta["enum_issues"] == []
+            assert meta["recommended_missing"] == []
+            assert r["export_status"] == "NOT_READY"
+            assert r["result"] == "FAIL"
+
     def test_empty_skill_md_flagged(self):
         """Empty SKILL.md -> high presence issue."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -544,11 +638,13 @@ class TestSkfValidateOutputExportGate:
             "exports": ["a"],
             "generation_date": "2026-07-13",
         }
-        required_issues, enum_issues = validate_metadata_export_gate(meta)
+        required_issues, enum_issues, recommended_missing = validate_metadata_export_gate(meta)
         assert required_issues == []
         enum_fields = {i["field"] for i in enum_issues}
         assert enum_fields == {"skill_type", "source_authority", "confidence_tier"}
         assert all(i["severity"] == "high" for i in enum_issues)
+        # No recommended set applies to an unknown skill_type.
+        assert recommended_missing == []
 
     def test_export_gate_does_not_alter_default_path(self):
         """Regression guard: default (export_gate=False) output has no export-gate keys."""
@@ -563,3 +659,263 @@ class TestSkfValidateOutputExportGate:
             assert r["result"] == "PASS"
             assert "issues" in r["validation"]["metadata"]
             assert isinstance(r["validation"]["skill_md"]["body"], list)
+
+    def test_section_7b_upstream_path_not_a_bundled_file(self):
+        """An upstream path whose tail is scripts/… is not read as a bundled file."""
+        skill_md = (
+            "# demo\n\n## Scripts & Assets\n\n"
+            "| `scripts/run.py` | runs the thing | [SRC:src/run.py:L1] |\n\n"
+            "Upstream validates with `bmad-module-builder/scripts/validate-module.py`"
+            " and `my_scripts/helper.py`, not bundled here.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "demo"
+            (pkg / "scripts").mkdir(parents=True)
+            (pkg / "scripts" / "run.py").write_text("x", encoding="utf-8")
+            missing, orphans = crossref_section_7b(skill_md, str(pkg))
+            assert missing == []
+            assert orphans == []
+
+    def test_section_7b_dot_slash_prefix_still_matches(self):
+        """A package-relative claim written as ./scripts/… or ./assets/… still counts."""
+        skill_md = (
+            "# demo\n\n## Scripts & Assets\n\n"
+            "Run `./scripts/run.py`; the template is [here](./assets/t.json).\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "demo"
+            (pkg / "scripts").mkdir(parents=True)
+            missing, orphans = crossref_section_7b(skill_md, str(pkg))
+            assert missing == ["assets/t.json", "scripts/run.py"]
+            assert orphans == []
+
+
+class TestExportGateConfidenceTier:
+    """--export-gate: the confidence_tier scale depends on skill_type (#552)."""
+
+    def _stack(self, tmp, **meta_overrides):
+        return make_stack_package(
+            tmp,
+            library_count=2,
+            ref_libs=["lib-a", "lib-b"],
+            catalog=False,
+            pair_files=["lib-a-lib-b"],
+            integration_count=1,
+            confidence_distribution={"t1": 0, "t1_low": 2, "t2": 0, "t3": 0},
+            meta_overrides=meta_overrides,
+        )
+
+    def test_stack_from_template_passes_gate(self):
+        """A stack from the stack template (T-code confidence_tier) is not NOT_READY."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._stack(tmp)
+            r = validate_skill_package(str(pkg), export_gate=True)
+            meta = r["validation"]["metadata"]
+            assert meta["issues"] == [{"severity": "low", "field": "exports", "message": "exports array is empty"}]
+            assert meta["enum_issues"] == []
+            assert r["summary"]["by_severity"]["high"] == 0
+            assert r["result"] == "PASS"
+            assert r["export_status"] != "NOT_READY"
+
+    @pytest.mark.parametrize("tier", ["T1", "T1-low", "T2", "T3"])
+    def test_stack_accepts_every_t_code(self, tier):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._stack(tmp, confidence_tier=tier, exports=["useStack"])
+            r = validate_skill_package(str(pkg), export_gate=True)
+            assert r["validation"]["metadata"]["enum_issues"] == []
+            assert r["export_status"] == "READY"
+
+    @pytest.mark.parametrize("tier", ["Quick", "Forge", "Forge+", "Deep"])
+    def test_stack_forge_tier_exports_with_low_note(self, tier):
+        """An older stack holds its forge tier in confidence_tier: it still exports, with a low note."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._stack(tmp, confidence_tier=tier, forge_tier=tier, exports=["useStack"])
+            r = validate_skill_package(str(pkg), export_gate=True)
+            meta = r["validation"]["metadata"]
+            assert meta["enum_issues"] == []
+            assert meta["recommended_missing"] == []
+            assert [(i["severity"], i["field"]) for i in meta["issues"]] == [("low", "confidence_tier")]
+            assert f"'{tier}' is a forge tier" in meta["issues"][0]["message"]
+            assert "re-run Stack Skill" in meta["issues"][0]["message"]
+            assert r["summary"]["by_severity"] == {"high": 0, "medium": 0, "low": 1}
+            assert r["result"] == "PASS"
+            assert r["export_status"] == "WARNINGS"
+
+    def test_older_stack_passes_the_cli_gate(self):
+        """A stack as it sits on disk with confidence_tier and forge_tier "Deep": exit 0, as before."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._stack(tmp, confidence_tier="Deep", forge_tier="Deep")
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), str(pkg), "--export-gate"],
+                capture_output=True,
+                text=True,
+            )
+            assert proc.returncode == 0, proc.stdout
+            r = json.loads(proc.stdout)
+            assert r["result"] == "PASS"
+            assert r["export_status"] == "WARNINGS"
+            assert r["validation"]["metadata"]["enum_issues"] == []
+            assert sorted(i["field"] for i in r["validation"]["metadata"]["issues"]) == [
+                "confidence_tier", "exports"
+            ]
+
+    def test_stack_rejects_unknown_tier(self):
+        """A value on neither scale is still a high enum issue for a stack."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = self._stack(tmp, confidence_tier="High")
+            r = validate_skill_package(str(pkg), export_gate=True)
+            enum_issues = r["validation"]["metadata"]["enum_issues"]
+            assert [(i["severity"], i["field"]) for i in enum_issues] == [("high", "confidence_tier")]
+            assert "'T1-low'" in enum_issues[0]["message"]
+            assert "skill_type 'stack'" in enum_issues[0]["message"]
+            assert r["export_status"] == "NOT_READY"
+
+    @pytest.mark.parametrize("tier", ["Quick", "Forge", "Forge+", "Deep"])
+    def test_single_accepts_every_forge_tier(self, tier):
+        """A forge tier is a single skill's own scale: no enum issue and no note."""
+        meta = copy.deepcopy(EXPORT_GATE_META)
+        meta["confidence_tier"] = tier
+        required_issues, enum_issues, _ = validate_metadata_export_gate(meta)
+        assert required_issues == []
+        assert enum_issues == []
+
+    @pytest.mark.parametrize("tier", ["T1", "T1-low", "T2", "T3"])
+    def test_single_rejects_t_code(self, tier):
+        """A single skill's confidence_tier holds the forge tier; a T-code is an enum issue."""
+        meta = copy.deepcopy(EXPORT_GATE_META)
+        meta["confidence_tier"] = tier
+        _, enum_issues, _ = validate_metadata_export_gate(meta)
+        assert [(i["severity"], i["field"]) for i in enum_issues] == [("high", "confidence_tier")]
+        assert "skill_type 'single'" in enum_issues[0]["message"]
+
+    def test_unknown_skill_type_checks_both_scales(self):
+        """With no valid skill_type, a tier from either scale is not flagged again."""
+        for tier in ("Forge", "T2"):
+            meta = copy.deepcopy(EXPORT_GATE_META)
+            meta["skill_type"] = "bogus"
+            meta["confidence_tier"] = tier
+            _, enum_issues, _ = validate_metadata_export_gate(meta)
+            assert [i["field"] for i in enum_issues] == ["skill_type"]
+
+    def test_non_string_skill_type_does_not_crash(self):
+        meta = copy.deepcopy(EXPORT_GATE_META)
+        meta["skill_type"] = ["single"]
+        required_issues, enum_issues, recommended_missing = validate_metadata_export_gate(meta)
+        assert [i["field"] for i in required_issues] == ["skill_type"]
+        assert enum_issues == []
+        assert recommended_missing == []
+
+
+class TestExportGateRecommendedFields:
+    """--export-gate: missing recommended fields, chosen by skill_type (#607)."""
+
+    @pytest.mark.parametrize(
+        "field", ["description", "source_repo", "language", "tool_versions", "ast_node_count"]
+    )
+    def test_single_missing_one_field_warns(self, field):
+        """A single skill missing one recommended field -> WARNINGS naming it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = copy.deepcopy(EXPORT_GATE_META)
+            del meta[field]
+            pkg = make_export_gate_package(tmp, meta=meta)
+            r = validate_skill_package(str(pkg), export_gate=True)
+            missing = r["validation"]["metadata"]["recommended_missing"]
+            assert [i["field"] for i in missing] == [field]
+            assert missing[0]["severity"] == "low"
+            assert field in missing[0]["message"]
+            assert r["summary"]["by_severity"] == {"high": 0, "medium": 0, "low": 1}
+            assert r["export_status"] == "WARNINGS"
+            assert r["result"] == "PASS"
+
+    def test_empty_value_counts_as_missing(self):
+        """quick-skill writes description "" when none was given: that is missing."""
+        meta = copy.deepcopy(EXPORT_GATE_META)
+        meta["description"] = ""
+        meta["tool_versions"] = {}
+        _, _, missing = validate_metadata_export_gate(meta)
+        assert [i["field"] for i in missing] == ["description", "tool_versions"]
+
+    def test_complete_quick_skill_ready(self):
+        """A complete Quick skill has no ast_node_count and still gets READY."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_export_gate_package(tmp, meta=copy.deepcopy(QUICK_EXPORT_GATE_META))
+            r = validate_skill_package(str(pkg), export_gate=True)
+            assert r["validation"]["metadata"]["recommended_missing"] == []
+            assert r["export_status"] == "READY"
+
+    def test_ast_node_count_expected_only_with_t1(self):
+        """ast_node_count is recommended for a single skill only when it counts T1 signatures."""
+        meta = copy.deepcopy(EXPORT_GATE_META)
+        del meta["ast_node_count"]
+        for dist, expected in (
+            ({"t1": 3, "t1_low": 0, "t2": 0, "t3": 0}, ["ast_node_count"]),
+            ({"t1": 0, "t1_low": 3, "t2": 0, "t3": 0}, []),
+            (None, []),
+        ):
+            meta["confidence_distribution"] = dist
+            _, _, missing = validate_metadata_export_gate(meta)
+            assert [i["field"] for i in missing] == expected
+
+    def test_stack_from_template_no_recommended_warning(self):
+        """A stack with its template fields (no description, source_repo or ast_node_count) is not warned."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_stack_package(
+                tmp,
+                library_count=2,
+                ref_libs=["lib-a", "lib-b"],
+                catalog=True,
+                pair_files=["lib-a-lib-b"],
+                integration_count=1,
+                confidence_distribution={"t1": 2, "t1_low": 0, "t2": 0, "t3": 0},
+            )
+            r = validate_skill_package(str(pkg), export_gate=True)
+            meta = json.loads((pkg / "metadata.json").read_text(encoding="utf-8"))
+            assert "description" not in meta and "source_repo" not in meta
+            assert "ast_node_count" not in meta
+            assert r["validation"]["metadata"]["recommended_missing"] == []
+
+    def test_stack_missing_language_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_stack_package(
+                tmp,
+                library_count=2,
+                ref_libs=["lib-a", "lib-b"],
+                catalog=False,
+                pair_files=["lib-a-lib-b"],
+                integration_count=1,
+                confidence_distribution={"t1": 0, "t1_low": 2, "t2": 0, "t3": 0},
+                meta_overrides={"language": "", "exports": ["useStack"]},
+            )
+            r = validate_skill_package(str(pkg), export_gate=True)
+            missing = r["validation"]["metadata"]["recommended_missing"]
+            assert [i["field"] for i in missing] == ["language"]
+            assert "stack" in missing[0]["message"]
+            assert r["export_status"] == "WARNINGS"
+
+    def test_parse_error_keeps_recommended_key(self):
+        """A metadata.json that does not parse still emits an empty recommended_missing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "demo"
+            pkg.mkdir()
+            (pkg / "SKILL.md").write_text(EXPORT_GATE_SKILL_MD, encoding="utf-8")
+            (pkg / "metadata.json").write_text("{not valid json", encoding="utf-8")
+            r = validate_skill_package(str(pkg), export_gate=True)
+            assert r["validation"]["metadata"]["recommended_missing"] == []
+
+    @pytest.mark.parametrize(
+        "skill_type, templates",
+        [
+            ("single", ["src/skf-quick-skill/assets/skill-template.md",
+                        "src/skf-create-skill/assets/skill-sections.md"]),
+            ("stack", ["src/skf-create-stack-skill/assets/stack-skill-template.md"]),
+        ],
+    )
+    def test_recommended_set_matches_generator_templates(self, skill_type, templates):
+        """Every recommended field is one each generator's metadata template writes."""
+        recommended = set(mod._EXPORT_GATE_RECOMMENDED[skill_type])
+        for relpath in templates:
+            keys = template_metadata_keys(relpath)
+            assert recommended <= keys, f"{relpath} lacks {sorted(recommended - keys)}"
+        if skill_type == "stack":
+            keys = template_metadata_keys(templates[0])
+            assert "description" not in keys and "source_repo" not in keys

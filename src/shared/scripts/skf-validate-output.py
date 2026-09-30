@@ -28,11 +28,22 @@ by hand each run:
     (name, version, skill_type, source_authority, exports, generation_date,
     confidence_tier) as high-severity issues under validation.metadata.issues;
   - enum-membership checks (skill_type, source_authority, confidence_tier) as
-    high-severity issues under validation.metadata.enum_issues;
+    high-severity issues under validation.metadata.enum_issues. The
+    confidence_tier set depends on skill_type: a single skill records its
+    forge tier (Quick / Forge / Forge+ / Deep), a stack the dominant
+    confidence tier of its libraries (T1 / T1-low / T2 / T3). A stack that
+    still holds a forge tier there, as older stacks do, passes with a low
+    note under validation.metadata.issues;
+  - recommended-field presence, chosen by skill_type, as low-severity issues
+    under validation.metadata.recommended_missing: description, source_repo,
+    language and tool_versions for a single skill (plus ast_node_count when
+    confidence_distribution.t1 is above 0), language and tool_versions for a
+    stack;
   - SKILL.md Section 7b (Scripts & Assets) cross-reference against on-disk
     scripts/ and assets/ files, under validation.crossref_7b.{missing,orphans}
     (a §7b-named file absent on disk is high; an on-disk file not named in §7b
-    is a low orphan warning);
+    is a low orphan warning). Only a path that starts with scripts/ or
+    assets/, optionally after ./, is read as a bundled file;
   - a deterministic export_status ∈ READY / WARNINGS / NOT_READY alongside the
     existing PASS/FAIL result (NOT_READY on any high issue, WARNINGS when only
     medium/low issues remain, READY when clean).
@@ -197,26 +208,87 @@ def validate_metadata_json(data, generated_by=None):
 _EXPORT_GATE_ENUMS = {
     "skill_type": ("single", "stack"),
     "source_authority": ("official", "internal", "community"),
-    "confidence_tier": ("Quick", "Forge", "Forge+", "Deep"),
 }
 
-# Matches a scripts/… or assets/… path token (e.g. `scripts/run.py`). The
-# leading filename char must be alphanumeric/dot/underscore so a bare
-# `scripts/` (the §7b directory note with nothing after the slash) is not
-# captured as a file reference.
-_SECTION_7B_PATH_RE = re.compile(r"(?:scripts|assets)/[A-Za-z0-9._][A-Za-z0-9._/\-]*")
+# confidence_tier holds a different scale per skill_type: a single skill
+# records the forge tier it was compiled at, a stack records the dominant
+# confidence tier of its libraries (create-stack-skill keeps the forge tier in
+# forge_tier). Older stacks hold their forge tier in confidence_tier (the
+# v0.10.0 stack template wrote it there, and stacks on disk still carry it),
+# and the gate accepted them before the stack scale existed, so a stack also
+# accepts a forge tier: validate_metadata_export_gate adds a low note for it
+# instead of failing the export. When skill_type is neither, the value is
+# checked against both scales (skill_type itself already fails its enum check).
+_FORGE_TIERS = ("Quick", "Forge", "Forge+", "Deep")
+_EXPORT_GATE_CONFIDENCE_TIERS = {
+    "single": _FORGE_TIERS,
+    "stack": ("T1", "T1-low", "T2", "T3") + _FORGE_TIERS,
+}
+
+# Recommended (non-required) metadata fields, by skill_type: the fields the
+# generator's metadata template always writes (quick-skill and create-skill
+# for single, create-stack-skill for stack). A stack's template has no
+# description or source_repo, so a stack is never warned about them.
+# ast_node_count is written only when ast-grep ran, so a single skill is
+# expected to carry it only when confidence_distribution counts T1
+# (AST-verified) signatures. A stack is never asked for it: its T1 count is
+# inherited from its libraries, not from an AST pass of its own.
+_EXPORT_GATE_RECOMMENDED = {
+    "single": ("description", "source_repo", "language", "tool_versions"),
+    "stack": ("language", "tool_versions"),
+}
+
+# Matches a scripts/… or assets/… path token (e.g. `scripts/run.py`) and
+# captures it without an optional leading `./`. The match starts only at the
+# beginning of a path token, so an upstream path such as
+# `bmad-module-builder/scripts/x.py` is not read as the package's own
+# `scripts/x.py`. The leading filename char must be alphanumeric/dot/underscore
+# so a bare `scripts/` (the §7b directory note with nothing after the slash)
+# is not captured as a file reference.
+_SECTION_7B_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9._/\-])(?:\./)?((?:scripts|assets)/[A-Za-z0-9._][A-Za-z0-9._/\-]*)"
+)
+
+
+def _is_blank(val):
+    """True when a metadata value is absent or empty (None, "", [], {})."""
+    if val is None:
+        return True
+    if isinstance(val, str):
+        return not val.strip()
+    if isinstance(val, (list, dict)):
+        return not val
+    return False
+
+
+def _counts_t1(data):
+    """True when confidence_distribution.t1 is a positive number."""
+    dist = data.get("confidence_distribution")
+    if not isinstance(dist, dict):
+        return False
+    t1 = dist.get("t1")
+    return isinstance(t1, (int, float)) and not isinstance(t1, bool) and t1 > 0
 
 
 def validate_metadata_export_gate(data):
     """agentskills.io export-gate metadata validation.
 
-    Returns (required_issues, enum_issues). Required-field presence for the full
-    agentskills.io set is high-severity; enum-membership mismatches are
-    high-severity. An empty `exports` array is a low warning (matching
+    Returns (required_issues, enum_issues, recommended_missing). Required-field
+    presence for the full agentskills.io set is high-severity; enum-membership
+    mismatches are high-severity, with the confidence_tier scale chosen by
+    skill_type. An empty `exports` array is a low warning (matching
     load-skill.md §2's "warn if empty — graceful handling"), not a hard halt.
+    So is a forge tier in a stack's confidence_tier (the value older stacks
+    hold); both of these low notes go in required_issues.
+    A missing or empty recommended field for the skill_type is a low warning;
+    when skill_type is neither single nor stack no recommended set applies.
     """
     required_issues = []
     enum_issues = []
+    recommended_missing = []
+    skill_type = data.get("skill_type")
+    if not isinstance(skill_type, str):
+        skill_type = None
 
     # String required fields — high-severity presence checks.
     for field in ("name", "version", "skill_type", "source_authority",
@@ -255,7 +327,46 @@ def validate_metadata_export_gate(data):
                 "message": f"{field} '{val}' not in {list(allowed)}",
             })
 
-    return required_issues, enum_issues
+    tier = data.get("confidence_tier")
+    if isinstance(tier, str) and tier:
+        if skill_type in _EXPORT_GATE_CONFIDENCE_TIERS:
+            allowed = _EXPORT_GATE_CONFIDENCE_TIERS[skill_type]
+            scope = f" for skill_type '{skill_type}'"
+        else:
+            allowed = tuple(dict.fromkeys(
+                t for tiers in _EXPORT_GATE_CONFIDENCE_TIERS.values() for t in tiers
+            ))
+            scope = ""
+        if tier not in allowed:
+            enum_issues.append({
+                "severity": "high",
+                "field": "confidence_tier",
+                "message": f"confidence_tier '{tier}' not in {list(allowed)}{scope}",
+            })
+        elif skill_type == "stack" and tier in _FORGE_TIERS:
+            required_issues.append({
+                "severity": "low",
+                "field": "confidence_tier",
+                "message": (
+                    f"confidence_tier '{tier}' is a forge tier, as older stacks recorded it; "
+                    "re-run Stack Skill (@Ferris SS) to record the dominant confidence tier "
+                    "of its libraries (T1, T1-low, T2 or T3)"
+                ),
+            })
+
+    # Recommended fields: low-severity presence checks, by skill_type.
+    recommended = list(_EXPORT_GATE_RECOMMENDED.get(skill_type, ()))
+    if skill_type == "single" and _counts_t1(data):
+        recommended.append("ast_node_count")
+    for field in recommended:
+        if _is_blank(data.get(field)):
+            recommended_missing.append({
+                "severity": "low",
+                "field": field,
+                "message": f"recommended field {field} missing or empty for a {skill_type} skill",
+            })
+
+    return required_issues, enum_issues, recommended_missing
 
 
 def _extract_section_7b_refs(skill_md_text):
@@ -295,6 +406,7 @@ def _extract_section_7b_refs(skill_md_text):
 
     region = "\n".join(lines[start:end])
     refs = set()
+    # findall returns the capture group: the path without a leading `./`.
     for match in _SECTION_7B_PATH_RE.findall(region):
         refs.add(match.rstrip("./-"))
     return refs
@@ -556,9 +668,11 @@ def _validate_export_gate(skill_dir):
 
     Self-contained: does not run the individual/stack passes. Emits the
     deterministic verdict load-skill.md §2 and package.md §1-3 previously
-    derived in-prompt — SKILL.md presence/non-emptiness, metadata.json valid
-    JSON + required-field presence + enum membership, and the SKILL.md
-    Section 7b <-> on-disk scripts/assets cross-reference — plus a deterministic
+    derived in-prompt: SKILL.md presence/non-emptiness; metadata.json as a
+    valid JSON object, with required-field presence and enum membership;
+    recommended-field presence by skill_type (low,
+    validation.metadata.recommended_missing); and the SKILL.md Section 7b <->
+    on-disk scripts/assets cross-reference. It adds a deterministic
     export_status ∈ READY / WARNINGS / NOT_READY.
     """
     skill_dir = Path(skill_dir)
@@ -596,11 +710,12 @@ def _validate_export_gate(skill_dir):
     result["validation"]["skill_md"] = {"issues": skill_md_issues}
     _record(skill_md_issues)
 
-    # 2. metadata.json must exist, parse as JSON, and satisfy the required-field
-    #    presence + enum-membership contract.
+    # 2. metadata.json must exist, parse as a JSON object, and satisfy the
+    #    required-field presence + enum-membership contract; missing
+    #    recommended fields for its skill_type are low warnings.
     if not meta_path.exists():
         meta_issues = [{"severity": "high", "field": "metadata.json", "message": "metadata.json not found"}]
-        result["validation"]["metadata"] = {"issues": meta_issues, "enum_issues": []}
+        result["validation"]["metadata"] = {"issues": meta_issues, "enum_issues": [], "recommended_missing": []}
         _record(meta_issues)
     else:
         try:
@@ -608,13 +723,23 @@ def _validate_export_gate(skill_dir):
                 meta = json.load(f)
         except json.JSONDecodeError as e:
             meta_issues = [{"severity": "high", "field": "metadata.json", "message": f"JSON parse error: {e}"}]
-            result["validation"]["metadata"] = {"issues": meta_issues, "enum_issues": []}
+            result["validation"]["metadata"] = {"issues": meta_issues, "enum_issues": [], "recommended_missing": []}
             _record(meta_issues)
         else:
-            required_issues, enum_issues = validate_metadata_export_gate(meta)
-            result["validation"]["metadata"] = {"issues": required_issues, "enum_issues": enum_issues}
+            if isinstance(meta, dict):
+                required_issues, enum_issues, recommended_missing = validate_metadata_export_gate(meta)
+            else:
+                # Valid JSON that is not an object (e.g. `[]`) has no fields to read.
+                required_issues = [{"severity": "high", "field": "metadata.json", "message": "metadata.json is not a JSON object"}]
+                enum_issues, recommended_missing = [], []
+            result["validation"]["metadata"] = {
+                "issues": required_issues,
+                "enum_issues": enum_issues,
+                "recommended_missing": recommended_missing,
+            }
             _record(required_issues)
             _record(enum_issues)
+            _record(recommended_missing)
 
     # 3. SKILL.md Section 7b <-> on-disk scripts/assets cross-reference.
     missing, orphans = crossref_section_7b(skill_md_text, skill_dir)
