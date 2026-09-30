@@ -10,6 +10,11 @@ nextStepFile: 'shared/health-check.md'
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
+# Resolve `{runLockHelper}` to the first existing path. If neither exists,
+# say the lock stays and continue: a later update replaces it once stale.
+runLockProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
+  - '{project-root}/src/shared/scripts/skf-run-lock.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -18,17 +23,23 @@ sourceTreeProbeOrder:
 
 ## STEP GOAL:
 
-Chain to the shared workflow self-improvement health check at `{nextStepFile}`. This is the terminal step of update-skill — after the shared health check completes, the workflow is fully done. This step only releases the concurrency lock and the private source tree, then delegates: no user-facing reports, file writes, or result contracts here (those belong in step 7), apart from one line when the tree stays on disk.
+Chain to the shared workflow self-improvement health check at `{nextStepFile}`. This is the terminal step of update-skill: after the shared health check completes, the workflow is fully done. This step only releases the concurrency lock and the private source tree, then delegates: no user-facing reports, file writes, or result contracts here (those belong in step 7), apart from one line when the lock or the tree stays on disk.
 
 ## Steps
 
-1. **Release the concurrency lock** acquired by init.md §1b (skip when `detect_only_mode` or `dry_run_mode` is true — those modes never acquired one):
+1. **Release the concurrency lock** init.md §1b took (skip when `detect_only_mode` or `dry_run_mode` is true: those modes take none). Resolve `{runLockHelper}` ← first existing path in `{runLockProbeOrder}` and, from `{project-root}`, run:
 
    ```bash
-   rm -f "{forge_data_folder}/{skill_name}/.skf-update.lock"
+   uv run {runLockHelper} release \
+       --lock "{forge_data_folder}/{skill_name}/.skf-update.lock" \
+       --owner "{lock_owner}"
    ```
 
-   Release the lock before delegating to the shared health-check: the health-check is the terminal step, so once it returns the workflow is done and any still-held lock is orphaned until the next run clears it. Releasing here keeps the lock lifecycle tight against the workflow's actual span.
+   Never stop on the result:
+
+   - `released` true, or `reason` `absent`: continue.
+   - `reason` `not-owner`: another update took the lock over after this run's lock went stale, and the helper left that run's lock in place. Tell the user in one line "The run lock {forge_data_folder}/{skill_name}/.skf-update.lock now belongs to {held_by}: another update of {skill_name} took it over while this one ran.", then continue.
+   - No candidate resolves, or the command fails or prints no JSON: tell the user in one line "The run lock {forge_data_folder}/{skill_name}/.skf-update.lock was not released ({the first stderr line, or 'skf-run-lock.py is missing'}); delete it when no update of {skill_name} is running.", then continue.
 
 1b. **Remove the private source tree** init.md §6b prepared, in every mode (`--detect-only` and `--dry-run` included), when `{source_tree}` is set: resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}` and, from `{project-root}`, run `uv run {sourceTreeHelper} close --tree "{source_tree}"`. `{source_tree}` is the `tree` path the helper's `open` printed in init.md §6b; close also takes the run folder that holds it (where `changed-files.json` sits), and refuses any other folder. Bind `{source_tree_close}` ← `status` and `{source_tree_close_warnings}` ← `warnings`, and never stop on the result:
 

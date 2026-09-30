@@ -2,25 +2,25 @@
 nextStepFile: 'detect-changes.md'
 manualSectionRulesFile: 'references/manual-section-rules.md'
 # Resolve `{hashContentHelper}` to the first existing path; HALT if neither
-# candidate exists. §5 uses its `manual-inventory` subcommand to capture the
-# exact pre-write [MANUAL] inventory (per-block byte-exact interior hashes),
-# which write.md §1 (HALT gate) and validate.md Check B later verify against.
-# An LLM marker-count would miss an interior truncation that leaves the marker
-# count unchanged.
+# candidate exists: a [MANUAL] marker count by eye misses a truncated block.
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
 # Resolve `{skillInventoryHelper}` to the first existing path. §1 step 4 runs
 # it with `--skill` before a flat skill moves: only a flat skill whose
-# metadata.json carries an SKF marker (`flat_skf`) is migrated.
+# metadata.json carries an SKF marker (`flat_skf`) is migrated. If neither
+# exists, §6c records no source version.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-# Resolve `{sourceTreeHelper}` by probing `{sourceTreeProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. HALT if neither resolves — without it a skill forged
-# from a remote repository would be read at whatever commit SKF's shared
-# clone of that repository is on.
+# Resolve `{runLockHelper}` to the first existing path; HALT if neither
+# candidate exists: without the run lock two updates could write one skill.
+runLockProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
+  - '{project-root}/src/shared/scripts/skf-run-lock.py'
+# Resolve `{sourceTreeHelper}` to the first existing path.
+# HALT if neither resolves: without it a remote skill is read at whatever
+# commit SKF's shared clone of its repository is on.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -49,7 +49,7 @@ Provide either:
 - A skill name (resolves via version-aware path resolution — see `knowledge/version-paths.md`)
 - A full path to the skill folder
 - A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
-- `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the step 3 §0.a guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Only use this if you know the spot-checks should read the current workspace instead of the pinned tree. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there and reads no signature, parameter list, return type or node kind there, and step 3 §0.a halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does; step 6 will NOT automatically re-pin
+- `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the step 3 §0.a guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there, reads no signature, parameter list, return type or node kind there and counts no public API there, and step 3 §0.a halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does, and on every rescope; step 6 will NOT automatically re-pin
 - `--allow-degraded` (headless mode only) to pre-authorize the lossy degraded full re-extraction if §4 finds no provenance map — without it, a headless run halts `blocked` there rather than silently rebuilding
 - `--target-ref <tag|branch|HEAD|commit>` (normal mode, a skill forged from a remote repository) to read that ref's current commit instead of the skill's recorded `source_ref` — for example the newer tag an audit checked out. When the update writes, step 6 records the ref as the new `source_ref` together with the commit it read. `HEAD` follows the remote's default branch; a full 40-character commit pins that commit
 - `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
@@ -94,43 +94,37 @@ If a report is located, set `test_report_path` in context to the resolved absolu
 
 ### 1b. Concurrency Guard
 
-**Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true.** Both inspection modes are read-only — they do not modify any artifact, the private source tree §6b prepares for them never writes to the shared workspace clone, and they are safe to run alongside a concurrent real update.
+**Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true.** Both inspection modes are read-only, and the private source tree §6b prepares for them never writes to the shared workspace clone.
 
-Two concurrent `skf-update-skill` runs against the same `{forge_data_folder}/{skill_name}/` can corrupt provenance: one would write metadata.json mid-way through the other's extraction. The lock below catches the common accidental-double-invoke case (user re-runs in another shell before the first finishes). It is a **best-effort PID-file guard**, not a held flock — the LLM-driven workflow spans many turn boundaries and no single bash invocation can hold flock across them. Use the workspace concurrency guard in `skf-create-skill/references/source-resolution-protocols.md` as the conceptual model; that guard's `.skf-workspace.lock` on the source clone is a separate lock, which only write.md §6b takes.
+Two concurrent `skf-update-skill` runs against the same `{forge_data_folder}/{skill_name}/` can corrupt provenance: one would write metadata.json mid-way through the other's extraction. The run lock is separate from the `.skf-workspace.lock` on the source clone, which only write.md §6b takes.
 
-**Mirror this exactly so the guard works the same way every run:**
+Resolve `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`; it stays bound for the rest of the run. From `{project-root}`, run:
 
 ```bash
-# Lock file path — one per skill, lives next to skill-brief.yaml
-LOCK={forge_data_folder}/{skill_name}/.skf-update.lock
-mkdir -p "$(dirname "$LOCK")"
-
-if [ -f "$LOCK" ]; then
-  HELD_PID=$(head -n1 "$LOCK" 2>/dev/null | awk '{print $1}')
-  if [ -n "$HELD_PID" ] && kill -0 "$HELD_PID" 2>/dev/null; then
-    # Live PID — another update is running. HALT.
-    echo "skf-update-skill: another update is in progress (pid=$HELD_PID, started $(awk 'NR==2' "$LOCK" 2>/dev/null))"
-    # (LLM emits SKF_UPDATE_RESULT_JSON status=halted-for-concurrent-run, see below)
-    exit 1
-  fi
-  # Dead PID — lock left by a prior halted or crashed run; clear + overwrite
-  echo "skf-update-skill: clearing lock from a prior halted/crashed run (pid=$HELD_PID)"
-fi
-
-# Acquire: write our PID + start timestamp (one per line)
-printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
+uv run {runLockHelper} acquire \
+    --lock "{forge_data_folder}/{skill_name}/.skf-update.lock" \
+    --owner "update-skill:{skill_name}" \
+    --stale-after 60
 ```
 
-**Halt protocol on live-PID collision:**
+It prints one JSON line. Dispatch on its exit code:
 
-- Display: `"**Another update is in progress.** The skill {skill_name} is locked by pid={HELD_PID} (started {timestamp from line 2 of the lock file}). Wait for that run to finish, or — if you know that pid is no longer running — delete {LOCK} manually and re-run."`
-- In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "halted-for-concurrent-run"`, `error: {phase: "init:concurrency-guard", path: "{LOCK}", reason: "another update in progress (pid={HELD_PID})"}`, and exit immediately. **No `headless_decisions[]` entry** — this is a hard halt before any gate fires.
+- **0** (`acquired` true): bind `{lock_owner}` ← `owner`, the owner with its run id; every renewal and release passes that value. When `stale_replaced` is not null, this run replaced a stale lock, left by a run that stopped without releasing it or held by one still waiting at a gate, whose renewal will then halt. Display the helper's `message` and add `run-lock-replaced: {stale_replaced.held_by} since {stale_replaced.held_since}` to `warnings[]` (`an unnamed owner` in place of a null `held_by`, as in a lock file an older SKF version wrote).
+- **3** (`acquired` false): another run holds a fresh lock. HALT: display "**Another update of {skill_name} is in progress.** {message}", with the helper's `message`, which names that run, the lock file to delete when no update of the skill is running and when the lock goes stale. In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "halted-for-concurrent-run"`, `version` and `previous_version` = `"unknown"` (§2 reads metadata.json later), `update_mode` from this run, `files_written: []`, `error: {phase: "init:concurrency-guard", path: "{forge_data_folder}/{skill_name}/.skf-update.lock", reason: "another update in progress: {message}"}`, and exit. This run took no lock, so it releases none. **No `headless_decisions[]` entry**: this is a hard halt before any gate fires.
+- **No candidate resolves, any other exit, or no JSON:** HALT with status `blocked`: display "**The run lock could not be taken:** {the `message` the helper printed on stderr, or 'skf-run-lock.py is missing; re-install SKF'}". In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with the fields above and `error: {phase: "init:concurrency-guard", path: "{forge_data_folder}/{skill_name}/.skf-update.lock", reason: "run-lock-failed: {that message}"}`, and exit. No lock was taken, so none is released.
 
 **Release contract:**
 
-- The terminal health-check step (step 8) deletes the lock as its final action — the normal end of every non-inspection run. The init-stage headless halts below (§4 no-provenance-map, §6 invalid-source-path, §6b source tree) also delete it explicitly, since they fire right after acquisition, before the terminal step runs — except in `--detect-only` or `--dry-run`, which never acquired it.
-- Mid-workflow halts (detect-changes, re-extract, merge, write) do **not** delete the lock themselves — they rely on the self-heal below. This is deliberate: several of those halt sites are also reachable under `--detect-only`/`--dry-run`, which never acquired this lock, so a blind `rm -f` there could clobber a concurrent real update's lock.
-- The lock is best-effort and self-healing: whatever a halt or crash (process kill, host reboot) leaves behind is cleared by the next run's live-PID check above, since the stored PID is a short-lived bash PID that is already dead. No manual cleanup needed in the common case.
+- Every exit after this section releases the lock, so a run that halts does not block the next one: step 8 on the normal path, every later step's halts per SKILL.md's Workflow Rules, and in this step §2's and §3's ABORTs, the Stack Skill Guard, the headless halts of §4 and §6 and the §6b source tree halts, each of which first runs, from `{project-root}`:
+
+  ```bash
+  uv run {runLockHelper} release \
+      --lock "{forge_data_folder}/{skill_name}/.skf-update.lock" \
+      --owner "{lock_owner}"
+  ```
+
+  It never stops on the result: when the command fails or prints no JSON, it adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to the `warnings[]` of the envelope it emits. A release deletes the lock only while `{lock_owner}` holds it, so it never removes a lock another run took; the read-only modes take no lock and release none.
+- A crashed or killed run leaves its lock until it goes stale. A run that waits at a gate past that time can lose its lock to the next update, so merge.md §6b and write.md §2 renew the lock before the run writes the skill, and halt `halted-for-concurrent-run` when this run no longer holds it.
 - The private source tree §6b prepares has its own contract: step 8 removes it, every HALT or ABORT after §6b removes it first (SKILL.md Workflow Rules), and a later run's §6b removes a tree a crashed or abandoned run left behind once it is seven days old.
 
 ### 2. Validate Required Artifacts
@@ -195,7 +189,7 @@ Select: [D] Degraded / [X] Abort"
 - If D: set `degraded_mode = true`, proceed with full extraction scope
 - If X: **ABORT**
 
-**In `{headless_mode}` without `--allow-degraded` (default):** do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction — choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. Halt instead: release the lock unless `detect_only_mode` or `dry_run_mode` is true (`rm -f "$LOCK"`), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:load-provenance-map", path: "{forge_version}/provenance-map.json", reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
+**In `{headless_mode}` without `--allow-degraded` (default):** do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction: choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. Halt instead: run §1b's release (the read-only modes took no lock), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:load-provenance-map", path: "{forge_version}/provenance-map.json", reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"}`, and exit. No `headless_decisions[]` entry: this is a hard halt, not an auto-resolved gate.
 
 **In `{headless_mode}` with `--allow-degraded` (`allow_degraded: true`):** the operator pre-authorized the lossy rebuild for this run, so treat it as an auto-resolved [D] rather than a halt. Set `degraded_mode = true`, proceed with full extraction scope, and append to in-context `headless_decisions[]`: `{gate: "init.degraded-rebuild", default_action: "X", taken_action: "D", reason: "headless: --allow-degraded pre-authorized degraded full re-extraction", evidence: "no provenance map at {forge_version}/provenance-map.json or flat fallback"}`. Continue to step 2.
 
@@ -231,7 +225,7 @@ Provide the current source code path:
 
 Bind `{source_root}` to the path the user gives.
 
-**In `{headless_mode}`:** there is no operator to supply a path. Halt: release the lock unless `detect_only_mode` or `dry_run_mode` is true (`rm -f "$LOCK"`), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:resolve-source-path", path: "{source_root}", reason: "source_root from metadata.json is invalid or inaccessible and no interactive path can be supplied"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
+**In `{headless_mode}`:** there is no operator to supply a path. Halt: run §1b's release (the read-only modes took no lock), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:resolve-source-path", path: "{source_root}", reason: "source_root from metadata.json is invalid or inaccessible and no interactive path can be supplied"}`, and exit. No `headless_decisions[]` entry: this is a hard halt, not an auto-resolved gate.
 
 ### 6b. Prepare the Source Tree
 
@@ -268,11 +262,21 @@ Dispatch on `{source_tree_status}`:
 - **`unavailable`** (exit 3): no commit to read could be obtained (`{source_tree_reason}` is `invalid-ref`, `git-unavailable`, `upstream-unreachable`, `ref-not-found`, `fetch-failed`, `checkout-failed`, `tree-folder-failed` or `timed-out`). When it is `timed-out` and your shell tool allows a command longer than `{tree_timeout}` seconds, raise `{tree_timeout}` toward that limit, run the command once more and dispatch on that result. Otherwise HALT before any step reads source; display `{source_tree_message}`. The helper leaves no tree behind.
 - **No candidate resolves, or the command exits 1 or 2, or prints no JSON:** HALT with `{source_tree_reason}` = `helper-failed` and `{source_tree_message}` = "skf-source-tree.py did not finish: {the first stderr line; 'the shell stopped it before it printed a result' when your shell tool's timeout ended it; or 'it is missing; re-install SKF'}". A tree a stopped run left behind is removed by a later run once it is seven days old. Reading the shared clone as it stands is what this section exists to prevent.
 
-**Every §6b HALT:** release the lock unless `detect_only_mode` or `dry_run_mode` is true (`rm -f "$LOCK"`). In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `version` and `previous_version` = the metadata.json `version`, `update_mode` from this run, `files_written: []`, `error: {phase: "init:source-tree", path: "{source_repo}", reason: "{source_tree_reason}: {source_tree_message}"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
+**Every §6b HALT:** run §1b's release (the read-only modes took no lock). In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `version` and `previous_version` = the metadata.json `version`, `update_mode` from this run, `files_written: []`, `error: {phase: "init:source-tree", path: "{source_repo}", reason: "{source_tree_reason}: {source_tree_message}"}`, and exit. No `headless_decisions[]` entry: this is a hard halt, not an auto-resolved gate.
 
 ### 6c. Detect the Source Version
 
-Run only when `{source_tree_status}` is `ready` or `offline`. Read the source's version from `{source_root}` with the Version Reconciliation rules of `skf-create-skill/references/source-resolution-protocols.md` — the version file for the detected language (`pyproject.toml`, `setup.py`, `__version__`, `package.json`, `Cargo.toml`, `go.mod`) and its monorepo `package.json` priority, matching package names against this skill's `name` — and strip build metadata as `knowledge/version-paths.md` does. When the result is a higher semantic version than the metadata.json `version`, bind `{source_version_detected}` to it: step 4 §6b and step 6 §2 name the version this update writes after it. Otherwise leave `{source_version_detected}` unset; when the source's major and minor version numbers are lower than those of `{version}` (compare the pair: 1.9.x is lower than 2.0.x), add `source-version-lower: {target_ref} reads {that version}, older than {version}; this update keeps the patch-version rule` to `warnings[]`. A source version lower only in its patch number is expected, not a regression: every update that finds no higher version increments the skill's patch number (step 4 §6b), so a skill forged at the source's 1.2.0 is 1.2.1 after one update while the source still reads 1.2.0.
+Run only when `{source_tree_status}` is `ready` or `offline`. Read the source's version from `{source_root}` with the Version Reconciliation rules of `skf-create-skill/references/source-resolution-protocols.md`: the version file for the detected language (`pyproject.toml`, `setup.py`, `__version__`, `package.json`, `Cargo.toml`, `go.mod`) and its monorepo `package.json` priority, matching package names against this skill's `name`. When no version file gives one, leave `{source_version_detected}` unset and skip the rest of this section. Otherwise compare it with the metadata.json `version` through `{skillInventoryHelper}` (resolve it ← first existing path in `{skillInventoryProbeOrder}`), from `{project-root}`:
+
+```bash
+uv run {skillInventoryHelper} version order "{the source's version}" "{version}"
+```
+
+It prints `order` and `major_minor` (the source's version against `{version}`) and `a.normalized` (the source's version as a version folder name). Never compare the two by hand.
+
+- **`order` is `higher`** (a higher semantic version than the metadata.json `version`): bind `{source_version_detected}` ← `a.normalized`. Step 4 §6b and step 6 §2 name the version this update writes after it.
+- **Otherwise** leave `{source_version_detected}` unset. When `major_minor` is `lower`, add `source-version-lower: {target_ref} reads {a.normalized}, older than {version}; this update keeps the patch-version rule` to `warnings[]`. A source version lower only in its patch number is expected, not a regression: every update that finds no higher version increments the skill's patch number (step 4 §6b), so a skill forged at the source's 1.2.0 is 1.2.1 after one update while the source still reads 1.2.0.
+- **Exit 1** (`code` `NOT_A_VERSION`: a value that names no version, such as a dynamic version in `pyproject.toml`), **no candidate, or no JSON:** leave `{source_version_detected}` unset: step 4 §6b takes the next patch version.
 
 ### 7. Present Baseline Summary
 
