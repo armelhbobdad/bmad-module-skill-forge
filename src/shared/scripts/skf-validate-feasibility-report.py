@@ -4,9 +4,12 @@
 # ///
 """SKF Validate Feasibility Report: deterministic structure/schema gate and locator.
 
-Validates a skf-verify-stack feasibility report (.md) against the two
-producer↔consumer contract invariants the report.md §1 prompt previously
-eyeballed by re-reading the file each run:
+Checks and reads a skf-verify-stack feasibility report (.md) against the
+shared feasibility-report schema, so neither the producer nor a consumer
+re-reads the file in prose. Given a report path (validate mode) it checks
+that report; given --locate it first finds the project's report. Both modes
+check and read a report the same way (read_report()), so an explicit path
+and a located report give the same keys:
 
   1. The five required body sections are all present and appear in the
      canonical order defined by the shared feasibility-report schema:
@@ -16,31 +19,35 @@ eyeballed by re-reading the file each run:
        ## Recommendations
        ## Evidence Sources
   2. Frontmatter `schemaVersion` equals the literal producer version "1.0".
+  3. A report whose schemaVersion is not "1.0" is not interpreted: nothing
+     below is read from it. Otherwise overallVerdict, generatedAt and
+     coveragePercentage come from the frontmatter, and pairVerdicts from the
+     canonical `| lib_a | lib_b | verdict | rationale |` table under
+     `## Integration Verdicts`, and only that table (the display table with
+     more columns below it is not read). Fenced code and HTML comments are
+     skipped, so an example table in either is not read. The report holds
+     the canonical table once: a second one is a schema violation
+     (duplicateVerdictTableLine), since reading only the first, say the
+     template's empty table left above the filled one, would drop every
+     pair. Verdict tokens are case-sensitive: a token outside the schema's
+     set is listed in unknownTokens, never dropped or mapped, and its row
+     stays in pairVerdicts as written.
+  4. coveragePercentage is the frontmatter value when it is a whole number
+     from 0 to 100, else null. coverageMeasured is true only when the
+     frontmatter's stepsCompleted list names `coverage` and
+     coveragePercentage is not null: the producer writes
+     `coveragePercentage: 0` when a run starts, so a run that stopped before
+     its coverage step holds a 0 that was never measured.
 
-Both are pure structure/schema checks — identical input always yields
-identical pass/fail — so this belongs in a deterministic script, not an LLM
-re-read. The verdict is emitted as JSON on stdout:
+Every check has one right answer for a given file, so it belongs in a
+script, not in an LLM re-read. Frontmatter is parsed with the standard
+library only (no pyyaml dep) using the same delimiter handling as
+skf-validate-output.py: a `---`-delimited block at the top of the file,
+parsed as simple `key: value` scalars with surrounding quotes stripped, and
+stepsCompleted read as a flow (`[a, b]`) or block (`- a`) list.
 
-  {
-    "status": "ok" | "error",
-    "path": "<report path>",
-    "schemaVersionOk": bool,
-    "schemaVersionFound": "<value>" | null,
-    "headingsOk": bool,
-    "missingHeadings": [...],
-    "orderViolations": [...],
-    "violation": "schema-violation" | null
-  }
-
-Frontmatter is parsed with the standard library only (no pyyaml dep) using the
-same delimiter handling as skf-validate-output.py: a `---`-delimited block at
-the top of the file, parsed as simple `key: value` scalars with surrounding
-quotes stripped. This is sufficient for the `schemaVersion` and
-`overallVerdict` scalars and keeps the script stdlib-only.
-
-Locate mode (--locate <folder> --project-name <name>) finds and reads the
-report for a consumer, so no workflow builds the file name or parses the
-verdict table in prose:
+Locate mode (--locate <folder> --project-name <name>) finds the report for
+a consumer, so no workflow builds the file name in prose:
 
   1. The project name becomes the producer's `{project_slug}` (slugify()):
      NFKD-decomposed with combining marks dropped, so `Café` gives `cafe`;
@@ -50,29 +57,27 @@ verdict table in prose:
      includes an empty name.
   2. Only <folder>/feasibility-report-<slug>-latest.md is read, the stable
      copy: a timestamped report can be a halted run's partial report.
-  3. A report whose schemaVersion is not "1.0" is not interpreted: no verdict
-     is read from it. Otherwise overallVerdict comes from the frontmatter and
-     pairVerdicts from the canonical `| lib_a | lib_b | verdict | rationale |`
-     table under `## Integration Verdicts`, and only that table (the display
-     table with more columns below it is not read). Fenced code and HTML
-     comments are skipped, so an example table in either is not read. The
-     report holds the canonical table once: a second one is a schema
-     violation (duplicateVerdictTableLine), since reading only the first,
-     say the template's empty table left above the filled one, would drop
-     every pair. Verdict tokens are case-sensitive: a token outside the
-     schema's set is listed in unknownTokens, never dropped or mapped, and
-     its row stays in pairVerdicts as written.
+
+The JSON on stdout (validate mode leaves out the three locate keys, and
+only validate mode carries schemaVersionFound, which earlier callers read):
 
   {
-    "status": "ok" | "not-found" | "error",
-    "projectName": "<name>",
-    "projectSlug": "<slug>",
-    "latestPath": "<folder>/feasibility-report-<slug>-latest.md",
-    "path": "<latestPath>" | null,        # null when the report does not exist
+    "status": "ok" | "not-found" | "error",   # not-found: locate mode only
+    "projectName": "<name>",                  # locate mode only
+    "projectSlug": "<slug>",                  # locate mode only
+    "latestPath": "<folder>/feasibility-report-<slug>-latest.md",  # locate mode only
+    "path": "<report path>" | null,       # null when locate found no report
     "schemaVersion": "<value>" | null,
+    "schemaVersionFound": "<value>" | null,   # validate mode only
     "schemaVersionOk": bool | null,       # null when the report was not read
+    "headingsOk": bool | null,
+    "missingHeadings": [...],
+    "orderViolations": [...],
+    "generatedAt": "<value>" | null,      # null when the report was not interpreted
     "overallVerdict": "<token>" | null,
-    "verdictTableFound": bool | null,     # null when the report was not interpreted
+    "coveragePercentage": int | null,
+    "coverageMeasured": bool | null,
+    "verdictTableFound": bool | null,
     "duplicateVerdictTableLine": int | null,
     "pairVerdicts": [{"lib_a", "lib_b", "verdict", "rationale"}, ...],
     "unknownTokens": [{"field": "overallVerdict", "token"},
@@ -83,25 +88,32 @@ verdict table in prose:
 
 `line` is the 1-based line of the table row in the report file, and
 duplicateVerdictTableLine the 1-based line of the second canonical table's
-header row (null when there is none). The producer can take `projectSlug`
-from any locate result, whatever the status.
+header row (null when there is none). A report validate mode cannot read
+keeps the values earlier callers read (schemaVersionOk and headingsOk
+false). The producer can take `projectSlug` from any locate result,
+whatever the status.
 
 Exit codes, validate mode (per script-standards):
-  0  valid          — all sections present + in order AND schemaVersion == "1.0"
-  1  schema-violation — missing/mis-ordered section, or schemaVersion mismatch
-                        (the JSON `violation` field + detail lists carry why)
-  2  IO/parse error  — report file could not be read
+  0  valid: every check above passes (the five sections present and in
+     order, schemaVersion "1.0", the canonical table there once and every
+     verdict token known)
+  1  schema-violation: a section is missing or out of order, schemaVersion
+     is not "1.0", the canonical table is missing or there twice, or a
+     verdict token is unknown (the JSON `violation` field and the detail
+     keys carry why)
+  2  IO/parse error: the report file could not be read (violation
+     "io-error"). Also a usage error, which prints no JSON, such as a
+     second path (an unquoted report path that holds a space)
 
 Exit codes, locate mode:
-  0  status "ok": the report exists, its schemaVersion is "1.0", the canonical
-     table is there once and every token is known. Also status "not-found":
-     there is no -latest report for this project, and the caller goes on
-     without one
-  1  schema-violation: the report's schemaVersion is not "1.0", the canonical
-     table is missing or there twice, or a verdict token is unknown
+  0  status "ok": the report exists and passes every check above. Also
+     status "not-found": there is no -latest report for this project, and
+     the caller goes on without one
+  1  schema-violation, as in validate mode
   2  the report exists but could not be read (violation "io-error"). Also a
      usage error, which prints no JSON: --locate without --project-name,
-     --project-name without --locate, or an empty folder
+     --project-name without --locate, an empty folder, or a stray argument
+     (an unquoted folder path that holds a space)
 
 CLI:
   python3 skf-validate-feasibility-report.py <report.md>
@@ -140,6 +152,12 @@ PAIR_VERDICTS = ("Verified", "Plausible", "Risky", "Blocked")
 VERDICTS_HEADING = "Integration Verdicts"
 VERDICT_TABLE_HEADER = ["lib_a", "lib_b", "verdict", "rationale"]
 
+# The frontmatter list of the producer steps a run finished, and the step
+# that measures coveragePercentage: a run that stopped before it holds the 0
+# the producer writes when it starts.
+STEPS_COMPLETED_KEY = "stepsCompleted"
+COVERAGE_STEP = "coverage"
+
 # The stable copy the producer writes next to each timestamped report. --locate
 # reads only this file: a timestamped report can be a halted run's partial one.
 LATEST_REPORT_NAME = "feasibility-report-{slug}-latest.md"
@@ -172,25 +190,38 @@ _DELIMITER_CELL_RE = re.compile(r"^:?-+:?$")
 
 _HYPHEN_RUN_RE = re.compile(r"-+")
 
+# coveragePercentage as the schema writes it: a whole number (0 to 100).
+_WHOLE_NUMBER_RE = re.compile(r"[0-9]+")
+
+# One item of a YAML block sequence: `- item`, or a lone `-` (an empty item).
+_BLOCK_ITEM_RE = re.compile(r"^-(?:\s+(.*))?$")
+
+
+def _frontmatter_end(lines):
+    """Return the index of the frontmatter's closing `---` line, or None.
+
+    The opening delimiter must be the first line, exactly `---`; the closing
+    delimiter is the next line that is exactly `---`. None when `lines` opens
+    no frontmatter block or never closes it.
+    """
+    if not lines or lines[0].rstrip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].rstrip() == "---":
+            return i
+    return None
+
 
 def split_frontmatter(content):
     """Return (frontmatter_dict, body_text).
 
-    Stdlib-only, no YAML dependency — mirrors skf-validate-output.py's delimiter
-    handling. The opening delimiter must be a line that is exactly `---`; the
-    closing delimiter is the next line that is exactly `---`. The block between
-    them is parsed as simple `key: value` scalars with surrounding quotes
-    stripped. If no valid frontmatter block is present, returns ({}, content).
+    Stdlib-only, no YAML dependency: mirrors skf-validate-output.py's delimiter
+    handling (_frontmatter_end()). The block between the delimiters is parsed
+    as simple `key: value` scalars with surrounding quotes stripped. If no
+    valid frontmatter block is present, returns ({}, content).
     """
     lines = content.split("\n")
-    if not lines or lines[0].rstrip() != "---":
-        return {}, content
-
-    end_idx = None
-    for i in range(1, len(lines)):
-        if lines[i].rstrip() == "---":
-            end_idx = i
-            break
+    end_idx = _frontmatter_end(lines)
     if end_idx is None:
         return {}, content
 
@@ -202,6 +233,90 @@ def split_frontmatter(content):
 
     body = "\n".join(lines[end_idx + 1:])
     return fm, body
+
+
+def _strip_comment(text):
+    """Drop a YAML comment: a `#` at the start or after whitespace, outside quotes."""
+    quote = None
+    for i, ch in enumerate(text):
+        if quote is not None:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and (i == 0 or text[i - 1].isspace()):
+            return text[:i]
+    return text
+
+
+def _unquote(item):
+    """Return a trimmed item without its surrounding pair of quotes, if it has one."""
+    item = item.strip()
+    if len(item) >= 2 and item[0] == item[-1] and item[0] in "'\"":
+        return item[1:-1]
+    return item
+
+
+def frontmatter_list(content, key):
+    """Return the items of a top-level frontmatter list, or None.
+
+    Reads the two YAML forms a producer writes for stepsCompleted: a flow
+    sequence that starts on the key's line (`key: ['init', 'coverage']`, and
+    runs on to its `]`) and a block sequence on the lines below the key
+    (`- init`). Items are trimmed, a pair of quotes around one is dropped and
+    a trailing comment is ignored; an item holding a comma or a bracket is
+    not supported. None when the key is absent, holds a scalar, or opens a
+    block sequence with no item. When the key appears more than once, the
+    last one counts, as in split_frontmatter().
+    """
+    lines = content.split("\n")
+    end = _frontmatter_end(lines)
+    if end is None:
+        return None
+    block = lines[1:end]
+    items = None
+    for idx, line in enumerate(block):
+        name, sep, value = line.partition(":")
+        if not sep or line[:1].isspace() or name.strip() != key:
+            continue
+        value = _strip_comment(value).strip()
+        if value.startswith("["):
+            text, nxt = value, idx + 1
+            while "]" not in text and nxt < len(block):
+                text += " " + _strip_comment(block[nxt]).strip()
+                nxt += 1
+            inner = text[1:].split("]", 1)[0]
+            items = [_unquote(part) for part in inner.split(",") if part.strip()]
+        elif value:
+            items = None  # a scalar, not a list
+        else:
+            found = []
+            for following in block[idx + 1:]:
+                stripped = _strip_comment(following).strip()
+                if not stripped:
+                    continue
+                match = _BLOCK_ITEM_RE.match(stripped)
+                if match is None:
+                    break
+                found.append(_unquote(match.group(1) or ""))
+            items = found or None
+    return items
+
+
+def _whole_percentage(value):
+    """Return a frontmatter percentage as an int from 0 to 100, or None.
+
+    `value` is the scalar split_frontmatter() read (quotes already dropped); a
+    trailing comment is ignored. Anything else, a fraction, a sign, a number
+    above 100 or no value at all, gives None.
+    """
+    if value is None:
+        return None
+    value = _strip_comment(value).strip()
+    if not _WHOLE_NUMBER_RE.fullmatch(value):
+        return None
+    number = int(value)
+    return number if number <= 100 else None
 
 
 def scan_headings(body):
@@ -247,8 +362,88 @@ def scan_headings(body):
     return missing, order_violations
 
 
+def _uninterpreted():
+    """The keys read_report() fills only for a report whose schemaVersion is "1.0"."""
+    return {
+        "generatedAt": None,
+        "overallVerdict": None,
+        "coveragePercentage": None,
+        "coverageMeasured": None,
+        "verdictTableFound": None,
+        "duplicateVerdictTableLine": None,
+        "pairVerdicts": [],
+        "unknownTokens": [],
+    }
+
+
+def read_report(content):
+    """Check and read one report's text: the part both modes share.
+
+    Returns (fields, ok). `fields` holds schemaVersion, schemaVersionOk,
+    headingsOk, missingHeadings and orderViolations, plus the keys
+    _uninterpreted() lists (see the module docstring for each). The sections
+    are checked whatever the version; a report whose schemaVersion is not
+    "1.0" is not interpreted, so its other keys keep their _uninterpreted()
+    values. `ok` is True when every check passes: the sections present and in
+    order, schemaVersion "1.0", the canonical table there once and every
+    verdict token known.
+    """
+    fm, body = split_frontmatter(content)
+    schema_version = fm.get("schemaVersion")  # None if the key is absent
+    missing, order_violations = scan_headings(body)
+    fields = {
+        "schemaVersion": schema_version,
+        "schemaVersionOk": schema_version == EXPECTED_SCHEMA_VERSION,
+        "headingsOk": not missing and not order_violations,
+        "missingHeadings": missing,
+        "orderViolations": order_violations,
+        **_uninterpreted(),
+    }
+    if not fields["schemaVersionOk"]:
+        # An unknown version is never interpreted: nothing is read from it.
+        return fields, False
+
+    overall = fm.get("overallVerdict")
+    unknown = []
+    if overall not in OVERALL_VERDICTS:
+        unknown.append({"field": "overallVerdict", "token": overall})
+
+    # The body starts on the file line after the frontmatter's closing `---`.
+    first_line = len(content.split("\n")) - len(body.split("\n")) + 1
+    found, rows, duplicate_line = read_verdict_table(body, first_line)
+    pairs = []
+    for line_number, cells in rows:
+        pair = dict(zip(VERDICT_TABLE_HEADER, cells))
+        pairs.append(pair)
+        if pair["verdict"] not in PAIR_VERDICTS:
+            unknown.append(
+                {
+                    "field": "verdict",
+                    "line": line_number,
+                    "lib_a": pair["lib_a"],
+                    "lib_b": pair["lib_b"],
+                    "token": pair["verdict"],
+                }
+            )
+
+    coverage = _whole_percentage(fm.get("coveragePercentage"))
+    steps = frontmatter_list(content, STEPS_COMPLETED_KEY) or []
+    fields.update(
+        generatedAt=fm.get("generatedAt") or None,
+        overallVerdict=overall,
+        coveragePercentage=coverage,
+        coverageMeasured=coverage is not None and COVERAGE_STEP in steps,
+        verdictTableFound=found,
+        duplicateVerdictTableLine=duplicate_line,
+        pairVerdicts=pairs,
+        unknownTokens=unknown,
+    )
+    ok = fields["headingsOk"] and found and duplicate_line is None and not unknown
+    return fields, ok
+
+
 def validate_report(path):
-    """Validate one feasibility report. Returns (result_dict, exit_code)."""
+    """Check and read one feasibility report. Returns (result_dict, exit_code)."""
     p = Path(path)
     try:
         # utf-8-sig drops the byte order mark some editors add, which would
@@ -260,32 +455,25 @@ def validate_report(path):
                 "status": "error",
                 "path": str(p),
                 "error": f"could not read report file: {e}",
-                "schemaVersionOk": False,
+                "schemaVersion": None,
                 "schemaVersionFound": None,
+                # The values earlier callers read for a report that cannot be read.
+                "schemaVersionOk": False,
                 "headingsOk": False,
                 "missingHeadings": [],
                 "orderViolations": [],
+                **_uninterpreted(),
                 "violation": "io-error",
             },
             2,
         )
 
-    fm, body = split_frontmatter(content)
-    schema_version = fm.get("schemaVersion")  # None if the key is absent
-    schema_version_ok = schema_version == EXPECTED_SCHEMA_VERSION
-
-    missing, order_violations = scan_headings(body)
-    headings_ok = not missing and not order_violations
-
-    ok = schema_version_ok and headings_ok
+    fields, ok = read_report(content)
     result = {
         "status": "ok" if ok else "error",
         "path": str(p),
-        "schemaVersionOk": schema_version_ok,
-        "schemaVersionFound": schema_version,
-        "headingsOk": headings_ok,
-        "missingHeadings": missing,
-        "orderViolations": order_violations,
+        "schemaVersionFound": fields["schemaVersion"],  # the name earlier callers read
+        **fields,
         "violation": None if ok else "schema-violation",
     }
     return result, (0 if ok else 1)
@@ -412,10 +600,11 @@ def read_verdict_table(body, first_line=1):
 
 
 def locate_report(folder, project_name):
-    """Find a project's -latest feasibility report and read its verdicts.
+    """Find a project's -latest feasibility report, then check and read it.
 
     Returns (result_dict, exit_code): see "Locate mode" in the module
-    docstring for the keys and the exit codes.
+    docstring for the keys and the exit codes. The report found is checked
+    and read by read_report(), as validate mode reads a report path.
     """
     slug = slugify(project_name)
     latest = Path(folder) / LATEST_REPORT_NAME.format(slug=slug)
@@ -427,11 +616,10 @@ def locate_report(folder, project_name):
         "path": None,
         "schemaVersion": None,
         "schemaVersionOk": None,
-        "overallVerdict": None,
-        "verdictTableFound": None,
-        "duplicateVerdictTableLine": None,
-        "pairVerdicts": [],
-        "unknownTokens": [],
+        "headingsOk": None,
+        "missingHeadings": [],
+        "orderViolations": [],
+        **_uninterpreted(),
         "violation": None,
     }
     try:
@@ -447,47 +635,11 @@ def locate_report(folder, project_name):
         )
         return result, 2
 
-    fm, body = split_frontmatter(content)
-    schema_version = fm.get("schemaVersion")  # None if the key is absent
-    result["path"] = str(latest)
-    result["schemaVersion"] = schema_version
-    result["schemaVersionOk"] = schema_version == EXPECTED_SCHEMA_VERSION
-    if not result["schemaVersionOk"]:
-        # An unknown version is never interpreted: no verdict is read from it.
-        result.update(status="error", violation="schema-violation")
-        return result, 1
-
-    overall = fm.get("overallVerdict")
-    unknown = []
-    if overall not in OVERALL_VERDICTS:
-        unknown.append({"field": "overallVerdict", "token": overall})
-
-    # The body starts on the file line after the frontmatter's closing `---`.
-    first_line = len(content.split("\n")) - len(body.split("\n")) + 1
-    found, rows, duplicate_line = read_verdict_table(body, first_line)
-    pairs = []
-    for line_number, cells in rows:
-        pair = dict(zip(VERDICT_TABLE_HEADER, cells))
-        pairs.append(pair)
-        if pair["verdict"] not in PAIR_VERDICTS:
-            unknown.append(
-                {
-                    "field": "verdict",
-                    "line": line_number,
-                    "lib_a": pair["lib_a"],
-                    "lib_b": pair["lib_b"],
-                    "token": pair["verdict"],
-                }
-            )
-
-    ok = found and duplicate_line is None and not unknown
+    fields, ok = read_report(content)
+    result.update(fields)
     result.update(
         status="ok" if ok else "error",
-        overallVerdict=overall,
-        verdictTableFound=found,
-        duplicateVerdictTableLine=duplicate_line,
-        pairVerdicts=pairs,
-        unknownTokens=unknown,
+        path=str(latest),
         violation=None if ok else "schema-violation",
     )
     return result, (0 if ok else 1)
@@ -517,23 +669,27 @@ class _PairedFlagsParser(argparse.ArgumentParser):
 def _build_parser():
     parser = _PairedFlagsParser(
         description=(
-            "Validate a feasibility report's section order and schemaVersion, "
-            "or locate a project's report and read its verdicts. Given a "
-            "report path: confirms the five required body sections (Executive "
-            "Summary, Coverage Analysis, Integration Verdicts, Recommendations, "
-            "Evidence Sources) are present and in canonical order, and that "
-            "frontmatter schemaVersion == \"1.0\"; exit 0 valid, 1 "
-            "schema-violation, 2 IO/parse error. Given --locate FOLDER "
-            "--project-name NAME: reads FOLDER/feasibility-report-<slug>-latest.md, "
-            "the slug made from NAME by the producer's rule, and returns its "
-            "schemaVersion, overallVerdict, pairVerdicts (from the one canonical "
-            "Integration Verdicts table) and unknownTokens; exit 0 ok or "
-            "not-found, 1 schema-violation, 2 IO or usage error."
+            "Check and read a feasibility report, given its path or found with "
+            "--locate. Both modes confirm the five required body sections "
+            "(Executive Summary, Coverage Analysis, Integration Verdicts, "
+            "Recommendations, Evidence Sources) are present and in canonical "
+            "order and that frontmatter schemaVersion == \"1.0\"; for a 1.0 "
+            "report they also require the one canonical Integration Verdicts "
+            "table and known verdict tokens, and return generatedAt, "
+            "overallVerdict, coveragePercentage, coverageMeasured, "
+            "pairVerdicts and unknownTokens. Given a report path: exit 0 "
+            "valid, 1 schema-violation, 2 IO or usage error. Given --locate "
+            "FOLDER --project-name NAME: reads "
+            "FOLDER/feasibility-report-<slug>-latest.md, the slug made from "
+            "NAME by the producer's rule; exit 0 ok or not-found, 1 "
+            "schema-violation, 2 IO or usage error."
         )
     )
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument(
-        "report", nargs="?", help="path to the feasibility report .md file to validate"
+        "report",
+        nargs="?",
+        help="path to the feasibility report .md file to check and read",
     )
     target.add_argument(
         "--locate",

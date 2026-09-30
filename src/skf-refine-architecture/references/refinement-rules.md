@@ -50,10 +50,11 @@ Issues are contradictions between architecture claims and verified API reality f
 
 ### VS Report Integration
 
-When a VS feasibility report is available:
-- RISKY verdicts become **confirmed issues** with the VS evidence as additional citation
-- BLOCKED verdicts become **critical issues** requiring architecture redesign
-- Plausible verdicts become potential issues **only if** the VS rationale text explicitly states "no direct API evidence" or "weak evidence" — otherwise they are informational only
+When a VS feasibility report is available, its per-pair verdict tokens are case-sensitive, and each rule keys on the token alone, never on phrases in the rationale text:
+- `Risky` verdicts become **confirmed issues** with the VS evidence as additional citation
+- `Blocked` verdicts become **critical issues** requiring architecture redesign
+- `Plausible` verdicts become **potential issues**: the token means every compatibility check passed but neither skill cites the other literally
+- `Verified` verdicts raise no issue
 
 ---
 

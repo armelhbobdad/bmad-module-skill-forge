@@ -28,6 +28,9 @@ Subcommands:
   candidates <skills-root> [--explicit a,b]
       Pick the compose-mode candidates and gate them against the same
       roster, in one call (see Candidates below).
+  scope --skills a,b,c --in-scope a,b
+      Split the unique pairs of an inventory's skills by the skills in
+      scope (see Scope below).
 
 Ownership. A stack roster reads only the skills SKF generated: a package
 counts only when its metadata.json carries an SKF marker (generated_by
@@ -247,15 +250,36 @@ Candidates:
   `not_skf_output`, with kept[] in place of skills[]. A composes cycle is
   not an exclusion reason: cycles[] reports it as `enumerate` does.
 
+Scope:
+
+  refine-architecture decides which skills its architecture document
+  covers after `enumerate` ran. The `scope` subcommand splits the pairs
+  `--pairs` emitted, so no prompt sorts them by hand, and a pair is never
+  dropped from both halves. It reads no skills root: --skills names the
+  inventory (the `name` of each skills[] entry of an enumerate result) and
+  --in-scope the skills in scope, both comma-separated, trimmed, with empty
+  items dropped. Names compare exactly, as skills[] spells them.
+
+  in_scope            the --in-scope names that are inventory skills, sorted
+  out_of_scope        every other inventory skill, sorted
+  unknown             the --in-scope names that are no inventory skill, each
+                      once, in the order given
+  in_scope_pairs      the pairs, as `--pairs` emits them over --skills,
+                      whose library_a and library_b are both in in_scope
+  out_of_scope_pairs  every other pair: the two lists hold each pair once
+  pair_count, in_scope_pair_count, out_of_scope_pair_count
+                      the sizes of the three pair lists (all, in, out)
+
 Exit codes:
   0  enumeration succeeded (including zero skills found)
   1  user error: a bad skills-root path, an --expect-hashes FILE that
-     cannot be read or holds neither accepted shape, or an --explicit list
-     that names no skill
+     cannot be read or holds neither accepted shape, an --explicit list
+     that names no skill, or a scope --skills list that names no skill
 
 CLI:
   uv run skf-enumerate-stack-skills.py enumerate <skills-root> [--pairs] [--reliability] [--expect-hashes FILE]
   uv run skf-enumerate-stack-skills.py candidates <skills-root> [--explicit a,b]
+  uv run skf-enumerate-stack-skills.py scope --skills a,b,c --in-scope a,b
 """
 
 from __future__ import annotations
@@ -1052,6 +1076,36 @@ def compute_pairs(skills: list[dict]) -> list[dict]:
     ]
 
 
+def compute_scope(names: list[str], in_scope: list[str]) -> dict:
+    """Split an inventory's pairs by the skills in scope (`scope`).
+
+    `names` are the inventory's skill names and `in_scope` the names of the
+    skills in scope. The pairs are compute_pairs() over `names`, so they are
+    the ones `--pairs` emitted, in the same order; a pair is in scope when
+    both of its libraries are. See "Scope" in the module docstring for the
+    keys.
+    """
+    known = set(names)
+    unknown: list[str] = []
+    for name in in_scope:
+        if name not in known and name not in unknown:
+            unknown.append(name)
+    kept = {name for name in in_scope if name in known}
+    pairs = compute_pairs([{"name": name} for name in known])
+    inside = [p for p in pairs if p["library_a"] in kept and p["library_b"] in kept]
+    outside = [p for p in pairs if not (p["library_a"] in kept and p["library_b"] in kept)]
+    return {
+        "in_scope": sorted(kept),
+        "out_of_scope": sorted(known - kept),
+        "unknown": unknown,
+        "in_scope_pairs": inside,
+        "out_of_scope_pairs": outside,
+        "pair_count": len(pairs),
+        "in_scope_pair_count": len(inside),
+        "out_of_scope_pair_count": len(outside),
+    }
+
+
 # --------------------------------------------------------------------------
 # Derived output: inventory reliability verdict (--reliability)
 # --------------------------------------------------------------------------
@@ -1334,7 +1388,7 @@ def _cmd_enumerate(args: argparse.Namespace) -> int:
 
 
 def _parse_explicit(value: str) -> list[str]:
-    """The names of a comma-separated --explicit list, trimmed, empty items dropped."""
+    """The names of a comma-separated list (--explicit, --skills, --in-scope), trimmed, empty items dropped."""
     return [name for name in (part.strip() for part in value.split(",")) if name]
 
 
@@ -1353,6 +1407,16 @@ def _cmd_candidates(args: argparse.Namespace) -> int:
             print("error: --explicit names no skill", file=sys.stderr)
             return 1
     json.dump(compute_candidates(skills_root, explicit), sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+def _cmd_scope(args: argparse.Namespace) -> int:
+    names = _parse_explicit(args.skills)
+    if not names:
+        print("error: --skills names no skill", file=sys.stderr)
+        return 1
+    json.dump(compute_scope(names, _parse_explicit(args.in_scope)), sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
 
@@ -1422,6 +1486,30 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_cand.set_defaults(func=_cmd_candidates)
+
+    p_scope = sub.add_parser(
+        "scope",
+        help="split the unique pairs of an inventory's skills by the skills in scope",
+    )
+    p_scope.add_argument(
+        "--skills",
+        required=True,
+        metavar="NAMES",
+        help=(
+            "comma-separated names of the inventory's skills (the `name` of "
+            "each skills[] entry of an enumerate result)"
+        ),
+    )
+    p_scope.add_argument(
+        "--in-scope",
+        required=True,
+        metavar="NAMES",
+        help=(
+            "comma-separated names of the skills in scope; a name that is no "
+            "inventory skill is listed in `unknown`"
+        ),
+    )
+    p_scope.set_defaults(func=_cmd_scope)
 
     return parser
 

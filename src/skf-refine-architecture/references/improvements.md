@@ -37,7 +37,7 @@ This creates a map of `{library} -> {described_usage[]}` for comparison against 
 
 ### 3. Compare Skill API Surfaces Against Architecture Usage
 
-**Scope routing (from Step 02 §2b):** Apply `{in_scope_skills}` and `{out_of_scope_skills}` here as gap analysis and issue detection do; if they are no longer in context, read them from the `[RA-SCOPE]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). This step suggests improvements for the document's scope only: §3 compares in-scope skills and §4 examines pairs of in-scope skills. An improvement or synergy that involves an out-of-scope skill, such as an in-scope capability that pays off only together with an out-of-scope skill, is not an improvement for this document even when it looks worthwhile: set it aside for the informational **Out-of-Scope** bucket (§6).
+**Scope routing (from Step 02 §2b):** Apply `{in_scope_skills}` and `{out_of_scope_skills}`, and the pair lists `{in_scope_pairs}` and `{out_of_scope_pairs}` that Step 02 §3 split by them, here as gap analysis and issue detection do; if they are no longer in context, read them from the `[RA-SCOPE]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). This step suggests improvements for the document's scope only: §3 compares in-scope skills and §4 examines the pairs in `{in_scope_pairs}`. An improvement or synergy that involves an out-of-scope skill, such as an in-scope capability that pays off only together with an out-of-scope skill, is not an improvement for this document even when it looks worthwhile: set it aside for the informational **Out-of-Scope** bucket (§6).
 
 For each skill in `{in_scope_skills}`:
 
@@ -56,7 +56,7 @@ For each skill in `{in_scope_skills}`:
 
 ### 4. Detect Cross-Library Synergies
 
-Examine pairs of in-scope skills (both skills in `{in_scope_skills}`) for complementary capabilities not exploited in the architecture. A pair with an out-of-scope skill is out of scope, as in Step 02 §2b: skip it, and route a synergy with an out-of-scope skill that the comparison brings up anyway to the Out-of-Scope bucket (§3 scope routing). For each in-scope pair, ask:
+Examine the pairs in `{in_scope_pairs}` (Step 02 §3: the pairs whose two skills are both in `{in_scope_skills}`) for complementary capabilities not exploited in the architecture. A pair in `{out_of_scope_pairs}` is out of scope, as in Step 02 §2b: skip it, and route a synergy with an out-of-scope skill that the comparison brings up anyway to the Out-of-Scope bucket (§3 scope routing). For each in-scope pair, ask:
 
 - Does Library A export an event system that Library B could consume?
 - Does Library A produce a data format that Library B has an optimized processor for?
