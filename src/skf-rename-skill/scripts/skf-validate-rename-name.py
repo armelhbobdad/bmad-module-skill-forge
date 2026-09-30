@@ -38,9 +38,21 @@ kind, with only each version's package renamed. A forge-only collision
 (another tool's folder with the new name), or a module's own skill or another
 tool's folder at the new name, is a genuine clash.
 
+`interrupted_after_rekey` fires the recovery for a rename that stopped after
+it re-keyed the export manifest, before it deleted the old folders: the new
+name is a manifest key and the old name no longer is, both skill folders are
+plain folders, and the old one holds nothing the new one lacks (every entry
+in it exists in the new folder, of the same kind, with only each version's
+package renamed). The new name is then the skill, and the old folders are
+what that run left. `leftover_folders` lists them for the caller to name:
+the old skill folder and, when that rename moved the forge folder (the old
+and new forge folders are plain folders and the old one holds nothing the
+new one lacks), the old forge folder. It is empty when the fingerprint does
+not fire.
+
 Output (stdout, always JSON):
   {status, valid, old_name, new_name, first_failure, checks{...},
-   interrupted_rename, regex}
+   interrupted_rename, interrupted_after_rekey, leftover_folders, regex}
 
 Exit codes:
   0  valid (all checks pass)
@@ -152,6 +164,40 @@ def _looks_like_a_copy(skills_dir: Path, old_name: str, new_name: str) -> bool:
     return _within(new, old, 0, old_name, new_name)
 
 
+def _copied_whole(old: Path, new: Path, old_name: str, new_name: str) -> bool:
+    """True when both are plain folders and `old` holds nothing `new` lacks.
+
+    _within with the two folders swapped: every entry under the old folder
+    exists under the new one, of the same kind, where a version's
+    `{old_name}/` package stands for its renamed `{new_name}/`.
+    """
+    if (_is_link_or_junction(old) or not old.is_dir()
+            or _is_link_or_junction(new) or not new.is_dir()):
+        return False
+    return _within(old, new, 0, new_name, old_name)
+
+
+def _rekeyed_leftovers(skills_dir: Path, forge_dir: Path, old_name: str, new_name: str,
+                       export_keys: set[str]) -> list[str]:
+    """The old folders a rename left when it stopped after re-keying the manifest.
+
+    Empty unless the manifest names the new skill and no longer the old one,
+    and the old skill folder holds nothing the new one lacks. The old forge
+    folder is listed only when the rename moved it: its copy under the new
+    name exists, and it holds nothing that copy lacks. When both settings
+    name one folder, the skill folder is the forge folder, listed once.
+    """
+    if new_name not in export_keys or old_name in export_keys:
+        return []
+    if not _copied_whole(skills_dir / old_name, skills_dir / new_name, old_name, new_name):
+        return []
+    leftovers = [str(skills_dir / old_name)]
+    if (os.path.realpath(forge_dir) != os.path.realpath(skills_dir)
+            and _copied_whole(forge_dir / old_name, forge_dir / new_name, old_name, new_name)):
+        leftovers.append(str(forge_dir / old_name))
+    return leftovers
+
+
 def validate_name(
     old_name: str,
     new_name: str,
@@ -195,6 +241,11 @@ def validate_name(
         and _looks_like_a_copy(skills_dir, old_name, new_name)
         and ("forge_data_folder" not in kinds or (forge_dir / old_name).is_dir())
     )
+    # Recovery fingerprint after the commit point: the manifest already names
+    # the new skill, so the new name is taken for good, and the old folders are
+    # what the rename left before it deleted them.
+    leftover_folders = [] if collision_ok or "reserved" in kinds else _rekeyed_leftovers(
+        skills_dir, forge_dir, old_name, new_name, export_keys)
 
     checks = {
         "format": {"ok": fmt_ok},
@@ -217,6 +268,8 @@ def validate_name(
         "first_failure": first_failure,
         "checks": checks,
         "interrupted_rename": interrupted_rename,
+        "interrupted_after_rekey": bool(leftover_folders),
+        "leftover_folders": leftover_folders,
         "regex": NAME_REGEX,
     }
     if manifest_error:

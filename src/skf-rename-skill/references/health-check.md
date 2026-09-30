@@ -21,10 +21,4 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
 
 ## MANDATORY SEQUENCE
 
-1. **Release the rename lock.** Delete `{forge_data_folder}/.skf-rename-{old_name}.lock` if it still exists (the lock is acquired in select.md §4b and released here as the terminal cleanup). A no-op when `old_name` was never resolved or the lock was already removed by an earlier halt path.
-
-   ```bash
-   rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"
-   ```
-
-2. Load `{nextStepFile}`, read it fully, then execute it.
+1. Load `{nextStepFile}`, read it fully, then execute it.

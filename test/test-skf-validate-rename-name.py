@@ -302,6 +302,98 @@ def test_a_junction_is_a_link_to_the_copy_check(tmp_path, monkeypatch, where):
     assert (r["first_failure"], r["interrupted_rename"]) == ("collision", False)
 
 
+# --- after the manifest re-key ---
+
+
+def _rekeyed_rename(tmp_path, forge_moved=True, same_folder=False):
+    """A rename of `a` to `new-a` that stopped after re-keying the manifest:
+    the new copy is complete, the manifest names only `new-a`, and the old
+    folders are still on disk."""
+    out, forge = make_dirs(tmp_path)
+    if same_folder:
+        forge = out
+    pkg = _make_old_skill(out)
+    (pkg / "metadata.json").write_text('{"name": "a"}', encoding="utf-8")
+    if symlinks_supported(tmp_path):
+        (out / "a" / "active").symlink_to("1.0.0", target_is_directory=True)
+    if not same_folder:
+        (forge / "a" / "1.0.0").mkdir(parents=True)
+        (forge / "a" / "1.0.0" / "provenance-map.json").write_text('{"skill_name": "a"}', encoding="utf-8")
+    shutil.copytree(out / "a", out / "new-a", symlinks=True)
+    (out / "new-a" / "1.0.0" / "a").rename(out / "new-a" / "1.0.0" / "new-a")
+    if forge_moved and not same_folder:
+        shutil.copytree(forge / "a", forge / "new-a")
+    write_manifest(out, {"new-a": {"active_version": "1.0.0"}})
+    return out, forge
+
+
+def test_a_rename_stopped_after_the_rekey_names_its_leftovers(tmp_path):
+    out, forge = _rekeyed_rename(tmp_path)
+    r = validate_name("a", "new-a", str(out), str(forge))
+    assert (r["valid"], r["first_failure"]) == (False, "collision")
+    assert r["interrupted_after_rekey"] is True
+    assert r["leftover_folders"] == [str(out / "a"), str(forge / "a")]
+    assert r["interrupted_rename"] is False, "the manifest collision rules out the pre-commit fingerprint"
+
+
+def test_a_forge_folder_the_rename_left_in_place_is_no_leftover(tmp_path):
+    """Without a copy under the new name, that rename never moved the forge folder."""
+    out, forge = _rekeyed_rename(tmp_path, forge_moved=False)
+    r = validate_name("a", "new-a", str(out), str(forge))
+    assert r["interrupted_after_rekey"] is True
+    assert r["leftover_folders"] == [str(out / "a")]
+
+
+def test_one_folder_for_both_settings_lists_the_old_folder_once(tmp_path):
+    out, forge = _rekeyed_rename(tmp_path, same_folder=True)
+    r = validate_name("a", "new-a", str(out), str(forge))
+    assert r["leftover_folders"] == [str(out / "a")]
+
+
+@pytest.mark.parametrize("shape", ["old-still-in-manifest", "new-not-in-manifest", "old-has-a-version-new-lacks",
+                                   "old-has-a-file-new-lacks", "no-old-folder"])
+def test_the_rekey_fingerprint_needs_the_whole_state(tmp_path, shape):
+    """Each case differs from a rename stopped after the re-key in one way: a clash, or a
+    pre-commit leftover, never an old folder to delete."""
+    out, forge = _rekeyed_rename(tmp_path)
+    if shape == "old-still-in-manifest":
+        write_manifest(out, {"new-a": {}, "a": {}})
+    elif shape == "new-not-in-manifest":
+        write_manifest(out, {"a": {}})
+    elif shape == "old-has-a-version-new-lacks":
+        (out / "a" / "2.0.0" / "a").mkdir(parents=True)
+    elif shape == "old-has-a-file-new-lacks":
+        (out / "a" / "1.0.0" / "a" / "NOTES.md").write_text("mine\n", encoding="utf-8")
+    else:
+        shutil.rmtree(out / "a")
+    r = validate_name("a", "new-a", str(out), str(forge))
+    assert r["first_failure"] == "collision"
+    assert (r["interrupted_after_rekey"], r["leftover_folders"]) == (False, [])
+
+
+def test_an_old_forge_folder_with_entries_the_copy_lacks_stays(tmp_path):
+    out, forge = _rekeyed_rename(tmp_path)
+    (forge / "a" / "1.0.0" / "evidence-report.md").write_text("# later\n", encoding="utf-8")
+    r = validate_name("a", "new-a", str(out), str(forge))
+    assert r["leftover_folders"] == [str(out / "a")], "the old forge folder is not a leftover to delete"
+
+
+def test_a_linked_skill_folder_is_never_a_leftover(tmp_path):
+    if not symlinks_supported(tmp_path):
+        pytest.skip("symlinks are not available")
+    out, forge = _rekeyed_rename(tmp_path)
+    shutil.move(str(out / "a"), str(tmp_path / "elsewhere"))
+    (out / "a").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    r = validate_name("a", "new-a", str(out), str(forge))
+    assert (r["interrupted_after_rekey"], r["leftover_folders"]) == (False, [])
+
+
+def test_a_valid_name_has_no_leftovers(tmp_path):
+    out, forge = make_dirs(tmp_path)
+    r = validate_name("old", "fresh-name", str(out), str(forge))
+    assert (r["interrupted_after_rekey"], r["leftover_folders"]) == (False, [])
+
+
 def test_forge_only_collision_is_not_interrupted(tmp_path):
     """Another tool's forge folder with the new name is a genuine clash."""
     out, forge = make_dirs(tmp_path)
