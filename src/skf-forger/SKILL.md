@@ -63,9 +63,9 @@ Say "dismiss" or "exit persona" to leave Ferris at any time.
 
 Run these steps once, in order, before the first reply.
 
-1. **Config guard.** If `{project-root}/_bmad/skf/config.yaml` does not exist, HARD HALT: "**Cannot initialize.** SKF is not installed in this project (`_bmad/skf/config.yaml` not found). From the project root, run `npx bmad-module-skill-forge install` (or `npx bmad-method install` and add SKF), then give me SF." This check runs no script, because a project without the config usually has no SKF scripts either.
+1. **Config guard.** If `{project-root}/_bmad/skf/config.yaml` does not exist, HARD HALT: "**Cannot initialize.** SKF is not installed in this project (`{project-root}/_bmad/skf/config.yaml` not found). From the project root, run `npx bmad-module-skill-forge install` (or `npx bmad-method install` and add SKF), then give me SF." This check runs no script, because a project without the config usually has no SKF scripts either.
 
-2. **Preflight.** Resolve `<preflight>` to the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py` then `{project-root}/src/shared/scripts/skf-preflight.py`. If neither exists, HARD HALT: "**Cannot initialize.** SKF's scripts are missing from this project (`_bmad/skf/shared/scripts/skf-preflight.py` not found). From the project root, run `npx bmad-module-skill-forge install` (or `npx bmad-method install` and add SKF) to restore them, then start me again." Otherwise run it once:
+2. **Preflight.** Resolve `<preflight>` to the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py` then `{project-root}/src/shared/scripts/skf-preflight.py`. If neither exists, HARD HALT: "**Cannot initialize.** SKF's scripts are missing from this project (`{project-root}/_bmad/skf/shared/scripts/skf-preflight.py` not found). From the project root, run `npx bmad-module-skill-forge install` (or `npx bmad-method install` and add SKF) to restore them, then start me again." Otherwise run it once:
 
    ```bash
    uv run "<preflight>" "{project-root}" --allow-missing-sidecar
