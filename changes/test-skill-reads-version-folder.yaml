@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill now reads a skill's `provenance-map.json` and `evidence-report.md` from the skill's version folder in the forge data, `forge-data/<skill>/<version>/`, where Create Skill and Stack Skill write them, and falls back to the flat `forge-data/<skill>/` folder only when the version folder has no copy. Before, it looked only in the flat folder, which versioned skills no longer use, so a skill with no local source was checked from its metadata alone with no signature check, a stack lost the cited contracts behind its Export Coverage denominator, the export-count drift check left the provenance map out, the Deep-tier check of the Migration & Deprecation section never ran, and skill-check results in the evidence report were never reused. Deep-tier test reports can now show a Medium gap for a missing or unexpected Migration & Deprecation section.
+issues: [526]

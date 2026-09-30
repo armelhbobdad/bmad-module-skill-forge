@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  When Test Skill checks that a stack skill's integration patterns are complete, it now looks for the wiring evidence each entry records instead of a code example. For a stack built from code, that is `file:line` citations and key files. For a stack composed from skills, it is a `[from skill: ...]` line from each skill the pattern joins, citing a function signature of that skill or, for a skill that exports no functions such as a reference app or a docs-only skill, the export or documented contract the line quotes. Each cross-cutting pattern and each library pair counts as one pattern; the hub library summaries do not. Stack Skill never writes a code example, so before, the same stack could score 0% or full integration completeness depending on how the check was read. Integration completeness weighs 40% of a stack's coherence score, so a stack's test score can change on its next test.
+issues: [544]
