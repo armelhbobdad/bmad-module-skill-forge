@@ -21,8 +21,9 @@ test creates is never taken for part of a repository that happens to hold
 the temp root (a home folder under git, a TMPDIR or --basetemp inside a
 checkout).
 
-pytest loads this file for every test file under test/, including the
-explicit file list in package.json test:python; only --noconftest skips it.
+pytest loads this file for every test file under test/, whether
+package.json test:python collects the folder or one file is named on the
+command line; only --noconftest skips it.
 """
 
 from __future__ import annotations

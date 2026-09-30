@@ -1,0 +1,192 @@
+# The external tools SKF uses, with the oldest version SKF supports
+# (minimum) and the versions SKF has run on (tested). This is the one list:
+# the prerequisites table in docs/getting-started.md is generated from it,
+# and the installer copies it to _bmad/skf/shared/ with the rest of
+# src/shared/, so the CLI and the Python helpers can read it too.
+#
+# How the numbers are set:
+# - `tested` lists versions SKF has actually run on, and `basis` names the
+#   run: a CI pin, the CI runner, the install smoke test or a named release
+#   run. An empty list means no run is recorded yet.
+# - `minimum` starts at a tested version, the only version SKF has evidence
+#   for. It starts lower only where the repository already sets a floor for
+#   a stated reason (Node 22, Python 3.11, git 2.15), and `basis` says which.
+# - A minimum comes down only after a run on an older version passes. It is
+#   never guessed lower.
+# - `minimum: null` means SKF has no floor it can check yet. A null minimum
+#   never warns. Node and Python always have one, since --check compares
+#   their copies with it.
+#
+# To change a version, edit this file and run
+# `node tools/tool-requirements.js --write`, which regenerates the
+# prerequisites table. `node tools/tool-requirements.js --check` (run in CI)
+# also compares the copies elsewhere in the repository: the minimums in the
+# README, docs/ and CONTRIBUTING.md, `engines.node` in package.json, the
+# workflows' node-version and python-version, .nvmrc, the ast-grep-cli pin in
+# package.json `test:python`, and the README Acknowledgements rows.
+#
+# Keys of each tool (keyed like skf-detect-tools.py's tool keys where it
+# probes the tool):
+#   name             the name the docs use
+#   summary          what the tool is, in a few words (optional)
+#   kind             runtime (SKF needs it at every tier), tier (a capability
+#                    tier needs it) or optional (a workflow uses it when present)
+#   tiers            the capability tiers that need it (none for optional)
+#   workflows        the workflows that run it, as skf-<name> folder names
+#                    without the prefix, or [all]
+#   used_for         what SKF uses it for, as the prerequisites table says it
+#   minimum          the oldest supported version as a string, or null
+#   tested           the versions SKF has run on, as strings
+#   basis            where minimum and tested come from
+#   version_command  the command that prints the installed version
+#   install_url      where to install it from
+#   upgrade          how to upgrade it
+#   acknowledged_as  its row in the README Acknowledgements table (required
+#                    for tier and optional tools)
+
+schema_version: 1
+tools:
+  node:
+    name: Node.js
+    kind: runtime
+    tiers: [Quick, Forge, Forge+, Deep]
+    workflows: [all]
+    used_for: Installation, npx commands
+    minimum: "22"
+    tested: ["22", "24"]
+    basis: The minimum is package.json engines.node, which the install smoke test runs on Linux, Windows and macOS. CI runs the version in .nvmrc.
+    version_command: [node, --version]
+    install_url: https://nodejs.org
+    upgrade: Install the current LTS release from https://nodejs.org
+
+  python:
+    name: Python
+    kind: runtime
+    tiers: [Quick, Forge, Forge+, Deep]
+    workflows: [all]
+    used_for: Deterministic scoring, validation, and utility scripts. The minimum is what the helpers that read package manifests need (used by Quick Skill, Brief Skill, Analyze Source and Stack Skill)
+    minimum: "3.11"
+    tested: ["3.11", "3.12"]
+    basis: The minimum is set by the helpers that import tomllib, new in Python 3.11. The quality workflow runs the Python tests on 3.11 and the release workflow on 3.12.
+    version_command: [python3, --version]
+    install_url: https://www.python.org
+    upgrade: uv python install
+
+  uv:
+    name: uv
+    summary: Python package runner
+    kind: runtime
+    tiers: [Quick, Forge, Forge+, Deep]
+    workflows: [all]
+    used_for: Running Python scripts with automatic dependency management
+    minimum: null
+    tested: []
+    basis: No version recorded yet. CI installs the latest uv without pinning one.
+    version_command: [uv, --version]
+    install_url: https://docs.astral.sh/uv/getting-started/installation/
+    upgrade: uv self update
+
+  git:
+    name: git
+    kind: runtime
+    tiers: [Quick, Forge, Forge+, Deep]
+    workflows: [analyze-source, audit-skill, brief-skill, create-skill, setup, test-skill, update-skill]
+    used_for: Reading remote sources, and checking that a local source is still at the commit a skill was built from
+    minimum: "2.15"
+    tested: []
+    basis: The minimum is the one skf-source-tree.py states. No run is recorded on it, and CI uses the runner's git without recording its version.
+    version_command: [git, --version]
+    install_url: https://git-scm.com/downloads
+    upgrade: Install the latest release from https://git-scm.com/downloads
+
+  gh_cli:
+    name: gh
+    summary: GitHub CLI
+    kind: tier
+    tiers: [Deep]
+    workflows: [analyze-source, audit-skill, brief-skill, campaign, create-skill, forger, quick-skill, test-skill]
+    used_for: Required for the Deep tier, for Campaign, and for `forge-auto --pin`. Optional otherwise, where it makes reading GitHub sources easier
+    minimum: null
+    tested: []
+    basis: No version recorded yet, so no minimum. The tests stub gh.
+    version_command: [gh, --version]
+    install_url: https://cli.github.com
+    upgrade: Install the latest release from https://cli.github.com
+    acknowledged_as: GitHub CLI
+
+  ast_grep:
+    name: ast-grep
+    summary: CLI tool for code structural search, lint, and rewriting
+    kind: tier
+    tiers: [Forge, Forge+, Deep]
+    workflows: [analyze-source, audit-skill, brief-skill, create-skill, create-stack-skill, test-skill, update-skill]
+    used_for: Forge, Forge+ and Deep tiers
+    minimum: "0.45.3"
+    tested: ["0.45.3"]
+    basis: The create-skill recipes are verified by test/test-skf-create-skill-recipes.py on the ast-grep-cli version package.json test:python pins. No older version has run them.
+    version_command: [ast-grep, --version]
+    install_url: https://ast-grep.github.io
+    upgrade: npm install -g @ast-grep/cli@latest
+    acknowledged_as: ast-grep
+
+  ccc:
+    name: ccc
+    summary: cocoindex-code semantic code search
+    kind: tier
+    tiers: [Forge+]
+    workflows: [analyze-source, audit-skill, brief-skill, create-skill, create-stack-skill, update-skill]
+    used_for: Forge+ tier, and the Deep tier when installed
+    minimum: null
+    tested: []
+    basis: No version recorded yet, so no minimum. The tests stub ccc.
+    # ccc has no --version flag: the version is on the cocoindex-code line of
+    # `uv tool list` when ccc was installed with uv.
+    version_command: [uv, tool, list]
+    install_url: https://github.com/cocoindex-io/cocoindex-code
+    upgrade: uv tool upgrade cocoindex-code
+    acknowledged_as: cocoindex-code
+
+  qmd:
+    name: qmd
+    summary: local hybrid search engine for project files
+    kind: tier
+    tiers: [Deep]
+    workflows: [audit-skill, brief-skill, create-skill, create-stack-skill, update-skill]
+    used_for: Deep tier
+    minimum: null
+    tested: []
+    basis: No version recorded yet, so no minimum. The tests stub qmd.
+    version_command: [qmd, --version]
+    install_url: https://github.com/tobi/qmd
+    upgrade: bun install -g @tobilu/qmd@latest
+    acknowledged_as: QMD
+
+  tessl:
+    name: tessl
+    summary: Tessl CLI
+    kind: optional
+    tiers: []
+    workflows: [create-skill, test-skill]
+    used_for: Opt-in Tessl Review in Create Skill and Test Skill (`tessl_review_workspace` in preferences)
+    minimum: null
+    tested: []
+    basis: No version recorded yet, so no minimum. The tests stub tessl.
+    version_command: [tessl, --version]
+    install_url: https://tessl.io
+    upgrade: tessl cli update
+    acknowledged_as: tessl
+
+  skill_check:
+    name: skill-check
+    summary: skill validator
+    kind: optional
+    tiers: []
+    workflows: [create-skill, create-stack-skill, quick-skill, test-skill, update-skill]
+    used_for: Spec validation, auto-fix and quality scoring. SKF runs it with npx, so it needs no install; without it, validation is done by hand
+    minimum: null
+    tested: []
+    basis: SKF runs it through npx at whatever version npx resolves, so there is no floor it can check. No version recorded yet.
+    version_command: [skill-check, --version]
+    install_url: https://github.com/thedaviddias/skill-check
+    upgrade: npm install -g skill-check@latest
+    acknowledged_as: skill-check
