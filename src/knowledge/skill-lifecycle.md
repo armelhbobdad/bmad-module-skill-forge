@@ -2,7 +2,7 @@
 
 ## Principle
 
-The 14 SKF workflows form an end-to-end pipeline from source discovery through verified export, with a pre-code architecture verification path and post-distribution management operations. Each workflow produces artifacts consumed by downstream workflows. Understanding the lifecycle enables Ferris to recommend the right workflow for a user's situation and to maintain artifact continuity across the pipeline.
+The 15 SKF workflows form an end-to-end pipeline from source discovery through verified export, with a pre-code architecture verification path, post-distribution management operations, and campaigns that drive many skills through the pipeline. Each workflow produces artifacts consumed by downstream workflows. Understanding the lifecycle enables Ferris to recommend the right workflow for a user's situation and to maintain artifact continuity across the pipeline.
 
 ## Rationale
 
@@ -31,6 +31,7 @@ With lifecycle awareness:
 | Verification | TS (Test Skill) | Quality gate — completeness scoring | Test report, pass/fail decision |
 | Distribution | EX (Export Skill) | Package and inject into agent context | agentskills.io bundle, snippets |
 | Management | RS, DS (Rename/Drop) | Rename or retire skills and versions | Renamed skill group, deprecated/purged versions |
+| Orchestration | CA (Campaign) | Drive many skills through the pipeline in dependency order, across sessions | `_campaign-state.yaml`, `campaign-report.md`, and each skill's own artifacts |
 
 ## Typical Flows
 
@@ -115,10 +116,12 @@ RS or DS → EX
 | --- | --- |
 | User knows exactly what to skill, has a brief | CS directly |
 | User knows the library but needs scope guidance | BS → CS |
+| User wants a verified skill from one repo or doc URL, without writing a brief | `forge-auto <repo-or-doc-url>` |
 | User has a package name, wants fast results | QS |
 | User wants to skill their entire project | AN → CS (batch) |
 | User has an existing skill that may be outdated | AS → US |
 | User wants to verify tech stack before building | CS×N → VS → RA → SS (compose) |
+| User needs many skills built in dependency order across sessions | CA |
 
 **Key Points:**
 - SF is always prerequisite (but only needs to run once per project)
@@ -169,18 +172,20 @@ SS (compose) → SKILL.md (stack skill synthesized from individual skills + arch
 
 ## Pipeline Invocation
 
-Users can chain workflows by providing multiple codes to Ferris:
+Users can chain workflows by providing multiple codes to Ferris, or one of four aliases:
 
 ```
-BS CS TS EX           — space-separated
-forge                 — alias for BS CS TS EX
-forge-quick           — alias for QS TS EX
-onboard               — alias for AN CS TS EX
-maintain              — alias for AS US TS EX
-CS[cocoindex] TS[min:80] EX  — with arguments and circuit breakers
+BS CS TS EX                    # codes, space- or arrow-separated
+forge-auto <repo-or-doc-url>   # auto-scope, auto-brief, compile, test and export
+forge                          # alias for BS CS TS EX
+forge-quick                    # alias for QS TS EX
+maintain                       # alias for AS US TS EX
+CS[cocoindex] TS[min:80] EX    # a target argument and a circuit-breaker override
 ```
 
-Pipelines automatically activate headless mode. The forger passes data between workflows using the artifact flow described above. Circuit breakers halt the pipeline when output quality falls below a threshold (e.g., TS score < 60 blocks EX). See `shared/references/pipeline-contracts.md` for the full specification.
+`forge-auto` is the one-command verified path: it needs no brief, and its test step is stricter than the other pipelines'. `CA` (campaign) is not an alias and does not chain with other codes: it is a workflow of its own that drives many skills through this pipeline in dependency order and can resume across sessions.
+
+Pipelines automatically activate headless mode. The forger passes data between workflows using the artifact flow described above. Circuit breakers halt the pipeline when a workflow's output falls below its quality threshold. `shared/references/pipeline-contracts.md` holds each alias's expansion and every threshold, including the test threshold each pipeline uses.
 
 ## Integration Points
 
@@ -198,4 +203,4 @@ Pipelines automatically activate headless mode. The forger passes data between w
 - [provenance-tracking.md](provenance-tracking.md) — how provenance flows through the pipeline
 - [version-paths.md](version-paths.md) — version-aware storage layout, path templates, and migration rules
 
-_Source: synthesized from all 14 SKILL.md files (including VS, RA, RS, DS) and module-help.csv_
+_Source: synthesized from all 15 workflow SKILL.md files (including VS, RA, RS, DS, CA) and module-help.csv_

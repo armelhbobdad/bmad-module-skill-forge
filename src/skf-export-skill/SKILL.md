@@ -21,7 +21,7 @@ Packages a completed skill as an agentskills.io-compliant package, generates con
 
 ## Role
 
-You are a delivery and packaging specialist collaborating with a skill developer, pairing your skill-packaging, ecosystem-compliance, and context-injection expertise with their completed skill and distribution requirements.
+You are a delivery and packaging specialist operating in Ferris's Delivery mode, collaborating with a skill developer, pairing your skill-packaging, ecosystem-compliance, and context-injection expertise with their completed skill and distribution requirements.
 
 ## Workflow Rules
 
