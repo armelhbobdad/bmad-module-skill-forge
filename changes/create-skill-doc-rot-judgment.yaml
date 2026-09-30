@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill, skf-campaign
+summary: |
+  Create Skill's doc-rot step no longer reports lines such as "No breaking changes in this release" as breaking changes. It turned every changelog, release, issue, pull request or skill line holding a keyword such as "breaking" or "deprecated" into a `## CORRECTION` block, so negations, "non-breaking" notes, bug fix notes, pull request template checkboxes and old release history shipped as corrections, and the skill's own lines were kept ahead of upstream ones when the list was cut to 10. The keyword scan now only proposes candidates: the step keeps a candidate only when the project itself announces a change (an issue report alone is not enough) that is in effect at the skill's version and concerns one of the skill's exports, keeps one correction per change, and turns at most 10 of those into `## CORRECTION` blocks, each citing its source by annotation or file name instead of a local file path. A campaign records only those kept corrections in a skill's `workarounds_applied`, and its report no longer says doc-rot corrections stay out of campaign state.
+issues: [582]

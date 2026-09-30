@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Unit tests for src/skf-create-skill/scripts/scan-doc-rot.py (step-doc-rot.md §2).
 
-Covers the case-insensitive substring scan against the 13-row pattern table,
-the per-(line, pattern) record shape, the `## Migration & Deprecation Warnings`
-and frontmatter positional exclusions, duplicate collapse and the correction
-cap, missing/empty-feeder skipping, and the subprocess CLI (exit codes +
-JSON-on-stdout).
+Covers the case-insensitive substring scan against the 13-row keyword table,
+the per-(line, pattern) candidate record shape (`candidate_category`, never a
+verdict), the `## Migration & Deprecation Warnings` and frontmatter positional
+exclusions, duplicate collapse and the candidate cap the feeders share (the
+compiled SKILL.md's own lines last), missing/empty-feeder skipping, and the
+subprocess CLI (exit codes + JSON-on-stdout).
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ collapse_duplicates = mod.collapse_duplicates
 apply_cap = mod.apply_cap
 scan_files = mod.scan_files
 PATTERN_TABLE = mod.PATTERN_TABLE
-DEFAULT_MAX_CORRECTIONS = mod.DEFAULT_MAX_CORRECTIONS
+DEFAULT_MAX_CANDIDATES = mod.DEFAULT_MAX_CANDIDATES
 
 
 # --------------------------------------------------------------------------
@@ -52,14 +53,15 @@ def test_pattern_table_has_13_rows():
     assert len(PATTERN_TABLE) == 13
 
 
-def test_pattern_table_matches_step_doc_prose():
-    """Every pattern + category in the script must be documented in step-doc-rot.md."""
+def test_step_doc_does_not_restate_the_pattern_table():
+    """The keyword table lives only in the script: step-doc-rot.md §2 judges the
+    candidates the script returns and never needs the rows, so it keeps no copy
+    to hold in lockstep."""
     step = (SCRIPT_PATH.parent.parent / "references" / "step-doc-rot.md").read_text(
         encoding="utf-8"
     )
-    for pattern, category in PATTERN_TABLE:
-        assert pattern in step, f"pattern '{pattern}' missing from step-doc-rot.md"
-        assert category in step, f"category '{category}' missing from step-doc-rot.md"
+    assert "| Pattern |" not in step
+    assert "PATTERN_TABLE" not in step
 
 
 # --------------------------------------------------------------------------
@@ -79,10 +81,31 @@ def test_records_full_field_shape():
     assert m == {
         "source": "f.md",
         "pattern": "removed in",
-        "category": "Removal",
+        "candidate_category": "Removal",
         "context_line": "foo removed in v2",
         "line_number": 1,
     }
+
+
+@pytest.mark.parametrize(
+    "line,candidate_category",
+    [
+        ("- No breaking changes in this release.", "Breaking change"),
+        ("- Non-breaking: `parse()` accepts a Path.", "Breaking change"),
+        ("- Fixed a bug where the deprecated-warning banner was shown twice.", "Deprecation"),
+        ("- Support for Python 2 was removed in 0.3.", "Removal"),
+        ("- [x] Bug fix (non-breaking change which fixes an issue)", "Breaking change"),
+    ],
+    ids=["negation", "non-breaking", "bug-fix", "old-history", "pr-template-checkbox"],
+)
+def test_keyword_lines_are_candidates_not_corrections(line, candidate_category):
+    """#582: a negated, passing, bug-fix, historical or checkbox line holds a
+    keyword, so the scan proposes it, labelled only as a candidate. Deciding
+    that it is no correction is step 5c's judgment pass, not the script's."""
+    matches = scan_text(line, "changelog.md")
+    assert matches
+    assert {m["candidate_category"] for m in matches} == {candidate_category}
+    assert all("category" not in m for m in matches)
 
 
 def test_line_numbers_are_1_indexed():
@@ -261,9 +284,9 @@ def test_migration_search_starts_after_frontmatter():
 
 def test_collapse_merges_same_category_and_normalized_text():
     matches = [
-        {"source": "a.md", "pattern": "deprecated", "category": "Deprecation",
+        {"source": "a.md", "pattern": "deprecated", "candidate_category": "Deprecation",
          "context_line": "foo is deprecated", "line_number": 1},
-        {"source": "b.md", "pattern": "deprecated", "category": "Deprecation",
+        {"source": "b.md", "pattern": "deprecated", "candidate_category": "Deprecation",
          "context_line": "  foo   is    deprecated  ", "line_number": 42},
     ]
     kept, collapsed = collapse_duplicates(matches)
@@ -275,22 +298,25 @@ def test_collapse_merges_same_category_and_normalized_text():
 
 
 def test_collapse_merges_overlapping_patterns_on_one_line():
-    """`breaking change` and `BREAKING` share a category, so one line yields one
-    block rather than two saying the same thing. `scan_text` still records both
-    (the 13-row overlapping-pattern contract is unchanged) — only the emitted
-    correction set is collapsed."""
+    """`breaking change` and `BREAKING` share a candidate category, so one line
+    yields one candidate rather than two saying the same thing. `scan_text` still
+    records both (the 13-row overlapping-pattern contract is unchanged): only
+    the emitted candidate set is collapsed. `occurrences` counts keyword hits,
+    so the second hit counts and points back at the same line."""
     raw = scan_text("v2: this is a breaking change", "changelog.md")
     assert len(raw) == 2
     kept, collapsed = collapse_duplicates(raw)
     assert collapsed == 1
     assert len(kept) == 1
+    assert kept[0]["occurrences"] == 2
+    assert kept[0]["duplicate_of"] == [{"source": "changelog.md", "line_number": 1}]
 
 
 def test_collapse_keeps_distinct_categories_apart():
     matches = [
-        {"source": "a.md", "pattern": "deprecated", "category": "Deprecation",
+        {"source": "a.md", "pattern": "deprecated", "candidate_category": "Deprecation",
          "context_line": "same text", "line_number": 1},
-        {"source": "a.md", "pattern": "BREAKING", "category": "Breaking change",
+        {"source": "a.md", "pattern": "BREAKING", "candidate_category": "Breaking change",
          "context_line": "same text", "line_number": 1},
     ]
     kept, collapsed = collapse_duplicates(matches)
@@ -305,15 +331,22 @@ def test_collapse_does_not_mutate_input():
     assert json.dumps(matches, sort_keys=True) == before
 
 
+def _candidate(source, line_number, pattern="deprecated", candidate_category="Deprecation"):
+    return {"source": source, "pattern": pattern, "candidate_category": candidate_category,
+            "context_line": f"{source} line {line_number} {pattern}", "line_number": line_number}
+
+
 def _cap_fixture():
-    return [
-        {"source": "changelog.md", "pattern": "deprecated", "category": "Deprecation",
-         "context_line": f"item {i} deprecated", "line_number": i}
-        for i in range(1, 4)
-    ] + [
-        {"source": "SKILL.md", "pattern": "deprecated", "category": "Deprecation",
-         "context_line": "skill note deprecated", "line_number": 9},
-    ]
+    """Scan order: a long changelog, a short release feed, then the compiled SKILL.md."""
+    return (
+        [_candidate("changelog.md", i) for i in range(1, 7)]
+        + [_candidate("releases.md", i, "renamed to", "Rename") for i in range(1, 3)]
+        + [_candidate("SKILL.md", i, "replaced by", "Supersession") for i in (40, 41)]
+    )
+
+
+def _kept(kept):
+    return [(m["source"], m["line_number"]) for m in kept]
 
 
 def test_cap_zero_means_unlimited():
@@ -323,13 +356,36 @@ def test_cap_zero_means_unlimited():
     assert kept == matches
 
 
-def test_cap_below_total_prefers_skill_md_then_scan_order():
-    kept, dropped = apply_cap(_cap_fixture(), 2, "SKILL.md")
+def test_cap_gives_every_feeder_its_turn():
+    """A long feeder cannot crowd out a short one: each turn takes the next
+    candidate of every feeder, and the survivors come back in scan order."""
+    kept, dropped = apply_cap(_cap_fixture(), 4, "SKILL.md")
+    assert dropped == 6
+    assert _kept(kept) == [
+        ("changelog.md", 1), ("changelog.md", 2), ("releases.md", 1), ("releases.md", 2),
+    ]
+
+
+def test_cap_puts_the_skill_md_lines_last():
+    """#582: the compiled SKILL.md's own lines never outrank an upstream line,
+    although the old cap kept them first."""
+    matches = _cap_fixture()
+    kept, dropped = apply_cap(matches, 8, "SKILL.md")
     assert dropped == 2
-    # SKILL.md's own annotation survives even though it is scanned last...
-    assert {m["source"] for m in kept} == {"changelog.md", "SKILL.md"}
-    # ...and the survivors are still returned in scan order.
-    assert [m["line_number"] for m in kept] == [1, 9]
+    assert {m["source"] for m in kept} == {"changelog.md", "releases.md"}
+
+
+def test_cap_gives_the_skill_md_lines_the_places_left():
+    kept, dropped = apply_cap(_cap_fixture(), 9, "SKILL.md")
+    assert dropped == 1
+    assert _kept(kept)[-1] == ("SKILL.md", 40)
+
+
+def test_cap_without_a_skill_md_feeder_shares_by_turns():
+    matches = [m for m in _cap_fixture() if m["source"] != "SKILL.md"]
+    kept, dropped = apply_cap(matches, 3, None)
+    assert dropped == 5
+    assert _kept(kept) == [("changelog.md", 1), ("changelog.md", 2), ("releases.md", 1)]
 
 
 def test_cap_at_or_above_total_is_a_no_op():
@@ -390,22 +446,49 @@ def test_scan_files_counts_both_exclusion_windows(tmp_path):
 
 def test_scan_files_collapses_and_caps(tmp_path):
     changelog = tmp_path / "changelog.md"
-    # 40 distinct deprecations + 40 verbatim restatements of one of them.
-    lines = [f"v{i}: api_{i} deprecated" for i in range(40)]
+    # 80 distinct deprecations + 40 verbatim restatements of one of them.
+    lines = [f"v{i}: api_{i} deprecated" for i in range(80)]
     lines += ["v0: api_0 deprecated"] * 40
     changelog.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     out = scan_files([str(changelog)], None)
-    assert out["cap"] == DEFAULT_MAX_CORRECTIONS
+    assert out["cap"] == DEFAULT_MAX_CANDIDATES
     assert out["deduped_count"] == 40  # the restatements collapse away
-    assert out["capped_count"] == 40 - DEFAULT_MAX_CORRECTIONS
-    assert out["match_count"] == DEFAULT_MAX_CORRECTIONS
-    assert len(out["matches"]) == DEFAULT_MAX_CORRECTIONS
+    assert out["capped_count"] == 80 - DEFAULT_MAX_CANDIDATES
+    assert out["match_count"] == DEFAULT_MAX_CANDIDATES
+    assert len(out["matches"]) == DEFAULT_MAX_CANDIDATES
     assert out["matches"][0]["occurrences"] == 41  # 1 original + 40 restatements
 
-    unlimited = scan_files([str(changelog)], None, max_corrections=0)
+    unlimited = scan_files([str(changelog)], None, max_candidates=0)
     assert unlimited["capped_count"] == 0
-    assert unlimited["match_count"] == 40
+    assert unlimited["match_count"] == 80
+
+
+def test_scan_files_hands_over_more_candidates_than_blocks(tmp_path):
+    """The judgment pass keeps at most 10 corrections, so the pool it reviews
+    must be larger: a feeder with 30 distinct keyword lines hands over all 30."""
+    changelog = tmp_path / "changelog.md"
+    changelog.write_text("".join(f"- api_{i} deprecated\n" for i in range(30)), encoding="utf-8")
+    out = scan_files([str(changelog)], None)
+    assert DEFAULT_MAX_CANDIDATES > 10
+    assert (out["match_count"], out["capped_count"]) == (30, 0)
+
+
+def test_scan_files_caps_the_skill_md_lines_before_upstream_lines(tmp_path):
+    """End to end: when the pool overflows, the compiled SKILL.md's body lines
+    (scanned last) are the ones left out, and every upstream feeder keeps a share."""
+    changelog = tmp_path / "changelog.md"
+    changelog.write_text("".join(f"- api_{i} deprecated\n" for i in range(6)), encoding="utf-8")
+    releases = tmp_path / "releases.md"
+    releases.write_text("## v2.0.0\n- old_a renamed to new_a\n", encoding="utf-8")
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("# Skill\n\n## API\n- `foo()` is replaced by `bar()`\n", encoding="utf-8")
+
+    out = scan_files([str(changelog), str(releases)], str(skill), max_candidates=4)
+    assert out["capped_count"] == 4
+    assert [Path(m["source"]).name for m in out["matches"]] == [
+        "changelog.md", "changelog.md", "changelog.md", "releases.md",
+    ]
 
 
 def test_scan_files_unique_matches_report_single_occurrence(tmp_path):
@@ -438,7 +521,24 @@ def test_cli_emits_json(tmp_path):
     assert proc.returncode == 0
     data = json.loads(proc.stdout)
     assert data["match_count"] == 1
-    assert data["matches"][0]["category"] == "Migration"
+    assert data["matches"][0]["candidate_category"] == "Migration"
+
+
+def test_cli_hands_over_the_reproduced_lines_as_candidates(tmp_path):
+    """The #582 reproduction: both lines hold a keyword and come back as
+    `Breaking change` candidates, for step 5c's judgment pass to drop. No
+    record carries the old `category` field, which read as a verdict."""
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "- No breaking changes in this release.\n- Non-breaking: `parse()` accepts a Path.\n",
+        encoding="utf-8",
+    )
+    proc = _run([str(changelog)])
+    assert proc.returncode == 0
+    data = json.loads(proc.stdout)
+    assert sorted(m["line_number"] for m in data["matches"]) == [1, 2]
+    assert {m["candidate_category"] for m in data["matches"]} == {"Breaking change"}
+    assert all("category" not in m for m in data["matches"])
 
 
 def test_cli_zero_matches_is_success(tmp_path):
@@ -454,17 +554,25 @@ def test_cli_no_args_exits_1():
     assert proc.returncode == 1
 
 
-def test_cli_max_corrections_flag(tmp_path):
+def test_cli_max_candidates_flag(tmp_path):
     feeder = tmp_path / "changelog.md"
     feeder.write_text(
         "".join(f"v{i}: api_{i} deprecated\n" for i in range(5)), encoding="utf-8"
     )
-    proc = _run(["--max-corrections", "2", str(feeder)])
+    proc = _run(["--max-candidates", "2", str(feeder)])
     assert proc.returncode == 0
     data = json.loads(proc.stdout)
     assert data["cap"] == 2
     assert data["match_count"] == 2
     assert data["capped_count"] == 3
+
+
+def test_cli_default_cap_is_the_candidate_pool(tmp_path):
+    feeder = tmp_path / "changelog.md"
+    feeder.write_text("api_0 deprecated\n", encoding="utf-8")
+    proc = _run([str(feeder)])
+    assert proc.returncode == 0
+    assert json.loads(proc.stdout)["cap"] == DEFAULT_MAX_CANDIDATES == 50
 
 
 if __name__ == "__main__":

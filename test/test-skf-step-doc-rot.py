@@ -1,8 +1,9 @@
 """Structural integration tests for doc-rot correction hooks (step 5c).
 
-Validates step-doc-rot.md exists with correct frontmatter, mandatory grep
-patterns, CORRECTION block format, feeder artifact scan targets, graceful
-skip logic, step chain from step-auto-shard.md, and Stages table in SKILL.md.
+Validates step-doc-rot.md exists with correct frontmatter, the judgment pass
+over the scan's candidates (and campaign step 5's record of what it kept),
+CORRECTION block format, feeder artifact scan targets, graceful skip logic,
+step chain from step-auto-shard.md, and Stages table in SKILL.md.
 Also checks the temporal feeder: step 3b (sub/fetch-temporal.md) keeps the
 files it fetched in the folder step 5c scans, a failed refresh keeps the last
 good copy, a correction drawn from it cites the QMD collection, and a missing
@@ -15,6 +16,7 @@ import importlib.util
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 
@@ -89,74 +91,192 @@ class TestStepDocRotFrontmatter:
 
 
 # ---------------------------------------------------------------------------
-# step-doc-rot.md — Mandatory Grep Patterns (at least 5)
+# step-doc-rot.md: the scan's candidates and the judgment pass (§2)
 # ---------------------------------------------------------------------------
 
-
-class TestMandatoryGrepPatterns:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_DOC_ROT)
-
-    REQUIRED_PATTERNS = [
-        "deprecated",
-        "@deprecated",
-        "breaking change",
-        "BREAKING",
-        "removed in",
-        "was removed",
-        "renamed to",
-        "renamed from",
-        "superseded by",
-        "replaced by",
-        "no longer supported",
-        "migration required",
-        "signature changed",
-    ]
-
-    def test_at_least_5_patterns_defined(self, text: str) -> None:
-        count = sum(1 for p in self.REQUIRED_PATTERNS if p.lower() in text.lower())
-        assert count >= 5, (
-            f"step-doc-rot.md must define at least 5 grep patterns, found {count}"
-        )
-
-    def test_all_13_patterns_defined(self, text: str) -> None:
-        count = sum(1 for p in self.REQUIRED_PATTERNS if p.lower() in text.lower())
-        assert count == len(self.REQUIRED_PATTERNS), (
-            f"step-doc-rot.md must define all {len(self.REQUIRED_PATTERNS)} grep patterns, found {count}"
-        )
-
-    @pytest.mark.parametrize("pattern", REQUIRED_PATTERNS)
-    def test_pattern_present(self, text: str, pattern: str) -> None:
-        assert pattern.lower() in text.lower(), (
-            f"step-doc-rot.md must include grep pattern '{pattern}'"
-        )
+# The lines #582 reproduced. Each holds a correction keyword, so the scan hands
+# it over as a candidate, and none is a live correction, so the judgment pass
+# names it as a line to drop.
+REPRODUCED_NON_CORRECTIONS = {
+    "negation": "No breaking changes in this release.",
+    "non-breaking": "Non-breaking: parse() accepts a Path.",
+    "bug-fix": "Fixed a bug where the deprecated-warning banner was shown twice.",
+    "old-history": "Support for Python 2 was removed in 0.3.",
+    "pr-template-checkbox": "(non-breaking change which fixes an issue)",
+}
 
 
-# ---------------------------------------------------------------------------
-# step-doc-rot.md — Deterministic Matching (AC #2)
-# ---------------------------------------------------------------------------
+def _scan_section() -> str:
+    return _section(_read(STEP_DOC_ROT), "### §2.", "### §3.")
 
 
-class TestDeterministicMatching:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_DOC_ROT)
+def _judgment_pass() -> str:
+    return _section(_scan_section(), "**Judgment pass.**", "**IF `correction_matches` is empty**")
 
-    def test_no_ai_judgment_rule(self, text: str) -> None:
-        assert re.search(r"no\s+AI\s+judgment", text, re.IGNORECASE), (
-            "step-doc-rot.md must state no AI judgment is used for detection"
-        )
 
-    def test_no_semantic_analysis_rule(self, text: str) -> None:
-        assert re.search(r"no\s+(semantic|regex)\s+(analysis|interpretation)", text, re.IGNORECASE), (
-            "step-doc-rot.md must prohibit semantic analysis and regex interpretation"
-        )
+class TestCandidateScan:
+    """The script lists candidates; the step never greps by hand."""
 
-    def test_no_regex_interpretation(self, text: str) -> None:
-        assert re.search(r"no\s+regex\s+interpretation", text, re.IGNORECASE), (
-            "step-doc-rot.md must explicitly prohibit regex interpretation"
-        )
+    def test_scan_runs_in_the_helper(self) -> None:
+        scan = _scan_section()
+        assert "uv run {scanDocRotHelper}" in _section(scan, "```bash", "\n```")
+        assert "do not hand-grep the feeder artifacts" in scan
+
+    def test_the_documented_call_fits_the_script(self) -> None:
+        """test-skf-helper-call-contract.py checks only subcommand helpers, so the
+        §2 call runs through the script's own parser here: a flag the script
+        dropped (the old `--max-corrections`) fails. The call is split the way the
+        shell splits it, with the project under a folder whose name holds a space
+        (`First Last`, `My Projects`): an unquoted path would split in two, and the
+        script would skip both halves as missing and report no candidate at all."""
+        root, forge = "/Users/First Last/proj", "/Users/First Last/proj/forge data"
+        command = _section(_scan_section(), "```bash", "\n```")[len("```bash"):]
+        command = command.replace("{project-root}", root).replace("{forge_data_folder}", forge)
+        words = shlex.split(command.replace("\\\n", " "))
+        assert words[:3] == ["uv", "run", "{scanDocRotHelper}"]
+        parser = _load_script(SCAN_DOC_ROT_PY, "scan_doc_rot_call")._build_parser()
+        args = parser.parse_args(words[3:])
+        stage = f"{root}/_bmad-output/.skf-stage/{{skill-name}}"
+        assert args.skill_md == f"{stage}/SKILL.md"
+        assert args.positional_feeders == [
+            f"{stage}/evidence-report.md",
+            f"{stage}/provenance-map.json",
+            f"{forge}/{{skill-name}}/.skf-temporal/*.md",
+        ]
+
+    def test_occurrences_count_keyword_hits(self) -> None:
+        """`breaking change` and `BREAKING` are one kind, so the reproduced negation
+        collapses into one candidate with two occurrences on the same line."""
+        scan = _load_script(SCAN_DOC_ROT_PY, "scan_doc_rot_occurrences")
+        hits = scan.scan_text("- No breaking changes in this release.", "changelog.md")
+        [candidate], _ = scan.collapse_duplicates(hits)
+        assert candidate["occurrences"] == 2
+        assert candidate["duplicate_of"] == [{"source": "changelog.md", "line_number": 1}]
+        assert (
+            "- `occurrences` and `duplicate_of`: how many keyword hits collapsed into this "
+            "candidate (two keywords of one kind on one line count twice)"
+        ) in _scan_section()
+
+    def test_candidates_carry_a_candidate_category(self) -> None:
+        assert "- `candidate_category`: " in _scan_section()
+        assert "`category`" not in _read(STEP_DOC_ROT)
+
+    def test_no_rule_forbids_judgment(self) -> None:
+        text = _read(STEP_DOC_ROT).lower()
+        for phrase in ("no ai judgment", "no semantic", "no regex interpretation"):
+            assert phrase not in text, phrase
+
+
+class TestJudgmentPass:
+    """#582: a keyword match is only a candidate; the judgment pass decides."""
+
+    def test_keeps_live_corrections_to_inventory_exports(self) -> None:
+        judgment = _judgment_pass()
+        assert "1. **It announces a change:**" in judgment
+        assert "2. **It is live at `{version}`**" in judgment
+        assert "3. **It touches an export in the extraction inventory:**" in judgment
+        assert "Set the candidate's `affected` to the export it touches" in judgment
+
+    def test_the_inventory_is_the_staged_provenance_map(self) -> None:
+        locate = _section(_read(STEP_DOC_ROT), "### §1.", "### §2.")
+        item = next(line for line in locate.splitlines() if line.startswith("2. "))
+        assert "`entries[].export_name`" in item
+        assert "an `export_name` in the staged provenance map (§1 item 2)" in _judgment_pass()
+
+    @pytest.mark.parametrize(
+        "line", list(REPRODUCED_NON_CORRECTIONS.values()), ids=list(REPRODUCED_NON_CORRECTIONS)
+    )
+    def test_reproduced_line_is_a_candidate_the_pass_drops(self, line: str) -> None:
+        scan = _load_script(SCAN_DOC_ROT_PY, "scan_doc_rot_reproduced")
+        assert scan.scan_text(f"- {line}", "changelog.md"), "the scan must hand the line over"
+        assert f"`{line}`" in _judgment_pass(), "the judgment pass must name the line as a drop"
+
+    def test_drops_restatements_of_the_skill_md_own_api_rows(self) -> None:
+        assert "a compiled SKILL.md line that only restates its own API row" in _judgment_pass()
+
+    def test_only_the_project_announces_a_change(self) -> None:
+        """Anyone can open an issue, and §3 publishes a kept line word for word."""
+        judgment = _judgment_pass()
+        assert "The announcement must be the project's own: its changelog, release notes" in judgment
+        assert (
+            "An issue (`issues.md`, `targeted-issues.md`) is a report anyone can open, so it can "
+            "only corroborate such an announcement: drop a candidate that comes from one."
+        ) in judgment
+        fetch = _read(FETCH_TEMPORAL)
+        for name in ("issues.md", "targeted-issues.md"):
+            assert f'"{{temporal_fetch}}/{name}"' in fetch, f"step 3b no longer writes {name}"
+
+    def test_keeps_one_correction_per_change(self) -> None:
+        """A line with keywords of two kinds is a candidate for each, and release
+        notes restate the changelog: one change must not fill two of the 10 blocks."""
+        scan = _load_script(SCAN_DOC_ROT_PY, "scan_doc_rot_one_change")
+        hits = scan.scan_text("- `parse()` is deprecated and will be removed in 3.0.", "changelog.md")
+        candidates, _ = scan.collapse_duplicates(hits)
+        assert [c["candidate_category"] for c in candidates] == ["Deprecation", "Removal"]
+        judgment = _judgment_pass()
+        one = _section(judgment, "**One correction per change.**", "\n\n")
+        assert "When passing candidates share `source` and `line_number`, keep the one" in one
+        assert "When they announce the same change to the same export from different lines" in one
+        assert (
+            "(the changelog or release notes, then a merged pull request, then the evidence "
+            "report or provenance map, then the compiled SKILL.md)"
+        ) in one
+        assert judgment.index(one) < judgment.index("the number dropped as `corrections_rejected`")
+
+    def test_the_cap_of_10_applies_after_the_pass(self) -> None:
+        scan = _scan_section()
+        judgment = scan.index("**Judgment pass.**")
+        cap = scan.index("Then cap `correction_matches` at 10 corrections")
+        assert judgment < cap < scan.index("`corrections_capped`")
+        assert judgment < scan.index("`corrections_rejected`") < cap
+
+    def test_the_cap_ranks_the_skill_md_own_corrections_last(self) -> None:
+        """The scan puts the compiled SKILL.md's lines last in its pool, and the cut
+        to 10 does the same before it ranks the kinds of change."""
+        cap = _section(_scan_section(), "Then cap `correction_matches` at 10 corrections", "\n")
+        upstream = cap.index("keep the ones from every other feeder before the compiled SKILL.md's own")
+        assert upstream < cap.index("within each group removals, renames and signature changes first")
+
+    def test_blocks_come_only_from_kept_corrections(self) -> None:
+        text = _read(STEP_DOC_ROT)
+        rules = _section(text, "## Rules", "## MANDATORY SEQUENCE")
+        assert "Write a block only for a candidate the §2 judgment pass keeps" in rules
+        annotate = _section(text, "### §3.", "### §4.")
+        assert "For each entry in `correction_matches`" in annotate
+        assert "The list holds only the corrections §2 kept, at most 10" in annotate
+
+    def test_log_reports_what_the_pass_dropped(self) -> None:
+        log = _section(_read(STEP_DOC_ROT), "### §4.", "### §5.")
+        assert "{corrections_rejected} rejected by the judgment pass" in log
+        assert "{corrections_capped} over the cap of 10" in log
+
+
+CAMPAIGN_SKILL_LOOP = REPO_ROOT / "src" / "skf-campaign" / "references" / "step-05-skill-loop.md"
+
+
+def _campaign_doc_rot_check() -> str:
+    return _section(_read(CAMPAIGN_SKILL_LOOP), "- **Doc-rot check:**", "**Do not hand-grep")
+
+
+class TestCampaignRecordsKeptCorrections:
+    """Campaign step 5 records what step 5c kept, by the fields step 5c writes."""
+
+    def test_reads_the_candidate_category(self) -> None:
+        assert "`candidate_category`" in _campaign_doc_rot_check()
+        assert "`category`" not in _read(CAMPAIGN_SKILL_LOOP)
+
+    def test_names_only_fields_step_5c_writes(self) -> None:
+        fields = re.findall(r"`(\w+)`", _section(_campaign_doc_rot_check(), "each with", ";"))
+        assert fields == ["source", "pattern", "candidate_category", "context_line", "affected"]
+        scan = _scan_section()
+        for field in fields:
+            assert f"`{field}`" in scan, field
+
+    def test_records_only_the_kept_corrections(self) -> None:
+        check = _campaign_doc_rot_check()
+        assert "holds only the corrections step 5c's judgment pass kept" in check
+        assert "the candidates the pass rejected are not corrections, so they are never recorded" in check
+        assert "`[doc-rot] {affected}: {candidate_category}`" in check
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +508,8 @@ class TestContextLoggingVariables:
     CONTEXT_VARS = [
         "doc_rot_triggered",
         "corrections_added",
+        "corrections_rejected",
+        "corrections_capped",
         "feeder_artifacts_scanned",
         "correction_matches",
     ]
@@ -424,22 +546,6 @@ class TestChainTargetResolution:
     def test_validate_file_exists(self) -> None:
         assert VALIDATE_FILE.exists(), (
             "validate.md must exist at the chain target path from step-doc-rot.md"
-        )
-
-
-# ---------------------------------------------------------------------------
-# step-doc-rot.md — Case-Insensitive Matching Documented
-# ---------------------------------------------------------------------------
-
-
-class TestCaseInsensitiveMatching:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_DOC_ROT)
-
-    def test_case_insensitive_documented(self, text: str) -> None:
-        assert re.search(r"case.insensitive", text, re.IGNORECASE), (
-            "step-doc-rot.md must document that pattern matching is case-insensitive"
         )
 
 
@@ -500,7 +606,7 @@ class TestMatchRecordFields:
     def text(self) -> str:
         return _read(STEP_DOC_ROT)
 
-    MATCH_FIELDS = ["source", "pattern", "category", "context_line", "affected"]
+    MATCH_FIELDS = ["source", "pattern", "candidate_category", "context_line", "affected"]
 
     @pytest.mark.parametrize("field", MATCH_FIELDS)
     def test_match_field_documented(self, text: str, field: str) -> None:
@@ -544,34 +650,6 @@ class TestReadOnlyFeederArtifacts:
         assert re.search(
             r"(reads?\s+them\s+only|do not modify.*feeder)", text, re.IGNORECASE
         ), "step-doc-rot.md must state it only reads feeder artifacts, not writes"
-
-
-# ---------------------------------------------------------------------------
-# step-doc-rot.md — Pattern Category Labels
-# ---------------------------------------------------------------------------
-
-
-class TestPatternCategories:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_DOC_ROT)
-
-    CATEGORIES = [
-        "Deprecation",
-        "Breaking change",
-        "Removal",
-        "Rename",
-        "Supersession",
-        "End of life",
-        "Migration",
-        "Signature change",
-    ]
-
-    @pytest.mark.parametrize("category", CATEGORIES)
-    def test_category_present(self, text: str, category: str) -> None:
-        assert category in text, (
-            f"step-doc-rot.md must define category '{category}' for grep patterns"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -834,15 +912,31 @@ class TestTemporalFeederNotice:
 
 
 class TestTemporalCorrectionCitation:
-    """A correction drawn from the temporal feeder cites the QMD collection, not a local path."""
+    """A correction cites its feeder in a form the published skill's reader can
+    follow (the QMD collection for the temporal feeder), never a local path."""
 
     def test_temporal_match_cites_in_the_t2_form(self) -> None:
         annotate = _section(_read(STEP_DOC_ROT), "### §3.", "### §4.")
         assert (
-            "except for a match from the temporal feeder (item 3 of §1): cite that file the way "
+            "**A match from the temporal feeder** (item 3 of §1): cite that file the way "
             "step 4 cites it, in the T2 form `[QMD:{skill-name}-temporal:{file name}]`"
         ) in annotate
         assert "`[QMD:{collection}:{doc}]`" in _read(SKILL_SECTIONS)
+
+    def test_staged_match_cites_its_annotation_or_file_name(self) -> None:
+        """The script reports a feeder by the path the §2 call gave it, and the
+        call gives the staged feeders their {project-root} path: an absolute
+        path on this machine that must never reach a published skill."""
+        annotate = _section(_read(STEP_DOC_ROT), "### §3.", "### §4.")
+        assert "`{source}` cites the feeder the line came from, never the path in the match's `source`" in annotate
+        cite = _section(annotate, "- **A match from a staged feeder** (items 1, 2 and 4 of §1)", "\n")
+        assert "cite the `[QMD:...]` or `[DOC:...]` annotation on its line when it has one" in cite
+        assert "never its `{project-root}` path" in cite
+        call = _section(_scan_section(), "```bash", "\n```")
+        staged = re.findall(r'"\{project-root\}/_bmad-output/\.skf-stage/\{skill-name\}/([^"/]+)"', call)
+        assert sorted(staged) == ["SKILL.md", "evidence-report.md", "provenance-map.json"]
+        for name in staged:
+            assert f"`{name}`" in cite, f"no file name to cite for {name}"
 
     def test_citation_names_the_collection_step_3b_indexes(self) -> None:
         index = _section(_read(FETCH_TEMPORAL), "### 4. Index Into QMD", "### 5.")

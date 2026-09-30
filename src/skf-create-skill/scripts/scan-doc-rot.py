@@ -2,40 +2,38 @@
 # /// script
 # requires-python = ">=3.10"
 # ///
-"""Deterministic doc-rot correction-indicator scan (step-doc-rot.md §2).
+"""Doc-rot correction-candidate scan (step-doc-rot.md §2).
 
-step 5c self-declares its correction scan "grep-based and deterministic — no AI
-judgment is used for detection." This helper *is* that grep: it walks the
-resolved feeder artifacts, matches every line against the fixed 13-row
-correction-pattern table with case-insensitive substring containment (no regex,
-no semantics), and emits the matches as JSON. It applies the positional filters
-the step documents — dropping matches that land inside the compiled SKILL.md's
-own YAML frontmatter or its own `## Migration & Deprecation Warnings` section
-(both are self-authored: compile §2 wrote the frontmatter `description` and
-compile §4b wrote the migration bullets, so re-emitting either would be
-circular) — and then bounds what survives, before it returns. Running the scan
-here (instead of in-prompt) makes the "deterministic, identical input →
-identical output" promise actually hold: the model no longer hand-greps
+Step 5c writes a `## CORRECTION` block for each live upstream correction to an
+export the compiled skill documents. This helper finds the candidates: it
+walks the resolved feeder artifacts, matches every line against the fixed
+13-row keyword table with case-insensitive substring containment (no regex,
+no semantics), and emits each hit with the kind of change its keyword
+suggests (`candidate_category`). A keyword is not a correction: "No breaking
+changes in this release" holds one, and so do a pull request template
+checkbox and a bug fix that mentions a deprecation warning. The step's
+judgment pass decides which candidates are live corrections, then caps the
+blocks at 10. Running the scan here (instead of in-prompt) keeps the
+candidate list identical for identical feeders: the model never hand-greps
 multi-KB artifacts.
 
-Bounding matters because §2's own example command passes the raw temporal
-changelog as a feeder. That artifact is a verbatim upstream dump (thousands of
-lines of release history), so an unbounded run turns years of "breaking" /
-"deprecated" lines into hundreds of `## CORRECTION` blocks and blows the
-compiled body's line budget. Two deterministic bounds run after the exclusions:
-duplicate collapse (same category + same normalized line text) and a hard cap
-on how many blocks a single run may propose. Nothing is silently destroyed —
-a collapsed record carries `occurrences` and `duplicate_of`, and the counts of
-what was collapsed and capped are reported so the step can log them.
+Before it returns, the script drops matches that land inside the compiled
+SKILL.md's own YAML frontmatter or its own `## Migration & Deprecation
+Warnings` section (both are self-authored: compile §2 wrote the frontmatter
+`description` and compile §4b wrote the migration bullets, so re-emitting
+either would be circular), and then bounds what survives.
 
-The genuine judgment the step keeps in-prompt is untouched by this script:
-enriching each match's `affected` symbol from surrounding context (§2) and
-choosing where the `## CORRECTION` block goes (§3). The script emits every
-deterministic field (`source`, `pattern`, `category`, `context_line`,
-`line_number`); the prompt adds `affected`.
-
-The pattern table and category labels are the contract in step-doc-rot.md §2 —
-keep the two in lockstep.
+Bounding matters because the temporal feeder is a verbatim upstream dump
+(changelog, release notes, issue and pull request bodies), so an unbounded
+run can hand the judgment pass hundreds of "breaking" and "deprecated" lines.
+Two deterministic bounds run after the exclusions: duplicate collapse (same
+candidate category + same normalized line text) and a cap on the candidate
+pool. The feeders share the cap in turns, so a years-deep changelog cannot
+crowd out the release notes, and the compiled SKILL.md's own lines come after
+every other feeder's, so the skill's own text never outranks an upstream line.
+Nothing is silently destroyed: a collapsed record carries `occurrences` and
+`duplicate_of`, and the counts of what was collapsed and capped are reported
+so the step can log them.
 
 CLI usage:
   uv run scan-doc-rot.py --skill-md <staged SKILL.md> [FEEDER ...]
@@ -43,13 +41,14 @@ CLI usage:
 
   --skill-md         the compiled/staged SKILL.md feeder (feeder #4); matches
                      inside its YAML frontmatter or its `## Migration &
-                     Deprecation Warnings` section are excluded. It is also
+                     Deprecation Warnings` section are excluded, and its other
+                     candidates come last when the pool is capped. It is also
                      scanned like any other feeder.
   FEEDER             any other feeder artifact (evidence-report.md,
                      provenance-map.json, temporal-context files). Repeatable
                      positionally or via --feeder.
-  --max-corrections  cap on emitted matches (default 10). 0 or negative means
-                     unlimited.
+  --max-candidates   cap on emitted candidates (default 50). 0 or negative
+                     means unlimited.
 
   Missing or empty files are skipped silently (not an error), matching §1's
   "attempt to load; if it does not exist or is empty, skip it."
@@ -57,8 +56,9 @@ CLI usage:
 Output (stdout, one object):
   {
     "scanned": ["<path>", ...],        # feeders that existed and were non-empty
-    "matches": [                        # correction_matches[] (affected added in-prompt)
-      {"source": "<path>", "pattern": "deprecated", "category": "Deprecation",
+    "matches": [                        # the candidates step 5c's judgment pass reviews
+      {"source": "<path>", "pattern": "deprecated",
+       "candidate_category": "Deprecation",
        "context_line": "<line text>", "line_number": <1-indexed int>,
        "occurrences": <int>,            # 1 unless duplicates collapsed into this record
        "duplicate_of": [{"source": "<path>", "line_number": <int>}, ...]},
@@ -67,7 +67,7 @@ Output (stdout, one object):
     "match_count": <int>,               # len(matches), after exclusions/collapse/cap
     "excluded_count": <int>,            # SKILL.md matches dropped (frontmatter + §4b)
     "deduped_count": <int>,             # matches collapsed into a surviving record
-    "capped_count": <int>,              # matches dropped because the cap was reached
+    "capped_count": <int>,              # candidates dropped because the cap was reached
     "cap": <int>                        # effective cap (0 = unlimited)
   }
 
@@ -79,12 +79,14 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import re
 import sys
 from pathlib import Path
 
-# Fixed correction-pattern table — mirrors step-doc-rot.md §2. (pattern, category)
+# Fixed keyword table: (pattern, candidate_category). A hit makes the line a
+# candidate for step-doc-rot.md §2's judgment pass, never a correction by itself.
 # Order is the table order; scanning is per-pattern so overlapping patterns
 # (e.g. "deprecated" ⊂ "@deprecated") each record their own hit, exactly as the
 # 13-row table enumerates them.
@@ -106,10 +108,11 @@ PATTERN_TABLE: list[tuple[str, str]] = [
 
 _MIGRATION_HEADING = re.compile(r"^\s*##\s+Migration\s*&\s*Deprecation Warnings", re.IGNORECASE)
 
-# Cap on how many `## CORRECTION` blocks one run may propose (step-doc-rot.md §3).
-# Step 5b budgets the compiled body at 400 lines and each block is ~7 lines, so
-# 10 blocks stays inside the budget with headroom.
-DEFAULT_MAX_CORRECTIONS = 10
+# Cap on the candidate pool one run hands the judgment pass (step-doc-rot.md §2).
+# The pass keeps at most 10 corrections (step 5b budgets the compiled body at 400
+# lines and each block is ~7 lines), so 50 candidates leaves room for the many
+# keyword lines that are no correction at all.
+DEFAULT_MAX_CANDIDATES = 50
 
 
 def scan_text(text: str, source: str) -> list[dict]:
@@ -121,13 +124,13 @@ def scan_text(text: str, source: str) -> list[dict]:
     matches: list[dict] = []
     for idx, line in enumerate(text.splitlines(), start=1):
         lowered = line.lower()
-        for pattern, category in PATTERN_TABLE:
+        for pattern, candidate_category in PATTERN_TABLE:
             if pattern.lower() in lowered:
                 matches.append(
                     {
                         "source": source,
                         "pattern": pattern,
-                        "category": category,
+                        "candidate_category": candidate_category,
                         "context_line": line.strip(),
                         "line_number": idx,
                     }
@@ -240,23 +243,25 @@ def apply_migration_exclusion(
 
 
 def collapse_duplicates(matches: list[dict]) -> tuple[list[dict], int]:
-    """Collapse matches that repeat the same text under the same category.
+    """Collapse matches that repeat the same text under the same candidate category.
 
     Returns (kept, collapsed). The dedup key is
-    `(category, whitespace-normalized lowercased context_line)` — a temporal
-    changelog restates the same deprecation across many releases, and each
-    restatement would otherwise become its own `## CORRECTION` block saying the
-    same thing.
+    `(candidate_category, whitespace-normalized lowercased context_line)`: a
+    temporal changelog restates the same deprecation across many releases, and
+    a pull request template repeats the same checkbox in every pull request, so
+    each restatement would otherwise be its own candidate saying the same thing.
 
     The first occurrence in scan order survives and gains two fields:
-    `occurrences` (how many lines collapsed into it, including itself) and
-    `duplicate_of` (the `{source, line_number}` of every later occurrence), so
-    nothing is silently destroyed. Records are copies — the inputs are untouched.
+    `occurrences` (how many keyword hits collapsed into it, itself included)
+    and `duplicate_of` (the `{source, line_number}` of every later hit), so
+    nothing is silently destroyed. Two keywords of one candidate category on
+    one line count twice, and the second hit points back at the same line.
+    Records are copies: the inputs are untouched.
     """
     seen: dict[tuple[str, str], dict] = {}
     kept: list[dict] = []
     for m in matches:
-        key = (m["category"], " ".join(m["context_line"].split()).lower())
+        key = (m["candidate_category"], " ".join(m["context_line"].split()).lower())
         survivor = seen.get(key)
         if survivor is not None:
             survivor["occurrences"] += 1
@@ -273,21 +278,25 @@ def collapse_duplicates(matches: list[dict]) -> tuple[list[dict], int]:
 def apply_cap(
     matches: list[dict], cap: int, skill_md_source: str | None
 ) -> tuple[list[dict], int]:
-    """Keep at most `cap` matches. Returns (kept, dropped).
+    """Keep at most `cap` candidates. Returns (kept, dropped).
 
-    A cap of 0 or less means unlimited. Selection prefers the compiled SKILL.md's
-    own annotations over other feeders — a naive head-slice would drop them first,
-    because scan order puts the skill-md feeder last — and falls back to scan
-    order within each group. The kept records are returned in scan order, so a
-    run that does not hit the cap is ordered exactly as it is today.
+    A cap of 0 or less means unlimited. The feeders share the cap in turns:
+    each turn takes the next candidate of every feeder, in scan order, so one
+    long feeder (a years-deep changelog) cannot crowd out the rest. The compiled
+    SKILL.md's own candidates take only the places left after every other
+    feeder's, because its body restates what compile wrote: the skill's own
+    text never outranks an upstream line. The kept records are returned in scan
+    order, so a run that does not hit the cap is ordered exactly as the scan.
     """
     if cap <= 0 or len(matches) <= cap:
         return matches, 0
-    priority = sorted(
-        range(len(matches)),
-        key=lambda i: (0 if matches[i]["source"] == skill_md_source else 1, i),
-    )
-    keep = sorted(priority[:cap])
+    by_feeder: dict[str, list[int]] = {}
+    for i, m in enumerate(matches):
+        if m["source"] != skill_md_source:
+            by_feeder.setdefault(m["source"], []).append(i)
+    order = [i for turn in itertools.zip_longest(*by_feeder.values()) for i in turn if i is not None]
+    order += [i for i, m in enumerate(matches) if m["source"] == skill_md_source]
+    keep = sorted(order[:cap])
     return [matches[i] for i in keep], len(matches) - cap
 
 
@@ -307,11 +316,11 @@ def scan_files(
     feeders: list[str],
     skill_md: str | None,
     *,
-    max_corrections: int = DEFAULT_MAX_CORRECTIONS,
+    max_candidates: int = DEFAULT_MAX_CANDIDATES,
 ) -> dict:
     """Scan every feeder + the skill-md feeder, apply the self-authorship
-    exclusions, collapse duplicates, cap the survivors, and return the result
-    object. Deterministic: feeders scanned in the given order."""
+    exclusions, collapse duplicates, cap the candidate pool, and return the
+    result object. Deterministic: feeders scanned in the given order."""
     scanned: list[str] = []
     matches: list[dict] = []
     skill_md_text = None
@@ -335,7 +344,7 @@ def scan_files(
     matches, front_excluded = apply_frontmatter_exclusion(matches, skill_md, skill_md_text)
     matches, section_excluded = apply_migration_exclusion(matches, skill_md, skill_md_text)
     matches, deduped = collapse_duplicates(matches)
-    matches, capped = apply_cap(matches, max_corrections, skill_md)
+    matches, capped = apply_cap(matches, max_candidates, skill_md)
     return {
         "scanned": scanned,
         "matches": matches,
@@ -343,7 +352,7 @@ def scan_files(
         "excluded_count": front_excluded + section_excluded,
         "deduped_count": deduped,
         "capped_count": capped,
-        "cap": max(max_corrections, 0),
+        "cap": max(max_candidates, 0),
     }
 
 
@@ -351,11 +360,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="scan-doc-rot",
         description=(
-            "Deterministic doc-rot correction-indicator scan (step-doc-rot.md §2): "
+            "Doc-rot correction-candidate scan (step-doc-rot.md §2): "
             "case-insensitive substring match of feeder artifacts against the fixed "
-            "correction-pattern table, with the compiled SKILL.md's frontmatter and "
+            "keyword table, with the compiled SKILL.md's frontmatter and "
             "Migration & Deprecation Warnings section excluded, duplicates collapsed, "
-            "and the survivors capped."
+            "and the candidate pool capped. The step's judgment pass decides which "
+            "candidates are corrections."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -377,15 +387,16 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="skill_md",
         default=None,
         help="Compiled/staged SKILL.md feeder; its frontmatter and its Migration & "
-        "Deprecation Warnings section are excluded from matches.",
+        "Deprecation Warnings section are excluded from matches, and its other "
+        "candidates come last when the pool is capped.",
     )
     parser.add_argument(
-        "--max-corrections",
-        dest="max_corrections",
+        "--max-candidates",
+        dest="max_candidates",
         type=int,
-        default=DEFAULT_MAX_CORRECTIONS,
+        default=DEFAULT_MAX_CANDIDATES,
         help=(
-            f"Maximum matches to emit (default {DEFAULT_MAX_CORRECTIONS}). "
+            f"Maximum candidates to emit (default {DEFAULT_MAX_CANDIDATES}). "
             "0 or negative means unlimited."
         ),
     )
@@ -400,7 +411,7 @@ def main(argv=None) -> int:
         parser.print_usage(file=sys.stderr)
         print("error: supply at least one feeder path or --skill-md", file=sys.stderr)
         return 1
-    result = scan_files(feeders, args.skill_md, max_corrections=args.max_corrections)
+    result = scan_files(feeders, args.skill_md, max_candidates=args.max_candidates)
     print(json.dumps(result, indent=2))
     return 0
 
