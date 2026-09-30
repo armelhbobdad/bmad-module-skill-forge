@@ -243,9 +243,9 @@ This is a trimmed excerpt from the real [`oms-cognee/1.0.0/metadata.json`](https
 }
 ```
 
-Fields omitted from this excerpt for brevity: `source_root`, `description`, `exports[]`, `tool_versions`, `dependencies`, `compatibility`, `last_update`, `generated_by`. The full 93-line file lives at [`oh-my-skills/skills/oms-cognee/1.0.0/oms-cognee/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.0.0/oms-cognee/metadata.json).
+Fields omitted from this excerpt for brevity: `source_root`, `description`, `exports[]`, `tool_versions`, `dependencies`, `compatibility`, `generated_by`, and a `last_update` that an earlier SKF version wrote. Update Skill now records `last_update` and `update_type` at the top level of `provenance-map.json` in `forge-data/{name}/{version}/`, and an update removes both from `metadata.json`, which marks an update only in `generation_date`. The full 93-line file lives at [`oh-my-skills/skills/oms-cognee/1.0.0/oms-cognee/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.0.0/oms-cognee/metadata.json).
 
-Two fields are easy to mix up. `confidence_tier` holds the forge tier the skill was compiled at (Quick, Forge, Forge+ or Deep). `confidence_distribution` counts the claims at each confidence tier (T1, T1-low, T2, T3).
+Two fields are easy to mix up. `confidence_tier` holds the forge tier a single skill like this one was compiled at (Quick, Forge, Forge+ or Deep). A stack skill records there the dominant confidence tier of its libraries (T1, T1-low, T2 or T3) and keeps its forge tier in `forge_tier`; Export Skill still accepts a forge tier from a stack made by an earlier SKF version, with a warning that running Stack Skill again records the dominant tier. `confidence_distribution` counts the claims at each confidence tier (T1, T1-low, T2, T3). In a stack it counts each library once, by the library's tier, so its bins sum to `library_count`.
 
 `scripts` and `assets` arrays are optional: SKF leaves them out entirely, rather than writing empty arrays, when the source has no scripts or assets.
 

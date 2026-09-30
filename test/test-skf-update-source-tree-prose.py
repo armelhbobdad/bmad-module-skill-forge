@@ -907,8 +907,8 @@ def _doc_line(name: str, *needles: str) -> str:
 def test_override_is_described_where_the_flag_is():
     """init.md, SKILL.md and the docs say the override moves or pins no line and halts on gaps that need one.
 
-    init.md and SKILL.md also say it takes no signature, parameter list, return type or node kind from HEAD
-    (#557); the docs pages follow in the docs package that owns them.
+    All four also say it takes no signature, parameter list, return type or node kind from HEAD, so every new or
+    modified export halts, whatever its severity (#557).
     """
     init = _slice(_read(INIT), "- `--allow-workspace-drift` (gap-driven mode only)", "\n")
     assert "moves or pins no provenance line read there" in init and "halted-for-workspace-drift" in init
@@ -922,12 +922,27 @@ def test_override_is_described_where_the_flag_is():
                   "no signature, parameter list, return type or node kind is read there",
                   "as every new or modified export does, halts `halted-for-workspace-drift` before merge"):
         assert token in flags, token
-    # the docs package rewrites these two lines for #557, so pin only what any wording of the rule keeps
+    # the docs say it in their own words; the #551 wording, under which only a gap that needed a line halted, is gone
     gap_driven = ("`--allow-workspace-drift`", "Update Skill with `--from-test-report`")
     verifying = _doc_line("verifying-a-skill.md", *gap_driven)
-    assert "provenance line" in verifying and "`halted-for-workspace-drift`" in verifying
     workflows = _doc_line("workflows.md", *gap_driven)
-    assert "provenance line" in workflows
+    for doc in (verifying, workflows):
+        for token in ("takes nothing from", "provenance line", "signature, parameter list, return type or node kind",
+                      "new or changed export", "whatever its severity", "`halted-for-workspace-drift`",
+                      "before it changes the skill"):
+            assert token in doc, token
+    assert "a gap that needs a line from the source" not in verifying
+    assert "stops on a gap that needs one" not in workflows
+    # the reports verifying-a-skill.md says still run hold only categories the drift gate lets through; removed
+    # exports stay out, as the gate halts on a rescope once write.md §2 keeps the recorded public API counts
+    gate = _drift_gate()
+    end = gate.index(" need nothing from the tree and pass.")
+    passes = gate[gate.rindex(". ", 0, end) + 2:end]
+    still_runs = _slice(verifying, "A report whose gaps are only", " still runs")
+    for category, words in (("MOVED_EXPORT", "provenance line fixes"), ("STRUCTURAL_FIX", "structural fixes"),
+                            ("metadata update", "metadata patches")):
+        assert f"`{category}`" in passes and words in still_runs, category
+    assert "removed exports" not in still_runs
     for text in (init, flags, verifying, workflows):
         assert "\u2014" not in text
 

@@ -113,18 +113,22 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 
 **Key Steps:** Resolve target → Ecosystem check → Quick extract → Compile → Write and validate → Finalize
 
+**Skills modules:** Quick Skill also recognizes a repository that ships agent skills rather than code, such as a BMAD module or a plain Agent Skills package (`repo_shape: skills-module`). It reads each skill's `SKILL.md` frontmatter and the module's `module-help.csv` when there is one, lists the skill names and menu codes as the skill's Key Exports and in the `exports` of its `metadata.json`, and takes Usage Patterns from the `module-help.csv` rows. The skills come from the folder your scope hint names (`scope=<path>` on a batch line). Without one, they come from the repository root or a top-level folder that holds `module.yaml` or `module-help.csv`, or from a folder of skill folders when the repository root has no package manifest, or one that publishes no code, so a library that ships an agent skill beside its code stays a library. When a run that stays a library finds no exports but the repository holds skill folders, its extraction note names the folder to re-run with as the scope hint.
+
 **Headless / batch flags:**
 
 - `--headless` / `-H`: auto-proceed through every confirmation gate with its documented default, print structured progress events to stderr, and exit with stable codes (see [Headless Mode](#headless-mode))
 - `--batch <file>`: process several targets from a text file in sequence (one target per line; `#` comments and the per-line modifiers `language=<lang>` and `scope=<path>` are supported). Implies `--headless`.
 - `--fail-fast`: only with `--batch`. Stop the whole batch at the first failed target instead of recording the failure and moving on.
 
-**Per-target overrides** (apply to a single-target run, or globally to every target in `--batch`):
+**Per-target overrides** (`--skip-snippet` and `--no-active-pointer` also apply to every target in `--batch`):
 
-- `--description "<string>"`: replace the LLM-derived description used in the `SKILL.md` frontmatter and `metadata.json`
-- `--exports "name1,name2,..."`: replace the extracted export list (comma-separated)
+- `--description "<string>"`: replace the LLM-derived description used in the `SKILL.md` frontmatter and `metadata.json`. Single-target runs only.
+- `--exports "name1,name2,..."`: replace the extracted export list (comma-separated). Single-target runs only.
 - `--skip-snippet`: skip writing `context-snippet.md`
 - `--no-active-pointer`: leave the `active` pointer where it is at the end of the run (the files still land in `{skill_package}`)
+
+`--description` and `--exports` do not combine with `--batch`, because one description or export list cannot fit every target: such a run stops before its first target with exit `2` (`input-invalid`) and writes no batch summary. To give a target its own description or export list, run it on its own.
 
 **Safety:** Writes a version only into a skill folder SKF generated, or a new one; otherwise it stops with exit `9` (`not-skf-output`, or `flat-layout` for an SKF skill in the old flat layout) before writing anything. Quick Skill names a skill after its target, so use `BS` → `CS` to create it under another name.
 
@@ -205,7 +209,7 @@ Default pass threshold: **80%**. Inside a pipeline the default follows the alias
 - `--threshold=<N>` sets the pass score for this run. It wins over pipeline defaults.
 - `--tier=<Quick|Forge|Forge+|Deep>` tests at that tier without reading `forge-tier.yaml`, which helps in CI before setup has run.
 - `--no-discovery` leaves the discovery-testing block out of the report.
-- `--allow-workspace-drift` reads the source at its current commit instead of the pinned one (see [Verifying a Skill](/docs/verifying-a-skill.md#workflow-time-enforcement)). Update Skill with `--from-test-report` takes the same flag, but never moves or records a provenance line from that commit, and stops on a gap that needs one.
+- `--allow-workspace-drift` reads the source at its current commit instead of the pinned one (see [Verifying a Skill](/docs/verifying-a-skill.md#workflow-time-enforcement)). Update Skill with `--from-test-report` takes the same flag, but takes nothing from that commit: it never moves or records a provenance line from it and reads no signature, parameter list, return type or node kind there, so a test report with a new or changed export, whatever its severity, stops it with `halted-for-workspace-drift` before it changes the skill.
 
 **Verdicts and exit codes (headless):** `0` PASS, `2` FAIL (including a hard-gate block), `3` INCONCLUSIVE, `4` pass-with-drift, and `1` for a halt before any verdict. The `SKF_TEST_RESULT_JSON` line carries the same verdict and score.
 
@@ -241,11 +245,13 @@ Default pass threshold: **80%**. Inside a pipeline the default follows the alias
 
 **When to Use:** After VS confirms feasibility, before running SS in compose-mode. Produces a refined architecture ready for stack skill composition.
 
-**Key Steps:** Load inputs → Gap analysis → Issue detection → Improvement detection → Compile refined doc → Present report
+**Key Steps:** Load inputs → Gap analysis (confirms a derived scope) → Issue detection → Improvement detection → Compile refined doc → Present report
+
+**Scope:** RA refines the document with the skills in its scope: the ones you name with `--scope-skills`, or else the ones the document mentions (a skill whose relevance is unclear stays in scope). When it works out the scope itself and leaves skills out, it shows which skills are in and out of scope before it reads their APIs: type `C` to keep the scope, a skill's name to bring it in, or `-<name>` to take it out. A headless run keeps the derived scope and logs that decision. Integration pairs, VS verdicts and improvement suggestions that involve an out-of-scope skill are listed for awareness only and stay out of the refined document.
 
 **Skills read:** Only the skills SKF generated. Other skills in `skills_output_folder`, such as a module's own, are listed once as "Skipped (not SKF output)" and count toward no inventory check or pair. A `metadata.json` SKF cannot read still counts as one warning, because SKF then cannot tell whether it generated that skill.
 
-**Output:** `refined-architecture-<project>.md` in `output_folder` (`_bmad-output/` in a standalone install). It writes a new file and leaves your architecture document as it is.
+**Output:** `refined-architecture-<project>.md` in `output_folder` (`_bmad-output/` in a standalone install). It writes a new file and leaves your architecture document as it is. Its Refinement Summary counts the gaps, issues and improvements, and its `Not verified (no skill)` row names the libraries, databases and services the document mentions but no skill covers: nothing checked what the document says about them. A `VS Coverage` row shows the Verify Stack report's coverage when RA used one. When technologies are not verified, the next steps say to create their skills with `@Ferris CS` or `@Ferris QS` and run RA again before Stack Skill.
 
 **Agent:** Ferris (Architect mode)
 
@@ -489,6 +495,7 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
    | Code | Meaning             |
    | ---- | ------------------- |
    | 0    | success             |
+   | 2    | input-invalid       |
    | 3    | resolution-failure  |
    | 4    | write-failure       |
    | 5    | overwrite-cancelled |
