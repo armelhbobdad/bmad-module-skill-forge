@@ -31,12 +31,12 @@ For Quick and Forge tiers, skip silently and proceed (QMD is not available; ccc 
 
 - Focus only on registry hygiene — no new collection creation (that belongs to create-skill)
 - Never reimplement the forge-namespace suffix filter in prose — the classifier owns it
-- Run `qmd collection remove` only on the interactive **[R]** or an explicit `--orphan-action=remove`: that flag is the consent, and `{orphan_auto_resolution}` records the removal in the envelope's `warnings`
+- Run `qmd collection remove` only on the interactive **[R]** or an explicit `--orphan-action=remove`: that flag is the consent, and `{orphan_auto_resolution}` records each collection the removal deleted, by name, in the envelope's `warnings`
 - Headless and quiet runs must auto-resolve the orphan prompt to the documented default (Keep) unless `--orphan-action` sets it
-- Display messages only when `{headless_mode}` and `{quiet_mode}` are both false; the one exception is the envelope line a halt displays
-- When `{headless_mode}` or `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
+- Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
+- When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If a section needs a helper whose probe order has no existing path, halt (an install fault, not a hygiene error) with phase `step 3:helper-missing`, `path` set to that array's first entry, and reason `Setup cannot proceed: <script file name> was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{headless_mode}` or `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 - Do not fail the workflow if hygiene encounters errors; a missing helper is not a hygiene error
 
 ## MANDATORY SEQUENCE
@@ -47,7 +47,7 @@ Read `{calculated_tier}` and `{ccc}` from context (set by step 1).
 
 Default `{orphan_auto_resolution}` to null at the top of this step; only the non-interactive branch in section 3 overrides it.
 
-**If `{calculated_tier}` is Quick or Forge AND `{ccc}` is false:** No registry hygiene needed. Set `{hygiene_result: "skipped", hygiene_healthy: 0, hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0, hygiene_stale_cleaned: 0, ccc_registry_stale_cleaned: 0, ccc_registry_stale_removed_paths: []}`. Proceed directly to section 5 (Auto-Proceed) — no output, no messaging.
+**If `{calculated_tier}` is Quick or Forge AND `{ccc}` is false:** No registry hygiene needed. Set `{hygiene_result: "skipped", hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0}`. Proceed directly to section 5 (Auto-Proceed): no output, no messaging.
 
 **If `{calculated_tier}` is Quick or Forge AND `{ccc}` is true:** No QMD work, but ccc registry needs pruning. Set QMD-related flags to defaults (`hygiene_result: "skipped"`, all hygiene_* counts = 0). Skip directly to section 4 (Stale Registry Cleanup), running it with the ccc-prune flag only.
 
@@ -57,24 +57,22 @@ Default `{orphan_auto_resolution}` to null at the top of this step; only the non
 
 ### 2. Classify Live QMD Collections vs Registry
 
-Run the classifier — it owns the `qmd collection list` invocation and stdout parsing. Invoke via `uv run`:
+Run the classifier, which owns the `qmd collection list` invocation and stdout parsing, into the run folder. Invoke via `uv run`:
 
 ```bash
 uv run {qmdClassifyHelper} \
-    --registry-from-yaml "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
+    --registry-from-yaml "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml" \
+    > "{run_dir}/qmd-classify.json" && cat "{run_dir}/qmd-classify.json"
 ```
 
 The script (see `src/shared/scripts/skf-qmd-classify-collections.py` docstring for the full schema) invokes `qmd collection list` itself, applies the forge-namespace suffix filter (`-brief | -temporal | -docs | -extraction`) before classifying, and exits non-zero with an error message on stderr if the daemon is down. Collections owned by unrelated tools are silently excluded from the orphan / healthy / stale sets and counted under `foreign_filtered_count` for telemetry only — foreign collections never enter any classification that could lead to data loss.
 
-**Error handling:** If the script exits non-zero, set `{hygiene_result: "qmd_unavailable", hygiene_healthy: 0, hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0, hygiene_stale_cleaned: 0}` and skip directly to section 4 (which will still run the ccc-prune branch if `{ccc}` is true).
+**Error handling:** If the script exits non-zero, set `{hygiene_result: "qmd_unavailable", hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0}` and skip directly to section 4 (which will still run the ccc-prune branch if `{ccc}` is true).
 
 **Parse the JSON output and set context flags:**
 
-- `{hygiene_healthy}` ← `len(healthy)`
-- `{orphaned_collections}` ← `orphaned` (the list — used in section 3)
-- `{stale_collections}` ← `stale` (the list — used in section 4)
+- `{orphaned_collections}` ← `orphaned` (the list, used in section 3)
 - `{live_collections}` ← comma-join of `live_names` (used in §4's clean-stale invocation; the script owns the raw set, the prompt only forwards it)
-- `{foreign_filtered_count}` ← `foreign_filtered_count`
 
 Set `{hygiene_result: "completed"}`.
 
@@ -84,13 +82,12 @@ Set `{hygiene_result: "completed"}`.
 
 **Non-interactive resolution.** Resolve the gate without prompting in the first case that applies:
 
-- `{orphan_action}` is non-null → act on that value, with `source: "orphan-action-flag"`
-- `{headless_mode}` is true → the default **Keep**, with `source: "headless-default"`
-- `{quiet_mode}` is true → the default **Keep**, with `source: "quiet-default"`
+- `{orphan_action}` is non-null (activation lets through only `keep` or `remove`) → act on that value, with `source: "orphan-action-flag"`
+- `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` when `{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)
 
-Set `{orphan_auto_resolution: {action: <keep|remove>, count: len(orphaned_collections), source: <as above>}}` so step 4 can fold it into the envelope warnings (the audit trail matters most when `remove` deletes collections without a prompt). Unless `{headless_mode}` or `{quiet_mode}` is true, display `"Auto-decision (--orphan-action={value}): kept|removed {len(orphaned_collections)} orphaned forge collection(s)"`. On keep, set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: len(orphaned_collections)}` and skip to section 4; on remove, fall through to the removal block below (still no user prompt). (On an interactive resolution — section 3's prompt below — leave `{orphan_auto_resolution}` null; the human chose, so there is no auto-decision to audit.)
+Set `{orphan_auto_resolution: {action: <keep|remove>, count: len(orphaned_collections), source: <as above>}}` so step 4 can fold it into the envelope warnings (the audit trail matters most when `remove` deletes collections without a prompt). On keep, set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: len(orphaned_collections)}`, and unless `{quiet_mode}` is true, display `"Auto-decision (--orphan-action=keep): kept {len(orphaned_collections)} orphaned forge collection(s)"`; then skip to section 4. On remove, go on to the removal block below (still no user prompt), which records each name. (On an interactive resolution, through the prompt below, leave `{orphan_auto_resolution}` null; the human chose, so there is no auto-decision to audit.)
 
-**GATE [default: K]** — reached only when none of the cases above applies, so `{orphan_action}` is null and `{headless_mode}` and `{quiet_mode}` are both false. Display to the user:
+**GATE [default: K]**: reached only when none of the cases above applies, so `{orphan_action}` is null and `{quiet_mode}` is false. Display to the user:
 
 "**QMD Hygiene: Found {count} orphaned collection(s) not tracked in the forge registry:**
 
@@ -101,13 +98,13 @@ These collections exist in QMD but are not managed by any skill workflow. They m
 **[R]emove** orphaned collections — clean up QMD
 **[K]eep** orphaned collections — leave them as-is (default)"
 
-**If user selects R (Remove):** For each name in `{orphaned_collections}`:
+**If user selects R (Remove), or the non-interactive resolution chose remove:** For each name in `{orphaned_collections}`:
 
 ```bash
 qmd collection remove <name>
 ```
 
-Track the count of successful removals as `{hygiene_orphaned_removed}`. Set `{hygiene_orphaned_kept: 0}`.
+Collect the names whose removal succeeded as `{orphan_removed_names}` and the others as `{orphan_remove_failed}`, then set `{hygiene_orphaned_removed: len(orphan_removed_names), hygiene_orphaned_kept: 0}`. When `{orphan_auto_resolution}` is set, add `removed: {orphan_removed_names}` and `failed: {orphan_remove_failed}` to it, so the envelope's `warnings` names every collection deleted without a prompt and every one that could not be deleted; unless `{quiet_mode}` is true, also display `"Auto-decision (--orphan-action=remove): removed {len(orphan_removed_names)} orphaned forge collection(s): {orphan_removed_names, comma-separated}"`, followed by `"; could not remove: {orphan_remove_failed, comma-separated}"` when that list is non-empty.
 
 **If user selects K (Keep) or no orphans:** Set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: len(orphaned_collections)}`.
 
@@ -121,23 +118,20 @@ Build the invocation. Always include `--target` for the forge-tier.yaml path. In
 uv run {forgeTierRwHelper} clean-stale \
     --target "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml" \
     [--qmd-live-names "{live_collections}"]  \
-    [--prune-missing-ccc-paths]
+    [--prune-missing-ccc-paths] \
+    > "{run_dir}/clean-stale.json" && cat "{run_dir}/clean-stale.json"
 ```
 
 The script reads the registry, computes set-difference operations (qmd: registry − live; ccc: filter where `path` does not exist on disk), and atomically rewrites forge-tier.yaml only when something actually changed (mtime preserved on idempotent re-runs). The script prints only its JSON result. A registered ccc path that is missing during this run is pruned even when it sits on a mount attached only at other times, such as a CI runner's ephemeral mount; the step 4 report counts the pruned paths and the envelope's `warnings` lists each one.
 
-**If the script exits non-zero:** set `{hygiene_stale_cleaned: 0, ccc_registry_stale_cleaned: 0, ccc_registry_stale_removed_paths: []}`; the registry stays as it was. Unless `{headless_mode}` or `{quiet_mode}` is true, display one line: "Registry cleanup skipped: {message}.", where `{message}` is the `message` of the stderr JSON `{"status":"error","message":...}`. Then continue to section 5 — hygiene errors never fail the workflow.
+**If the script exits non-zero:** set `{hygiene_stale_cleaned: 0}`; the registry stays as it was. Unless `{quiet_mode}` is true, display one line: "Registry cleanup skipped: {message}.", where `{message}` is the `message` of the stderr JSON `{"status":"error","message":...}`. Then continue to section 5: hygiene errors never fail the workflow.
 
-**Otherwise parse the JSON output and set context flags for step 4:**
+**Otherwise parse the JSON output:** `{hygiene_stale_cleaned}` ← `len(qmd_removed)`.
 
-- `{hygiene_stale_cleaned}` ← `len(qmd_removed)`
-- `{ccc_registry_stale_cleaned}` ← `len(ccc_removed)`
-- `{ccc_registry_stale_removed_paths}` ← `ccc_removed` (the list — step 4 folds individual paths into envelope warnings)
-
-If `{hygiene_stale_cleaned}` > 0, unless `{headless_mode}` or `{quiet_mode}` is true, display: "**Cleaned {hygiene_stale_cleaned} stale QMD registry entry/entries** (collection no longer exists in QMD)."
+If `{hygiene_stale_cleaned}` > 0, unless `{quiet_mode}` is true, display: "**Cleaned {hygiene_stale_cleaned} stale QMD registry entry/entries** (collection no longer exists in QMD)."
 
 Removed ccc registry paths are not displayed here: the step 4 report's CCC Registry line counts them, and the envelope's `warnings` lists each one.
 
 ### 5. Auto-Proceed
 
-After hygiene completes (or is skipped for non-Deep tiers without ccc), unless `{headless_mode}` or `{quiet_mode}` is true, display "**Proceeding to forge status report...**". Then load `{nextStepFile}`, read it fully, and execute it.
+After hygiene completes (or is skipped for non-Deep tiers without ccc), unless `{quiet_mode}` is true, display "**Proceeding to forge status report...**". Then load `{nextStepFile}`, read it fully, and execute it.

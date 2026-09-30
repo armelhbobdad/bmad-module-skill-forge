@@ -161,7 +161,7 @@ def test_envelope_helper_and_schema_cite_no_issue_or_pr_numbers():
 
 def test_docstring_lists_every_subcommand():
     subs = re.findall(r'sub\.add_parser\("([a-z-]+)"', SCRIPT_PATH.read_text(encoding="utf-8"))
-    assert subs == ["emit", "emit-halt", "emit-blocked", "record", "validate"]
+    assert subs == ["emit", "emit-halt", "emit-blocked", "record", "validate", "render-report"]
     section = mod.__doc__.split("Subcommands:")[1].split("Context payload shape")[0]
     for name in subs:
         assert re.search(rf"^  {re.escape(name)}\b", section, re.M), name
@@ -1027,7 +1027,6 @@ def test_halt_folds_the_sink_and_stamps_the_run(demo, monkeypatch, capsys):
     assert env["run_id"] == "20260930T120000Z-7-beef"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", env["timestamp"])
     assert env["result_path"] is None
-    assert not list(run_dir.glob(".skf-emit-clock-*"))
 
 
 def test_resolver_payload_key_becomes_a_warning_in_any_workflow(demo, monkeypatch, capsys):
@@ -1041,56 +1040,33 @@ def test_resolver_payload_key_becomes_a_warning_in_any_workflow(demo, monkeypatc
 ISO_UTC = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
 
 
-def test_a_halt_makes_its_run_folder_to_read_the_clock(demo, monkeypatch, capsys):
-    """An early halt can fire before any `record` made the run folder."""
-    tmp_path, _ = demo
-    monkeypatch.setattr(mod, "_clock_fallbacks", lambda: [])
-    run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-demo-workflow-RUN9"
+def test_the_timestamp_is_the_system_clock(demo, monkeypatch, capsys):
+    _, run_dir = demo
+    monkeypatch.setattr(mod.time, "time", lambda: 1790000000.9)
     env = _run_in_process(monkeypatch, capsys, HALT, halt=True, run_dir=str(run_dir))
-    assert re.fullmatch(ISO_UTC, env["timestamp"]) and env["run_id"] == "RUN9"
-    assert run_dir.is_dir() and list(run_dir.iterdir()) == []
+    assert env["timestamp"] == mod._stamps(1790000000)[0] == "2026-09-21T14:13:20Z"
 
 
-def test_without_a_run_folder_the_clock_reads_the_working_directory(demo, monkeypatch, capsys):
+def test_a_halt_needs_no_run_folder_and_makes_none(demo, monkeypatch, capsys):
+    """An early halt can fire before any `record` made the run folder: the
+    clock needs no folder, so the call leaves the disk as it found it."""
     tmp_path, _ = demo
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.chdir(project)
-    assert mod._clock_fallbacks()[0].resolve() == project.resolve()
+    run_dir = project / "_bmad-output" / ".skf-run" / "skf-demo-workflow-RUN9"
+    env = _run_in_process(monkeypatch, capsys, HALT, halt=True, run_dir=str(run_dir))
+    assert re.fullmatch(ISO_UTC, env["timestamp"]) and env["run_id"] == "RUN9"
+    assert list(project.iterdir()) == []
     env = _run_in_process(monkeypatch, capsys, HALT, halt=True)
     assert re.fullmatch(ISO_UTC, env["timestamp"]) and env["run_id"] is None
     assert list(project.iterdir()) == []
 
 
-def test_a_run_folder_that_cannot_be_made_falls_back(demo, monkeypatch, capsys):
-    tmp_path, _ = demo
-    blocker = tmp_path / "a-file"
-    blocker.write_text("x", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    env = _run_in_process(monkeypatch, capsys, HALT, halt=True, run_dir=str(blocker / "skf-demo-workflow-R2"))
-    assert re.fullmatch(ISO_UTC, env["timestamp"]) and env["run_id"] == "R2"
-    assert not list(tmp_path.glob(".skf-emit-clock-*"))
-
-
-def test_the_clock_falls_back_to_the_temporary_folder(tmp_path, monkeypatch):
-    for name in ("TMPDIR", "TEMP", "TMP"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("TEMP", str(tmp_path / "temp"))
-    monkeypatch.chdir(tmp_path)
-    folders = mod._clock_fallbacks()
-    assert folders[0].resolve() == tmp_path.resolve()
-    assert folders[1:] == [tmp_path / "temp", Path("/tmp")]
-
-
-def test_no_folder_for_the_clock_is_a_user_error(demo, monkeypatch, capsys):
-    import io
-    monkeypatch.setattr(mod, "_clock_fallbacks", lambda: [])
-    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(HALT)))
-    with pytest.raises(SystemExit) as exc:
-        mod.run_emit("skf-demo-workflow", halt=True, label="emit-halt")
-    assert exc.value.code == 1
-    out, err = capsys.readouterr()
-    assert out == "" and "no folder takes the clock probe" in err
+def test_the_clock_no_longer_probes_the_filesystem():
+    assert not hasattr(mod, "_clock") and not hasattr(mod, "_clock_fallbacks")
+    assert ".skf-emit-clock" not in SCRIPT_PATH.read_text(encoding="utf-8")
+    assert "time.time()" in mod.__doc__
 
 
 def test_result_files_hold_the_envelope_when_no_contract_is_given(demo, monkeypatch, capsys):
@@ -1147,6 +1123,22 @@ def test_a_failed_record_write_is_a_warning(demo, monkeypatch, capsys):
     assert env["result_path"] is None
     [warning] = env["warnings"]
     assert warning.startswith("result_file_write_failed: ") and warning.endswith(": No space left on device")
+    assert list(version.iterdir()) == []
+
+
+def test_a_result_folder_that_refuses_the_record_is_a_warning(demo, monkeypatch, capsys):
+    """The clock no longer probes the folder, so claiming the record is the first write it sees."""
+    tmp_path, run_dir = demo
+    version = tmp_path / "v"
+    version.mkdir()
+
+    def refuse(result_dir, stem, stamp):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(mod, "_claim_result_path", refuse)
+    env = _run_in_process(monkeypatch, capsys, HALT, halt=True, run_dir=str(run_dir), result_dir=str(version))
+    assert env["result_path"] is None and re.fullmatch(ISO_UTC, env["timestamp"])
+    assert env["warnings"] == [f"result_file_write_failed: {version.as_posix()}: Permission denied"]
     assert list(version.iterdir()) == []
 
 
@@ -1210,15 +1202,6 @@ def test_utc_parts_match_the_calendar(seconds):
     iso, stamp = mod._stamps(seconds)
     assert iso == expected.strftime("%Y-%m-%dT%H:%M:%SZ")
     assert stamp == expected.strftime("%Y%m%d-%H%M%S")
-
-
-def test_clock_reads_the_system_time_and_leaves_nothing(tmp_path):
-    import time
-    before = int(time.time())
-    seconds = mod._clock([None, tmp_path / "missing", tmp_path])
-    assert before - 2 <= seconds <= int(time.time()) + 2
-    assert list(tmp_path.iterdir()) == []
-    assert mod._clock([None, tmp_path / "missing"]) is None
 
 
 # ─── generic emitter: CLI (record, emit-halt, validate) ─────────────────────
@@ -1431,3 +1414,701 @@ def test_output_contract_names_what_the_emitter_stamps():
 def test_docstring_names_every_envelope_block_field_and_sink_file():
     for token in (*mod.META_FIELDS, mod.SINK_DECISIONS, mod.SINK_WARNINGS, *mod.PAYLOAD_ONLY_KEYS):
         assert token in mod.__doc__, token
+
+
+# ─── skf-setup: orphan removals by name, files_written derived ──────────────
+
+
+def test_unprompted_orphan_removals_name_each_collection():
+    p = _baseline_payload()
+    p["orphan_auto_resolution"] = {"action": "remove", "count": 3, "source": "orphan-action-flag",
+                                   "removed": ["a-docs", "b-brief"], "failed": ["c-temporal"]}
+    env = mod.assemble_envelope(p)
+    assert env["skf_setup"]["warnings"] == [
+        "orphan_auto_resolution: remove 3 orphaned collection(s) (non-interactive, orphan-action-flag)",
+        "orphan_removed: a-docs", "orphan_removed: b-brief", "orphan_remove_failed: c-temporal"]
+    assert mod._validate_against_schema(env, _schema()) == []
+
+
+def test_a_kept_orphan_decision_names_no_collection():
+    p = _baseline_payload()
+    p["orphan_auto_resolution"] = {"action": "keep", "count": 2, "source": "quiet-default"}
+    assert mod.assemble_envelope(p)["skf_setup"]["warnings"] == [
+        "orphan_auto_resolution: keep 2 orphaned collection(s) (non-interactive, quiet-default)"]
+
+
+@pytest.mark.parametrize("flags,expected", [
+    ({}, ["forge-tier.yaml"]),
+    ({"preferences_yaml_created": True}, ["forge-tier.yaml", "preferences.yaml"]),
+    ({"settings_yml_written": True, "ccc_index": {"status": "created", "indexed_path": "/p", "file_count": 9}},
+     ["forge-tier.yaml", "settings.yml", "ccc_index"]),
+    ({"ccc_index": {"status": "fresh", "indexed_path": "/p", "file_count": 9}}, ["forge-tier.yaml"]),
+], ids=["minimal", "first-run-prefs", "settings-and-new-index", "fresh-index"])
+def test_files_written_is_derived_when_the_payload_leaves_it_out(flags, expected):
+    p = {k: v for k, v in _baseline_payload().items() if k != "files_written"}
+    p.update(flags)
+    assert mod.assemble_envelope(p)["skf_setup"]["files_written"] == expected
+
+
+def test_a_derived_files_written_is_empty_with_an_error():
+    p = {k: v for k, v in _baseline_payload().items() if k != "files_written"}
+    p["error"] = {"phase": "step 2:write-tools", "path": "/p/x", "reason": "r"}
+    assert mod.assemble_envelope(p)["skf_setup"]["files_written"] == []
+
+
+# ─── skf-setup: staged helper outputs ───────────────────────────────────────
+
+
+def _detect_output() -> dict:
+    """skf-detect-tools.py's output for a Forge re-run that gained gh."""
+    return {
+        "status": "ok", "version": "v1",
+        "tools": {"ast_grep": {"available": True, "version": "ast-grep 0.45.3"},
+                  "gh_cli": {"available": True, "version": "gh version 2.91.0 (2026-04-22)"},
+                  "qmd": {"available": False, "status": "absent", "version": None},
+                  "ccc": {"available": False, "daemon": None, "version": None},
+                  "security_scan": {"available": False}},
+        "tier": {"calculated": "Forge", "detected": "Forge", "override_applied": False, "override_value": None,
+                 "override_invalid": True, "override_invalid_value": "deep",
+                 "override_invalid_suggestion": "Deep", "override_unsafe": False, "override_unsafe_missing": []},
+        "require_tier": {"requested": "Forge+", "satisfied": False, "missing_tools": ["ccc"]},
+        "prior": {"previous_tier": "Forge", "previous_detection_date": "2026-09-01T10:00:00Z",
+                  "previous_tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": False},
+                  "previous_ccc_index_status": None, "previous_ccc_indexed_path": None,
+                  "previous_ccc_last_indexed": None, "previous_ccc_staleness_threshold_hours": None,
+                  "previous_ccc_file_count": None, "ccc_index_fresh": False},
+        "deltas": {"tools_added": ["gh_cli"], "tools_removed": [], "tier_changed": False},
+    }
+
+
+# What report.md section 1 stages: only the values no helper output holds.
+REPORT_CONTEXT = {
+    "project_root": "/p", "config_path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
+    "forge_data_folder": "/p/forge-data",
+    "ccc_index": {"status": "none", "indexed_path": None, "file_count": None},
+    "preferences_yaml_created": False, "settings_yml_written": False, "settings_yml_patterns_added": 0,
+    "settings_yml_patterns_removed": 0, "gitignore_updated": False, "ccc_exclusion_warnings": [],
+    "ccc_indexing_failed_reason": None, "hygiene_orphaned_removed": 0, "hygiene_orphaned_kept": 0,
+    "orphan_auto_resolution": None, "error": None,
+}
+CLASSIFIED = {"status": "ok", "version": "v1", "live_names": ["a-docs"], "healthy": ["a-docs"],
+              "orphaned": [], "stale": [], "foreign_filtered_count": 0, "foreign_filtered_sample": []}
+
+
+def _stage(run_dir: Path, detect=None, classify=None, clean_stale=None) -> Path:
+    """A setup run folder: each helper output given (a string is written as it is) and the payload."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name, value in ((mod.STAGED_DETECT, detect), (mod.STAGED_CLASSIFY, classify),
+                        (mod.STAGED_CLEAN_STALE, clean_stale)):
+        if value is not None:
+            (run_dir / name).write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
+    (run_dir / "report-context.json").write_text(json.dumps(REPORT_CONTEXT), encoding="utf-8")
+    return run_dir
+
+
+def test_fold_staged_takes_every_detector_field_from_the_file():
+    folded = mod.fold_staged({"tier": "Deep", "qmd_status": "healthy", "tools": {}},
+                             {mod.STAGED_DETECT: _detect_output()})
+    assert (folded["tier"], folded["previous_tier"]) == ("Forge", "Forge")
+    assert folded["tools"]["gh_cli"] == {"available": True, "version": "gh version 2.91.0 (2026-04-22)"}
+    assert folded["previous_tools"] == {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": False}
+    assert (folded["tier_override_invalid"], folded["tier_override_invalid_value"],
+            folded["tier_override_invalid_suggestion"]) == (True, "deep", "Deep")
+    assert folded["tier_override_active"] is False and folded["tier_override_unsafe"] is False
+    assert folded["tier_override_unsafe_missing"] == []
+    assert (folded["require_tier_satisfied"], folded["require_tier_failure_missing"]) == (False, ["ccc"])
+    assert folded["qmd_status"] == "absent"
+
+
+def test_a_first_run_detector_output_reads_as_no_previous_tools():
+    detect = _detect_output()
+    detect["prior"].update(previous_tier=None, previous_tools={})
+    folded = mod.fold_staged({}, {mod.STAGED_DETECT: detect})
+    assert folded["previous_tier"] is None and folded["previous_tools"] is None
+
+
+@pytest.mark.parametrize("classify,result,healthy", [
+    (CLASSIFIED, "completed", 1),
+    ({**CLASSIFIED, "healthy": []}, "completed", 0),
+    (None, "qmd_unavailable", 0),
+], ids=["classified", "none-healthy", "classifier-failed"])
+def test_fold_staged_reads_the_qmd_classification(classify, result, healthy):
+    folded = mod.fold_staged({}, {mod.STAGED_CLASSIFY: classify})
+    assert (folded["hygiene_result"], folded["hygiene_healthy"]) == (result, healthy)
+
+
+def test_fold_staged_reads_the_registry_cleanup():
+    folded = mod.fold_staged({}, {mod.STAGED_CLEAN_STALE: {"qmd_removed": ["x-docs"],
+                                                           "ccc_removed": ["/gone", "/old"], "wrote": True}})
+    assert (folded["hygiene_stale_cleaned"], folded["ccc_registry_stale_cleaned"],
+            folded["ccc_registry_stale_removed"]) == (1, 2, ["/gone", "/old"])
+    failed = mod.fold_staged({}, {mod.STAGED_CLEAN_STALE: None})
+    assert (failed["hygiene_stale_cleaned"], failed["ccc_registry_stale_cleaned"],
+            failed["ccc_registry_stale_removed"]) == (0, 0, [])
+
+
+def test_read_staged_tells_a_failed_helper_from_one_that_never_ran(tmp_path):
+    _stage(tmp_path / "run", detect=_detect_output(), classify="")
+    staged = mod.read_staged(tmp_path / "run")
+    assert staged[mod.STAGED_DETECT]["tier"]["calculated"] == "Forge"
+    assert staged[mod.STAGED_CLASSIFY] is None
+    assert mod.STAGED_CLEAN_STALE not in staged
+    assert mod.read_staged(None) == {} and mod.read_staged(tmp_path / "missing") == {}
+
+
+def test_read_staged_tolerates_a_byte_order_mark(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / mod.STAGED_DETECT).write_bytes(b"\xef\xbb\xbf" + json.dumps(_detect_output()).encode("utf-8"))
+    assert mod.read_staged(run_dir)[mod.STAGED_DETECT]["tier"]["calculated"] == "Forge"
+
+
+def _cli_in(args, stdin: str):
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), *args], input=stdin, capture_output=True,
+                          text=True, encoding="utf-8", timeout=10)
+
+
+def test_emit_from_staged_files_matches_the_hand_built_payload(tmp_path):
+    """The envelope is unchanged: staging moves only where its values come from."""
+    detect = _detect_output()
+    run_dir = _stage(tmp_path / "skf-setup-RUN", detect=detect, classify=CLASSIFIED,
+                     clean_stale={"qmd_removed": [], "ccc_removed": ["/gone"], "wrote": True})
+    staged = _cli_in(["emit", "--run-dir", str(run_dir)], (run_dir / "report-context.json").read_text(encoding="utf-8"))
+    assert staged.returncode == 0, staged.stderr
+    full = {**REPORT_CONTEXT, "tier": "Forge", "previous_tier": "Forge", "tools": detect["tools"],
+            "previous_tools": detect["prior"]["previous_tools"], "tier_override_active": False,
+            "tier_override_invalid": True, "tier_override_invalid_value": "deep",
+            "tier_override_invalid_suggestion": "Deep", "tier_override_unsafe": False,
+            "tier_override_unsafe_missing": [], "require_tier_satisfied": False,
+            "require_tier_failure_missing": ["ccc"], "qmd_status": "absent",
+            "ccc_registry_stale_removed": ["/gone"], "files_written": ["forge-tier.yaml"]}
+    rc, stdout, stderr = _run_emit(full)
+    assert rc == 0, stderr
+    assert staged.stdout == stdout
+    env = _envelope_of(stdout)
+    assert mod._validate_against_schema(env, _schema()) == []
+    env = env["skf_setup"]
+    assert env["status"] == "tier_failure" and env["tools_added"] == ["gh_cli"]
+    assert "tier_override_invalid: deep (did you mean Deep?)" in env["warnings"]
+    assert "ccc_registry_stale_removed: /gone" in env["warnings"]
+
+
+# ─── skf-setup: FORGE STATUS banner (render-report) ─────────────────────────
+
+
+REPORT_STEP = ROOT / "src" / "skf-setup" / "references" / "report.md"
+TIER_RULES = ROOT / "src" / "skf-setup" / "references" / "tier-rules.md"
+MERGE_HELPER = ROOT / "src" / "shared" / "scripts" / "skf-merge-ccc-exclusions.py"
+COPY = mod.load_tier_rules(TIER_RULES)
+RULE = "═" * 39
+
+AST = {"available": True, "version": "ast-grep 0.45.3"}
+GH = {"available": True, "version": "gh version 2.91.0 (2026-04-22)"}
+QMD = {"available": True, "status": "healthy", "version": "qmd 2.8.3 (facd35e)"}
+CCC = {"available": True, "daemon": "healthy", "version": None}
+NO_AST = {"available": False, "version": None}
+NO_GH = {"available": False, "version": None}
+NO_QMD = {"available": False, "status": "absent", "version": None}
+NO_CCC = {"available": False, "daemon": None, "version": None}
+
+
+def _probes(ast=AST, gh=GH, qmd=NO_QMD, ccc=NO_CCC) -> dict:
+    return {"ast_grep": ast, "gh_cli": gh, "qmd": qmd, "ccc": ccc}
+
+
+def _banner_payload(**over) -> dict:
+    """A same-tier Forge re-run with ast-grep and gh, and nothing else to report."""
+    payload = {**REPORT_CONTEXT, "tier": "Forge", "previous_tier": "Forge", "tools": _probes(),
+               "previous_tools": {"ast_grep": True, "gh_cli": True, "qmd": False, "ccc": False},
+               "tier_override_active": False, "tier_override_invalid": False, "tier_override_unsafe": False,
+               "require_tier_satisfied": None, "qmd_status": "absent", "hygiene_result": "skipped"}
+    payload.update(over)
+    return payload
+
+
+def _banner(**over) -> list[str]:
+    return mod.render_report(_banner_payload(**over), COPY)
+
+
+def _ccc(daemon="healthy", index="fresh", count=None, **over) -> dict:
+    """A same-tier Forge+ re-run with ccc (ast-grep, gh and ccc)."""
+    return {"tier": "Forge+", "previous_tier": "Forge+",
+            "tools": _probes(ccc={"available": True, "daemon": daemon, "version": None}),
+            "previous_tools": {"ast_grep": True, "gh_cli": True, "qmd": False, "ccc": True},
+            "ccc_index": {"status": index, "indexed_path": "/p" if index in ("fresh", "created") else None,
+                          "file_count": count}, **over}
+
+
+def _hygiene(**counts) -> dict:
+    return {"hygiene_result": "completed", "hygiene_healthy": 2, **counts}
+
+
+QUICK = {"tier": "Quick", "previous_tier": "Quick", "tools": _probes(ast=NO_AST, gh=NO_GH),
+         "previous_tools": {"ast_grep": False, "gh_cli": False, "qmd": False, "ccc": False}}
+DEEP = {"tier": "Deep", "previous_tier": "Deep", "tools": _probes(qmd=QMD), "qmd_status": "healthy",
+        "previous_tools": {"ast_grep": True, "gh_cli": True, "qmd": True, "ccc": False}}
+GAINED_GH = {"previous_tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": False}}
+LOST_GH = {"tools": _probes(gh=NO_GH)}
+
+# One case per `{if ...}` of the FORGE STATUS template in report.md section
+# 2, in the template's order: the condition as the template writes it, the
+# payload changes that make it hold, the changes that make it fail, and the
+# line the banner shows only when it holds.
+BANNER_CASES = [
+    ("no tools are available", QUICK, {}, '  (none yet, see "Climb to next tier" below)'),
+    ("calculated_tier is not Deep", {}, DEEP, "  Climb to next tier:"),
+    ("not tools.ast_grep", QUICK, {},
+     "  - Install ast-grep (https://ast-grep.github.io): unlocks AST-backed code analysis (Forge tier)"),
+    ("tools.ast_grep and not tools.ccc", {}, _ccc(),
+     "  - Install cocoindex-code (https://github.com/cocoindex-io/cocoindex-code): adds semantic-guided "
+     "precision compilation (Forge+ tier)"),
+    ("tools.ast_grep and not tools.gh_cli", LOST_GH, {},
+     "  - Install GitHub CLI (https://cli.github.com): required for Deep tier (cross-repository synthesis)"),
+    ('tools.ast_grep and not tools.qmd and qmd_status is "absent"', {}, {"qmd_status": "daemon_stopped"},
+     "  - Install qmd (https://github.com/tobi/qmd): required for Deep tier (knowledge search)"),
+    ('tools.ast_grep and not tools.qmd and qmd_status is "daemon_stopped"', {"qmd_status": "daemon_stopped"}, {},
+     "  - Start the qmd daemon (already installed): run `qmd start` (or your distribution's qmd service "
+     "command) to unlock Deep tier (knowledge search)"),
+    ('tools.ccc and ccc_daemon is "error"', _ccc(daemon="error"), _ccc(),
+     "  - The ccc daemon is reporting errors: run `ccc doctor` to diagnose. CCC index will fail until resolved"),
+    ('hygiene_result is "completed"', _hygiene(), {}, "  QMD Registry:"),
+    ("hygiene_orphaned_removed > 0", _hygiene(hygiene_orphaned_removed=2), _hygiene(),
+     "  2 orphaned collection(s) removed"),
+    ("hygiene_orphaned_kept > 0", _hygiene(hygiene_orphaned_kept=3), _hygiene(),
+     "  3 orphaned collection(s) kept"),
+    ("hygiene_stale_cleaned > 0", _hygiene(hygiene_stale_cleaned=1), _hygiene(),
+     "  1 stale QMD registry entry/entries cleaned"),
+    ("ccc_registry_stale_cleaned > 0", {"ccc_registry_stale_cleaned": 2}, {"ccc_registry_stale_cleaned": 0},
+     "  CCC Registry: 2 stale entry/entries cleaned"),
+    ('hygiene_result is "completed" and hygiene_healthy is 0', _hygiene(hygiene_healthy=0), _hygiene(),
+     "  QMD Registry: empty. Collections are created automatically when you run /skf-create-skill."),
+    ('hygiene_result is "qmd_unavailable"', {"hygiene_result": "qmd_unavailable"}, {},
+     "  QMD Registry: skipped (qmd unavailable; if the daemon is stopped, `qmd start` restores it)."),
+    ("tools.ccc is true", _ccc(), {}, "  CCC Index:"),
+    ('ccc_index_result is "fresh"', _ccc(), _ccc(index="created", count=5),
+     "  up to date, semantic discovery ready"),
+    ('ccc_index_result is "created"', _ccc(index="created", count=5), _ccc(),
+     "  indexed this run, semantic discovery ready"),
+    ('ccc_index_result is "skipped"', _ccc(index="skipped"), _ccc(),
+     "  skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to build or refresh the "
+     "index when you're ready"),
+    ('ccc_index_result is "failed"', _ccc(index="failed", ccc_indexing_failed_reason="daemon down"), _ccc(),
+     "  indexing failed, semantic discovery unavailable this session (daemon down)"),
+    ("ccc_exclusion_warnings is non-empty", _ccc(ccc_exclusion_warnings=["a note"]), _ccc(),
+     "  CCC exclusion notes:"),
+    ("preferences_yaml_created is true", {"preferences_yaml_created": True}, {},
+     "  - preferences.yaml: /p/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)"),
+    ("settings_yml_written is true", {"settings_yml_written": True, "settings_yml_patterns_added": 3}, {},
+     "  - .cocoindex_code/settings.yml: /p/.cocoindex_code/settings.yml (3 SKF exclusion pattern(s) merged)"),
+    ("settings_yml_patterns_removed > 0",
+     {"settings_yml_written": True, "settings_yml_patterns_added": 3, "settings_yml_patterns_removed": 2},
+     {"settings_yml_written": True, "settings_yml_patterns_added": 3},
+     "  - .cocoindex_code/settings.yml: /p/.cocoindex_code/settings.yml (3 SKF exclusion pattern(s) merged, "
+     "2 stale SKF pattern(s) removed)"),
+    ("gitignore_updated is true", {"gitignore_updated": True}, {},
+     "  - .gitignore: /p/.gitignore (`/.cocoindex_code/` added by `ccc init`)"),
+    ('ccc_index_result is "created"', _ccc(index="created", count=42), _ccc(),
+     "  - .cocoindex_code/ ccc index: 42 files indexed"),
+    ("tier_override is active", {"tier_override_active": True}, {},
+     "  Note: Tier override active (set in preferences.yaml)"),
+    ("tier_override_invalid is true", {"tier_override_invalid": True, "tier_override_invalid_value": "deep"}, {},
+     '  Note: tier_override value "deep" in preferences.yaml is not valid.'),
+    ("tier_override_invalid_suggestion is non-null",
+     {"tier_override_invalid": True, "tier_override_invalid_value": "deep",
+      "tier_override_invalid_suggestion": "Deep"},
+     {"tier_override_invalid": True, "tier_override_invalid_value": "xyz"},
+     '        Did you mean "Deep"?'),
+    ("tier_override_unsafe is true",
+     {"tier_override_unsafe": True, "tier_override_unsafe_missing": ["gh", "qmd"]}, {},
+     "  Warning: tier_override is forcing Forge but the underlying tool prerequisites are not satisfied."),
+    ("{previous_tier} is null", {"previous_tier": None, "previous_tools": None}, {},
+     "  Initial detection: Forge tier established."),
+    ("{tier_changed} is true",
+     {"previous_tier": "Quick", "previous_tools": {"ast_grep": False, "gh_cli": True, "qmd": False, "ccc": False}},
+     {}, "  " + COPY["upgrade"].replace("{previous}", "Quick").replace("{current}", "Forge")
+     .replace("{newly available tool(s)}", "ast-grep")),
+    ("{tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} "
+     "is non-null", {}, {"previous_tier": None, "previous_tools": None},
+     "  " + COPY["same"].replace("{current}", "Forge")),
+    ('preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "fresh"',
+     _ccc(), _ccc(settings_yml_written=True),
+     "  Your preferences and ccc settings were left untouched, and the ccc index was already current."),
+    ('preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "skipped"',
+     _ccc(index="skipped"), _ccc(index="skipped", preferences_yaml_created=True),
+     "  Your preferences and ccc settings were left untouched; the ccc index was not checked "
+     "(--ccc-skip-index)."),
+    ('preferences_yaml_created is false and ccc_index_result is "none"', {}, {"preferences_yaml_created": True},
+     "  Your preferences were left untouched."),
+    ("{tier_changed} is false and ({tools_added} or {tools_removed} is non-empty) and {previous_tier} "
+     "is non-null", GAINED_GH, {}, "  Tier unchanged: Forge."),
+    ("{tools_added} non-empty", GAINED_GH, LOST_GH, "  Newly detected: gh."),
+    ("ccc was added and tier is Deep", {**DEEP, "tools": _probes(qmd=QMD, ccc=CCC)},
+     {**_ccc(), "previous_tools": {"ast_grep": True, "gh_cli": True, "qmd": False, "ccc": False}},
+     "  Newly detected: ccc. ccc enhances Deep tier transparently."),
+    ("{tools_removed} non-empty", LOST_GH, GAINED_GH,
+     "  No longer detected: gh. Re-install to restore those capabilities."),
+]
+
+
+def _case_id(n: int, condition: str) -> str:
+    return f"{n:02d}-" + re.sub(r"[^a-z0-9]+", "-", condition.lower()).strip("-")[:48]
+
+
+@pytest.mark.parametrize("condition,holds,fails,line", BANNER_CASES,
+                         ids=[_case_id(n, case[0]) for n, case in enumerate(BANNER_CASES)])
+def test_banner_line_shows_exactly_when_its_condition_holds(condition, holds, fails, line):
+    assert line in _banner(**holds), condition
+    assert line not in _banner(**fails), condition
+
+
+def _template_lines() -> list[str]:
+    """The FORGE STATUS template: the fenced block of report.md section 2 that opens with the banner."""
+    section = REPORT_STEP.read_text(encoding="utf-8").split("\n### 2. ", 1)[1].split("\n### 3. ", 1)[0]
+    [template] = [block for block in section.split("```")[1::2] if "FORGE STATUS" in block]
+    return template.strip("\n").splitlines()
+
+
+def _tokens(text: str) -> list[tuple[str, str]]:
+    """Split a template line into ("text", ...) and ("token", <inside of a {...}, nested braces kept>)."""
+    out, i = [], 0
+    while i < len(text):
+        if text[i] != "{":
+            j = text.find("{", i)
+            j = len(text) if j < 0 else j
+            out.append(("text", text[i:j]))
+            i = j
+            continue
+        depth, j = 0, i
+        while True:
+            depth += {"{": 1, "}": -1}.get(text[j], 0)
+            j += 1
+            if depth == 0:
+                break
+        out.append(("token", text[i + 1:j - 1]))
+        i = j
+    return out
+
+
+def _is_if(line: str) -> bool:
+    return line.strip().startswith(("{if ", "{end if}"))
+
+
+def _template_entries() -> list[tuple[str, str]]:
+    """(condition, the template line it shows) for every `{if ...}`, in template order.
+
+    `{if C: T}` shows T in its own line; `{if C:}` alone on a line opens a
+    block whose first line is what it shows; `{if C:} T` and a condition
+    inside a line show that line.
+    """
+    lines = _template_lines()
+    entries = []
+    for n, line in enumerate(lines):
+        tokens = _tokens(line.strip())
+        for kind, value in tokens:
+            if kind != "token" or not value.startswith("if "):
+                continue
+            condition, _, shown = value[3:].partition(":")
+            if not shown.strip() and len(tokens) == 1:
+                line = next(later for later in lines[n + 1:] if later.strip() and not _is_if(later))
+            entries.append((condition, line))
+    return entries
+
+
+def _shown(line: str, condition: str) -> str:
+    """A regex for what a template line shows when `condition` holds.
+
+    Placeholders match any text, the text of any other condition in the
+    line is optional, and a space matches any run of spaces.
+    """
+    out, opened = [], []
+    for kind, value in _tokens(re.sub(r"\s+", " ", line)):
+        if kind == "text":
+            out.append(re.escape(value).replace("\\ ", "\\s*"))
+        elif value == "end if":
+            out.append(")" if opened.pop() else ")?")
+        elif value.startswith("if "):
+            cond, _, text = value[3:].partition(":")
+            text = text.strip()
+            if not text:
+                out.append("(?:")
+                opened.append(cond == condition)
+                continue
+            if len(text) > 1 and text[0] == text[-1] == '"':
+                text = text[1:-1]
+            out.append(f"(?:{_shown(text, condition)})" + ("" if cond == condition else "?"))
+        else:
+            out.append(".+?")
+    out += [")" if required else ")?" for required in reversed(opened)]
+    return "".join(out)
+
+
+def test_every_template_condition_has_its_case_in_template_order():
+    """The template in report.md is what render-report prints: 40 conditions, a case for each."""
+    entries = _template_entries()
+    assert len(entries) == 40
+    assert [condition for condition, _ in entries] == [case[0] for case in BANNER_CASES]
+    assert "{headless_mode}" not in "\n".join(_template_lines())
+
+
+def test_each_case_line_is_the_template_line_of_its_condition():
+    """A wording change on either side, in report.md or in the script, fails here or above."""
+    for (condition, line), case in zip(_template_entries(), BANNER_CASES):
+        expected = " ".join(case[3].split())
+        assert re.fullmatch(_shown(line, condition), expected), (condition, line, expected)
+
+
+def _wild(text: str) -> str:
+    return ".+?".join(re.escape(part) for part in re.split(r"\{[^{}]*\}", text))
+
+
+def _copy_pattern(message: str, cut: str | None = None) -> str:
+    """A tier-rules.md message with its placeholders as any text; past `cut` it may stop."""
+    head, sep, tail = message.partition(cut) if cut else (message, "", "")
+    return _wild(head + sep) + (f"(?:{_wild(tail)})?" if sep else "")
+
+
+# What a descriptive template token stands for.
+DESCRIBED = {
+    "tier capability description from tier-rules.md":
+        "(?:" + "|".join(re.escape(COPY[tier]) for tier in mod.VALID_TIERS) + ")",
+    "appropriate upgrade/downgrade message from tier-rules.md":
+        "(?:" + "|".join(_copy_pattern(COPY[key], "{current}.") for key in ("upgrade", "downgrade")) + ")",
+    "same-tier message from tier-rules.md": _copy_pattern(COPY["same"]),
+}
+FOR_EACH = {"for each tool ": r"- (?:ast-grep|gh|qmd|ccc)(?: .+)?", "for each entry ": r"- .+"}
+
+
+def _template_text(text: str) -> str:
+    """A regex for a template line's text: a placeholder is any text, and an
+    inline `{if C: T}` or `{if C:}...{end if}` may be left out."""
+    parts, opened = [], []
+    for kind, value in _tokens(text):
+        if kind == "text":
+            parts.append(re.escape(value))
+        elif value == "end if":
+            start = opened.pop()
+            parts[start:] = ["(?:" + "".join(parts[start:]) + ")?"]
+        elif value.startswith("if ") and value.endswith(":"):
+            opened.append(len(parts))
+        elif value.startswith("if "):
+            shown = value[3:].partition(":")[2].strip()
+            if len(shown) > 1 and shown[0] == shown[-1] == '"':
+                shown = shown[1:-1]
+            parts.append(f"(?:{_template_text(shown)})?")
+        else:
+            parts.append(DESCRIBED.get(value, ".+?"))
+    assert not opened, text
+    return "".join(parts)
+
+
+def _template_pattern() -> tuple[str, list[str]]:
+    """The whole template as one regex over a banner's non-blank lines (runs
+    of spaces collapsed), and the regex of each line it can print.
+
+    A `{if C:}` line opens a block that may be left out: an indented one runs
+    to its `{end if}`, one at the left margin to the end of its paragraph. A
+    line led by `{if C: T}` or `{if C:} T` may be left out, and a
+    `{for each ...}` line repeats.
+    """
+    whole, lines, depth, paragraph = [], [], 0, False
+    for raw in [*_template_lines(), ""]:
+        line = " ".join(raw.split())
+        tokens = _tokens(line)
+        kind, value = tokens[0] if tokens else ("text", "")
+        if not line:
+            if paragraph:
+                whole.append(")?")
+                paragraph = False
+        elif kind == "token" and value == "end if":
+            depth -= 1
+            whole.append(")?")
+        elif kind == "token" and value.startswith("if ") and value.endswith(":") and len(tokens) == 1:
+            if raw.startswith("{"):
+                paragraph = True
+            else:
+                depth += 1
+            whole.append("(?:")
+        else:
+            each = next((p for prefix, p in FOR_EACH.items() if kind == "token" and value.startswith(prefix)), None)
+            if each:
+                body, repeat = each, "*"
+            elif kind == "token" and value.startswith("if "):
+                assert value.endswith(":") or len(tokens) == 1, line
+                shown = line[len(value) + 2:] if value.endswith(":") else value[3:].partition(":")[2]
+                body, repeat = _template_text(shown.strip()), "?"
+            else:
+                body, repeat = _template_text(line), ""
+            lines.append(body)
+            whole.append(f"(?:{body}\n){repeat}")
+    assert depth == 0 and not paragraph
+    return "".join(whole), lines
+
+
+def _banners() -> list[list[str]]:
+    """The banner for each payload a case makes its condition hold or fail with, and a first Deep run."""
+    first_deep = dict(tier="Deep", previous_tier=None, previous_tools=None, qmd_status="healthy",
+                      tools=_probes(qmd=QMD, ccc=CCC), preferences_yaml_created=True, settings_yml_written=True,
+                      ccc_index={"status": "created", "indexed_path": "/p", "file_count": 1},
+                      settings_yml_patterns_added=6, gitignore_updated=True, hygiene_result="completed",
+                      hygiene_healthy=0, hygiene_orphaned_kept=23)
+    return [_banner(**over) for case in BANNER_CASES for over in case[1:3]] + [_banner(**first_deep)]
+
+
+def test_every_banner_line_is_a_template_line_in_template_order():
+    """Unconditional and continuation lines too: a wording change in any line
+    of the template, or in any line the script prints, fails here."""
+    whole, lines = _template_pattern()
+    shown = []
+    for banner in _banners():
+        text = "".join(" ".join(line.split()) + "\n" for line in banner if line.strip())
+        assert re.fullmatch(whole, text), text
+        shown += text.splitlines()
+    for line in lines:
+        assert any(re.fullmatch(line, printed) for printed in shown), f"no banner prints {line!r}"
+
+
+def test_a_first_deep_run_renders_the_whole_banner():
+    lines = _banner(tier="Deep", previous_tier=None, previous_tools=None, qmd_status="healthy",
+                    tools=_probes(qmd=QMD, ccc=CCC),
+                    ccc_index={"status": "created", "indexed_path": "/p", "file_count": 1},
+                    preferences_yaml_created=True, settings_yml_written=True, settings_yml_patterns_added=6,
+                    gitignore_updated=True, hygiene_result="completed", hygiene_healthy=0,
+                    hygiene_orphaned_kept=23)
+    assert lines == [
+        RULE, "  FORGE STATUS", RULE, "",
+        "  Tier:  Deep", f"  {COPY['Deep']}", "",
+        "  Tools Detected:", "  - ast-grep 0.45.3", "  - gh 2.91.0 (2026-04-22)", "  - qmd 2.8.3 (facd35e)",
+        "  - ccc (daemon healthy)", "",
+        "  QMD Registry:", "  0 collection(s) healthy", "  23 orphaned collection(s) kept", "",
+        "  QMD Registry: empty. Collections are created automatically when you run /skf-create-skill.", "",
+        "  CCC Index:", "  indexed this run, semantic discovery ready", "",
+        "  Files written this run:",
+        "  - forge-tier.yaml: /p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
+        "  - preferences.yaml: /p/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)",
+        "  - /p/forge-data/ (directory ensured)",
+        "  - .cocoindex_code/settings.yml: /p/.cocoindex_code/settings.yml (6 SKF exclusion pattern(s) merged)",
+        "  - .gitignore: /p/.gitignore (`/.cocoindex_code/` added by `ccc init`)",
+        "  - .cocoindex_code/ ccc index: 1 files indexed", "",
+        "  Initial detection: Deep tier established.", "",
+        RULE, "  Forge ready. Deep tier active.", RULE, "",
+        mod.NEXT_STEPS,
+    ]
+
+
+@pytest.mark.parametrize("key,probe,daemon,line", [
+    ("ast_grep", AST, None, "  - ast-grep 0.45.3"),
+    ("gh_cli", GH, None, "  - gh 2.91.0 (2026-04-22)"),
+    ("qmd", {"available": True, "version": "2.0.1"}, None, "  - qmd 2.0.1"),
+    ("qmd", {"available": True, "version": None}, None, "  - qmd"),
+    ("gh_cli", True, None, "  - gh"),
+    ("ccc", {"available": True, "daemon": "error"}, "error", "  - ccc (daemon error)"),
+    ("ccc", True, None, "  - ccc"),
+], ids=["ast-grep", "gh-version-word", "bare-version", "no-version", "bool-shape", "ccc-daemon", "ccc-bool"])
+def test_tools_detected_lines(key, probe, daemon, line):
+    assert mod._tool_line(key, probe, daemon) == line
+
+
+def test_a_tier_change_names_the_tools_that_changed_or_stops_after_one_sentence():
+    lost_ccc = _banner(previous_tier="Forge+",
+                       previous_tools={"ast_grep": True, "gh_cli": True, "qmd": False, "ccc": True})
+    assert "  " + COPY["downgrade"].replace("{previous}", "Forge+").replace("{current}", "Forge").replace(
+        "{tool}", "ccc") in lost_ccc
+    # A tier_override moved the tier, so no tool changed and there is none to name.
+    assert "  Tier changed from Deep to Forge." in _banner(previous_tier="Deep", tier_override_active=True)
+    assert "  Tier upgraded from Quick to Forge." in _banner(previous_tier="Quick", tier_override_active=True)
+
+
+def _placeholder_refusal() -> str:
+    """The refusal skf-merge-ccc-exclusions.py itself writes for a value that holds a placeholder."""
+    spec = importlib.util.spec_from_file_location("skf_merge_ccc_exclusions", MERGE_HELPER)
+    merge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(merge)
+    kept, refusal = merge.validate_config_value("skills_output_folder", "{output_folder}/skills")
+    assert kept is None and refusal
+    return refusal
+
+
+def test_exclusion_notes_resolve_the_project_root_except_in_the_placeholder_refusal():
+    # The helper's own message, so rewording it there without PLACEHOLDER_REFUSAL fails here.
+    refusal = _placeholder_refusal()
+    assert mod.PLACEHOLDER_REFUSAL in refusal and "{project-root}" in refusal
+    lines = _banner(**_ccc(ccc_exclusion_warnings=["add /.cocoindex_code/ to {project-root}/.gitignore",
+                                                   refusal, "ccc init failed in /elsewhere"]))
+    assert "  - add /.cocoindex_code/ to /p/.gitignore" in lines
+    assert f"  - {refusal}" in lines
+    assert "  - ccc init failed in /elsewhere" in lines
+
+
+def test_a_failure_reason_on_several_lines_stays_on_its_banner_line():
+    lines = _banner(**_ccc(index="failed", ccc_indexing_failed_reason="ccc index failed:\n  daemon down\n"))
+    assert "  indexing failed, semantic discovery unavailable this session (ccc index failed: daemon down)" in lines
+
+
+def test_the_banner_takes_the_hygiene_counts_from_the_staged_outputs():
+    payload = mod.fold_staged(_banner_payload(hygiene_result="skipped"),
+                              {mod.STAGED_CLASSIFY: CLASSIFIED,
+                               mod.STAGED_CLEAN_STALE: {"qmd_removed": ["x-docs"], "ccc_removed": ["/gone"]}})
+    lines = mod.render_report(payload, COPY)
+    for line in ("  QMD Registry:", "  1 collection(s) healthy", "  1 stale QMD registry entry/entries cleaned",
+                 "  CCC Registry: 1 stale entry/entries cleaned"):
+        assert line in lines, line
+
+
+def test_tier_rules_copy_is_read_from_its_file():
+    assert set(COPY) == {"Quick", "Forge", "Forge+", "Deep", "upgrade", "downgrade", "same"}
+    assert COPY["Quick"].startswith("Quick tier active.") and not COPY["Quick"].endswith('"')
+    assert "{previous}" in COPY["upgrade"] and "{current}" in COPY["same"]
+    assert mod.TIER_RULES_FILE.resolve() == TIER_RULES.resolve()
+
+
+def test_tier_rules_without_one_of_its_headings_is_a_user_error(tmp_path, capsys):
+    broken = tmp_path / "tier-rules.md"
+    broken.write_text(TIER_RULES.read_text(encoding="utf-8").replace("### Same", "### Unchanged"),
+                      encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        mod.load_tier_rules(broken)
+    assert exc.value.code == 1 and "Same" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exc:
+        mod.load_tier_rules(tmp_path / "missing.md")
+    assert exc.value.code == 1
+
+
+def test_cli_render_report_reads_the_run_folder(tmp_path):
+    run_dir = _stage(tmp_path / "skf-setup-RUN", detect=_detect_output(), classify=CLASSIFIED,
+                     clean_stale={"qmd_removed": ["x-docs"], "ccc_removed": [], "wrote": True})
+    proc = _cli_in(["render-report", "--run-dir", str(run_dir), "--tier-rules", str(TIER_RULES)],
+                   (run_dir / "report-context.json").read_text(encoding="utf-8"))
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.splitlines()
+    for line in ("  - gh 2.91.0 (2026-04-22)", '        Did you mean "Deep"?', "  1 collection(s) healthy",
+                 "  1 stale QMD registry entry/entries cleaned", "  Newly detected: gh."):
+        assert line in lines, line
+    assert lines[0] == RULE and lines[-1] == mod.NEXT_STEPS
+
+
+def test_cli_render_report_finds_the_tier_copy_in_an_installed_project(tmp_path):
+    """Installed under _bmad/skf/, with skf-setup/ beside shared/."""
+    import shutil
+    scripts = tmp_path / "_bmad" / "skf" / "shared" / "scripts"
+    shutil.copytree(SCHEMA_PATH.parent, scripts / "schemas")
+    shutil.copy2(SCRIPT_PATH, scripts / SCRIPT_PATH.name)
+    references = tmp_path / "_bmad" / "skf" / "skf-setup" / "references"
+    references.mkdir(parents=True)
+    shutil.copy2(TIER_RULES, references / TIER_RULES.name)
+    proc = subprocess.run([sys.executable, str(scripts / SCRIPT_PATH.name), "render-report"],
+                          input=json.dumps(_banner_payload()), capture_output=True, text=True,
+                          encoding="utf-8", timeout=10, cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert f"  {COPY['Forge']}" in proc.stdout.splitlines()
+
+
+@pytest.mark.parametrize("args,payload,needle", [
+    (["--tier-rules", "does-not-exist.md"], _banner_payload(), "tier copy"),
+    ([], _banner_payload(tier="Sparkle"), "tier must be one of"),
+], ids=["missing-tier-copy", "bad-tier"])
+def test_cli_render_report_refuses_what_it_cannot_render(tmp_path, args, payload, needle):
+    proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "render-report", *args],
+                          input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8",
+                          timeout=10, cwd=tmp_path)
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert needle in json.loads(proc.stderr)["message"]

@@ -1,0 +1,5 @@
+type: changed
+scope: skf-setup
+summary: |
+  Setup now shows its first-run notice, or its re-run notice, after tool detection has told it whether the project was set up before, and still before it writes any configuration. The FORGE STATUS report comes from the new `render-report` subcommand of `skf-emit-result-envelope.py`, which picks every line from the run's own results instead of leaving that choice to the agent. Setup keeps the output of its tool detector, its QMD collection classifier and its registry cleanup in a scratch run folder under `_bmad-output/.skf-run/`, where the report and the `SKF_SETUP_RESULT_JSON` envelope read them, and deletes the folder when the run ends; a halt that names a phase leaves it in place. When `--orphan-action=remove` deletes QMD collections without a prompt, the envelope's `warnings` now name each one (`orphan_removed: <name>`, and `orphan_remove_failed: <name>` for one it could not delete).
+issues: [612, 593]
