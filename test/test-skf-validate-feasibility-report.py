@@ -27,6 +27,9 @@ spec.loader.exec_module(mod)
 validate_report = mod.validate_report
 split_frontmatter = mod.split_frontmatter
 scan_headings = mod.scan_headings
+slugify = mod.slugify
+locate_report = mod.locate_report
+read_verdict_table = mod.read_verdict_table
 
 
 def _report(schema_version='"1.0"', sections=None):
@@ -236,3 +239,587 @@ def test_cli_exit_codes(tmp_path):
         text=True,
     )
     assert err.returncode == 2
+
+
+def test_validate_mode_keys_unchanged(tmp_path):
+    # --locate is a separate mode: the validate-mode verdict keeps its keys.
+    result, _ = validate_report(str(_write(tmp_path, _report())))
+    assert set(result) == {
+        "status",
+        "path",
+        "schemaVersionOk",
+        "schemaVersionFound",
+        "headingsOk",
+        "missingHeadings",
+        "orderViolations",
+        "violation",
+    }
+
+
+# --- slug rule (--locate) --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name,slug",
+    [
+        ("My Project", "my-project"),
+        # NFKD: an accented Latin letter keeps its base letter.
+        ("Café Déjà Vu", "cafe-deja-vu"),
+        # Punctuation to hyphen, repeats collapsed, both ends trimmed.
+        ("Acme__Platform!!v2", "acme-platform-v2"),
+        ("  --Trim me--  ", "trim-me"),
+        ("C++ & Rust", "c-rust"),
+        # Compatibility forms fold to ASCII: full-width letters, ligature, superscript.
+        ("Ｆｕｌｌ ﬁle x²", "full-file-x2"),
+        # Punctuation of any script becomes a hyphen too (en dash, middle dot).
+        ("Acme–Platform·API", "acme-platform-api"),
+        # A letter with no ASCII form is dropped.
+        ("Straße", "strae"),
+        ("Проект Alpha", "alpha"),
+        # Nothing left: the fallback slug, an empty name included.
+        ("日本語", "project"),
+        ("", "project"),
+        ("already-a-slug", "already-a-slug"),
+    ],
+)
+def test_slugify(name, slug):
+    assert slugify(name) == slug
+    assert slugify(slug) == slug  # idempotent
+
+
+# --- locate mode -------------------------------------------------------------
+
+PAIR_ROWS = [
+    ("react", "vite", "Verified", '"see also: vite" in react SKILL.md line 12'),
+    ("vite", "zod", "Plausible", "no literal cross-reference"),
+    ("zod", "tauri", "Blocked", "TypeScript to Rust with no bridge"),
+]
+
+
+def _verdict_table(rows, header="| lib_a | lib_b | verdict | rationale |"):
+    lines = [header, "|-------|-------|---------|-----------|"]
+    lines += [f"| {a} | {b} | {v} | {r} |" for a, b, v, r in rows]
+    return "\n".join(lines)
+
+
+def _full_report(overall='"NOT_FEASIBLE"', schema_version='"1.0"', verdicts=None):
+    """A report shaped like skf-verify-stack's feasibility-report-template.md.
+
+    `verdicts` is the Integration Verdicts section body; defaults to the
+    canonical table over PAIR_ROWS followed by the producer's display table.
+    """
+    if verdicts is None:
+        verdicts = "\n".join(
+            [
+                _verdict_table(PAIR_ROWS),
+                "",
+                "| Library A | Library B | Context | Source | Verdict | Evidence |",
+                "|---|---|---|---|---|---|",
+                "| react | vite | bundles the app | prose co-mention | Risky | none |",
+            ]
+        )
+    fm = ["---"]
+    if schema_version is not None:
+        fm.append(f"schemaVersion: {schema_version}")
+    fm += ["reportType: feasibility", 'projectName: "My Project"', 'projectSlug: "my-project"']
+    if overall is not None:
+        fm.append(f"overallVerdict: {overall}")
+    fm += ["pairsVerified: 1", "pairsPlausible: 1", "pairsRisky: 0", "pairsBlocked: 1", "---"]
+    body = [
+        "",
+        "# Stack Feasibility Report: My Project",
+        "",
+        "## Executive Summary",
+        "",
+        "**Overall Verdict:** NOT_FEASIBLE",
+        "",
+        "## Coverage Analysis",
+        "",
+        "| Technology | Verdict |",
+        "|---|---|",
+        "| react | Covered |",
+        "",
+        "## Integration Verdicts",
+        "",
+        verdicts,
+        "",
+        "## Recommendations",
+        "",
+        "Replace tauri.",
+        "",
+        "## Evidence Sources",
+        "",
+    ]
+    return "\n".join(fm + body)
+
+
+def _write_latest(folder, content, slug="my-project"):
+    folder.mkdir(parents=True, exist_ok=True)
+    return _write(folder, content, name=f"feasibility-report-{slug}-latest.md")
+
+
+def _pairs(rows):
+    return [{"lib_a": a, "lib_b": b, "verdict": v, "rationale": r} for a, b, v, r in rows]
+
+
+def test_locate_reads_latest_report(tmp_path):
+    latest = _write_latest(tmp_path, _full_report())
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["status"] == "ok"
+    assert result["projectSlug"] == "my-project"
+    assert result["path"] == str(latest)
+    assert result["latestPath"] == str(latest)
+    assert result["schemaVersion"] == "1.0"
+    assert result["schemaVersionOk"] is True
+    assert result["overallVerdict"] == "NOT_FEASIBLE"
+    assert result["verdictTableFound"] is True
+    assert result["duplicateVerdictTableLine"] is None
+    # The canonical table only: the display table's Risky row is not read.
+    assert result["pairVerdicts"] == _pairs(PAIR_ROWS)
+    assert result["unknownTokens"] == []
+    assert result["violation"] is None
+
+
+LOCATE_KEYS = {
+    "status",
+    "projectName",
+    "projectSlug",
+    "latestPath",
+    "path",
+    "schemaVersion",
+    "schemaVersionOk",
+    "overallVerdict",
+    "verdictTableFound",
+    "duplicateVerdictTableLine",
+    "pairVerdicts",
+    "unknownTokens",
+    "violation",
+}
+
+
+def test_locate_result_keys(tmp_path):
+    # One shape whatever the status; `error` is added on an io-error only.
+    missing, _ = locate_report(str(tmp_path), "My Project")
+    assert set(missing) == LOCATE_KEYS
+    _write_latest(tmp_path, _full_report())
+    found, _ = locate_report(str(tmp_path), "My Project")
+    assert set(found) == LOCATE_KEYS
+    _write_latest(tmp_path, _full_report(schema_version='"2.0"'))
+    mismatch, _ = locate_report(str(tmp_path), "My Project")
+    assert set(mismatch) == LOCATE_KEYS
+    tmp_path.joinpath("feasibility-report-my-project-latest.md").write_bytes(b"\xff\xfe")
+    unreadable, _ = locate_report(str(tmp_path), "My Project")
+    assert set(unreadable) == LOCATE_KEYS | {"error"}
+
+
+def test_locate_applies_the_slug_rule(tmp_path):
+    latest = _write_latest(tmp_path, _full_report(), slug="cafe-deja-vu")
+    result, code = locate_report(str(tmp_path), "Café Déjà Vu")
+    assert code == 0
+    assert result["projectName"] == "Café Déjà Vu"
+    assert result["projectSlug"] == "cafe-deja-vu"
+    assert result["path"] == str(latest)
+
+
+@pytest.mark.parametrize("name", ["", "  ", "日本語"])
+def test_locate_name_that_leaves_no_slug(tmp_path, name):
+    # The slug rule holds for every name: nothing left gives `project`.
+    latest = _write_latest(tmp_path, _full_report(), slug="project")
+    result, code = locate_report(str(tmp_path), name)
+    assert code == 0
+    assert result["projectSlug"] == "project"
+    assert result["path"] == str(latest)
+
+
+def test_locate_picks_latest_over_newer_timestamped_report(tmp_path):
+    _write_latest(tmp_path, _full_report(overall='"NOT_FEASIBLE"'))
+    # A later timestamped report (a halted run's partial one, say) is ignored.
+    _write(
+        tmp_path,
+        _full_report(overall='"FEASIBLE"'),
+        name="feasibility-report-my-project-20991231-235959.md",
+    )
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["overallVerdict"] == "NOT_FEASIBLE"
+    assert result["path"].endswith("feasibility-report-my-project-latest.md")
+
+
+def test_locate_ignores_other_projects_reports(tmp_path):
+    _write_latest(tmp_path, _full_report(overall='"NOT_FEASIBLE"'))
+    _write_latest(tmp_path, _full_report(overall='"FEASIBLE"'), slug="my-project-api")
+    mine, _ = locate_report(str(tmp_path), "My Project")
+    other, _ = locate_report(str(tmp_path), "My Project API")
+    assert mine["overallVerdict"] == "NOT_FEASIBLE"
+    assert other["overallVerdict"] == "FEASIBLE"
+    assert other["projectSlug"] == "my-project-api"
+
+
+def test_locate_not_found_with_only_timestamped_reports(tmp_path):
+    _write(tmp_path, _full_report(), name="feasibility-report-my-project-20260930-101010.md")
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["status"] == "not-found"
+    assert result["path"] is None
+    assert result["latestPath"] == str(tmp_path / "feasibility-report-my-project-latest.md")
+    # Nothing was read, so nothing reads as a schema mismatch either.
+    assert result["schemaVersionOk"] is None
+    assert result["verdictTableFound"] is None
+    assert result["duplicateVerdictTableLine"] is None
+    assert result["pairVerdicts"] == []
+    assert result["violation"] is None
+
+
+def test_locate_not_found_when_folder_is_missing(tmp_path):
+    result, code = locate_report(str(tmp_path / "no-such-folder"), "My Project")
+    assert code == 0
+    assert result["status"] == "not-found"
+    assert result["projectSlug"] == "my-project"
+
+
+def test_locate_zero_pairs(tmp_path):
+    _write_latest(tmp_path, _full_report(overall='"CONDITIONALLY_FEASIBLE"', verdicts=_verdict_table([])))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["status"] == "ok"
+    assert result["verdictTableFound"] is True
+    assert result["pairVerdicts"] == []
+
+
+def test_locate_reads_only_the_table_in_its_section(tmp_path):
+    # A canonical-looking table under another heading is not the verdict table.
+    content = _full_report(verdicts="No table here.").replace(
+        "Replace tauri.", _verdict_table([("a", "b", "Verified", "elsewhere")])
+    )
+    _write_latest(tmp_path, content)
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["verdictTableFound"] is False
+    assert result["pairVerdicts"] == []
+
+
+def test_locate_skips_fenced_code(tmp_path):
+    verdicts = "\n".join(
+        [
+            "```markdown",
+            _verdict_table([("fenced", "example", "Verified", "not a finding")]),
+            "## Not a heading",
+            "```",
+            "",
+            _verdict_table(PAIR_ROWS[:1]),
+        ]
+    )
+    _write_latest(tmp_path, _full_report(verdicts=verdicts))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["pairVerdicts"] == _pairs(PAIR_ROWS[:1])
+
+
+def test_locate_skips_html_comments(tmp_path):
+    verdicts = "\n".join(
+        [
+            # A canonical example table in a comment is not the verdict table,
+            # and a heading in a comment does not end the section.
+            "<!-- The header is fixed, for example:",
+            _verdict_table([("commented", "example", "Verified", "not a finding")]),
+            "## Not a heading",
+            "-->",
+            # A comment that closes on its own line hides nothing after it.
+            "<!-- one line -->",
+            # `<!--` in fenced code opens no comment.
+            "```html",
+            "<!-- not a comment",
+            "```",
+            _verdict_table(PAIR_ROWS),
+        ]
+    )
+    _write_latest(tmp_path, _full_report(verdicts=verdicts))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["pairVerdicts"] == _pairs(PAIR_ROWS)
+    assert result["duplicateVerdictTableLine"] is None
+
+
+# The Integration Verdicts section of skf-verify-stack's
+# feasibility-report-template.md: a comment, then the empty canonical table.
+TEMPLATE_VERDICTS = "\n".join(
+    [
+        "<!-- Appended by integrations.",
+        "Consumers grep for the `## Integration Verdicts` heading to locate the pair table.",
+        "The table header is fixed and MUST be emitted exactly as shown below: -->",
+        "",
+        "| lib_a | lib_b | verdict | rationale |",
+        "|-------|-------|---------|-----------|",
+    ]
+)
+
+
+def test_locate_reads_the_template_table_filled_in_place(tmp_path):
+    rows = [f"| {a} | {b} | {v} | {r} |" for a, b, v, r in PAIR_ROWS]
+    _write_latest(tmp_path, _full_report(verdicts="\n".join([TEMPLATE_VERDICTS, *rows])))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["pairVerdicts"] == _pairs(PAIR_ROWS)
+
+
+def _header_lines(path):
+    lines = path.read_text(encoding="utf-8").split("\n")
+    return [n for n, text in enumerate(lines, 1) if text == "| lib_a | lib_b | verdict | rationale |"]
+
+
+def test_locate_rejects_a_table_appended_below_the_templates(tmp_path):
+    # The template's empty table left in place and the filled one appended
+    # below it: reading the first alone would drop the Blocked pair.
+    verdicts = "\n".join([TEMPLATE_VERDICTS, "", _verdict_table(PAIR_ROWS)])
+    latest = _write_latest(tmp_path, _full_report(verdicts=verdicts))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["status"] == "error"
+    assert result["violation"] == "schema-violation"
+    assert result["verdictTableFound"] is True
+    assert result["duplicateVerdictTableLine"] == _header_lines(latest)[1]
+    assert result["unknownTokens"] == []
+
+
+def test_locate_rejects_a_table_in_a_repeated_verdicts_section(tmp_path):
+    content = _full_report(verdicts=_verdict_table([]))
+    content += "\n## Integration Verdicts\n\n" + _verdict_table(PAIR_ROWS) + "\n"
+    latest = _write_latest(tmp_path, content)
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["violation"] == "schema-violation"
+    assert result["duplicateVerdictTableLine"] == _header_lines(latest)[1]
+
+
+@pytest.mark.parametrize(
+    "after",
+    [
+        "```markdown\n" + _verdict_table([("fenced", "example", "Verified", "x")]) + "\n```",
+        "<!--\n" + _verdict_table([("commented", "example", "Verified", "x")]) + "\n-->",
+        # A header row with no delimiter row is not a table.
+        "| lib_a | lib_b | verdict | rationale |\n\nSee above.",
+        # A table under another heading is not in the section.
+        "## Appendix\n\n" + _verdict_table([("elsewhere", "example", "Verified", "x")]),
+    ],
+    ids=["fenced", "comment", "no-delimiter", "other-section"],
+)
+def test_locate_second_table_look_alikes(tmp_path, after):
+    verdicts = "\n".join([_verdict_table(PAIR_ROWS), "", after])
+    _write_latest(tmp_path, _full_report(verdicts=verdicts))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["duplicateVerdictTableLine"] is None
+    assert result["pairVerdicts"] == _pairs(PAIR_ROWS)
+
+
+def test_locate_reads_a_report_with_a_byte_order_mark(tmp_path):
+    # An editor that saves with a BOM must not hide the frontmatter.
+    latest = tmp_path / "feasibility-report-my-project-latest.md"
+    latest.write_text("\ufeff" + _full_report(), encoding="utf-8")
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["schemaVersion"] == "1.0"
+    assert result["pairVerdicts"] == _pairs(PAIR_ROWS)
+
+
+def test_validate_reads_a_report_with_a_byte_order_mark(tmp_path):
+    p = tmp_path / "report.md"
+    p.write_text("\ufeff" + _report(), encoding="utf-8")
+    result, code = validate_report(str(p))
+    assert code == 0
+    assert result["schemaVersionFound"] == "1.0"
+
+
+def test_locate_unknown_pair_tokens(tmp_path):
+    rows = [
+        ("react", "vite", "Verified", "fine"),
+        ("vite", "zod", "verified", "lower case"),
+        ("zod", "tauri", "Plausible (capped)", "annotated"),
+    ]
+    latest = _write_latest(tmp_path, _full_report(verdicts=_verdict_table(rows)))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["status"] == "error"
+    assert result["violation"] == "schema-violation"
+    # Never dropped or mapped: every row stays as written.
+    assert result["pairVerdicts"] == _pairs(rows)
+    tokens = result["unknownTokens"]
+    assert [(t["field"], t["lib_a"], t["lib_b"], t["token"]) for t in tokens] == [
+        ("verdict", "vite", "zod", "verified"),
+        ("verdict", "zod", "tauri", "Plausible (capped)"),
+    ]
+    # `line` is the row's 1-based line in the report file.
+    file_lines = latest.read_text(encoding="utf-8").split("\n")
+    for token in tokens:
+        assert f"| {token['token']} |" in file_lines[token["line"] - 1]
+
+
+def test_locate_unknown_overall_token(tmp_path):
+    _write_latest(tmp_path, _full_report(overall='"Feasible"'))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["overallVerdict"] == "Feasible"
+    assert result["unknownTokens"] == [{"field": "overallVerdict", "token": "Feasible"}]
+
+
+def test_locate_missing_overall_verdict(tmp_path):
+    _write_latest(tmp_path, _full_report(overall=None))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["unknownTokens"] == [{"field": "overallVerdict", "token": None}]
+
+
+@pytest.mark.parametrize("schema_version,found", [('"2.0"', "2.0"), (None, None)])
+def test_locate_schema_version_mismatch_is_not_interpreted(tmp_path, schema_version, found):
+    _write_latest(tmp_path, _full_report(schema_version=schema_version))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["status"] == "error"
+    assert result["violation"] == "schema-violation"
+    assert result["schemaVersion"] == found
+    assert result["schemaVersionOk"] is False
+    # An unknown version is never interpreted: no verdict is read from it.
+    assert result["overallVerdict"] is None
+    assert result["verdictTableFound"] is None
+    assert result["duplicateVerdictTableLine"] is None
+    assert result["pairVerdicts"] == []
+    assert result["unknownTokens"] == []
+
+
+def test_locate_requires_the_canonical_header(tmp_path):
+    verdicts = _verdict_table(PAIR_ROWS, header="| Library A | Library B | Verdict | Rationale |")
+    _write_latest(tmp_path, _full_report(verdicts=verdicts))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["verdictTableFound"] is False
+    assert result["violation"] == "schema-violation"
+
+
+def test_locate_requires_a_delimiter_row(tmp_path):
+    verdicts = "| lib_a | lib_b | verdict | rationale |\n| react | vite | Verified | x |"
+    _write_latest(tmp_path, _full_report(verdicts=verdicts))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["verdictTableFound"] is False
+
+
+def test_read_verdict_table_cells():
+    body = "\n".join(
+        [
+            "## Integration Verdicts",
+            "",
+            "| lib_a | lib_b | verdict | rationale |",
+            "|:------|:-----:|--------:|-----------|",
+            r"| react | vite | Verified | uses `a \| b` |",
+            "| vite | zod | Risky | split | by a pipe |",
+            "| zod | tauri |",
+            "",
+            "| after | the | Verified | blank line |",
+        ]
+    )
+    found, rows, duplicate_line = read_verdict_table(body, first_line=10)
+    assert found is True
+    assert rows == [
+        (14, ["react", "vite", "Verified", "uses `a | b`"]),
+        (15, ["vite", "zod", "Risky", "split | by a pipe"]),
+        (16, ["zod", "tauri", "", ""]),
+    ]
+    assert duplicate_line is None
+
+
+def test_read_verdict_table_duplicate_line():
+    body = "\n".join(
+        [
+            "## Integration Verdicts",
+            "| lib_a | lib_b | verdict | rationale |",
+            "|---|---|---|---|",
+            "",
+            "### Detail",
+            "| lib_a | lib_b | verdict | rationale |",
+            "|---|---|---|---|",
+            "| react | vite | Blocked | a subheading keeps the section |",
+        ]
+    )
+    found, rows, duplicate_line = read_verdict_table(body, first_line=10)
+    assert found is True
+    assert rows == []  # the first table's rows
+    assert duplicate_line == 15
+
+
+def test_locate_unreadable_report_is_io_error(tmp_path):
+    tmp_path.joinpath("feasibility-report-my-project-latest.md").write_bytes(b"---\n\xff\xfe\n---\n")
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 2
+    assert result["status"] == "error"
+    assert result["violation"] == "io-error"
+    assert result["path"].endswith("feasibility-report-my-project-latest.md")
+    assert "could not read report file" in result["error"]
+
+
+# --- locate mode CLI ----------------------------------------------------------
+
+
+def _run(*args):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_cli_locate_exit_codes(tmp_path):
+    forge = tmp_path / "forge"
+    _write_latest(forge, _full_report())
+
+    ok = _run("--locate", str(forge), "--project-name", "My Project")
+    assert ok.returncode == 0
+    payload = json.loads(ok.stdout)
+    assert payload["status"] == "ok"
+    assert payload["pairVerdicts"] == _pairs(PAIR_ROWS)
+
+    missing = _run("--locate", str(forge), "--project-name", "Another Project")
+    assert missing.returncode == 0
+    assert json.loads(missing.stdout)["status"] == "not-found"
+
+    _write_latest(forge, _full_report(overall='"Feasible"'), slug="bad-tokens")
+    bad = _run("--locate", str(forge), "--project-name", "Bad Tokens")
+    assert bad.returncode == 1
+    assert json.loads(bad.stdout)["unknownTokens"]
+
+    # An empty name is not a usage error: it gets the fallback slug.
+    empty = _run("--locate", str(forge), "--project-name", "")
+    assert empty.returncode == 0
+    assert json.loads(empty.stdout)["projectSlug"] == "project"
+
+
+def test_cli_locate_writes_output_file(tmp_path):
+    _write_latest(tmp_path, _full_report())
+    out = tmp_path / "result.json"
+    run = _run("--locate", str(tmp_path), "--project-name", "My Project", "-o", str(out))
+    assert run.returncode == 0
+    assert run.stdout == ""
+    assert json.loads(out.read_text(encoding="utf-8"))["overallVerdict"] == "NOT_FEASIBLE"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--locate", "forge"],  # --project-name missing
+        ["--locate", "", "--project-name", "My Project"],  # empty folder
+        ["--locate", "  ", "--project-name", "My Project"],  # blank folder
+        ["report.md", "--project-name", "My Project"],  # name without --locate
+        ["report.md", "--locate", "forge", "--project-name", "My Project"],  # both modes
+        [],  # neither mode
+    ],
+)
+def test_cli_usage_errors(argv, capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        mod.main(argv)
+    assert excinfo.value.code == 2
+    assert capsys.readouterr().out == ""  # no JSON verdict on a usage error
+    # The parser itself refuses them, so a caller that only parses (the
+    # helper-call contract test) sees the same errors as main().
+    with pytest.raises(SystemExit) as excinfo:
+        mod._build_parser().parse_args(argv)
+    assert excinfo.value.code == 2
