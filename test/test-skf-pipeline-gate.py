@@ -596,10 +596,10 @@ def test_step_4d_gate_call_runs_as_written(keep_optional):
 
 def test_step_4d_gates_the_envelope_the_step_just_printed():
     """A -latest.json record may not describe this run: TS writes its record
-    before its step-completeness, report-anchor and health-check halts, whose
-    envelopes carry no verdict, and its coverage and coherence aborts write
-    none, leaving an earlier run's record in place. Gated on this run's
-    envelope, the pipeline halts; the earlier PASS record would export."""
+    before its health-check halt, whose envelope carries no verdict, and its
+    coverage and coherence aborts and its step-completeness and report-anchor
+    halts write none, leaving an earlier run's record in place. Gated on this
+    run's envelope, the pipeline halts; the earlier PASS record would export."""
     this_run = ts_envelope(None, None, status="error", score=None, threshold=None, exit_code=1,
                            halt_reason="step-completeness-violation")
     earlier_record = json.dumps({"status": "success", "summary": {"result": "PASS", "score": 92}})

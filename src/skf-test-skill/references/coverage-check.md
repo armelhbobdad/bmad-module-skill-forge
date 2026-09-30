@@ -7,11 +7,18 @@ reconcileScript: 'scripts/reconcile-coverage.py'
 coherenceScript: 'scripts/check-metadata-coherence.py'
 numeratorVerifyScript: 'scripts/verify-declared-numerator.py'
 stageHelperPayloadScript: 'scripts/stage-helper-payload.py'
+outputFormatsFile: '{outputFormatsPath}'
+# §5b records every gap this step finds in the run's gap ledger, which the
+# hard gate (step 4c) reads and the Gap Report is rendered from.
+ledgerFile: '{forge_version}/test-findings-{run_id}.json'
+gapLedgerScript: 'scripts/gap-ledger.py'
 # Resolve `{verifyProvenanceCompletenessHelper}` by probing
 # `{verifyProvenanceCompletenessProbeOrder}` in order (installed SKF module
-# path first, src/ dev-checkout fallback); first existing path wins. §4c runs
-# it to check that each provenance `source_line` is the line that defines its
-# export. Advisory: if neither path resolves, skip §4c.
+# path first, src/ dev-checkout fallback); first existing path wins. §2c runs
+# it on the line the skill cites for a stale name, and §4c to check that each
+# provenance `source_line` is the line that defines its export. Advisory: if
+# neither path resolves, §2c records stale names as stale documentation and
+# §4c is skipped.
 verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
@@ -160,7 +167,7 @@ Parent reads `cross_check_mismatches` from the subagent JSON summary. Build the 
 }
 ```
 
-Flag each mismatch as **High severity** — signature inconsistency between SKILL.md body and reference files undermines agent trust. These findings feed into the gap report (step 6).
+Each mismatch is a High `split-body-mismatch` gap: a signature inconsistency between the SKILL.md body and a reference file undermines agent trust. §5b records it titled `Split-body mismatch: {export}`, with its `export` and its Source at the reference file's line (`{reference_file}:{reference_line}`), inside the skill package: the reference file is the one to update, and update-skill repairs it without reading the source.
 
 ### 2. Analyze Source Code (Tier-Dependent)
 
@@ -184,7 +191,7 @@ Start from the package entry point (see 0b) and identify the public API surface.
 
 For EACH source file that defines public API exports, delegate to a subagent that:
 1. Uses ast-grep to extract all exported symbols with their full signatures (the `source_sig`)
-2. Matches each export against the `documented_signatures` map supplied by the parent, comparing params (name, type, order, optionality) and return type
+2. Matches each export against the `documented_signatures` map supplied by the parent, comparing params (name, type, order, optionality) and return type, and gives each mismatch the `line` that defines the export
 3. Returns only the JSON object below — no prose, no commentary, no markdown fences:
 
 ```json
@@ -196,6 +203,7 @@ For EACH source file that defines public API exports, delegate to a subagent tha
   "signature_mismatches": [
     {
       "name": "formatDate",
+      "line": 42,
       "source_sig": "(date: Date, format?: string) => string",
       "documented_sig": "(date: Date) => string",
       "issue": "missing optional parameter 'format'"
@@ -205,6 +213,8 @@ For EACH source file that defines public API exports, delegate to a subagent tha
 ```
 
 Parent strips wrapping markdown fences (if present) before parsing, same as §1a. If subagent unavailable, perform ast-grep analysis in main thread per file.
+
+Each `signature_mismatches[]` entry is a wrong signature, a Critical `signature-mismatch` gap: §5b records it titled `Signature mismatch: {name}`, with `export` `{name}`, its Source at `{file}:{line}` and both signatures in its Issue.
 
 **Deep Tier (ast-grep + gh + QMD):**
 - All Forge tier checks, plus:
@@ -289,6 +299,18 @@ The script returns (read these — **do not re-derive them by hand**):
 
 Carry these into §3's table/summary and §4's Export Coverage, and record the counts in the Coverage Analysis section (§5) so the numerator is auditable. The `exportCoverage` recorded here is the value step 5 feeds to `compute-score.py` — it is the script's value, not a parent estimate.
 
+**Classify what the script found.** §5b records each of these gaps:
+
+- **Missing names** (barrel branch: `missing`): each is a Medium `missing-export` gap titled `Missing export: {name}`, or a Medium `missing-type` gap titled `Missing type: {name}` when §2 found it as a type, an interface or a type alias, with `export` `{name}`. Its Source is the source file §2 found it in (`{file}:{line}` when the line is known), and its Remediation names that file, so update-skill can re-extract the export from it. A missing export does not block: it lowers Export Coverage, and the threshold decides.
+- **Missing count** (scalar or stack branch, `missingCount` above 0): these branches do not enumerate the names, so record one Medium `missing-export` gap for the count, titled `{missingCount} of {denominator} exports not documented`, with the source of the denominator as its Source. When §4b's numerator ground-truth arm finds the count inflated, its `absent[]` names replace this gap (§4b).
+- **Stale names** (barrel branch: `stale`): each is a documented name the enumerated source surface lacks. Where ast-grep read the source at the pinned commit (Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `allow_workspace_drift` not true) and `{forge_provenance_map}` holds entries whose `export_name` is the name, check the line the skill cites for it. Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and, from `{project-root}`, run once per such entry, with `--export-type` when the entry records one:
+
+  ```bash
+  uv run {verifyProvenanceCompletenessHelper} definition-lines --source-root "{source_path}" --file "{source_file}" --name "{name}" --line {source_line} [--export-type "{export_type}"]
+  ```
+
+  Rely on its JSON. When every entry's `line_check` is `file-missing`, or `checked` with an empty `definition_lines`, neither the surface ast-grep enumerated nor the file the skill cites has the export: a Critical `fabricated-signature` gap titled `Fabricated signature: {name}`, with `export` `{name}` and the entry's `source_file:source_line` (the first, when there are several) as its Source. Any other stale name (no entry, another tier or source access, the drift override, a helper that does not resolve or prints no JSON, a `skipped-export-type` or `skipped-language` result, or a cited file that defines the name) is a Medium `stale-documentation` gap titled `Stale documentation: {name}`, with `export` `{name}` and the SKILL.md or `references/` line that documents it as its Source.
+
 ### 3. Build Coverage Results
 
 Aggregate findings across all source files:
@@ -317,6 +339,8 @@ Load `{scoringRulesFile}` to determine category scores:
 - **Type Coverage:** (documented_types / total_types) * 100 (Forge/Deep only, "N/A" for Quick)
 
 **Resolve the coverage denominator per `{sourceAccessProtocol}` (already loaded in §0b) — do not re-derive its ladders here.** Determine which §Source API Surface Definition clause matches this skill and apply that clause exactly as written: **stratified-scope** (monorepo curated subset), **multi-entry (exports-map)**, **specific-modules**, **pattern-reference**, or the **State 2** provenance-vs-metadata cross-reference (union on divergence). Each clause fixes its own resolution priority (prefer `metadata.json.stats.effective_denominator` → `scope.tier_a_include` → `scope.include` / subpath union), its deflation and inflation guards, the umbrella-barrel exclusion, and provenance-map canonicalization (including the fold summary the canonicalization records). Use the clause's resolved value as `total_exports`; when no clause matches, use the standard barrel-based denominator. Record the denominator source in the Coverage Analysis section using the exact `Denominator: {barrel | stratified (…) | multi-entry (…) | specific-modules (…) | pattern-reference (…)}` annotation string the matching clause specifies.
+
+A gap the clause's guards raise is a coverage gap too: denominator deflation is a Medium `metadata-drift` gap and denominator inflation a Medium `denominator-inflation` gap, each with the counts the protocol names in its Issue and `{resolved_skill_package}/metadata.json` (deflation) or the skill brief (inflation) as its Source. §5b records it.
 
 **Record the two non-chosen candidate values alongside the chosen one.**
 Stratified-scope resolution picks ONE of three denominator candidates
@@ -383,7 +407,7 @@ Input JSON (omit any count that is absent; `driftThresholdPct` defaults to `10`)
 }
 ```
 
-The script returns `{"skipped": bool, "clusterACounts": {...}, "clusterBCounts": {...}, "findings": [...]}`. Read `findings[]` and append each entry directly — **do not re-derive the percentages by hand.** Each entry carries `severity`, `title`, `detail` (the enumerated counts + drift %), and `category: structural/metadata coherence`:
+The script returns `{"skipped": bool, "clusterACounts": {...}, "clusterBCounts": {...}, "findings": [...]}`. Read `findings[]` and record each entry as a gap (§5b); **do not re-derive the percentages by hand.** Each entry carries `severity`, `title`, `detail` (the enumerated counts + drift %), and `category: structural/metadata coherence`, the script's own label: a Medium entry is a Medium `metadata-drift` gap and an Info entry an Info `multi-denominator` gap, titled with the entry's `title`, with its `detail` as the Issue and `{resolved_skill_package}/metadata.json` as the Source.
 
 - A **Medium** `metadata drift — {barrel|documented-surface} export counts diverge` is the real drift signal — the two sources should mirror the same surface and they don't, so upstream extraction or compilation produced inconsistent output that a re-compile should reconcile. It is classified under structural/metadata coherence regardless of naive/contextual mode.
 - An **Info** `multi-denominator reporting — barrel vs documented surface` is expected for skills whose documented surface intentionally exceeds the barrel (methods, submodule members, re-exported classes) — it is not drift. The note exists so the test report makes the dual-denominator design visible and auditable without demanding action.
@@ -399,11 +423,11 @@ echo '{"declaredNames": [ /* full declared set */ ], "skillPackagePath": "{resol
 Read the script's output — do not re-derive it by hand:
 
 - `inflated: false` (`verified == declared`) → the skill is genuinely fully documented; no finding, coverage stands.
-- `inflated: true` (`verified < declared`) → emit a **High**-severity gap `numerator inflation — {declared − verified} of {declared} declared exports absent from SKILL.md/references` listing the script's `absent[]` names, and use `verified` as the Export Coverage numerator (overriding `exports_documented`). A numerator padded to equal the denominator otherwise produces a tautological 100% that passes the gate.
+- `inflated: true` (`verified < declared`) → a High `numerator-inflation` gap titled `numerator inflation: {declared − verified} of {declared} declared exports absent from SKILL.md/references`, whose Issue lists the script's `absent[]` names and whose Source is `{resolved_skill_package}/metadata.json`. When §2c recorded a missing-count gap (the scalar branch), record each `absent[]` name in its place, as a Medium `missing-export` gap titled `Missing export: {name}` with `export` `{name}` and the name's provenance `source_file:source_line` as its Source (`{resolved_skill_package}/metadata.json` when the map holds none): update-skill documents a named export, not a count. Use `verified` as the Export Coverage numerator (overriding `exports_documented`). A numerator padded to equal the denominator otherwise produces a tautological 100% that passes the gate.
 
 The grep runs only on the exact-equality signature, so it adds no cost to the common case where the numerator is already below the denominator. Unlike the count-coherence findings above, this arm is authoritative — it changes the numerator used for scoring.
 
-Append any findings (Medium gaps, the Info note, and/or the High numerator-inflation gap) to the Coverage Analysis section's gap list (built in section 5) so they surface in the final test report alongside coverage and signature findings. The count-coherence findings are informational about data quality and do not change the denominator chosen above; the numerator ground-truth arm is the one exception that overrides the numerator.
+§5b records these findings (the Medium gaps, the Info note and the High numerator-inflation gap) in the gap ledger beside the coverage and signature gaps, so the hard gate and the Gap Report see them. The count-coherence findings are informational about data quality and do not change the denominator chosen above; the numerator ground-truth arm is the one exception that overrides the numerator.
 
 ### 4c. Provenance Line Check
 
@@ -418,21 +442,22 @@ uv run {verifyProvenanceCompletenessHelper} verify \
     --source-root {source_path}
 ```
 
-Rely on the JSON, not the exit code, and do not re-check the lines by eye. On exit 2 the helper prints no JSON: skip to section 5. For each `stale[]` item whose `reason` is `line-not-definition` and whose `definition_lines` holds one or more lines, append one **Low** gap to the Coverage Analysis section's gap list (built in section 5). Its Source is exactly the `file:line` the map records, with nothing after it, because update-skill's rule R5 reads that pair as the gap's citation:
+Rely on the JSON, not the exit code, and do not re-check the lines by eye. On exit 2 the helper prints no JSON: skip to section 5. For each `stale[]` item whose `reason` is `line-not-definition` and whose `definition_lines` holds one or more lines, §5b records one Low `provenance-line` gap. Its Source is exactly the `file:line` the map records, with nothing after it, because update-skill's rule R5 reads that pair as the gap's citation:
 
 - **Title:** `Provenance line is not the definition of {export_name}`
-- **Category:** Coverage
+- **Category:** `provenance-line`
 - **Source:** `{source_file}:{source_line}`
+- **Export:** `{export_name}`
 - **Issue:** the provenance map records `{export_name}` at `{source_file}:{source_line}`, which is not the line that defines it; the lines that define it are {definition_lines}.
 - **Remediation:** "Set the provenance `source_line` of `{export_name}` in `{source_file}` to its definition line ({definition_lines}) and move its citations to that line; update-skill `--from-test-report` applies this when the file defines it on one line."
 
-A `line-not-definition` item whose `definition_lines` is empty means the rules found no line that defines the export, which may be a shape they do not cover: the export is unverified, not gone. Append one **Info** gap for it instead, titled `Provenance line not verified for {export_name}`, with the same Category and Source, the Issue "the line-check rules found no definition line for `{export_name}` in `{source_file}`; check by hand" and the Remediation "Open `{source_file}` and confirm that line {source_line} defines `{export_name}`; if another line does, set the provenance `source_line` to it." Never say the file no longer defines the export. update-skill does not route this Info gap.
+A `line-not-definition` item whose `definition_lines` is empty means the rules found no line that defines the export, which may be a shape they do not cover: the export is unverified, not gone. Record one Info `provenance-unverified` gap for it instead, titled `Provenance line not verified for {export_name}`, with the same Source and `export`, the Issue "the line-check rules found no definition line for `{export_name}` in `{source_file}`; check by hand" and the Remediation "Open `{source_file}` and confirm that line {source_line} defines `{export_name}`; if another line does, set the provenance `source_line` to it." Never say the file no longer defines the export. update-skill does not route this Info gap.
 
 The helper's other findings (`missing`, `orphaned` and the other `stale` reasons) are not reported by this section, and neither gap blocks the gate.
 
-### 5. Append Coverage Analysis to Output
+### 5. Write the Coverage Analysis Section
 
-Append the **Coverage Analysis** section to `{outputFile}`:
+Write the **Coverage Analysis** section in place of the template's `## Coverage Analysis` heading and the placeholder comment under it, in `{outputFile}`:
 
 ```markdown
 ## Coverage Analysis
@@ -470,9 +495,35 @@ Append the **Coverage Analysis** section to `{outputFile}`:
 Note: Weight application is deferred to step 5 where all category weights are calculated after external validation availability is known.
 ```
 
+### 5b. Record the Coverage Gaps
+
+Record every gap this step found in the gap ledger `{ledgerFile}`: the hard gate (step 4c) decides from it, and the report step renders the Gap Report from it. Load the Ledger Record Format from `{outputFormatsFile}`: each gap is one JSON record whose severity and category are those of its row in the Gap Severity table of `{scoringRulesFile}`, and whose Source and Remediation follow the remediation quality rules there. The gaps, from the sections above:
+
+- §1b: each split-body mismatch.
+- §2: each signature mismatch.
+- §2c: each missing name, or the missing count, and each stale name.
+- §4 and §4b: the denominator deflation or inflation gap, each finding of the count cross-check, and the numerator-inflation gap with the absent names it records.
+- §4c: each provenance line gap.
+
+A record about one export (`missing-export`, `missing-type`, `signature-mismatch`, `fabricated-signature`, `stale-documentation`, `split-body-mismatch`, `provenance-line`, `provenance-unverified`) names it in `export` and in its title, as the sections above say: the ledger tells two gaps apart by their title, Source and `export`, and update-skill takes the export's name from `export`.
+
+Write the records as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without (`{gapLedgerScript}` resolves relative to the skill root).
+
+```bash
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check <<'SKF_GAPS'
+<the records, one JSON array>
+SKF_GAPS
+```
+
+Rely on its JSON:
+
+- Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
+- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0) and run the command again.
+- Exit 1: HALT with the script's `error`.
+
 ### 6. Report Coverage Results
 
 Report the coverage result to the user: the {forge_tier}-tier analysis of {file_count} source files, the documented ratios for exports / signatures / types (signatures and types are N/A for Quick tier), and the issue count — full details are in the Coverage Analysis section. Then proceed to the coherence check.
 
-Update stepsCompleted, then load and execute {nextStepFile}.
+Append `'coverage-check'` to `stepsCompleted` in the `{outputFile}` frontmatter, then load and execute {nextStepFile}.
 

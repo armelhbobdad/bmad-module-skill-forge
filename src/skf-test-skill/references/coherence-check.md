@@ -6,6 +6,10 @@ scoringRulesFile: '{scoringRulesPath}'
 coherenceAggregationScript: 'scripts/aggregate-coherence.py'
 locateExportSegmentsScript: 'scripts/locate-export-segments.py'
 migrationSectionRules: 'references/migration-section-rules.md'
+# §6 records every gap this step finds in the run's gap ledger, which the
+# hard gate (step 4c) reads and the Gap Report is rendered from.
+ledgerFile: '{forge_version}/test-findings-{run_id}.json'
+gapLedgerScript: 'scripts/gap-ledger.py'
 scanSkillMdStructureProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-skill-md-structure.py'
   - '{project-root}/src/shared/scripts/skf-scan-skill-md-structure.py'
@@ -18,6 +22,8 @@ scanSkillMdStructureProbeOrder:
 ## STEP GOAL:
 
 Validate internal consistency of the skill documentation. In contextual mode (stack skills): verify that all cross-references in SKILL.md point to real files, types match their declarations, and integration patterns are complete. In naive mode (individual skills): perform basic structural validation only.
+
+Every HALT in this step releases the run lock first (SKILL.md Workflow Rules).
 
 ### 1. Check Test Mode
 
@@ -58,7 +64,7 @@ The script matches case-insensitively and tolerates `##`/`###` heading levels. S
   - **Single-body skill** (no `references/` directory, or `## Full*` sections carry real content): the span from §2.1's `matched_synonym` anchor to the next `^## ` anchor.
   - **Split-body skill** (a `references/` directory exists alongside SKILL.md AND the SKILL.md `## Full*` sections are stubs/pointers): the union of EVERY usage-family heading present in SKILL.md (`Usage`/`Usage Patterns`/`Examples`/`How to use`/`Quickstart`/`Quick Start`/`Getting Started`/`Common Workflows`/`Adoption Steps`/`Key API Summary`/`Pattern Surface`/`Key Exports`), each from its anchor to the next `^## ` anchor, PLUS the full text of every file under `references/`.
 - `grep -c "{export.name}"` across that scope and sum the counts.
-- **Zero occurrences across the entire scope → High severity** finding: `naive-coherence: exported {kind} \`{name}\` is not referenced in any usage-family section or reference file`. This catches the "documented but unused" failure mode that trivially fails discovery testing. A method referenced in any usage-family section OR any `references/` file satisfies the check.
+- **Zero occurrences across the entire scope → Medium severity** finding: `naive-coherence: exported {kind} \`{name}\` is not referenced in any usage-family section or reference file`. This catches the "documented but unused" failure mode that trivially fails discovery testing. Like a missing export, it is a completeness gap, so it does not block the hard gate. A method referenced in any usage-family section OR any `references/` file satisfies the check.
 
 **2.5 Async/sync consistency.** `{locateExportSegmentsScript}` reports the facts: for each export the step 3 inventory lists with `kind` `function` or `method`, where the skill describes it (`descriptions[]`: the heading sections, table rows, list items and paragraphs that name it in code, and the signature lines that declare it) and each call to it in fenced code, with whether the call awaits it. Skip this check when the inventory has no such export; otherwise run the script (it resolves relative to the skill root):
 
@@ -83,7 +89,7 @@ Then, for each export:
 **2.7 Scripts & Assets section.** If `{skillDir}/scripts/` or `{skillDir}/assets/` exists, `grep -n '^## Scripts' SKILL.md`:
 - Directory exists AND no `## Scripts` section → **Medium severity** finding: `naive-coherence: scripts/assets directory exists but Scripts & Assets section missing` (per `{scoringRulesFile}`)
 
-**Hard rule:** 0 findings across §§2.1–2.7 = naive coherence PASS. ≥1 finding = rerank per the severity rubric above; the count and severity list are appended to the Coherence Analysis output in §6.
+**Hard rule:** 0 findings across §§2.1–2.7 = naive coherence PASS. ≥1 finding = rerank per the severity rubric above; the count and severity list go into the Coherence Analysis section §6 writes.
 
 Build the findings list:
 
@@ -92,14 +98,14 @@ Build the findings list:
   "structural_issues": [
     {"type": "missing_section", "severity": "High", "detail": "No 'Usage' section found", "line": null},
     {"type": "unbalanced_fence", "severity": "High", "detail": "3 opening fences, 2 closing", "line": null},
-    {"type": "export_not_in_usage", "severity": "High", "detail": "exported function `formatDate` never referenced in Usage section", "line": 42},
+    {"type": "export_not_in_usage", "severity": "Medium", "detail": "exported function `formatDate` never referenced in Usage section", "line": 42},
     {"type": "async_mismatch", "severity": "High", "detail": "`fetchData` described async but example lacks await", "line": 67}
   ],
   "issues_found": 4
 }
 ```
 
-**After naive coherence → Execute Section 2b if gate conditions met, then skip to Section 6 (Append Results)**
+**After naive coherence → Execute Section 2b if gate conditions met, then skip to Section 6 (Write Results)**
 
 ### 2b. Migration/Deprecation Verification (Mode-Independent)
 
@@ -107,7 +113,7 @@ Apply rules from `{migrationSectionRules}`. That file is the single source of
 truth for the gate, scope, and case rules; §5b below applies the same rules on
 the contextual path.
 
-**After Section 2b (naive path) → Skip to Section 6 (Append Results)**
+**After Section 2b (naive path) → Skip to Section 6 (Write Results)**
 
 ### 3. Contextual Mode: Extract References
 
@@ -137,7 +143,9 @@ For EACH reference found, delegate to a subagent that:
 
 Parent strips wrapping markdown fences (if present) before parsing. If subagent unavailable, validate each reference in main thread.
 
-4. **Scripts/assets directory check:** If a `scripts/` or `assets/` directory exists alongside SKILL.md, verify that a "Scripts & Assets" section (Section 7b) is present in SKILL.md. This directory-level check applies in both modes (naive mode performs it in Section 2; contextual mode performs it here alongside per-reference validation). Flag absence as Medium severity gap per `{scoringRulesFile}`.
+Classify each result against the Gap Severity table (`{scoringRulesFile}`): a reference whose `target_exists` is false is a broken reference, a Critical `broken-reference` gap (a `scripts/` or `assets/` file the skill names that is not there included); a reference whose target exists but whose `type_match` or `signature_match` is false, or whose `issues` is not empty, is an inaccurate reference, a High `inaccurate-reference` gap. Its Source is `SKILL.md:{line}`, and its Issue is the result's `issues`. §6 records each one.
+
+4. **Scripts/assets directory check:** If a `scripts/` or `assets/` directory exists alongside SKILL.md, verify that a "Scripts & Assets" section (Section 7b) is present in SKILL.md. This directory-level check applies in both modes (naive mode performs it in Section 2; contextual mode performs it here alongside per-reference validation). Its absence is a Medium `scripts-assets` gap (`{scoringRulesFile}`).
 
 5. **Path containment:** for every resolved reference target, compute its canonical path (`os.path.realpath`) and require that it lives inside `{skillDir}`, inside `{source_path}` (the extraction tree recorded in metadata.json), OR — for stack skills — inside `{skills_output_folder}`. The third root applies only here in contextual mode: a stack's constituent cross-references legitimately resolve to `skills/{name}/active` under `{skills_output_folder}`, which lies outside `{skillDir}`, and a stack's metadata.json records no single `source_path` to anchor them. References whose canonical path escapes all applicable roots (e.g. `../../../etc/passwd`, absolute paths to unrelated dirs, symlink redirections outside the skill, its source, or — for a stack — the skills output tree) are **High severity** findings: `coherence — reference escapes skill/source sandbox: {raw_ref} → {canonical_path}`. Canonicalization happens before the root check, so a symlink that points outside every applicable root is still caught. Do not validate the target's contents for escaping references — the escape itself is the finding.
 
@@ -175,6 +183,8 @@ Build integration completeness findings:
 }
 ```
 
+Each `incomplete_patterns` entry is an incomplete integration pattern, a Medium `integration-pattern` gap, with its Source at `SKILL.md:{line}` and the missing evidence as its Issue; §6 records it.
+
 **Zero integration patterns:** If no integration patterns are documented in SKILL.md (e.g., a contextual-mode skill that uses shared types but has no middleware chains, plugin hooks, or event flows): record `patterns_documented: 0`, `patterns_complete: 0`. The coherence score will use reference validity alone — see `{scoringRulesFile}` Coherence Score Aggregation: "If no integration patterns exist, combined coherence equals reference validity."
 
 ### 5b. Migration/Deprecation Verification (Contextual Path)
@@ -200,9 +210,29 @@ The script also accepts the JSON as a positional argument or via `--json-input`.
 
 The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6.
 
-### 6. Append Coherence Analysis to Output
+### 6. Write the Coherence Analysis Section
 
-Load `{outputFormatsFile}` and use the appropriate Coherence Analysis section format (naive or contextual) to append findings to `{outputFile}`.
+Load `{outputFormatsFile}` and use the appropriate Coherence Analysis section format (naive or contextual) to write the findings in place of the template's `## Coherence Analysis` heading and the placeholder comment under it, in `{outputFile}`.
+
+Then record every coherence gap in the gap ledger `{ledgerFile}`: the hard gate (step 4c) decides from it, and the report step renders the Gap Report from it. Each gap is one record in the Ledger Record Format of `{outputFormatsFile}`, with the severity and category the Gap Severity table gives it:
+
+- **Naive mode:** the §2.1, §2.2 and §2.5 findings are High `structural` gaps and the §2.3, §2.4 and §2.6 findings Medium `structural` gaps, each titled with its `naive-coherence:` text and with its Source at `SKILL.md:{line}` when it has a line (else `SKILL.md`); the §2.7 finding is a Medium `scripts-assets` gap. The split-body rows of the Reference Consistency table are not recorded here: coverage-check §1b recorded them.
+- **Contextual mode:** each §4 broken or inaccurate reference and the §4 scripts/assets gap, each §4 path-containment escape (a High `reference-escape` gap, Source `SKILL.md:{line}`), and each §5 incomplete integration pattern.
+- **Both modes (§2b / §5b):** a migration section finding: Case 1 and Case 3 are Medium `migration-section` gaps (a Low `migration-section` gap when the reviewer downgraded Case 3 with an inline justification), and Case 2 is an Info `migration-section` gap.
+
+Write the records as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without (`{gapLedgerScript}` resolves relative to the skill root).
+
+```bash
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coherence-check <<'SKF_GAPS'
+<the records, one JSON array>
+SKF_GAPS
+```
+
+Rely on its JSON:
+
+- Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
+- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0) and run the command again.
+- Exit 1: HALT with the script's `error`.
 
 ### 7. Report Coherence Results
 
@@ -211,5 +241,5 @@ Report the coherence result to the user, then proceed to external validation:
 - **Naive mode:** the count of structural issues found (the coherence category is not scored — its weight redistributes to coverage).
 - **Contextual mode:** the reference-validity ratio, the integration-completeness ratio, the combined coherence percentage, and the issue count — full details are in the Coherence Analysis section.
 
-Update stepsCompleted, then load and execute {nextStepFile}.
+Append `'coherence-check'` to `stepsCompleted` in the `{outputFile}` frontmatter, then load and execute {nextStepFile}.
 

@@ -29,9 +29,10 @@ take, and run each prose command against the real helper:
   through skf-run-lock.py and takes the run id from it, report.md §4c renews
   it before the result files are written, every HALT after the lock
   releases it (a rule stated before the first HALT of a step file, or at
-  the halt), and the hard gate's block path and both ways report.md §7 ends
-  a run release it with the command written out; the runtime check comes
-  before the first helper call;
+  the halt), a run the hard gate blocks ends through report.md instead of
+  halting, and both ways report.md §7 ends a run release it with the
+  command written out; the runtime check comes before the first helper
+  call;
 - the workspace drift guard (#588 item 4): init.md §5b runs
   skf-check-workspace-drift.py once per source tree instead of git by hand;
 - the Quick-tier scan and the workspace layout (#584): coverage-check.md
@@ -297,7 +298,7 @@ def test_only_the_line_check_names_the_version_folders_map():
             if f"{{forge_version}}/{name}" in text:
                 sites.append((path.name, name))
     assert sites == [("coverage-check.md", PROVENANCE)]
-    section = _slice(_read(COVERAGE), "### 4c. Provenance Line Check", "### 5. Append Coverage Analysis")
+    section = _slice(_read(COVERAGE), "### 4c. Provenance Line Check", "### 5. Write the Coverage Analysis Section")
     assert "--provenance {forge_version}/provenance-map.json" in section
     assert "{forge_data_folder}" not in section
 
@@ -516,8 +517,11 @@ def test_every_halt_after_the_lock_releases_it(name):
 
 
 def test_the_gate_and_both_ends_of_a_run_release_the_lock():
+    # A blocked run no longer halts at the gate with the lock in hand: it ends
+    # through report.md, whose §7 releases the lock like any other run's.
     block = _flow(_slice(_read(HARD_GATE), "### §3. Block", "### §4. Pass"))
-    assert block.index(RELEASE) < block.index("Then HALT")
+    assert "load and execute `{blockedStepFile}`" in block and "HALT" not in block
+    assert _frontmatter(HARD_GATE)["blockedStepFile"] == "report.md"
     section7 = _flow(_slice(_read(REPORT), "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
     bypass = _slice(section7, "**`--no-health-check` flag bypass", "Resolve `{healthCheckFile}`")
     assert bypass.index("mirror `healthCheckDispatched: false`") < bypass.index(RELEASE) \

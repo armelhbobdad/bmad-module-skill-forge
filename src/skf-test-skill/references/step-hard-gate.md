@@ -1,6 +1,11 @@
 ---
 nextStepFile: 'score.md'
+# A run the gate blocks is never scored: it ends through the report step's
+# terminal sequence instead (§3).
+blockedStepFile: 'report.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
+ledgerFile: '{forge_version}/test-findings-{run_id}.json'
+hardGateScript: 'scripts/hard-gate.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -9,63 +14,72 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 
 ## STEP GOAL:
 
-Scan accumulated findings from coverage and coherence analysis for critical or high severity gaps. If any exist, block the pipeline with a clear listing of every blocking finding — no coverage score is computed or reported. If only medium, low, or info findings exist, pass through to scoring.
+Decide from the gap ledger whether this run may be scored. Coverage, coherence and external validation recorded every gap they found in `{ledgerFile}`, each with the severity and the category the Gap Severity table gives it. Any Critical or High gap blocks the run: no score is computed, and the report step publishes the run as a FAIL. When only Medium, Low or Info gaps exist, the run passes through to scoring.
 
-### §1. Read Findings from Output
+Every HALT in this step releases the run lock first (SKILL.md Workflow Rules).
 
-Read `{outputFile}` and scan the **Coverage Analysis** and **Coherence Analysis** sections for GAP entries. Each GAP entry contains a severity marker in this format:
+### §1. Run the Gate
 
+The gate reads the ledger, not the report: a gap the report shows only in a table still counts, and a stage that never recorded its gaps cannot pass for one that found none. Run it (`{hardGateScript}` resolves relative to the skill root):
+
+```bash
+uv run {hardGateScript} check --ledger "{ledgerFile}" --skill-name "{skill_name}" --report-path "{outputFile}" --require-stage coverage-check --require-stage coherence-check --require-stage external-validators
 ```
-**Severity:** {Critical|High|Medium|Low|Info}
-```
 
-Extract every line matching `**Severity:** Critical` or `**Severity:** High`. For each match, also capture the parent GAP heading (`### GAP-{NNN}: {title}`) and the `**Source:**` line to build a blocking-findings list.
+Rely on its JSON and do not count the gaps again by hand.
 
 ### §2. Evaluate Gate
 
-**Count blocking findings** (Critical + High severity).
+- `gate` is `blocked` (exit 0): `blocking` lists every Critical and High gap, Critical first. Go to §3.
+- `gate` is `passed` (exit 0): no gap is Critical or High. Go to §4.
+- Exit 1 with `code` `LEDGER_MISSING` or `STAGE_NOT_RECORDED`: a stage before the gate recorded nothing in the ledger (`missing_stages` names it; with no ledger, none of them did), so the gate cannot decide. HALT with "step completeness violation: {the stages} never recorded their gaps in `{ledgerFile}`; workflow state is inconsistent, do not score or finalize the report". **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
 
-**IF blocking findings exist → BLOCK (§3)**
+  ```
+  SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":null,"exit_code":1,"halt_reason":"step-completeness-violation"}
+  ```
 
-**IF no blocking findings → PASS (§4)**
+- Any other `code` (`LEDGER_INVALID`, `HELPER_MISSING`) or exit, or no JSON: HALT with the script's `error`, or with its stderr when it printed no JSON.
 
-### §3. Block — Critical/High Findings Detected
+### §3. Block: Critical or High Gaps
 
-The hard gate blocks the pipeline. No scoring step runs.
+The gate blocks the run, and scoring never runs. The run still ends through the report step's terminal sequence: the Gap Report, the FAIL result contract and the on_complete hook, then the health check (unless `--no-health-check` was passed), before the run exits with code 2.
 
 Update `{outputFile}` frontmatter:
+- Set `hardGate: 'blocked'`
 - Set `testResult: 'fail'`
+- Set `nextWorkflow: 'update-skill'`
 - Append `'hard-gate'` to `stepsCompleted`
+
+Write the **Completeness Score** section, which scoring would otherwise write, in place of the template's `## Completeness Score` heading and the placeholder comment under it:
+
+```markdown
+## Completeness Score
+
+**Result:** **FAIL**, not scored: the hard gate blocked this run on {blocking_count} Critical or High gap(s), listed first in the Gap Report.
+```
 
 Report to the user:
 
-"**Hard gate BLOCKED — {N} critical/high finding(s) must be resolved before scoring.**
+"**Hard gate BLOCKED: {blocking_count} Critical or High gap(s) must be resolved before scoring.**
 
-| # | GAP | Severity | Source |
+| # | Gap | Severity | Source |
 |---|-----|----------|--------|
-{for each blocking finding:}
-| {i} | {GAP-NNN}: {title} | {severity} | {source} |
+{for each `blocking` entry:}
+| {i} | {id}: {title} | {severity} | {source} |
 
-**{M} medium/low/info findings also noted (non-blocking).**
+**{non_blocking_count} Medium, Low or Info gap(s) also recorded (non-blocking).**
 
-**Action required:** resolve all Critical and High findings, then re-run test-skill.
-**Recommended next step:** update-skill"
+**Recommended next step:** `@Ferris US {skill_name} --from-test-report` (update-skill repairs the gaps this report lists), once the report step has written the Gap Report and the result files."
 
-**Headless envelope (if `{headless_mode}`):** emit to **stderr**:
+Then load and execute `{blockedStepFile}`. Do not chain to `{nextStepFile}`: a blocked run is never scored.
 
-```
-SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":"FAIL","score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":"update-skill","exit_code":2,"halt_reason":"hard-gate-blocked"}
-```
+### §4. Pass: No Critical or High Gaps
 
-Release the run lock: from `{project-root}`, run `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"`. Then HALT: do not chain to `{nextStepFile}`.
-
-### §4. Pass — No Critical/High Findings
-
-The hard gate passes. Medium, low, and info findings are documented in the gap report but do not block.
+The hard gate passes. The Medium, Low and Info gaps stay in the ledger for the Gap Report and do not block.
 
 Update `{outputFile}` frontmatter:
-- Append `'hard-gate'` to `stepsCompleted`
+- Set `hardGate: 'passed'`
 
-Report that the hard gate passed, noting the count of non-blocking medium/low/info finding(s), then proceed to scoring.
+Report that the hard gate passed, noting the count of non-blocking Medium, Low and Info gap(s) (`non_blocking_count`), then proceed to scoring.
 
-Update stepsCompleted, then load and execute `{nextStepFile}`.
+Append `'hard-gate'` to `stepsCompleted` in the `{outputFile}` frontmatter, then load and execute `{nextStepFile}`.
