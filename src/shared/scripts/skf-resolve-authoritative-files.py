@@ -53,7 +53,8 @@ Output JSON (stdout):
       {"path": "...", "heuristic": "...", "size_bytes": N,
        "line_count": N, "content_hash": "sha256:...",
        "preview": "<first N lines as a string>",
-       "excluded_by_pattern": "<glob>" | "not matched by any scope.include"}
+       "excluded_by_pattern": "<glob>" | "not matched by any scope.include",
+       "prior_action": null | "deferred-headless"}
     ]
   }
 
@@ -67,6 +68,15 @@ Paths are emitted relative to `source-root`, forward-slash form
     `content_hash` / `size_bytes` / `line_count` are populated.
   - `prior_action="skipped"` → the user previously declined; caller
     does nothing. Hash/size/lines are null (no need to read the file).
+
+`unresolved` semantics: nobody has decided the path yet, so an
+interactive run asks. `prior_action="deferred-headless"` means a headless
+run already met the path and left the decision to the next interactive
+run (an amendment with `action: "deferred-headless"`); a headless run
+does not record it again. A `skipped` amendment whose reason is the
+headless default, "headless: no user to prompt", was written that way by
+a headless run before `deferred-headless` existed: no person declined
+the file, so it counts as `deferred-headless` too.
 
 Exit codes:
   0  — operation succeeded (any status)
@@ -267,7 +277,8 @@ def extract_scope(brief: dict) -> tuple[list[str], list[str], dict[str, list[str
 
     amendments_by_path maps each path to a list of actions seen, in the
     order they appear in the brief (so reconcile() can pick most-recent
-    by iterating in reverse).
+    by iterating in reverse). A legacy headless skip is listed as
+    'deferred-headless' (see _amendment_action).
     """
     scope = brief.get("scope") if isinstance(brief.get("scope"), dict) else {}
     includes = scope.get("include") if isinstance(scope.get("include"), list) else []
@@ -279,8 +290,8 @@ def extract_scope(brief: dict) -> tuple[list[str], list[str], dict[str, list[str
         if not isinstance(amend, dict):
             continue
         path = amend.get("path")
-        action = amend.get("action")
-        if isinstance(path, str) and isinstance(action, str):
+        action = _amendment_action(amend)
+        if isinstance(path, str) and action is not None:
             by_path.setdefault(path, []).append(action)
 
     # filter to strings only — schema requires strings but defensively guard
@@ -338,13 +349,28 @@ def load_preview(path: Path, *, max_lines: int) -> str:
 
 _PROMOTED = "promoted"
 _SKIPPED = "skipped"
+_DEFERRED = "deferred-headless"
+# The reason a headless run gave its automatic skip before deferred-headless
+# existed. Such a skip was never a person's decision.
+_LEGACY_HEADLESS_REASON = "headless: no user to prompt"
+
+
+def _amendment_action(amend: dict) -> str | None:
+    """The action an amendment records, reading a legacy headless skip as a deferral."""
+    action = amend.get("action")
+    if not isinstance(action, str):
+        return None
+    reason = amend.get("reason")
+    if action == _SKIPPED and isinstance(reason, str) and reason.strip() == _LEGACY_HEADLESS_REASON:
+        return _DEFERRED
+    return action
 
 
 def _latest_action(actions: list[str]) -> str | None:
     """Most-recent matching amendment wins. Returns 'promoted', 'skipped',
-    or None if no recognized action was seen."""
+    'deferred-headless', or None if no recognized action was seen."""
     for action in reversed(actions):
-        if action in (_PROMOTED, _SKIPPED):
+        if action in (_PROMOTED, _SKIPPED, _DEFERRED):
             return action
     return None
 
@@ -398,6 +424,7 @@ def resolve(
             continue
 
         if prior_action == _SKIPPED:
+            # A person declined the file; a headless deferral never lands here.
             pre_decided.append({
                 "path": rel,
                 "heuristic": heuristic,
@@ -409,7 +436,8 @@ def resolve(
             })
             continue
 
-        # No prior amendment and out of scope → unresolved
+        # Out of scope and undecided (no amendment, or a headless deferral
+        # that waits for the next interactive run) → unresolved
         unresolved.append({
             "path": rel,
             "heuristic": heuristic,
@@ -418,6 +446,7 @@ def resolve(
             "content_hash": sha256_of_file(file_path),
             "preview": load_preview(file_path, max_lines=preview_lines),
             "excluded_by_pattern": excluded_by,
+            "prior_action": prior_action,
         })
 
     # Deterministic ordering for stable diffs / cache keys

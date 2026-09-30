@@ -9,22 +9,28 @@ Every pipeline-capable skill writes a result JSON file at its final step. This e
   "skill": "skf-skill-name",
   "status": "success" | "failed" | "partial",
   "timestamp": "ISO-8601",
+  "run_id": "<run id>",
   "outputs": [
     {"type": "report|skill|manifest|config", "path": "relative/path/to/file"}
   ],
   "summary": {
     // skill-specific summary fields
-  }
+  },
+  "headless_decisions": [ /* the run's auto-decisions */ ],
+  "warnings": [ /* the run's non-fatal warnings */ ]
 }
 ```
+
+The shared emitter stamps `timestamp` (UTC, from the clock), `run_id` (when the run has a run folder), `headless_decisions` and `warnings` (from the run sink, see `headless-gate-convention.md`) into the record it writes. The workflow supplies the rest.
 
 ## Filenames
 
 Each run writes **two files** to `{output_dir}`:
 
 1. **Per-run record** (audit trail): `{skill-name}-result-{YYYYMMDD-HHmmss}.json`
-   - Timestamp is UTC, resolution to seconds — e.g., `update-skill-result-20260413-145230.json`
-   - Never overwritten by subsequent runs — preserves a durable audit trail across retries, aborts, and re-runs
+   - Timestamp is UTC, resolution to seconds, for example `update-skill-result-20260413-145230.json`
+   - When a run of the same workflow already took that second's name, the emitter appends `-2`, `-3` and so on (`update-skill-result-20260413-145230-2.json`), so two runs that end in the same second never share a file
+   - Never overwritten by subsequent runs, so it keeps a durable audit trail across retries, aborts, and re-runs
 2. **Stable latest pointer** (pipeline consumption): `{skill-name}-result-latest.json`
    - A **copy** (not a symlink) of the per-run record just written
    - Always present at a deterministic path so CI / pipelines / the forger can read `summary.*` without enumerating timestamps
@@ -34,12 +40,17 @@ Write the per-run record first, then copy it to the `-latest.json` path. If the 
 
 **Consumers (forger, CI, chained workflows):** read from `{skill-name}-result-latest.json`. Do not enumerate timestamped files unless inspecting prior-run history.
 
-## Available Helpers
+## Writing the Files
 
-There is no generic helper that writes the schema above; each skill assembles the JSON in its terminal step today. One specialised helper exists:
+The shared emitter, `shared/scripts/skf-emit-result-envelope.py`, writes both files when it builds the run's `SKF_<NAME>_RESULT_JSON` envelope (see `headless-gate-convention.md`). Pass the version folder as `--result-dir`:
 
-- **`src/shared/scripts/skf-emit-result-envelope.py`** — `skf-setup`-specific. Writes a different envelope (`SKF_SETUP_RESULT_JSON: {…}`) following the JSON schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`. Carries setup-specific fields (`tier`, `previous_tier`, `tools`, `ccc_index`, `tier_override_*`, `qmd_status`, etc.) that have no analogue in other workflows. **Do not reuse for non-skf-setup skills.**
+```bash
+uv run {emitEnvelopeHelper} emit --workflow <workflow> --run-dir "{run_dir}" --result-dir "{forge_version}" < "{run_dir}/result-context.json"
+```
 
-A generalised emitter (matching this document's schema) is a reasonable future helper when a second consumer materialises with the same shape. For now, skills that write this contract assemble the JSON in their terminal step — the work is small (5–8 fields) and skill-specific summary content benefits from being expressed inline alongside the rest of the step's logic.
+- The file name's stem comes from the workflow's envelope schema (`result_file` in the emitter settings its `$defs` holds under `skf-envelope`), and the emitter chooses the per-run name, suffix included. A workflow whose settings name no result file writes none, and ignores `--result-dir` with a `result_dir_ignored` warning.
+- The record is the payload's `result_contract` object with the stamped fields above. A payload without one records the envelope itself, the error variant several workflows write on a HARD HALT (`emit-halt` takes `--result-dir` too).
+- Each file is written atomically, the per-run record first and then its `-latest.json` copy. A write that fails adds a `result_file_write_failed` warning to the envelope, and a failed per-run record also leaves its `result_path` null; the envelope line still prints.
+- When `--result-dir` names no folder that exists, nothing is written: a halt before the version folder exists reports through the envelope line alone.
 
-skf-quick-skill writes both the success-variant contract (`finalize.md` §3) and the error-variant contract on every HARD HALT (per `SKILL.md` § "Result Contract on HARD HALT") in this hand-assembled style.
+Workflows that have not adopted the emitter yet still assemble the record in their terminal step. skf-quick-skill writes both the success-variant contract (`finalize.md` §3) and the error-variant contract on every HARD HALT (`references/halt-contract.md`) that way, as does skf-create-skill.
