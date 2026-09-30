@@ -1,0 +1,5 @@
+type: added
+scope: skf-export-skill
+summary: |
+  The `SKF_EXPORT_RESULT_JSON` envelope now has a schema, `skf-export-result-envelope.v1.json`, and the shared emitter builds and checks every line, a halt's included. The envelope gains `result_path` (the per-run result file, or `null` when none was written), `warnings` (present only when the run recorded one) and, on a halt, `error` with the `phase` and `reason` of the stop. Each headless gate records its auto-decision the moment it decides, so `headless_decisions` lists every gate that auto-resolved, also in a halt's envelope, and the result file now carries `headless_decisions` too. The result file's name and `timestamp` come from the clock, and a run that ends in the same second as another gets a `-2` suffix instead of overwriting its record. A headless run keeps its decisions in a scratch folder under `_bmad-output/.skf-run/`, deleted when the run ends and kept after a halt.
+issues: [593]

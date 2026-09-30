@@ -12,9 +12,9 @@ To present a complete export summary showing all files written, token counts, an
 
 ## Rules
 
-- Focus only on summarizing what was done and providing next steps — no additional file writes
+- Focus only on summarizing what was done and providing next steps: the only files this step writes are the result files the emitter writes in §6 (none on a dry run)
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
-- **Multi-skill mode:** emit ONE consolidated summary and ONE result contract for the whole batch. The files-written table lists every skill in `skill_batch` (one row per skill's `context-snippet.md` + one row per target managed-section file, shared across the batch). The result contract's `outputs` enumerates every context-snippet file plus every target context file. Distribution instructions (§2) key off `source_authority` per skill — present one block per distinct authority value observed in the batch, listing the skills it applies to. See step 1 §1c.
+- **Multi-skill mode:** emit ONE consolidated summary and ONE result contract for the whole batch. The files-written table lists every skill in `skill_batch` (one row per skill's `context-snippet.md` + one row per target managed-section file, shared across the batch). The result contract's `outputs` enumerates every context-snippet file, every target context file and the manifest. Distribution instructions (§2) key off `source_authority` per skill: present one block per distinct authority value observed in the batch, listing the skills it applies to. See step 1 §1c.
 
 ## MANDATORY SEQUENCE
 
@@ -111,7 +111,7 @@ If the installed skill's commands are not available in the same IDE session, rel
 
 "### Dry Run Complete
 
-No files were written. To run the export for real:
+No context file, snippet, export manifest or result file was written, and no `on_complete` hook ran. To run the export for real:
 
 **Re-run without `--dry-run`** to write all files."
 
@@ -128,19 +128,44 @@ No files were written. To run the export for real:
 - Suggest testing by invoking the skill's trigger phrase in a new conversation
 - If token budget was exceeded, note which skills were trimmed
 
-### 6. Result Contract
+### 6. Result Contract and Envelope
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/export-skill-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{skills_output_folder}/export-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all context files and target managed-section files in `outputs`; include total always-on and on-trigger token counts in `summary`.
+Build the run's `SKF_EXPORT_RESULT_JSON` envelope, and outside a dry run its result files, with the shared emitter `{emitEnvelopeHelper}` (resolved at SKILL.md On Activation §4). Pass the payload on stdin in a quoted heredoc, so no value is expanded, with each path written with `/` in place of `\` so every value stays a JSON string, and never type the envelope or a result file yourself:
 
-When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 7 (per `references/result-envelope.md`):
-
+```bash
+uv run {emitEnvelopeHelper} emit --workflow skf-export-skill [--run-dir "{run_dir}"] [--result-dir "{skills_output_folder}"] <<'SKF_JSON'
+{"status":"success","skills":["{skill-name}"],"context_files_updated":["{context_file}"],"manifest_path":"{manifest_path}","result_contract":{result_contract}}
+SKF_JSON
 ```
-SKF_EXPORT_RESULT_JSON: {"status":"success","skills":{skill_batch_names},"context_files_updated":{context_files_updated},"manifest_path":"{skills_output_folder}/.export-manifest.json","headless_decisions":{headless_decisions},"exit_code":0,"halt_reason":null}
+
+- Pass `--run-dir` in a headless run: the emitter folds the auto-decisions the gates recorded there into `headless_decisions`, in the line and in the result file.
+- **Without `--dry-run`:** pass `--result-dir`, and give `status` `"success"`, `skills` (every skill in `skill_batch`), `context_files_updated` (the files step 4 §9 wrote; `[]` with passive context off), `manifest_path` (the `{manifest_path}` step 4 §9b bound) and `result_contract` (below). The emitter writes the per-run record `export-skill-result-{YYYYMMDD-HHmmss}.json` in `{skills_output_folder}` (its name from the clock, with `-2`, `-3` and so on when a run already took that second), then its copy `export-skill-result-latest.json`, the stable path pipelines read.
+- **With `--dry-run`:** leave out `--result-dir` and `result_contract`, and give `status` `"dry-run"`, `skills`, `context_files_updated: []` and `manifest_path: null`. The emitter writes no file, so a dry run leaves `export-skill-result-latest.json` as the last real export wrote it.
+
+The emitter derives `exit_code` (0) and `halt_reason` (null) and sets `result_path`: leave them out. Bind `{result_path}` ← the line's `result_path` (null on a dry run). When `{headless_mode}` is true, display the line verbatim. If the emitter exits non-zero, correct the payload field its stderr message names and run it once more; if it fails again, display "**Result contract not written:** {message}" and continue with `{result_path}` null.
+
+`result_contract` follows `shared/references/output-contract-schema.md`; the emitter adds `timestamp`, `headless_decisions` and `warnings` to the record it writes, and `run_id` in a headless run:
+
+```json
+{
+  "skill": "skf-export-skill",
+  "status": "success",
+  "outputs": [
+    {"type": "skill", "path": "{resolved_skill_package}/context-snippet.md"},
+    {"type": "config", "path": "{context_file}"},
+    {"type": "manifest", "path": "{manifest_path}"}
+  ],
+  "summary": {
+    "skills": ["{skill-name}"],
+    "always_on_tokens": 0,
+    "on_trigger_tokens": {"{skill-name}": 0}
+  }
+}
 ```
 
-Substitute `{skill_batch_names}`, `{context_files_updated}`, and `{headless_decisions}` as JSON arrays. When `--dry-run` was set, emit `"status":"dry-run"` instead and report what *would* have been written without performing the writes.
+`outputs` holds one `skill` entry per file in `snippets_written` (step 4 §9c), one `config` entry per file in `context_files_updated` and the `manifest` entry. In `summary`, `always_on_tokens` is the managed section's `tokens` step 5 measured (`null` when step 5 found no managed section, as with passive context off), and `on_trigger_tokens` maps each skill to its `SKILL.md` `tokens` from step 5.
 
-**`deviations[]` field (export-skill-specific extension):** when step 4 §4c.1 detected manifest-orphan managed rows and the operator (or `{headless_mode}`) chose **(b) Preserve verbatim**, also include a `deviations[]` array in the contract. Each entry has the shape:
+**`deviations[]` field (export-skill-specific extension):** when step 4 §4c.1 detected manifest-orphan managed rows and the operator (or `{headless_mode}`) chose **(b) Preserve verbatim**, also include a `deviations[]` array in `result_contract`. Each entry has the shape:
 
 ```json
 {
@@ -158,15 +183,14 @@ Other workflow choices that diverge from the strict spec path may add their own 
 
 ### 6b. Post-Export Hook (Optional)
 
-If `{onCompleteCommand}` (resolved at SKILL.md On Activation §4 from `workflow.on_complete`) is non-empty, invoke it now — after both the per-run and `-latest` result JSON have been written:
+Skip this section on a dry run (a dry run fires no hook), when `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is empty, the bundled default, and when `{result_path}` is null (§6 wrote no per-run record). Otherwise invoke it now, after the emitter wrote both result files:
 
 ```bash
-{onCompleteCommand} --result-path={skills_output_folder}/export-skill-result-{timestamp}.json
+{onCompleteCommand} --result-path="{result_path}"
 ```
 
-Run it with a bounded timeout. On success, continue. On non-zero exit, timeout, or any failure, append the reason to `workflow_warnings[]` (e.g. `on_complete — failed (exit {N}): {stderr_first_line}`) and continue. **The hook must never fail the workflow** — it is integration glue (downstream distribution, notifier, pipeline chain) and any failure there is orthogonal to the export outcome. When `{onCompleteCommand}` is empty (bundled default), skip this section entirely.
+Run it with a bounded timeout. On success, continue. On a non-zero exit, a timeout or any other failure, display "**Warning:** on_complete failed: {reason}" (for example `exit {N}: {stderr_first_line}`) and continue. **The hook must never fail the workflow:** it is integration glue (downstream distribution, notifier, pipeline chain), and a failure there is orthogonal to the export outcome. The warning is in neither the envelope nor the result file: the hook reads the result file, so both are written before it runs.
 
 ### 7. Chain to Health Check
 
-ONLY WHEN the export summary, distribution instructions, result contract, and on-complete hook (or its skip on an empty `{onCompleteCommand}`) are complete will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
-
+When `{headless_mode}` is true, delete the `{run_dir}` folder: the run's envelope is out. ONLY WHEN the export summary, distribution instructions, result contract and envelope, and on-complete hook (or its skip) are complete will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: do not stop here even though the summary reads as final.

@@ -2,10 +2,10 @@
 nextStepFile: 'package.md'
 # Resolve `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}` to the
 # first existing path of their probe orders (installed SKF module path first,
-# src/ dev-checkout fallback). §1 and §2 read the export manifest through
-# `skf-manifest-ops.py` (`read`, `get`), which returns it in the v2 shape
-# whatever is on disk, and §1 resolves the context files through
-# `resolve-targets`, the IDE mapping drop-skill and rename-skill also use.
+# src/ dev-checkout fallback). §1 reads the export manifest through
+# `skf-manifest-ops.py` (`read`), which returns it in the v2 shape whatever
+# is on disk, and resolves the context files through `resolve-targets`, the
+# IDE mapping drop-skill and rename-skill also use.
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
@@ -22,12 +22,19 @@ rebuildManagedSectionsProbeOrder:
 validateOutputProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
   - '{project-root}/src/shared/scripts/skf-validate-output.py'
-# Resolve `{skillInventoryHelper}` to the first existing path. §2 step 5 runs
-# it with `--skill` before a flat skill moves: only a flat skill whose
-# metadata.json carries an SKF marker (`flat_skf`) is migrated.
+# Resolve `{skillInventoryHelper}` to the first existing path. §2 runs its
+# `resolve` action to choose the version to export and bind its paths (the
+# Manifest-lag guard included), and runs it with `--skill` before a flat
+# skill moves: only a flat skill whose metadata.json carries an SKF marker
+# (`flat_skf`) is migrated.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# Resolve `{findTestReportHelper}` to the first existing path. §4b runs its
+# `find` action for the newest finished test report of the version §2 chose.
+findTestReportProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-find-test-report.py'
+  - '{project-root}/src/shared/scripts/skf-find-test-report.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -112,17 +119,26 @@ A non-zero exit (an unknown `--context-file` value, or an IDE mapping the helper
 
 ### 2. Load and Validate Skill Artifacts
 
-Resolve the skill's versioned path before loading artifacts:
+The inventory helper chooses the version to export and binds its paths by the Reading Workflows rules of `knowledge/version-paths.md` (the Manifest-lag guard included), so this step never reads the export manifest or the `active` link by hand. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
 
-1. Look the skill up in the export manifest through the helper: `python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`. On `status: "ok"`, `entry.active_version` is its `active_version`; `not_found` means the manifest does not list it.
-2. **Manifest-lag guard.** If the skill is in the manifest, also read the `active` symlink target at `{skills_output_folder}/{skill-name}/active`. If that symlink resolves to a *different* version than `active_version`, prefer the **symlink target** as `{resolved_version}` and emit an Info note: "manifest active_version {M} lags the active symlink {N} — exporting the symlink target (the just-forged version); the manifest active_version advances to {N} on this export." This is the canonical SS→TS→EX case: create-stack-skill flipped `active` to the new version, but the manifest only advances when *this* export runs. A bare manifest-first resolution would re-export the *previously exported* version, and step 4 §4b/step-5 (`update-context.md`) — which derives the published version from `{resolved_skill_package}/metadata.json` — would then write that stale version straight back as `active_version`, so the forged version could never be published. Resolving to the symlink target here makes this export publish {N} and reconcile the manifest. When the symlink matches `active_version` (or no `active` symlink exists), use `active_version`. See `knowledge/version-paths.md` "Reading Workflows".
-3. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{resolved_version}/{skill-name}/`
-4. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
-5. If neither: fall back to the flat path `{skills_output_folder}/{skill-name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
-   - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
-   - **`{group_flat_skf}` is true:** if `--dry-run` is set, do not migrate: use the flat folder as the resolved path and note "would migrate {skill-name} to the versioned layout". Otherwise auto-migrate per `knowledge/version-paths.md` migration rules.
+```bash
+uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"
+```
+
+Bind from its `resolve` object `{resolved_version}` ← `chosen_version`, `{resolved_skill_package}` ← `skill_package`, `{forge_version}` ← `forge_version` (the version's forge folder) and `{forge_evidence_report}` ← `paths.evidence_report.path` (that folder's `evidence-report.md`, else the flat copy an older skill keeps, else null), which step 3 derives the gotchas from. Log each `resolve.errors` entry, and `resolve.manifest_error` when it is set, as an Info note, then act on `reason`:
+
+1. `manifest-and-link`, `manifest` or `link`: the export manifest or the `active` link names the version, and its package is on disk. Continue.
+2. `manifest-lags-link` (the Manifest-lag guard): the `active` link names a version the manifest has not caught up with, as when a create or update run flipped `active` after the last export (the SS→TS→EX order). Continue with the link's version, and emit the helper's `detail` as an Info note, followed by "Exporting v{resolved_version}: the manifest's active_version advances to it on this export." Step 4 publishes the version in `{resolved_skill_package}/metadata.json`, so the manifest catches up here.
+3. `flat-layout`: fall back to the flat path `{skills_output_folder}/{skill-name}/`, where `SKILL.md` sits at the skill folder root with no version folder yet. Check that SKF generated it before anything moves:
+   - Run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
+   - **`{group_flat_skf}` is true:** if `--dry-run` is set, do not migrate: use the flat folder as the resolved path (the `skill_package` bound above; `{resolved_version}` and `{forge_version}` stay null) and note "would migrate {skill-name} to the versioned layout". Otherwise auto-migrate per `knowledge/version-paths.md` migration rules, then run the `resolve` command above again and bind its values anew: they now name the version folder.
    - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output — nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or export it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. HALT with exit code 3. In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`, `halt_reason: "not-skf-output"`.
-6. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
+4. `missing`, `newest-on-disk`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version named for export is on disk. `newest-on-disk` means version folders exist but neither the export manifest nor a working `active` link names one, and export publishes only a version one of them names. HALT (exit code 3, `halt_reason: "resolution-failure"`): "**`{skill-name}` has no version to export.** {the helper's `detail`, or its `error`}. Run create-skill first, or point `{skills_output_folder}/{skill-name}/active` at the version to export, then re-run." In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
+5. Any other error, or no JSON: HALT (exit code 3, `halt_reason: "resolution-failure"`) with the helper's message. In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
+
+If no helper candidate resolves, SKF can neither choose the version nor check a flat skill's marker, and nothing moves: when `{skills_output_folder}/{skill-name}/SKILL.md` exists, take item 3's **Otherwise** branch (the `not-skf-output` HALT); else HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "`skf-skill-inventory.py` is missing. Nothing was changed. Re-install SKF." In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
+
+Every later step reads the skill from `{resolved_skill_package}`.
 
 Load all files from `{resolved_skill_package}`:
 
@@ -173,25 +189,25 @@ Load `{sidecar_path}/preferences.yaml` (if exists):
 
 ### 4b. Check Test Report (Quality Gate)
 
-`skf-test-skill` writes timestamped test-report filenames (`test-report-{skill_name}-{ISO-TIMESTAMP}-{HASH}.md`) — there is no exact-name `test-report-{skill_name}.md` on disk. Locate the most recent report by glob, not by exact filename:
+The shared helper finds the newest finished test report of the version §2 chose. Resolve `{findTestReportHelper}` ← first existing path in `{findTestReportProbeOrder}` and run:
 
-1. Glob `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}-*.md` (i.e. `{forge_version}/test-report-{skill_name}-*.md`). Sort matches descending by the parsed ISO-timestamp segment in the filename (`YYYYMMDDTHHMMSSZ` between the skill name and the hash — `sort -r` on the filename works because the timestamp is the first variable component). Take the first match.
-2. If the versioned glob returns nothing, fall back to the same glob at the flat path `{forge_data_folder}/{skill_name}/test-report-{skill_name}-*.md`. Pick the newest by parsed timestamp.
-3. If neither glob returns anything, look for the stable companion `skf-test-skill-result-latest.json` in the same two directories (versioned first, then flat). Read the report path from `outputs[]` per the canonical contract documented at `shared/references/output-contract-schema.md` (resolved by skf-test-skill step 6 §4c) and load that file.
-4. If all three lookups fail, the skill has no test report.
+```bash
+uv run {findTestReportHelper} find --forge-data-folder "{forge_data_folder}" --skill-name {skill-name} [--version {resolved_version}]
+```
 
-**If a test report is found:**
+Pass `--version` with the `{resolved_version}` §2 chose, never the manifest's `active_version`, which lags a version created or updated since the last export; leave it out when `{resolved_version}` is null (a flat skill in a dry run). Build the message from its JSON (`{score}` reads `n/a` when it is null), and display each `warnings[]` line as it is:
 
-- Read frontmatter `testResult` and `score`
-- If `testResult: fail`: warn: "**Warning:** This skill failed its last test (score: {score}%). Consider running `@Ferris TS` and addressing gaps before export."
-- If `testResult: pass`: note: "Last test: **PASS** ({score}%)"
-- Always surface the actual file picked in the message (e.g. `test-report-my-base-ui-20260507T050917Z-487606-9b2f.md`) — not the no-longer-existent `test-report-{skill_name}.md` — so an operator can navigate to the report from the log.
+- `status: "found"`: name the report the helper picked, the file name of its `path` (for example `test-report-my-base-ui-20260507T050917Z-487606-9b2f.md`), so an operator can open it from the log, with its verdict by `testResult`:
+  - `pass`: note "Last test: **PASS** ({score}%)"
+  - `fail`: warn "**Warning:** This skill failed its last test (score: {score}%). Consider running `@Ferris TS` and addressing gaps before export."
+  - `pass-with-drift`: warn "**Warning:** This skill passed its last test only with `--allow-workspace-drift` (score: {score}%), against source that differs from its pinned commit. Re-test it against the pinned commit before export."
+  - `inconclusive`: warn "**Warning:** This skill's last test was inconclusive (score: {score}%). Review the report before export."
+  - no `testResult` (a result file that records no verdict): note "Last test report: no verdict recorded."
+- `status: "not-found"`: warn "**Note:** No test report found for this skill. Consider running `@Ferris TS` before export to verify completeness."
 
-**If no test report found** (all three lookups returned nothing):
+If no helper candidate resolves, or the helper exits non-zero, note "**Note:** SKF could not check this skill's test report: {reason}." instead.
 
-- Warn: "**Note:** No test report found for this skill. Consider running `@Ferris TS` before export to verify completeness."
-
-Continue to step 5 regardless — this is advisory, not blocking.
+Continue to step 5 regardless: this is advisory, not blocking.
 
 ### 5. Present Skill Summary
 
@@ -228,7 +244,7 @@ Continue to step 5 regardless — this is advisory, not blocking.
 
 | # | Name | Type | Authority | Tier | Exports | Test |
 |---|------|------|-----------|------|---------|------|
-| 1 | {name-1} | {type} | {authority} | {tier} | {count} | {pass/fail/none} |
+| 1 | {name-1} | {type} | {authority} | {tier} | {count} | {testResult, or none} |
 | 2 | {name-2} | ... | ... | ... | ... | ... |
 | N | {name-N} | ... | ... | ... | ... | ... |
 
@@ -249,5 +265,11 @@ Display: "**Select:** [C] Continue to packaging | [X] Cancel and exit (or type `
 - **[C]** — proceed with the loaded skill data: load, read entirely, and execute `{nextStepFile}`.
 - **[X]** / `cancel` / `exit` / `:q` — Display "Cancelled — no packaging or context file writes were performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, and `manifest_path: null`.
 - **Any other input** — help the user respond, then redisplay this gate.
-- **Headless** [default C]: auto-proceed with [C], log "headless: auto-continue past skill confirmation".
+- **Headless** [default C]: record the decision in the run sink with the command below, log "headless: auto-continue past skill confirmation", then auto-proceed with [C]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
+
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+{"gate":"load-skill.confirmation","default_action":"C","taken_action":"C","reason":"headless: auto-continue past skill confirmation"}
+SKF_JSON
+```
 

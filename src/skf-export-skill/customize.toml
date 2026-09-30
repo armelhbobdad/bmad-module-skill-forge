@@ -37,10 +37,11 @@ persistent_facts = [
 ]
 
 # Optional post-export hook. When non-empty, invoked with
-# `--result-path=<path>` after step 6 finalizes the per-run result JSON
-# (before the terminal health-check step). Useful for downstream
-# distribution, notification, or pipeline chaining. Failures are logged to
-# workflow_warnings[] but never fail the workflow. Empty = no-op (default).
+# `--result-path=<path>` after step 6 writes the per-run result JSON
+# (before the terminal health-check step); a --dry-run writes none and
+# never invokes it. Useful for downstream distribution, notification, or
+# pipeline chaining. A failure shows as a warning line in the run's output
+# and never fails the workflow. Empty = no-op (default).
 
 on_complete = ""
 

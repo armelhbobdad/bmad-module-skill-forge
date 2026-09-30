@@ -79,7 +79,13 @@ Emit a single warning (once, not per snippet) and present resolution options bef
 
 Wait for user choice.
 
-**Headless default:** when `{headless_mode}`, default to **(b) Proceed with IDE mapping** and log the observed prefix(es) so the mismatch is visible in run logs (not silent).
+**Headless default:** when `{headless_mode}`, default to **(b) Proceed with IDE mapping** and log the observed prefix(es) so the mismatch is visible in run logs (not silent). Record the decision in the run sink, with `{observed_prefixes}` as a JSON array. If `record` exits non-zero, display its error line and go on (a failed `record` never stops the run):
+
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+{"gate":"load-skill.snippet-root-probe","default_action":"b","taken_action":"b","reason":"headless: snippet root prefix mismatch, proceeding with the IDE mapping","evidence":{"observed_prefixes":{observed_prefixes},"reference_root":"{target_context_files[0].skill_root}"}}
+SKF_JSON
+```
 
 ## Choice handling
 

@@ -34,7 +34,7 @@ Verify the skill package at `{resolved_skill_package}` (resolved in step 1 via m
 {skill_package} = {skills_output_folder}/{skill-name}/{version}/{skill-name}/
 ├── SKILL.md              ← Required: Active skill document
 ├── metadata.json         ← Required: Machine-readable metadata
-├── context-snippet.md    ← Will be generated/updated in step 3
+├── context-snippet.md    ← Staged in step 3, written by step 4 §9c after its gate
 ├── references/           ← Optional: Progressive disclosure
 │   ├── {function-a}.md
 │   └── {function-b}.md

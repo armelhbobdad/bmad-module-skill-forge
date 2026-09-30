@@ -112,9 +112,14 @@ def _row(text: str, prefix: str) -> str:
 
 
 def _flat_rung(text: str) -> str:
-    """The flat-path fallback rung: from its first line to the next numbered step."""
-    start = text.index("If neither: fall back to the flat path")
-    rest = text[start:]
+    """The flat-path fallback rung: from its first line to the next numbered step.
+
+    Export's rung opens with its `reason` value, as its other rungs do; the
+    other sites open with "If neither".
+    """
+    start = re.search(r"(?:If neither|`flat-layout`): fall back to the flat path", text)
+    assert start, "the flat-path fallback rung is missing"
+    rest = text[start.start():]
     nxt = re.search(r"\n\d+\. ", rest)
     assert nxt, "the flat rung must be followed by the next numbered step"
     return rest[:nxt.start()]
@@ -1092,7 +1097,7 @@ def test_export_records_the_manifest_with_passive_context_off():
                   "confirmed when `get` returns", "or `get` does not confirm"):
         assert stale not in text, stale
     assert "also when `passive_context` is off" in _read(EXPORT_SKILL)
-    exit_codes = _section(_read(EXPORT_SKILL), "## Exit Codes", "## Result Contract")
+    exit_codes = _section(_read("src/skf-export-skill/references/result-envelope.md"), "## Exit Codes", None)
     exit_4 = next(line for line in exit_codes.splitlines() if line.startswith("| 4 "))
     assert "step 4 §9b manifest write → `manifest-write-failed`" in exit_4
 
@@ -1105,9 +1110,10 @@ def test_export_reads_the_manifest_only_through_the_helper():
                 f"{path.relative_to(REPO).as_posix()}: {line[:120]}")
     load = _read(EXPORT_LOAD)
     assert "python3 {manifestOpsHelper} {skills_output_folder} read" in load
-    assert "python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}" in load
+    assert ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
+            '--forge-data-folder "{forge_data_folder}"') in load, "§2 chooses the version through the helper"
     # A run that names its skill reads the manifest first too, so a file that does not parse halts
-    # with exit 3 at step 1, before the §1b probe, the §2 `get` or step 3 copies a snippet.
+    # with exit 3 at step 1, before the §1b probe, the §2 `resolve` or step 4 §9c writes a snippet.
     parse = _section(load, "### 1. Parse Export Arguments", "### 1b. ")
     assert "**Read the export manifest** on every run" in parse and "whenever this section needs it" not in parse
     assert parse.index("**Read the export manifest**") < parse.index("**Skill Path Discovery")
@@ -1132,18 +1138,20 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
     assert ('When no `{countTokensProbeOrder}` candidate exists, or the helper exits non-zero, delete the '
             '`{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`)') in count
     stage = _section(text, "### 2.8. Stage Folder", "### 3. ")
-    assert "so a dry run leaves nothing beside a skill package or a context file" in stage, (
-        "outside a dry run step 3 copies the snippet into the package before the step 4 gate")
+    assert "so a dry run leaves nothing beside a skill package or a context file" in stage
     assert "Step 4 deletes the folder on every exit, cancels and halts included." in stage
     assert 'print(tempfile.mkdtemp(prefix=\'skf-export-\'))' in text, "the stage folder lies outside the project"
-    assert ('cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" '
-            '"{resolved_skill_package}/context-snippet.md"') in text
+    copy = ('cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" '
+            '"{resolved_skill_package}/context-snippet.md"')
+    assert copy not in text, "step 3 only stages the snippet"
+    assert copy in _section(_read(EXPORT_UPDATE), "### 9c. Write the Snippets", None), (
+        "step 4 section 9c copies the snippet into the package only after its gate")
 
 
 def test_export_step_4_deletes_the_stage_folder_on_every_exit():
     """A halted or cancelled export leaves no skf-export-* folder behind in the OS temp folder."""
     helpers = _section(_read(EXPORT_UPDATE), "### 2. Resolve the Helpers", "### 3. ")
-    assert ("deletes the folder on every exit: the §8 dry run and cancel, the end of §9, the orphan-row (c) "
+    assert ("deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) "
             "Cancel and every HALT in this step") in helpers
     cancel = _section(_read("src/skf-export-skill/references/orphan-row-detection.md"), "### (c) Cancel",
                       "## Downstream contract")
@@ -1158,7 +1166,7 @@ def test_export_halts_on_a_malformed_target_before_the_orphan_gate():
             "and take its `malformed` HALT, before §4c.1 asks anything") in assemble
     check = _section(text, "### 5. Check Each Target File", "### 6. ")
     assert "`unreadable`" not in check, "§4b's assemble already halts on a context file SKF cannot read"
-    exit_codes = _section(_read(EXPORT_SKILL), "## Exit Codes", "## Result Contract")
+    exit_codes = _section(_read("src/skf-export-skill/references/result-envelope.md"), "## Exit Codes", None)
     exit_5 = next(line for line in exit_codes.splitlines() if line.startswith("| 5 "))
     assert "step 4 §4b or §5" in exit_5
 

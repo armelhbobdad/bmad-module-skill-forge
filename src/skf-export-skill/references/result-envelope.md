@@ -1,28 +1,42 @@
-<!-- Config: emit exactly as specified — this is a machine-parsed contract. Loaded standalone by any halting stage; it back-references no other file. -->
+<!-- Config: a machine-parsed contract. The shared emitter builds every line; never type one. -->
 
 # Headless Result Envelope
 
-The single-line JSON envelope export-skill emits on non-interactive (`{headless_mode}`) runs. Pipeline consumers parse it to branch on the run's outcome, so its shape must be reproduced exactly. This file stands alone — every HARD-HALT stage can load it without SKILL.md in context.
+The single-line `SKF_EXPORT_RESULT_JSON: {…}` envelope export-skill emits on non-interactive (`{headless_mode}`) runs. Pipeline consumers parse it to branch on the run's outcome; `shared/scripts/schemas/skf-export-result-envelope.v1.json` describes each field. The shared emitter builds every line from the payload the run passes it on stdin, checks it against that schema and prints it.
+
+`{emitEnvelopeHelper}` is the emitter SKILL.md's On Activation resolved: the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. `{run_dir}` is the run folder a headless run created under `{project-root}/_bmad-output/.skf-run/`: its sink holds the auto-decision each gate recorded, which the emitter folds into every line as `headless_decisions`.
 
 ## Emission rule
 
-- **Success / dry-run:** step 6 (`summary.md`) emits the envelope on **stdout**, once, before chaining to step 7.
-- **Every HARD HALT:** emit the same envelope shape on **stderr** with `status: "error"`, then exit with the matching code.
+- **Success / dry-run:** step 6 (`summary.md` §6) runs `emit` once, on **stdout**, before chaining to step 7.
+- **Every HARD HALT** of a headless run: run `emit-halt` as below, which prints the line on **stderr** with `status: "error"`, then exit with the halt's code (Exit Codes below). An interactive halt displays its message only.
 
-## Shape
+## Emitting a Halt
 
+Pass the halt's payload in a quoted heredoc, so no value is expanded. Each value is a JSON string: write a path with `/` in place of `\`, and a quote inside the message as a backtick.
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-export-skill [--run-dir "{run_dir}"] --target stderr <<'SKF_JSON'
+{"phase":"<step file> §<section>","reason":"<the halt message>","halt_reason":"<halt_reason>","skills":["<name>"]}
+SKF_JSON
 ```
-SKF_EXPORT_RESULT_JSON: {"status":"success|error|dry-run","skills":[],"context_files_updated":[],"manifest_path":"…|null","headless_decisions":[],"exit_code":0,"halt_reason":null}
-```
 
-## Fields
+- `phase` is where the run halted, for example `update-context §9`, and `reason` is the message the halt displays, on one line.
+- `halt_reason` is the value the halt site names. The emitter derives `exit_code` from it and sets `status: "error"`; leave both out.
+- Always pass `skills`, the resolved batch (`[]` only before step 1 bound `skill_batch`). Add `context_files_updated` and `manifest_path` as the halt site names them; a field left out takes `[]`, or `null` for `manifest_path`.
+- Pass `--run-dir` once On Activation bound `{run_dir}`, so the line carries the decisions taken before the halt. A halt writes no result file.
 
-- `status` — `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` skipped the §4 context and manifest writes (the run still reaches the terminal step), `"error"` on any HALT.
-- `skills` — resolved skill names in the batch (JSON array).
-- `context_files_updated` — context files successfully written this run (JSON array; `[]` when a HALT preceded any write).
-- `manifest_path` — the written manifest path, or `null` when no manifest write completed.
-- `headless_decisions` — the `{gate, default_action, taken_action, reason}` entries logged as each gate auto-resolved (JSON array).
-- `exit_code` — 0 success/dry-run · 2 input-missing · 3 resolution-failure (including `not-skf-output`) · 4 write-failure · 5 state-conflict · 6 user-cancelled.
-- `halt_reason` — `null` on success/dry-run, else one of: `"input-missing"`, `"resolution-failure"`, `"not-skf-output"`, `"malformed-markers"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"write-failed"`, `"user-cancelled"`. Each value is emitted by a real HALT site (see the SKILL.md Exit Codes table for the code↔reason map); the enum lists no value that no stage emits.
+Display the line the emitter prints. If it exits non-zero or prints no line, display the halt reason alone.
 
-A halting stage sets the branch-specific fields inline (e.g. `manifest_path: null`, `context_files_updated: []`) and fills the rest from the shape above.
+## Exit Codes
+
+Every HARD HALT exits with a stable code, so headless automators can branch on the failure class without grepping message text:
+
+| Code | Meaning              | Raised by (halt site → `halt_reason`)                                                         |
+| ---- | -------------------- | -------------------------------------------------------------------------------------------- |
+| 0    | success              | step 7 (terminal); also `status="dry-run"` when `--dry-run` is set                          |
+| 2    | input-missing        | step 1 §1: a headless run with no `skill_name` and no `--all` (a non-interactive run cannot answer the skill-selection menu) → `input-missing` |
+| 3    | resolution-failure   | step 1 §1 (discovery finds no skills on disk / in the manifest; the export manifest does not parse; context-file resolution refuses an unknown `--context-file` value or cannot read the IDE mapping); step 1 §2 (the inventory helper finds no version of a named skill to export, or its required artifacts are missing or its metadata is invalid: export-gate FAIL); multi-skill batch (any skill failing §2 validation halts the whole batch) → `resolution-failure`; step 1 §2 flat fallback (a flat `SKILL.md` with no SKF marker in its `metadata.json`, so SKF will not migrate or export it) → `not-skf-output` |
+| 4    | write-failure        | On-Activation §4 (the run folder cannot be created) or §5 pre-flight write check, or step 4 §9c (a snippet write fails) → `write-failed`; On-Activation §4, step 1 §1 or §2, step 3 §4 or step 4 §2 (a required helper is unresolvable, or the token counter fails), step 4 §3b (an orphaned file's clear fails), §4b (the body cannot be built, for example a context file that is not UTF-8 text) or §9 (a write fails its check) → `context-rebuild-failed`; step 4 §9b manifest write → `manifest-write-failed` |
+| 5    | state-conflict       | step 4 §4b or §5: `check` finds a `<!-- SKF:BEGIN` marker that no `<!-- SKF:END -->` closes in a target context file → `malformed-markers` |
+| 6    | user-cancelled       | step 1 §6 gate `[X]`/cancel; step 1 §1b snippet-root probe (a)/(c); step 4 §8 gate `[X]`/cancel; step 4 §4c.1 orphan-row (c) Cancel; any prompt accepting `cancel`/`exit`/`:q` → `user-cancelled` |

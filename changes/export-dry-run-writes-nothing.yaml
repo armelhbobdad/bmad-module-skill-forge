@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-export-skill
+summary: |
+  Export Skill with `--dry-run` no longer writes a per-run `export-skill-result-{YYYYMMDD-HHmmss}.json` or overwrites `export-skill-result-latest.json`, and no longer runs the `on_complete` hook, so the stable result file keeps the last real export. Its `SKF_EXPORT_RESULT_JSON` envelope now reports `manifest_path: null`, which every envelope now does unless the export manifest write completed, and the dry run shows the manifest change it previews. A real export now writes each skill's `context-snippet.md` last, after its context-file gate, the context files and the manifest, so a cancelled export, or one that halts before the snippet writes, leaves the snippet as it was and a carried gotchas line keeps its one `[CARRIED]` cycle. Export also reads the test report of the version it exports through the shared helper: a test run that stopped before its verdict no longer hides the last finished report, and an `inconclusive` or `pass-with-drift` verdict now warns too.
+migration: |
+  Read a dry run's outcome from its `SKF_EXPORT_RESULT_JSON` line (`status: "dry-run"`), not from `export-skill-result-latest.json`, and run the export without `--dry-run` when a pipeline needs the result files or the `on_complete` hook; treat `manifest_path: null` as "the manifest was not written".
+issues: [585, 587, 583]
