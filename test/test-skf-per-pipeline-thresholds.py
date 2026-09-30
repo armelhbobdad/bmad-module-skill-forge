@@ -5,10 +5,14 @@ four-layer threshold resolution precedence in score.md §1, threshold source
 logging in score.md §6/§7, pipeline_alias forwarding in the forger, and
 pipeline-contracts.md documentation.  Also confirms hard-gate independence
 (AC #4): step-hard-gate.md has no threshold-driven logic.
+
+The alias gates come from parse-pipeline.py's ALIASES, the table the forger
+runs, not from a prose copy of it.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import pathlib
 import re
 
@@ -23,6 +27,13 @@ SKILL_MD = TS_DIR / "SKILL.md"
 CUSTOMIZE_TOML = TS_DIR / "customize.toml"
 FORGER_MD = REPO_ROOT / "src" / "skf-forger" / "SKILL.md"
 PIPELINE_CONTRACTS = REPO_ROOT / "src" / "shared" / "references" / "pipeline-contracts.md"
+PIPELINE_MODE = REPO_ROOT / "src" / "skf-forger" / "references" / "pipeline-mode.md"
+PARSE_PIPELINE = REPO_ROOT / "src" / "skf-forger" / "scripts" / "parse-pipeline.py"
+
+_spec = importlib.util.spec_from_file_location("parse_pipeline", PARSE_PIPELINE)
+parse_pipeline = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(parse_pipeline)
+ALIASES = parse_pipeline.ALIASES
 
 
 # ---------------------------------------------------------------------------
@@ -472,26 +483,48 @@ class TestCrossFileConsistency:
             "init.md --threshold flag description must reference per-pipeline defaults"
         )
 
+    @staticmethod
+    def _init_thresholds() -> dict[str, int]:
+        """init.md §1b's lookup table: pipeline alias -> default threshold."""
+        rows = re.findall(r"^\|\s*`([a-z-]+)`\s*\|\s*(\d+)\s*\|", _read(INIT_FILE), re.M)
+        return {alias: int(n) for alias, n in rows}
+
+    @staticmethod
+    def _ts_min(alias: str) -> int | None:
+        plan = parse_pipeline.parse_pipeline(alias)["plan"]
+        return next(p["min"] for p in plan if p["code"] == "TS")
+
     def test_forge_auto_alias_threshold_matches_lookup_table(self) -> None:
-        forger_text = _read(FORGER_MD)
-        assert re.search(r"TS\[min:90\]", forger_text), (
-            "forge-auto alias expansion must include TS[min:90]"
-        )
-        init_text = _read(INIT_FILE)
-        assert re.search(r"\|\s*`forge-auto`\s*\|\s*90\s*\|", init_text), (
-            "init.md lookup table must map forge-auto → 90 matching the forger alias"
-        )
+        """ALIASES['forge-auto'] gates TS at init.md §1b's forge-auto value."""
+        assert "TS[min:90]" in ALIASES["forge-auto"]
+        assert self._ts_min("forge-auto") == self._init_thresholds()["forge-auto"] == 90
+
+    def test_alias_gates_agree_with_lookup_table(self) -> None:
+        """An alias that pins a TS gate pins the one init.md §1b maps it to;
+        the others leave TS to that table (the pipeline default)."""
+        table = self._init_thresholds()
+        for alias in ALIASES:
+            ts_min = self._ts_min(alias)
+            if ts_min is not None:
+                assert table.get(alias) == ts_min, (alias, ts_min, table.get(alias))
 
     def test_forge_alias_has_no_min_override(self) -> None:
-        contracts_text = _read(PIPELINE_CONTRACTS)
-        forge_match = re.search(
-            r"\|\s*`forge`\s*\|([^|]+)\|", contracts_text
-        )
-        assert forge_match, "forge alias must exist in the pipeline alias table"
-        expansion = forge_match.group(1)
-        assert "min:" not in expansion, (
+        assert not any("min:" in token for token in ALIASES["forge"]), (
             "forge alias expansion must not include min: override (relies on pipeline default)"
         )
+        assert self._ts_min("forge") is None
+
+    def test_aliases_match_the_contracts_alias_table(self) -> None:
+        """pipeline-contracts.md's alias table is the contract a reader sees:
+        it must expand every alias as ALIASES, the parser's table, does."""
+        rows = re.findall(r"^\|\s*`([a-z-]+)`\s*\|\s*`([^`]+)`\s*\|", _read(PIPELINE_CONTRACTS), re.M)
+        assert {alias: expansion.split() for alias, expansion in rows} == ALIASES
+
+    def test_forger_forwards_the_ts_gate_as_threshold(self) -> None:
+        """The plan's TS min reaches TS as --threshold, the flag TS takes."""
+        invoke = next(line for line in _read(PIPELINE_MODE).splitlines() if "**Invoke the workflow**" in line)
+        assert "invoke TS with `--threshold=<min>`" in invoke
+        assert "`--threshold=<N>`" in _read(SKILL_MD)
 
     def test_score_md_references_init_md_1b(self) -> None:
         score_text = _read(SCORE_FILE)
