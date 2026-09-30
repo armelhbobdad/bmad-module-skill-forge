@@ -4,6 +4,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import re
+import subprocess
+import sys
 
 import pytest
 from pathlib import Path
@@ -136,3 +140,449 @@ class TestInvalidInput:
     def test_error_on_non_array(self):
         r = classify_all("not an array")
         assert r["status"] == "error"
+
+
+# --------------------------------------------------------------------------
+# The rule table against severity-rules.md
+# --------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPT_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-severity-classify.py"
+DIFF_SCRIPT = REPO_ROOT / "src" / "shared" / "scripts" / "skf-structural-diff.py"
+RULES_FILE = REPO_ROOT / "src" / "skf-audit-skill" / "references" / "severity-rules.md"
+_LEVEL_RE = re.compile(r"^### (CRITICAL|HIGH|MEDIUM|LOW)\b")
+
+diff_spec = importlib.util.spec_from_file_location("skf_diff_for_severity", DIFF_SCRIPT)
+diff_mod = importlib.util.module_from_spec(diff_spec)
+diff_spec.loader.exec_module(diff_mod)
+
+# Rules the helper grades that severity-rules.md does not state yet: the
+# audit-skill change that adopts --from-diff states each with this exact
+# text, and then deletes its entry here (test_new_rules_are_not_stated_yet
+# fails until it does).
+NEW_RULES = {
+    mod.LINE_ONLY_RULE: "LOW",
+    mod.CONSTITUENT_CHANGED_RULE: "HIGH",
+    mod.CONSTITUENT_MISSING_RULE: "MEDIUM",
+    mod.SCRIPT_ASSET_RULE: "MEDIUM",
+}
+
+
+def _rules_file_lines():
+    """(severity, text) of each bullet under a severity heading of
+    severity-rules.md, its **Impact:** line left out."""
+    lines, level = [], None
+    for line in RULES_FILE.read_text(encoding="utf-8").splitlines():
+        heading = _LEVEL_RE.match(line)
+        if heading:
+            level = heading.group(1)
+        elif line.startswith("## "):
+            level = None
+        elif level and line.startswith("- ") and not line.startswith("- **Impact:**"):
+            lines.append((level, line[2:].strip()))
+    return lines
+
+
+RULES_FILE_LINES = _rules_file_lines()
+
+
+def _grade(f_type, category, count=1):
+    r = classify_all([{"type": f_type, "category": category, "count": count}])
+    assert r["status"] == "ok", r
+    return r["findings"][0]["severity"]
+
+
+def test_the_rules_file_is_read():
+    assert {level for level, _ in RULES_FILE_LINES} == set(mod.SEVERITIES)
+    assert len(RULES_FILE_LINES) >= 19
+
+
+@pytest.mark.parametrize(
+    "severity,text", RULES_FILE_LINES,
+    ids=[f"{level.lower()}-{i}" for i, (level, _) in enumerate(RULES_FILE_LINES)],
+)
+def test_each_rules_file_line_is_graded_by_the_helper(severity, text):
+    rules = [rule for rule in mod.RULES if rule["rule"] == text]
+    assert rules, f"no helper rule grades {severity}: {text}"
+    for rule in rules:
+        assert rule["severity"] == severity, text
+        count = mod.ADDED_EXPORT_THRESHOLD + 1 if rule["above_threshold"] else 1
+        for f_type in rule["types"]:
+            for category in rule["categories"]:
+                assert _grade(f_type, category, count) == severity, (f_type, category)
+
+
+def test_every_helper_rule_is_in_the_rules_file_or_new():
+    stated = set(RULES_FILE_LINES)
+    for rule in mod.RULES:
+        if (rule["severity"], rule["rule"]) in stated:
+            continue
+        assert NEW_RULES.get(rule["rule"]) == rule["severity"], rule["rule"]
+
+
+def test_new_rules_are_not_stated_yet():
+    # The carve-out expires with the line that ends it: once
+    # severity-rules.md states a rule, its NEW_RULES entry must go.
+    stated = {text for _, text in RULES_FILE_LINES}
+    for text in NEW_RULES:
+        assert text not in stated, f"severity-rules.md states {text!r}: delete its NEW_RULES entry"
+    assert set(NEW_RULES) <= {rule["rule"] for rule in mod.RULES}
+
+
+def test_no_pair_reaches_two_rules_but_the_added_exports_threshold():
+    for pair, rules in mod.PAIRS.items():
+        if len(rules) > 1:
+            assert pair == ("added", "export")
+            assert sorted(r["above_threshold"] for r in rules) == [False, True]
+
+
+@pytest.mark.parametrize("f_type,category", [
+    ("changed", "interface"), ("renamed", "class"), ("renamed", "function"), ("renamed", "type"),
+    ("removed", "function"), ("removed", "type"), ("changed", "parameter_type"),
+])
+def test_pairs_the_rules_state_are_critical(f_type, category):
+    assert _grade(f_type, category) == "CRITICAL"
+
+
+@pytest.mark.parametrize("f_type,severity", [("added", "MEDIUM"), ("changed", "MEDIUM"), ("removed", "CRITICAL")])
+def test_script_asset_drift_rows_take_the_file_category(f_type, severity):
+    # skf-compare-file-hashes.py's three lists each have one pair.
+    assert _grade(f_type, "file") == severity
+
+
+# --------------------------------------------------------------------------
+# A pair no rule accepts is an error, never MEDIUM
+# --------------------------------------------------------------------------
+
+
+class TestUnknownPairs:
+    def test_an_unknown_pair_is_an_error_naming_it(self):
+        r = classify_all([
+            {"type": "removed", "category": "export"},
+            {"type": "changed", "category": "behavior", "detail": "x"},
+        ])
+        assert r["status"] == "error"
+        assert r["problems"] == [{"index": 1, "type": "changed", "category": "behavior",
+                                  "problem": "unknown type/category pair"}]
+        assert "changed/behavior" in r["error"] and "--rules" in r["error"]
+
+    @pytest.mark.parametrize("finding", [
+        {"type": "semantic", "category": "vibes"},
+        {"type": "changed"},
+        {"type": "changed", "category": 3},
+        "not an object",
+    ], ids=["semantic-unknown", "no-category", "category-not-a-string", "not-an-object"])
+    def test_findings_that_fit_no_rule(self, finding):
+        r = classify_all([finding])
+        assert r["status"] == "error"
+        assert r["problems"][0]["index"] == 0
+
+    def test_every_problem_is_listed(self):
+        r = classify_all([{"type": "x", "category": "y"} for _ in range(12)])
+        assert len(r["problems"]) == 12
+        assert "and 2 more" in r["error"]
+
+    def test_pairs_compare_case_insensitively(self):
+        assert _grade("Removed", " Export ") == "CRITICAL"
+
+    def test_the_cli_exits_1_and_names_the_pair(self, tmp_path):
+        findings = _write_json(tmp_path / "findings.json", [{"type": "changed", "category": "vibes"}])
+        res = _run_cli(str(findings))
+        assert res.returncode == 1
+        out = json.loads(res.stdout)
+        assert out["status"] == "error" and "changed/vibes" in out["error"]
+
+
+# --------------------------------------------------------------------------
+# Counts: line-only changes, rollups, constituents
+# --------------------------------------------------------------------------
+
+
+class TestLocationCategory:
+    def test_forty_line_only_changes_score_minor(self):
+        r = classify_all([
+            {"type": "changed", "category": "location", "detail": f"line {i} -> {i + 2}"} for i in range(40)
+        ])
+        assert r["drift_score"] == "MINOR"
+        assert r["by_severity"] == {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 40}
+        assert {f["rule"] for f in r["findings"]} == {mod.LINE_ONLY_RULE}
+
+
+class TestRollupCount:
+    def test_a_rollup_of_fifteen_added_exports_grades_high(self):
+        r = classify_all([
+            {"type": "added", "category": "export", "count": 15, "detail": "15 new exports in src/api/"},
+        ])
+        assert r["findings"][0]["severity"] == "HIGH"
+        assert r["drift_score"] == "SIGNIFICANT"
+        assert r["by_severity"]["HIGH"] == 15
+        assert r["total_findings"] == 1 and r["total_items"] == 15
+        assert r["added_export_count"] == 15
+
+    def test_a_rollup_of_three_stays_medium(self):
+        r = classify_all([{"type": "added", "category": "export", "count": 3}])
+        assert r["findings"][0]["severity"] == "MEDIUM"
+
+    def test_rollups_and_single_rows_add_up(self):
+        r = classify_all([
+            {"type": "added", "category": "export", "count": 2},
+            {"type": "added", "category": "export"},
+            {"type": "added", "category": "export"},
+        ])
+        assert r["added_export_count"] == 4
+        assert {f["severity"] for f in r["findings"]} == {"HIGH"}
+
+    def test_by_severity_sums_to_total_items(self):
+        r = classify_all([
+            {"type": "removed", "category": "export", "count": 12},
+            {"type": "changed", "category": "location"},
+        ])
+        assert r["by_severity"]["CRITICAL"] == 12
+        assert sum(r["by_severity"].values()) == r["total_items"] == 13
+        assert r["total_findings"] == 2
+
+    @pytest.mark.parametrize("count", [0, -1, "3", True, 1.5, None],
+                             ids=["zero", "negative", "string", "bool", "float", "null"])
+    def test_a_count_must_be_a_positive_integer(self, count):
+        r = classify_all([{"type": "added", "category": "export", "count": count}])
+        assert r["status"] == "error"
+        assert r["problems"][0]["problem"] == "count must be a positive integer"
+
+
+class TestConstituent:
+    def test_a_drifted_constituent_is_high(self):
+        r = classify_all([{"type": "changed", "category": "constituent", "detail": "lib-a metadata hash changed"}])
+        assert r["findings"][0]["severity"] == "HIGH"
+        assert r["drift_score"] == "SIGNIFICANT"
+
+    def test_a_missing_constituent_grades_below_a_drifted_one(self):
+        assert _grade("removed", "constituent") == "MEDIUM"
+
+
+class TestCategoryChoices:
+    def test_a_category_outside_its_choices_is_an_error(self):
+        r = classify_all([{"type": "removed", "category": "module", "category_choices": ["export", "internal_helper"]}])
+        assert r["status"] == "error"
+        assert r["problems"][0]["problem"] == "category is not one of category_choices"
+
+    def test_a_category_from_its_choices_is_graded(self):
+        r = classify_all([{"type": "removed", "category": "Internal_Helper",
+                           "category_choices": ["export", "internal_helper"]}])
+        assert r["findings"][0]["severity"] == "HIGH"
+
+
+# --------------------------------------------------------------------------
+# --from-diff: a structural diff projected into findings
+# --------------------------------------------------------------------------
+
+
+def _export(name, file, line, **extra):
+    return {"name": name, "type": "function", "file": file, "line": line, "confidence": "T1", **extra}
+
+
+def _diff(base, curr, **kwargs):
+    return diff_mod.diff_inventories(base, curr, **kwargs)
+
+
+class TestFromDiff:
+    def test_each_bucket_gets_its_type_and_category(self):
+        base = [_export("gone", "a.py", 1), _export("moves", "a.py", 5), _export("shifts", "a.py", 9),
+                _export("grows", "a.py", 20, signature="grows(a)")]
+        curr = [_export("moves", "b.py", 2), _export("shifts", "a.py", 12),
+                _export("grows", "a.py", 20, signature="grows(a, b)"), _export("fresh", "c.py", 3)]
+        findings = mod.project_diff(_diff(base, curr))
+        by_name = {f["name"]: f for f in findings}
+        assert (by_name["fresh"]["type"], by_name["fresh"]["category"]) == ("added", "export")
+        assert (by_name["gone"]["type"], by_name["gone"]["category"]) == ("removed", "export")
+        assert by_name["gone"]["category_choices"] == ["export", "internal_helper"]
+        assert (by_name["moves"]["type"], by_name["moves"]["category"]) == ("moved", "export")
+        assert (by_name["shifts"]["type"], by_name["shifts"]["category"]) == ("changed", "location")
+        assert (by_name["grows"]["type"], by_name["grows"]["category"]) == ("changed", "signature")
+        assert "style" in by_name["grows"]["category_choices"]
+        for key in ("fresh", "moves", "shifts"):
+            assert "category_choices" not in by_name[key]
+
+    def test_findings_carry_file_line_and_confidence(self):
+        base = [_export("moves", "a.py", 5), _export("shifts", "a.py", 9)]
+        curr = [_export("moves", "b.py", 2, confidence="T1-low"), _export("shifts", "a.py", 12)]
+        by_name = {f["name"]: f for f in mod.project_diff(_diff(base, curr))}
+        assert (by_name["moves"]["file"], by_name["moves"]["line"], by_name["moves"]["confidence"]) == (
+            "b.py", 2, "T1-low")
+        assert by_name["moves"]["detail"] == "moved from a.py:5 to b.py:2"
+        assert (by_name["shifts"]["file"], by_name["shifts"]["line"]) == ("a.py", 12)
+        assert by_name["shifts"]["detail"] == "line 9 -> 12"
+
+    def test_one_finding_per_changed_export(self):
+        base = [_export("grows", "a.py", 20, signature="grows(a)", return_type="int")]
+        curr = [_export("grows", "a.py", 22, signature="grows(a, b)", return_type="str")]
+        (finding,) = mod.project_diff(_diff(base, curr))
+        assert finding["detail"] == "signature: grows(a) -> grows(a, b); return_type: int -> str; line: 20 -> 22"
+
+    def test_label_changes_are_never_findings(self):
+        diff = _diff([_export("a", "a.py", 1, confidence="T1-low")], [_export("a", "a.py", 1)])
+        assert diff["summary"]["label_changes"] == 1
+        assert mod.project_diff(diff) == []
+
+    def test_ambiguous_names_are_flagged(self):
+        base = [_export("GET", "a/route.ts", 1), _export("GET", "b/route.ts", 1)]
+        curr = [_export("GET", "a/route.ts", 1), _export("GET", "c/route.ts", 1)]
+        findings = mod.project_diff(_diff(base, curr))
+        assert sorted((f["type"], f["file"]) for f in findings if f.get("ambiguous_name")) == [
+            ("added", "c/route.ts"), ("removed", "b/route.ts")]
+
+    def test_an_ambiguous_pair_judged_a_move_is_one_moved_finding(self):
+        base = [_export("GET", "a/route.ts", 1), _export("GET", "b/route.ts", 4)]
+        curr = [_export("GET", "a/route.ts", 1), _export("GET", "c/route.ts", 6)]
+        findings = mod.project_diff(_diff(base, curr))
+        added = next(f for f in findings if f["type"] == "added")
+        # Recorded as the docstring says: the added finding becomes the move,
+        # without the flag, and the removed finding is dropped.
+        judged = [{**{k: v for k, v in added.items() if k != "ambiguous_name"},
+                   "type": "moved", "detail": "moved from b/route.ts:4 to c/route.ts:6"}]
+        r = classify_all(judged)
+        assert r["status"] == "ok" and r["findings"][0]["severity"] == "MEDIUM"
+        kept_flag = [{**added, "type": "moved"}]
+        r = classify_all(kept_flag)
+        assert r["status"] == "error"
+        assert r["problems"][0]["problem"].startswith("an ambiguous_name finding stays removed or added")
+
+    def test_a_grouped_diff_keeps_the_library(self):
+        base = [dict(_export("parse", "i.ts", 1), source_library="lib-a")]
+        diff = _diff(base, [], group_by="source_library")
+        (finding,) = mod.project_diff(diff)
+        assert finding["source_library"] == "lib-a"
+
+    def test_forty_line_only_changes_classify_minor(self):
+        base = [_export(f"f{i}", "a.py", i * 10) for i in range(40)]
+        curr = [_export(f"f{i}", "a.py", i * 10 + 3) for i in range(40)]
+        r = classify_all(mod.project_diff(_diff(base, curr)))
+        assert r["drift_score"] == "MINOR"
+        assert r["by_severity"]["LOW"] == 40
+
+    def test_fifteen_added_exports_classify_high(self):
+        curr = [_export(f"g{i}", "api.py", i) for i in range(15)]
+        r = classify_all(mod.project_diff(_diff([], curr)))
+        assert r["by_severity"]["HIGH"] == 15
+        assert r["drift_score"] == "SIGNIFICANT"
+
+    def test_a_projection_classifies_as_it_stands(self):
+        base = [_export("gone", "a.py", 1), _export("grows", "a.py", 3, signature="grows(a)")]
+        curr = [_export("grows", "a.py", 3, signature="grows(a, b)")]
+        r = classify_all(mod.project_diff(_diff(base, curr)))
+        assert r["status"] == "ok"
+        assert r["drift_score"] == "CRITICAL"
+
+    @pytest.mark.parametrize("diff", [[], {"added": []}, {"status": "error", "error": "x"}],
+                             ids=["array", "partial", "error-output"])
+    def test_a_file_that_is_not_a_diff_is_refused(self, diff):
+        with pytest.raises(ValueError, match="not a structural diff"):
+            mod.project_diff(diff)
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+
+def _run_cli(*args, stdin=None):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), *args],
+        capture_output=True, text=True, encoding="utf-8", input=stdin, timeout=60,
+    )
+
+
+def _write_json(path, data):
+    path.write_bytes(json.dumps(data).encode("utf-8"))
+    return path
+
+
+QUOTED = "signature: f(a: str = 'x') -> f(a: str = 'x', b: str = \"y\"); it's quoted"
+
+
+class TestQuotesSurvive:
+    def test_a_quoted_detail_reaches_the_helper_through_a_file(self, tmp_path):
+        findings = _write_json(tmp_path / "findings.json", [
+            {"type": "changed", "category": "signature", "detail": QUOTED}])
+        res = _run_cli(str(findings))
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert json.loads(res.stdout)["findings"][0]["detail"] == QUOTED
+
+    def test_stdin_still_reads_a_quoted_detail(self):
+        res = _run_cli("-", stdin=json.dumps([{"type": "changed", "category": "signature", "detail": QUOTED}]))
+        assert res.returncode == 0
+        assert json.loads(res.stdout)["findings"][0]["detail"] == QUOTED
+
+    def test_an_inline_array_still_works(self):
+        res = _run_cli('[{"type": "removed", "category": "export"}]')
+        assert res.returncode == 0
+        assert json.loads(res.stdout)["drift_score"] == "CRITICAL"
+
+    def test_diff_to_findings_to_result_through_files(self, tmp_path):
+        base = _write_json(tmp_path / "provenance-map.json", {"entries": [
+            {"export_name": "open", "export_type": "function", "source_file": "io.py", "source_line": 3,
+             "params": ["mode: str = \"r\""]}]})
+        curr = _write_json(tmp_path / "extraction-snapshot.json", {"exports": [
+            {"name": "open", "type": "function", "file": "io.py", "line": 3, "params": ["mode: str = 'w'"]}]})
+        diff = tmp_path / "structural-diff.json"
+        ran = subprocess.run([sys.executable, str(DIFF_SCRIPT), str(base), str(curr), "-o", str(diff)],
+                             capture_output=True, text=True, timeout=60)
+        assert ran.returncode == 1, ran.stdout + ran.stderr
+        findings = tmp_path / "findings.json"
+        res = _run_cli("--from-diff", str(diff), "-o", str(findings))
+        assert res.returncode == 0, res.stdout
+        assert json.loads(res.stdout) == {"status": "ok", "output": str(findings), "findings": 1,
+                                          "needs_judgment": 1}
+        result = tmp_path / "severity.json"
+        res = _run_cli(str(findings), "-o", str(result))
+        assert res.returncode == 0, res.stdout
+        line = json.loads(res.stdout)
+        assert line["drift_score"] == "CRITICAL" and line["total_findings"] == 1
+        detail = json.loads(result.read_text(encoding="utf-8"))["findings"][0]["detail"]
+        assert detail == "params: (mode: str = 'r') -> (mode: str = 'w')"
+
+
+class TestCli:
+    def test_rules_json_lists_every_rule(self):
+        res = _run_cli("--rules")
+        assert res.returncode == 0
+        out = json.loads(res.stdout)
+        assert out["added_export_threshold"] == 3
+        assert [r["rule"] for r in out["rules"]] == [r["rule"] for r in mod.RULES]
+        high = next(r for r in out["rules"] if r["severity"] == "HIGH" and r["types"] == ["added"])
+        assert high["added_exports"] == "more than 3"
+
+    def test_rules_markdown_is_a_table_row_per_rule(self):
+        res = _run_cli("--rules", "--format", "markdown")
+        assert res.returncode == 0
+        lines = res.stdout.strip().splitlines()
+        assert lines[0] == "| Severity | Types | Categories | Rule |"
+        assert len(lines) == 2 + len(mod.RULES)
+        assert "| CRITICAL | `changed` | `inheritance`, `interface`, `interface_contract` |" in res.stdout
+
+    @pytest.mark.parametrize("args", [[], ["x.json", "--rules"], ["--from-diff", "d.json", "--rules"],
+                                      ["x.json", "--format", "markdown"]],
+                             ids=["none", "findings-and-rules", "diff-and-rules", "format-without-rules"])
+    def test_usage_errors_exit_2(self, args):
+        assert _run_cli(*args).returncode == 2
+
+    def test_invalid_json_exits_1(self, tmp_path):
+        bad = tmp_path / "findings.json"
+        bad.write_bytes(b"[{not json")
+        res = _run_cli(str(bad))
+        assert res.returncode == 1
+        assert json.loads(res.stdout)["status"] == "error"
+
+    def test_a_non_diff_file_exits_1(self, tmp_path):
+        res = _run_cli("--from-diff", str(_write_json(tmp_path / "d.json", [1, 2])))
+        assert res.returncode == 1
+        assert "not a structural diff" in json.loads(res.stdout)["error"]
+
+    def test_a_missing_file_exits_1(self, tmp_path):
+        res = _run_cli(str(tmp_path / "absent.json"))
+        assert res.returncode == 1
+
+    def test_help_prints_the_contract(self):
+        res = _run_cli("--help")
+        assert res.returncode == 0, res.stderr
+        for section in ("--from-diff DIFF:", "category_choices", "ambiguous_name", "--rules:", "Exit codes:"):
+            assert section in res.stdout, section

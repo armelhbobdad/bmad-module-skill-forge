@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""Structural Diff — Deterministic comparison of skill export inventories.
+"""Structural Diff: deterministic comparison of skill export inventories.
 
 Compares a baseline export inventory against a current export inventory and
 produces a structured JSON diff showing added, removed, changed, and moved
@@ -16,6 +16,8 @@ CLI:
   python3 skf-structural-diff.py baseline.json current.json
   python3 skf-structural-diff.py baseline.json current.json -o diff-result.json
   python3 skf-structural-diff.py provenance-map.json snapshot.json --reexport-map map.json
+  python3 skf-structural-diff.py provenance-map.json snapshot.json --group-by source_library
+  python3 skf-structural-diff.py provenance-map.json snapshot.json --files category-a.json
 
 Input:
   Two JSON files. Each file may be either:
@@ -32,12 +34,46 @@ Input:
     - file        <- file        | source_file
     - line        <- line        | source_line
     - signature   <- signature
+    - params      <- params        (a provenance map's parameter list)
+    - return_type <- return_type
     - confidence  <- confidence
     - extraction_method <- extraction_method
 
-  "name" is the primary match key. Nameless entries are skipped.
-  ast_node_type is ignored on purpose: it describes the tool's match, not the
-  export, and a relabel changes it along with confidence.
+  Nameless entries are skipped. ast_node_type is ignored on purpose: it
+  describes the tool's match, not the export, and a relabel changes it along
+  with confidence.
+
+Matching:
+  An export is identified by its name and its file together, so two exports
+  that share a name (a `GET` handler in each of two route files, two `parse`
+  functions) are never taken for one another, whatever order the inventories
+  list them in. The file is compared stripped, with backslashes read as
+  forward slashes and no leading `./`, so a path written on Windows or with
+  a `./` prefix names the same file as the plain one; every list emits the
+  file as the inventory wrote it. One side listing the same name twice in
+  one file (overload signatures, a definition in both branches of an `if`)
+  keeps the entry on the first line, as the AST Extraction Protocol
+  deduplicates.
+
+  An entry left on one side only is paired with one left on the other side
+  as a move when its name occurs exactly once in each inventory. When the
+  name occurs more than once on either side, the leftover entries cannot be
+  paired by name alone: they stay in removed[] and added[], and the name is
+  listed in ambiguous_names[] with the files on each side, for a reviewer
+  to judge.
+
+File scope (--files FILE):
+  For a caller that re-extracted only the files that changed (update-skill's
+  Category B), --files limits the diff to the exports of the files FILE
+  names: a JSON array of paths, or the output of skf-classify-changed-files.py
+  classify, which names category_a's modified, added and deleted files and
+  both paths of each moved_files item. A path compares in the form an
+  export's file does (see Matching). An export of any other file is taken as
+  unchanged on both sides: it enters no list and no count, and its name
+  still counts when a move needs a name unique on both sides, so the scoped
+  diff pairs the moves a diff of the whole inventories would. The current
+  inventory must hold the exports of every named file the source still has,
+  or they read as removed.
 
 Canonicalization (applied symmetrically to BOTH sides before matching):
   The baseline extractor (skf-create-skill) and the re-extractor (audit step 2)
@@ -59,19 +95,31 @@ Canonicalization (applied symmetrically to BOTH sides before matching):
 
   The reexport map is taken from --reexport-map when provided; otherwise it is
   derived from the baseline provenance map itself (top-level `reexport_map`
-  plus any per-entry `reexported_as`) — the same projection produced by
+  plus any per-entry `reexported_as`), the same projection produced by
   `skf-load-provenance.py normalize`.
 
+  params (each parameter) and return_type are canonicalized the same way as
+  a signature.
+
 Change detection:
-  The diffed fields are type, signature and line. A field is only compared
-  when present (non-null) on BOTH sides: a field absent on one side means
-  "insufficient data", never an asserted change. This avoids false positives
-  when the two inventories carry different metadata.
+  The diffed fields are type, signature, params, return_type and line. A
+  field is only compared when present (non-null) on BOTH sides: a field
+  absent on one side means "insufficient data", never an asserted change.
+  This avoids false positives when the two inventories carry different
+  metadata. The line of a moved export is not compared: a move changes it.
+
+  A signature has two parts, the parameters and the return type. A side
+  carries the parameters as params or in its signature, and the return
+  type as return_type or in its signature. When both sides carry a part
+  but no field holds it on both (a provenance map's params and return_type
+  against a snapshot's signature text), that part is never compared, and
+  the export is listed in signature_unverified[]: a change there cannot be
+  seen, so a diff that finds nothing does not pass for a verified one.
 
 Provenance labels:
   confidence and extraction_method describe the tool that extracted an export,
-  not the source, so a difference in them is not drift. For a name present on
-  both sides, a label that differs (compared case-insensitively after trimming,
+  not the source, so a difference in them is not drift. For an export matched
+  on both sides, a label that differs (compared case-insensitively after trimming,
   and only when both sides have a value) is reported once per export in
   label_changes[]. A blank label counts as no value and is emitted as null.
   The stack spellings of extraction_method compare equal to the library ones
@@ -82,28 +130,72 @@ Provenance labels:
 Output:
   JSON object:
     summary:            { added, removed, changed, moved, unchanged,
-                          label_changes }
+                          label_changes, ambiguous_names,
+                          signature_unverified }
     added:              list of entries present in current but not baseline
     removed:            list of entries present in baseline but not current
-    changed:            list of { name, field, baseline_value, current_value }
-                        where field is type, signature or line
-    moved:              list of { name, previous_file, current_file }
-    label_changes:      list of { name, baseline: {confidence,
+    changed:            list of { name, field, baseline_value, current_value,
+                        file, line, confidence } where field is type,
+                        signature, params, return_type or line, and file,
+                        line and confidence are the export's current ones
+    moved:              list of { name, previous_file, current_file,
+                        previous_line, line, confidence }
+    ambiguous_names:    list of { name, removed: [{file, line}], added:
+                        [{file, line}] }: a name left on both sides that
+                        occurs more than once on a side, so its entries stay
+                        in removed[] and added[] unpaired
+    label_changes:      list of { name, file, baseline: {confidence,
                         extraction_method}, current: {confidence,
                         extraction_method} }; informational, not drift
+    signature_unverified: list of { name, file, baseline, current }: a
+                        matched export with a signature part no field
+                        holds on both sides (see Change detection);
+                        baseline and current list which of signature,
+                        params and return_type each side carries.
+                        Informational: never a change, never in the exit
+                        code
     unchanged_count:    number of entries that matched with no field change
-                        (a label change alone leaves an entry unchanged)
-    applied_transforms: list of { transform, count } — which canonicalization
+                        (a label change or an unverified signature alone
+                        leaves an entry unchanged)
+    applied_transforms: list of { transform, count }: which canonicalization
                         transforms actually fired and how many values each
                         touched (empty when none fired). Surfaced by audit
                         step 6's Provenance section so a reviewer can tell
                         which differences the diff collapsed.
 
+  added[] and removed[] hold normalized records: name, type, signature,
+  params, return_type, file, line, confidence and extraction_method.
+
+  With --group-by source_library, each side is split by its entries'
+  source_library (a stack's libraries; an entry without one falls in a
+  null group, diffed against the other side's) and each group is diffed on
+  its own, so an export never matches one of another library. The lists
+  above then hold every group's items, each tagged with its source_library,
+  the summary sums the groups, and two keys are added:
+    group_by:           "source_library"
+    groups:             list of { source_library, summary }, one per group
+  An inventory whose entries all lack a source_library is an error when
+  the other inventory's entries have one: its every export would land in
+  the null group and read as added or removed.
+
+  With --files, one key is added:
+    file_scope:         { files, baseline_left_out, current_left_out }: the
+                        paths FILE names, and the exports of each inventory
+                        left out as outside them
+
+  With -o, the JSON is written to the file and stdout gets one line:
+  { status: "ok", output: <file>, summary: {...} }.
+
 Exit codes:
   0  no export added, removed, changed or moved
-  1  differences found (or error)
-  Label differences are reported in label_changes and do not count toward
-  the exit code.
+  1  differences found
+  2  error: an input that cannot be read or parsed, a --files file that is
+     neither a path list nor a classify output, --group-by over an
+     inventory whose entries all lack the field while the other's have it,
+     an output that cannot be written, or a usage error ({status: "error",
+     error} on stdout, or argparse's usage on stderr)
+  Label differences (label_changes) and unverified signatures
+  (signature_unverified) do not count toward the exit code.
 """
 
 from __future__ import annotations
@@ -117,11 +209,21 @@ from pathlib import Path
 
 
 # Fields compared for change detection (in order).
-# "name" is the primary key and is not diffed as a field.
-# "file" is excluded — file moves are tracked separately in the "moved" list.
+# "name" and "file" identify the export and are not diffed as fields; a file
+# change is tracked separately in the "moved" list.
 # Provenance labels are excluded too: they say which tool extracted the export,
 # so a relabel is reported in label_changes[] and is never drift.
-DIFF_FIELDS = ["type", "signature", "line"]
+# params and return_type are the provenance map's form of a signature.
+DIFF_FIELDS = ["type", "signature", "params", "return_type", "line"]
+
+# The fields that hold a signature, and for each of its two parts (the
+# parameters, the return type) the fields that hold that part: a signature
+# string holds both.
+SIGNATURE_FIELDS = ("signature", "params", "return_type")
+SIGNATURE_PARTS = (("params", "signature"), ("return_type", "signature"))
+
+# The one --group-by field: a stack's per-library split.
+GROUP_FIELDS = ["source_library"]
 
 # Provenance labels compared for the informational label_changes[] list.
 LABEL_FIELDS = ["confidence", "extraction_method"]
@@ -134,7 +236,7 @@ _METHOD_ALIASES = {"ast_bridge": "ast-grep", "source_reading": "source-read"}
 # the call site. Longer prefixes must precede their own containing prefix
 # (collections.abc before collections) so the alternation strips the longest.
 # The negative lookbehind `(?<![\w.])` ensures we only strip a top-level module
-# reference — never a user-defined namespace such as `pkg.typing.Foo`.
+# reference, never a user-defined namespace such as `pkg.typing.Foo`.
 _STDLIB_PREFIX_RE = re.compile(
     r"(?<![\w.])(?:typing|dataclasses|collections\.abc|collections|enum)\."
 )
@@ -196,6 +298,41 @@ def load_inventory(path: Path) -> tuple[list[dict], str | None]:
     if err:
         return [], err
     return entries_from_data(data, str(path))
+
+
+def files_from_data(data: object, source: str = "") -> tuple[list[str], str | None]:
+    """The paths of a --files file, already parsed.
+
+    Accepts:
+      - [...]                 (a JSON array of paths)
+      - {"category_a": {...}} (skf-classify-changed-files.py classify output:
+                               category_a's modified, added and deleted
+                               paths, and both paths of each moved_files item)
+
+    Returns (paths, error_message).
+    """
+    where = f" in '{source}'" if source else ""
+    if isinstance(data, list):
+        if all(isinstance(path, str) for path in data):
+            return data, None
+        return [], f"--files list{where} must hold only path strings"
+    if not isinstance(data, dict) or not isinstance(data.get("category_a"), dict):
+        return [], (
+            f"Unrecognised --files format{where}: expected an array of paths or "
+            f"the output of skf-classify-changed-files.py classify"
+        )
+    paths: list[str] = []
+    for key in ("modified", "added", "deleted"):
+        listed = data["category_a"].get(key, [])
+        if not isinstance(listed, list) or not all(isinstance(path, str) for path in listed):
+            return [], f"--files category_a.{key}{where} must be a list of paths"
+        paths.extend(listed)
+    moves = data.get("moved_files", [])
+    if not isinstance(moves, list) or not all(isinstance(move, dict) for move in moves):
+        return [], f"--files moved_files{where} must be a list of {{old_path, new_path}} objects"
+    for move in moves:
+        paths.extend(move[key] for key in ("old_path", "new_path") if isinstance(move.get(key), str))
+    return paths, None
 
 
 # --------------------------------------------------------------------------
@@ -281,19 +418,47 @@ def canon_signature(sig: object) -> tuple[object, set[str]]:
     return out, applied
 
 
+def _canon_value(value: object, transform_counts: collections.Counter) -> object:
+    """Canonicalize a signature, a return type or each item of a parameter list."""
+    if isinstance(value, list):
+        return [_canon_value(item, transform_counts) for item in value]
+    canon, fired = canon_signature(value)
+    for t in fired:
+        transform_counts[t] += 1
+    return canon
+
+
+def _is_line(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _file_key(file: object) -> str | None:
+    """The file half of an export's key: stripped, forward slashes, no
+    leading `./` (normalize_rel_path of skf-resolve-authoritative-files.py),
+    or None when the entry names no file."""
+    if not isinstance(file, str):
+        return None
+    path = file.strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path or None
+
+
 def _normalize_entries(
     entries: list[dict],
     reexport_map: dict[str, str],
     transform_counts: collections.Counter,
-) -> dict[str, dict]:
-    """Build a name-keyed dict of canonicalized records.
+) -> dict[tuple, dict]:
+    """Build a dict of canonicalized records keyed by (name, file).
 
     Applies field-name aliasing, signature canonicalization, and re-export
     name resolution. Accumulates fired-transform counts into transform_counts.
-    Nameless entries are skipped. On duplicate resolved names, the last entry
-    wins (consistent with prior behaviour).
+    Nameless entries are skipped. The key holds the file in _file_key's form;
+    the record keeps it as written. When one (name, file) repeats, the entry
+    on the first line wins, whatever order the inventory lists them in (an
+    entry with no line only wins when no other has one).
     """
-    result: dict[str, dict] = {}
+    result: dict[tuple, dict] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -306,22 +471,27 @@ def _normalize_entries(
             transform_counts["reexport-resolution"] += 1
             name = resolved
 
-        canon_sig, sig_transforms = canon_signature(entry.get("signature"))
-        for t in sig_transforms:
-            transform_counts[t] += 1
-
-        # Normalized record — also the public entry shape emitted in
+        # Normalized record: also the public entry shape emitted in
         # added[]/removed[], so both sides render into one consistent table
         # regardless of the input shape they came from.
-        result[name] = {
+        record = {
             "name": name,
             "type": _first(entry, "type", "export_type"),
-            "signature": canon_sig,
+            "signature": _canon_value(entry.get("signature"), transform_counts),
+            "params": _canon_value(entry.get("params"), transform_counts),
+            "return_type": _canon_value(entry.get("return_type"), transform_counts),
             "file": _first(entry, "file", "source_file"),
             "line": _first(entry, "line", "source_line"),
             "confidence": entry.get("confidence"),
             "extraction_method": entry.get("extraction_method"),
         }
+        key = (name, _file_key(record["file"]))
+        kept = result.get(key)
+        if kept is not None and not (
+            _is_line(record["line"]) and (not _is_line(kept["line"]) or record["line"] < kept["line"])
+        ):
+            continue
+        result[key] = record
     return result
 
 
@@ -350,7 +520,7 @@ def _label_side(rec: dict) -> dict:
     }
 
 
-def _label_change(name: str, base_rec: dict, curr_rec: dict) -> dict | None:
+def _label_change(base_rec: dict, curr_rec: dict) -> dict | None:
     """The label_changes[] item for one matched export, or None when labels agree.
 
     A label is compared only when both sides have a value for it.
@@ -362,9 +532,30 @@ def _label_change(name: str, base_rec: dict, curr_rec: dict) -> dict | None:
             continue
         if base_key != curr_key:
             return {
-                "name": name,
+                "name": curr_rec["name"],
+                "file": curr_rec["file"],
                 "baseline": _label_side(base_rec),
                 "current": _label_side(curr_rec),
+            }
+    return None
+
+
+def _signature_fields(rec: dict) -> list[str]:
+    return [field for field in SIGNATURE_FIELDS if rec.get(field) is not None]
+
+
+def _unverified_signature(base_rec: dict, curr_rec: dict) -> dict | None:
+    """The signature_unverified[] item for one matched export, or None when
+    every signature part both sides carry sits in a field both sides have."""
+    for fields in SIGNATURE_PARTS:
+        base_has = {field for field in fields if base_rec.get(field) is not None}
+        curr_has = {field for field in fields if curr_rec.get(field) is not None}
+        if base_has and curr_has and not (base_has & curr_has):
+            return {
+                "name": curr_rec["name"],
+                "file": curr_rec["file"],
+                "baseline": _signature_fields(base_rec),
+                "current": _signature_fields(curr_rec),
             }
     return None
 
@@ -374,57 +565,94 @@ def _label_change(name: str, base_rec: dict, curr_rec: dict) -> dict | None:
 # --------------------------------------------------------------------------
 
 
-def diff_inventories(
-    baseline_entries: list[dict],
-    current_entries: list[dict],
-    reexport_map: dict[str, str] | None = None,
+LISTS = ["added", "removed", "changed", "moved", "ambiguous_names", "label_changes", "signature_unverified"]
+
+
+def _key_order(key: tuple) -> tuple:
+    return (key[0], key[1] or "")
+
+
+def _file_line(rec: dict) -> dict:
+    return {"file": rec["file"], "line": rec["line"]}
+
+
+def _diff_records(
+    baseline: dict[tuple, dict],
+    current: dict[tuple, dict],
+    unchanged_names: collections.Counter | None = None,
 ) -> dict:
-    """Compute the structural diff between two export inventories.
+    """Diff two (name, file)-keyed record sets: the LISTS, plus the counts
+    unchanged_count and changed_exports (exports with a changed field).
 
-    Returns a dict with keys: summary, added, removed, changed, moved,
-    label_changes, unchanged_count, applied_transforms.
+    unchanged_names counts the names of exports left out of both sets as
+    unchanged (--files): each counts on both sides when a move needs a name
+    unique on both sides.
     """
-    reexport_map = reexport_map or {}
-    transform_counts: collections.Counter = collections.Counter()
+    removed_keys = sorted((k for k in baseline if k not in current), key=_key_order)
+    added_keys = sorted((k for k in current if k not in baseline), key=_key_order)
 
-    baseline = _normalize_entries(baseline_entries, reexport_map, transform_counts)
-    current = _normalize_entries(current_entries, reexport_map, transform_counts)
+    # A leftover is paired as a move only when its name occurs once on each
+    # side; any other name left on both sides is ambiguous.
+    base_names = collections.Counter(name for name, _ in baseline)
+    curr_names = collections.Counter(name for name, _ in current)
+    if unchanged_names:
+        base_names.update(unchanged_names)
+        curr_names.update(unchanged_names)
+    removed_by_name: dict[str, list[tuple]] = collections.defaultdict(list)
+    added_by_name: dict[str, list[tuple]] = collections.defaultdict(list)
+    for key in removed_keys:
+        removed_by_name[key[0]].append(key)
+    for key in added_keys:
+        added_by_name[key[0]].append(key)
 
-    baseline_names = set(baseline.keys())
-    current_names = set(current.keys())
+    pairs: list[tuple[tuple, tuple]] = [(key, key) for key in baseline if key in current]
+    ambiguous_names: list[dict] = []
+    for name in sorted(set(removed_by_name) & set(added_by_name)):
+        if base_names[name] == 1 and curr_names[name] == 1:
+            pairs.append((removed_by_name[name][0], added_by_name[name][0]))
+            continue
+        ambiguous_names.append({
+            "name": name,
+            "removed": [_file_line(baseline[k]) for k in removed_by_name[name]],
+            "added": [_file_line(current[k]) for k in added_by_name[name]],
+        })
+    paired_base = {base_key for base_key, _ in pairs}
+    paired_curr = {curr_key for _, curr_key in pairs}
 
-    added_names = current_names - baseline_names
-    removed_names = baseline_names - current_names
-    common_names = baseline_names & current_names
-
-    # Emit normalized entries (uniform name/type/signature/file/line/confidence/
-    # extraction_method shape) so added[] and removed[] render into the same
-    # report table even though they originate from the snapshot and
-    # provenance-map shapes.
-    added = [current[n] for n in sorted(added_names)]
-    removed = [baseline[n] for n in sorted(removed_names)]
+    # Emit normalized entries (uniform shape) so added[] and removed[] render
+    # into the same report table even though they originate from the
+    # snapshot and provenance-map shapes.
+    added = [current[k] for k in added_keys if k not in paired_curr]
+    removed = [baseline[k] for k in removed_keys if k not in paired_base]
 
     changed: list[dict] = []
     moved: list[dict] = []
     label_changes: list[dict] = []
+    signature_unverified: list[dict] = []
     unchanged_count = 0
+    changed_exports = 0
 
-    for name in sorted(common_names):
-        base_rec = baseline[name]
-        curr_rec = current[name]
+    for base_key, curr_key in sorted(pairs, key=lambda pair: _key_order(pair[1])):
+        base_rec = baseline[base_key]
+        curr_rec = current[curr_key]
 
-        # File moves are tracked separately from field changes.
-        base_file = base_rec.get("file")
-        curr_file = curr_rec.get("file")
-        if base_file and curr_file and base_file != curr_file:
+        # File moves are tracked separately from field changes, and a moved
+        # export's line is not compared: the move changes it.
+        is_move = base_key[1] is not None and curr_key[1] is not None and base_key[1] != curr_key[1]
+        if is_move:
             moved.append({
-                "name": name,
-                "previous_file": base_file,
-                "current_file": curr_file,
+                "name": curr_rec["name"],
+                "previous_file": base_rec["file"],
+                "current_file": curr_rec["file"],
+                "previous_line": base_rec["line"],
+                "line": curr_rec["line"],
+                "confidence": curr_rec["confidence"],
             })
 
         entry_changed = False
         for field in DIFF_FIELDS:
+            if is_move and field == "line":
+                continue
             base_val = base_rec.get(field)
             curr_val = curr_rec.get(field)
             # Compare only when data is present on both sides; a missing value
@@ -433,22 +661,147 @@ def diff_inventories(
                 continue
             if base_val != curr_val:
                 changed.append({
-                    "name": name,
+                    "name": curr_rec["name"],
                     "field": field,
                     "baseline_value": base_val,
                     "current_value": curr_val,
+                    "file": curr_rec["file"],
+                    "line": curr_rec["line"],
+                    "confidence": curr_rec["confidence"],
                 })
                 entry_changed = True
 
-        if not entry_changed:
+        if entry_changed:
+            changed_exports += 1
+        else:
             unchanged_count += 1
 
         # Provenance labels are informational: reported, never counted as drift.
-        label_change = _label_change(name, base_rec, curr_rec)
+        label_change = _label_change(base_rec, curr_rec)
         if label_change is not None:
             label_changes.append(label_change)
 
-    changed_names = len({c["name"] for c in changed})
+        # A signature part the two sides hold in different fields was never
+        # compared: reported, so an empty diff does not read as verified.
+        unverified = _unverified_signature(base_rec, curr_rec)
+        if unverified is not None:
+            signature_unverified.append(unverified)
+
+    return {
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "moved": moved,
+        "ambiguous_names": ambiguous_names,
+        "label_changes": label_changes,
+        "signature_unverified": signature_unverified,
+        "unchanged_count": unchanged_count,
+        "changed_exports": changed_exports,
+    }
+
+
+def _summary(part: dict) -> dict:
+    return {
+        "added": len(part["added"]),
+        "removed": len(part["removed"]),
+        "changed": part["changed_exports"],
+        "moved": len(part["moved"]),
+        "unchanged": part["unchanged_count"],
+        "label_changes": len(part["label_changes"]),
+        "ambiguous_names": len(part["ambiguous_names"]),
+        "signature_unverified": len(part["signature_unverified"]),
+    }
+
+
+def _group_of(entry: object, group_by: str) -> str | None:
+    value = entry.get(group_by) if isinstance(entry, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _grouped(entries: list, group_by: str) -> bool:
+    return any(_group_of(entry, group_by) is not None for entry in entries)
+
+
+def _in_scope(entry: object, scope: set[str]) -> bool:
+    return isinstance(entry, dict) and _file_key(_first(entry, "file", "source_file")) in scope
+
+
+def diff_inventories(
+    baseline_entries: list[dict],
+    current_entries: list[dict],
+    reexport_map: dict[str, str] | None = None,
+    group_by: str | None = None,
+    sources: tuple[str, str] = ("the baseline inventory", "the current inventory"),
+    files: list[str] | None = None,
+) -> dict:
+    """Compute the structural diff between two export inventories.
+
+    Returns a dict with keys: summary, added, removed, changed, moved,
+    ambiguous_names, label_changes, signature_unverified, unchanged_count,
+    applied_transforms; with group_by, group_by and groups; and with files,
+    file_scope (see the module docstring). files limits the diff to the
+    exports of those files, and every other export is taken as unchanged.
+
+    Raises ValueError when group_by is set and one side has entries but
+    none with a group_by value while the other side has some; the message
+    names that side as sources does (the CLI passes the two file paths).
+    """
+    if group_by:
+        sides = (
+            (baseline_entries, current_entries, sources[0]),
+            (current_entries, baseline_entries, sources[1]),
+        )
+        for entries, other, source in sides:
+            if entries and not _grouped(entries, group_by) and _grouped(other, group_by):
+                raise ValueError(f"--group-by {group_by}: {source} has no entry with {group_by}")
+
+    reexport_map = reexport_map or {}
+    transform_counts: collections.Counter = collections.Counter()
+    scope = None if files is None else {key for key in map(_file_key, files) if key}
+
+    base_groups: dict[str | None, list] = collections.defaultdict(list)
+    curr_groups: dict[str | None, list] = collections.defaultdict(list)
+    for entry in baseline_entries:
+        base_groups[_group_of(entry, group_by) if group_by else None].append(entry)
+    for entry in current_entries:
+        curr_groups[_group_of(entry, group_by) if group_by else None].append(entry)
+    values = sorted(set(base_groups) | set(curr_groups), key=lambda v: (v is None, v or ""))
+
+    total: dict = {name: [] for name in LISTS}
+    total.update(unchanged_count=0, changed_exports=0)
+    groups: list[dict] = []
+    left_out = {"baseline": 0, "current": 0}
+    for value in values or [None]:
+        base_part = base_groups.get(value, [])
+        curr_part = curr_groups.get(value, [])
+        unchanged_names: collections.Counter = collections.Counter()
+        if scope is not None:
+            # Exports outside the scope are normalized apart, so a transform
+            # they need is not reported: they are in no list and no count.
+            outside = {
+                side: _normalize_entries(
+                    [e for e in entries if not _in_scope(e, scope)], reexport_map, collections.Counter()
+                )
+                for side, entries in (("baseline", base_part), ("current", curr_part))
+            }
+            unchanged_names.update(name for name, _ in outside["baseline"])
+            for side, records in outside.items():
+                left_out[side] += len(records)
+            base_part = [e for e in base_part if _in_scope(e, scope)]
+            curr_part = [e for e in curr_part if _in_scope(e, scope)]
+        part = _diff_records(
+            _normalize_entries(base_part, reexport_map, transform_counts),
+            _normalize_entries(curr_part, reexport_map, transform_counts),
+            unchanged_names,
+        )
+        if group_by:
+            for name in LISTS:
+                part[name] = [{group_by: value, **item} for item in part[name]]
+            groups.append({group_by: value, "summary": _summary(part)})
+        for name in LISTS:
+            total[name].extend(part[name])
+        total["unchanged_count"] += part["unchanged_count"]
+        total["changed_exports"] += part["changed_exports"]
 
     applied_transforms = [
         {"transform": name, "count": transform_counts[name]}
@@ -456,23 +809,20 @@ def diff_inventories(
         if transform_counts[name] > 0
     ]
 
-    return {
-        "summary": {
-            "added": len(added),
-            "removed": len(removed),
-            "changed": changed_names,
-            "moved": len(moved),
-            "unchanged": unchanged_count,
-            "label_changes": len(label_changes),
-        },
-        "added": added,
-        "removed": removed,
-        "changed": changed,
-        "moved": moved,
-        "label_changes": label_changes,
-        "unchanged_count": unchanged_count,
-        "applied_transforms": applied_transforms,
-    }
+    result = {"summary": _summary(total)}
+    result.update((name, total[name]) for name in LISTS)
+    result["unchanged_count"] = total["unchanged_count"]
+    result["applied_transforms"] = applied_transforms
+    if group_by:
+        result["group_by"] = group_by
+        result["groups"] = groups
+    if scope is not None:
+        result["file_scope"] = {
+            "files": len(scope),
+            "baseline_left_out": left_out["baseline"],
+            "current_left_out": left_out["current"],
+        }
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -480,30 +830,24 @@ def diff_inventories(
 # --------------------------------------------------------------------------
 
 
-def main() -> int:
+# Exit codes: no difference, differences found, error.
+EXIT_SAME = 0
+EXIT_DIFFERENT = 1
+EXIT_ERROR = 2
+
+
+def _fail(message: str) -> int:
+    print(json.dumps({"status": "error", "error": message}, indent=2))
+    return EXIT_ERROR
+
+
+def main(argv: list[str] | None = None) -> int:
+    # --help prints the module docstring: the input, matching and output
+    # contract a calling step cites.
     parser = argparse.ArgumentParser(
         prog="skf-structural-diff.py",
-        description=(
-            "Compare two JSON export inventories and produce a structured diff.\n"
-            "\n"
-            "Each inventory may be a JSON array of export entries, an object with\n"
-            "an 'exports' key (extraction-snapshot), or an object with an 'entries'\n"
-            "key (provenance-map.json). Field names are aliased across the two\n"
-            "shapes, and signatures are canonicalized (quote style, stdlib module\n"
-            "prefixes, public re-export names) symmetrically before matching.\n"
-            "Provenance label differences (confidence, extraction_method) are\n"
-            "reported in label_changes and do not count toward the exit code.\n"
-            "\n"
-            "Exit code 0 means no differences were found.\n"
-            "Exit code 1 means differences were found (or an error occurred)."
-        ),
+        description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "examples:\n"
-            "  python3 skf-structural-diff.py provenance-map.json extraction-snapshot.json\n"
-            "  python3 skf-structural-diff.py baseline.json current.json -o diff.json\n"
-            "  python3 skf-structural-diff.py provenance-map.json snapshot.json --reexport-map map.json\n"
-        ),
     )
     parser.add_argument(
         "baseline",
@@ -525,44 +869,74 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--group-by",
+        choices=GROUP_FIELDS,
+        help=(
+            "diff each group of entries on its own (source_library: a stack's "
+            "libraries) and tag every listed item with its group; an "
+            "inventory whose entries all lack the field is an error when "
+            "the other's have it"
+        ),
+    )
+    parser.add_argument(
+        "--files",
+        metavar="FILE",
+        help=(
+            "diff only the exports of the files FILE names (a JSON array of "
+            "paths, or a skf-classify-changed-files.py classify output) and "
+            "take every other export as unchanged"
+        ),
+    )
+    parser.add_argument(
         "-o",
         "--output",
         metavar="FILE",
-        help="write JSON output to FILE instead of stdout",
+        help="write the JSON diff to FILE and print only a summary line on stdout",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     baseline_path = Path(args.baseline)
     current_path = Path(args.current)
 
     baseline_data, err = load_json(baseline_path)
     if err:
-        print(json.dumps({"status": "error", "error": err}, indent=2))
-        return 1
+        return _fail(err)
     current_data, err = load_json(current_path)
     if err:
-        print(json.dumps({"status": "error", "error": err}, indent=2))
-        return 1
+        return _fail(err)
 
     baseline_entries, err = entries_from_data(baseline_data, str(baseline_path))
     if err:
-        print(json.dumps({"status": "error", "error": err}, indent=2))
-        return 1
+        return _fail(err)
     current_entries, err = entries_from_data(current_data, str(current_path))
     if err:
-        print(json.dumps({"status": "error", "error": err}, indent=2))
-        return 1
+        return _fail(err)
 
     if args.reexport_map:
         reexport_map, err = load_reexport_map(Path(args.reexport_map))
         if err:
-            print(json.dumps({"status": "error", "error": err}, indent=2))
-            return 1
+            return _fail(err)
     else:
         reexport_map = extract_reexport_map(baseline_data)
 
-    result = diff_inventories(baseline_entries, current_entries, reexport_map)
+    files = None
+    if args.files:
+        files_data, err = load_json(Path(args.files))
+        if err:
+            return _fail(err)
+        files, err = files_from_data(files_data, args.files)
+        if err:
+            return _fail(err)
+
+    try:
+        result = diff_inventories(
+            baseline_entries, current_entries, reexport_map, args.group_by,
+            sources=(str(baseline_path), str(current_path)),
+            files=files,
+        )
+    except ValueError as exc:
+        return _fail(str(exc))
     output_text = json.dumps(result, indent=2)
 
     if args.output:
@@ -570,16 +944,14 @@ def main() -> int:
         try:
             out_path.write_text(output_text + "\n", encoding="utf-8")
         except OSError as exc:
-            print(
-                json.dumps({"status": "error", "error": f"Cannot write output: {exc}"}, indent=2)
-            )
-            return 1
+            return _fail(f"Cannot write output: {exc}")
+        print(json.dumps({"status": "ok", "output": str(out_path), "summary": result["summary"]}))
     else:
         print(output_text)
 
     summary = result["summary"]
     has_diff = summary["added"] or summary["removed"] or summary["changed"] or summary["moved"]
-    return 1 if has_diff else 0
+    return EXIT_DIFFERENT if has_diff else EXIT_SAME
 
 
 if __name__ == "__main__":

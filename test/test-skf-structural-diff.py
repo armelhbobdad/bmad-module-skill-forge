@@ -379,7 +379,7 @@ class TestLabelChanges:
 
     def test_confidence_is_not_a_diff_field(self):
         assert "confidence" not in mod.DIFF_FIELDS
-        assert mod.DIFF_FIELDS == ["type", "signature", "line"]
+        assert mod.DIFF_FIELDS == ["type", "signature", "params", "return_type", "line"]
 
     def test_relabel_only_is_a_label_change_not_drift(self):
         r = diff_inventories([_prov_entry()], [_snap_export()])
@@ -389,6 +389,7 @@ class TestLabelChanges:
         assert r["summary"]["label_changes"] == 1
         assert r["label_changes"] == [{
             "name": "search",
+            "file": "cognee/api/v1/search/search.py",
             "baseline": {"confidence": "T1-low", "extraction_method": "source-read"},
             "current": {"confidence": "T1", "extraction_method": "ast-grep"},
         }]
@@ -396,7 +397,9 @@ class TestLabelChanges:
     def test_label_and_line_change_split(self):
         r = diff_inventories([_prov_entry()], [_snap_export(line=31)])
         assert r["changed"] == [{"name": "search", "field": "line",
-                                 "baseline_value": 27, "current_value": 31}]
+                                 "baseline_value": 27, "current_value": 31,
+                                 "file": "cognee/api/v1/search/search.py", "line": 31,
+                                 "confidence": "T1"}]
         assert r["summary"]["changed"] == 1
         assert r["unchanged_count"] == 0
         assert len(r["label_changes"]) == 1
@@ -513,6 +516,442 @@ class TestLabelChanges:
 
 
 # --------------------------------------------------------------------------
+# Export identity: an export is its name and its file together
+# --------------------------------------------------------------------------
+
+
+def _route(name, file, line, **extra):
+    return {"name": name, "file": file, "line": line, "type": "function", **extra}
+
+
+class TestSameNameExports:
+    """Matching on the bare name let duplicate names hide a removal and invent
+    a move. Keyed on (name, file), and paired as a move only when the name is
+    unique on both sides, the diff reports what happened."""
+
+    def test_get_in_two_route_files_with_one_deleted(self):
+        base = [_route("GET", "app/users/route.ts", 3), _route("GET", "app/posts/route.ts", 5)]
+        curr = [_route("GET", "app/users/route.ts", 3)]
+        r = diff_inventories(base, curr)
+        assert [(e["name"], e["file"]) for e in r["removed"]] == [("GET", "app/posts/route.ts")]
+        assert r["moved"] == [] and r["changed"] == [] and r["added"] == []
+        assert r["ambiguous_names"] == []
+        assert r["summary"]["removed"] == 1 and r["summary"]["unchanged"] == 1
+
+    def test_two_parse_exports_listed_in_a_different_order(self):
+        base = [_route("parse", "src/json.py", 10), _route("parse", "src/yaml.py", 20)]
+        r = diff_inventories(base, list(reversed(base)))
+        assert r["moved"] == [] and r["changed"] == []
+        assert r["added"] == [] and r["removed"] == []
+        assert r["unchanged_count"] == 2
+
+    def test_a_change_to_one_of_two_same_name_exports_names_its_file(self):
+        base = [_route("parse", "src/json.py", 10, signature="parse(s)"),
+                _route("parse", "src/yaml.py", 20, signature="parse(s)")]
+        curr = [_route("parse", "src/yaml.py", 20, signature="parse(s, strict)"),
+                _route("parse", "src/json.py", 10, signature="parse(s)")]
+        r = diff_inventories(base, curr)
+        assert [(c["file"], c["field"]) for c in r["changed"]] == [("src/yaml.py", "signature")]
+        assert r["summary"]["changed"] == 1 and r["summary"]["unchanged"] == 1
+
+    def test_leftovers_of_a_repeated_name_are_ambiguous_not_moved(self):
+        base = [_route("GET", "app/a/route.ts", 3), _route("GET", "app/b/route.ts", 5)]
+        curr = [_route("GET", "app/a/route.ts", 3), _route("GET", "app/c/route.ts", 5)]
+        r = diff_inventories(base, curr)
+        assert r["moved"] == []
+        assert [e["file"] for e in r["removed"]] == ["app/b/route.ts"]
+        assert [e["file"] for e in r["added"]] == ["app/c/route.ts"]
+        assert r["ambiguous_names"] == [{
+            "name": "GET",
+            "removed": [{"file": "app/b/route.ts", "line": 5}],
+            "added": [{"file": "app/c/route.ts", "line": 5}],
+        }]
+        assert r["summary"]["ambiguous_names"] == 1
+
+    def test_a_name_repeated_on_one_side_only_is_ambiguous(self):
+        base = [_route("parse", "src/old.py", 1)]
+        curr = [_route("parse", "src/new_a.py", 1), _route("parse", "src/new_b.py", 1)]
+        r = diff_inventories(base, curr)
+        assert r["moved"] == []
+        assert r["summary"]["removed"] == 1 and r["summary"]["added"] == 2
+        (item,) = r["ambiguous_names"]
+        assert item["name"] == "parse" and len(item["added"]) == 2
+
+    def test_a_name_repeated_in_the_baseline_only_is_ambiguous(self):
+        # One GET left on the current side is no move: the baseline had two.
+        base = [_route("GET", "app/a/route.ts", 3), _route("GET", "app/b/route.ts", 5)]
+        curr = [_route("GET", "app/c/route.ts", 7)]
+        r = diff_inventories(base, curr)
+        assert r["moved"] == []
+        assert [e["file"] for e in r["removed"]] == ["app/a/route.ts", "app/b/route.ts"]
+        assert [e["file"] for e in r["added"]] == ["app/c/route.ts"]
+        assert r["ambiguous_names"] == [{
+            "name": "GET",
+            "removed": [{"file": "app/a/route.ts", "line": 3}, {"file": "app/b/route.ts", "line": 5}],
+            "added": [{"file": "app/c/route.ts", "line": 7}],
+        }]
+
+    def test_a_name_left_on_one_side_only_is_not_ambiguous(self):
+        base = [_route("GET", "a.ts", 1), _route("GET", "b.ts", 1)]
+        r = diff_inventories(base, [])
+        assert r["summary"]["removed"] == 2 and r["ambiguous_names"] == []
+
+    def test_a_unique_name_left_on_both_sides_is_a_move(self):
+        r = diff_inventories([_route("helper", "src/a.ts", 4)], [_route("helper", "src/b.ts", 9)])
+        assert r["moved"] == [{"name": "helper", "previous_file": "src/a.ts", "current_file": "src/b.ts",
+                               "previous_line": 4, "line": 9, "confidence": None}]
+        assert r["added"] == [] and r["removed"] == [] and r["ambiguous_names"] == []
+
+    @pytest.mark.parametrize("first_listed", [True, False], ids=["listed-first", "listed-last"])
+    def test_one_name_twice_in_one_file_keeps_the_first_line(self, first_listed):
+        # Overload signatures repeat a name in one file: the first line wins,
+        # whichever order the inventory lists them in.
+        first = _route("load", "src/io.ts", 10, signature="load(a: string)")
+        later = _route("load", "src/io.ts", 14, signature="load(a: Buffer)")
+        curr = [first, later] if first_listed else [later, first]
+        r = diff_inventories([dict(first)], curr)
+        assert r["changed"] == [] and r["unchanged_count"] == 1
+
+    def test_an_entry_without_a_file_still_matches_by_its_unique_name(self):
+        r = diff_inventories([{"name": "f", "type": "function", "line": 1}],
+                             [{"name": "f", "type": "function", "file": "a.py", "line": 2}])
+        assert r["moved"] == []
+        assert [(c["field"], c["current_value"]) for c in r["changed"]] == [("line", 2)]
+
+
+resolver_spec = importlib.util.spec_from_file_location(
+    "skf_resolver_for_diff", SCRIPT_PATH.parent / "skf-resolve-authoritative-files.py"
+)
+resolver = importlib.util.module_from_spec(resolver_spec)
+resolver_spec.loader.exec_module(resolver)
+
+# The path forms the tests below use, and the edges of the rule.
+PATH_FORMS = {
+    "dot-slash": "./app/users/route.ts",
+    "backslashes": "app\\users\\route.ts",
+    "padded": " app/posts/route.ts ",
+    "dot-slash-file": "./src/io.ts",
+    "backslash-file": "src\\io.ts",
+    "repeated-dot-slash": "././src/a.ts",
+    "dot-backslash": ".\\src\\a.ts",
+    "plain": "src/a.ts",
+    "dot-slash-only": "./",
+    "empty": "",
+    "blank": "   ",
+}
+
+
+class TestFilePathForms:
+    """A file written with a `./` prefix or with backslashes (a snapshot
+    written on Windows) names the same file as the plain path, so it neither
+    invents a move nor, for a repeated name, a removal plus an addition."""
+
+    @pytest.mark.parametrize("path", list(PATH_FORMS.values()), ids=list(PATH_FORMS))
+    def test_the_file_key_is_normalize_rel_path(self, path):
+        # The diff helper stays stdlib-only, so it restates the resolver's
+        # rule; this pins the copy to it.
+        assert mod._file_key(path) == (resolver.normalize_rel_path(path) or None)
+
+    def test_path_forms_match_for_a_repeated_name(self):
+        base = [_route("GET", "./app/users/route.ts", 3), _route("GET", "./app/posts/route.ts", 5)]
+        curr = [_route("GET", "app\\users\\route.ts", 3), _route("GET", " app/posts/route.ts ", 5)]
+        r = diff_inventories(base, curr)
+        assert r["moved"] == [] and r["added"] == [] and r["removed"] == []
+        assert r["ambiguous_names"] == [] and r["unchanged_count"] == 2
+
+    def test_items_carry_the_file_as_written(self):
+        base = [_route("load", "./src/io.ts", 10), _route("gone", "./src/io.ts", 20)]
+        curr = [_route("load", "src\\io.ts", 12), _route("fresh", "src\\new.ts", 1)]
+        r = diff_inventories(base, curr)
+        assert r["moved"] == []
+        assert [(c["name"], c["field"], c["file"]) for c in r["changed"]] == [("load", "line", "src\\io.ts")]
+        assert [e["file"] for e in r["removed"]] == ["./src/io.ts"]
+        assert [e["file"] for e in r["added"]] == ["src\\new.ts"]
+
+    def test_a_real_move_still_reports_both_files_as_written(self):
+        r = diff_inventories([_route("helper", "./src/a.ts", 4)], [_route("helper", "src\\b.ts", 4)])
+        assert [(m["previous_file"], m["current_file"]) for m in r["moved"]] == [("./src/a.ts", "src\\b.ts")]
+
+
+class TestMovedExportLine:
+    """A move changes the line, so the diff does not report it again as a
+    line change (which would read as a second, location finding)."""
+
+    def test_a_moved_export_reports_no_line_change(self, baseline):
+        moved_current = [
+            {"name": "foo", "file": "src/new-location.ts", "line": 15, "type": "function"},
+            {"name": "Bar", "file": "src/index.ts", "line": 20, "type": "class"},
+        ]
+        r = diff_inventories(baseline, moved_current)
+        assert r["summary"]["moved"] == 1
+        assert r["changed"] == [] and r["summary"]["changed"] == 0
+        assert r["moved"][0]["previous_line"] == 10 and r["moved"][0]["line"] == 15
+
+    def test_a_moved_export_still_reports_a_signature_change(self):
+        base = [_route("foo", "src/a.ts", 10, signature="foo(a)")]
+        curr = [_route("foo", "src/b.ts", 30, signature="foo(a, b)")]
+        r = diff_inventories(base, curr)
+        assert [(c["field"], c["file"], c["line"]) for c in r["changed"]] == [("signature", "src/b.ts", 30)]
+        assert r["summary"]["moved"] == 1 and r["summary"]["changed"] == 1
+
+
+class TestChangedItemLocation:
+    def test_changed_items_carry_the_current_file_line_and_confidence(self):
+        base = [_route("foo", "src/a.ts", 10, signature="foo(a)", confidence="T1-low")]
+        curr = [_route("foo", "src/a.ts", 12, signature="foo(a, b)", confidence="T1")]
+        r = diff_inventories(base, curr)
+        for item in r["changed"]:
+            assert (item["file"], item["line"], item["confidence"]) == ("src/a.ts", 12, "T1")
+        assert [c["field"] for c in r["changed"]] == ["signature", "line"]
+
+    def test_the_name_is_the_public_name_after_reexport_resolution(self):
+        base = [{"name": "_Impl", "type": "class", "file": "a.py", "line": 1}]
+        curr = [{"name": "Public", "type": "class", "file": "a.py", "line": 3}]
+        r = diff_inventories(base, curr, {"_Impl": "Public"})
+        assert [(c["name"], c["line"]) for c in r["changed"]] == [("Public", 3)]
+
+
+class TestParamsAndReturnType:
+    """A provenance map records a signature as params[] and return_type."""
+
+    def test_a_parameter_change_is_detected(self):
+        base = [_prov_entry(params=["query: str"], return_type="list")]
+        curr = [_prov_entry(params=["query: str", "top_k: int = 10"], return_type="list")]
+        r = diff_inventories(base, curr)
+        assert [(c["field"], c["baseline_value"], c["current_value"]) for c in r["changed"]] == [
+            ("params", ["query: str"], ["query: str", "top_k: int = 10"])]
+
+    def test_a_return_type_change_is_detected(self):
+        r = diff_inventories([_prov_entry(return_type="list")], [_prov_entry(return_type="dict")])
+        assert [c["field"] for c in r["changed"]] == ["return_type"]
+
+    def test_parameters_are_canonicalized_like_a_signature(self):
+        base = [_prov_entry(params=['mode: str = "soft"', "user: typing.Optional[User] = None"])]
+        curr = [_prov_entry(params=["mode: str = 'soft'", "user: Optional[User] = None"])]
+        r = diff_inventories(base, curr)
+        assert r["changed"] == []
+        assert _transform_count(r, "quote-style") == 1
+        assert _transform_count(r, "stdlib-prefix") == 1
+
+    def test_params_on_one_side_only_are_not_compared(self):
+        r = diff_inventories([_prov_entry(params=["a"])], [_snap_export(signature="search(a, b)")])
+        assert r["changed"] == []
+        assert [u["name"] for u in r["signature_unverified"]] == ["search"]
+
+    def test_added_and_removed_records_carry_params_and_return_type(self):
+        r = diff_inventories([_prov_entry(export_name="old", params=["x"], return_type="int")], [])
+        assert (r["removed"][0]["params"], r["removed"][0]["return_type"]) == (["x"], "int")
+
+
+class TestSignatureUnverified:
+    """A provenance map holds a signature as params and return_type, an
+    audit snapshot as signature text. No field holds it on both sides, so
+    the diff cannot compare it: it lists the export instead of passing it."""
+
+    def test_a_changed_signature_in_the_other_form_is_listed_not_passed(self):
+        base = [_prov_entry(params=["query: str"], return_type="list")]
+        curr = [_snap_export(signature="search(query: str, top_k: int) -> dict")]
+        r = diff_inventories(base, curr)
+        assert r["changed"] == [] and r["unchanged_count"] == 1
+        assert r["signature_unverified"] == [{
+            "name": "search",
+            "file": "cognee/api/v1/search/search.py",
+            "baseline": ["params", "return_type"],
+            "current": ["signature"],
+        }]
+        assert r["summary"]["signature_unverified"] == 1
+
+    def test_one_part_left_uncompared_is_listed(self):
+        # The return types are compared; the parameters never are.
+        base = [_prov_entry(params=["query: str"], return_type="list")]
+        curr = [_snap_export(signature="search(query: str, top_k: int)", return_type="list")]
+        r = diff_inventories(base, curr)
+        assert r["changed"] == []
+        assert [(u["baseline"], u["current"]) for u in r["signature_unverified"]] == [
+            (["params", "return_type"], ["signature", "return_type"])]
+
+    def test_a_changed_or_moved_export_is_listed_too(self):
+        base = [_prov_entry(params=["a"]), _prov_entry(export_name="helper", params=["b"])]
+        curr = [_snap_export(signature="search(a)", line=40),
+                _snap_export(name="helper", file="src/elsewhere.py", signature="helper(b)")]
+        r = diff_inventories(base, curr)
+        assert [c["field"] for c in r["changed"]] == ["line"] and len(r["moved"]) == 1
+        assert sorted(u["name"] for u in r["signature_unverified"]) == ["helper", "search"]
+
+    @pytest.mark.parametrize("base_fields,curr_fields", [
+        ({"params": ["a"], "return_type": "int"}, {"params": ["a"], "return_type": "int"}),
+        ({"signature": "f(a)"}, {"signature": "f(a)"}),
+        ({"signature": "f(a) -> int", "params": ["a"]}, {"signature": "f(a) -> int"}),
+        ({}, {"signature": "f(a)"}),
+        ({"return_type": "int"}, {"params": ["a"]}),
+    ], ids=["same-fields", "text-both-sides", "text-shared", "nothing-on-one-side", "no-shared-part"])
+    def test_a_signature_compared_or_carried_by_one_side_is_not_listed(self, base_fields, curr_fields):
+        r = diff_inventories([_route("f", "a.py", 1, **base_fields)], [_route("f", "a.py", 1, **curr_fields)])
+        assert r["signature_unverified"] == [] and r["summary"]["signature_unverified"] == 0
+
+    def test_added_and_removed_exports_are_never_listed(self):
+        r = diff_inventories([_prov_entry(export_name="old", params=["a"])], [_snap_export(signature="new(a)")])
+        assert r["summary"]["added"] == 1 and r["summary"]["removed"] == 1
+        assert r["signature_unverified"] == []
+
+
+class TestFileScope:
+    """update-skill's Category B re-extracts only the files that changed.
+    --files limits the diff to them: an export of any other file is taken as
+    unchanged on both sides, never as removed."""
+
+    def test_an_export_in_an_untouched_file_is_neither_removed_nor_unchanged(self):
+        base = [_route("load", "src/a.py", 3, signature="load(p)"), _route("keep", "src/b.py", 7)]
+        curr = [_route("load", "src/a.py", 3, signature="load(p, mode)")]
+        assert [e["name"] for e in diff_inventories(base, curr)["removed"]] == ["keep"]
+        r = diff_inventories(base, curr, files=["src/a.py"])
+        assert r["removed"] == [] and r["added"] == []
+        assert [(c["name"], c["field"]) for c in r["changed"]] == [("load", "signature")]
+        assert r["unchanged_count"] == 0 and r["summary"]["unchanged"] == 0
+        assert r["file_scope"] == {"files": 1, "baseline_left_out": 1, "current_left_out": 0}
+
+    def test_a_classify_output_names_every_changed_file(self):
+        classify = {
+            "status": "ok",
+            "category_a": {"modified": ["src/a.py"], "added": ["src/new.py"], "deleted": ["src/gone.py"]},
+            "moved_files": [{"old_path": "src/old.py", "new_path": "src/renamed.py"}],
+        }
+        paths, err = mod.files_from_data(classify)
+        assert err is None
+        assert sorted(paths) == ["src/a.py", "src/gone.py", "src/new.py", "src/old.py", "src/renamed.py"]
+        base = [_route("a", "src/a.py", 1), _route("g", "src/gone.py", 1),
+                _route("m", "src/old.py", 1), _route("u", "src/untouched.py", 1)]
+        curr = [_route("a", "src/a.py", 1), _route("n", "src/new.py", 1), _route("m", "src/renamed.py", 1)]
+        r = diff_inventories(base, curr, files=paths)
+        assert [e["name"] for e in r["removed"]] == ["g"]
+        assert [e["name"] for e in r["added"]] == ["n"]
+        assert [(m["name"], m["previous_file"], m["current_file"]) for m in r["moved"]] == [
+            ("m", "src/old.py", "src/renamed.py")]
+        # a, and m, whose move changed no field; u is left out.
+        assert r["unchanged_count"] == 2
+        assert r["file_scope"] == {"files": 5, "baseline_left_out": 1, "current_left_out": 0}
+
+    def test_paths_compare_in_normalize_rel_path_form(self):
+        base = [_route("a", "src/a.py", 1), _route("b", "src/b.py", 1)]
+        r = diff_inventories(base, [_route("a", "src/a.py", 2)], files=[".\\src\\a.py"])
+        assert r["removed"] == [] and [c["field"] for c in r["changed"]] == ["line"]
+
+    def test_a_move_needs_the_uniqueness_a_whole_diff_would(self):
+        # GET stays in app/a, a file that did not change: the GET that left
+        # app/b and the one new in app/c are as ambiguous as in a diff of the
+        # whole inventories, where app/a sits on both sides.
+        base = [_route("GET", "app/a/route.ts", 1), _route("GET", "app/b/route.ts", 1)]
+        curr = [_route("GET", "app/c/route.ts", 1)]
+        scoped = diff_inventories(base, curr, files=["app/b/route.ts", "app/c/route.ts"])
+        whole = diff_inventories(base, [_route("GET", "app/a/route.ts", 1), *curr])
+        for r in (scoped, whole):
+            assert r["moved"] == []
+            assert r["ambiguous_names"] == [{
+                "name": "GET",
+                "removed": [{"file": "app/b/route.ts", "line": 1}],
+                "added": [{"file": "app/c/route.ts", "line": 1}],
+            }]
+
+    def test_a_current_export_outside_the_files_is_left_out(self):
+        base = [_route("a", "src/a.py", 1)]
+        curr = [_route("a", "src/a.py", 1), _route("extra", "src/other.py", 1)]
+        r = diff_inventories(base, curr, files=["src/a.py"])
+        assert r["added"] == [] and r["unchanged_count"] == 1
+        assert r["file_scope"]["current_left_out"] == 1
+
+    def test_a_transform_outside_the_files_is_not_reported(self):
+        base = [_route("a", "src/a.py", 1), _route("b", "src/b.py", 1, signature='b(m="x")')]
+        r = diff_inventories(base, [_route("a", "src/a.py", 1)], files=["src/a.py"])
+        assert r["applied_transforms"] == []
+
+    def test_an_empty_list_leaves_everything_out(self):
+        r = diff_inventories([_route("a", "src/a.py", 1)], [_route("b", "src/b.py", 1)], files=[])
+        assert r["summary"]["added"] == r["summary"]["removed"] == r["summary"]["unchanged"] == 0
+        assert r["file_scope"] == {"files": 0, "baseline_left_out": 1, "current_left_out": 1}
+
+    def test_without_files_the_shape_is_unchanged(self):
+        assert "file_scope" not in diff_inventories([_route("a", "src/a.py", 1)], [])
+
+    @pytest.mark.parametrize("data", [
+        {"entries": []},
+        ["src/a.py", 3],
+        {"category_a": {"modified": "src/a.py"}},
+        {"category_a": {}, "moved_files": ["src/a.py"]},
+        "src/a.py",
+    ], ids=["provenance-map", "not-all-paths", "list-not-a-list", "move-not-an-object", "a-string"])
+    def test_a_file_that_is_neither_form_is_refused(self, data):
+        paths, err = mod.files_from_data(data, "scope.json")
+        assert paths == [] and "scope.json" in err
+
+
+class TestGroupBySourceLibrary:
+    """A stack's libraries are diffed apart: an export never matches one of
+    another library, and every item names its library."""
+
+    def _stack(self):
+        base = [
+            _prov_entry(export_name="parse", source_file="src/index.ts", source_line=1, source_library="lib-a"),
+            _prov_entry(export_name="parse", source_file="src/index.ts", source_line=1, source_library="lib-b"),
+            _prov_entry(export_name="render", source_file="src/r.ts", source_line=5, source_library="lib-b"),
+        ]
+        curr = [
+            _snap_export(name="parse", file="src/index.ts", line=4, source_library="lib-a"),
+            _snap_export(name="render", file="src/r.ts", line=5, source_library="lib-b"),
+            _snap_export(name="compile", file="src/c.ts", line=1, source_library="lib-b"),
+        ]
+        return base, curr
+
+    def test_each_library_is_diffed_on_its_own(self):
+        r = diff_inventories(*self._stack(), group_by="source_library")
+        assert [(e["source_library"], e["name"]) for e in r["removed"]] == [("lib-b", "parse")]
+        assert [(e["source_library"], e["name"]) for e in r["added"]] == [("lib-b", "compile")]
+        assert [(c["source_library"], c["name"], c["field"]) for c in r["changed"]] == [
+            ("lib-a", "parse", "line")]
+
+    def test_groups_carry_per_library_summaries_that_sum_to_the_total(self):
+        r = diff_inventories(*self._stack(), group_by="source_library")
+        assert r["group_by"] == "source_library"
+        groups = {g["source_library"]: g["summary"] for g in r["groups"]}
+        assert groups["lib-a"]["changed"] == 1 and groups["lib-a"]["removed"] == 0
+        assert groups["lib-b"]["removed"] == 1 and groups["lib-b"]["added"] == 1
+        for key in r["summary"]:
+            assert r["summary"][key] == sum(g["summary"][key] for g in r["groups"]), key
+
+    def test_label_changes_are_tagged_and_summed(self):
+        r = diff_inventories(*self._stack(), group_by="source_library")
+        assert {lc["source_library"] for lc in r["label_changes"]} == {"lib-a", "lib-b"}
+        assert r["summary"]["label_changes"] == len(r["label_changes"]) == 2
+
+    def test_an_entry_without_a_library_falls_in_a_null_group(self):
+        r = diff_inventories([_prov_entry()], [_snap_export(line=30)], group_by="source_library")
+        assert [g["source_library"] for g in r["groups"]] == [None]
+        assert r["changed"][0]["source_library"] is None
+
+    @pytest.mark.parametrize("untagged", ["baseline", "current"])
+    def test_a_side_with_no_library_against_one_with_libraries_is_an_error(self, untagged):
+        # An unchanged stack whose snapshot carries no source_library would
+        # otherwise diff every export against nothing: all removed and added.
+        base, curr = self._stack()
+        if untagged == "baseline":
+            base = [{k: v for k, v in e.items() if k != "source_library"} for e in base]
+        else:
+            curr = [dict(e, source_library="  ") for e in curr]
+        with pytest.raises(ValueError, match=(
+                f"^--group-by source_library: the {untagged} inventory has no entry with source_library$")):
+            diff_inventories(base, curr, group_by="source_library")
+
+    def test_an_empty_side_is_no_error(self):
+        base, _ = self._stack()
+        r = diff_inventories(base, [], group_by="source_library")
+        assert r["summary"]["removed"] == 3 and r["summary"]["added"] == 0
+
+    def test_without_group_by_the_shape_is_unchanged(self):
+        r = diff_inventories(*self._stack())
+        assert "groups" not in r and "group_by" not in r
+        assert all("source_library" not in e for e in r["added"] + r["removed"])
+
+
+# --------------------------------------------------------------------------
 # CLI exit codes
 # --------------------------------------------------------------------------
 
@@ -581,10 +1020,106 @@ class TestCLIExitCodes:
         assert res.returncode == 0
         assert json.loads(out_path.read_text())["summary"]["label_changes"] == 1
 
-    def test_invalid_json_exits_1(self, tmp_path):
+    def test_invalid_json_exits_2(self, tmp_path):
+        # An error has its own exit code: 1 means only "differences found".
         base = tmp_path / "b.json"
         base.write_text("{not json", encoding="utf-8")
         curr = _write(tmp_path / "c.json", {"exports": []})
         res = _run([str(base), str(curr)])
-        assert res.returncode == 1
+        assert res.returncode == 2
         assert json.loads(res.stdout)["status"] == "error"
+
+    @pytest.mark.parametrize("problem", ["missing-file", "unknown-shape", "bad-reexport-map", "bad-files"])
+    def test_every_error_exits_2(self, tmp_path, problem):
+        base = _write(tmp_path / "b.json", {"entries": [_prov_entry()]})
+        curr = _write(tmp_path / "c.json", {"exports": [_snap_export(line=99)]})
+        args = [str(base), str(curr)]
+        if problem == "missing-file":
+            args = [str(tmp_path / "absent.json"), str(curr)]
+        elif problem == "unknown-shape":
+            args = [str(base), str(_write(tmp_path / "x.json", "a string"))]
+        elif problem == "bad-reexport-map":
+            args += ["--reexport-map", str(_write(tmp_path / "m.json", ["not", "an", "object"]))]
+        else:
+            args += ["--files", str(base)]
+        res = _run(args)
+        assert res.returncode == 2, res.stdout
+        assert json.loads(res.stdout)["status"] == "error"
+
+    def test_files_on_the_cli(self, tmp_path):
+        base = _write(tmp_path / "provenance-map.json", {"entries": [
+            _prov_entry(), _prov_entry(export_name="other", source_file="src/other.py")]})
+        curr = _write(tmp_path / "extraction-snapshot.json", {"exports": [_snap_export(line=31)]})
+        scope = _write(tmp_path / "category-a.json", {
+            "status": "ok",
+            "category_a": {"modified": ["cognee/api/v1/search/search.py"], "added": [], "deleted": []},
+            "moved_files": [],
+        })
+        res = _run([str(base), str(curr), "--files", str(scope)])
+        assert res.returncode == 1, res.stdout + res.stderr
+        out = json.loads(res.stdout)
+        assert out["removed"] == [] and [c["field"] for c in out["changed"]] == ["line"]
+        assert out["file_scope"] == {"files": 1, "baseline_left_out": 1, "current_left_out": 0}
+
+    def test_an_unverified_signature_alone_exits_0(self, tmp_path):
+        base = _write(tmp_path / "provenance-map.json", {"entries": [_prov_entry(params=["a"])]})
+        curr = _write(tmp_path / "extraction-snapshot.json", {"exports": [_snap_export(signature="search(a, b)")]})
+        res = _run([str(base), str(curr)])
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert json.loads(res.stdout)["summary"]["signature_unverified"] == 1
+
+    def test_help_prints_the_contract(self):
+        res = _run(["--help"])
+        assert res.returncode == 0, res.stderr
+        for section in ("Matching:", "File scope (--files FILE):", "ambiguous_names:",
+                        "signature_unverified:", "Exit codes:"):
+            assert section in res.stdout, section
+
+    def test_output_file_prints_a_summary_line(self, tmp_path):
+        base = _write(tmp_path / "b.json", {"entries": [_prov_entry()]})
+        curr = _write(tmp_path / "c.json", {"exports": [_snap_export(line=31)]})
+        out_path = tmp_path / "structural-diff.json"
+        res = _run([str(base), str(curr), "-o", str(out_path)])
+        assert res.returncode == 1
+        line = json.loads(res.stdout)
+        assert line["status"] == "ok"
+        assert Path(line["output"]) == out_path
+        saved = json.loads(out_path.read_text(encoding="utf-8"))
+        assert line["summary"] == saved["summary"]
+        assert saved["changed"][0]["field"] == "line"
+
+    def test_unwritable_output_exits_2(self, tmp_path):
+        base = _write(tmp_path / "b.json", {"entries": [_prov_entry()]})
+        curr = _write(tmp_path / "c.json", {"exports": [_snap_export()]})
+        res = _run([str(base), str(curr), "-o", str(tmp_path / "no-such-folder" / "diff.json")])
+        assert res.returncode == 2
+        assert json.loads(res.stdout)["status"] == "error"
+
+    def test_group_by_on_the_cli(self, tmp_path):
+        base = _write(tmp_path / "b.json", {"entries": [
+            _prov_entry(source_library="lib-a"), _prov_entry(source_library="lib-b")]})
+        curr = _write(tmp_path / "c.json", {"exports": [_snap_export(source_library="lib-a")]})
+        res = _run([str(base), str(curr), "--group-by", "source_library"])
+        assert res.returncode == 1
+        out = json.loads(res.stdout)
+        assert out["group_by"] == "source_library"
+        assert [g["source_library"] for g in out["groups"]] == ["lib-a", "lib-b"]
+        assert [(r["source_library"], r["name"]) for r in out["removed"]] == [("lib-b", "search")]
+
+    def test_group_by_over_a_snapshot_without_libraries_exits_2(self, tmp_path):
+        base = _write(tmp_path / "provenance-map.json", {"entries": [
+            _prov_entry(source_library="lib-a"), _prov_entry(export_name="render", source_library="lib-b")]})
+        curr = _write(tmp_path / "extraction-snapshot.json", {"exports": [
+            _snap_export(), _snap_export(name="render")]})
+        res = _run([str(base), str(curr), "--group-by", "source_library"])
+        assert res.returncode == 2, res.stdout
+        assert json.loads(res.stdout) == {
+            "status": "error",
+            "error": f"--group-by source_library: {curr} has no entry with source_library",
+        }
+
+    def test_unknown_group_by_is_a_usage_error(self, tmp_path):
+        base = _write(tmp_path / "b.json", {"entries": []})
+        res = _run([str(base), str(base), "--group-by", "package"])
+        assert res.returncode == 2
+        assert "invalid choice" in res.stderr

@@ -516,3 +516,109 @@ class TestCli:
     def test_no_subcommand_exits_2(self) -> None:
         result = _run_cli()
         assert result.returncode == 2
+
+
+# --------------------------------------------------------------------------
+# --provenance-map: candidates the map already tracks (update-skill's mirror)
+# --------------------------------------------------------------------------
+
+
+def _make_provenance(tmp_path: Path, *, entries=(), file_entries=()) -> Path:
+    data = {
+        "provenance_version": "2.0",
+        "entries": [{"export_name": "x", "source_file": p} for p in entries],
+        "file_entries": [{"file_name": Path(p).name, "file_type": "doc", "source_file": p}
+                         for p in file_entries],
+    }
+    p = tmp_path / "provenance-map.json"
+    p.write_bytes(json.dumps(data).encode("utf-8"))
+    return p
+
+
+class TestProvenanceMap:
+    def _source(self, tmp_path: Path) -> Path:
+        source = tmp_path / "src"
+        _write(source / "llms.txt", "tracked doc\n")
+        _write(source / "docs" / "AGENTS.md", "tracked as an entry\n")
+        _write(source / "CLAUDE.md", "new since creation\n")
+        return source
+
+    def test_tracked_candidates_are_listed_apart(self, tmp_path: Path) -> None:
+        source = self._source(tmp_path)
+        prov = _make_provenance(tmp_path, entries=["docs/AGENTS.md"], file_entries=["llms.txt"])
+        result = mod.resolve(source, _make_brief(tmp_path, includes=["**.py"]), provenance_map=prov)
+        assert result["already_tracked"] == [
+            {"path": "docs/AGENTS.md", "heuristic": "agents.md"},
+            {"path": "llms.txt", "heuristic": "llms.txt"},
+        ]
+        assert [r["path"] for r in result["unresolved"]] == ["CLAUDE.md"]
+        assert result["summary"]["already_tracked_count"] == 2
+        assert result["summary"]["candidates_total"] == 3
+
+    def test_a_tracked_candidate_is_in_no_other_bucket(self, tmp_path: Path) -> None:
+        source = self._source(tmp_path)
+        prov = _make_provenance(tmp_path, file_entries=["llms.txt", "docs/AGENTS.md", "CLAUDE.md"])
+        brief = _make_brief(tmp_path, includes=["**"], amendments=[{"action": "skipped", "path": "llms.txt"}])
+        result = mod.resolve(source, brief, provenance_map=prov)
+        assert result["summary"]["already_tracked_count"] == 3
+        assert result["already_in_scope"] == [] and result["pre_decided"] == [] and result["unresolved"] == []
+        assert result["status"] == "candidates-found"
+
+    def test_map_paths_are_normalized(self, tmp_path: Path) -> None:
+        source = self._source(tmp_path)
+        prov = _make_provenance(tmp_path, entries=["./docs\\AGENTS.md"])
+        result = mod.resolve(source, _make_brief(tmp_path, includes=["**.py"]), provenance_map=prov)
+        assert [r["path"] for r in result["already_tracked"]] == ["docs/AGENTS.md"]
+
+    def test_without_the_option_nothing_is_tracked(self, tmp_path: Path) -> None:
+        source = self._source(tmp_path)
+        result = mod.resolve(source, _make_brief(tmp_path, includes=["**"]))
+        assert result["already_tracked"] == [] and result["summary"]["already_tracked_count"] == 0
+        assert result["summary"]["already_in_scope_count"] == 3
+
+    @pytest.mark.parametrize("content,message", [
+        (b"{not json", "not valid JSON"),
+        (b"[1, 2]", "must be a JSON object"),
+    ], ids=["invalid-json", "not-an-object"])
+    def test_an_unreadable_map_raises(self, tmp_path: Path, content: bytes, message: str) -> None:
+        prov = tmp_path / "provenance-map.json"
+        prov.write_bytes(content)
+        with pytest.raises(ValueError, match=message):
+            mod.load_tracked_files(prov)
+
+    def test_the_cli_takes_the_map(self, tmp_path: Path) -> None:
+        source = self._source(tmp_path)
+        prov = _make_provenance(tmp_path, file_entries=["llms.txt"])
+        brief = _make_brief(tmp_path, includes=["**.py"])
+        result = _run_cli("resolve", "--source-root", str(source), "--brief", str(brief),
+                          "--provenance-map", str(prov))
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert [r["path"] for r in payload["already_tracked"]] == ["llms.txt"]
+
+    def test_the_cli_refuses_a_missing_map(self, tmp_path: Path) -> None:
+        source = self._source(tmp_path)
+        brief = _make_brief(tmp_path)
+        result = _run_cli("resolve", "--source-root", str(source), "--brief", str(brief),
+                          "--provenance-map", str(tmp_path / "absent.json"))
+        assert result.returncode == 1
+        assert "provenance map not found" in result.stderr
+
+    def test_the_cli_refuses_an_invalid_map(self, tmp_path: Path) -> None:
+        source = self._source(tmp_path)
+        prov = tmp_path / "provenance-map.json"
+        prov.write_bytes(b"{not json")
+        result = _run_cli("resolve", "--source-root", str(source), "--brief", str(_make_brief(tmp_path)),
+                          "--provenance-map", str(prov))
+        assert result.returncode == 1
+        assert "not valid JSON" in result.stderr
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("src/a.py", "src/a.py"),
+    ("./src/a.py", "src/a.py"),
+    ("src\\pkg\\a.py", "src/pkg/a.py"),
+    (" ././x ", "x"),
+], ids=["plain", "dot-slash", "backslashes", "repeated-dot-slash"])
+def test_normalize_rel_path(raw: str, expected: str) -> None:
+    assert mod.normalize_rel_path(raw) == expected
