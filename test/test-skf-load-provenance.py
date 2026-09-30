@@ -8,6 +8,8 @@ Covers:
   - reexport_map: top-level form, per-entry reexported_as form, mixed
   - source_root / baseline_commit / baseline_ref pass-through (and null when
     absent)
+  - audit baseline: export_count, generated_at in UTC, age_days from
+    generated_at or the file mtime (--now pins the clock)
   - error paths: missing file, malformed JSON, non-object top-level
   - CLI smoke: exit 0 + JSON shape; exit 1 on malformed input
 """
@@ -16,9 +18,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -197,6 +203,10 @@ class TestNormalize:
             "baseline_commit": "abc123",
             "baseline_ref": "v1.0.0",
             "reexport_map": {},
+            "export_count": 1,
+            "generated_at": None,
+            "age_days": None,
+            "age_source": None,
         }
 
     def test_stack_skill_v2(self) -> None:
@@ -234,6 +244,10 @@ class TestNormalize:
             "baseline_commit": None,
             "baseline_ref": None,
             "reexport_map": {},
+            "export_count": 0,
+            "generated_at": None,
+            "age_days": None,
+            "age_source": None,
         }
 
     def test_non_string_scalars_become_null(self) -> None:
@@ -242,6 +256,62 @@ class TestNormalize:
         assert result["source_root"] is None
         assert result["baseline_commit"] is None
         assert result["baseline_ref"] is None
+
+
+# --------------------------------------------------------------------------
+# Audit baseline: export_count, generated_at, age_days
+# --------------------------------------------------------------------------
+
+
+NOW = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+
+
+class TestBaselineFacts:
+    def test_export_count_counts_entry_objects(self) -> None:
+        data = {
+            "entries": [{"export_name": "a"}, {"export_name": "b"}, "junk", None],
+            "file_entries": [{"source_file": "scripts/x.sh"}],
+        }
+        assert mod.export_count(data) == 2
+        assert mod.export_count({"entries": "not a list"}) == 0
+        assert mod.export_count({}) == 0
+
+    def test_generated_at_in_utc_and_age(self) -> None:
+        out = mod.provenance_age({"generated_at": "2026-04-04T10:00:00+02:00"}, now=NOW)
+        assert out == {"generated_at": "2026-04-04T08:00:00Z", "age_days": 27, "age_source": "generated_at"}
+
+    def test_age_counts_whole_days(self) -> None:
+        # 23 hours earlier is 0 days old; the time zone decides the day, not the text.
+        out = mod.provenance_age({"generated_at": "2026-05-01T08:00:00-03:00"}, now=NOW)
+        assert (out["generated_at"], out["age_days"]) == ("2026-05-01T11:00:00Z", 0)
+        out = mod.provenance_age({"generated_at": "2026-04-30T11:59:59Z"}, now=NOW)
+        assert out["age_days"] == 1
+
+    def test_future_generated_at_is_zero_days(self) -> None:
+        out = mod.provenance_age({"generated_at": "2026-06-01T00:00:00Z"}, now=NOW)
+        assert out["age_days"] == 0
+
+    def test_date_only_and_naive_times_read_as_utc(self) -> None:
+        assert mod.provenance_age({"generated_at": "2026-04-21"}, now=NOW)["generated_at"] == (
+            "2026-04-21T00:00:00Z")
+        assert mod.provenance_age({"generated_at": "2026-04-21T06:30:00"}, now=NOW)["generated_at"] == (
+            "2026-04-21T06:30:00Z")
+
+    @pytest.mark.parametrize("value", [None, 42, "", "last tuesday", "2026-02-30T00:00:00Z"])
+    def test_mtime_fallback(self, value) -> None:
+        mtime = datetime(2026, 4, 1, tzinfo=timezone.utc)
+        out = mod.provenance_age({"generated_at": value}, mtime=mtime, now=NOW)
+        assert out == {"generated_at": None, "age_days": 30, "age_source": "mtime"}
+
+    def test_no_time_known(self) -> None:
+        assert mod.provenance_age({}, now=NOW) == {
+            "generated_at": None, "age_days": None, "age_source": None}
+
+    def test_normalize_carries_the_facts(self) -> None:
+        data = {"generated_at": "2026-04-01T12:00:00Z", "entries": [{"export_name": "a"}]}
+        out = mod.normalize(data, now=NOW)
+        assert (out["export_count"], out["generated_at"], out["age_days"], out["age_source"]) == (
+            1, "2026-04-01T12:00:00Z", 30, "generated_at")
 
 
 # --------------------------------------------------------------------------
@@ -331,3 +401,28 @@ class TestCli:
         payload = json.loads(result.stdout)
         assert payload["bounded_scan_files"] == []
         assert payload["source_root"] is None
+
+    def test_normalize_now_pins_the_age(self, tmp_path: Path) -> None:
+        path = _write_json(
+            tmp_path / "p.json",
+            {"generated_at": "2026-04-04T10:00:00+02:00", "entries": [{}, {}, {}]},
+        )
+        result = _run_cli("normalize", str(path), "--now", "2026-05-01T00:00:00Z")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert (payload["export_count"], payload["generated_at"], payload["age_days"], payload["age_source"]) == (
+            3, "2026-04-04T08:00:00Z", 26, "generated_at")
+
+    def test_normalize_falls_back_to_mtime(self, tmp_path: Path) -> None:
+        path = _write_json(tmp_path / "p.json", {"entries": []})
+        os.utime(path, (1767225600, 1767225600))  # 2026-01-01T00:00:00Z
+        result = _run_cli("normalize", str(path), "--now", "2026-01-11T06:00:00+00:00")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert (payload["generated_at"], payload["age_days"], payload["age_source"]) == (None, 10, "mtime")
+
+    def test_normalize_bad_now_exits_1(self, tmp_path: Path) -> None:
+        path = _write_json(tmp_path / "p.json", {})
+        result = _run_cli("normalize", str(path), "--now", "soon")
+        assert result.returncode == 1
+        assert "--now" in result.stderr

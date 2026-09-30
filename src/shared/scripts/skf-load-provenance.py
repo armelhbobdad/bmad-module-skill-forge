@@ -31,7 +31,7 @@ LLM prose because they require per-signature judgment; this script handles
 only the deterministic projections.
 
 Subcommand:
-  normalize <map.json>
+  normalize <map.json> [--now <ISO-8601>]
       Emit JSON:
         {
           "bounded_scan_files": ["<rel-path, forward-slash>", ...],
@@ -40,7 +40,11 @@ Subcommand:
           "source_root": "<path or null>",
           "baseline_commit": "<sha or null>",
           "baseline_ref": "<ref or null>",
-          "reexport_map": {"<from-internal>": "<to-public>"}
+          "reexport_map": {"<from-internal>": "<to-public>"},
+          "export_count": <int>,
+          "generated_at": "<YYYY-MM-DDTHH:MM:SSZ or null>",
+          "age_days": <int or null>,
+          "age_source": "generated_at" | "mtime" | null
         }
 
       Bounded scan = union of `entries[].source_file` and
@@ -62,8 +66,18 @@ Subcommand:
       entries — older provenance writers may have used that shape. Empty
       object when neither is present.
 
+      Baseline facts for init.md §7 (the audit baseline summary):
+        - `export_count` is the number of `entries[]` objects.
+        - `generated_at` is the map's `generated_at` in UTC, whatever zone
+          it was written in; null when absent or not an ISO-8601 date-time.
+        - `age_days` is the whole days from `generated_at` to now (never
+          below 0), or from the file's modification time when the map has
+          no usable `generated_at` (`age_source` says which; null when
+          neither is known). `--now` fixes "now" for a reproducible run.
+
 CLI examples:
   uv run skf-load-provenance.py normalize /path/to/provenance-map.json
+  uv run skf-load-provenance.py normalize /path/to/provenance-map.json --now 2026-05-01T00:00:00Z
 
 Exit codes:
   0  — normalization succeeded (including empty / well-formed map with no
@@ -75,7 +89,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -226,7 +242,77 @@ def extract_reexport_map(data: dict) -> dict[str, str]:
     return out
 
 
-def normalize(data: dict) -> dict:
+ISO_TIME_RE = re.compile(
+    r"(\d{4})-(\d{2})-(\d{2})"
+    r"(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?)?"
+    r"\s*([Zz]|[+-]\d{2}(?::?\d{2})?)?")
+
+
+# Keep identical to _parse_iso_utc in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _parse_iso_utc(value):
+    """An ISO-8601 date or date-time as an aware UTC datetime, else None.
+
+    A time without a zone is read as UTC, a date alone as its midnight UTC.
+    """
+    if not isinstance(value, str):
+        return None
+    m = ISO_TIME_RE.fullmatch(value.strip())
+    if not m:
+        return None
+    year, month, day, hour, minute, second, fraction, zone = m.groups()
+    offset = timedelta(0)
+    if zone and zone not in ("Z", "z"):
+        digits = zone[1:].replace(":", "")
+        offset = timedelta(hours=int(digits[:2]), minutes=int(digits[2:] or 0))
+        if zone[0] == "-":
+            offset = -offset
+    try:
+        moment = datetime(int(year), int(month), int(day), int(hour or 0), int(minute or 0),
+                          int(second or 0), int((fraction or "0")[:6].ljust(6, "0")))
+        return (moment - offset).replace(tzinfo=timezone.utc)
+    except (ValueError, OverflowError):  # no such date, or out of datetime's range
+        return None
+
+
+def export_count(data: dict) -> int:
+    """The number of `entries[]` objects (the exports the map records)."""
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        return 0
+    return sum(1 for entry in entries if isinstance(entry, dict))
+
+
+def provenance_age(
+    data: dict, mtime: datetime | None = None, now: datetime | None = None
+) -> dict:
+    """{generated_at, age_days, age_source} for the audit baseline.
+
+    `generated_at` is the map's field in UTC (null when absent or not
+    ISO-8601). The age counts whole days from it to `now` (the current time
+    when None), else from `mtime` (the file's modification time), never
+    below 0.
+    """
+    generated = _parse_iso_utc(data.get("generated_at"))
+    if generated is not None:
+        since, source = generated, "generated_at"
+    elif mtime is not None:
+        since, source = mtime, "mtime"
+    else:
+        since, source = None, None
+    age_days = None
+    if since is not None:
+        age_days = max(0, ((now or datetime.now(timezone.utc)) - since).days)
+    return {
+        "generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ") if generated else None,
+        "age_days": age_days,
+        "age_source": source,
+    }
+
+
+def normalize(
+    data: dict, mtime: datetime | None = None, now: datetime | None = None
+) -> dict:
     """Build the full normalized projection record."""
     is_stack, legacy = detect_stack_flags(data)
     source_root = data.get("source_root") if isinstance(data.get("source_root"), str) else None
@@ -244,6 +330,8 @@ def normalize(data: dict) -> dict:
         "baseline_commit": baseline_commit,
         "baseline_ref": baseline_ref,
         "reexport_map": extract_reexport_map(data),
+        "export_count": export_count(data),
+        **provenance_age(data, mtime, now),
     }
 
 
@@ -257,12 +345,19 @@ def _cmd_normalize(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"error: provenance map not found: {path}", file=sys.stderr)
         return 1
+    now = None
+    if args.now is not None:
+        now = _parse_iso_utc(args.now)
+        if now is None:
+            print(f"error: --now is not an ISO-8601 date-time: {args.now}", file=sys.stderr)
+            return 1
     try:
         data = load_provenance(path)
-    except ValueError as exc:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+    except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    result = normalize(data)
+    result = normalize(data, mtime=mtime, now=now)
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
@@ -273,7 +368,8 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="skf-load-provenance",
         description=(
             "Normalize provenance-map.json into deterministic projections "
-            "(bounded scan, stack flags, source_root/commit/ref, reexport map)."
+            "(bounded scan, stack flags, source_root/commit/ref, reexport map, "
+            "export count, generated_at and age)."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -281,6 +377,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "normalize", help="emit normalized projection JSON from a provenance map"
     )
     p_norm.add_argument("provenance_map", help="path to provenance-map.json")
+    p_norm.add_argument(
+        "--now",
+        help="ISO-8601 date-time that age_days counts to (default: the current time)",
+    )
     p_norm.set_defaults(func=_cmd_normalize)
     return parser
 
