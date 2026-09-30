@@ -6,17 +6,17 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 
 - **ast-grep requires local files** — it cannot operate on remote URLs
 
-**Workspace-first clone strategy (preferred):**
+**Private tree at the resolved commit (preferred):**
 
-1. Check `git` availability (`git --version`). `git` is effectively guaranteed at Deep tier (via `gh` dependency) but not guaranteed at Forge tier.
-2. If `git` is available: check for an existing workspace checkout at `{workspace_root}/repos/{host}/{owner}/{repo}/`. If found, run the git hygiene check (it undoes the `.gitignore` edit `ccc init` made there and keeps ccc's index folder and SKF's lock file out of `git status`), then `git fetch` to update. If not found, clone into the workspace path with `--depth 1 --single-branch`. See `source-resolution-protocols.md` for the full workspace resolution algorithm.
+1. `skf-source-tree.py resolve` reads the resolved commit into a private tree of the run's own, from the workspace checkout at `{workspace_root}/repos/{host}/{owner}/{repo}/` when it holds the commit and from the remote otherwise. It then moves that workspace checkout to the same commit, cloning it first when it is missing, after the git hygiene check (it undoes the `.gitignore` edit `ccc init` made there and keeps ccc's index folder and SKF's lock file out of `git status`). See `source-resolution-protocols.md` for the full resolution algorithm.
+2. When `git` is missing, resolve reports `git-unavailable` and reads no tree, and the run falls back to source reading (below). `git` is effectively guaranteed at Deep tier (via the `gh` dependency) but not at Forge tier.
 3. The workspace uses a full checkout (no sparse-checkout). Brief `include_patterns` and `exclude_patterns` are applied as file-level filters at extraction time, not at the git level. This allows a single workspace checkout to serve multiple briefs with different scope filters.
 4. For update-skill: a skill forged from a remote repository is read from a checkout of the skill's commit that update-skill prepares for each run (from the workspace clone's objects or the remote), never from the workspace clone as it stands, and `changed_files_from_manifest` scoping is applied as file-level filters at extraction time; a gap-driven repair reads the workspace clone after checking that it holds the skill's pinned commit.
-5. If workspace clone/fetch succeeds: use the workspace path for AST extraction. Each export an ast-grep rule matches is T1 with an `[AST:...]` citation; an export read by eye stays T1-low (see Source Read by Choice below).
-6. If the workspace clone, fetch or checkout fails: fall back to ephemeral clone (`{system_temp}/skf-ephemeral-{skill-name}-{timestamp}/`). If ephemeral succeeds, use it. Ephemeral clone is deleted after extraction.
+5. If `resolve` reads the tree: use the tree for AST extraction. Each export an ast-grep rule matches is T1 with an `[AST:...]` citation; an export read by eye stays T1-low (see Source Read by Choice below).
+6. If the remote cannot be reached, or the fetch or checkout fails, no tree is read: fall back to source reading (below). A tree that was read is removed at the end of the run.
 7. Workspace checkouts persist across forges — CCC indexes, tool outputs, and the checkout itself are reused.
 
-**Fallback (clone fails or `git` unavailable):**
+**Fallback (no tree can be read, or `git` is unavailable):**
 
 - The extraction step warns the user explicitly before degrading — a silent drop from AST (T1) to source reading (T1-low) would leave them trusting a lower-confidence result without knowing it changed
 - **create-skill:** the warning includes actionable guidance — clone locally and update `source_repo` in the brief to the local path

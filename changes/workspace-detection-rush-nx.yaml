@@ -1,0 +1,6 @@
+type: added
+scope: skf-brief-skill
+summary: |
+  Monorepo detection recognizes Nx: a repository with an `nx.json` at its root and `project.json` project folders is reported as a monorepo of `manifest_kind` `nx`, each project folder a workspace. The detector also reads a Rush repository's `rush.json` (`manifest_kind` `rush`) once its content is passed with the other root manifests. Brief Skill does not pass it yet, so on a Rush repository the detector warns that `rush.json` was not supplied and detection goes on as before.
+prs: [622]
+issues: [584]

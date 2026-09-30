@@ -46,6 +46,34 @@ Flags:
                           still fresh, so an unchanged settings.yml keeps it
   --skip-index            true|false; the setup run opted out of indexing
   --no-ccc-init           never run ccc init (tests and diagnostics)
+  --clone-root            instead of --project-root: an SKF workspace clone
+                          (clone mode, below)
+  --include-ext           clone mode only, repeatable: a file extension whose
+                          files ccc must index (`ex`, `.ex`)
+
+Clone mode (create-skill step 3 and step 7) prepares the settings.yml of an
+SKF workspace clone, a source repository rather than an SKF project, so the
+list merges its step prose used to make by hand live here too:
+
+  uv run skf-merge-ccc-exclusions.py --clone-root /abs/clone \\
+      [--include-ext ex --include-ext exs]
+
+  1. run `ccc init -f` when settings.yml is missing, so the clone gets a
+     project of its own instead of an enclosing one's;
+  2. quote each bare `- *...` list item an earlier hand edit left, which
+     YAML reads as an alias, so ccc can load the file again;
+  3. append each standard build and dependency exclusion (CLONE_EXCLUDES)
+     that exclude_patterns lacks, keeping every entry already there;
+  4. with --include-ext, append `**/*.<ext>` to include_patterns for each
+     extension no include_patterns entry matches, reading each entry as
+     ccc's glob library does.
+
+A file with no exclude_patterns list, or no include_patterns list, gets
+nothing added to that list: a list written from scratch replaces the ccc
+defaults. Clone mode never removes an entry, never rebuilds the file, and
+takes none of the folder, record or index flags of setup mode. Its writes
+go through a temporary file of their own, so two runs merging the same
+clone never tear the file; they add the same entries.
 
 Settings states (target = {project-root}/.cocoindex_code/settings.yml):
 
@@ -290,6 +318,27 @@ Output (single JSON document on stdout, ASCII only):
                                          cancels an SKF pattern included
   }
 
+Clone mode output (single JSON document on stdout, ASCII only):
+
+  {
+    "status": "ok",
+    "version": "v2",
+    "settings_yml_path":         "/abs/clone/.cocoindex_code/settings.yml",
+    "settings_yml_existed":      bool,
+    "ccc_init":                  "not_needed" | "created" | "failed",
+    "settings_ready":            bool,   false only when no settings.yml
+                                         exists after the ccc init
+    "not_ready_reason":          str | null,
+    "patterns_added":            int,
+    "patterns_added_list":       [str],  standard exclusions appended
+    "patterns_already_present":  int,
+    "includes_added_list":       [str],  `**/*.<ext>` entries appended
+    "includes_covered_list":     [str],  extensions an include_patterns
+                                         entry already matched
+    "written":                   bool,   settings.yml changed this run
+    "warnings":                  [str]
+  }
+
 Payload safety: the setup steps embed these strings in single-quoted
 `echo '...'` payloads, and dash's `echo` rewrites backslash escapes. So
 every warning, `not_ready_reason` and error message has `'` replaced by a
@@ -320,12 +369,15 @@ mutation in this module).
 
 Exit codes:
   0 success, including "not ready" (warnings stay on the success path)
-  1 --project-root is not a directory; settings.yml cannot be parsed, is
-    not a mapping, or has an exclude_patterns that is neither a list nor
-    null (JSON error on stderr)
-  2 usage error (including a non-boolean --index-fresh / --skip-index),
-    a write, move-aside or restore failure, or any unexpected internal
-    error (always JSON on stderr, never a traceback)
+  1 --project-root (or --clone-root) is not a directory; settings.yml
+    cannot be parsed, is not a mapping, or has an exclude_patterns (clone
+    mode: or include_patterns) that is neither a list nor null (JSON error
+    on stderr)
+  2 usage error (including a non-boolean --index-fresh / --skip-index, an
+    --include-ext that is not a plain extension, and a setup flag or
+    --include-ext given in the other mode), a write, move-aside or restore
+    failure, or any unexpected internal error (always JSON on stderr, never
+    a traceback)
 """
 
 from __future__ import annotations
@@ -407,6 +459,34 @@ SETTINGS_NAME = "settings.yml"
 BACKUP_NAME = "settings.yml.skf-repair"
 FIX_HINT = "fix the value in {project-root}/_bmad/skf/config.yaml"
 
+# Clone mode: the build and dependency folders create-skill keeps out of the
+# index of a workspace clone. They are generic artifact patterns, not SKF
+# paths, in the `**/name` form (ccc matches it at any depth; a trailing-slash
+# form such as `build/` matches nothing).
+CLONE_EXCLUDES = (
+    "**/node_modules",
+    "**/dist",
+    "**/build",
+    "**/.git",
+    "**/vendor",
+    "**/__pycache__",
+    "**/.cache",
+    "**/.next",
+    "**/.nuxt",
+    "**/target",
+    "**/out",
+    "**/.venv",
+    "**/.tox",
+)
+# An extension --include-ext takes: letters, digits, `_`, `+` and `-` only,
+# so `**/*.<ext>` is never a wider glob than one file type.
+EXTENSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_+-]*$")
+# A nested file with a given extension, matched against include_patterns.
+INCLUDE_PROBE = "skf-probe/skf-probe.{ext}"
+# A bare `- *...` list item: YAML reads the value as an alias. The value ends
+# before trailing blanks or a comment (a `#` after a blank), which stay after it.
+BARE_GLOB_ITEM_RE = re.compile(r"^([ \t]*-[ \t]+)(\*[^'\"\n]*?)((?:[ \t]+#[^\n]*)?|[ \t]*)$", re.MULTILINE)
+
 
 class HelperError(Exception):
     """A handled failure that ends the run with a JSON error and exit `code`."""
@@ -472,12 +552,16 @@ def _resolve_outside_cwd(command: str) -> str | None:
     return resolved
 
 
-def _atomic_write(target: Path, content: str) -> None:
+def _atomic_write(target: Path, content: str, unique: bool = False) -> None:
     """Crash-safe write via temp + fsync + rename. Mirrors skf-atomic-write.py.
 
+    With `unique`, the temp file is one of this call's own (clone mode,
+    where two runs can write the same file at once), else `<name>.skf-tmp`.
     Raises HelperError(2) on any OS failure; the temp file is removed.
     """
     tmp = target.with_name(target.name + ".skf-tmp")
+    if unique:
+        tmp = target.with_name(f"{target.name}.{os.getpid()}.{os.urandom(4).hex()}.skf-tmp")
     # O_BINARY (Windows only; 0 elsewhere) suppresses the text-mode \n -> \r\n
     # translation that would otherwise corrupt verbatim writes on Windows.
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
@@ -1839,6 +1923,156 @@ def run_merge(project_root, skills_output_folder, forge_data_folder, prior_state
     }
 
 
+# ─── Clone mode ─────────────────────────────────────────────────────────────
+
+
+def quote_bare_glob_items(text: str) -> tuple[str, int]:
+    """Single-quote each bare `- *...` list item; return (text, items quoted).
+
+    YAML reads a plain scalar that starts with `*` as an alias, so a
+    `- **/build` item an earlier hand edit wrote stops ccc from loading the
+    file. ccc writes these items quoted, as yaml.safe_dump does. A trailing
+    comment stays a comment, after the closing quote.
+    """
+    return BARE_GLOB_ITEM_RE.subn(lambda m: f"{m.group(1)}'{m.group(2)}'{m.group(3)}", text)
+
+
+def _load_clone_settings(path: Path, warnings: list[str]) -> tuple[dict, bool]:
+    """Parse a clone's settings.yml: (data, repaired).
+
+    A file YAML cannot read is read again with its bare glob items quoted,
+    and `repaired` is then True so the caller writes it back. Raises
+    HelperError(1) when it still cannot be read, is not a mapping, or holds
+    an exclude_patterns or include_patterns that is neither a list nor null.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise HelperError(1, f"failed to read {path}: {e}")
+    repaired = False
+    try:
+        data = yaml.safe_load(text)
+    except (yaml.YAMLError, ValueError) as e:
+        fixed, count = quote_bare_glob_items(text)
+        try:
+            data = yaml.safe_load(fixed) if count else None
+        except (yaml.YAMLError, ValueError):
+            count = 0
+        if not count:
+            raise HelperError(1, f"failed to parse {path}: {e}")
+        repaired = True
+        warnings.append(f"quoted {_plural(count, 'list item', 'list items')} of settings.yml that YAML "
+                        "read as an alias, so ccc can load the file again")
+    if data is None:
+        return {}, repaired
+    if not isinstance(data, dict):
+        raise HelperError(1, f"expected mapping at top of {path}, got {type(data).__name__}")
+    for key in ("exclude_patterns", "include_patterns"):
+        value = data.get(key)
+        if value is not None and not isinstance(value, list):
+            raise HelperError(1, f"{key} in {path} is not a list (got {type(value).__name__})")
+    return data, repaired
+
+
+def include_covers(pattern, ext: str) -> bool:
+    """True when an include_patterns entry matches a nested `*.<ext>` file as ccc reads it."""
+    if not isinstance(pattern, str):
+        return False
+    probe = INCLUDE_PROBE.format(ext=ext)
+    for alternative in _brace_alternatives(pattern):
+        rx = _ccc_glob(alternative, CCC_BACKSLASH_IS_SLASH)
+        if rx is not None and rx.fullmatch(probe):
+            return True
+    return False
+
+
+def run_clone_merge(clone_root, include_exts=(), allow_ccc_init: bool = True) -> dict:
+    """Clone mode: prepare a workspace clone's settings.yml and merge into it.
+
+    Returns the clone-mode payload documented in the module docstring.
+    Raises HelperError for the exit-1 and exit-2 cases.
+    """
+    root = Path(clone_root)
+    target = root / SETTINGS_DIR / SETTINGS_NAME
+    warnings: list[str] = []
+    existed = target.is_file()
+    ccc_init, ready, reason, written = "not_needed", True, None, False
+    added: list[str] = []
+    includes_added: list[str] = []
+    covered: list[str] = []
+    present = 0
+
+    if not existed:
+        if not allow_ccc_init:
+            ready, reason = False, "settings.yml is missing and --no-ccc-init was given"
+        else:
+            _ok, output = run_ccc_init(root)
+            if target.is_file():
+                ccc_init, written = "created", True
+            else:
+                ccc_init, ready = "failed", False
+                reason = ("ccc init did not create .cocoindex_code/settings.yml "
+                          f"({_output_hint(output)})")
+
+    if ready:
+        data, repaired = _load_clone_settings(target, warnings)
+        excludes = data.get("exclude_patterns")
+        if isinstance(excludes, list):
+            existing = [str(p) for p in excludes]
+            added = [p for p in CLONE_EXCLUDES if p not in existing]
+            present = len(CLONE_EXCLUDES) - len(added)
+            if added:
+                data["exclude_patterns"] = [*excludes, *added]
+        else:
+            warnings.append("settings.yml has no exclude_patterns list, so SKF added no exclusion: "
+                            "a list written from scratch replaces the ccc default exclusions")
+        includes = data.get("include_patterns")
+        if include_exts and isinstance(includes, list):
+            current = list(includes)
+            for ext in dict.fromkeys(include_exts):
+                if any(include_covers(p, ext) for p in current):
+                    covered.append(ext)
+                else:
+                    current.append(f"**/*.{ext}")
+                    includes_added.append(f"**/*.{ext}")
+            if includes_added:
+                data["include_patterns"] = current
+        elif include_exts:
+            warnings.append("settings.yml has no include_patterns list, so SKF added no file type: "
+                            "a list written from scratch replaces the ccc default file types")
+        if added or includes_added or repaired:
+            # ASCII-only output (non-ASCII escaped), as ccc writes it.
+            _atomic_write(target, yaml.safe_dump(data, default_flow_style=False, sort_keys=False),
+                          unique=True)
+            written = True
+
+    return {
+        "status": "ok",
+        "version": "v2",
+        "settings_yml_path": str(target),
+        "settings_yml_existed": existed,
+        "ccc_init": ccc_init,
+        "settings_ready": ready,
+        "not_ready_reason": _payload_safe(reason) if reason else None,
+        "patterns_added": len(added),
+        "patterns_added_list": added,
+        "patterns_already_present": present,
+        "includes_added_list": includes_added,
+        "includes_covered_list": covered,
+        "written": written,
+        "warnings": [_payload_safe(w) for w in warnings],
+    }
+
+
+def _ext_arg(value: str) -> str:
+    """argparse type for --include-ext: a plain file extension, a leading `.` dropped."""
+    ext = str(value).strip()
+    ext = ext[1:] if ext.startswith(".") else ext
+    if not EXTENSION_RE.match(ext):
+        raise argparse.ArgumentTypeError(f"expected a file extension such as ex or .ex, got {value}")
+    return ext
+
+
 def _bool_arg(value: str) -> bool:
     """argparse type for true|false (case-insensitive); anything else is a usage error."""
     normalized = str(value).strip().lower()
@@ -1865,20 +2099,27 @@ def main() -> None:
                     "ccc index must be built.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "--project-root", type=Path, required=True,
+    roots = parser.add_mutually_exclusive_group(required=True)
+    roots.add_argument(
+        "--project-root", type=Path,
         help="Absolute path to the project root. The script reads and writes "
              "{project-root}/.cocoindex_code/settings.yml and runs ccc init there.",
     )
+    roots.add_argument(
+        "--clone-root", type=Path,
+        help="Clone mode: absolute path to an SKF workspace clone. The script runs ccc init -f "
+             "there when .cocoindex_code/settings.yml is missing, and merges the standard build "
+             "and dependency exclusions (and the --include-ext file types) into it.",
+    )
     parser.add_argument(
-        "--skills-output-folder", default="",
+        "--skills-output-folder", default=None,
         help="Raw value of skills_output_folder from {project-root}/_bmad/skf/config.yaml, "
              "forwarded verbatim. Normalized, validated and checked, then excluded as a "
              "root-anchored pattern, or entry by entry when the folder also holds content "
              "SKF did not generate. Refused values produce a warning.",
     )
     parser.add_argument(
-        "--forge-data-folder", default="",
+        "--forge-data-folder", default=None,
         help="Raw value of forge_data_folder from {project-root}/_bmad/skf/config.yaml. "
              "Same handling as --skills-output-folder.",
     )
@@ -1891,12 +2132,12 @@ def main() -> None:
              "user. Missing file: empty record.",
     )
     parser.add_argument(
-        "--index-fresh", type=_bool_arg, default=False, metavar="true|false",
+        "--index-fresh", type=_bool_arg, default=None, metavar="true|false",
         help="Whether the prior ccc index is still fresh. With true and an unchanged "
              "settings.yml, index_action is keep. Default false.",
     )
     parser.add_argument(
-        "--skip-index", type=_bool_arg, default=False, metavar="true|false",
+        "--skip-index", type=_bool_arg, default=None, metavar="true|false",
         help="Whether the setup run opted out of indexing (--ccc-skip-index). With true, "
              "a ready settings.yml gives index_action skip. Default false.",
     )
@@ -1905,18 +2146,49 @@ def main() -> None:
         help="Never run ccc init (tests and diagnostics). A missing settings.yml is "
              "reported as not ready; a rebuild is skipped with a warning.",
     )
+    parser.add_argument(
+        "--include-ext", type=_ext_arg, action="append", default=[], metavar="EXT",
+        help="Clone mode only, repeatable: a file extension (ex, or .ex) whose files ccc must "
+             "index. Unless an include_patterns entry already matches it, **/*.EXT is appended "
+             "to include_patterns.",
+    )
     args = parser.parse_args()
+
+    if args.clone_root is not None:
+        # A setup flag is refused whatever its value: `--skip-index false` or an empty folder too.
+        setup_flags = [flag for flag, value in (
+            ("--skills-output-folder", args.skills_output_folder),
+            ("--forge-data-folder", args.forge_data_folder),
+            ("--prior-state-from", args.prior_state_from),
+            ("--index-fresh", args.index_fresh),
+            ("--skip-index", args.skip_index),
+        ) if value is not None]
+        if setup_flags:
+            _die(2, f"usage error: --clone-root takes no setup flag ({', '.join(setup_flags)})")
+        if not args.clone_root.is_dir():
+            _die(1, f"--clone-root is not a directory: {args.clone_root}")
+        try:
+            payload = run_clone_merge(args.clone_root, args.include_ext,
+                                      allow_ccc_init=not args.no_ccc_init)
+        except HelperError as e:
+            _die(e.code, str(e))
+        except Exception as e:  # noqa: BLE001 (every failure must stay stderr JSON)
+            _die(2, f"unexpected error: {type(e).__name__}: {e}")
+        print(json.dumps(payload))
+        return
+    if args.include_ext:
+        _die(2, "usage error: --include-ext needs --clone-root")
 
     if not args.project_root.is_dir():
         _die(1, f"--project-root is not a directory: {args.project_root}")
     try:
         payload = run_merge(
             args.project_root,
-            args.skills_output_folder,
-            args.forge_data_folder,
+            args.skills_output_folder or "",
+            args.forge_data_folder or "",
             prior_state_from=args.prior_state_from,
-            index_fresh=args.index_fresh,
-            skip_index=args.skip_index,
+            index_fresh=bool(args.index_fresh),
+            skip_index=bool(args.skip_index),
             allow_ccc_init=not args.no_ccc_init,
         )
     except HelperError as e:

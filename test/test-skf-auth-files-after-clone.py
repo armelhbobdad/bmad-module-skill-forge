@@ -1,12 +1,13 @@
 """create-skill scans for authoritative files in the tree it resolved.
 
 extract.md §2a runs skf-resolve-authoritative-files.py, which walks a local
-directory and refuses anything else. §2b resolves a remote source to its
-workspace or ephemeral clone, so §2a runs after §2b, and a remote source
-that was never cloned (Quick tier, or a clone that failed) skips the scan
+directory and refuses anything else. §2b reads a remote source into a private
+tree at the resolved commit, so §2a runs after §2b, and a remote source that
+was never read into a tree (Quick tier, or a read that failed) skips the scan
 with a notice instead of handing the helper a URL. The skip reaches the
 evidence report that step 7 writes, under a key of its own, and each brief
-of a --batch run starts with no scan record.
+of a --batch run starts with no scan record. A halt the scan asks for removes
+the tree first.
 """
 
 from __future__ import annotations
@@ -56,8 +57,9 @@ def test_scope_filters_announce_the_order() -> None:
 def test_scan_walks_the_tree_source_resolution_left() -> None:
     scan = _scan_section()
     assert "**Runs after §2b, not before it.**" in scan
-    assert "`{source_root}` now names the local source itself, or the workspace or ephemeral clone" in scan
-    assert "`.skf-workspace.lock` concurrency guard in `{sourceResolutionData}`" in scan
+    assert "`{source_root}` now names the local source itself, or the private tree §2b read a remote source into" in scan
+    assert "which no other run can move" in scan
+    assert ".skf-workspace.lock" not in scan, "no step holds the workspace lock across tool calls"
 
 
 def test_remote_source_guard_skips_with_a_notice() -> None:
@@ -65,7 +67,7 @@ def test_remote_source_guard_skips_with_a_notice() -> None:
     guard = next(p for p in scan.split("\n\n") if p.startswith("**Remote source guard:**"))
     assert "if `source_root` is still a remote URL after §2b" in guard
     assert "a Quick-tier remote source, which §2b never clones" in guard
-    assert "a remote source whose clone failed" in guard
+    assert "a remote source §2b could not read into a tree" in guard
     assert "Skip the scan and continue to §2c" in guard
     assert f"record `{SKIP_RECORD}` for the evidence report" in guard
     assert 'display "**Authoritative files scan skipped:** `{source_repo}` was not cloned' in guard
@@ -111,9 +113,11 @@ def test_protocol_helper_gets_the_resolved_tree() -> None:
     assert "`{source_root}` is the local tree §2b resolved" in procedure
 
 
-def test_update_halt_deletes_an_ephemeral_clone() -> None:
+def test_update_halt_removes_the_private_tree() -> None:
     update = _section(_read(PROTOCOL), "- **[U] Update:**", "6. **Summary.**")
-    assert 'When `remote_clone_type` is `"ephemeral"`, delete the clone first' in update
+    assert ('When `{source_tree}` is set, first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` '
+            "from `{project-root}`") in update
+    assert "ephemeral" not in _read(PROTOCOL)
 
 
 def test_skip_reaches_the_evidence_report() -> None:

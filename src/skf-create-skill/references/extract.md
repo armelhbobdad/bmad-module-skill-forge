@@ -6,6 +6,7 @@ extractionPatternsTracingData: 'references/extraction-patterns-tracing.md'
 tierDegradationRulesData: 'references/tier-degradation-rules.md'
 sourceResolutionData: 'references/source-resolution-protocols.md'
 authoritativeFilesProtocol: 'references/authoritative-files-protocol.md'
+cccIndexCheckData: 'references/ccc-index-check.md'
 # Probe installed SKF module path first, src/ dev-checkout fallback. At first
 # use below, resolve `{atomicWriteHelper}` to the first existing path; HALT if
 # neither candidate exists — losing atomic-write guarantees is not an option.
@@ -36,6 +37,19 @@ resolveAuthoritativeFilesProbeOrder:
 cccGitHygieneProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
   - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
+# Resolve `{sourceTreeHelper}` to the first existing path. §2b reads a remote
+# source at Forge tier or above through it, into a private tree at one
+# commit, and step 7 and every HALT after §2b remove that tree with it. If
+# neither path exists, §2b degrades that source to source reading.
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
+# Resolve `{mergeCccExclusionsHelper}` to the first existing path. §2b's
+# deferred ccc discovery prepares the workspace clone's settings.yml with it;
+# if neither path exists, that discovery is skipped.
+mergeCccExclusionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
+  - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -66,79 +80,75 @@ From the brief, apply scope and pattern filters:
 - `scope.include` — file globs to include
 - `scope.exclude` — file globs to exclude
 
-Build the filtered file list from the source tree resolved in step 1. Record the result: "**Filtered file count: {N} files in scope**" — this count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file.
+Build the filtered file list from the source tree resolved in step 1. Record the result: "**Filtered file count: {N} files in scope**". This count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file. For a remote source at Forge tier or above, §2b builds the list again from the tree it reads, and extraction uses that list and its count.
 
 Sections 2b and 2a follow in that order: §2b resolves the source to a local tree, and §2a scans that tree for authoritative files.
 
 ### 2b. Resolve Source Access
 
-**If `source_type: "docs-only"`:** skip §2b entirely — there is no source to resolve. Proceed directly to §2c (component library delegation, which is itself skipped for docs-only) and then §3 (Check for Docs-Only Mode). Tag resolution, remote/workspace cloning, source-commit capture, version reconciliation, and deferred CCC discovery all require a source tree and have nothing to do in docs-only mode.
+**Start clean:** first, for every brief, docs-only included, set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null and `{resolved-source-path}` to `{source_root}` (null for a docs-only brief), so that in a `--batch` run one brief's source never carries into the next.
 
-Load `{sourceResolutionData}` completely. Follow these protocols in order:
-1. **Tag Resolution** — run the explicit variant when `brief.target_version` is set, or the implicit variant when only `brief.version` is set (Forge/Deep remote sources only). This sets `source_ref` before any clone happens. Quick tier remote sources skip this.
-2. **Remote Source Resolution** — workspace or ephemeral clone, cleanup (Forge/Deep tiers).
-3. **Source Commit Capture** — all tiers.
-4. **Version Reconciliation** — all tiers.
+**If `source_type: "docs-only"`:** skip the rest of §2b: there is no source to resolve. Proceed directly to §2c (component library delegation, which is itself skipped for docs-only) and then §3 (Check for Docs-Only Mode). Tag resolution, reading the source into a tree, source-commit capture, version reconciliation, and deferred CCC discovery all require a source tree and have nothing to do in docs-only mode.
 
-This ensures source code is accessible regardless of which extraction path is taken below (standard, component-library, or docs-only).
+Load `{sourceResolutionData}` completely. It says which brief field picks the ref and how to choose between several matching tags, and it holds the tag warnings, the Local Source Warning, Source Commit Capture and Version Reconciliation.
 
-**Deferred CCC Discovery (Forge+ and Deep — remote sources only):**
+**Local source, or a Quick-tier remote source:** nothing to resolve. Apply the Local Source Warning to a local path. A Quick-tier remote source is read through `gh_bridge` in §4, and its `source_ref` is `HEAD`.
+
+**Remote source at Forge, Forge+ or Deep tier:** `{sourceTreeHelper}` reads the source into a private tree at one commit, which no other run can move, and in the same call moves SKF's workspace clone of the repository to that commit (`{sourceResolutionData}` "Remote Source Resolution"). Resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`; it stays bound for the rest of the run (step 7 and every HALT use it). Resolve `{cccGitHygieneHelper}` ← first existing path in `{cccGitHygieneProbeOrder}`. Bind `{tree_timeout}` to the seconds the helper may take, a little under the longest timeout your shell tool can be given, since a first fetch of a large repository is slow: `540` when it takes a 10-minute timeout, `100` when its longest is two minutes or you do not know it. Give the command that longest shell timeout: the helper stops itself within `--timeout` seconds and still prints its result. From `{project-root}`, run:
+
+```bash
+uv run {sourceTreeHelper} resolve \
+    --source-repo "{source_repo}" \
+    [--target-ref "{brief.target_ref}"] \
+    [--version "{brief.target_version}" --name "{brief.name}"] \
+    [--version "{brief.version}" --implicit] \
+    --update-clone \
+    [--hygiene-helper "{cccGitHygieneHelper}"] \
+    --timeout "{tree_timeout}"
+```
+
+Pass `--target-ref` when the brief sets `target_ref`. Pass the first `--version` line when the brief sets `target_version`, else the second when it sets `version`, never both. Pass `--hygiene-helper` when `{cccGitHygieneHelper}` resolved.
+
+Bind from its JSON `source_ref` ← `source_ref`, `source_commit` ← `source_commit`, `tag_resolution` ← `tag_resolution`, `{workspace_path}` ← `workspace_path`, `{workspace_clone}` ← `clone`, `{source_tree}` ← `tree`, `{source_resolve_status}` ← `status`, `{source_resolve_reason}` ← `reason`, `{source_resolve_message}` ← `message`, `{clone_status}` ← `clone_status` and `{clone_skip_reason}` ← `clone_skip_reason`, and display each entry of `warnings`.
+
+Dispatch on `{source_resolve_status}`:
+
+- **`ready`** (exit 0): bind `{source_root}` ← `{source_tree}`. Every later read of the source reads this tree: the §2 file list, the §2a scan, extraction, step 6's citation check and step 7's script and asset copies. Build the §2 filtered file list again from `{source_root}`, since step 1 listed the remote's default branch, which need not hold `source_commit`. Bind `{resolved-source-path}` ← `{workspace_clone}`, or ← `{source_repo}` when `{workspace_clone}` is null (the folder at `{workspace_path}` is not SKF's clone of the repository): it is the `source_root` metadata.json records (`{sourceResolutionData}` "Source Commit Capture"). When `{clone_status}` is `advanced` or `ok`, SKF's clone now holds `source_commit`: bind `{remote_clone_path}` ← `{workspace_clone}`, the folder the deferred ccc discovery below and step 7 §6b index. Otherwise leave it null and display "SKF's clone of `{source_repo}` at `{workspace_path}` was not moved ({clone_skip_reason}), so this run skips ccc discovery and the ccc index registration. Extraction reads this run's own tree." Then report the outcome of `tag_resolution` as `{sourceResolutionData}` "Tag Resolution" says.
+- **`ambiguous`** (exit 0): several tags match, and nothing was read. Make the choice in `{sourceResolutionData}` "Several Matching Tags", run the command again with `--target-ref "{chosen tag}"` (`HEAD` for the default branch) in place of `--version`, `--name`, `--implicit` and any `--target-ref` from the brief, and dispatch on that result.
+- **`skipped`** (exit 0): the helper does not read `{source_repo}` as a remote repository (`skip_reason` is `not-remote`), so treat it as a local source, above.
+- **`unavailable`** (exit 3): no commit could be read, and no tree was left behind (`{source_resolve_reason}` is `invalid-ref`, `git-unavailable`, `upstream-unreachable`, `ref-not-found`, `fetch-failed`, `checkout-failed`, `tree-folder-failed` or `timed-out`). ⚠️ Warn the user explicitly: "Could not read `{source_repo}`: {source_resolve_message}. Degrading to source reading (T1-low) for this run. For T1 (AST-verified) confidence, clone the repository locally and update `source_repo` in your brief to the local path." Keep `{source_root}` the remote URL, bind `source_ref` ← `source_ref` when it is not null and `HEAD` otherwise, and extract with the Quick tier strategy in §4. Note the degradation reason in context for the evidence report.
+- **No candidate resolves, or the command exits 1 or 2, or prints no JSON:** continue as for `unavailable`, with `{source_resolve_message}` = "skf-source-tree.py did not finish: {the first stderr line; 'the shell stopped it before it printed a result' when your shell tool's timeout ended it; or 'it is missing; re-install SKF'}". A later run removes a tree a stopped run left behind once it is seven days old.
+
+Then run Source Commit Capture and Version Reconciliation from `{sourceResolutionData}` on `{source_root}`. This ensures source code is accessible regardless of which extraction path is taken below (standard, component-library, or docs-only).
+
+**Deferred CCC Discovery (Forge+ and Deep, remote sources only):**
 
 If ALL of these conditions are true:
 - `tools.ccc` is true in forge-tier.yaml
 - `{ccc_discovery}` is empty (step 2b deferred because source was remote)
-- `remote_clone_path` is set (source resolution succeeded for a remote URL)
+- `{remote_clone_path}` is set (SKF's clone holds `source_commit`)
 - Tier is Forge+ or Deep
 
-Then run CCC indexing and discovery on the resolved clone (workspace or ephemeral):
+Then index SKF's clone and search it. The clone persists across forges, so an index an earlier forge built there is brought up to date rather than rebuilt. ccc's results only rank files; extraction still reads `{source_root}`.
 
-1. **Check existing index:** If `{remote_clone_path}/.cocoindex_code/settings.yml` exists as a file (a workspace repo indexed by an earlier forge), reuse that index: skip the `ccc init` in step 2, still apply step 2's standard exclusions, then run step 3 as usual. ccc reads `settings.yml` again on every index run, so step 3's incremental `ccc index` indexes the files that changed since the last forge, drops files a new exclusion covers and adds files a pattern change brings in, all in one pass. An unchanged repository costs almost nothing, and the existing index never needs deleting first. A `.cocoindex_code/` folder without `settings.yml` is not a ccc project, so treat it as no index. Without that file, start at step 2.
+1. **Prepare the settings:** resolve `{mergeCccExclusionsHelper}` ← first existing path in `{mergeCccExclusionsProbeOrder}` and, from `{project-root}`, run `uv run {mergeCccExclusionsHelper} --clone-root "{remote_clone_path}"`. It runs `ccc init -f` in the clone when `.cocoindex_code/settings.yml` is missing, and appends the standard build and dependency exclusions the file lacks (`**/node_modules`, `**/dist`, `**/build`, `**/target` and the like), on a first run and on a reused index alike, keeping every entry already there. These are standard artifact patterns, not SKF paths: the clone is a source repository, not an SKF project. When `settings_yml_existed` is true and `patterns_added_list` is not empty, display: "Added {patterns_added} standard exclusions to the reused workspace index settings." When `settings_ready` is false, the command fails or no candidate resolves, set `{ccc_discovery: []}` and continue: this is not an error.
 
-2. **Initialize index (first time only):** Run `cd "{remote_clone_path}" && ccc init`. If init exits non-zero with `A parent directory has a project marker`, re-run as `cd "{remote_clone_path}" && ccc init -f` to initialize at the clone anyway (same handling as step 7 §6b). If init fails for any other reason, or the `-f` retry also fails, set `{ccc_discovery: []}` and continue — this is not an error.
+   **Note:** Brief-specific `include_patterns` and `exclude_patterns` are not written to `settings.yml`. The CCC index is general-purpose: it indexes everything (minus standard artifacts). Brief-specific filtering happens at search result time, not index time. This allows a single workspace CCC index to serve multiple briefs with different scope filters.
 
-   **Apply standard exclusions (first run and reused index):** After `ccc init`, or on an index reused in step 1, apply generic build/dependency exclusions to `{remote_clone_path}/.cocoindex_code/settings.yml`. These are standard artifact patterns, not SKF-specific paths (the workspace checkout is a source repo, not an SKF project):
+2. **Index the clone:** run `cd "{remote_clone_path}" && ccc index` in the foreground with an extended timeout. Indexing can take several minutes on large codebases (1000+ files); a reused index processes only what changed. Then load `{cccIndexCheckData}` and run it with `{ccc_root}` = `{remote_clone_path}` and `{ccc_settings_owner}` = `skf`. On **index unverified**, display "CCC index still building (index unverified), skipping the language check." and continue to step 3. When `ccc index` fails, or the check returns **degraded**, set `{ccc_discovery: []}` and continue: this is not an error.
 
-   ```yaml
-   - '**/node_modules'
-   - '**/dist'
-   - '**/build'
-   - '**/.git'
-   - '**/vendor'
-   - '**/__pycache__'
-   - '**/.cache'
-   - '**/.next'
-   - '**/.nuxt'
-   - '**/target'
-   - '**/out'
-   - '**/.venv'
-   - '**/.tox'
-   ```
+3. **Construct semantic query:** Build from brief data: `"{brief.name} {brief.scope}"`. Truncate to 80 characters: keep the full skill name and trim `brief.scope` from the end. If `brief.scope` is very short (< 10 chars), append terms from `brief.description` to fill the remaining space.
 
-   Write each entry exactly as shown, as a single-quoted YAML list item (the form `ccc init` writes). YAML reads an unquoted leading `*` as an alias, and ccc then fails to load `settings.yml`. ccc matches `**/build` at any depth, while a trailing-slash form such as `build/` matches nothing. Read `settings.yml` and append each listed entry that is missing from its `exclude_patterns` list, keeping every existing entry (the user's and ccc's defaults). Write the file back only when something was appended. If the file has no `exclude_patterns` list, add nothing: a list written from scratch replaces ccc's default exclusions. On a reused index, when entries were appended, display: "Added {N} standard exclusions to the reused workspace index settings." Step 3's plain `ccc index` applies them.
-
-   **Note:** Brief-specific `include_patterns` and `exclude_patterns` are not written to `settings.yml`. The CCC index is general-purpose — it indexes everything (minus standard artifacts). Brief-specific filtering happens at search result time, not index time. This allows a single workspace CCC index to serve multiple briefs with different scope filters.
-
-3. **Index the clone:** Run `cd "{remote_clone_path}" && ccc index` in the foreground with an extended timeout. Indexing can take several minutes on large codebases (1000+ files); a reused index processes only what changed. If `ccc index` fails with `Error loading` and the path of `settings.yml`, the file is not valid YAML, most often because a `**/` entry lost its quotes: put single quotes around each unquoted `**/` list item and run `ccc index` again. Then run `cd "{remote_clone_path}" && ccc status`. If it prints an `Indexing in progress:` line, a pass is still running and the counts below it are not final: run `cd "{remote_clone_path}" && ccc index` again, which waits for the running pass to finish and then makes a quick incremental pass, then run `ccc status` again. If the line is still there after 3 such runs, display "CCC index still building (index unverified) — skipping the language check." and continue to step 4.
-
-   **Verify integrity:** a non-zero `Chunks`/`Files` total is not sufficient — read the `Languages:` breakdown and confirm the source's primary language (`{brief.language}`) reports a non-trivial chunk count. An index dominated by `markdown`/config chunks with the source language absent or near-zero means the source code was never indexed, and searches over it return nothing useful. When the source language is absent, apply these repairs in order, stopping at the first one after which `Languages:` shows the source language:
-
-   1. **No project of its own:** `{remote_clone_path}/.cocoindex_code/settings.yml` is missing and the `Project:` line of `ccc status` names another folder, so ccc indexed an enclosing project. Run `cd "{remote_clone_path}" && ccc init -f`, apply the standard exclusions from step 2, run `ccc index`, then run `ccc status` and check `Languages:` again.
-   2. **Language not included:** ccc indexes only the file types listed in `include_patterns`, and its default list leaves some languages out (Elixir's `.ex`, for example). Take the extensions of the `{brief.language}` files in the §2 filtered file list that no `include_patterns` entry matches, at most 3. If there are none, the files are excluded rather than left out of `include_patterns`: skip this repair and display which `exclude_patterns` entry covers the `{brief.language}` source files (`**/build` covers a package under `src/build/`, for example). Otherwise append one single-quoted `- '**/*.{ext}'` item per extension to the existing `include_patterns` list in `{remote_clone_path}/.cocoindex_code/settings.yml`, keeping every entry. If the file has no `include_patterns` list, add nothing: a list written from scratch replaces ccc's default file types. Display "Added {patterns} to include_patterns in {remote_clone_path}/.cocoindex_code/settings.yml so ccc indexes {brief.language} files.", run a plain `cd "{remote_clone_path}" && ccc index`, then run `ccc status` and check `Languages:` again.
-
-   A plain `ccc index` is enough after any `settings.yml` edit; nothing needs deleting first. Do not run `ccc reset`: it deletes only the index databases and keeps `settings.yml`, so it cannot repair the settings, a `ccc index` right after it can fail and leave the project with no index, and run from a folder without its own `settings.yml` it deletes the enclosing project's index. If indexing fails, or the source language is still missing after these repairs, set `{ccc_discovery: []}` and continue — this is not an error.
-
-4. **Construct semantic query:** Build from brief data: `"{brief.name} {brief.scope}"`. Truncate to 80 characters — keep the full skill name and trim `brief.scope` from the end. If `brief.scope` is very short (< 10 chars), append terms from `brief.description` to fill the remaining space.
-
-5. **Execute search:** Run `ccc_bridge.search(query, remote_clone_path, top_k=20)` as `cd "{remote_clone_path}" && ccc search --limit 20 "{query}"`. Step 3 has just brought the index up to date, whether it was reused or new, so the search needs no refresh flag.
+4. **Execute search:** Run `ccc_bridge.search(query, remote_clone_path, top_k=20)` as `cd "{remote_clone_path}" && ccc search --limit 20 "{query}"`. Step 2 has just brought the index up to date, whether it was reused or new, so the search needs no refresh flag.
    - **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or CLI. Note: `ccc search` operates on the index in the current working directory. See `knowledge/tool-resolution.md`.
 
-6. **Store results:** If search succeeds, store as `{ccc_discovery: [{file, score, snippet}]}`. Display: "**CCC semantic discovery: {N} relevant regions identified across {M} unique files.**"
+5. **Store results:** If search succeeds, store as `{ccc_discovery: [{file, score, snippet}]}`. Display: "**CCC semantic discovery: {N} relevant regions identified across {M} unique files.**"
 
-   If `remote_clone_type == "workspace"` and an existing index was reused, append: "(reused workspace index)"
+   If step 1 reported `settings_yml_existed` true (an earlier forge's index was reused), append: "(reused workspace index)"
 
-7. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC discovery unavailable — proceeding with standard extraction." Do not halt.
+6. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC discovery unavailable, proceeding with standard extraction." Do not halt.
 
-**Leave the workspace clone clean:** when `remote_clone_type` is `"workspace"`, run `uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"` from `{project-root}` once this block is done with the clone: after step 6 or step 7, and also when step 2 or step 3 set `{ccc_discovery: []}`. Every `ccc init` or `ccc index` that creates `settings.yml` in a clone (the first `ccc init`, the `ccc init -f` of repair 1, or a `ccc index` that initializes the clone itself) appends `# CocoIndex Code (ccc)` and `/.cocoindex_code/` to the clone's tracked `.gitignore`, and that change would make a later forge's checkout of another ref fail. The helper restores the `.gitignore` when those two lines are its only change (or deletes a `.gitignore` holding only them) and keeps the index folder out of git through the clone's `.git/info/exclude` instead. Resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}` and read nothing from its output; if neither path exists or the command fails, continue: the next workspace hit repairs the clone before its checkout. An ephemeral clone needs nothing: it is deleted after extraction.
+**Leave the workspace clone clean:** run `uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"` from `{project-root}` once this block is done with the clone: after step 5 or step 6, and also when step 1 or step 2 set `{ccc_discovery: []}`. Every `ccc init` or `ccc index` that creates `settings.yml` in a clone (the helper's `ccc init -f`, or a `ccc index` that initializes the clone itself) appends `# CocoIndex Code (ccc)` and `/.cocoindex_code/` to the clone's tracked `.gitignore`, and that change would make a later forge's move of the clone to another ref fail. The helper restores the `.gitignore` when those two lines are its only change (or deletes a `.gitignore` holding only them) and keeps the index folder out of git through the clone's `.git/info/exclude` instead. Resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}` and read nothing from its output; if neither path exists or the command fails, continue: the next resolve repairs the clone before it moves it.
 
 **CCC Discovery Integration (Forge+ and Deep with ccc only):**
 
@@ -151,13 +161,13 @@ If `{ccc_discovery}` is empty or not in context: proceed with existing file orde
 
 ### 2a. Discovered Authoritative Files Protocol
 
-**Runs after §2b, not before it.** The scan walks a local tree, so it waits for §2b to resolve one: `{source_root}` now names the local source itself, or the workspace or ephemeral clone of a remote source. On a workspace clone the scan is one of the reads of the working tree that the `.skf-workspace.lock` concurrency guard in `{sourceResolutionData}` covers.
+**Runs after §2b, not before it.** The scan walks a local tree, so it waits for §2b to resolve one: `{source_root}` now names the local source itself, or the private tree §2b read a remote source into, which no other run can move.
 
 **Start clean:** set `authoritative_files_scan` to null and `promoted_docs[]` to empty before either skip below, so that in a `--batch` run one brief's scan never carries into the next.
 
 **Skip this section entirely if `source_type: "docs-only"`:** there is no source tree to scan.
 
-**Remote source guard:** if `source_root` is still a remote URL after §2b, there is no local tree to walk, and the helper refuses a source root that is not a directory. That happens for a Quick-tier remote source, which §2b never clones, and for a remote source whose clone failed, which §2b falls back to reading like Quick tier. Skip the scan and continue to §2c: record `authoritative_files_scan: {not_scanned: "remote source not cloned"}` for the evidence report and display "**Authoritative files scan skipped:** `{source_repo}` was not cloned in this run, so authoritative AI documentation files (`llms.txt`, `AGENTS.md` and the like) outside the brief's scope were not looked for. A run with a local tree (a local checkout, or a remote source cloned at Forge tier or higher) scans them."
+**Remote source guard:** if `source_root` is still a remote URL after §2b, there is no local tree to walk, and the helper refuses a source root that is not a directory. That happens for a Quick-tier remote source, which §2b never clones, and for a remote source §2b could not read into a tree, which it falls back to reading like Quick tier. Skip the scan and continue to §2c: record `authoritative_files_scan: {not_scanned: "remote source not cloned"}` for the evidence report and display "**Authoritative files scan skipped:** `{source_repo}` was not cloned in this run, so authoritative AI documentation files (`llms.txt`, `AGENTS.md` and the like) outside the brief's scope were not looked for. A run with a local tree (a local checkout, or a remote source cloned at Forge tier or higher) scans them."
 
 Load `{authoritativeFilesProtocol}` and execute it. The full protocol (heuristic scan list, helper invocation, classification dispatch, prompt flow, P/S/U decision-apply, summary, provenance-map handoff, downstream consumption) lives there.
 
@@ -202,7 +212,7 @@ Source resolution, version reconciliation, and CCC discovery were completed in s
 
 **Forge/Forge+/Deep Tier (AST available):**
 
-Before executing AST extraction, load the **AST Extraction Protocol** section from `{extractionPatternsData}`. Follow the decision tree based on the file count from step 1's file tree — it determines whether to use the MCP tool, scoped YAML rules, or CLI streaming. Do not use `ast-grep --json` (without `=stream`) — it loads the entire result set into memory and fails on large codebases; use the explicit `run` subcommand with streaming: `ast-grep run -p '{pattern}' --json=stream`.
+Before executing AST extraction, load the **AST Extraction Protocol** section from `{extractionPatternsData}`. Follow the decision tree based on the §2 filtered file count (rebuilt in §2b for a remote source): it determines whether to use the MCP tool, scoped YAML rules, or CLI streaming. Do not use `ast-grep --json` (without `=stream`), which loads the entire result set into memory and fails on large codebases. Use the explicit `run` subcommand with streaming: `ast-grep run -p '{pattern}' --json=stream`.
 
 1. Detect language from brief or file extensions
 2. Follow the AST Extraction Protocol decision tree from `{extractionPatternsData}`:

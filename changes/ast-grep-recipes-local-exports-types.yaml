@@ -1,0 +1,6 @@
+type: added
+scope: skf-create-skill, skf-audit-skill, skf-update-skill
+summary: |
+  Create Skill has three new ast-grep recipes, so these TypeScript exports are found by ast-grep (`T1`) instead of being read by eye (`T1-low`) or missed: `js-local-exports` finds each name of a local export list such as the `export { Button, buttonVariants }` that ends a shadcn/ui component file, `react-wrapped-components` finds PascalCase components wrapped in `memo`, `forwardRef` or `lazy`, and `ts-exported-types` finds exported interfaces, type aliases and enums, generic, `extends` and `export declare` forms included. Component-library extraction runs all three, and takes its shared types from `ts-exported-types` instead of patterns that missed those forms and listed the members of an `export namespace` block as exports. Audit Skill and Update Skill run the same recipes, so the first audit or update of a TypeScript skill created before this release can report these exports as new.
+prs: [622]
+issues: [559]

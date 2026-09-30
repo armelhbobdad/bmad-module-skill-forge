@@ -1,11 +1,14 @@
 ---
 nextStepFile: '../enrich.md'
-# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
+forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
+# Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves.
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# path wins. §5b changes the registry only through it. If neither resolves,
+# §5b skips the registry change with a warning: a docs fetch never halts the
+# workflow.
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 # Resolve `{deriveAssemblyShapeHelper}` the same way — used in §1 to decide
 # whether this is a whole-language reference (registry-corpora prose retained
 # as a Language Guide) or a standard skill (unchanged behaviour).
@@ -174,18 +177,21 @@ This artifact is a **distinct** carrier — it is not merged into the extraction
 
 **If tier is Deep and at least one URL was fetched successfully:**
 
-1. Write fetched markdown files to a staging directory: `_bmad-output/{skill-name}-docs/` — clear any previous contents first, so a corpus retained from an earlier docs-only run (step 5 below) does not mix with this run's pages.
-2. Index into QMD with atomic replace + rollback: if a `{skill-name}-docs` collection already exists, run `qmd collection remove {skill-name}-docs` first, then `qmd collection add {project-root}/_bmad-output/{skill-name}-docs/ --name {skill-name}-docs --mask "*.md"`. **If `qmd collection add` fails after a successful `remove`:** remove any matching `{skill-name}-docs` entry from `forge-tier.yaml` → `qmd_collections[]` to keep the registry consistent with QMD's actual state, warn in evidence-report, and skip the embed — docs enrichment degrades gracefully.
-3. Generate embeddings scoped to this collection (only if step 2 `add` succeeded): `qmd embed --collection {skill-name}-docs` (required for semantic `type:'vec'` and HyDE `type:'hyde'` sub-queries within the QMD `query` tool). If the installed `qmd` CLI does not accept `--collection`, gate the embed behind a freshness check: skip re-embedding if the existing `{skill-name}-docs` registry entry is within 24 hours, and log the skip in the evidence report to prevent unbounded batch-mode re-embedding.
-4. Register in forge-tier.yaml `qmd_collections` array — **acquire an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock` for the read-modify-write** (see the locking pattern documented in step 3b §4). Write via `python3 {atomicWriteHelper} write --target {sidecar_path}/forge-tier.yaml`. If `flock` is unavailable, fall back to read-CAS-by-mtime (capture `st_mtime` before, re-check after; refuse to clobber if a concurrent run wrote in between).
+1. Write fetched markdown files to a staging directory, `{project-root}/_bmad-output/{skill-name}-docs/`. Clear any previous contents first, so a corpus retained from an earlier docs-only run (step 5 below) does not mix with this run's pages.
+2. Index into QMD with atomic replace + rollback: if a `{skill-name}-docs` collection already exists, run `qmd collection remove {skill-name}-docs` first, then `qmd collection add {project-root}/_bmad-output/{skill-name}-docs/ --name {skill-name}-docs --mask "*.md"`. Resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}`: every registry change of this section goes through it, and it holds `{sidecar_path}/forge-tier.yaml.lock` for its one read-modify-write, so no step takes a lock of its own. **If `qmd collection add` fails after a successful `remove`:** remove the registry entry too, so the registry matches QMD's actual state, warn in evidence-report, and skip steps 3 and 4, since docs enrichment degrades gracefully:
 
-```yaml
-- name: "{skill-name}-docs"
-  type: "docs"
-  source_workflow: "create-skill"
-  skill_name: "{skill-name}"
-  created_at: "{current ISO date}"
-```
+   ```bash
+   uv run {forgeTierRwHelper} remove-qmd-collection --target "{forgeTierConfig}" --name {skill-name}-docs
+   ```
+
+3. Generate embeddings scoped to this collection (only if step 2 `add` succeeded): `qmd embed --collection {skill-name}-docs` (required for semantic `type:'vec'` and HyDE `type:'hyde'` sub-queries within the QMD `query` tool). If the installed `qmd` CLI does not accept `--collection`, gate the embed behind a freshness check: read the registry with `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"`, skip re-embedding when the `{skill-name}-docs` entry in its `data.qmd_collections` was created within the last 24 hours, and log the skip in the evidence report to prevent unbounded batch-mode re-embedding.
+4. Register the collection in the `qmd_collections` array (only if step 2 `add` succeeded). The helper replaces the entry with the same `name` or appends it:
+
+   ```bash
+   uv run {forgeTierRwHelper} register-qmd-collection --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
+   {"name": "{skill-name}-docs", "type": "docs", "source_workflow": "create-skill", "skill_name": "{skill-name}", "created_at": "{current ISO date}"}
+   SKF_REGISTRY_ENTRY
+   ```
 
 5. Clean up the staging directory after indexing — **only when `source_type` is `"source"`**: `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`. Note that this directory is the source path of the `{skill-name}-docs` collection registered in step 4; removing it is accepted for supplemental docs, whose T3 items already live in the extraction inventory. **When `source_type` is `"docs-only"`, keep the directory.** The fetched pages are the skill's only source corpus — there is no code tree — so deleting them would leave the just-registered collection with nothing to refresh from and nothing to verify citations against. Record the retained path in the evidence report.
 

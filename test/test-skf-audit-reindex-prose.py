@@ -254,7 +254,7 @@ def test_protocol_holds_the_anchors_re_index_cites() -> None:
     assert f"{CLI_COMMAND} {{path}}" in protocol
     assert "`| head -N`" in protocol and "max_results=" in protocol
     assert "metaVariables.single.NAME.range.start.line + 1" in protocol
-    limitations = _slice(patterns, "### Known ast-grep Limitations", "### Component Library Demo/Example Auto-Exclusion")
+    limitations = _slice(patterns, "### Known ast-grep Limitations", "### Re-Export Tracing and Script/Asset Extraction")
     assert "\n4. **Fallback protocol:**" in limitations
     assert "\n11. **Forms the recipes deliberately do not cover" in limitations
 

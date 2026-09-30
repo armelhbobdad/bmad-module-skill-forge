@@ -23,6 +23,11 @@ Highest-value tests:
   guarantee (no `'`, backslash or control character) for every
   human-readable string and every recorded pattern.
 - Prose pins on the setup step files that consume the helper output.
+- Clone mode (`--clone-root`, create-skill): the standard exclusions and the
+  `--include-ext` file types are appended, never replacing a list or
+  removing an entry, an include entry that already matches an extension (as
+  ccc reads globs) is left to cover it, a bare `- **/x` item an earlier edit
+  left is quoted again, and the setup flags are refused.
 
 No test runs a real `ccc`: subprocess CLI tests always pass --no-ccc-init,
 and in-process tests replace `run_ccc_init` with fakes.
@@ -3129,3 +3134,251 @@ def test_report_envelope_forwards_exclusion_warnings_verbatim():
         "do not resolve the `{project-root}` inside an entry",
     ):
         assert needle in note, needle
+
+
+# ─── Clone mode: a workspace clone's settings.yml (create-skill) ────────────
+
+CLONE_KEYS = {
+    "status", "version", "settings_yml_path", "settings_yml_existed", "ccc_init",
+    "settings_ready", "not_ready_reason", "patterns_added", "patterns_added_list",
+    "patterns_already_present", "includes_added_list", "includes_covered_list", "written",
+    "warnings",
+}
+
+
+@pytest.fixture
+def tmp_clone(tmp_path):
+    clone = tmp_path / "ws" / "repos" / "github.com" / "acme" / "lib"
+    clone.mkdir(parents=True)
+    return clone
+
+
+def _run_clone(clone: Path, *extra: str, ccc_init: bool = False) -> tuple[int, dict, str]:
+    """Run clone mode as a subprocess; with --no-ccc-init unless ccc_init is set."""
+    argv = [sys.executable, str(SCRIPT_PATH), "--clone-root", str(clone), *extra]
+    if not ccc_init:
+        argv.append("--no-ccc-init")
+    env = {k: v for k, v in os.environ.items() if k not in mod.GIT_LOCATION_VARS}
+    result = subprocess.run(argv, capture_output=True, timeout=60, env=env)
+    stdout = result.stdout.decode("utf-8")
+    payload = json.loads(stdout) if stdout.strip() else None
+    return result.returncode, payload, result.stderr.decode("utf-8", errors="replace")
+
+
+def test_clone_excludes_use_the_double_star_form():
+    """ccc matches `**/build` at any depth; a trailing-slash form such as `build/` matches nothing."""
+    assert len(mod.CLONE_EXCLUDES) == len(set(mod.CLONE_EXCLUDES))
+    for entry in mod.CLONE_EXCLUDES:
+        assert re.fullmatch(r"\*\*/[A-Za-z0-9_.-]+", entry), entry
+    assert {"**/build", "**/out", "**/node_modules", "**/.git", "**/.venv"} <= set(mod.CLONE_EXCLUDES)
+    assert not set(mod.CLONE_EXCLUDES) & set(mod.ALWAYS_INCLUDE), "SKF's own folders are setup mode's"
+
+
+def test_clone_merge_appends_missing_exclusions_and_keeps_every_entry(tmp_clone):
+    target = _seed_ccc_settings(tmp_clone, extra_excludes=["**/my-own", "**/out"],
+                                extra_keys={"language_overrides": {"x": "y"}})
+    payload = mod.run_clone_merge(tmp_clone, allow_ccc_init=False)
+    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    kept = CCC_DEFAULTS + ["**/my-own", "**/out"]
+    missing = [p for p in mod.CLONE_EXCLUDES if p not in kept]
+    assert data["exclude_patterns"] == kept + missing
+    assert data["include_patterns"] == CCC_INCLUDES
+    assert data["language_overrides"] == {"x": "y"}
+    assert payload["patterns_added_list"] == missing
+    assert payload["patterns_added"] == len(missing)
+    assert payload["patterns_already_present"] == len(mod.CLONE_EXCLUDES) - len(missing)
+    assert (payload["written"], payload["settings_ready"], payload["ccc_init"]) == (True, True, "not_needed")
+    assert payload["includes_added_list"] == [] and payload["includes_covered_list"] == []
+
+
+def test_clone_merge_twice_changes_nothing_the_second_time(tmp_clone):
+    target = _seed_ccc_settings(tmp_clone)
+    mod.run_clone_merge(tmp_clone, allow_ccc_init=False)
+    before = target.read_bytes()
+    payload = mod.run_clone_merge(tmp_clone, ["py"], allow_ccc_init=False)
+    assert payload["written"] is False
+    assert payload["patterns_added_list"] == [] and payload["includes_covered_list"] == ["py"]
+    assert target.read_bytes() == before
+
+
+def test_clone_merge_adds_nothing_to_a_file_without_an_exclude_list(tmp_clone):
+    target = _write_yaml(_settings_path(tmp_clone), {"include_patterns": ["**/*.py"]})
+    before = target.read_bytes()
+    payload = mod.run_clone_merge(tmp_clone, allow_ccc_init=False)
+    assert payload["written"] is False and payload["patterns_added_list"] == []
+    assert _warnings_with(payload, "no exclude_patterns list")
+    assert target.read_bytes() == before
+
+
+def test_clone_merge_runs_ccc_init_in_the_clone_when_settings_are_missing(tmp_clone, fake_init):
+    payload = mod.run_clone_merge(tmp_clone)
+    assert fake_init.calls == [tmp_clone]
+    assert (payload["ccc_init"], payload["settings_yml_existed"], payload["written"]) == ("created", False, True)
+    data = _read_settings(tmp_clone)
+    assert data["exclude_patterns"][:len(CCC_DEFAULTS)] == CCC_DEFAULTS
+    assert set(mod.CLONE_EXCLUDES) <= set(data["exclude_patterns"])
+
+
+def test_clone_merge_is_not_ready_when_ccc_init_writes_no_settings(tmp_clone, failing_init):
+    payload = mod.run_clone_merge(tmp_clone)
+    assert failing_init.calls == [tmp_clone]
+    assert (payload["settings_ready"], payload["ccc_init"], payload["written"]) == (False, "failed", False)
+    assert "ccc init did not create" in payload["not_ready_reason"]
+    assert "'" not in payload["not_ready_reason"]
+    assert not _settings_path(tmp_clone).exists()
+
+
+def test_clone_merge_without_ccc_init_leaves_missing_settings_missing(tmp_clone):
+    rc, payload, stderr = _run_clone(tmp_clone)
+    assert rc == 0, stderr
+    assert (payload["settings_ready"], payload["ccc_init"]) == (False, "not_needed")
+    assert "--no-ccc-init" in payload["not_ready_reason"]
+    assert not _settings_path(tmp_clone).exists()
+
+
+def test_clone_include_ext_adds_only_the_extensions_no_entry_matches(tmp_clone):
+    target = _write_yaml(_settings_path(tmp_clone), {
+        "exclude_patterns": list(CCC_DEFAULTS),
+        "include_patterns": ["**/*.py", "**/*.{ex,exs}", "src/*.rs"],
+    })
+    payload = mod.run_clone_merge(tmp_clone, ["ex", "go", "py", "rs", "go"], allow_ccc_init=False)
+    # `src/*.rs` matches no nested file, and a repeated extension is added once.
+    assert payload["includes_added_list"] == ["**/*.go", "**/*.rs"]
+    assert payload["includes_covered_list"] == ["ex", "py"]
+    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert data["include_patterns"] == ["**/*.py", "**/*.{ex,exs}", "src/*.rs", "**/*.go", "**/*.rs"]
+    assert "- '**/*.go'" in target.read_text(encoding="utf-8").splitlines()
+
+
+def test_clone_include_ext_adds_nothing_to_a_file_without_an_include_list(tmp_clone):
+    target = _seed_bare_settings(tmp_clone, list(CCC_DEFAULTS) + list(mod.CLONE_EXCLUDES))
+    before = target.read_bytes()
+    payload = mod.run_clone_merge(tmp_clone, ["ex"], allow_ccc_init=False)
+    assert payload["includes_added_list"] == [] and payload["written"] is False
+    assert _warnings_with(payload, "no include_patterns list")
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("pattern, ext, covers", [
+    ("**/*.ex", "ex", True),
+    ("**/*.{ex,exs}", "exs", True),
+    ("*.ex", "ex", True),  # ccc's `*` also matches `/`
+    ("**/*.ex", "exs", False),
+    ("src/**/*.ex", "ex", False),
+    ("**/*.[ce]x", "ex", True),
+    (42, "ex", False),
+], ids=["star-star", "brace", "star", "other-ext", "folder-only", "class", "not-a-string"])
+def test_include_covers_reads_entries_as_ccc_does(pattern, ext, covers):
+    assert mod.include_covers(pattern, ext) is covers
+
+
+def test_clone_merge_quotes_bare_glob_items_an_earlier_edit_left(tmp_clone):
+    target = _settings_path(tmp_clone)
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"exclude_patterns:\n  - '**/.*'\n  - **/build\n  -   **/out  \ninclude_patterns:\n  - '**/*.py'\n")
+    with pytest.raises(yaml.YAMLError):
+        yaml.safe_load(target.read_text(encoding="utf-8"))
+    payload = mod.run_clone_merge(tmp_clone, allow_ccc_init=False)
+    assert payload["written"] is True
+    assert _warnings_with(payload, "quoted 2 list items")
+    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert data["exclude_patterns"][:3] == ["**/.*", "**/build", "**/out"]
+    assert set(mod.CLONE_EXCLUDES) <= set(data["exclude_patterns"])
+
+
+def test_quote_bare_glob_items_leaves_quoted_and_plain_items_alone():
+    text = "a:\n- '**/x'\n- \"**/y\"\n- plain\n- **/z\n"
+    fixed, count = mod.quote_bare_glob_items(text)
+    assert count == 1
+    assert fixed == "a:\n- '**/x'\n- \"**/y\"\n- plain\n- '**/z'\n"
+    # A trailing comment stays a comment after the closing quote; a `#` inside the value stays in it.
+    text = "a:\n- **/build  # generated output\n- **/a#b\n"
+    fixed, count = mod.quote_bare_glob_items(text)
+    assert count == 2
+    assert fixed == "a:\n- '**/build'  # generated output\n- '**/a#b'\n"
+    assert yaml.safe_load(fixed) == {"a": ["**/build", "**/a#b"]}
+
+
+def test_clone_cli_unparseable_settings_exit_1(tmp_clone):
+    target = _settings_path(tmp_clone)
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"exclude_patterns: [unclosed\n")
+    rc, payload, stderr = _run_clone(tmp_clone)
+    assert rc == 1 and payload is None
+    assert json.loads(stderr)["status"] == "error"
+    assert target.read_bytes() == b"exclude_patterns: [unclosed\n"
+
+
+def test_clone_cli_include_list_that_is_not_a_list_exit_1(tmp_clone):
+    _write_yaml(_settings_path(tmp_clone), {"exclude_patterns": [], "include_patterns": "**/*.py"})
+    rc, payload, stderr = _run_clone(tmp_clone, "--include-ext", "ex")
+    assert rc == 1 and payload is None
+    assert "include_patterns" in json.loads(stderr)["message"]
+
+
+def test_clone_cli_output_has_the_documented_keys(tmp_clone):
+    _seed_ccc_settings(tmp_clone)
+    rc, payload, stderr = _run_clone(tmp_clone, "--include-ext", ".ex")
+    assert rc == 0, stderr
+    assert set(payload) == CLONE_KEYS
+    assert payload["version"] == "v2"
+    assert payload["includes_added_list"] == ["**/*.ex"]
+    assert Path(payload["settings_yml_path"]) == _settings_path(tmp_clone)
+    assert b"\r\n" not in _settings_path(tmp_clone).read_bytes()
+
+
+@pytest.mark.parametrize("extra, message", [
+    (("--skills-output-folder", "skills"), "--clone-root takes no setup flag (--skills-output-folder)"),
+    (("--prior-state-from", "x.yaml", "--skip-index", "true"),
+     "--clone-root takes no setup flag (--prior-state-from, --skip-index)"),
+    (("--index-fresh", "false"), "--clone-root takes no setup flag (--index-fresh)"),
+    (("--skills-output-folder", "", "--skip-index", "false"),
+     "--clone-root takes no setup flag (--skills-output-folder, --skip-index)"),
+    (("--include-ext", "a*"), "expected a file extension"),
+    (("--include-ext", "../x"), "expected a file extension"),
+], ids=["folder-flag", "record-and-index-flags", "false-index-flag", "empty-folder-flag", "glob-ext",
+        "path-ext"])
+def test_clone_cli_usage_errors_exit_2(tmp_clone, extra, message):
+    rc, payload, stderr = _run_clone(tmp_clone, *extra)
+    assert rc == 2 and payload is None
+    err = json.loads(stderr)
+    assert err["status"] == "error" and message in err["message"]
+
+
+def test_cli_include_ext_needs_the_clone_root(tmp_project):
+    _seed_ccc_settings(tmp_project)
+    rc, payload, stderr = _run(tmp_project, extra_args=("--include-ext", "ex"))
+    assert rc == 2 and payload is None
+    assert "--include-ext needs --clone-root" in json.loads(stderr)["message"]
+
+
+def test_cli_takes_exactly_one_root(tmp_project, tmp_clone):
+    for argv in ([], ["--project-root", str(tmp_project), "--clone-root", str(tmp_clone)]):
+        result = subprocess.run([sys.executable, str(SCRIPT_PATH), *argv, "--no-ccc-init"],
+                                capture_output=True, timeout=60)
+        assert result.returncode == 2
+        assert json.loads(result.stderr.decode("utf-8"))["status"] == "error"
+
+
+def test_clone_cli_missing_clone_root_exit_1(tmp_path):
+    rc, payload, stderr = _run_clone(tmp_path / "missing")
+    assert rc == 1 and payload is None
+    assert "--clone-root is not a directory" in json.loads(stderr)["message"]
+
+
+def test_clone_write_goes_through_a_temp_file_of_its_own(tmp_clone, monkeypatch):
+    """Two runs merging one clone at once each write a whole file: no shared temp name."""
+    target = _seed_ccc_settings(tmp_clone)
+    moves = []
+    real_replace = os.replace
+
+    def recording_replace(src, dst):
+        moves.append((Path(src).name, Path(dst)))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(mod.os, "replace", recording_replace)
+    mod.run_clone_merge(tmp_clone, allow_ccc_init=False)
+    [(tmp_name, dst)] = moves
+    assert dst == target
+    assert tmp_name != "settings.yml.skf-tmp" and tmp_name.endswith(".skf-tmp")
+    assert sorted(p.name for p in target.parent.iterdir()) == ["settings.yml"]

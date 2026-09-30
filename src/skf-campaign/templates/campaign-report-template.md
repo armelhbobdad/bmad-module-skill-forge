@@ -37,7 +37,7 @@
 
 - **Total workarounds applied:** {{total_workarounds}}
 - **Skills with workarounds:** {{skills_with_workarounds}}
-- **Doc-rot corrections:** tracked per-skill in health-check findings (not aggregated in campaign state)
+- **Doc-rot corrections:** counted among the workarounds, one `[doc-rot]` entry for each correction a skill's doc-rot step kept
 
 ## Workarounds Applied
 

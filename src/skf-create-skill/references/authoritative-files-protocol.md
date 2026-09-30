@@ -6,9 +6,9 @@ Loaded on demand when step 3's `### 2a. Discovered Authoritative Files Protocol`
 
 **Skip this protocol entirely if `source_type: "docs-only"`** — there is no source tree to scan.
 
-**Skip it too when `source_root` is still a remote URL** (a Quick-tier remote source, which §2b never clones, or a remote source whose clone failed): step 3 §2a's remote source guard skips the scan with a notice, because the helper below walks a local directory and refuses a URL.
+**Skip it too when `source_root` is still a remote URL** (a Quick-tier remote source, which §2b never clones, or a remote source §2b could not read into a tree): step 3 §2a's remote source guard skips the scan with a notice, because the helper below walks a local directory and refuses a URL.
 
-Once §2b has resolved source access, scan the resolved source tree (the local source, or the workspace or ephemeral clone of a remote one) for **authoritative AI documentation files** that the brief's scope filters excluded. Project authors increasingly add files specifically written to steer AI assistants (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.), and these files often contain the **canonical** install command, quick-start, or architecture summary: information that nowhere else in the source tree provides. A brief authored from a scan of `src/**` will frequently exclude these files without the author realizing they exist.
+Once §2b has resolved source access, scan the resolved source tree (the local source, or the private tree §2b read a remote one into) for **authoritative AI documentation files** that the brief's scope filters excluded. Project authors increasingly add files specifically written to steer AI assistants (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.), and these files often contain the **canonical** install command, quick-start, or architecture summary: information that nowhere else in the source tree provides. A brief authored from a scan of `src/**` will frequently exclude these files without the author realizing they exist.
 
 This protocol detects such files, prompts the user, and records the decision in the brief so future runs (re-create, update, audit) honor it.
 
@@ -25,7 +25,7 @@ This protocol detects such files, prompts the user, and records the decision in 
        [--preview-lines 20]
    ```
 
-   `{source_root}` is the local tree §2b resolved: the local source, or the clone of a remote one. The helper emits one envelope with three buckets:
+   `{source_root}` is the local tree §2b resolved: the local source, or the private tree of a remote one. The helper emits one envelope with three buckets:
 
    ```json
    {
@@ -113,7 +113,7 @@ This protocol detects such files, prompts the user, and records the decision in 
      4. Display: "**Skipped `{path}`** — decision recorded in amendments."
 
    - **[U] Update:**
-     1. Halt the workflow immediately. When `remote_clone_type` is `"ephemeral"`, delete the clone first, as the Remote clone cleanup in `{sourceResolutionData}` requires for any halt before Gate 2: the scan runs after §2b cloned the source.
+     1. Halt the workflow immediately. When `{source_tree}` is set, first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints: the scan read the tree §2b made, and nothing reads it after this halt.
      2. Display: "**Halting create-skill.** Re-run `skf-brief-skill` to refine the scope filters for `{skill_name}`, then re-run `skf-create-skill`. Decisions for previously prompted candidates were already persisted to the brief; the current candidate was not written."
      3. Exit with status `halted-for-brief-refinement`.
 

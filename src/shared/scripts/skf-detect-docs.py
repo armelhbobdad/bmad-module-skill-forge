@@ -110,6 +110,48 @@ entry without a usable url string is dropped and counted under
 instead of reporting drift.  `doc_sources` is already in the metadata.json
 schema, and the whole object is valid `compare-hashes` input.  Exit 0 on any
 well-formed input; exit 2 on malformed args or JSON.
+
+---------------------------------------------------------------------------
+Subcommand: readme-entry
+---------------------------------------------------------------------------
+
+The README entry create-skill step 5a adds to `doc_sources[]` when detection
+found none.  The helper picks the README, builds its URL and hashes it with
+the `hash-urls` primitive, so the model never parses the repository or
+builds the URL by hand.
+
+  uv run src/shared/scripts/skf-detect-docs.py readme-entry \\
+      --source-repo <repo> --ref <ref> [--local-root <path>]
+
+Input:
+  --source-repo  the brief's source_repo
+  --ref          the ref the skill was built from: a tag, branch or commit,
+                 `HEAD` for the default branch (also for an empty, `null` or
+                 `none` value), `local` for a local source
+  --local-root   the folder the source was read from, when it is a local
+                 folder (a local source, or the tree create-skill read a
+                 remote one into); the README is picked from its files
+
+A local source (`--ref local`) records `file://` and the absolute path of
+its README, with `/` separators and no percent-encoding, as
+`_fetch_and_hash` reads it back; its folder is --local-root, else
+--source-repo.  A GitHub source (an https, ssh or git URL, the scp-like
+`git@github.com:owner/repo`, or the `owner/repo` shorthand; a trailing
+`.git` is dropped) records the raw file at --ref:
+`https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<README>`.  The
+README is picked from the top-level files of --local-root, or, without a
+local folder, from the repository's top level at --ref through the GitHub
+API: `README.md` in any letter case first, then a README with no language
+suffix (`README.rst`, `README.markdown`, `README`), then the first other
+README in name order (a translation such as `README-ja.md`, which sorts
+before `README.md`).  With none listed it is `README.md`.  Any other source
+gets no entry.
+
+Output (JSON object on stdout): the `hash-urls` object for the one URL,
+with `detected_via: "readme_always"` on its entry, plus
+  "skip_reason": null | "not-github"  (no entry: a source on another host)
+
+Exit 0 once JSON is printed; exit 2 on malformed args.
 """
 
 from __future__ import annotations
@@ -118,11 +160,13 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import re
 import socket
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -776,6 +820,139 @@ def _cmd_hash_urls(argv: List[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: readme-entry, the README entry create-skill step 5a adds
+# ---------------------------------------------------------------------------
+
+# `doc_sources[].detected_via` of that entry. Listed in
+# skf-create-skill/assets/skill-sections.md.
+README_ALWAYS_DETECTED_VIA = "readme_always"
+
+# Serves a GitHub repository's files as they are, one path per ref.
+RAW_GITHUB = "https://raw.githubusercontent.com"
+
+# A GitHub repository as a brief's source_repo names it: an https, ssh or git
+# URL, the scp-like `git@github.com:owner/repo`, `github.com/owner/repo`, or
+# the `owner/repo` shorthand. A trailing `.git` or `/` is not part of the
+# name, which may itself hold dots (`vercel/next.js`).
+_GITHUB_REPO_RE = re.compile(
+    r"^(?:(?:https?|ssh|git)://(?:[^@/\s]+@)?(?:www\.)?github\.com(?::\d+)?/"
+    r"|[^@/\s:]+@github\.com:"
+    r"|(?:www\.)?github\.com/)?"
+    r"([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9._-]+?)(?:\.git)?/?$",
+    re.IGNORECASE,
+)
+
+# The README a folder shows, in the order it is picked: README.md in any
+# letter case, then a README with no language suffix (README.rst,
+# README.markdown, README), then any other README, such as a translation
+# (README-ja.md), which sorts before README.md by name.
+_README_PREFERENCE = (
+    re.compile(r"^readme\.md$", re.IGNORECASE),
+    re.compile(r"^readme(?:\.[A-Za-z0-9]+)?$", re.IGNORECASE),
+    re.compile(r"^readme", re.IGNORECASE),
+)
+
+
+def parse_github_repo(source_repo: str) -> Optional[Tuple[str, str]]:
+    """(owner, repo) of the GitHub repository `source_repo` names, else None."""
+    m = _GITHUB_REPO_RE.match((source_repo or "").strip())
+    if not m or m.group(2) in (".", ".."):
+        return None
+    return m.group(1), m.group(2)
+
+
+def pick_readme(names: List[str]) -> Optional[str]:
+    """The README among a folder's top-level file names, by _README_PREFERENCE."""
+    ordered = sorted(names)
+    for pattern in _README_PREFERENCE:
+        for name in ordered:
+            if pattern.match(name):
+                return name
+    return None
+
+
+def _local_files(folder: Path) -> List[str]:
+    try:
+        return [p.name for p in folder.iterdir() if p.is_file()]
+    except OSError:
+        return []
+
+
+def _github_files(owner: str, repo: str, ref: str) -> List[str]:
+    """Names of the files at the top of the repository at `ref`; [] when gh cannot list them."""
+    query = "" if ref == "HEAD" else "?ref=" + urllib.parse.quote(ref, safe="")
+    raw = _run_gh(["api", f"repos/{owner}/{repo}/contents{query}",
+                   "--jq", '.[] | select(.type == "file") | .name'])
+    return raw.splitlines() if raw else []
+
+
+def readme_url(source_repo: str, ref: str, local_root: Optional[str] = None) -> Optional[str]:
+    """The URL of the README entry, or None for a source that is neither local nor on GitHub.
+
+    See the readme-entry section of the module docstring.
+    """
+    ref = (ref or "").strip()
+    if ref.lower() in ("", "null", "none", "head"):
+        ref = "HEAD"
+    root = Path(local_root.strip()) if local_root and local_root.strip() else None
+    if ref.lower() == "local":
+        # Written as _fetch_and_hash reads it back: `file://` and the path, never percent-encoded.
+        folder = Path(os.path.abspath(root if root is not None else (source_repo or "").strip()))
+        return "file://" + (folder / (pick_readme(_local_files(folder)) or "README.md")).as_posix()
+    parsed = parse_github_repo(source_repo)
+    if parsed is None:
+        return None
+    owner, repo = parsed
+    names = _local_files(root) if root is not None and root.is_dir() else _github_files(owner, repo, ref)
+    name = pick_readme(names) or "README.md"
+    return (f"{RAW_GITHUB}/{owner}/{repo}/{urllib.parse.quote(ref, safe='/@+')}/"
+            f"{urllib.parse.quote(name, safe='')}")
+
+
+def readme_entry(source_repo: str, ref: str, local_root: Optional[str] = None,
+                 recorded_at: Optional[str] = None) -> Dict[str, Any]:
+    """The readme-entry output: hash_urls for the README URL, its entry marked readme_always."""
+    url = readme_url(source_repo, ref, local_root)
+    if url is None:
+        result = hash_urls([], recorded_at)
+        result["skip_reason"] = "not-github"
+        return result
+    result = hash_urls([url], recorded_at)
+    for entry in result["doc_sources"]:
+        entry["detected_via"] = README_ALWAYS_DETECTED_VIA
+    result["skip_reason"] = None
+    return result
+
+
+def _cmd_readme_entry(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="skf-detect-docs.py readme-entry",
+        description=(
+            "Pick a skill source's README and emit its doc_sources entry "
+            "(detected_via: readme_always): the raw GitHub file at --ref, or a "
+            "file:// URL for a local source, hashed as compare-hashes hashes it."
+        ),
+    )
+    parser.add_argument("--source-repo", required=True, help="the brief's source_repo")
+    parser.add_argument(
+        "--ref", required=True,
+        help="the ref the skill was built from: a tag, branch or commit, HEAD "
+             "for the default branch, local for a local source",
+    )
+    parser.add_argument(
+        "--local-root", default=None,
+        help="the folder the source was read from, when it is a local folder; "
+             "the README is picked from its files",
+    )
+    args = parser.parse_args(argv)
+
+    result = readme_entry(args.source_repo, args.ref, args.local_root)
+    json.dump(result, sys.stdout, separators=(",", ":"))
+    sys.stdout.write("\n")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -807,6 +984,8 @@ def main() -> int:
         return _cmd_compare_hashes(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "hash-urls":
         return _cmd_hash_urls(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "readme-entry":
+        return _cmd_readme_entry(sys.argv[2:])
 
     parser = argparse.ArgumentParser(
         description="Detect documentation URLs for a GitHub repository.",
