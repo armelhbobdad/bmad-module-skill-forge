@@ -35,6 +35,7 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ver
 
 - Write exactly what was compiled — do not modify content during writing or after validation
 - Community-tier validation (lighter than official requirements)
+- A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
 
 ## Steps
 
@@ -57,7 +58,7 @@ Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_ch
 - The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
 - When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}".
 
-Each refusal is a HARD HALT with **exit code 9 (state-conflict)** per `references/halt-contract.md`: emit the stderr envelope with `phase: "write-and-validate"`, `error.code` set to the halt reason, `error.details: {"folder": "<the folder the message names>"}` and `skill_package: null`. This halt writes no result file on disk: `{skill_package}` would sit in a folder SKF did not generate. It is a HALT, not a gate, so it has no headless default. In `--batch`, the target is recorded as failed (exit 9) and the batch moves on, or stops under `--fail-fast`.
+Each refusal is a HARD HALT with **exit code 9 (state-conflict)**: stage `{"phase": "write-and-validate", "halt_reason": "<the halt reason>", "reason": "<the message's first sentence>", "skill_package": null, "error": {"code": "<the halt reason>", "message": "<the same sentence>", "details": {"folder": "<the folder the message names>"}}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, with no `--result-dir` (`references/halt-contract.md`). This halt writes no result file on disk: `{skill_package}` would sit in a folder SKF did not generate. It is a HALT, not a gate, so it has no headless default.
 
 Then create the skill output directories:
 
@@ -71,9 +72,9 @@ If `{skill_package}/metadata.json` exists, confirm with user before overwriting:
 "**Directory `{skill_package}` already exists.** Overwrite will replace the prior compiled output; validation results, result contracts, and any manual tweaks from the previous run will not be preserved. Overwrite existing files? [Y/N]"
 
 - **If user selects Y:** Proceed to section 2.
-- **If user selects N:** HARD HALT with **exit code 5 (overwrite-cancelled)** per the exit-code map in `references/halt-contract.md`: "Overwrite cancelled. Existing skill preserved. Run [QS] with a different skill name or remove the existing directory manually." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "write-and-validate"`, `error.code: "overwrite-cancelled"`, `skill_package` set to the existing path that was preserved). Write the `-latest.json` envelope to disk here — `{skill_package}` is known, so consumers that hardcode that path see a deterministic file even on this cancelled run.
+- **If user selects N:** HARD HALT with **exit code 5 (overwrite-cancelled)**: "Overwrite cancelled. Existing skill preserved. Run [QS] with a different skill name or remove the existing directory manually." Stage `{"phase": "write-and-validate", "halt_reason": "overwrite-cancelled", "reason": "Overwrite cancelled. Existing skill preserved.", "skill_package": "{skill_package}"}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`: `{skill_package}` holds `metadata.json`, so the emitter also writes the `-latest.json` envelope there, and consumers that hardcode that path see a deterministic file even on this cancelled run.
 
-**GATE [default: Y]** — If `{headless_mode}` is true, auto-proceed with Y and log: "headless: overwriting existing `{skill_package}`".
+**GATE [default: Y]**: if `{headless_mode}` is true, auto-proceed with Y, log "headless: overwriting existing `{skill_package}`", and record the decision: stage `{"gate": "write-and-validate.overwrite", "default_action": "Y", "taken_action": "Y", "reason": "headless: overwrote the existing package", "evidence": {"skill_package": "{skill_package}"}}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 
 A `{skill_package}` without `metadata.json` holds only what an interrupted run leaves (the ownership check refuses anything else), so it is written without asking.
 
@@ -89,7 +90,7 @@ Write the three compiled artifacts to the skill package so that validation in se
 
 Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / "Written: metadata.json". When `--skip-snippet` is active, log "Skipped: context-snippet.md (--skip-snippet)" instead of the snippet write confirmation.
 
-**If any write fails — HARD HALT (exit code 4, write-failure):** Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "write-and-validate"`, `error.code: "write-failure"`, `error.details: {failed_path: <path>, error: <details>}`, `skill_package` set, `outputs` listing any files that did write successfully before the failure). When `metadata.json` itself failed to write, the contract writes no result file on disk: a package holding only result files would read as not SKF output to the next run's ownership check.
+**If any write fails, HARD HALT (exit code 4, write-failure):** stage `{"phase": "write-and-validate", "halt_reason": "write-failure", "reason": "Write failed: could not write <path>.", "skill_package": "{skill_package}", "outputs": {<each file that did write before the failure, as "metadata", "skill_md" or "context_snippet" with its path>}, "error": {"code": "write-failure", "message": "Write failed: could not write <path>.", "details": {"failed_path": "<path>", "error": "<details>"}}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`. When `metadata.json` itself failed to write, run it without `--result-dir "{skill_package}"`: the contract writes no result file on disk, because a package holding only result files would read as not SKF output to the next run's ownership check.
 
 "**Write failed:** Could not write to `{file_path}`.
 
@@ -130,7 +131,7 @@ The skill-check call validates frontmatter, description, body limits, links, and
 - `fixed[]` — issues automatically corrected
 - `security[]` (when present) — security findings, recorded as advisory warnings (security issues do not block output)
 
-Record quality score, remaining diagnostics, and security findings as validation issues.
+Bind `{quality_score}` ← that score, and record the remaining diagnostics and security findings as validation issues. `{quality_score}` is null when skill-check did not run.
 
 **If skill-check is not available**, run the shared frontmatter validator. Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If no candidate exists, log a high-severity issue ("frontmatter validator unavailable — both `npx skill-check` and `skf-validate-frontmatter.py` missing") and skip frontmatter validation.
 
@@ -186,9 +187,9 @@ These issues are advisory for community-tier skills. You can proceed to finalize
 
 **Proceeding to finalize...**"
 
-Set `validation_result` with pass/fail status, quality score, and issues list.
+Set `validation_result` with pass/fail status, quality score, and issues list, and `{validation_issues}` ← `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`, each `<n>` the number of entries the validators returned for that heading: `skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter validator's `issues[]`) plus `validation.skill_md.body[]`; `context_snippet` counts `validation.context_snippet.issues[]`; `metadata` counts `validation.metadata.issues[]`; `security` counts skill-check's `security[]`. A check that did not run counts 0, and `fixed[]` and the guard note count nothing. Step 6 §3's summary carries `{quality_score}` and `{validation_issues}`.
 
 ### 8. Auto-Proceed to Finalize
 
-Once deliverables are written to `{skill_package}` and validation is reported (advisory), load and execute {nextStepFile} to finalize.
+Once deliverables are written to `{skill_package}` and validation is reported (advisory), load and execute {nextStepFile} to finalize; when `{headless_mode}` is true, print this step's `done` event and step 6's `start` event first (`references/halt-contract.md`).
 

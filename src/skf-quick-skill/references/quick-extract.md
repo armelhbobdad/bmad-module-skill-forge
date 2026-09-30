@@ -18,6 +18,7 @@ To read the resolved GitHub repository source and extract the public API surface
 - Best-effort extraction — completeness is not required; surface-level reading only, no AST
 - Do not begin compilation or write output files
 - If no exports found, use README content as fallback
+- A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
 
 ## Steps
 
@@ -68,10 +69,10 @@ Quick-skill is designed to wrap a library's public API. The compiled SKILL.md wi
 
 Select: [C] Continue anyway · [A] Abort"
 
-- **IF C** — log "user accepted `{shape}` shape" and proceed to §2. Set `extraction_inventory.repo_shape` to the detected shape so the result contract carries the signal for automators.
-- **IF A** — HARD HALT with **exit code 3 (resolution-failure)** per the exit-code map in `references/halt-contract.md`: "Aborted. `{shape}` repos are best wrapped manually with `/skf-create-skill` from a brief, not auto-extracted." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "quick-extract"`, `error.code: "resolution-failure"`, `error.details: {repo_shape: "{shape}"}`, `skill_package: null`).
+- **IF C**: log "user accepted `{shape}` shape" and proceed to §2. Set `extraction_inventory.repo_shape` to the detected shape, `awesome-list`, `docs-site` or `examples-only`, so the result contract carries the signal for automators.
+- **IF A**: HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. `{shape}` repos are best wrapped manually with `/skf-create-skill` from a brief, not auto-extracted." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Aborted: a {shape} repo, not a library.", "skill_package": null, "error": {"code": "resolution-failure", "message": "Aborted: a {shape} repo, not a library.", "details": {"repo_shape": "{shape}"}}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"` (`references/halt-contract.md`).
 
-**GATE [default: C]** — In headless mode, log "headless: detected `{shape}` repo, continuing anyway" and proceed; the result contract's `summary.repo_shape` carries the signal so automators can flag low-quality outputs without re-parsing logs.
+**GATE [default: C]**: in headless mode, log "headless: detected `{shape}` repo, continuing anyway", set `extraction_inventory.repo_shape` as [C] does, record the decision (stage `{"gate": "quick-extract.repo-shape", "default_action": "C", "taken_action": "C", "reason": "headless: continued with a {shape} repo"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`) and proceed; the result contract's `summary.repo_shape` carries the signal so automators can flag low-quality outputs without re-parsing logs.
 
 ### 2. Fetch Source Files
 
@@ -181,10 +182,10 @@ Common causes:
 Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) · [A] Abort"
 
 - **IF R** — prompt for new `scope_hint` ("New scope hint (e.g. `src/server/`):") and optional new `language_hint` ("New language hint (or empty to keep `{language}`):"). Update the extraction context with the new hints, then **re-execute step 3 from §1** with the new values. Discards the prior empty inventory.
-- **IF P** — log "user accepted zero-exports outcome" and proceed to §5. The compiled skill will be README-content-only with confidence `low`. Record `zero_exports_rescue: "user-accepted"` in the inventory so the result contract summary surfaces it.
-- **IF A** — HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. Run `/skf-create-skill` from a brief if you want a guided extraction with provenance tracking." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "quick-extract"`, `error.code: "resolution-failure"`, `error.details: {exports_found: 0, description_empty: true, language: "{language}", scope: "{scope_hint or 'entire repo'}"}`, `skill_package: null`).
+- **IF P**: log "user accepted zero-exports outcome" and proceed to §5. The compiled skill will be README-content-only with confidence `low`. Record `zero_exports_rescue: "user-accepted"` in the inventory so the result contract summary surfaces it.
+- **IF A**: HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. Run `/skf-create-skill` from a brief if you want a guided extraction with provenance tracking." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Aborted: zero exports and no README description.", "skill_package": null, "error": {"code": "resolution-failure", "message": "Aborted: zero exports and no README description.", "details": {"exports_found": 0, "description_empty": true, "language": "{language}", "scope": "{scope_hint or 'entire repo'}"}}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
 
-**GATE [default: P]** — In headless mode, log "headless: zero exports + empty description, proceeding with low-confidence skill" and proceed; record `zero_exports_rescue: "auto-proceeded"` in the result contract summary so batch automators can re-queue these targets with stricter hints downstream. [P] preserves the pre-rescue behaviour for unattended pipelines.
+**GATE [default: P]**: in headless mode, log "headless: zero exports + empty description, proceeding with low-confidence skill", record `zero_exports_rescue: "auto-proceeded"` in the inventory so the result contract summary lets batch automators re-queue these targets with stricter hints, record the decision (stage `{"gate": "quick-extract.zero-exports", "default_action": "P", "taken_action": "P", "reason": "headless: compiled a low-confidence skill"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`) and proceed. [P] preserves the pre-rescue behaviour for unattended pipelines.
 
 ### 5. Report Extraction Summary
 
@@ -201,5 +202,5 @@ Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) ·
 
 ### 6. Auto-Proceed to Compilation
 
-Once extraction_inventory is assembled (even if minimal or low-confidence), load and execute {nextStepFile} to compile.
+Once extraction_inventory is assembled (even if minimal or low-confidence), load and execute {nextStepFile} to compile; when `{headless_mode}` is true, print this step's `done` event and step 4's `start` event first (`references/halt-contract.md`).
 

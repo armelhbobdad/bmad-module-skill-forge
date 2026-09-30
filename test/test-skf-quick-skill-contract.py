@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Quick Skill contract: the skills-module shape (#527), the batch override
-rule and review preview (#609), and how resolve-target reads a target (#582,
-#588).
+rule and review preview (#609), how resolve-target reads a target (#582,
+#588), and the run contract the shared emitter and skf-quick-batch.py keep
+(#585, #586, #587, #593).
 
 quick-extract.md gives the agent two commands for a skills module: a filtered
 tree listing (`gh api --jq`) and a loop that prints each skill's SKILL.md
@@ -21,6 +22,16 @@ list goes through the parser, every kind and status the script returns has a
 branch, each route names the skill after the script's skill_name, and the
 ambiguous-name gate, the language hint and the tag check through
 skf-github-probe.py are pinned where the step states them.
+
+Every HARD HALT in SKILL.md and the stage files stages its payload and runs
+the shared emitter inline: each payload, filled in, builds an envelope the
+skf-quick-skill schema accepts with the exit code the halt names, and no
+halt is left without a code. Each headless gate records its auto-decision
+under a gate name the schema lists, finalize's success payload builds a
+valid envelope with the summary the schema defines (step 5's validation
+counts in the schema's shape), and under --batch every target's end (step 6,
+and every halt through its stage's Rules) returns to batch-mode.md, which
+runs the health check once.
 """
 
 from __future__ import annotations
@@ -47,8 +58,12 @@ BATCH_MODE = QS / "references" / "batch-mode.md"
 HALT_CONTRACT = QS / "references" / "halt-contract.md"
 RESOLVE_TARGET = QS / "references" / "resolve-target.md"
 REGISTRY_RESOLUTION = QS / "references" / "registry-resolution.md"
+FINALIZE = QS / "references" / "finalize.md"
+HEALTH_CHECK = QS / "references" / "health-check.md"
 RESOLVER = REPO / "src" / "shared" / "scripts" / "skf-resolve-package.py"
 GITHUB_PROBE = REPO / "src" / "shared" / "scripts" / "skf-github-probe.py"
+EMITTER = REPO / "src" / "shared" / "scripts" / "skf-emit-result-envelope.py"
+ENVELOPE_SCHEMA = REPO / "src" / "shared" / "scripts" / "schemas" / "skf-quick-skill-result-envelope.v1.json"
 
 
 def _read(path: Path) -> str:
@@ -487,25 +502,39 @@ def test_the_halt_contract_has_the_input_invalid_code():
     text = _read(HALT_CONTRACT)
     codes = _section(text, "## Exit Codes", "## Result Contract")
     [row] = [line for line in codes.splitlines() if line.startswith("| 2 ")]
-    for needle in ("input-invalid", "On Activation step 5", "`--description`", "`--exports`", "`--batch`"):
+    for needle in ("input-invalid", "batch mode, before any target runs", "`--description`", "`--exports`",
+                   "`--batch`", "`skf-quick-batch.py` missing", "step 1 §1 (a headless run with no target)"):
         assert needle in row, needle
-    [code_row] = [line for line in text.splitlines() if line.startswith("| `error.code`")]
-    assert "`input-invalid`" in code_row
-    [phase_row] = [line for line in text.splitlines() if line.startswith("| `phase`")]
-    assert "`on-activation`" in phase_row
+    [row4] = [line for line in codes.splitlines() if line.startswith("| 4 ")]
+    assert "batch mode §1 (the batch run folder cannot be written)" in row4
+    # The envelope's fields moved from a table here to the JSON Schema.
+    schema = json.loads(_read(ENVELOPE_SCHEMA))
+    assert "input-invalid" in schema["properties"]["halt_reason"]["enum"]
+    assert "input-invalid" in schema["properties"]["error"]["oneOf"][1]["properties"]["code"]["enum"]
+    assert "on-activation" in schema["properties"]["phase"]["description"]
+    assert ("`on-activation` for a halt before the run starts (SKILL.md On Activation, and batch mode's refusal "
+            "of `--description` and `--exports`)") in text
 
 
-def test_on_activation_refuses_the_flags_before_the_batch_starts():
+def test_batch_mode_refuses_the_flags_before_the_batch_starts():
+    """SKILL.md On Activation step 5 only routes; batch-mode.md refuses the two flags before anything else."""
     text = _read(SKILL)
     step5 = _section(text, "5. **If `--batch` is set**", "\n\n6. ")
-    halt = step5.index("HARD HALT with **exit code 2 (input-invalid)**")
-    assert halt < step5.index("load and read `references/batch-mode.md`")
-    assert "When `--description` or `--exports` was also passed" in step5
-    assert '`phase: "on-activation"`, `error.code: "input-invalid"`' in step5
-    assert "no batch summary is written" in step5
+    assert "load and read `references/batch-mode.md` in full before anything else and follow it" in step5
+    assert "HARD HALT" not in step5
+    batch = _read(BATCH_MODE)
+    before = _section(batch, "## Before the Batch Starts", "## Input format")
+    assert batch.index("## Before the Batch Starts") < batch.index("## Execution")
+    halt = before.index("HARD HALT with **exit code 2 (input-invalid)**")
+    assert halt < before.index("Otherwise `--batch` implies `--headless`")
+    assert "When either was passed" in before and "before any target runs" in before
+    assert '{"phase": "on-activation", "halt_reason": "input-invalid",' in before
+    assert '"details": {"flags": [<the flags passed>], "batch_file": "<file>"}' in before
+    assert "no batch summary is written" in before
+    assert 'set `{headless_mode}` to true (log "headless: coerced by --batch" if it was false)' in before
     for flag in ("--description", "--exports"):
         [row] = [line for line in text.splitlines() if line.startswith(f"   | `{flag} ")]
-        assert "Single-target runs only: On Activation step 5 refuses it with `--batch`." in row
+        assert "Single-target runs only: batch mode refuses it." in row
 
 
 def test_no_file_applies_the_two_flags_to_every_target():
@@ -517,7 +546,9 @@ def test_no_file_applies_the_two_flags_to_every_target():
     assert "`--skip-snippet` and `--no-active-pointer` apply to every target in the batch" in row
     assert "`--description` and `--exports` are single-target overrides" in batch
     exit_code = batch[batch.index("## Exit code"):]
-    assert "exits with code `2` and writes no batch summary" in exit_code
+    assert ("A batch refused before its first target writes no batch summary. It exits with code `2` when "
+            "`--description` or `--exports` was passed with `--batch`") in exit_code
+    assert "and with code `4` when §1 cannot write the batch run folder" in exit_code
 
 
 # --------------------------------------------------------------------------
@@ -622,7 +653,7 @@ def test_every_kind_the_parser_returns_has_a_route():
     for kind in ("other-host", "local-path", "unparsed"):
         assert f"  - **`{kind}`**" in route, kind
     [gate] = [line for line in route.splitlines() if line.startswith("**GATE [default: HALT]**")]
-    assert "exit code 3 (resolution-failure)" in gate and '`error.details: {kind: "<kind>"}`' in gate
+    assert "exit code 3 (resolution-failure)" in gate and '"details": {"kind": "<kind>"}' in gate
 
 
 def test_every_status_the_resolver_returns_has_a_branch():
@@ -672,19 +703,28 @@ def test_a_found_url_and_a_dist_tag_go_through_the_parser():
         == ("canary", None)
 
 
-def test_an_ambiguous_name_asks_interactively_and_halts_headless_runs_with_exit_3():
+def test_an_ambiguous_name_offers_every_candidate_and_headless_keeps_the_pick():
+    """The maintainer's resolver decision: interactive runs choose among every candidate,
+    headless runs keep the first registry's pick and record also_found_in, never halting."""
     registry = _step("### 3. Registry Resolution", "### 3a. ")
     gate = registry[registry.index("**Ambiguous-name gate**"):registry.index("**If all methods fail")]
-    assert "Select: [C] Continue with {resolved_url} · [U] Use another GitHub URL · [X] Cancel and exit" in gate
-    for option, needle in (("C", 'continue as on `status: "ok"`'), ("U", "go back to §1b"),
-                           ("X", "exit code 6 (user-cancelled)")):
+    assert "Select: [C] Continue with 1 · [2] to [n] Use that candidate · [U] Use another GitHub URL · " \
+           "[X] Cancel and exit" in gate
+    assert "then each `also_found_in` entry that has a `resolved_url`, numbered on from 2" in gate
+    for option, needle in (("C", 'continue as on `status: "ok"`'), ("2 to n", "`owner` ← its `repo_owner`"),
+                           ("U", "go back to §1b"), ("X", "exit code 6 (user-cancelled)")):
         [line] = [line for line in gate.splitlines() if line.startswith(f"- **IF {option}**")]
         assert needle in line, option
-    [headless] = [line for line in gate.splitlines() if line.startswith("- **GATE [default: HALT]**")]
-    for needle in ("exit code 3 (resolution-failure)", "Pass the GitHub URL of the project you mean",
-                   '`error.code: "resolution-failure"`', 'status: "ambiguous"', "name_found_in",
-                   "registry_outcomes", "`skill_package: null`"):
+    [headless] = [line for line in gate.splitlines() if line.startswith("- **GATE [default: C]**")]
+    for needle in ("keep the chain's pick and never halt", '--warning "{warning}"',
+                   '"gate": "resolve-target.ambiguous-package"', 'continue as on `status: "ok"`'):
         assert needle in headless, needle
+    assert "HARD HALT" not in headless
+    resolver = _resolver()
+    doc = resolver.__doc__[resolver.__doc__.index("resolve output"):]
+    for field in ("also_found_in", "warning"):
+        assert f"  {field}:" in doc, field
+    assert "also_found_in" in _section(_read(REGISTRY_RESOLUTION), "### Resolution Fallback Chain", "#### 1.")
 
 
 def test_the_tag_check_reads_the_github_probe_listing():
@@ -712,9 +752,354 @@ def test_the_tag_check_reads_the_github_probe_listing():
 def test_the_contract_lists_the_new_step_1_halts():
     codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
     [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
-    for needle in ("an ambiguous package name in headless mode §3", "version tag missing or not checkable §3a"):
-        assert needle in row3, needle
+    assert "version tag missing or not checkable §3a" in row3
+    assert "ambiguous" not in row3, "a headless run keeps the first registry's pick of an ambiguous name"
     [row6] = [line for line in codes.splitlines() if line.startswith("| 6 ")]
     assert "§3 ([X] at the ambiguous-name gate)" in row6
     [gates] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |")]
-    assert "ambiguous package name [C/U/X]" in gates
+    assert "ambiguous package name [C/n/U/X]" in gates and "headless keeps the first registry's pick" in gates
+
+
+# --------------------------------------------------------------------------
+# #593 and #586: every envelope goes through the shared emitter
+# --------------------------------------------------------------------------
+
+
+def _emitter():
+    return _load(EMITTER, "skf_emit_result_envelope_for_quick_contract")
+
+
+def _schema() -> dict:
+    return json.loads(_read(ENVELOPE_SCHEMA))
+
+
+# A HARD HALT that names its exit code, in either of the two forms the steps use.
+HALT_RE = re.compile(r"HARD HALT(?:(?: the workflow)? with \*\*exit code (\d+) \(([a-z-]+)\)\*\*"
+                     r"| \(exit code (\d+), ([a-z-]+)\))")
+EMIT_HALT = 'emit-halt --workflow skf-quick-skill'
+HALT_FILES = [SKILL, *sorted(p for p in (QS / "references").glob("*.md") if p.name != "halt-contract.md")]
+# The phase a halt in each file names. batch-mode.md refuses --description and
+# --exports for SKILL.md On Activation step 5, before the batch starts.
+PHASES = {"SKILL.md": ("on-activation", "<the step's slug>"), "batch-mode.md": ("batch-mode", "on-activation")}
+# The stage files a target's HARD HALT can fire in, steps 1 to 6.
+STAGES = ("resolve-target.md", "ecosystem-check.md", "quick-extract.md", "compile.md", "write-and-validate.md",
+          "finalize.md")
+
+
+def _halt_sites() -> list[tuple[str, int, str, str]]:
+    """(file, exit code, halt_reason, text up to the next halt or heading) for every HARD HALT."""
+    sites = []
+    for path in HALT_FILES:
+        text = _read(path)
+        matches = list(HALT_RE.finditer(text))
+        for i, m in enumerate(matches):
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            heading = re.search(r"\n#{1,6} ", text[m.end():end])
+            if heading:
+                end = m.end() + heading.start()
+            code = int(m.group(1) or m.group(3))
+            sites.append((path.name, code, m.group(2) or m.group(4), text[m.start():end]))
+    return sites
+
+
+def _staged(segment: str, name: str) -> str:
+    """The JSON a segment stages as {run_dir}/<name>, inline or through a heredoc."""
+    inline = re.findall(r"[Ss]tage `(\{.*?\})` as `\{(?:run_dir|batch_dir)\}/" + re.escape(name) + "`", segment)
+    heredoc = re.findall(r"<<'SKF_JSON'\n\s*(\{.*?\})\n\s*SKF_JSON", segment, flags=re.S)
+    found = inline + heredoc
+    assert len(found) == 1, f"expected one staged {name}, found {len(found)} in:\n{segment[:300]}"
+    return found[0]
+
+
+def _filled(payload: str) -> dict:
+    """The staged JSON with its <...> list and object placeholders made empty."""
+    payload = re.sub(r"\[<[^\]]*>\]", "[]", payload)
+    payload = re.sub(r"\{<[^}]*>\}", "{}", payload)
+    return json.loads(payload)
+
+
+def test_the_scan_finds_every_hard_halt():
+    per_file = {}
+    for name, _, _, _ in _halt_sites():
+        per_file[name] = per_file.get(name, 0) + 1
+    assert per_file == {"SKILL.md": 2, "batch-mode.md": 3, "compile.md": 1, "ecosystem-check.md": 2,
+                        "finalize.md": 1, "quick-extract.md": 2, "resolve-target.md": 9,
+                        "write-and-validate.md": 3}
+    assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
+
+
+def test_no_stage_halts_without_an_exit_code():
+    """#593: a halt the scan cannot see (no exit code, no emit command) leaves an automator with no result."""
+    for path in HALT_FILES:
+        uncoded = re.findall(r"[^\n]*\bHALT with(?! \*\*exit code \d+ \([a-z-]+\)\*\*)[^\n]*", _read(path))
+        assert uncoded == [], (path.name, uncoded)
+    gate = _section(_read(RESOLVE_TARGET), "**GATE [default: use args]**", "### 1b.")
+    assert "HARD HALT with **exit code 2 (input-invalid)**" in gate
+    assert '"reason": "Headless mode requires a target argument."' in gate
+
+
+@pytest.mark.parametrize("site", range(23), ids=lambda i: f"halt-{i}")
+def test_every_hard_halt_emits_through_the_emitter(site):
+    """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names."""
+    sites = _halt_sites()
+    assert len(sites) == 23
+    name, code, reason, segment = sites[site]
+    assert EMIT_HALT in segment and "--target stderr" in segment, (name, reason)
+    payload = _filled(_staged(segment, "halt.json"))
+    expected = {"not-skf-output", "flat-layout"} if code == 9 else {reason}
+    if payload["halt_reason"].startswith("<"):
+        assert code == 9, "only the ownership halt leaves its reason to the refusal it runs"
+        payload["halt_reason"] = "not-skf-output"
+        payload["error"]["code"] = "not-skf-output"
+    assert payload["halt_reason"] in expected, (name, payload["halt_reason"])
+    assert payload["phase"] in PHASES.get(name, (name[:-len(".md")],)), (name, payload["phase"])
+    if "error" in payload:
+        assert payload["error"]["code"] == payload["halt_reason"]
+        assert set(payload["error"]) == {"code", "message", "details"}
+    emitter = _emitter()
+    schema = json.loads(_read(ENVELOPE_SCHEMA))
+    envelope = emitter.build_envelope(schema, payload, halt=True, decisions=[], warnings=[], stamps={
+        "timestamp": "2026-10-01T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+    assert emitter.contract_errors(schema, envelope) == [], (name, payload)
+    assert (envelope["status"], envelope["exit_code"]) == ("error", code), name
+    # Result files only beside metadata.json: never at the ownership halt or before step 5 writes.
+    writes = '--result-dir "{skill_package}"' in segment
+    assert writes == (name in ("write-and-validate.md", "finalize.md") and code != 9), (name, code)
+
+
+def test_the_emitter_is_resolved_and_the_run_folder_made_before_the_first_halt():
+    text = _read(SKILL)
+    step1 = _section(text, "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. ")
+    for needle in ("`{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`",
+                   "`{project-root}/src/shared/scripts/skf-emit-result-envelope.py`",
+                   'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-quick-skill-XXXXXXXX"',
+                   "Bind `{run_dir}` ← the path it prints"):
+        assert needle in step1, needle
+    assert text.index("Bind `{run_dir}`") < text.index("5. **If `--batch` is set**")
+
+
+def test_the_halt_contract_defines_the_payload_and_the_batch_rule():
+    text = _read(HALT_CONTRACT)
+    block = _bash_block(text, "emit-halt")
+    assert block.startswith("cat > \"{run_dir}/halt.json\" <<'SKF_JSON'\n")
+    assert block.endswith('uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" '
+                          '--target stderr < "{run_dir}/halt.json"\n')
+    assert "`shared/scripts/schemas/skf-quick-skill-result-envelope.v1.json`" in text
+    batch = text[text.index("## In `--batch`"):]
+    for needle in ("ends the current target, not the batch", "return to `references/batch-mode.md` §3",
+                   "control returns there even when the halt message reads as the end of the run",
+                   "never exits the process", "under `--fail-fast`"):
+        assert needle in batch, needle
+    # A halt after a compaction resolves the emitter again from here, in SKILL.md's order.
+    contract = _section(text, "## Result Contract on HARD HALT", "```bash")
+    paths = re.findall(r"`(\{project-root\}/[^`]+/skf-emit-result-envelope\.py)`", contract)
+    assert paths == re.findall(r"`(\{project-root\}/[^`]+/skf-emit-result-envelope\.py)`",
+                               _section(_read(SKILL), "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. "))
+    assert paths == ["{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py",
+                     "{project-root}/src/shared/scripts/skf-emit-result-envelope.py"]
+
+
+@pytest.mark.parametrize("stage", STAGES)
+def test_every_stage_carries_the_halt_event_and_the_batch_return(stage):
+    """#585: after a compaction a halt site may read only its own file, so each stage's Rules say
+    that a halt prints its event and, under --batch, returns to the batch instead of ending the run."""
+    rules = _section(_read(QS / "references" / stage), "## Rules\n", "## Steps")
+    for needle in ("A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true.",
+                   "Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even "
+                   "when the halt reads as the end of the run (`references/halt-contract.md`)."):
+        assert needle in rules, (stage, needle)
+
+
+def test_the_exit_code_table_is_the_schemas():
+    table = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    rows = dict((int(code), meaning) for code, meaning in re.findall(r"^\| (\d+)\s+\| ([a-z-]+)\s+\|", table, re.M))
+    codes = _schema()["$defs"]["skf-envelope"]["const"]["exit_codes"]
+    derived = {codes[m]: m for m in rows.values() if m in codes}
+    assert {code: meaning for code, meaning in rows.items() if code not in (0, 9)} == derived
+    assert codes["not-skf-output"] == codes["flat-layout"] == 9 and rows[9] == "state-conflict"
+    assert set(codes) == set(_schema()["properties"]["halt_reason"]["enum"]) - {None}
+
+
+GATE_RE = re.compile(r"\*\*GATE \[default: ([A-Z])\]\*\*")
+
+
+def test_every_headless_gate_records_its_decision():
+    """SKILL.md's rule: a gate that resolves on its own records the decision the moment it decides."""
+    schema = _schema()
+    item = schema["properties"]["headless_decisions"]["items"]
+    emitter = _emitter()
+    recorded = []
+    for path in HALT_FILES:
+        text = _read(path)
+        for m in GATE_RE.finditer(text):
+            line = text[m.start():text.index("\n", m.start())]
+            decision = _filled(_staged(line, "decision.json"))
+            assert 'record --workflow skf-quick-skill --run-dir "{run_dir}" --decision' in line, path.name
+            assert decision["default_action"] == decision["taken_action"] == m.group(1), path.name
+            assert emitter._validate_against_schema(decision, item) == [], decision
+            recorded.append(decision["gate"])
+    assert sorted(recorded) == sorted(item["properties"]["gate"]["enum"])
+    rules = _section(_read(SKILL), "## Workflow Rules", "## Stages")
+    assert 'record --workflow skf-quick-skill --run-dir "{run_dir}" --decision' in rules
+    assert "log each auto-decision" not in rules
+
+
+VALIDATION_ISSUES = '`{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`'
+
+
+def test_step_5_counts_the_validation_issues_in_the_schema_shape():
+    """#586: {validation_issues} is the object the schema requires, counted from the validators' arrays."""
+    report = _section(_read(QS / "references" / "write-and-validate.md"), "### 7. Report Validation Results",
+                      "### 8. ")
+    assert f"`{{validation_issues}}` ← {VALIDATION_ISSUES}" in report
+    for count in ("`skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter "
+                  "validator's `issues[]`) plus `validation.skill_md.body[]`",
+                  "`context_snippet` counts `validation.context_snippet.issues[]`",
+                  "`metadata` counts `validation.metadata.issues[]`", "`security` counts skill-check's `security[]`",
+                  "A check that did not run counts 0"):
+        assert count in report, count
+    finalize = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    assert f"`validation_issues` (step 5, the object {VALIDATION_ISSUES})" in finalize
+    shape = json.loads(VALIDATION_ISSUES.strip("`").replace("<n>", "0"))
+    issues = _schema()["properties"]["summary"]["properties"]["validation_issues"]
+    assert list(shape) == issues["required"] and set(shape) == set(issues["properties"])
+
+
+def test_the_success_payload_builds_the_schema_envelope():
+    """#586: finalize §3 lists the summary once, and that payload is one the emitter accepts."""
+    section = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    block = _bash_block(section, " emit ")
+    assert block.rstrip("\n").endswith(
+        'uv run {emitEnvelopeHelper} emit --workflow skf-quick-skill --run-dir "{run_dir}" '
+        '--result-dir "{skill_package}" < "{run_dir}/result-context.json"')
+    # {validation_issues} takes the shape step 5 defines, its counts filled in.
+    issues = VALIDATION_ISSUES.strip("`").replace("<n>", "1", 1).replace("<n>", "0")
+    sample = {"{export count}": "12", "{quality_score}": "91", "{repo_shape}": "null",
+              '"{extraction confidence}"': '"high"', '"{active_pointer}"': '"symlink"',
+              "{language_resolution}": '"detected"', "{detected_languages}": '["python"]',
+              "{zero_exports_rescue}": "null", "{validation_issues}": issues}
+    payload = _staged(section, "result-context.json")
+    for placeholder, value in sample.items():
+        assert placeholder in payload, placeholder
+        payload = payload.replace(placeholder, value)
+    context = json.loads(payload.replace("{the same summary object}", "{}"))
+    # The result file keeps output-contract-schema.md's record shape; the emitter stamps the rest.
+    assert set(context["result_contract"]) == {"skill", "status", "outputs", "summary"}
+    assert all(set(entry) == {"type", "path"} for entry in context["result_contract"]["outputs"])
+    schema = _schema()
+    assert set(context["summary"]) == set(schema["properties"]["summary"]["properties"])
+    assert set(context["outputs"]) == set(schema["properties"]["outputs"]["properties"])
+    emitter = _emitter()
+    envelope = emitter.build_envelope(schema, context, halt=False, decisions=[], warnings=[], stamps={
+        "timestamp": "2026-10-01T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+    assert emitter.contract_errors(schema, envelope) == []
+    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("success", 0, None)
+    assert "result_contract" not in envelope
+    # quick-extract records the skills-module shape, which the summary must admit.
+    context["summary"]["repo_shape"] = "skills-module"
+    shaped = emitter.build_envelope(schema, context, halt=False, decisions=[], warnings=[], stamps={
+        "timestamp": "2026-10-01T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+    assert emitter.contract_errors(schema, shaped) == []
+    for field in ("quality_score", "confidence", "repo_shape", "language_resolution", "zero_exports_rescue"):
+        assert section.count(f"`{field}`") == 1, f"the summary list names {field} once"
+
+
+def test_every_target_of_a_batch_returns_to_batch_mode():
+    """#585: a target's end, success or halt, never ends the batch; the health check runs once."""
+    batch = _read(BATCH_MODE)
+    record = _section(batch, "### 3. Record the Target", "### 4. ")
+    for needle in ("step 6 §4 returns here", "every HARD HALT of steps 1 to 6 returns here",
+                   "Control returns here even when the step that ended the target reads as the end of the run",
+                   "uv run {quickBatchHelper} record --run-dir \"{batch_dir}\" --batch {batch}"):
+        assert needle in record, needle
+    summary = _section(batch, "### 4. Batch Summary", "## Batch summary contract")
+    assert "execute `{healthCheckStepFile}`: the health check runs once per batch, here" in summary
+    frontmatter = batch.split("---\n", 2)[1]
+    assert "healthCheckStepFile: 'health-check.md'" in frontmatter
+    assert ("quickBatchProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-quick-batch.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-quick-batch.py'\n") in frontmatter
+    finalize = _read(FINALIZE)
+    chain = finalize[finalize.index("### 4. Chain to Health Check"):]
+    assert "return to `references/batch-mode.md` §3 instead of {nextStepFile}" in chain
+    assert "control returns there even though this step reads as the end of the run" in chain
+    assert "runs once per batch" in _read(HEALTH_CHECK)
+    execution = _section(batch, "## Execution", "## Batch summary contract")
+    for stale in ("After step 7 completes", "exit the batch loop immediately", "batch result list"):
+        assert stale not in batch, stale
+    assert "Nothing else carries over from the previous target" in execution
+
+
+def test_the_batch_survives_a_compaction_and_the_helper_prints_its_events():
+    """#587: the loop finds its folder and an ended target again, and no event is typed by hand."""
+    batch = _read(BATCH_MODE)
+    execution = _section(batch, "## Execution", "### 1. Start the Batch")
+    assert ("After a compaction, `{batch_dir}` is the parent folder of the target's `{run_dir}`: the "
+            "`{project-root}/_bmad-output/.skf-run/skf-quick-skill-*` folder that holds `batch.jsonl`.") in execution
+    take = _section(batch, "### 2. Take the Next Target", "### 3. ")
+    assert "the helper printed the target's `start` event on stderr: display it verbatim" in take
+    [record] = [line for line in take.splitlines() if line.startswith('- **`"status": "record"`**')]
+    assert "go to §3 with that `batch`, never running it again" in record
+    for step, command in (("### 3. Record the Target", " record "), ("### 4. Batch Summary", " summarize ")):
+        block = _bash_block(_section(batch, step, "\n### " if step.startswith("### 3") else "## Batch summary"),
+                            command)
+        assert block.rstrip("\n").endswith(" --target stderr"), step
+    for line in ("prints the target's `done` or `fail` event on stderr: display it verbatim",
+                 "prints the `batch_summary` event on stderr: display it verbatim"):
+        assert line in batch, line
+    assert "display that line verbatim on stderr" not in batch
+
+
+def test_batch_start_halts_on_the_reason_the_helper_names():
+    """batch-mode.md §1 has one branch per halt_reason skf-quick-batch.py start prints."""
+    start = _section(_read(BATCH_MODE), "### 1. Start the Batch", "### 2. ")
+    assert "the `halt_reason` of its stderr JSON names the halt" in start
+    for reason, code in (("input-invalid", 2), ("write-failure", 4)):
+        [branch] = [line for line in start.splitlines() if line.startswith(f"- **`{reason}`**")]
+        assert f"HARD HALT with **exit code {code} ({reason})**" in branch, reason
+    assert "or no path in `{quickBatchProbeOrder}` exists (an incomplete install)" in start
+
+
+def test_every_way_out_of_a_step_prints_its_events():
+    """Headless events: the [P] path out of an ecosystem match chains with its done and start events,
+    and the health check's rule leaves room for its own done event."""
+    eco = _read(QS / "references" / "ecosystem-check.md")
+    [proceed] = [line for line in eco.splitlines() if line.startswith("- IF P:")]
+    assert "print this step's `done` event and step 3's `start` event" in proceed
+    [gate] = [line for line in eco.splitlines() if line.startswith("- **GATE [default: P]**")]
+    assert gate.endswith("then go on as IF P does, its events included.")
+    rules = _section(_read(HEALTH_CHECK), "## Rules\n", "## Steps")
+    assert "except the headless `done` event below" in rules and "intervening action" not in rules
+
+
+def test_finalize_never_writes_the_result_contract_by_hand():
+    """determinism-3: with no emitter, the run says the contract was not written instead of typing it."""
+    rules = _section(_read(FINALIZE), "## Rules\n", "## Steps")
+    assert "Result contract writing is mandatory" not in rules
+    assert ("Emit the result envelope and contract through the shared emitter, never by hand; when it is "
+            "missing or fails twice, say the contract was not written and go on") in rules
+
+
+def test_the_batch_exit_code_is_the_highest_failed_code():
+    exit_code = _read(BATCH_MODE).split("## Exit code", 1)[1]
+    assert "Without `--fail-fast`, the batch runs every target" in exit_code
+    assert "otherwise the highest exit code among the failed targets" in exit_code
+    assert "the exit code of the first failed target" not in exit_code
+    assert "With `--fail-fast`, the batch stops at the first failed target and exits with that target's code" \
+        in exit_code
+
+
+def test_stage_files_carry_their_own_formats():
+    """#593: no stage file points at a SKILL.md section that is not there, and the event formats
+    live in the files the stages load, not in SKILL.md."""
+    skill = _read(SKILL)
+    headings = set(re.findall(r"^## (.+)$", skill, flags=re.M))
+    for path in (QS / "references").glob("*.md"):
+        for section in re.findall(r'SKILL\.md "([^"]+)"', _read(path)):
+            assert section in headings, (path.name, section)
+    assert '"status":"start"' not in skill and '"status":"halt"' not in skill
+    events = _section(_read(HALT_CONTRACT), "## Headless Events", "## In `--batch`")
+    for event in ('{"step":N,"name":"<slug>","status":"start"}', '{"step":N,"name":"<slug>","status":"done"}',
+                  '{"step":N,"name":"<slug>","status":"halt","exit":<code>}'):
+        assert event in events, event
+    assert "`references/batch-mode.md` §2 set `target`, `language_hint` and `scope_hint`" in _read(RESOLVE_TARGET)
+    assert "a batch line's own `target_version` otherwise stays" not in _read(RESOLVE_TARGET)

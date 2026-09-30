@@ -19,6 +19,7 @@ To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-alig
 - Focus only on assembling the three output documents — do not write files to disk (that's step 6)
 - Follow template structure exactly from {skillTemplateData}
 - Mark any sections with insufficient data as best-effort
+- A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
 
 ## Steps
 
@@ -125,12 +126,12 @@ Display: **Select:** [C] Continue to Validation · [E] Edit description · [S] A
 - **IF C** — Load, read entire file, then execute {nextStepFile}.
 - **IF E** — Ask the user for a replacement description ("New description (1–1024 chars):"). Update SKILL.md frontmatter `description` and `metadata.json.description` in the in-memory compiled output, then re-render the §5 preview and redisplay this menu. Do not re-run extraction.
 - **IF S** — Ask the user for an adjusted `scope_hint` ("New scope (e.g. `src/server/`, `packages/core/`):") and optionally a `language_hint`. Update the extraction context with the new hints, then load `quick-extract.md` to re-extract. The new extraction returns to §1 of this step on completion. Discards the prior compiled output.
-- **IF Q** — HARD HALT with **exit code 6 (user-cancelled)** per the exit-code map in `references/halt-contract.md`: "Compilation cancelled. No files written." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "compile"`, `error.code: "user-cancelled"`, `skill_package: null`). Do not proceed to validation; do not write any artifacts.
+- **IF Q**: HARD HALT with **exit code 6 (user-cancelled)**: "Compilation cancelled. No files written." Stage `{"phase": "compile", "halt_reason": "user-cancelled", "reason": "Compilation cancelled. No files written.", "skill_package": null}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"` (`references/halt-contract.md`). Do not proceed to validation; do not write any artifacts.
 - **IF Any other** — Help the user adjust the compiled output (treated as a free-form revision request), then redisplay the menu.
 
 #### Gate:
 
 - Halt and wait for user input after presenting the compiled output; only [C] (or a headless auto-approve) chains to `{nextStepFile}` for validation.
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve compiled output"
+- **GATE [default: C]**: if `{headless_mode}`, auto-proceed with [C] Continue, log "headless: auto-approve compiled output", record the decision (stage `{"gate": "compile.review", "default_action": "C", "taken_action": "C", "reason": "headless: auto-approved the compiled output"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`), and print this step's `done` event and step 5's `start` event (`references/halt-contract.md`) before loading `{nextStepFile}`.
 - [E] re-renders the preview without re-running extraction; [S] discards the compiled output and re-runs step 3 with new hints.
 

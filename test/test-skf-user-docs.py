@@ -7,7 +7,7 @@ describes, so a change on one side that the other does not follow fails:
 - docs/workflows.md's Quick Skill section describes the skills-module shape
   quick-extract records, says `--description` and `--exports` are
   single-target overrides that a `--batch` run refuses with the exit code and
-  halt reason SKILL.md raises, and its headless exit-code map is
+  halt reason batch-mode.md raises, and its headless exit-code map is
   halt-contract.md's;
 - its Refine Architecture section describes the gate gap analysis shows for
   a derived scope and the Refinement Summary rows and next step compile
@@ -40,8 +40,8 @@ SKILL_MODEL = DOCS / "skill-model.md"
 TROUBLESHOOTING = DOCS / "troubleshooting.md"
 AGENTS = DOCS / "agents.md"
 QUICK = SRC / "skf-quick-skill"
-QUICK_SKILL = QUICK / "SKILL.md"
 QUICK_EXTRACT = QUICK / "references" / "quick-extract.md"
+BATCH_MODE = QUICK / "references" / "batch-mode.md"
 HALT_CONTRACT = QUICK / "references" / "halt-contract.md"
 RA_REFS = SRC / "skf-refine-architecture" / "references"
 FORGER_SKILL = SRC / "skf-forger" / "SKILL.md"
@@ -110,11 +110,12 @@ def test_quick_skill_documents_the_skills_module_shape():
 def test_quick_skill_batch_refuses_the_single_target_overrides():
     """#609: `--description` and `--exports` never reach every target of a batch.
 
-    The doc gives the exit code and halt reason SKILL.md On Activation step 5 raises.
+    The doc gives the exit code and halt reason batch-mode.md raises before the batch starts
+    (SKILL.md On Activation step 5 loads it first under `--batch`).
     """
-    step5 = _slice(_read(QUICK_SKILL), "5. **If `--batch` is set**", "\n6. ")
-    halt = re.search(r"HARD HALT with \*\*exit code (\d+) \(([a-z-]+)\)\*\*", step5)
-    assert halt, "the --batch refusal halt not found in On Activation step 5"
+    before = _slice(_read(BATCH_MODE), "## Before the Batch Starts", "## Input format")
+    halt = re.search(r"HARD HALT with \*\*exit code (\d+) \(([a-z-]+)\)\*\*", before)
+    assert halt, "the --batch refusal halt not found in batch-mode.md"
     code, reason = halt.groups()
     section = _quick_section()
     assert "globally to every target" not in section
@@ -128,7 +129,7 @@ def test_quick_skill_batch_refuses_the_single_target_overrides():
     assert f"exit `{code}` (`{reason}`)" in refusal
     for token in ("before its first target", "writes no batch summary", "run it on its own"):
         assert token in refusal, token
-    assert "no batch summary is written" in step5
+    assert "no batch summary is written" in before
 
 
 def test_quick_skill_exit_code_map_matches_the_halt_contract():

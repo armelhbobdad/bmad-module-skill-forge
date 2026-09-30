@@ -4,7 +4,7 @@
 
 ## Package-to-Repo Resolution
 
-When the user provides a package name instead of a GitHub URL, use this fallback chain to resolve the source repository. `skf-resolve-package.py` reads the target (`parse-target`) and walks this chain (`resolve`). Apply the target shapes and registries 1 to 3 by hand only when that script is missing or fails; the web-search fallback and the failure message always apply.
+When the user provides a package name instead of a GitHub URL, use this registry chain to resolve the source repository. `skf-resolve-package.py` reads the target (`parse-target`) and asks every registry of this chain (`resolve`). Apply the target shapes and registries 1 to 3 by hand only when that script is missing or fails; the web-search fallback and the failure message always apply.
 
 ### Detection: Target Shapes
 
@@ -18,9 +18,9 @@ When the user provides a package name instead of a GitHub URL, use this fallback
 
 ### Resolution Fallback Chain
 
-Try each registry in order. Stop at first success. A language hint of JavaScript, TypeScript, Python or Rust asks that language's registry alone. When a registry earlier in the chain answered for the name with anything other than a 404 or a timeout (it knows the name but gives no GitHub link, or it could not be read), that success is **ambiguous**: the name may belong to two projects, so resolve-target §3 asks which one is meant, and a headless run halts. The folder a registry gives for the package (npm's `repository.directory`, or the folder of a `/tree/<ref>/<folder>` repository URL) becomes the default scope.
+Ask every registry of the chain; the first one, in chain order, that gives a GitHub repository is the pick. A language hint of JavaScript, TypeScript, Python or Rust asks that language's registry alone. When another registry answered for the name with anything other than a 404 or a timeout (it resolves the name too, knows it but gives no GitHub link, or could not be read), the name is **ambiguous**, and those registries are its `also_found_in`: resolve-target §3 handles it. The folder a registry gives for the package (npm's `repository.directory`, or the folder of a `/tree/<ref>/<folder>` repository URL) becomes the default scope.
 
-**Per-call timeout:** apply a 10s timeout to each registry HTTP call (15s for the web-search fallback) so a single hung registry cannot stall the workflow under hostile network conditions. Treat a timeout as a soft failure and fall through to the next entry in the chain.
+**Per-call timeout:** apply a 10s timeout to each registry HTTP call (15s for the web-search fallback) so a single hung registry cannot stall the workflow under hostile network conditions. Treat a timeout as a soft failure, like a 404: the registry holds no candidate.
 
 #### 1. npm Registry (JavaScript/TypeScript)
 
