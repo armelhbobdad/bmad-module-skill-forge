@@ -59,5 +59,5 @@ Library A + Library B
   Files: [count] files with co-imports
   Key files: [top 3 files by integration density]
   Pattern: [brief description of how they integrate]
-  Confidence: [weaker of the two libraries' tiers from per_library_extractions[], with detection-method qualifier in parens — e.g., `T1-low (grep-co-import)`, `T1 (ccc-augmented)`, `T1-low (architecture-co-mention) [composed]`. Integration detection is grep + co-import, never AST — do not label integrations "AST-verified".]
+  Confidence: [the pair tier step 5 §3 takes from skf-render-stack-metadata.py, with the detection-method qualifier in parens, e.g. `T1-low (grep-co-import)`, `T1 (ccc-augmented)`, `T1-low (architecture-co-mention) [composed]`. Integration detection is grep plus co-import, never AST: do not label integrations "AST-verified".]
 ```

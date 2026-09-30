@@ -141,7 +141,7 @@ Indexed format targeting ~80-120 tokens per stack:
 }
 ```
 
-`confidence_distribution` counts libraries, not provenance entries: each library in `libraries[]` sits in the bin of the tier step 4 set (`per_library_extractions[].confidence`), so `t1 + t1_low + t2 + t3` equals `library_count`. The evidence report bins the provenance entries.
+Step 7 §6 writes `library_count`, `integration_count`, `libraries`, `integration_pairs`, `confidence_distribution`, `confidence_tier` and `source_authority` verbatim from `skf-render-stack-metadata.py`. `confidence_distribution` counts libraries, each by its `per_library_extractions[].confidence`; the evidence report bins the provenance entries.
 
 ## references/stack-catalog.md Structure
 

@@ -4,7 +4,7 @@
  * Validates cross-step state consistency for VS, RA, and compose-mode workflows:
  * - VS feasibility report frontmatter fields match step consumption
  * - RA state file comment block format matches step 5 recovery parser
- * - Compose-mode confidence tier labels match compose-mode-rules.md matrix
+ * - Compose-mode confidence tier labels follow the one pair-tier rule compose-mode-rules.md points at
  *
  * These are static analysis tests against the step markdown files.
  * Usage: node test/test-workflow-state.js
@@ -196,20 +196,18 @@ async function runTests() {
   const composeModeRules = await readFile(path.join(srcDir, 'skf-create-stack-skill/references/compose-mode-rules.md'));
   const cssStep05 = await readFile(path.join(srcDir, 'skf-create-stack-skill/references/detect-integrations.md'));
 
-  // Compose-mode-rules must cover all pairwise cases
+  // One pair-tier rule: compose-mode-rules points at the helper that holds it
+  // and works no pair case out itself (test-skf-render-stack-metadata.py
+  // covers every case in both modes).
   assert(
-    composeModeRules.includes('both skills in a pair are T1'),
-    'compose-mode-rules covers T1+T1 case',
-    'Missing T1+T1 tier case in compose-mode-rules.md',
+    composeModeRules.includes('skf-render-stack-metadata.py') && composeModeRules.includes('combine_pair_tier'),
+    'compose-mode-rules points at the pair-tier helper',
+    'compose-mode-rules.md must take each pair tier from skf-render-stack-metadata.py',
   );
-  assert(composeModeRules.includes('T1-low'), 'compose-mode-rules covers T1-low case', 'Missing T1-low tier case in compose-mode-rules.md');
-  assert(composeModeRules.includes('T2'), 'compose-mode-rules covers T2 case', 'Missing T2 tier case in compose-mode-rules.md');
-
-  // Must have explicit T1+T2 case
   assert(
-    composeModeRules.includes('T1 + T2') || composeModeRules.includes('T1+T2'),
-    'compose-mode-rules has explicit T1+T2 case',
-    'T1+T2 pair must have an explicit row with label format',
+    !/(T1-low|T1|T2|T3) ?\+ ?(T1-low|T1|T2|T3)[^\n]* pair is/.test(composeModeRules),
+    'compose-mode-rules restates no pair case',
+    'A worked pair case in compose-mode-rules.md restates the rule the helper holds',
   );
 
   // Step-05 enumeration should only list pairwise cases (no 3-skill compounds)

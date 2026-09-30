@@ -20,6 +20,7 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 validate_skill_package = mod.validate_skill_package
 validate_stack_counts = mod.validate_stack_counts
+validate_stack_structure = mod.validate_stack_structure
 validate_metadata_export_gate = mod.validate_metadata_export_gate
 crossref_section_7b = mod.crossref_section_7b
 
@@ -370,6 +371,525 @@ class TestSkfValidateOutputStack:
             fields = {i["field"] for i in issues}
             assert fields == {"library_count", "integration_count", "confidence_distribution"}
             assert observed["confidence_sum"] is None
+
+
+# --- Stack structure pass (--skill-type stack) ------------------------------
+
+# A stack package as create-stack-skill writes it from the stack template, with
+# two libraries and one integration pair. `catalog` puts the Library Reference
+# Index and the Per-Library Summaries inline in SKILL.md or behind the Library
+# Catalog pointer in references/stack-catalog.md.
+FULL_STACK_HEADER = """---
+name: demo-stack
+description: A demo stack capstone skill
+---
+
+# demo Stack Skill
+
+> 2 libraries | 1 integration patterns | Forge tier: Deep
+
+## Integration Patterns
+
+### Cross-Cutting Patterns
+
+None across three libraries.
+
+### Library Pair Integrations
+
+#### lib-a + lib-b
+**Type:** Middleware Chain
+**Pattern:** `a()` feeds `b()`.
+**Key files:** src/app.ts
+**Confidence:** T1-low (grep-co-import)
+
+"""
+
+FULL_STACK_INDEX = """## Library Reference Index
+
+| Library | Imports | Key Exports | Confidence | Reference |
+|---------|---------|-------------|------------|-----------|
+| lib-a | 3 | `a()` | T1 | [ref]({prefix}lib-a.md) |
+| lib-b | 2 | `b()` | T1-low | [ref]({prefix}lib-b.md) |
+
+## Per-Library Summaries
+
+### lib-a
+**Role in stack:** the entry point
+**Key exports used:** `a()`
+**Usage pattern:** called once at start-up
+**Confidence:** T1
+
+### lib-b
+**Role in stack:** the sink
+**Key exports used:** `b()`
+**Usage pattern:** receives what `a()` returns
+**Confidence:** T1-low
+
+"""
+
+FULL_STACK_POINTER = """## Library Catalog
+
+2 libraries indexed in [references/stack-catalog.md](references/stack-catalog.md): reference-index table and
+per-library summaries.
+
+"""
+
+FULL_STACK_CONVENTIONS = """## Conventions
+
+- Call `a()` before `b()`.
+"""
+
+LIBRARY_REFERENCE = """# {name} Reference
+
+**Version:** 1.0.0
+**Import count:** 3 files
+**Confidence:** {tier}
+
+## Key Exports
+
+`{name}()`
+
+## Usage Patterns
+
+Called at start-up.
+
+## Common Imports
+
+`import {name}`
+"""
+
+PAIR_REFERENCE = """# lib-a + lib-b Integration
+
+**Type:** Middleware Chain
+**Co-import files:** 2
+**Confidence:** T1-low (grep-co-import)
+
+## Integration Pattern
+
+`a()` feeds `b()`.
+
+## Key Files
+
+src/app.ts:12
+
+## Usage Convention
+
+Call them in order.
+"""
+
+
+def make_full_stack(tmpdir, *, catalog="inline", skill_md=None, meta_overrides=None, drop_keys=()):
+    """A template-conformant stack package; `skill_md` replaces the SKILL.md text."""
+    pkg = Path(tmpdir) / "demo-stack"
+    (pkg / "references" / "integrations").mkdir(parents=True)
+    if skill_md is None:
+        if catalog == "inline":
+            skill_md = FULL_STACK_HEADER + FULL_STACK_INDEX.replace("{prefix}", "references/") + FULL_STACK_CONVENTIONS
+        else:
+            skill_md = FULL_STACK_HEADER + FULL_STACK_POINTER + FULL_STACK_CONVENTIONS
+            (pkg / "references" / "stack-catalog.md").write_text(
+                "# demo Stack: Library Catalog\n\n" + FULL_STACK_INDEX.replace("{prefix}", ""), encoding="utf-8")
+    (pkg / "SKILL.md").write_text(skill_md, encoding="utf-8")
+    (pkg / "context-snippet.md").write_text(STACK_SNIPPET, encoding="utf-8")
+    for name, tier in (("lib-a", "T1"), ("lib-b", "T1-low")):
+        (pkg / "references" / f"{name}.md").write_text(
+            LIBRARY_REFERENCE.replace("{name}", name).replace("{tier}", tier), encoding="utf-8")
+    (pkg / "references" / "integrations" / "lib-a-lib-b.md").write_text(PAIR_REFERENCE, encoding="utf-8")
+    meta = copy.deepcopy(STACK_TEMPLATE_META)
+    meta.update({
+        "library_count": 2,
+        "integration_count": 1,
+        "confidence_distribution": {"t1": 1, "t1_low": 1, "t2": 0, "t3": 0},
+    })
+    meta.update(meta_overrides or {})
+    for key in drop_keys:
+        del meta[key]
+    (pkg / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+    return pkg
+
+
+def structure(pkg, **kwargs):
+    result = validate_skill_package(str(pkg), generated_by="create-stack-skill", skill_type="stack", **kwargs)
+    return result["validation"]["stack_structure"]
+
+
+def issues_by(section, check):
+    return [issue for issue in section["issues"] if issue["check"] == check]
+
+
+class TestStackStructure:
+    """--skill-type stack: validation.stack_structure, the checks of validate.md §4 to §7 (#606)."""
+
+    @pytest.mark.parametrize("catalog", ["inline", "pointer"])
+    def test_a_template_stack_has_no_issue(self, catalog):
+        with tempfile.TemporaryDirectory() as tmp:
+            section = structure(make_full_stack(tmp, catalog=catalog))
+            assert section["issues"] == []
+            observed = section["observed"]
+            assert observed["catalog"] == catalog
+            assert observed["dominant_tier"] == "T1-low"
+            assert observed["tier_rule"] == "skf-render-stack-metadata.py"
+            assert (observed["reference_files"], observed["pair_files"]) == (2, 1)
+            # two summaries, one pair entry, two reference files and one pair file
+            assert observed["tier_labels_checked"] == 6
+            assert observed["links_checked"] == (2 if catalog == "inline" else 3)
+
+    def test_the_pass_runs_only_for_a_stack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r = validate_skill_package(str(make_full_stack(tmp)))
+            assert "stack_structure" not in r["validation"]
+
+    def test_issues_count_in_the_summary_without_failing_the_package(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, meta_overrides={"source_authority": "vendor"})
+            r = validate_skill_package(str(pkg), skill_type="stack")
+            assert [i["field"] for i in r["validation"]["stack_structure"]["issues"]] == ["source_authority"]
+            assert r["summary"]["by_severity"]["medium"] == 1
+            assert r["result"] == "PASS"
+
+    # -- §4: SKILL.md headings, catalog and links --------------------------------
+
+    def test_a_catalog_link_into_references_references_is_flagged(self):
+        """#535: a catalog moved into references/ keeps no references/ prefix."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, catalog="pointer")
+            catalog = pkg / "references" / "stack-catalog.md"
+            catalog.write_text(catalog.read_text(encoding="utf-8").replace("](lib-a.md)", "](references/lib-a.md)"),
+                               encoding="utf-8")
+            issues = issues_by(structure(pkg), "skill_md")
+            assert [(i["field"], i["severity"]) for i in issues] == [("link", "medium")]
+            assert "stack-catalog.md links `references/lib-a.md`" in issues[0]["message"]
+
+    def test_a_broken_link_in_skill_md_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            (pkg / "references" / "lib-b.md").unlink()
+            section = structure(pkg)
+            links = [i for i in issues_by(section, "skill_md") if i["field"] == "link"]
+            assert len(links) == 1 and "`references/lib-b.md`" in links[0]["message"]
+
+    def test_links_that_are_no_files_are_not_checked(self):
+        extra = ("See [the spec](https://example.com/spec), [below](#conventions), [mail](mailto:a@b.c) and "
+                 "[the part](references/lib-a.md#key-exports).\n\n"
+                 "`[ref](references/missing.md)` is how a link reads.\n\n"
+                 "```md\n[ref](references/missing.md)\n```\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, skill_md=FULL_STACK_HEADER + FULL_STACK_INDEX.replace("{prefix}", "references/")
+                                  + FULL_STACK_CONVENTIONS + "\n" + extra)
+            section = structure(pkg)
+            assert section["issues"] == []
+            assert section["observed"]["links_checked"] == 3
+
+    def test_a_link_no_file_system_can_hold_is_unresolved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, skill_md=FULL_STACK_HEADER + FULL_STACK_INDEX.replace("{prefix}", "references/")
+                                  + FULL_STACK_CONVENTIONS + "\nSee [the notes](notes%00.md).\n")
+            links = [i for i in issues_by(structure(pkg), "skill_md") if i["field"] == "link"]
+            assert len(links) == 1 and "notes" in links[0]["message"]
+
+    def test_a_pointer_without_its_catalog_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, catalog="pointer")
+            (pkg / "references" / "stack-catalog.md").unlink()
+            fields = [(i["field"], i["message"]) for i in issues_by(structure(pkg), "skill_md")]
+            assert ("catalog", "the `## Library Catalog` pointer's `references/stack-catalog.md` does not exist") in fields
+            assert any(field == "link" for field, _ in fields)
+
+    def test_a_catalog_without_its_sections_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, catalog="pointer")
+            (pkg / "references" / "stack-catalog.md").write_text("# Catalog\n\n## Library Reference Index\n",
+                                                                  encoding="utf-8")
+            messages = [i["message"] for i in issues_by(structure(pkg), "skill_md")]
+            assert messages == ["`references/stack-catalog.md` has no `## Per-Library Summaries` section"]
+
+    def test_a_pointer_that_links_elsewhere_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, catalog="pointer")
+            text = (pkg / "SKILL.md").read_text(encoding="utf-8")
+            (pkg / "SKILL.md").write_text(text.replace("](references/stack-catalog.md)", "](references/lib-a.md)"),
+                                          encoding="utf-8")
+            messages = [i["message"] for i in issues_by(structure(pkg), "skill_md")]
+            assert messages == ["the `## Library Catalog` pointer does not link `references/stack-catalog.md`"]
+
+    def test_neither_catalog_form_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index_only = FULL_STACK_INDEX.replace("{prefix}", "references/").split("## Per-Library Summaries")[0]
+            pkg = make_full_stack(tmp, skill_md=FULL_STACK_HEADER + index_only + FULL_STACK_CONVENTIONS)
+            section = structure(pkg)
+            catalog = [i["message"] for i in issues_by(section, "skill_md") if i["field"] == "catalog"]
+            assert len(catalog) == 1
+            assert "no `## Per-Library Summaries`" in catalog[0] and "`## Library Catalog`" in catalog[0]
+            assert section["observed"]["catalog"] is None
+
+    def test_missing_and_misplaced_sections_are_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = FULL_STACK_INDEX.replace("{prefix}", "references/")
+            head, patterns = FULL_STACK_HEADER.split("## Integration Patterns")
+            pkg = make_full_stack(tmp, skill_md=head + index + "## Integration Patterns" + patterns)
+            messages = [i["message"] for i in issues_by(structure(pkg), "skill_md")]
+            assert "SKILL.md has no `## Conventions` section" in messages
+            assert "`## Integration Patterns` comes after the per-library summaries" in messages
+
+    def test_a_stack_with_no_integration_needs_no_integration_patterns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head = FULL_STACK_HEADER.split("## Integration Patterns")[0].replace("1 integration patterns",
+                                                                                  "0 integration patterns")
+            pkg = make_full_stack(tmp, skill_md=head + FULL_STACK_INDEX.replace("{prefix}", "references/")
+                                  + FULL_STACK_CONVENTIONS,
+                                  meta_overrides={"integration_count": 0, "integration_pairs": []})
+            (pkg / "references" / "integrations" / "lib-a-lib-b.md").unlink()
+            assert structure(pkg)["issues"] == []
+
+    def test_pairs_without_their_section_are_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head = FULL_STACK_HEADER.split("### Library Pair Integrations")[0]
+            pkg = make_full_stack(tmp, skill_md=head + FULL_STACK_INDEX.replace("{prefix}", "references/")
+                                  + FULL_STACK_CONVENTIONS)
+            messages = [i["message"] for i in issues_by(structure(pkg), "skill_md")]
+            assert messages == ["`## Integration Patterns` has no `### Library Pair Integrations` section"]
+
+    @pytest.mark.parametrize("line, expected", [
+        (None, "SKILL.md has no `> {lib_count} libraries"),
+        ("> 3 libraries | 1 integration patterns | Forge tier: Deep", "gives 3 for library_count"),
+        ("> 2 libraries | 4 integration patterns | Forge tier: Deep", "gives 4 for integration_count"),
+        ("> 2 libraries | 1 integration patterns | Forge tier: Forge+", "gives forge tier Forge+"),
+    ], ids=["missing", "library-count", "integration-count", "forge-tier"])
+    def test_the_header_line_agrees_with_metadata(self, line, expected):
+        header_line = "> 2 libraries | 1 integration patterns | Forge tier: Deep"
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_md = (FULL_STACK_HEADER.replace(header_line, line or "The demo stack.")
+                        + FULL_STACK_INDEX.replace("{prefix}", "references/") + FULL_STACK_CONVENTIONS)
+            messages = [i["message"] for i in issues_by(structure(make_full_stack(tmp, skill_md=skill_md)), "skill_md")]
+            assert len(messages) == 1 and expected in messages[0], messages
+
+    def test_a_missing_title_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_md = (FULL_STACK_HEADER.replace("# demo Stack Skill\n", "")
+                        + FULL_STACK_INDEX.replace("{prefix}", "references/") + FULL_STACK_CONVENTIONS)
+            messages = [i["message"] for i in issues_by(structure(make_full_stack(tmp, skill_md=skill_md)), "skill_md")]
+            assert messages == ["SKILL.md has no title (`# {project_name} Stack Skill`)"]
+
+    def test_headings_inside_fenced_code_do_not_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_md = (FULL_STACK_HEADER + FULL_STACK_INDEX.replace("{prefix}", "references/")
+                        + "```markdown\n## Conventions\n```\n")
+            messages = [i["message"] for i in issues_by(structure(make_full_stack(tmp, skill_md=skill_md)), "skill_md")]
+            assert messages == ["SKILL.md has no `## Conventions` section"]
+
+    # -- §5: metadata.json ------------------------------------------------------
+
+    @pytest.mark.parametrize("overrides, field, needle", [
+        ({"skill_type": "single"}, "skill_type", "not 'stack'"),
+        ({"name": "other-stack"}, "name", "does not match the package folder 'demo-stack'"),
+        ({"version": ""}, "version", "non-empty string"),
+        ({"generation_date": 20260930}, "generation_date", "non-empty string"),
+        ({"forge_tier": "Ultra"}, "forge_tier", "not in ['Quick', 'Forge', 'Forge+', 'Deep']"),
+        ({"confidence_tier": "Deep"}, "confidence_tier", "not in ['T1', 'T1-low', 'T2', 'T3']"),
+        ({"confidence_tier": "T1"}, "confidence_tier", "is not the dominant tier of confidence_distribution ('T1-low')"),
+        ({"source_authority": "vendor"}, "source_authority", "not in ['official', 'community', 'internal']"),
+        ({"exports": {}}, "exports", "must be an array"),
+        ({"libraries": []}, "libraries", "non-empty array"),
+        ({"libraries": ["lib-a", "lib-a"]}, "libraries", "names a library twice"),
+        ({"libraries": ["lib-a"]}, "libraries", "lists 1 libraries; library_count is 2"),
+        ({"integration_pairs": [["lib-a", "lib-z"]]}, "integration_pairs", "names a library libraries does not list"),
+        ({"integration_pairs": [["lib-a", "lib-a"]]}, "integration_pairs", "two different library names"),
+        ({"integration_pairs": [["lib-a", "lib-b"], ["lib-b", "lib-a"]]}, "integration_pairs", "twice"),
+        ({"integration_pairs": "lib-a+lib-b"}, "integration_pairs", "must be an array"),
+        ({"confidence_distribution": {"t1": 1, "t1_low": 1, "t2": 0}}, "confidence_distribution",
+         "confidence_distribution.t3 must be a whole number"),
+    ], ids=["skill-type", "name", "version", "generation-date", "forge-tier", "confidence-tier-enum",
+            "confidence-tier-dominant", "source-authority", "exports", "libraries-empty", "libraries-twice",
+            "libraries-count", "pair-unknown-library", "pair-self", "pair-twice", "pairs-not-a-list",
+            "distribution-bin-missing"])
+    def test_a_metadata_value_off_the_template_is_flagged(self, overrides, field, needle):
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = issues_by(structure(make_full_stack(tmp, meta_overrides=overrides)), "metadata")
+            hits = [i for i in issues if i["field"] == field and needle in i["message"]]
+            assert hits, issues
+            assert all(i["severity"] == "medium" for i in hits)
+
+    @pytest.mark.parametrize("key", mod._STACK_REQUIRED_KEYS)
+    def test_a_missing_template_key_is_flagged(self, key):
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = issues_by(structure(make_full_stack(tmp, drop_keys=(key,))), "metadata")
+            assert [i["field"] for i in issues] == [key]
+
+    def test_the_required_keys_are_the_template_keys(self):
+        """Every key the stack template writes, less ast_node_count and the keys the count pass checks."""
+        keys = template_metadata_keys("src/skf-create-stack-skill/assets/stack-skill-template.md")
+        assert set(mod._STACK_REQUIRED_KEYS) == keys - {
+            "ast_node_count", "library_count", "integration_count", "confidence_distribution"}
+
+    def test_the_dominant_tier_is_recomputed_with_the_stack_helper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = {"t1": 0, "t1_low": 1, "t2": 1, "t3": 0}  # a tie goes to the weaker tier
+            pkg = make_full_stack(tmp, meta_overrides={"confidence_distribution": dist, "confidence_tier": "T2"})
+            section = structure(pkg)
+            assert section["issues"] == []
+            assert section["observed"]["dominant_tier"] == "T2"
+
+    def test_a_missing_tier_rule_is_a_low_note(self, monkeypatch):
+        monkeypatch.setattr(mod, "_stack_rules", lambda: None)
+        with tempfile.TemporaryDirectory() as tmp:
+            section = structure(make_full_stack(tmp, meta_overrides={"confidence_tier": "T1"}))
+            assert [(i["severity"], i["field"]) for i in section["issues"]] == [("low", "confidence_tier")]
+            assert "re-install SKF" in section["issues"][0]["message"]
+            assert section["observed"]["dominant_tier"] is None
+
+    def test_the_rule_is_loaded_from_beside_the_validator(self):
+        rules = mod._stack_rules()
+        assert rules is not None
+        assert rules.dominant_tier({"t1": 2, "t1_low": 2, "t2": 0, "t3": 0}) == "T1-low"
+
+    def test_forge_tier_is_checked_against_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            assert issues_by(structure(pkg, forge_tier="Deep"), "metadata") == []
+            issues = issues_by(structure(pkg, forge_tier="Forge"), "metadata")
+            assert [i["message"] for i in issues] == ["forge_tier 'Deep' is not this run's forge tier 'Forge'"]
+
+    def test_the_cli_passes_the_run_forge_tier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+
+            def run(tier):
+                proc = subprocess.run(
+                    [sys.executable, str(SCRIPT), str(pkg), "--generated-by", "create-stack-skill",
+                     "--skill-type", "stack", "--forge-tier", tier],
+                    capture_output=True, text=True,
+                )
+                assert proc.returncode == 0, proc.stderr
+                return json.loads(proc.stdout)["validation"]["stack_structure"]["issues"]
+
+            assert run("Deep") == []
+            assert [i["field"] for i in run("Quick")] == ["forge_tier"]
+
+    def test_a_generated_by_mismatch_is_low(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = structure(make_full_stack(tmp, meta_overrides={"generated_by": "quick-skill"}))["issues"]
+            assert [(i["severity"], i["field"]) for i in issues] == [("low", "generated_by")]
+
+    def test_skill_md_and_references_are_checked_without_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, skill_md=FULL_STACK_HEADER + FULL_STACK_INDEX.replace("{prefix}", "references/"))
+            (pkg / "metadata.json").unlink()
+            section = structure(pkg)
+            assert [i["message"] for i in section["issues"]] == ["SKILL.md has no `## Conventions` section"]
+
+    def test_metadata_that_is_no_object_fails_without_a_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            (pkg / "metadata.json").write_text("[]", encoding="utf-8")
+            r = validate_skill_package(str(pkg), skill_type="stack")
+            assert r["validation"]["metadata"] == {"error": "metadata.json is not a JSON object"}
+            assert "skipped" in r["validation"]["stack_counts"]
+            assert r["validation"]["stack_structure"]["issues"] == []
+            assert r["result"] == "FAIL"
+
+    # -- §6: reference and pair files ----------------------------------------------
+
+    def test_reference_files_off_the_template_are_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            (pkg / "references" / "lib-a.md").write_text("# lib-a Reference\n\n**Confidence:** T1\n\n## Key Exports\n",
+                                                          encoding="utf-8")
+            (pkg / "references" / "integrations" / "lib-a-lib-b.md").write_text(
+                "**Type:** Middleware Chain\n**Confidence:** T1-low\n\n## Integration Pattern\n", encoding="utf-8")
+            issues = issues_by(structure(pkg), "references")
+            assert [(i["field"], i["message"].split(" has ")[1]) for i in issues] == [
+                ("references/lib-a.md", "no `**Version:**` line"),
+                ("references/lib-a.md", "no `## Usage Patterns` section"),
+                ("references/integrations/lib-a-lib-b.md", "no title (`# ...`)"),
+                ("references/integrations/lib-a-lib-b.md", "no `## Key Files` section"),
+            ]
+
+    def test_the_catalog_is_no_reference_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            section = structure(make_full_stack(tmp, catalog="pointer"))
+            assert section["observed"]["reference_files"] == 2
+            assert issues_by(section, "references") == []
+
+    def test_a_listed_library_or_pair_without_its_file_is_flagged(self):
+        """Misnamed files with the right counts: the count pass agrees, the by-name check does not."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            refs = pkg / "references"
+            (refs / "lib-b.md").rename(refs / "lib-c.md")
+            (refs / "integrations" / "lib-a-lib-b.md").rename(refs / "integrations" / "lib-a-lib-c.md")
+            r = validate_skill_package(str(pkg), generated_by="create-stack-skill", skill_type="stack")
+            assert r["validation"]["stack_counts"]["issues"] == []
+            issues = issues_by(r["validation"]["stack_structure"], "references")
+            assert [(i["field"], i["message"]) for i in issues] == [
+                ("references/lib-b.md", "libraries lists 'lib-b', but references/lib-b.md does not exist"),
+                ("references/integrations/lib-a-lib-b.md",
+                 "integration_pairs lists 'lib-a' + 'lib-b', but references/integrations/lib-a-lib-b.md "
+                 "does not exist"),
+            ]
+
+    def test_a_pair_file_named_in_either_order_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            pairs = pkg / "references" / "integrations"
+            (pairs / "lib-a-lib-b.md").rename(pairs / "lib-b-lib-a.md")
+            assert issues_by(structure(pkg), "references") == []
+
+    def test_a_library_name_no_file_system_can_hold_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, meta_overrides={"libraries": ["lib-a", "lib\x00b"]})
+            fields = [i["field"] for i in issues_by(structure(pkg), "references")]
+            assert fields == ["references/lib\x00b.md"]
+
+    # -- §7: tier labels -------------------------------------------------------------
+
+    def test_a_missing_tier_label_is_flagged_where_it_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            skill_md = (pkg / "SKILL.md").read_text(encoding="utf-8")
+            skill_md = skill_md.replace("**Confidence:** T1-low (grep-co-import)", "**Confidence:** {T1/T1-low/T2/T3}")
+            skill_md = skill_md.replace("**Usage pattern:** called once at start-up\n**Confidence:** T1\n",
+                                        "**Usage pattern:** called once at start-up\n")
+            (pkg / "SKILL.md").write_text(skill_md, encoding="utf-8")
+            pair = pkg / "references" / "integrations" / "lib-a-lib-b.md"
+            pair.write_text(pair.read_text(encoding="utf-8").replace("**Confidence:** T1-low (grep-co-import)\n", "")
+                            + "\n**Confidence:** T1-low\n", encoding="utf-8")
+            messages = [i["message"] for i in issues_by(structure(pkg), "tier_labels")]
+            assert messages == [
+                "the per-library summary `### lib-a` in SKILL.md has no `**Confidence:**` T-code label",
+                "the pair entry `#### lib-a + lib-b` in SKILL.md has no `**Confidence:**` T-code label",
+                "references/integrations/lib-a-lib-b.md has no `**Confidence:**` T-code label in its header",
+            ]
+
+    def test_catalog_summaries_carry_the_labels_in_the_pointer_form(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp, catalog="pointer")
+            catalog = pkg / "references" / "stack-catalog.md"
+            catalog.write_text(catalog.read_text(encoding="utf-8").replace("**Confidence:** T1-low\n", ""),
+                               encoding="utf-8")
+            messages = [i["message"] for i in issues_by(structure(pkg), "tier_labels")]
+            assert messages == [
+                "the per-library summary `### lib-b` in stack-catalog.md has no `**Confidence:**` T-code label"]
+
+    @pytest.mark.parametrize("label", [
+        "**Confidence:** T1-low (dominant bin t1_low)",
+        "- **Confidence:** T3 [composed]",
+        "**Confidence:** T2",
+    ], ids=["with-note", "list-item", "bare"])
+    def test_a_t_code_label_passes(self, label):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            ref = pkg / "references" / "lib-b.md"
+            ref.write_text(ref.read_text(encoding="utf-8").replace("**Confidence:** T1-low", label), encoding="utf-8")
+            assert issues_by(structure(pkg), "tier_labels") == []
+
+    @pytest.mark.parametrize("label", ["**Confidence:** Deep", "**Confidence:** T1-lowish", "Confidence: T1"],
+                             ids=["forge-tier", "not-a-t-code", "not-bold"])
+    def test_a_label_that_is_no_t_code_is_flagged(self, label):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_full_stack(tmp)
+            ref = pkg / "references" / "lib-b.md"
+            ref.write_text(ref.read_text(encoding="utf-8").replace("**Confidence:** T1-low", label), encoding="utf-8")
+            assert [i["field"] for i in issues_by(structure(pkg), "tier_labels")] == ["tier_label"]
 
 
 # --- Export-gate mode ------------------------------------------------------

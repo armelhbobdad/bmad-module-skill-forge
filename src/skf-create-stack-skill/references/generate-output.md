@@ -30,6 +30,14 @@ namesPresentProbeOrder:
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
+# §6 writes the counted fields of metadata.json from it.
+renderStackMetadataProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
+  - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
+# §5 measures the staged snippet with it.
+countTokensProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py'
+  - '{project-root}/src/shared/scripts/skf-count-tokens.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -50,7 +58,7 @@ Write all deliverable and workspace artifact files to their target directories.
 
 ### 1. Resolve Paths and Stage Target Directory
 
-Resolve `{version}` per S11 below — the primary library version in code-mode, or the stack-local scheme in compose-mode (`1.0.0` for a new stack, or a bump of `{prior_stack_version}` on re-composition). The final artifact paths are:
+Resolve `{version}` per S11 below. The final artifact paths are:
 
 ```
 {skill_group}                          # {skills_output_folder}/{project_name}-stack/
@@ -62,14 +70,22 @@ Resolve `{version}` per S11 below — the primary library version in code-mode, 
 
 Where the skill name is `{project_name}-stack` and `{version}` is the semver version (with build metadata stripped per `knowledge/version-paths.md`).
 
-**Primary library definition (S11):** In code-mode, the primary library is the dependency with the highest import count from step 3; its `version` (from the manifest) becomes `{primary_library_version}`, falling back to `1.0.0` if unavailable. In compose-mode, the stack carries its own release identity: default `{version}` to `1.0.0` (a stack-local scheme) rather than borrowing the highest constituent semver. Constituent versions are preserved in `dependencies[]`, so no information is lost, and the stack's version does not track whichever constituent happens to have the highest version. The `1.0.0` default applies only to a **genuinely new** stack — see the re-composition rule below.
+**Stack version (S11).** `{skillInventoryHelper}` (the pre-flight below resolves it) computes `{version}` once phase 1 has read any prior stack; never reduce, compare or bump a version by hand:
 
-**Re-composition versioning (S11, compose-mode):** When the S3 pre-flight resolves a `{prior_stack_version}` (re-composing a stack that already has a release line), continue that line instead of resetting — defaulting to `1.0.0` would publish a version *below* the existing release (e.g. `1.0.0` shadowing a prior `3.0.5`, a backward jump). Bump `{prior_stack_version}`:
+- **Code mode:** pipe `[{"name": "<library>", "import_count": <its step 3 count>, "version": "<its manifest version, or null>"}, ...]`, one entry per stack library, to the call below and bind `{version}` ← `version`, the most imported library's version as one folder name (`^18.2.0` gives `18.2.0`; the helper names its pick in `reason`).
 
-- **Major** if any library in `{prior_libraries}` is removed or replaced — dropping a documented library is breaking for consumers of the stack.
-- **Minor** otherwise — libraries only added, and/or integration content changed (backward-compatible).
+  ```bash
+  uv run {skillInventoryHelper} version primary -
+  ```
 
-Never emit a `{version}` ≤ `{prior_stack_version}`. Narrate the resolved version and the bump rationale.
+- **Compose mode, new stack** (`{prior_stack_version}` unset): `1.0.0`, the stack's own release line; the constituent versions stay in `dependencies[]`.
+- **Compose mode, re-composition:** continue the prior line (a reset to `1.0.0` would shadow a prior `3.0.5`). Bind `{version}` ← `version` from the call below, with this run's library names as `{stack_libraries}` and both lists comma-separated: the helper bumps the major number when a library of `{prior_libraries}` is gone, else the minor one.
+
+  ```bash
+  uv run {skillInventoryHelper} version bump --prior "{prior_stack_version}" --prior-libraries "{prior_libraries}" --libraries "{stack_libraries}"
+  ```
+
+Narrate the version and the helper's `reason` or `bump`. On `BAD_INPUT` or `USAGE` the call is malformed (the candidates piped, or an unquoted list the shell split): fix it and run it again. Start a new release line at `1.0.0` only when no candidate resolves, the call prints no JSON (`uv` cannot run it), or the prior stack records no `version` or one that names none (`NOT_A_VERSION`), and append a `workflow_warnings[]` entry (`step: "step-07"`, `severity: "warn"`, `code: "stack-version-default"`, `message`: the helper's `error`, or why it did not run).
 
 **Pre-flight: ownership, phase 1 (S3).** `{stack_name}` is `{project_name}-stack`. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run, before any prior metadata is read:
 
@@ -180,7 +196,7 @@ Load structure from `{stackSkillTemplatePath}` integrations section:
 
 Write `{skill_staging}/context-snippet.md`:
 
-Use the Vercel-aligned indexed format targeting **~80-120 tokens** (M2). Token estimation is heuristic — use `ceil(char_count / 4)` as the working approximation (the standard rule-of-thumb for English text in BPE-style tokenizers; precise counts differ per model). Compute against the rendered snippet body (excluding trailing newline).
+Use the Vercel-aligned indexed format targeting **~80-120 tokens** (M2), measured as below.
 
 ```
 [{project_name}-stack v{version — resolved in §1}]|root: skills/{project_name}-stack/
@@ -190,7 +206,15 @@ Use the Vercel-aligned indexed format targeting **~80-120 tokens** (M2). Token e
 |gotchas: {1-2 most critical integration pitfalls}
 ```
 
-**Overflow strategy (M2):** If the estimated token count exceeds **120 tokens**, trim in this fixed order until under budget:
+**Measure it** with `{countTokensHelper}` (resolve it from `{countTokensProbeOrder}`), the count step 8's validator also takes (`len(text) // 4`): bind `{token_estimate}` ← the `tokens` of the `context-snippet.md` row of its `files[]`.
+
+```bash
+uv run {countTokensHelper} {skill_staging}
+```
+
+If no candidate resolves or it exits non-zero, keep the snippet as written and append a `workflow_warnings[]` entry (`step: "step-07"`, `severity: "warn"`, `code: "snippet-unmeasured"`, `message`: the reason); step 8 still checks its bounds.
+
+**Overflow strategy (M2):** If `{token_estimate}` exceeds **120**, trim in this fixed order, writing the snippet again and measuring it again after each trim, until it is 120 or below:
 
 1. **Drop the `gotchas` line first.** Pitfalls live in SKILL.md and references; the snippet's job is discovery, not full warning surface.
 2. **Strip versions from the `stack` line** (`{dep-1}, {dep-2}` instead of `{dep-1}@{v1}`). Versions are recoverable from `metadata.json`.
@@ -203,13 +227,15 @@ If the snippet is still over budget after step 4, log a warning to workflow_warn
 
 ### 6. Stage metadata.json
 
-Write `{skill_staging}/metadata.json`, populating every field from the metadata.json schema in `{stackSkillTemplatePath}` (loaded in §3) — that template is the single schema source; do not re-transcribe it here. Resolve the field values whose template placeholders don't spell out the rule:
+Write `{skill_staging}/metadata.json` with every field of the metadata.json schema in `{stackSkillTemplatePath}` (loaded in §3), the single schema source; do not re-transcribe it here. The fields that count, bin or rank come from `{renderStackMetadataHelper}` (resolve it from `{renderStackMetadataProbeOrder}`), never from hand counting:
 
-- `version` — the `{version}` resolved in §1 (not the template's literal `1.0.0`, which is only the new-stack default).
-- `forge_tier` — the run tier (Quick/Forge/Forge+/Deep) resolved in step 1.
-- `confidence_distribution`: each library in `libraries[]` counted once, in the bin of its `per_library_extractions[].confidence` (step 4 sets it), so the four bins sum to `library_count`. Only the evidence report bins provenance entries (§8b).
-- `confidence_tier` — the dominant T-code from `confidence_distribution`. Pick the tier with the highest count; resolve ties toward the weaker tier (T1-low > T1, T2 > T1-low, T3 > T2) so the reported value never overstates confidence. When `confidence_distribution` is empty (no libraries extracted), emit `"T1-low"` as the conservative default.
-- `source_authority` — the lowest authority among constituent skills (official > community > internal).
+```bash
+uv run {renderStackMetadataHelper} metadata --input -
+```
+
+Pipe it `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidence": "<its per_library_extractions[].confidence>", "source_authority": "<compose mode: the constituent's>"}, ...], "integrations": [{"a": "<library>", "b": "<library>"}, ...]}`: every stack library, and every pair step 5 kept in the order of its `references/integrations/{a}-{b}.md` name. Write its `library_count`, `integration_count`, `libraries`, `integration_pairs`, `confidence_distribution` (libraries, not provenance entries: the evidence report bins those, §8b), `confidence_tier` and `source_authority` verbatim. On exit `2`, fix the input its stderr names and run it again. If no candidate resolves, invoke the rollback contract from §1 with `exit_code` 3 and `halt_reason` `resolution-failure` in its envelope.
+
+Also set `version` to the `{version}` §1 resolved (the template's `1.0.0` is only the new-stack default) and `forge_tier` to step 1's run tier (Quick/Forge/Forge+/Deep).
 
 ### 7. Write Forge Data Artifacts (Workspace)
 

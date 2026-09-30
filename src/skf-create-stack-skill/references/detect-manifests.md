@@ -68,7 +68,7 @@ SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{pro
 For each kept skill:
 1. Store the top-level folder name as `skill_dir` (distinct from the metadata `name`).
 2. `skill_package_path` ← `{skills_output_folder}/{path}` from its `{stack_roster}` entry — the package whose exports and `metadata_hash` the helper reported, so path and hash come from one resolution (the helper follows `active`, as the manifest-lag guard in `knowledge/version-paths.md` does).
-3. Read `metadata.json` from `skill_package_path` and extract: name, language, confidence_tier, source_repo, exports count, version.
+3. Read `metadata.json` from `skill_package_path` and extract: name, language, confidence_tier, source_repo, source_authority, exports count, version.
 4. **Record the constituent metadata_hash (S13):** take its `metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`) from the same `{stack_roster}` entry and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash — never hand-compute — so the step-4 drift check compares script-hash to script-hash. Step-07 uses this stored hash for `constituents[].metadata_hash` in `provenance-map.json`, so drift between step 2 read and step 7 write is captured.
 5. Store as `raw_dependencies` with source: "existing_skill" (`"explicit"` for a name from `explicit_deps`)
 
