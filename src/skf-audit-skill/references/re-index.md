@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'structural-diff.md'
+extractionPatternsData: 'skf-create-skill/references/extraction-patterns.md'
 tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
@@ -16,13 +17,13 @@ Re-scan the source code using the current forge tier tools to build a fresh extr
 
 - Focus only on extracting current source state — do not compare yet (that's Step 03)
 - Extract every file in the bounded scan list — a file skipped here makes step 3 flag its exports as false "removed" drift
-- Use subprocess Pattern 2 (per-file deep analysis) when available for AST extraction; if unavailable, extract in main thread file by file
+- Use subprocess Pattern 2 (per-file deep analysis) when available to build each file's exports (§3); if unavailable, build them in main thread file by file
 
 ## MANDATORY SEQUENCE
 
 ### 1. Determine Extraction Strategy
 
-Label every export by the tool that produced it, never by the tier: an export an ast-grep rule matched is T1 with `extraction_method: ast-grep` and, as `ast_node_type`, the `kind` the matching pattern or recipe declares in create-skill's `extraction-patterns.md` (ast-grep's output does not report it); an export read by eye is T1-low with `extraction_method: source-read` and `ast_node_type: null`.
+Label every export by the tool that produced it, never by the tier: an export an ast-grep rule matched is T1 with `extraction_method: ast-grep` and, as `ast_node_type`, the `kind` the matching pattern or recipe declares in `{extractionPatternsData}` (ast-grep's output does not report it); an export read by eye is T1-low with `extraction_method: source-read` and `ast_node_type: null`.
 
 Based on forge tier detected in Step 01:
 
@@ -32,23 +33,24 @@ Based on forge tier detected in Step 01:
 - Label every export T1-low (read by eye, not matched by ast-grep) with `extraction_method: source-read` and `ast_node_type: null`
 
 **Forge tier (ast-grep available):**
-- Use ast_bridge to perform AST extraction per source file
-- Extract: export name, type (function/class/type/const), full signature, file path, line number
+- Follow the **AST Extraction Protocol** in `{extractionPatternsData}` with the bounded scan list from §2 as the files in scope: the list's file count is the decision tree's input. Run every recipe for the language once over the whole list, not once per file, and keep only the matches whose file, relative to `{source_root}` and with forward slashes, is on the list. §3's per-file workers take their file's matches from these runs
+- A run that returns as many matches as its cap (`max_results`, or the CLI template's `| head -N`) may have dropped some, and step 3 would report each dropped export as removed: rerun that recipe with a higher cap, or through the CLI streaming template on smaller batches of the list's files (passed as its `{path}`), until no run fills its cap
+- Extract: export name, type (function/class/type/const), full signature, file path, line number. The name is the match's `$NAME`, and the line is `$NAME`'s line (`metaVariables.single.NAME.range.start.line + 1`), as create-skill records it, not the match's first line (a decorator or an `export` line can come first)
+- Read by eye the forms the recipes leave out (Known Limitation #11 in `{extractionPatternsData}`) when a file uses them. `find_code` is only the fallback of Known Limitation #4, for a recipe that errors or finds nothing where the file holds exports
 - Label each export by the tool that produced it: an export an ast-grep rule matched is T1 (AST-verified structural truth) with `extraction_method: ast-grep` and the `kind` the matching pattern or recipe declares as `ast_node_type`; an export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched) is T1-low with `extraction_method: source-read` and `ast_node_type: null`
 
 **Tier degradation handling (Forge/Forge+/Deep):** If ast-grep is unavailable or fails on individual files, follow `{tierDegradationRulesData}` (AST Tool Unavailable, Per-File AST Failure) for the fallback and the user notification. A file ast-grep cannot parse falls back to reading that file only: its exports are T1-low with `extraction_method: source-read` and `ast_node_type: null`, and exports ast-grep matched in other files stay T1. Silent degradation is forbidden: the run names each file read after an ast-grep failure, and why (§3, §5). When ast-grep is unavailable for the whole run, every export is T1-low and `ast_fallback_files` records `all files (ast-grep unavailable)`.
 
 **Forge+ tier (ast-grep + ccc available):**
-- Identical extraction to Forge tier: use ast_bridge for AST extraction per source file
+- Identical extraction to Forge tier (the AST Extraction Protocol, above)
 - Label each export by tool, as at Forge tier
-- CCC rename detection available (see section 4b)
+- CCC rename detection available (see section 4)
 
 **Deep tier (ast-grep + QMD available):**
-- Forge extraction (above), labeled by tool as at Forge tier, PLUS
-- Query qmd_bridge for temporal context: when exports were added, modification history, usage frequency
-- Confidence labels: structural entries labeled by tool (T1 for an ast-grep match, T1-low for an export read by eye), T2 for temporal context
+- Identical extraction to Forge tier, labeled by tool as at Forge tier
+- No QMD query at this step: step 4 (semantic diff) queries QMD itself
 
-**Tool resolution:** `gh_bridge` → `gh api` commands or direct file I/O if local. `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`search`, `vector_search`) or `qmd` CLI. See `knowledge/tool-resolution.md`.
+**Tool resolution:** `gh_bridge` → `gh api` commands or direct file I/O if local. `ast_bridge` → the ast-grep MCP tool `find_code_by_rule` with a recipe and `output_format="json"`, or the protocol's CLI streaming template (`ast-grep scan -r {recipe_file} --json=stream`); `find_code` only as the fallback of Known Limitation #4. See `knowledge/tool-resolution.md`.
 
 ### 2. Build Bounded Scan List
 
@@ -77,6 +79,8 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 **Count files to process** and proceed to section 3 with the resolved scan list.
 
 ### 3. Extract Current Exports
+
+At Forge, Forge+ and Deep, run the recipes over the bounded scan list first (§1).
 
 **For each file in the bounded scan list from §2, launch a subprocess that:**
 1. Loads the source file
@@ -114,41 +118,11 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 }
 ```
 
-`confidence_tier` holds the forge tier the re-index ran at, not a label. `confidence`, `extraction_method` and `ast_node_type` label the structural extraction by the tool that produced it (§1). Deep tier's T2 temporal context (§4) is appended beside them and does not replace them.
+`confidence_tier` holds the forge tier the re-index ran at, not a label. `confidence`, `extraction_method` and `ast_node_type` label the structural extraction by the tool that produced it (§1).
 
 Record the written path as `{extractionSnapshot}` in workflow context — step 3 passes it to the deterministic structural-diff helper.
 
-### 4. Deep Tier Enhancement (Deep Only)
-
-**If forge tier is Deep:**
-
-Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`.
-
-Find the collection entry matching the current skill: look for an entry where `skill_name` matches the current skill being audited AND `type` is `"extraction"`.
-
-Three collection states must be handled distinctly — semantic-diff.md §2 branches the same way:
-
-**If a matching extraction collection is found and populated** (pre-query probe via `qmd ls {collection_name}` or equivalent returns one or more files):
-Query qmd_bridge against the `{skill_name}-extraction` collection for temporal context on each extracted export:
-- When was this export first added?
-- Has it been modified recently?
-- What is its usage frequency across the codebase?
-- How does the current extraction compare to the previously compiled skill content?
-
-Append temporal metadata to each export in the snapshot.
-
-**If a matching extraction collection is found but empty** (pre-query probe reports `Files: 0 (updated never)` or an empty listing):
-Log: "QMD collection `{collection_name}` is registered but empty. Run `qmd update` to (re-)index `{collection.path}`, then re-audit. Temporal enrichment skipped for this run."
-Continue without T2 enrichment — the unpopulated collection is a setup gap, not an extraction failure. Step-04 will fall through to its direct-content fallback for semantic diff.
-
-**If no matching collection found in registry:**
-Log: "No QMD extraction collection found for {skill_name}. Temporal enrichment skipped. Re-run [CS] Create Skill to generate the collection."
-Continue without T2 enrichment — this is not an error.
-
-**If forge tier is Quick, Forge, or Forge+:**
-Skip this section. Temporal context requires Deep tier.
-
-### 4b. CCC Rename Detection (Forge+ and Deep with ccc)
+### 4. CCC Rename Detection (Forge+ and Deep with ccc)
 
 **If `tools.ccc` is true in forge-tier.yaml:**
 
@@ -178,7 +152,7 @@ CCC failures: skip rename detection silently, proceed with standard structural d
 | Classes | {class_count} |
 | Types/Interfaces | {type_count} |
 | Constants | {const_count} |
-| Labels | {t1_count} T1 (`ast-grep`), {t1_low_count} T1-low (`source-read`){, T2 temporal context at Deep} |
+| Labels | {t1_count} T1 (`ast-grep`), {t1_low_count} T1-low (`source-read`) |
 | AST fallback files | {count and names from `ast_fallback_files`, or none; n/a at Quick} |
 
 **Proceeding to structural comparison...**"
