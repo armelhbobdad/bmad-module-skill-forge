@@ -43,18 +43,18 @@ If `campaign.directive_path` is set in state, load the file at that path and app
 
 Once resolved (steps 2–3), persist the path to `campaign.architecture_doc_path` if not already set, then proceed to §4 with the resolved path.
 
-**VS feasibility report:** If chaining from step-08, the report path is available from the VS result envelope (`report_latest_path`). On resume, look for `feasibility-report-*-latest.md` in `{forge_data_folder}/`. If no report exists (VS may have failed or been skipped in step-08), proceed without it — RA's VS report input is optional.
+**VS feasibility report:** read `campaign.verification.report_path` from state, where step-08 saved the report VS wrote, so a chained run and a resumed one pass the same report. When it is null, or `campaign.verification` is unset (VS failed or step-08 skipped it), RA runs without a report: never look for one by file name.
 
 ### §4 — Invoke RA
 
 Invoke `skf-refine-architecture` with:
 
 ```
-skf-refine-architecture --headless --architecture-doc <arch_path> [--vs-report-path <report_path>] [--scope-skills <names>]
+skf-refine-architecture --headless --architecture-doc <arch_path> --vs-report-path <report_path|none> [--scope-skills <names>]
 ```
 
 - `--architecture-doc`: the architecture doc discovered in §3 (required).
-- `--vs-report-path`: the VS feasibility report path from §3 (omit if not found).
+- `--vs-report-path`: `campaign.verification.report_path` from §3, or `none` when state holds no report path.
 - `--scope-skills`: comma-separated names of completed campaign skills (from `skills[]` where `status == "completed"`). Optional but improves focus by limiting refinement scope to campaign-relevant skills.
 
 Capture the result envelope from stdout:

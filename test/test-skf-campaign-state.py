@@ -40,7 +40,6 @@ VALID_MINIMAL_STATE: dict = {
             "soft_target": 90,
             "soft_fallback": 80,
         },
-        "health_findings_queue": "local",
     },
     "skills": [],
     "dependency_graph": {
@@ -239,7 +238,7 @@ class TestInvalidCurrentStage:
 
 
 # ---------------------------------------------------------------------------
-# Task 5.9 — Invalid health_findings_queue enum fails
+# Task 5.9: health_findings_queue is optional and ignored, still an enum
 # ---------------------------------------------------------------------------
 
 
@@ -249,6 +248,21 @@ class TestInvalidHealthFindingsQueue:
         state["campaign"]["health_findings_queue"] = "remote"
         with pytest.raises(ValidationError):
             validate(instance=state, schema=schema)
+
+    def test_queue_not_required(self, schema: dict) -> None:
+        assert "health_findings_queue" not in VALID_MINIMAL_STATE["campaign"]
+        assert "health_findings_queue" not in schema["properties"]["campaign"]["required"]
+        validate(instance=VALID_MINIMAL_STATE, schema=schema)
+
+    @pytest.mark.parametrize("queue", ["local", "improvement"])
+    def test_older_state_with_queue_still_valid(self, schema: dict, queue: str) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["health_findings_queue"] = queue
+        validate(instance=state, schema=schema)
+
+    def test_schema_marks_queue_ignored(self, schema: dict) -> None:
+        prop = schema["properties"]["campaign"]["properties"]["health_findings_queue"]
+        assert prop["description"].startswith("Ignored.")
 
 
 # ---------------------------------------------------------------------------
@@ -506,12 +520,24 @@ class TestVerificationField:
     def test_full_verification_passes(self, schema: dict) -> None:
         state = copy.deepcopy(VALID_MINIMAL_STATE)
         state["campaign"]["verification"] = {
-            "report_path": "forge-data/feasibility-report-latest.md",
-            "overall_verdict": "Verified",
+            "report_path": "forge-data/feasibility-report-demo-20260930-120000.md",
+            "overall_verdict": "FEASIBLE",
             "coverage_percentage": 87.5,
             "recommendation_count": 3,
         }
         validate(instance=state, schema=schema)
+
+    def test_verdict_enum_is_verify_stacks(self, schema: dict) -> None:
+        # The overall_verdict values of SKF_VERIFY_STACK_RESULT_JSON, nothing else.
+        verdict = schema["properties"]["campaign"]["properties"]["verification"]["properties"]["overall_verdict"]
+        assert verdict["enum"] == ["FEASIBLE", "CONDITIONALLY_FEASIBLE", "NOT_FEASIBLE", None]
+
+    @pytest.mark.parametrize("verdict", ["Verified", "Plausible", "Risky", "Blocked"])
+    def test_pair_verdict_tokens_fail(self, schema: dict, verdict: str) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["verification"] = {"overall_verdict": verdict}
+        with pytest.raises(ValidationError, match="is not one of"):
+            validate(instance=state, schema=schema)
 
     def test_null_verification_passes(self, schema: dict) -> None:
         state = copy.deepcopy(VALID_MINIMAL_STATE)
@@ -526,7 +552,7 @@ class TestVerificationField:
 
     def test_extra_verification_property_rejected(self, schema: dict) -> None:
         state = copy.deepcopy(VALID_MINIMAL_STATE)
-        state["campaign"]["verification"] = {"overall_verdict": "Risky", "extra": 1}
+        state["campaign"]["verification"] = {"overall_verdict": "NOT_FEASIBLE", "extra": 1}
         with pytest.raises(ValidationError, match="Additional properties"):
             validate(instance=state, schema=schema)
 
@@ -552,6 +578,21 @@ class TestRefinementField:
         state["campaign"]["refinement"] = {"gap_count": 0, "extra": "no"}
         with pytest.raises(ValidationError, match="Additional properties"):
             validate(instance=state, schema=schema)
+
+
+# ---------------------------------------------------------------------------
+# customize.toml: what quality_gate_hard = "zero-critical-high" counts
+# ---------------------------------------------------------------------------
+
+
+class TestQualityGateHardComment:
+    def test_missing_exports_no_longer_count(self) -> None:
+        text = (CAMPAIGN_DIR / "customize.toml").read_text(encoding="utf-8")
+        block = text.split('quality_gate_hard = "zero-critical-high"', 1)[0].rsplit("# --- Quality gate ---", 1)[1]
+        comment = " ".join(line.lstrip("#").strip() for line in block.splitlines() if line.strip())
+        assert "passes a skill only when its test-skill run finds no Critical or High gap" in comment
+        assert "A missing export is a Medium gap" in comment
+        assert "no longer counts against this gate" in comment
 
 
 # ---------------------------------------------------------------------------

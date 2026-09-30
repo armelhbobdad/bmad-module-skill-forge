@@ -33,7 +33,7 @@ Load `{stateFile}`. Run `uv run {validateScript} --state-file {stateFile}`; on n
 
 ### §2 — Read Brief
 
-Load `{briefFile}`. Build a lookup map from `targets[].name` to `targets[].repo_url`. HALT (exit code 8, `missing-brief`) if the brief is missing or unreadable.
+Load `{briefFile}` only to confirm it parses (the pin script reads it directly). HALT (exit code 8, `missing-brief`) if the brief is missing or unreadable.
 
 ### §3 — Backup State
 

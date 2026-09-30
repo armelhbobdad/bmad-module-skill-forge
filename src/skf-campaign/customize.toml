@@ -53,6 +53,10 @@ campaign_workspace_path = ""
 # bundled defaults; the per-campaign brief and any directive `## Quality
 # Overrides` still take precedence at runtime. Override here to change the
 # org-wide default without forking the skill.
+#
+# `zero-critical-high` passes a skill only when its test-skill run finds no
+# Critical or High gap. A missing export is a Medium gap: it lowers the
+# coverage score and no longer counts against this gate.
 
 quality_gate_hard = "zero-critical-high"
 quality_gate_soft_target = 90

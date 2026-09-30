@@ -73,12 +73,6 @@ Set `campaign.current_stage` to `10`. Update `campaign.last_updated` to current 
 
 ### §5 — Chain to Health Check
 
-The operator's findings-routing consent (`campaign.health_findings_queue`) is applied by the terminal health-check step: `references/health-check.md` §1 reads it from state and carries it into the shared health check as the pre-decided opt-in (`"improvement"` → route non-bug findings to the shared improvement queue without re-prompting, after an interactive **[Y]** at the shared review gate; `"local"` → local queue only; a headless run queues every finding locally). Surface the active setting here.
+Display, from the §2 result: "**Campaign complete.** {skills_completed} completed, {skills_failed} failed in {duration}. Report at `{reportFile}`." When §2 degraded, its message stands in for this one.
 
-Display: "**Campaign complete.** Report at `{reportFile}`. Findings routing: {campaign.health_findings_queue}. Chaining to health check..."
-
-Chain to `{nextStepFile}` (shared/health-check.md).
-
-## OUTPUT
-
-Display campaign completion summary: skills completed, skills failed, report path, total duration. Chain to `{nextStepFile}`.
+Chain to `{nextStepFile}`.

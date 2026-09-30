@@ -480,12 +480,14 @@ def test_queue_fingerprint_has_a_portable_form():
     assert out == hashlib.sha1(key.encode("utf-8")).hexdigest()[:7]
 
 
-def test_campaign_consent_does_not_override_the_headless_queue():
-    """The campaign's "improvement" consent pre-satisfies the friction/gap
-    opt-in only; a headless review gate still queues every finding locally."""
+def test_campaign_relay_carries_no_routing_consent():
+    """Campaign no longer asks at setup where findings go, so its relay step
+    only delegates: the shared review gate decides, and a headless run takes
+    its default [Q] and queues every finding locally."""
     text = _read(CAMPAIGN_RELAY)
-    assert "follows an interactive **[Y]**" in text
-    assert "Under `{headless_mode}` that gate takes its listed default **[Q]**" in text
+    assert "health_findings_queue" not in text
+    assert "consent" not in text
+    assert "Load `{nextStepFile}`, read it fully, then execute it." in text
 
 
 # ---------------------------------------------------------------- agent notes between tool calls

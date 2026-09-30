@@ -2,42 +2,83 @@
 # requires-python = ">=3.9"
 # dependencies = ["pyyaml"]
 # ///
-"""Campaign Render Kickoff — fill the mechanical kickoff-template placeholders.
+"""Campaign Render Kickoff: render the per-skill kickoff message, every slot.
 
-step-05 emits a kickoff message per Tier-A skill. Most of its placeholders are
-direct field copies from state + brief (campaign name, stage, quality gate,
-skill identity, repo, pin, commit, the dependency-status table, the workaround
-list) — mechanical substitution that an LLM should not hand-perform 15× per
-campaign. This script renders those deterministically and leaves the three
-judgment slots untouched for the LLM to fill in context:
+step-05 emits a kickoff message per Tier-A skill. Each placeholder is data the
+campaign already holds, so this script fills all of them and step-05 presents
+the output as it is. Re-typing them for each of 15+ skills cost output tokens
+and risked paraphrasing or cutting the operator's directive.
 
-  {{brief_summary}}        — concise summary of the brief target entry
-  {{persistent_facts}}     — campaign-wide facts resolved in On Activation
-  {{directive_content}}    — raw directive file content
+  - From state and brief: campaign name, stage, quality gate, skill identity,
+    repo, pin, commit, the dependency-status table and the workaround list.
+  - {{brief_summary}}: the skill's target entry in the campaign brief, every
+    field it carries (a language or scope hint included).
+  - {{directive_content}}: the directive file byte for byte, whatever its
+    encoding, or "No directive configured" when --directive-file is absent or
+    names no file.
+  - {{persistent_facts}}: one bullet per persistent fact, or "None". An entry
+    `file:<path-or-glob>` adds the content of each file it names, with
+    `{project-root}` replaced by --project-root; any other entry is a fact
+    sentence.
 
 CLI:
   uv run campaign-render-kickoff.py --state-file <p> --brief-file <p> \
-      --skill <name> --template <p> [--workarounds '<json-list>']
+      --skill <name> --template <p> [--workarounds '<json-list>'] \
+      [--facts-json '<json-list>' | --facts-json -] [--project-root <p>] \
+      [--directive-file <p>]
 
-Output: the rendered kickoff markdown on stdout (judgment slots preserved).
+  `--facts-json -` reads the facts from stdin: a JSON list, or the object the
+  customization resolver prints for `--key workflow.persistent_facts`.
+
+Output: the rendered kickoff markdown on stdout, as UTF-8 bytes. The template
+is filled in one pass, so a `{{...}}` inside the directive or a fact is kept
+as written.
 
 Exit codes:
   0  rendered
-  2  error (missing file, bad YAML, skill/target not found, bad --workarounds)
+  2  error, as {"error", "code"} on stderr:
+       STATE_NOT_FOUND, BRIEF_NOT_FOUND, TEMPLATE_NOT_FOUND
+                             the input file is missing
+       STATE_UNREADABLE, BRIEF_UNREADABLE, TEMPLATE_UNREADABLE
+                             it cannot be read as UTF-8 text
+       PARSE_ERROR          state or brief is not a YAML mapping
+       SKILL_NOT_FOUND       the skill is not in state
+       BAD_WORKAROUNDS       --workarounds is not a JSON list
+       BAD_FACTS             --facts-json is not a list of strings (nor the
+                             resolver's object), --project-root is not a
+                             directory, or a `file:` entry keeps a placeholder
+       FACTS_FILE_NOT_FOUND  a `file:` path with no glob character names no
+                             file (a glob that matches nothing adds no fact)
+       FACTS_UNREADABLE      a facts file cannot be read
+       DIRECTIVE_UNREADABLE  the directive file cannot be read
 """
 
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
 
-# Placeholders this script intentionally leaves for the LLM to fill.
-JUDGMENT_SLOTS = ("{{brief_summary}}", "{{persistent_facts}}", "{{directive_content}}")
+NO_DIRECTIVE = "No directive configured"
+NO_FACTS = "None"
+FILE_PREFIX = "file:"
+PROJECT_ROOT = "{project-root}"
+# The key the customization resolver prints for --key workflow.persistent_facts
+# (it prints {} when no layer sets it).
+RESOLVER_KEY = "workflow.persistent_facts"
+GLOB_CHARS = ("*", "?", "[")
+# Target fields shown first, in this order; any other field of the entry
+# follows in the entry's own order.
+BRIEF_FIELDS = ("name", "repo_url", "tier", "pin", "depends_on")
+SLOT_RE = re.compile(r"\{\{[a-z_]+\}\}")
+# A placeholder left in a `file:` entry would match no file.
+UNRESOLVED_RE = re.compile(r"\{[A-Za-z][\w-]*\}")
 
 
 def _err(message: str, code: str) -> int:
@@ -70,12 +111,99 @@ def _workarounds_list(workarounds: List[str]) -> str:
     return "\n".join(f"- {w}" for w in workarounds)
 
 
+def _field_value(key: str, value: Any) -> str:
+    if value is None or value == "" or value == []:
+        return "latest" if key == "pin" else "none"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    if isinstance(value, dict):
+        return json.dumps(value, sort_keys=True)
+    return str(value)
+
+
+def _brief_summary(skill_name: str, target: Optional[Dict[str, Any]]) -> str:
+    if not target:
+        return f"The campaign brief has no target entry for `{skill_name}`."
+    keys = [k for k in BRIEF_FIELDS if k in target] + [k for k in target if k not in BRIEF_FIELDS]
+    return "\n".join(f"- `{key}`: {_field_value(key, target[key])}" for key in keys)
+
+
+def _bullet(text: str) -> str:
+    """One markdown bullet; a fact of several lines continues indented under it."""
+    first, *rest = text.strip().splitlines()
+    lines = [f"- {first}"] + [f"  {line}" if line.strip() else "" for line in rest]
+    return "\n".join(lines)
+
+
+def _facts_list(facts: List[str]) -> str:
+    bullets = [_bullet(fact) for fact in facts if fact.strip()]
+    return "\n".join(bullets) if bullets else NO_FACTS
+
+
+def _fact_files(entry: str, pattern: str, root: str) -> List[Path]:
+    """The files a `file:` entry names: the path itself, else every file its glob matches.
+
+    `{project-root}` in the pattern becomes root, escaped where it joins a glob.
+    A path with no glob character that names no file raises FileNotFoundError,
+    so a mistyped path stops the kickoff instead of dropping its facts; a glob
+    that matches nothing adds no file.
+    """
+    path = Path(pattern.replace(PROJECT_ROOT, root))
+    if path.is_file():
+        return [path]
+    if not any(c in pattern for c in GLOB_CHARS):
+        raise FileNotFoundError(f"`{entry}` names no file ({path.as_posix()})")
+    matches = glob.glob(pattern.replace(PROJECT_ROOT, glob.escape(root)), recursive=True)
+    return [Path(p) for p in sorted(matches) if Path(p).is_file()]
+
+
+def load_facts(entries: List[str], project_root: Optional[str] = None) -> List[str]:
+    """Turn persistent-facts entries into the facts the kickoff lists.
+
+    A `file:` entry adds one fact per file it names, headed by the file's
+    path. Raises ValueError on an entry that keeps a placeholder (as
+    `{project-root}` does when project_root is None), FileNotFoundError on a
+    path that names no file, OSError on a file that cannot be read.
+    """
+    facts: List[str] = []
+    for entry in entries:
+        if not entry.startswith(FILE_PREFIX):
+            facts.append(entry)
+            continue
+        pattern = entry[len(FILE_PREFIX):].strip()
+        left = pattern if project_root is None else pattern.replace(PROJECT_ROOT, "")
+        placeholder = UNRESOLVED_RE.search(left)
+        if placeholder:
+            hint = "; pass --project-root" if placeholder.group(0) == PROJECT_ROOT else ""
+            raise ValueError(f"`{entry}` holds the unresolved placeholder `{placeholder.group(0)}`{hint}")
+        for path in _fact_files(entry, pattern, project_root or ""):
+            text = path.read_bytes().decode("utf-8", errors="replace")
+            facts.append(f"From `{path.as_posix()}`:\n\n{text}")
+    return facts
+
+
+def read_directive(path: Optional[str]) -> Optional[str]:
+    """The directive file's text exactly as stored, or None when no file is there.
+
+    A byte that is not UTF-8 is kept as a surrogate, which _write_stdout turns
+    back into the same byte, so a directive in another encoding comes through
+    unchanged.
+    """
+    if not path or not Path(path).is_file():
+        return None
+    return Path(path).read_bytes().decode("utf-8", errors="surrogateescape")
+
+
 def render_kickoff(
     state: Dict[str, Any],
     brief: Dict[str, Any],
     skill_name: str,
     template: str,
     workarounds: Optional[List[str]] = None,
+    directive: Optional[str] = None,
+    facts: Optional[List[str]] = None,
 ) -> str:
     campaign = state.get("campaign", {})
     skills = state.get("skills", [])
@@ -84,12 +212,13 @@ def render_kickoff(
         raise KeyError(f"Skill '{skill_name}' not found in state")
     skill = skill_map[skill_name]
 
-    targets = {t["name"]: t for t in brief.get("targets", [])}
-    repo_url = targets.get(skill_name, {}).get("repo_url", "")
+    targets = {t.get("name"): t for t in (brief.get("targets") or []) if isinstance(t, dict)}
+    target = targets.get(skill_name)
+    repo_url = (target or {}).get("repo_url", "")
 
     wa = workarounds if workarounds is not None else (skill.get("workarounds_applied", []) or [])
 
-    mechanical = {
+    values = {
         "{{campaign_name}}": str(campaign.get("name", "")),
         "{{current_stage}}": str(campaign.get("current_stage", "")),
         "{{quality_gate_summary}}": _quality_gate_summary(campaign.get("quality_gate", {})),
@@ -100,59 +229,177 @@ def render_kickoff(
         "{{repo_url}}": repo_url,
         "{{workarounds_list}}": _workarounds_list(wa),
         "{{dependency_status_table}}": _dependency_status_table(skill, skill_map),
+        "{{brief_summary}}": _brief_summary(skill_name, target),
+        "{{persistent_facts}}": _facts_list(facts or []),
+        "{{directive_content}}": NO_DIRECTIVE if directive is None else directive,
     }
-
-    out = template
-    for key, value in mechanical.items():
-        out = out.replace(key, value)
-    return out
+    # One pass: a filled-in value is never searched again.
+    return SLOT_RE.sub(lambda m: values.get(m.group(0), m.group(0)), template)
 
 
-def run(state_file: str, brief_file: str, skill: str, template_file: str, workarounds_json: Optional[str]) -> int:
+def _json_list(raw: str) -> List[Any]:
+    value = json.loads(raw)
+    if not isinstance(value, list):
+        raise ValueError("not a list")
+    return value
+
+
+def _facts_entries(raw: str) -> List[Any]:
+    """The entries a --facts-json value holds: a JSON list, or the resolver's object."""
+    if not raw.strip():
+        raise ValueError("it is empty (with -, the command piped into stdin printed nothing)")
+    value = json.loads(raw)
+    if isinstance(value, dict) and set(value) <= {RESOLVER_KEY}:
+        value = value.get(RESOLVER_KEY, [])
+    if not isinstance(value, list):
+        raise ValueError(f"not a list, nor an object holding `{RESOLVER_KEY}`")
+    return value
+
+
+def _read_stdin() -> str:
+    """stdin as UTF-8, the encoding the resolver writes; a byte-order mark is dropped."""
+    buffer = getattr(sys.stdin, "buffer", None)
+    if buffer is None:
+        return sys.stdin.read()
+    return buffer.read().decode("utf-8-sig")
+
+
+def _write_stdout(text: str) -> None:
+    """Write UTF-8 bytes as they are, so no platform rewrites the directive's line endings.
+
+    A surrogate read_directive kept for a byte that is not UTF-8 becomes that byte again.
+    """
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        sys.stdout.write(text)
+        return
+    sys.stdout.flush()
+    buffer.write(text.encode("utf-8", errors="surrogateescape"))
+    buffer.flush()
+
+
+def run(
+    state_file: str,
+    brief_file: str,
+    skill: str,
+    template_file: str,
+    workarounds_json: Optional[str],
+    facts_json: Optional[str] = None,
+    directive_file: Optional[str] = None,
+    project_root: Optional[str] = None,
+) -> int:
+    texts: Dict[str, str] = {}
     for label, p in (("State", state_file), ("Brief", brief_file), ("Template", template_file)):
         if not Path(p).is_file():
             return _err(f"{label} file not found: {p}", f"{label.upper()}_NOT_FOUND")
+        try:
+            texts[label] = Path(p).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            return _err(f"{label} file unreadable: {p}: {exc}", f"{label.upper()}_UNREADABLE")
 
     try:
-        state = yaml.safe_load(Path(state_file).read_text(encoding="utf-8"))
-        brief = yaml.safe_load(Path(brief_file).read_text(encoding="utf-8"))
+        state = yaml.safe_load(texts["State"])
+        brief = yaml.safe_load(texts["Brief"])
     except yaml.YAMLError as exc:
         return _err(f"Failed to parse YAML: {exc}", "PARSE_ERROR")
-    template = Path(template_file).read_text(encoding="utf-8")
+    if not isinstance(state, dict) or not isinstance(brief, dict):
+        return _err("State and brief must each be a YAML mapping", "PARSE_ERROR")
 
     workarounds: Optional[List[str]] = None
     if workarounds_json:
         try:
-            workarounds = json.loads(workarounds_json)
-            if not isinstance(workarounds, list):
-                raise ValueError("not a list")
+            workarounds = _json_list(workarounds_json)
         except ValueError as exc:
             return _err(f"--workarounds must be a JSON list: {exc}", "BAD_WORKAROUNDS")
 
+    entries: List[Any] = []
+    if facts_json:
+        try:
+            entries = _facts_entries(_read_stdin() if facts_json == "-" else facts_json)
+        except ValueError as exc:
+            return _err(f"--facts-json must be a JSON list of strings: {exc}", "BAD_FACTS")
+        if not all(isinstance(e, str) for e in entries):
+            return _err("--facts-json must be a JSON list of strings: an entry is not a string", "BAD_FACTS")
+    if project_root is not None and (not project_root.strip() or not Path(project_root).is_dir()):
+        return _err(f"--project-root is not a directory: '{project_root}'", "BAD_FACTS")
     try:
-        rendered = render_kickoff(state, brief, skill, template, workarounds)
+        facts = load_facts(entries, project_root)
+    except ValueError as exc:
+        return _err(f"--facts-json: {exc}", "BAD_FACTS")
+    except FileNotFoundError as exc:
+        return _err(f"Persistent facts file not found: {exc}", "FACTS_FILE_NOT_FOUND")
+    except OSError as exc:
+        return _err(f"Persistent facts file unreadable: {exc}", "FACTS_UNREADABLE")
+
+    try:
+        directive = read_directive(directive_file)
+    except OSError as exc:
+        return _err(f"Directive file unreadable: {directive_file}: {exc}", "DIRECTIVE_UNREADABLE")
+
+    try:
+        rendered = render_kickoff(state, brief, skill, texts["Template"], workarounds, directive, facts)
     except KeyError as exc:
         return _err(str(exc), "SKILL_NOT_FOUND")
 
-    sys.stdout.write(rendered)
-    if not rendered.endswith("\n"):
-        sys.stdout.write("\n")
+    _write_stdout(rendered if rendered.endswith("\n") else rendered + "\n")
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="campaign-render-kickoff",
-        description="Render the mechanical placeholders in the campaign kickoff template.",
+        description="Render the campaign kickoff template for one skill, every placeholder filled.",
     )
     parser.add_argument("--state-file", required=True)
     parser.add_argument("--brief-file", required=True)
     parser.add_argument("--skill", required=True, help="skill name (must exist in state)")
     parser.add_argument("--template", required=True, dest="template_file")
     parser.add_argument("--workarounds", dest="workarounds_json", help="JSON list of applied workarounds")
-    args = parser.parse_args(argv)
-    return run(args.state_file, args.brief_file, args.skill, args.template_file, args.workarounds_json)
+    parser.add_argument(
+        "--facts-json",
+        help="persistent facts as a JSON list of sentences and file:<path-or-glob> entries, or - to "
+        "read them from stdin (a list, or the resolver's output for --key workflow.persistent_facts)",
+    )
+    parser.add_argument(
+        "--project-root",
+        help="project root that replaces {project-root} in file: entries",
+    )
+    parser.add_argument(
+        "--directive-file",
+        help="directive file to inline byte for byte (absent or missing: 'No directive configured')",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return run(
+        args.state_file,
+        args.brief_file,
+        args.skill,
+        args.template_file,
+        args.workarounds_json,
+        args.facts_json,
+        args.directive_file,
+        args.project_root,
+    )
+
+
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdout and stderr to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which cannot print every character
+    a directive or a fact may hold.
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
 
 
 if __name__ == "__main__":
+    _force_utf8(sys.stdout, sys.stderr)
     raise SystemExit(main())
