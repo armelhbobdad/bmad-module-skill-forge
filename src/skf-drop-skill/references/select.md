@@ -1,40 +1,27 @@
 ---
 nextStepFile: 'execute.md'
-versionPathsKnowledge: 'knowledge/version-paths.md'
-# Read-side inventory helpers (reads, not atomicity-critical). §2 uses
-# `{manifestOpsHelper} read` (manifest parse + v1 to v2 migration +
-# corrupt-JSON detection); §3 uses `{skillInventoryHelper}` (on-disk scan +
-# the exports and on-disk union for orphan detection) and
-# `{manifestOpsHelper} affected-versions <skill>` (numeric semver-descending
-# order, so 0.10.0 precedes 0.9.0, which the LLM gets wrong); §8b runs
-# `{skillInventoryHelper} --purge-check`, the purge verdict for the skill
-# folder and its forge folder, so a purge never deletes a folder SKF did
-# not generate, and §9 takes the folders to delete from it.
-# Probe each in order (installed SKF path first, src/ fallback); first hit wins.
-# If neither candidate resolves, the section computes the result in-prompt;
-# without the inventory helper §3 offers manifest skills only and §8b allows
-# no purge.
-manifestOpsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
-  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# SKILL.md On-Activation §4 binds `{emitEnvelopeHelper}`, `{manifestOpsHelper}`,
+# `{rebuildManagedSectionsHelper}` and `{run_dir}`. §2 reads the manifest with
+# `{manifestOpsHelper} read` (parse, v1 to v2 migration, corrupt-JSON
+# detection), §3 orders each skill's versions with its `affected-versions`
+# (numeric semver-descending, so 0.10.0 precedes 0.9.0, which the LLM gets
+# wrong) and §9b maps config.yaml `ides` to the context files step 2 rebuilds
+# with `{rebuildManagedSectionsHelper} resolve-targets`.
+# The read-side inventory helper (installed SKF path first, src/ fallback;
+# first hit wins): §3 runs `{skillInventoryHelper}` (on-disk scan + the
+# exports and on-disk union for orphan detection), §5 its `resolve` (the
+# version rows and counts §7 and §9b read) and §8b its `--purge-check`, the
+# purge verdict for the skill folder and its forge folder, so a purge never
+# deletes a folder SKF did not generate, and §9 takes the folders to delete
+# from it. Without it §3 offers manifest skills only and §8b allows no purge.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-# Standalone single-line result-envelope contract emitted at every headless
-# HALT in this step. Loaded in §1 so no error path depends on SKILL.md
-# remaining in context under compaction.
-headlessContract: 'headless-contract.md'
 # Deterministic recursive byte sizing + human formatting for the §9b
 # blast-radius line. Bundled with this skill (no probe order needed);
 # execute.md §4 formats guarded-delete's `bytes_freed` with it for the
 # canonical `disk_freed`.
 dirSizesHelper: 'scripts/dir-sizes.py'
-# Resolve `{rebuildManagedSectionsHelper}` similarly. §9b maps config.yaml
-# `ides` to the context files step 2 rebuilds with its `resolve-targets`
-# action, the IDE mapping export-skill writes the section with.
-rebuildManagedSectionsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
-  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -47,29 +34,27 @@ Identify exactly what the user wants to drop — which skill, which version(s), 
 
 ## Rules
 
-- Focus only on selection, validation, and confirmation — do not modify the manifest or delete files
+- Focus only on selection, validation, and confirmation: do not change the manifest, a context file or a skill folder (this step writes only its envelope payloads, in `{run_dir}`)
 - Do not proceed without explicit user confirmation at the final gate
 - Do not drop an active version when other non-deprecated versions exist
 - Present selections clearly so the user can verify scope, mode, and blast radius
-- **Interactive cancel (every gate below):** at any prompt, `cancel` / `exit` / `[X]` / `q` / `:q` → display "Cancelled — no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`). Stated once here; the §10 commit gate adds its own tip + headless envelope on top of this.
+- **Interactive cancel (every gate below):** at any prompt, `cancel` / `exit` / `[X]` / `q` / `:q` → display "Cancelled: no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`). Stated once here; the §10 commit gate adds its own tip on top of this.
 
 ## MANDATORY SEQUENCE
 
-### 1. Load Knowledge
+### 1. Halt Envelope
 
-Read `{versionPathsKnowledge}` completely and extract:
+Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode it also prints its envelope through the shared emitter before it stops (`{emitEnvelopeHelper}` and `{run_dir}` come from SKILL.md On-Activation §4): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "exit_code": <code>}` plus the envelope fields the site names (and `"path"` when the halt names one), then run
 
-- Path templates: `{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}`
-- Export manifest v2 schema (`schema_version`, `exports`, `active_version`, `versions` map, `status` field values)
-- Skill management operations (Drop section — soft vs hard, active version guard, skill-level drop)
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-drop-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
 
-You will use these templates and rules to build directory paths and enforce safety guards in the following sections.
-
-If `{headless_mode}` is true, also read `{headlessContract}` now — it defines the single-line result envelope every HALT below emits, so the shape is in context even if SKILL.md was compacted out.
+and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. The emitter gives every field the site leaves out its default (`null`, `[]` or `false`) and checks `exit_code` against `halt_reason`. If it exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
 ### 2. Read Export Manifest
 
-**Resolve `{manifestOpsHelper}`** ← first existing path in `{manifestOpsProbeOrder}`. Parse the manifest through it rather than hand-rolling JSON — the helper migrates v1→v2, normalizes `platforms`→`ides`, and reports a parse error deterministically:
+Parse the manifest through the `{manifestOpsHelper}` On-Activation §4 resolved rather than hand-rolling JSON: the helper migrates v1 to v2, normalizes `platforms` to `ides`, and reports a parse error deterministically:
 
 ```bash
 python3 {manifestOpsHelper} {skills_output_folder} read
@@ -77,12 +62,10 @@ python3 {manifestOpsHelper} {skills_output_folder} read
 
 Read the JSON result:
 
-- **`status == "error"`** — the manifest file exists but is malformed (the helper returns `{"status":"error","error":"Manifest JSON parse error: ..."}`): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before dropping." HALT (exit code 3, `halt_reason: "manifest-corrupt"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
+- **`status == "error"`**: the manifest file exists but is malformed (the helper returns `{"status":"error","error":"Manifest JSON parse error: ..."}`): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: fix or remove the file before dropping." HALT (exit code 3, `halt_reason: "manifest-corrupt"`, phase `select:manifest-read`, path `{skills_output_folder}/.export-manifest.json`) with the §1 halt envelope.
 - **`status == "ok"`** — use `result.manifest` (already migrated to v2) as `manifest` for the rest of this step. Set `manifest_exists = true` when `manifest.exports` has at least one entry, else `false` (a missing manifest reads back as an empty `exports` object, so it correctly yields `false`).
 
 When `manifest_exists = false`, section 3's on-disk scan is authoritative: draft skills (created by `[CS]`/`[QS]`/`[SS]` but never exported) can still be hard-dropped in purge mode, and section 8 restricts the options to purge only — soft-deprecate is meaningless without a manifest entry to record it against.
-
-**If neither `{manifestOpsProbeOrder}` candidate resolves:** read the manifest file in-prompt — a missing/empty file is `manifest_exists = false`; a file with `exports` entries is `true` (no `schema_version` field means v1 — treat each entry as a single active version); invalid JSON takes the corrupt-manifest HALT above.
 
 ### 3. List Available Skills
 
@@ -106,8 +89,8 @@ Each `result.skills[]` entry carries `skf_skill` (the folder holds a skill SKF g
 
 **If the combined roster is empty** (no `manifest.exports` entries AND no `result.skills[]` entry with `skf_skill` true):
 
-- When a skill name was supplied as an argument and it is in `{not_offered}` (empty when §3 ran without the inventory helper), take the §4 refusal for that folder first, in either mode: display its message and HALT (exit code 5, `halt_reason: "not-skf-output"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{name}"`, `drop_mode: null`, `versions_affected: []`.
-- Otherwise halt with "**Drop Skill — nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first." When `{not_offered}` is non-empty, append: "Left untouched (not SKF output): {not_offered}." HALT (exit code 3, `halt_reason: "nothing-to-drop"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
+- When a skill name was supplied as an argument and it is in `{not_offered}` (empty when §3 ran without the inventory helper), take the §4 refusal for that folder first, in either mode: display its message and HALT (exit code 5, `halt_reason: "not-skf-output"`, phase `select:roster`), with `skill: "{name}"` in the §1 halt envelope.
+- Otherwise halt with "**Drop Skill: nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first." When `{not_offered}` is non-empty, append: "Left untouched (not SKF output): {not_offered}." HALT (exit code 3, `halt_reason: "nothing-to-drop"`, phase `select:roster`) with the §1 halt envelope.
 
 Display the combined list (versions newest-first):
 
@@ -126,25 +109,35 @@ Available skills:
 Not offered (not SKF output): my-module-skill
 ```
 
-**If a helper does not resolve** (Python/helper unavailable): fall back to the in-prompt computation. Without `{manifestOpsHelper}`, list each `manifest.exports` skill's versions with `status`, active marked `*`, ordered newest-first by comparing version components numerically. Without `{skillInventoryHelper}`, list the `manifest.exports` skills and nothing else: folders on disk that are absent from `manifest.exports` are not offered in this mode, because without the inventory helper SKF cannot check that it generated them. The §8b purge check then has no verdict (`"unknown"`), so §8b allows no purge. If the list is empty, take the "nothing to drop" HALT above.
+**If `{skillInventoryHelper}` does not resolve:** list the `manifest.exports` skills and nothing else: folders on disk that are absent from `manifest.exports` are not offered in this mode, because without the inventory helper SKF cannot check that it generated them. The §8b purge check then has no verdict (`"unknown"`), so §8b allows no purge. If the list is empty, take the "nothing to drop" HALT above.
 
 ### 4. Ask Which Skill
+
+**GATE [default: use args]:** when a `skill_name` argument was supplied, take it as the answer below in either mode, without showing the prompt; the two checks that follow still apply. When none was supplied, headless mode HALTs (exit code 2, `halt_reason: "input-missing"`, phase `select:skill`) with the §1 halt envelope: "headless mode requires skill name argument." Interactive mode asks:
 
 "**Which skill would you like to drop?**
 Enter the skill name or its number from the list above, or `cancel` / `exit` / `:q` to abort."
 
-Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires skill name argument." In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`.
+Wait for user input. Accept either the numeric index or the skill name (exact match).
 
 - **If the input names a folder in `{not_offered}`:** display "**`{name}` is not SKF output — nothing was changed.** `{skills_output_folder}/{name}/` has no SKF marker in its `metadata.json`, so SKF will not delete it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{name}` yourself (to remove it, delete that folder). Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When that folder's `result.skills[]` entry has a non-empty `errors` list (for example, the folder is a link), show those errors in place of the marker sentence.
   - **Interactive:** Re-display the list and ask again.
-  - **Headless (`{headless_mode}` is true):** HALT (exit code 5, `halt_reason: "not-skf-output"`). Emit the error envelope per `{headlessContract}` with `skill: "{name}"`, `drop_mode: null`, `versions_affected: []`.
+  - **Headless (`{headless_mode}` is true):** HALT (exit code 5, `halt_reason: "not-skf-output"`, phase `select:skill`), with `skill: "{name}"` in the §1 halt envelope.
 - **If the user's input does not match any listed skill:**
   - **Interactive:** Re-display the list and ask again.
-  - **Headless (`{headless_mode}` is true):** the supplied `skill_name` argument resolves to no skill in the combined list — there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`): "headless mode: skill argument `{supplied value}` does not match any listed skill." Emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
+  - **Headless (`{headless_mode}` is true):** the supplied `skill_name` argument resolves to no skill in the combined list, and there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:skill`) with the §1 halt envelope: "headless mode: skill argument `{supplied value}` does not match any listed skill."
 
 Store the selection as `target_skill`. Also store `target_in_manifest = true` if the selected skill has an entry in the manifest, `false` otherwise — subsequent sections use this flag to restrict the available drop options.
 
 ### 5. Display Version Details
+
+First read the skill's versions through the inventory helper, once; §7 and §9b use the same result:
+
+```bash
+uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {target_skill} --forge-data-folder "{forge_data_folder}"
+```
+
+Bind `{version_rows}` ← `resolve.versions` (the manifest's and the on-disk versions, newest first, each with its manifest `status`, `in_manifest` and `on_disk`) and `{version_counts}` ← `resolve.counts` (`non_deprecated` counts the manifest versions whose `status` is not `"deprecated"`, and `on_disk` the version folders). When §3 ran without the helper, or the call exits non-zero, leave `{version_counts}` unset (§7 and §9b say what they do then) and, for a skill in the manifest, bind `{version_rows}` ← §3's `affected-versions` list for `{target_skill}`, each with `in_manifest` true.
 
 **If `target_in_manifest = true`**, display every version with its full metadata from the manifest:
 
@@ -163,16 +156,18 @@ Store the selection as `target_skill`. Also store `target_in_manifest = true` if
 ```
 **{target_skill} — on-disk versions (not in manifest):**
 
-  {list version subdirectories found under {skills_output_folder}/{target_skill}/, or "(flat layout)" if no version nesting is present}
+  {each `{version_rows}` entry whose `on_disk` is true, newest first, or "(flat layout)" when `resolve.layout` is "flat"}
 
 **Note:** This skill has no manifest entry, so soft-deprecate is not available. Only a skill-level hard purge can be performed — the drop will delete the entire on-disk skill group and forge group (a forge folder SKF did not generate stays where it is).
 ```
 
 ### 6. Ask Scope
 
-**If `target_in_manifest = false`:** Skip this prompt — draft skills can only be dropped as a whole. Set `target_versions = "all"` and `is_skill_level = true`, then proceed to section 7.
+**GATE [default: use args]:** the `version` argument answers this section in either mode, so a supplied value is never asked for again.
 
-**If `target_in_manifest = true`:**
+**If `target_in_manifest = false`:** a draft skill can only be dropped as a whole. A `version` argument other than `all` asks for less, and the drop never widens it to every version: HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:scope`) in either mode, with `skill: "{target_skill}"` in the §1 halt envelope: "`{target_skill}` has no manifest entry, so only the whole skill can be dropped. Re-run with `version=all`." Otherwise (no `version` argument, or `all`), skip the prompt: set `target_versions = "all"` and `is_skill_level = true`, then proceed to section 7.
+
+**If `target_in_manifest = true`:** a `version` argument of `all` takes **[A]** below, and any other value takes **[N]** with that value as the answer to "Which version?", without showing either prompt. With no `version` argument, headless mode HALTs (exit code 2, `halt_reason: "input-missing"`, phase `select:scope`), with `skill: "{target_skill}"` in the §1 halt envelope, rather than guess between one version and the whole skill: "headless mode requires a `version` argument for `{target_skill}`: `all`, or one of its versions ({each `{version_rows}` entry with `in_manifest` true})." Interactive mode asks:
 
 "**Drop which version(s)?**
 
@@ -186,10 +181,10 @@ Wait for user selection.
 
 "**Which version?** Enter the version string (e.g. `0.5.0`)."
 
-Wait for user input. Validate that the version exists in the manifest's `versions` map for `target_skill`.
+Wait for user input (a supplied `version` argument is the input). Validate that the version is a `{version_rows}` entry with `in_manifest` true.
 
 - **If it does not match (interactive):** repeat the prompt.
-- **If it does not match (headless — `{headless_mode}` is true):** the supplied `version` argument is unparseable or absent from the `versions` map — there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`): "headless mode: version argument `{supplied value}` does not exist in `{target_skill}`'s versions." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`, `versions_affected: []`.
+- **If it does not match (headless, `{headless_mode}` is true):** the supplied `version` argument is not a `{version_rows}` entry with `in_manifest` true, and there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:scope`), with `skill: "{target_skill}"` in the §1 halt envelope: "headless mode: version argument `{supplied value}` does not exist in `{target_skill}`'s versions."
 
 Set `target_versions = [<selected version>]` and `is_skill_level = false`.
 
@@ -206,8 +201,8 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 1. Read the selected version's `status` field from the manifest
 2. If `status != "active"` → skip this guard, the version is safe to drop
 3. If `status == "active"`:
-   a. Count the number of OTHER versions in the `versions` map with `status != "deprecated"` (i.e., `active`, `archived`, or `draft`)
-   b. If that count is `> 0` → REFUSE the drop:
+   a. Read `{version_counts}.non_deprecated` (§5): the manifest versions of `{target_skill}` whose `status` is not `"deprecated"` (`active`, `archived` or `draft`), this one included. The guard never counts by hand: without `{version_counts}` (no inventory helper), refuse at b whenever the manifest lists any other version of `{target_skill}`.
+   b. If that count is above `1` → REFUSE the drop:
 
       "**Cannot drop the active version `{version}`.**
       Other non-deprecated versions of `{target_skill}` still exist. To proceed, either:
@@ -216,30 +211,38 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
       **(b)** Use the `[A] All versions` option to drop every version of `{target_skill}` at once."
 
-      HALT (exit code 5, `halt_reason: "active-version-guard-refused"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`, `versions_affected: ["{version}"]`. Do not proceed.
+      HALT (exit code 5, `halt_reason: "active-version-guard-refused"`, phase `select:active-version-guard`), with `skill: "{target_skill}"` and `versions_affected: ["{version}"]` in the §1 halt envelope. Do not proceed.
 
-   c. If the count is `0` → the active version is the ONLY version; allow the drop to continue (it is functionally equivalent to a skill-level drop on a single-version skill)
+   c. Otherwise (a count of `1`, or no other version in the manifest) → the active version is the ONLY non-deprecated version; allow the drop to continue (it is functionally equivalent to a skill-level drop on a single-version skill)
 
 ### 8. Ask Mode
 
+**GATE [default: use args]:** a `mode` argument answers this section in either mode, then `{defaultMode}`; the cases below say when the run HALTs instead. When `{headless_mode}` is true, record the `drop_mode` this section sets as an auto-decision before §8b runs: stage `{run_dir}/decision.json` as `{"gate": "select.mode", "default_action": "use args", "taken_action": "<drop_mode>", "reason": "<mode_source>"}` and run
+
+```bash
+uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
+```
+
+The emitter folds each recorded decision into the result record's `headless_decisions` (the envelope has no such field), and §10 records its auto-confirm the same way. If the command fails, go on: only that entry is lost.
+
 **If `target_in_manifest = false`:** Skip this prompt — soft-deprecate is meaningless without a manifest entry to mark, so only a purge applies. Take the first case that matches:
 
-1. A `mode` argument other than `purge`, or, when `{headless_mode}` is true, no `mode` argument while `{defaultMode}` is `"deprecate"`: HALT (exit code 2, `halt_reason: "input-invalid"`): "`{target_skill}` has no manifest entry, so there is nothing to deprecate. Re-run with `--mode purge` to delete it." In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`.
-2. `{headless_mode}` is true and nothing asked for a purge (no `mode` argument and `{defaultMode}` is empty): HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode: `{target_skill}` has no manifest entry, so only a purge applies; re-run with `--mode purge`." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`.
+1. A `mode` argument other than `purge`, or, when `{headless_mode}` is true, no `mode` argument while `{defaultMode}` is `"deprecate"`: HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "`{target_skill}` has no manifest entry, so there is nothing to deprecate. Re-run with `--mode purge` to delete it."
+2. `{headless_mode}` is true and nothing asked for a purge (no `mode` argument and `{defaultMode}` is empty): HALT (exit code 2, `halt_reason: "input-missing"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "headless mode: `{target_skill}` has no manifest entry, so only a purge applies; re-run with `--mode purge`."
 3. Otherwise force `drop_mode = "purge"` (record `mode_source = "draft-skill-forced-purge"`), inform the user: "**Mode forced to purge** — `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted.", and apply §8b. An interactive run still confirms the purge at §10. A headless run reaches this case only with `mode=purge` or a `{defaultMode}` of `"purge"`, which the On-Activation guard has already checked against `{forbidPurgeInHeadless}`.
 
 **If `target_in_manifest = true`:**
 
-**If a `mode` argument was supplied at invocation:** an explicit `mode` arg is the per-run override and takes precedence over `{defaultMode}`. If it is `"deprecate"` or `"purge"`, set `drop_mode` from it and record the decision source `mode_source = "--mode argument"`. If a `mode` arg was supplied but is not one of `deprecate` / `purge`, HALT (exit code 2, `halt_reason: "input-invalid"`): "invalid `--mode` value `{supplied}` — expected `deprecate` or `purge`." In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`.
+**If a `mode` argument was supplied at invocation:** an explicit `mode` arg is the per-run override and takes precedence over `{defaultMode}`. If it is `"deprecate"` or `"purge"`, set `drop_mode` from it and record the decision source `mode_source = "--mode argument"`. If a `mode` arg was supplied but is not one of `deprecate` / `purge`, HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "invalid `--mode` value `{supplied}`: expected `deprecate` or `purge`."
 
 **Else if `{defaultMode}` is non-empty (`"deprecate"` or `"purge"`)**: skip the prompt, set `drop_mode = "{defaultMode}"`, and record the decision source `mode_source = "customize.toml.workflow.default_mode"` for the headless decision trail.
 
-**Otherwise (interactive):** If `{headless_mode}` is true at this point (no `mode` arg and no `{defaultMode}`), there is no input to prompt for: HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires `--mode deprecate|purge` or `default_mode` in customize.toml to set the drop mode." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`. Otherwise, prompt the user. Before showing the menu, run the §8b purge check at the current scope; when `{purge_verdict}` is not `"ok"`, leave out **[P]** and add the line "Purge is not offered: {the §8b refusal message for `{purge_reason}`}."
+**Otherwise (interactive):** If `{headless_mode}` is true at this point (no `mode` arg and no `{defaultMode}`), there is no input to prompt for: HALT (exit code 2, `halt_reason: "input-missing"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "headless mode requires `--mode deprecate|purge` or `default_mode` in customize.toml to set the drop mode." Otherwise, prompt the user. Before showing the menu, run the §8b purge check at the current scope; when `{purge_verdict}` is not `"ok"`, leave out **[P]** and add the line "Purge is not offered: {the §8b refusal message for `{purge_reason}`}."
 
 "**How should this be dropped?**
 
-- **[D]** Deprecate (soft) — Mark the version as `deprecated` in the manifest. Files remain on disk. Export-skill will exclude it from all platform context files. Reversible by editing the manifest.
-- **[P]** Purge (hard) — Deprecate AND delete files from disk (`{skill_package}` and `{forge_version}`, or full `{skill_group}` and `{forge_group}` for a skill-level drop; a forge folder SKF did not generate stays where it is). **Irreversible.**
+- **[D]** Deprecate (soft): mark the version as `deprecated` in the manifest. Files remain on disk. Export-skill will exclude it from all platform context files. Reversible by editing the manifest.
+- **[P]** Purge (hard): deprecate and delete {affected_directories} from disk (a forge folder SKF did not generate stays where it is). **Irreversible.**
 - **[X]** Cancel and exit (or type `cancel` / `exit` / `:q`)"
 
 Wait for user selection.
@@ -260,7 +263,7 @@ Pass `--purge-version {version}` for a single-version drop (`is_skill_level = fa
 
 When §3 ran without the inventory helper, the call exits non-zero, or its result has no `purge_check` (an installed `skf-skill-inventory.py` older than the flag), bind `{purge_verdict}` and `{purge_reason}` to `"unknown"`: SKF cannot check what it would delete.
 
-**The guard.** Skip it when `drop_mode == "deprecate"`. When `{purge_verdict}` is not `"ok"`, HALT (exit code 5, `halt_reason: "not-skf-output"`) with the message for `{purge_reason}`. In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: "purge"`, `versions_affected: []`.
+**The guard.** Skip it when `drop_mode == "deprecate"`. When `{purge_verdict}` is not `"ok"`, HALT (exit code 5, `halt_reason: "not-skf-output"`, phase `select:purge-guard`) with the message for `{purge_reason}`, and `skill: "{target_skill}"` and `drop_mode: "purge"` in the §1 halt envelope.
 
 - `skill-mixed-whole`: "**Purge refused: `{skills_output_folder}/{target_skill}/` also holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out of the folder and re-run. For a skill in the manifest, you can also purge a single version SKF generated, or use `--mode deprecate`. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
 - `skill-version-not-skf`: "**Purge refused: SKF did not generate `{skills_output_folder}/{target_skill}/{version}`** (it has no SKF marker in its `metadata.json`, or it is a link). Nothing was deleted. Use `--mode deprecate` to mark the version deprecated in the manifest only, or remove it yourself."
@@ -271,9 +274,9 @@ When §3 ran without the inventory helper, the call exits non-zero, or its resul
 
 ### 9. Compute Affected Directories
 
-`affected_directories` is the §8b purge check's list: the folders a purge at this scope deletes, the skill folder (`{skill_group}`), or its version folder for a single-version drop, then its forge folder (`{forge_group}` or `{forge_version}`), each only when something is there. The helper writes each path without a trailing separator, since a trailing `/` makes a delete or a size walk follow a link, and never lists a forge folder the purge leaves in place (`{forge_left_in_place}`), or a second path when both settings name one folder.
+`affected_directories` is the §8b purge check's list: the folders a purge at this scope deletes, the skill folder, or its version folder for a single-version drop, then its forge folder, each only when something is there. The helper writes each path without a trailing separator, since a trailing `/` makes a delete or a size walk follow a link, and never lists a forge folder the purge leaves in place (`{forge_left_in_place}`), or a second path when both settings name one folder.
 
-In deprecate mode the list shows what the drop keeps on disk. When the purge check has no verdict (`"unknown"`), build it from the templates in `{versionPathsKnowledge}` instead: `{skills_output_folder}/{target_skill}/{version}` and `{forge_data_folder}/{target_skill}/{version}` for a single version, `{skills_output_folder}/{target_skill}` and `{forge_data_folder}/{target_skill}` for a whole skill, each without a trailing `/`, and only once when both settings name one folder.
+In deprecate mode the list shows what the drop keeps on disk. When the purge check has no verdict (`"unknown"`), build it from these paths instead: `{skills_output_folder}/{target_skill}/{version}` and `{forge_data_folder}/{target_skill}/{version}` for a single version, `{skills_output_folder}/{target_skill}` and `{forge_data_folder}/{target_skill}` for a whole skill, each without a trailing `/`, and only once when both settings name one folder.
 
 Store the list as `affected_directories`.
 
@@ -283,9 +286,9 @@ If `drop_mode == "deprecate"`, record the list but present it as "retained" in t
 
 Compute three scalars to put in front of the path list at §10, so the user sees the scale of an irreversible drop before scanning individual paths:
 
-1. **`versions_count`** — the number of skill versions in scope:
-   - Version-level drop: `len(target_versions)` (typically `1`)
-   - Skill-level drop: count of non-deprecated versions in `exports.{target_skill}.versions` (the deprecated ones are already absent from the active managed sections)
+1. **`versions_count`**: the number of skill versions in scope, never counted by hand:
+   - Version-level drop: `1`
+   - Skill-level drop: `{version_counts}.non_deprecated` (§5) for a skill in the manifest (the deprecated versions are already absent from the active managed sections), and `{version_counts}.on_disk` for a draft. Without `{version_counts}` (no inventory helper, so a skill in the manifest), the `count` of §3's `affected-versions` call for `{target_skill}`, which also counts its deprecated versions
 
 2. **`bytes_total`** — the on-disk size of `affected_directories`. Delegate the recursive sum and the human label to the sizing helper rather than adding file sizes in-prompt:
 
@@ -295,13 +298,13 @@ Compute three scalars to put in front of the path list at §10, so the user sees
 
    Read `total_human` (e.g. `"4.2 MB"`) as `bytes_total` and `total_bytes` as `bytes_total_raw`; non-existent paths report `exists: false` and drop out of the total. If the helper is unavailable, fall back to `du -sb` per path: the display is best-effort. execute.md §4 measures each folder the same way (every file's size, a link counted as itself) just before it deletes it, and formats the total with the same helper for the canonical `disk_freed`, so the two differ only if files change between this gate and execution.
 
-3. **`context_files_count`**: the number of context files step 2 rebuilds. Resolve `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}`, and map the `ides` list of `config.yaml` (an absent key is an empty list) through the IDE mapping export-skill writes the section with:
+3. **`context_files_count`**: the number of context files step 2 rebuilds. Map the `ides` list of `config.yaml` (an absent key is an empty list) through the IDE mapping export-skill writes the section with, using the `{rebuildManagedSectionsHelper}` On-Activation §4 resolved:
 
    ```bash
    python3 {rebuildManagedSectionsHelper} resolve-targets --ides "{ides}"
    ```
 
-   `{ides}` is the comma-joined list. Store `targets` as `target_context_files` (one `{context_file, skill_root, ides}` entry per file; an IDE the mapping does not list, and an empty list, resolve to AGENTS.md with `.agents/skills/`), set `context_files_count` to its length, and show each `warnings[]` and `notes[]` line. When no candidate exists or the helper exits non-zero, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "SKF cannot resolve the context files to rebuild: {the helper's `error`, or the missing helper}. Nothing was changed. Re-install SKF." In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: "{drop_mode}"`, `versions_affected: []`.
+   `{ides}` is the comma-joined list. Store `targets` as `target_context_files` (one `{context_file, skill_root, ides}` entry per file; an IDE the mapping does not list, and an empty list, resolve to AGENTS.md with `.agents/skills/`), set `context_files_count` to its length, and show each `warnings[]` and `notes[]` line. When the helper exits non-zero, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `select:context-files`), with `skill: "{target_skill}"` and `drop_mode: "{drop_mode}"` in the §1 halt envelope: "SKF cannot resolve the context files to rebuild: {the helper's `error`, or its stderr when stdout holds no JSON}. Nothing was changed. Re-install SKF."
 
 Store as `blast_radius = {versions_count, bytes_total, bytes_total_raw, context_files_count}` for §10's summary line.
 
@@ -344,14 +347,24 @@ Resolved selection:
   Mode:    {Deprecate (soft) | Purge (hard)}
 ```
 
-Then emit the success envelope per `{headlessContract}` with `status: "dry-run"`, the resolved `skill`, `drop_mode`, and `versions_affected`, then HALT (exit code 0). The manifest, filesystem, and context files are untouched.
+When `{headless_mode}` is true, stage the preview as `{run_dir}/result-context.json` and print its envelope. `would_delete` lists the folders a purge would delete, so an automator can check the blast radius before it runs the drop:
 
-**Otherwise (not a dry-run) — GATE [default: Y]:** If `{headless_mode}`: auto-proceed with [Y], record `confirm_source = "headless-auto"`, log: "headless: auto-confirmed drop of {target_skill}"
+```json
+{"status": "dry-run", "skill": "{target_skill}", "drop_mode": "{drop_mode}", "versions_affected": {target_versions}, "would_delete": {affected_directories when drop_mode is purge, else []}, "forge_left_in_place": {forge_left_in_place when drop_mode is purge, else null}}
+```
+
+```bash
+uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}" < "{run_dir}/result-context.json"
+```
+
+Display the line it prints verbatim (the `message` of its stderr JSON when it exits non-zero). A dry run passes no `--result-dir`, so it writes no result file. Then, in either mode, delete the run folder (`rm -rf "{run_dir}"`) and HALT (exit code 0). The manifest, filesystem, and context files are untouched.
+
+**Otherwise (not a dry-run), GATE [default: Y]:** If `{headless_mode}`: auto-proceed with [Y], record `confirm_source = "headless-auto"`, stage `{run_dir}/decision.json` as `{"gate": "select.confirm", "default_action": "Y", "taken_action": "Y", "reason": "headless auto-confirm"}` and run the §8 `record` command, and log: "headless: auto-confirmed drop of {target_skill}"
 
 Wait for explicit user response.
 
 - **If `Y`** → record `confirm_source = "user-explicit"` and proceed to section 11
-- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → "**Cancelled.** No changes were made. (Tip: invoke with `--dry-run` next time to preview the operation without reaching the commit prompt.)" HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per `{headlessContract}` with the resolved `skill`, `drop_mode`, and `versions_affected`.
+- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → "**Cancelled.** No changes were made. (Tip: invoke with `--dry-run` next time to preview the operation without reaching the commit prompt.)" HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `select:confirm`).
 - **Any other input** → re-display the confirmation and ask again
 
 ### 11. Store Decisions in Context

@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-drop-skill
+summary: |
+  A headless Drop Skill run on a skill in the export manifest now needs the `version` argument: without it the run stops with exit `2` and `input-missing` before it changes anything, where before it had no rule for the missing answer and could stall or guess. A specific version for a draft skill (one with no manifest entry) now stops with exit `2` and `input-invalid` in every mode; before, the drop widened to the whole skill and, headless, deleted every version. `version=all` drops the whole skill and any other value drops that one version, and a `skill_name` or `version` given at invocation now answers its question in an interactive run too, which no longer asks again. The count behind the active-version guard, the version count in the confirmation summary and the version `active` points at after a purge now come from `skf-skill-inventory.py resolve` instead of a count made by hand.
+migration: |
+  In every headless run on an exported skill, pass `version=all` to drop the whole skill or the version to drop, for example `version=0.5.0`. For a draft skill, pass `version=all` or leave `version` out.
+issues: [594, 597]

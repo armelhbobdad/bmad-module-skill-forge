@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-drop-skill-result-envelope.v1.json",
+  "title": "SKF_DROP_SKILL_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-drop-skill emits when {headless_mode} is true, prefixed with the literal 'SKF_DROP_SKILL_RESULT_JSON: ': on stdout when step 3 reports a finished drop, on stdout when a --dry-run stops at the step 1 confirmation gate, and on stderr at every HARD HALT. The shared emitter builds each line from the payload a stage gives it, so pipelines branch on status and halt_reason without parsing the human-readable report. src/skf-drop-skill/references/headless-contract.md describes each field.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-drop-skill",
+        "prefix": "SKF_DROP_SKILL_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-missing": 2,
+          "input-invalid": 2,
+          "manifest-corrupt": 3,
+          "nothing-to-drop": 3,
+          "manifest-write-failed": 4,
+          "context-rebuild-failed": 4,
+          "delete-failed": 4,
+          "write-failed": 4,
+          "active-version-guard-refused": 5,
+          "not-skf-output": 5,
+          "headless-purge-forbidden": 6,
+          "user-cancelled": 6
+        },
+        "success_exit_code": 0,
+        "result_file": "drop-skill-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "skill",
+    "drop_mode",
+    "versions_affected",
+    "files_deleted",
+    "would_delete",
+    "forge_left_in_place",
+    "manifest_updated",
+    "result_path",
+    "exit_code",
+    "halt_reason",
+    "error"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error", "dry-run"],
+      "description": "'success' when step 3 reports a finished drop (also when some purge folders could not be deleted: the result file's own status says 'partial' then). 'dry-run' when --dry-run stopped at the step 1 confirmation gate before any change. 'error' at every HARD HALT."
+    },
+    "skill": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The skill the run selected. Null when the run halted before one was selected."
+    },
+    "drop_mode": {
+      "type": ["string", "null"],
+      "enum": ["deprecate", "purge", null],
+      "default": null,
+      "description": "'deprecate' (manifest only, files kept) or 'purge' (files deleted too). Null when the run halted before the mode was decided."
+    },
+    "versions_affected": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        {
+          "type": "string",
+          "enum": ["all"]
+        }
+      ],
+      "default": [],
+      "description": "The versions the drop covers: a list holding the one version dropped, or 'all' for a drop of the whole skill. An empty list when the run halted before the scope was chosen."
+    },
+    "files_deleted": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": [],
+      "description": "The absolute folder paths a purge deleted. Empty for a deprecate, a dry run and a HALT (a purge that deleted nothing halts with delete-failed)."
+    },
+    "would_delete": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": [],
+      "description": "Dry run of a purge only: the absolute folder paths the purge would delete (the purge check's affected_directories), so a pipeline can check the blast radius before it runs the drop. Empty otherwise, and for a dry run in deprecate mode."
+    },
+    "forge_left_in_place": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "The forge folder a purge leaves in place (or, in a dry run, would leave) because SKF did not generate it. Null otherwise, and in deprecate mode."
+    },
+    "manifest_updated": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when step 2 wrote the export manifest. False for a draft skill (it has no manifest entry), a dry run and a HALT before the write; a failed manifest write halts with manifest-write-failed."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "description": "The per-run result file the emitter wrote for a finished drop, {skills_output_folder}/drop-skill-result-<YYYYMMDD-HHmmss>.json (UTC), beside its drop-skill-result-latest.json copy. Stamped by the emitter, never typed. Null for a dry run and a HALT, which write no result file, and when the write failed (warnings say why)."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6],
+      "description": "Process exit code matching the SKILL.md Exit Codes table, derived from halt_reason: null gives 0, input-missing and input-invalid 2, manifest-corrupt and nothing-to-drop 3, manifest-write-failed, context-rebuild-failed, delete-failed and write-failed 4, active-version-guard-refused and not-skf-output 5, headless-purge-forbidden and user-cancelled 6."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "input-missing",
+        "input-invalid",
+        "manifest-corrupt",
+        "nothing-to-drop",
+        "manifest-write-failed",
+        "context-rebuild-failed",
+        "delete-failed",
+        "write-failed",
+        "active-version-guard-refused",
+        "not-skf-output",
+        "headless-purge-forbidden",
+        "user-cancelled"
+      ],
+      "description": "Null on success and on a dry run. One of the documented HALT classes on error, so a pipeline surfaces the right operator message without parsing the prose."
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["phase", "reason"],
+          "properties": {
+            "phase": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The step and gate that halted, such as 'select:scope' or 'execute:manifest-write'."
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The halt's one-line message."
+            },
+            "path": {
+              "type": "string",
+              "description": "The file or folder the failed operation targeted, when the halt names one."
+            }
+          }
+        }
+      ],
+      "description": "Null on success and on a dry run. On a HALT, the step that halted and its message."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies the run recorded, one string each, such as result_file_write_failed when the result file could not be written. Present only when there is at least one."
+    }
+  }
+}

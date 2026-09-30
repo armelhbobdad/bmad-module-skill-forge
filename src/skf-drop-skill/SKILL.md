@@ -16,8 +16,8 @@ Drops a specific skill version or an entire skill, either as a soft deprecation 
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root — install layout puts both at `{project-root}/_bmad/skf/`. The `versionPathsKnowledge: 'knowledge/version-paths.md'` frontmatter scalar in stage files uses this convention; same for `shared/health-check.md` chained from the terminal step.
-- **Shared context-file rebuild:** `references/select.md` and `references/execute.md` resolve the context files and rebuild their managed sections through `shared/scripts/skf-rebuild-managed-sections.py` (`resolve-targets`, `check`, `assemble`, `replace`), the helper export-skill writes them with, so the three skills that write the section produce the same bytes from one IDE mapping (`shared/data/ide-context-files.json`). `skf-export-skill/assets/managed-section-format.md` documents that format.
+- **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root: install layout puts both at `{project-root}/_bmad/skf/`.
+- **Shared context-file rebuild:** `references/select.md` and `references/execute.md` resolve the context files and rebuild their managed sections through `shared/scripts/skf-rebuild-managed-sections.py`, the helper export-skill writes them with, so the three skills that write the section produce the same bytes from one IDE mapping. `skf-export-skill/assets/managed-section-format.md` documents that format.
 
 ## Role
 
@@ -31,7 +31,7 @@ These rules apply to every step in this workflow:
 - Never drop an active version when other non-deprecated versions exist — enforce the active version guard
 - Never purge content SKF did not generate: select.md §8b takes the purge verdict for the skill folder and its forge folder from the inventory helper; a forge folder SKF did not generate is left in place, and a purge SKF cannot check is refused
 - Only load one step file at a time — never preload future steps
-- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — except the ownership check: never decide by hand whether SKF generated a folder; without the inventory helper, select.md offers manifest skills only and refuses every purge
+- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread, with two exceptions. A helper On-Activation §4 resolves is never replaced by hand (a missing one halts the run before the first prompt): never type an envelope or edit the manifest or a context file yourself. And never decide by hand whether SKF generated a folder: without the inventory helper, select.md offers manifest skills only and refuses every purge
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
@@ -49,29 +49,25 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | skill_name [required], mode (deprecate/purge) [required], version (all/specific) [required] |
+| **Inputs** | skill_name [required], mode (deprecate/purge) [required], version (`all` or one version) [required for a skill in the manifest; a draft takes only `all`]. An argument supplied at invocation answers its step 1 prompt in either mode, so that prompt is not shown |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + display the §10 confirmation block, then exit with `status="dry-run"` — no manifest mutation, no file deletion). Useful for "show me what this would touch before I commit." |
-| **Gates** | step 1: Input Gate [use args], Confirm Gate [Y] |
-| **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories), `drop-skill-result-{timestamp}.json` and `drop-skill-result-latest.json` |
-| **Headless** | Gates auto-resolve with their default action (see Workflow Rules). When `forbid_purge_in_headless` is `"true"` in `customize.toml` AND the effective drop mode is `"purge"` (defined in On-Activation §4 — explicit `mode=purge` or `default_mode` purge), §4 HALTs with exit code 6 (`halt_reason: "headless-purge-forbidden"`) before any work begins. A draft skill (no manifest entry) has nothing to deprecate: headless, select.md §8 purges it only on that same effective purge, so this guard covers it too, and refuses `mode=deprecate` or a `default_mode` of `deprecate` (`input-invalid`) and a run with neither (`input-missing`). |
+| **Gates** | step 1: Input Gate [use args] (§4 skill), Scope Gate [use args] (§6 version), Mode Gate [use args] (§8 mode), Confirm Gate [Y] |
+| **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories), `drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC) and `drop-skill-result-latest.json` in `{skills_output_folder}` (none for a dry run or a HALT); a run folder under `{project-root}/_bmad-output/.skf-run/`, kept only after a HALT |
+| **Headless** | Gates auto-resolve with their default action (see Workflow Rules). `forbid_purge_in_headless = "true"` in `customize.toml` stops a headless purge at On-Activation §4 (exit code 6, `halt_reason: "headless-purge-forbidden"`); select.md §6 and §8 name the `version` and `mode` arguments a headless run must pass. |
 | **Exit codes** | See "Exit Codes" below |
 
 ## Exit Codes
 
-Every hard HALT exits with a stable code so headless automators branch on the failure class without grepping message text. The `Raised by` column names the HALT class per code; the authoritative per-site declarations (with exact `halt_reason`) live in the step files.
+Every hard HALT exits with a stable code; the step files name the exact `halt_reason` and phase at each HALT site, and `references/headless-contract.md` describes the `SKF_DROP_SKILL_RESULT_JSON` envelope a headless run prints.
 
 | Code | Meaning              | Raised by (class) |
 | ---- | -------------------- | ----------------- |
 | 0    | success              | step 4 (terminal) |
-| 2    | input-missing / input-invalid | step 1 headless input gates — missing or unmatched `skill_name`, `version`, or `--mode` value (§4 / §6 / §8); §8 a draft skill with no manifest entry: `mode=deprecate`, or headless with a `default_mode` of `deprecate` → `input-invalid` |
-| 3    | resolution-failure   | step 1 manifest/skill-list resolution (§2 corrupt manifest, §3 nothing to drop) |
-| 4    | write-failure        | On-Activation write probe; step 1 §9b context-file resolution (the rebuild helper is missing or fails, before any change); step 2 manifest write / context rebuild / full-purge failure |
-| 5    | state-conflict       | step 1 active-version guard (§7); step 1 ownership guard — §3/§4 a named folder SKF did not generate (§3 when the roster is empty), §8b a purge of content SKF did not generate or cannot check, in the skill folder or its forge folder → `not-skf-output` |
+| 2    | input-missing / input-invalid | step 1 input gates: a missing or unmatched `skill_name`, `version` or `--mode` value (§4 / §6 / §8), or a draft skill given a specific `version` or `mode=deprecate` |
+| 3    | resolution-failure   | step 1 §2 corrupt manifest, §3 nothing to drop |
+| 4    | write-failure        | On-Activation §4 (`write-failed`); step 1 §9b, before any change (`context-rebuild-failed`); step 2 manifest write, in every mode (`manifest-write-failed`), or a purge that deleted nothing (`delete-failed`) |
+| 5    | state-conflict       | step 1 §7 active-version guard; §3, §4 or §8b ownership guard (`not-skf-output`) |
 | 6    | user-cancelled       | any interactive cancel or confirm-gate `[N]`; On-Activation headless-purge guard |
-
-## Result Contract (Headless)
-
-When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESULT_JSON:` envelope on **stdout**; every HARD HALT emits the same shape on **stderr** with `status: "error"`. The template, `status`/`halt_reason` semantics, `exit_code` (per the Exit Codes table above), and full enum live in `references/headless-contract.md` — the emitting stages load it directly, so an error path never depends on this file.
 
 ## On Activation
 
@@ -79,7 +75,6 @@ When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESUL
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
    - `snippet_skill_root_override` (optional string): when set, the context-file rebuild in step 2 passes it to `assemble` as `--skill-root-override`, so every row's `root:` takes it instead of the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
-   - Generate and store `timestamp` as `YYYYMMDD-HHmmss` format. This value is fixed for the entire workflow run.
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
@@ -108,9 +103,19 @@ When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESUL
 
    Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents), then run `workflow.activation_steps_append` after.
 
-4. **Pre-flight write probe + headless-purge guard.**
+4. **Pre-flight: helpers, run folder, write probe and headless-purge guard.** All of it runs before the first prompt, so a broken install or a read-only folder stops the run before the user answers anything. Each HALT below names its exit code, `halt_reason` and phase: in headless mode it prints its envelope as the Halt Envelope section of `references/headless-contract.md` says, and an interactive HALT displays its message only.
 
-   First, verify `{skills_output_folder}` is writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces at step 2's manifest write — by then the user has already gone through every selection prompt:
+   First, resolve `{emitEnvelopeHelper}`, `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}`, each ← the first that exists of `{project-root}/_bmad/skf/shared/scripts/<script>` (installed) and `{project-root}/src/shared/scripts/<script>` (development tree), where `<script>` is `skf-emit-result-envelope.py`, `skf-manifest-ops.py` and `skf-rebuild-managed-sections.py` in turn. Then create the run folder for the envelope payloads, and bind `{run_dir}` ← the path it prints (step 3, or a `--dry-run` at the confirmation gate, deletes it; a HALT keeps it):
+
+   ```bash
+   mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-drop-skill-XXXXXXXX"
+   ```
+
+   If the run folder cannot be created, HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:run-folder`): "SKF cannot create its run folder under `{project-root}/_bmad-output/.skf-run/`: {the first stderr line}. Nothing was changed."
+
+   When a helper resolved to no path, HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:helpers`): "SKF cannot drop a skill without `{the missing script}`, which is not installed. Nothing was changed. Re-install SKF." A `--dry-run` stops here too.
+
+   Next, check that `{skills_output_folder}` is writable:
 
    ```bash
    mkdir -p "{skills_output_folder}" && \
@@ -118,8 +123,8 @@ When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESUL
      rm "{skills_output_folder}/.skf-write-probe"
    ```
 
-   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, emit the error envelope per **Result Contract (Headless)** with `skill: null` and `drop_mode: null` (neither is resolved yet at activation time).
+   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:write-probe`, path `{skills_output_folder}`): "SKF cannot write to `{skills_output_folder}`: {the first stderr line}. Nothing was changed."
 
-   Second, enforce the headless-purge guard. First compute the **effective drop mode**: it is `"purge"` when the parsed `mode` arg is `"purge"`, OR when no `mode` arg was passed AND `{defaultMode}` (resolved in §3) is `"purge"` — a purge reached via `default_mode` is still an unattended irreversible purge and must be caught here, not only an explicit `--mode purge`. If `{headless_mode}` is true AND `{forbidPurgeInHeadless}` is `"true"` AND the effective drop mode is `"purge"`: HALT with exit code 6 and `halt_reason: "headless-purge-forbidden"`, emit the error envelope, and exit immediately. The operator must re-run with an explicit `mode=deprecate` (an explicit arg overrides `default_mode`) or set `forbid_purge_in_headless = ""` (or omit the override entirely) to proceed. A draft skill (no manifest entry) cannot be deprecated, so it needs an interactive run or the guard unset. select.md §8 purges a draft headless only on this same effective drop mode, so this guard is the only check it needs.
+   Last, the headless-purge guard. The **effective drop mode** is `"purge"` when the `mode` arg is `"purge"`, or when no `mode` arg was passed and `{defaultMode}` (§3) is `"purge"`. If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is `"true"` and the effective drop mode is `"purge"`, HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`, phase `on-activation:purge-guard`): "headless purge is forbidden by `forbid_purge_in_headless`: re-run with `mode=deprecate` (an explicit `mode` overrides `default_mode`), or unset the setting." A draft skill cannot be deprecated, so it needs an interactive run or the guard unset; select.md §8 purges a draft headless only on this effective drop mode, so this guard covers that purge too.
 
 5. Load, read the full file, and then execute `references/select.md` to begin the workflow.

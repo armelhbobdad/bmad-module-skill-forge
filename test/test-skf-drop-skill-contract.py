@@ -1,0 +1,689 @@
+#!/usr/bin/env python3
+"""Drop Skill contract: the halt on a failed manifest write (#585), the envelope
+the shared emitter builds (#593), the version input and the helpers resolved
+before the first prompt (#594), and the version counts from the inventory
+helper (#597).
+
+Step prose is not executed by any test, so these checks run the commands the
+drop steps document, filled in as an agent fills them, against fixtures:
+
+- skf-emit-result-envelope.py builds every SKF_DROP_SKILL_RESULT_JSON line from
+  schemas/skf-drop-skill-result-envelope.v1.json. The halt, dry-run and
+  success payloads the steps stage go through the documented commands, and
+  each line validates against the schema under jsonschema. Every HALT site's
+  exit code is the one the schema maps its halt_reason to, every emitting HALT
+  names its phase, and the contract lists the schema's halt reasons. The
+  headless auto-decisions select.md records reach the result record.
+- skf-skill-inventory.py resolve gives the counts the active-version guard and
+  the blast-radius line read, and the version execute.md points `active` at
+  after a version purge (that rule is prose the agent applies, so it is
+  restated here as code and run over the helper's output).
+- The prose pins: a failed manifest write halts in every mode and never reaches
+  the report; `skill_name` and `version` answer their gates in both modes; the
+  helpers resolve before the first prompt and no step keeps a fallback for
+  them; no stage reads version-paths.md, types an envelope or makes up a
+  timestamp.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+from jsonschema import Draft202012Validator
+
+REPO = Path(__file__).resolve().parent.parent
+SRC = REPO / "src"
+DROP = SRC / "skf-drop-skill"
+SKILL = "src/skf-drop-skill/SKILL.md"
+SELECT = "src/skf-drop-skill/references/select.md"
+EXECUTE = "src/skf-drop-skill/references/execute.md"
+REPORT = "src/skf-drop-skill/references/report.md"
+HEADLESS = "src/skf-drop-skill/references/headless-contract.md"
+# The contract files: the headless contract today, and the invocation contract
+# the Invocation Contract, Exit Codes and Result Contract may move to.
+CONTRACTS = (HEADLESS, "src/skf-drop-skill/references/invocation-contract.md")
+SCRIPTS = SRC / "shared" / "scripts"
+EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
+INVENTORY = SCRIPTS / "skf-skill-inventory.py"
+SCHEMA_PATH = SCRIPTS / "schemas" / "skf-drop-skill-result-envelope.v1.json"
+SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+SETTINGS = SCHEMA["$defs"]["skf-envelope"]["const"]
+PREFIX = "SKF_DROP_SKILL_RESULT_JSON: "
+# A HALT site: "exit code 2, `halt_reason: ...`", "exit code 6 and `halt_reason: ...`"
+# or "exit code 6 (`halt_reason: ...`".
+HALT_SITE = re.compile(r'exit code (\d+)(?:,| and| \() ?`halt_reason: "([a-z-]+)"`')
+PER_RUN_NAME = re.compile(r"drop-skill-result-\d{8}-\d{6}(-\d+)?\.json")
+
+
+def _read(rel: str) -> str:
+    return (REPO / rel).read_text(encoding="utf-8")
+
+
+def _section(text: str, start: str, end: str | None) -> str:
+    """The text from marker `start` (which occurs once) up to marker `end`."""
+    assert text.count(start) == 1, f"expected exactly one {start!r}"
+    body = text[text.index(start):]
+    if end is not None:
+        assert end in body, f"marker {end!r} missing after {start!r}"
+        body = body[:body.index(end)]
+    return body
+
+
+def _contract_text(*, with_skill: bool) -> str:
+    """The contract files that exist, SKILL.md first when `with_skill`."""
+    rels = ((SKILL,) if with_skill else ()) + CONTRACTS
+    return "\n".join(_read(rel) for rel in rels if (REPO / rel).is_file())
+
+
+def _exit_codes_table() -> str:
+    """The Exit Codes table, in SKILL.md or in the file it moved to."""
+    text = _contract_text(with_skill=True)
+    m = re.search(r"^#+ Exit Codes\n(.*?)(?=^#+ |\Z)", text, flags=re.M | re.S)
+    assert m, "no Exit Codes section"
+    return m.group(1)
+
+
+def _fenced(text: str, lang: str) -> list[str]:
+    """The ```<lang> blocks of `text`, each dedented to its fence's indentation."""
+    blocks = []
+    for m in re.finditer(r"^( *)```" + lang + r"\n(.*?)^\1```", text, flags=re.M | re.S):
+        indent = len(m.group(1))
+        blocks.append("\n".join(line[indent:] for line in m.group(2).split("\n")))
+    return blocks
+
+
+def _one_command(text: str, needle: str) -> str:
+    """The one fenced bash command line of `text` that holds `needle`."""
+    lines = [line.strip() for block in _fenced(text, "bash") for line in block.split("\n")
+             if needle in line]
+    assert len(lines) == 1, f"expected one bash line holding {needle!r}, found {lines}"
+    return lines[0]
+
+
+def _argv(command: str, values: dict) -> list[str]:
+    """Fill a documented `uv run {helper} ...` command in and split it, without a shell.
+
+    Placeholders become sentinels before the words are split, so a Windows path
+    keeps its backslashes; `uv run` becomes this interpreter.
+    """
+    words = []
+    for word in shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", command)):
+        words.append(re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], word))
+    assert words[:2] == ["uv", "run"], words
+    return [sys.executable, *words[2:]]
+
+
+def _run(command: str, values: dict, stdin: bytes | None = None) -> subprocess.CompletedProcess:
+    """Run a documented command; `< "<path>"` becomes the process's stdin."""
+    command, _, source = command.partition(" < ")
+    if source:
+        path = re.sub(r"\{(\w+)\}", lambda m: values[m.group(1)], source.strip().strip('"'))
+        stdin = Path(path).read_bytes()
+    return subprocess.run(_argv(command, values), input=stdin, capture_output=True, timeout=60)
+
+
+def _fill_json(template: str, values: dict):
+    """Fill a JSON template from the prose: `"{name ...}"` gets a string, `{name ...}` any JSON value.
+
+    Each placeholder is looked up by its first word, so `{affected_directories
+    when drop_mode is purge, else []}` reads `values["affected_directories"]`.
+    """
+    def value(m):
+        return json.dumps(values[m.group(1).split()[0]])
+
+    text = re.sub(r'"\{([^{}"]+)\}"', value, template)
+    return json.loads(re.sub(r"\{([^{}\"]+)\}", value, text))
+
+
+def _envelope(stream: bytes) -> dict:
+    [line] = stream.decode("utf-8").splitlines()
+    assert line.startswith(PREFIX), line
+    envelope = json.loads(line[len(PREFIX):])
+    errors = sorted(Draft202012Validator(SCHEMA).iter_errors(envelope), key=str)
+    assert not errors, [e.message for e in errors]
+    return envelope
+
+
+def _run_dir(tmp_path: Path) -> Path:
+    run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-drop-skill-Ab3dE5gH"
+    run_dir.mkdir(parents=True)
+    return run_dir
+
+
+# --------------------------------------------------------------------------
+# The envelope: one schema, the emitter, and the halt reasons every site uses
+# --------------------------------------------------------------------------
+
+def test_contract_lists_the_schema_halt_reasons():
+    contract = _contract_text(with_skill=False)
+    rule = next(line for line in contract.splitlines() if line.startswith("- `halt_reason`"))
+    listed = set(re.findall(r'"([a-z-]+)"', rule))
+    in_schema = {r for r in SCHEMA["properties"]["halt_reason"]["enum"] if r is not None}
+    assert listed == in_schema == set(SETTINGS["exit_codes"])
+
+
+def test_contract_template_has_the_schema_fields_in_order():
+    contract = _contract_text(with_skill=False)
+    line = next(line for line in contract.splitlines() if line.startswith(PREFIX))
+    template = json.loads(line[len(PREFIX):])
+    assert list(template) == SCHEMA["required"]
+    assert list(SCHEMA["properties"])[:len(SCHEMA["required"])] == SCHEMA["required"]
+
+
+def test_schema_settings_match_the_exit_codes_table():
+    table = _exit_codes_table()
+    rows = {int(m.group(1)): m.group(2) for m in re.finditer(r"^\| (\d+) +\| ([^|]+)\|", table, flags=re.M)}
+    assert set(rows) == set(SCHEMA["properties"]["exit_code"]["enum"])
+    classes = {2: "input-missing / input-invalid", 3: "resolution-failure", 4: "write-failure",
+               5: "state-conflict", 6: "user-cancelled"}
+    for reason, code in SETTINGS["exit_codes"].items():
+        assert rows[code].strip() == classes[code], (reason, code)
+    assert SETTINGS["result_file"] == "drop-skill-result"
+    assert SETTINGS["halt_status"] == "error" and SETTINGS["success_exit_code"] == 0
+
+
+def _halt_sites():
+    for rel in (SKILL, SELECT, EXECUTE, REPORT):
+        for number, line in enumerate(_read(rel).split("\n"), 1):
+            for m in HALT_SITE.finditer(line):
+                yield rel, number, int(m.group(1)), m.group(2), line
+
+
+def test_every_halt_site_uses_the_schema_exit_code():
+    sites = list(_halt_sites())
+    for rel, number, code, reason, _ in sites:
+        assert SETTINGS["exit_codes"].get(reason) == code, f"{rel}:{number} {reason} exits {code}"
+    assert {reason for *_, reason, _ in sites} == set(SETTINGS["exit_codes"]), "a halt_reason no step raises"
+
+
+@pytest.mark.parametrize("rel, start", [
+    (SKILL, "## On Activation"),
+    (SELECT, "## MANDATORY SEQUENCE"),
+    (EXECUTE, "## MANDATORY SEQUENCE"),
+], ids=["activation", "select", "execute"])
+def test_every_emitting_halt_names_its_phase(rel, start):
+    """Each HALT that prints an envelope names the phase its error object carries."""
+    body = _section(_read(rel), start, None)
+    sites = [line for line in body.split("\n") if HALT_SITE.search(line)]
+    assert sites
+    for line in sites:
+        assert re.search(r"phase `(on-activation|select|execute):[a-z-]+`", line), line[:160]
+    assert "emit the error envelope per" not in body, "every halt emits through the shared emitter"
+
+
+def test_every_stage_runs_the_same_halt_command():
+    """The contract's Halt Envelope (for the activation HALTs), select.md and execute.md
+    state the halt rule each; the command and the JSON rule never drift."""
+    halt = _section(_read(HEADLESS), "## Halt Envelope", None)
+    rules = {HEADLESS: halt,
+             SELECT: _section(_read(SELECT), "### 1. Halt Envelope", "### 2. "),
+             EXECUTE: _section(_read(EXECUTE), "### 1. Halt Envelope", "### 2. ")}
+    commands = {rel: _one_command(rule, "emit-halt --workflow skf-drop-skill --run-dir")
+                for rel, rule in rules.items()}
+    assert len(set(commands.values())) == 1, commands
+    assert commands[SELECT] == ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-drop-skill '
+                                '--run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"')
+    for rel, rule in rules.items():
+        # A Windows path or a quoted stderr line written as is breaks the JSON, and the HALT prints nothing.
+        assert ("Write the payload as valid JSON: in the halt message and `path`, replace each backslash "
+                "with / and each double quote with a backtick.") in rule, rel
+    activation = _section(_read(SKILL), "## On Activation", None)
+    assert "the Halt Envelope section of `references/headless-contract.md`" in activation
+    assert "emit-halt" not in activation and "halt.json" not in activation, "SKILL.md names the section, once"
+
+
+def test_the_json_rule_keeps_a_windows_halt_printable():
+    """A raw Windows path makes the payload invalid JSON; the rule's rewrite emits."""
+    [block] = [b for b in _fenced(_section(_read(HEADLESS), "## Halt Envelope", None), "bash")
+               if "<<'SKF_DROP_HALT'" in b]
+    command = next(line for line in block.split("\n") if "<<'SKF_DROP_HALT'" in line).partition(" <<")[0]
+    raw = ('{"phase": "on-activation:run-folder", "reason": "SKF cannot create its run folder under '
+           'C:\\Users\\dev\\_bmad-output: "Access is denied"", "halt_reason": "write-failed", "exit_code": 4}')
+    proc = _run(command, {"emitEnvelopeHelper": str(EMITTER)}, stdin=raw.encode("utf-8"))
+    assert proc.returncode != 0 and PREFIX.encode("utf-8") not in proc.stdout + proc.stderr, "no envelope"
+    fixed = raw.replace("\\", "/").replace('"Access is denied"', "`Access is denied`")
+    proc = _run(command, {"emitEnvelopeHelper": str(EMITTER)}, stdin=fixed.encode("utf-8"))
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stderr)
+    assert envelope["error"]["reason"].endswith("C:/Users/dev/_bmad-output: `Access is denied`")
+
+
+def test_documented_halt_emits_a_schema_valid_envelope_on_stderr(tmp_path):
+    run_dir = _run_dir(tmp_path)
+    halt = {"phase": "select:scope", "reason": "headless mode requires a `version` argument for `cognee`",
+            "halt_reason": "input-missing", "exit_code": 2, "skill": "cognee"}
+    (run_dir / "halt.json").write_bytes(json.dumps(halt).encode("utf-8"))
+    command = _one_command(_read(SELECT), "emit-halt --workflow skf-drop-skill --run-dir")
+    proc = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == b"", "a HALT prints its envelope on stderr"
+    envelope = _envelope(proc.stderr)
+    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("error", 2, "input-missing")
+    assert envelope["error"] == {"phase": "select:scope", "reason": halt["reason"]}
+    assert (envelope["skill"], envelope["drop_mode"], envelope["versions_affected"]) == ("cognee", None, [])
+    assert (envelope["files_deleted"], envelope["would_delete"], envelope["result_path"]) == ([], [], None)
+    assert not list(tmp_path.rglob("drop-skill-result-*.json")), "a HALT writes no result file"
+
+
+def test_failed_manifest_write_envelope(tmp_path):
+    """#585: the step 2 halt reports exit 4 and a manifest that did not change."""
+    run_dir = _run_dir(tmp_path)
+    halt = {"phase": "execute:manifest-write", "reason": "Manifest update failed: disk full",
+            "halt_reason": "manifest-write-failed", "exit_code": 4, "path": "/p/skills/.export-manifest.json",
+            "skill": "cognee", "drop_mode": "purge", "versions_affected": "all", "manifest_updated": False}
+    (run_dir / "halt.json").write_bytes(json.dumps(halt).encode("utf-8"))
+    command = _one_command(_read(EXECUTE), "emit-halt --workflow skf-drop-skill --run-dir")
+    proc = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stderr)
+    assert (envelope["status"], envelope["exit_code"], envelope["manifest_updated"]) == ("error", 4, False)
+    assert envelope["error"]["path"] == "/p/skills/.export-manifest.json"
+    assert envelope["versions_affected"] == "all"
+
+
+def test_a_halt_whose_exit_code_disagrees_is_refused(tmp_path):
+    """The emitter checks a typed exit code against the schema's mapping."""
+    run_dir = _run_dir(tmp_path)
+    (run_dir / "halt.json").write_bytes(json.dumps(
+        {"phase": "execute:manifest-write", "reason": "x", "halt_reason": "manifest-write-failed",
+         "exit_code": 0}).encode("utf-8"))
+    command = _one_command(_read(EXECUTE), "emit-halt --workflow skf-drop-skill --run-dir")
+    proc = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode != 0 and b"exit_code" in proc.stderr
+
+
+def test_run_folder_halt_emits_without_a_run_folder():
+    """The one activation halt with no run folder passes its payload inline."""
+    activation = _section(_read(SKILL), "## On Activation", None)
+    assert 'HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:run-folder`)' in activation
+    [block] = [b for b in _fenced(_section(_read(HEADLESS), "## Halt Envelope", None), "bash")
+               if "<<'SKF_DROP_HALT'" in b]
+    lines = block.strip("\n").split("\n")
+    start = next(i for i, line in enumerate(lines) if "<<'SKF_DROP_HALT'" in line)
+    head, body, end = lines[start:]
+    assert end == "SKF_DROP_HALT"
+    command = head.partition(" <<")[0]
+    assert "--run-dir" not in command
+    payload = json.loads(body.replace("<the halt message>", "SKF cannot create its run folder"))
+    proc = _run(command, {"emitEnvelopeHelper": str(EMITTER)}, stdin=json.dumps(payload).encode("utf-8"))
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stderr)
+    assert (envelope["halt_reason"], envelope["exit_code"]) == ("write-failed", 4)
+    assert envelope["error"]["phase"] == "on-activation:run-folder"
+
+
+def test_dry_run_envelope_lists_the_planned_deletions(tmp_path):
+    """#593: a headless --dry-run of a purge names the folders it would delete, and writes no result file."""
+    confirm = _section(_read(SELECT), "### 10. Confirmation Gate", "### 11. ")
+    [template] = _fenced(confirm, "json")
+    run_dir = _run_dir(tmp_path)
+    skills = tmp_path / "skills"
+    would = [str(skills / "cognee"), str(tmp_path / "forge" / "cognee")]
+    payload = _fill_json(template, {"target_skill": "cognee", "drop_mode": "purge", "target_versions": "all",
+                                    "affected_directories": would, "forge_left_in_place": None})
+    assert set(payload) == {"status", "skill", "drop_mode", "versions_affected", "would_delete",
+                            "forge_left_in_place"}
+    (run_dir / "result-context.json").write_bytes(json.dumps(payload).encode("utf-8"))
+    command = _one_command(confirm, "emit --workflow skf-drop-skill")
+    assert "--result-dir" not in command, "a dry run writes no result file"
+    proc = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stdout)
+    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("dry-run", 0, None)
+    assert envelope["would_delete"] == would and envelope["files_deleted"] == []
+    assert (envelope["manifest_updated"], envelope["result_path"], envelope["error"]) == (False, None, None)
+    assert not list(tmp_path.rglob("drop-skill-result-*.json"))
+    assert 'delete the run folder (`rm -rf "{run_dir}"`) and HALT (exit code 0)' in confirm
+
+
+REPORT_VALUES = {
+    "target_skill": "cognee", "drop_mode": "purge", "target_versions": ["0.5.0"], "manifest_updated": True,
+    "forge_left_in_place": None, "headless_mode": True, "mode_source": "--mode argument",
+    "confirm_source": "headless-auto",
+}
+
+
+@pytest.mark.parametrize("record_status", ["success", "partial"])
+def test_report_emit_writes_the_result_files(tmp_path, record_status):
+    """#593: the emitter names the per-run file from the clock and writes its -latest copy."""
+    contract = _section(_read(REPORT), "### Result Contract", "### Post-drop hook")
+    [template] = _fenced(contract, "json")
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    deleted = str(skills / "cognee" / "0.5.0")
+    run_dir = _run_dir(tmp_path)
+    payload = _fill_json(template, {**REPORT_VALUES, "files_deleted": [deleted], "each": deleted,
+                                    "record_status": record_status})
+    assert set(payload) == {"status", "skill", "drop_mode", "versions_affected", "files_deleted",
+                            "forge_left_in_place", "manifest_updated", "result_contract"}
+    (run_dir / "result-context.json").write_bytes(json.dumps(payload).encode("utf-8"))
+    command = _one_command(contract, "emit --workflow skf-drop-skill")
+    proc = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir),
+                          "skills_output_folder": str(skills)})
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stdout)
+    # The envelope has no partial status: the record carries it.
+    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("success", 0, None)
+    assert envelope["files_deleted"] == [deleted] and envelope["versions_affected"] == ["0.5.0"]
+    per_run = Path(envelope["result_path"])
+    assert PER_RUN_NAME.fullmatch(per_run.name), per_run.name
+    assert (skills / per_run.name).is_file()
+    latest = skills / "drop-skill-result-latest.json"
+    assert latest.read_bytes() == (skills / per_run.name).read_bytes()
+    record = json.loads(latest.read_text(encoding="utf-8"))
+    assert (record["skill"], record["status"]) == ("skf-drop-skill", record_status)
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", record["timestamp"])
+    assert record["run_id"] == "Ab3dE5gH"
+    assert record["outputs"] == [{"type": "skill", "path": deleted}]
+    assert record["summary"]["headless_provenance"] == {"headless": True, "mode_source": "--mode argument",
+                                                        "confirm": "headless-auto"}
+
+
+def _decision(text: str, gate: str, values: dict) -> dict:
+    """The decision object a gate stages, its `<name>` placeholders filled in."""
+    m = re.search(r'`(\{"gate": "' + re.escape(gate) + r'"[^`]*\})`', text)
+    assert m, f"no staged {gate} decision"
+    return json.loads(re.sub(r"<(\w+)>", lambda v: values[v.group(1)], m.group(1)))
+
+
+def test_headless_decisions_reach_the_result_record(tmp_path):
+    """#593: the mode and the confirmation a headless run decides land in the record's headless_decisions."""
+    select = _read(SELECT)
+    mode = _section(select, "### 8. Ask Mode", "### 8b. ")
+    confirm = _section(select, "### 10. Confirmation Gate", "### 11. ")
+    command = _one_command(mode, "record --run-dir")
+    assert "--workflow" not in command, "the drop schema has no headless_decisions to check a decision against"
+    assert "run the §8 `record` command" in confirm
+    run_dir = _run_dir(tmp_path)
+    decisions = [_decision(mode, "select.mode", {"drop_mode": "purge",
+                                                 "mode_source": "customize.toml.workflow.default_mode"}),
+                 _decision(confirm, "select.confirm", {})]
+    for decision in decisions:
+        (run_dir / "decision.json").write_bytes(json.dumps(decision).encode("utf-8"))
+        proc = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+        assert proc.returncode == 0, proc.stderr
+    contract = _section(_read(REPORT), "### Result Contract", "### Post-drop hook")
+    [template] = _fenced(contract, "json")
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    deleted = str(skills / "cognee" / "0.5.0")
+    payload = _fill_json(template, {**REPORT_VALUES, "files_deleted": [deleted], "each": deleted,
+                                    "record_status": "success"})
+    (run_dir / "result-context.json").write_bytes(json.dumps(payload).encode("utf-8"))
+    proc = _run(_one_command(contract, "emit --workflow skf-drop-skill"),
+                {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir), "skills_output_folder": str(skills)})
+    assert proc.returncode == 0, proc.stderr
+    assert "headless_decisions" not in _envelope(proc.stdout), "the envelope has no such field"
+    record = json.loads((skills / "drop-skill-result-latest.json").read_text(encoding="utf-8"))
+    assert record["headless_decisions"] == decisions
+    assert decisions[0]["taken_action"] == "purge" and decisions[1]["gate"] == "select.confirm"
+    assert "`headless_decisions`" in contract
+
+
+# --------------------------------------------------------------------------
+# #585: a failed manifest write halts in every mode, before the report
+# --------------------------------------------------------------------------
+
+def test_failed_manifest_write_halts_in_every_mode():
+    manifest = _section(_read(EXECUTE), "### 2. Update Export Manifest", "### 3. ")
+    on_error = _section(manifest, "**On error (the helper exits non-zero):**", None)
+    assert 'HALT (exit code 4, `halt_reason: "manifest-write-failed"`' in on_error
+    assert "in every mode, before section 3" in on_error
+    assert "step 3 never runs, so no success report is shown and no result file is written" in on_error
+    for stale in ("jump to section 6", "Store `manifest_updated = false`", "{captured stderr}"):
+        assert stale not in manifest, stale
+    assert "When the helper exits 0 (`status: \"ok\"`), set context flag `manifest_updated = true`." in manifest
+    rules = _section(_read(REPORT), "## Rules", "## MANDATORY SEQUENCE")
+    assert "a failed manifest write HALTs in step 2" in rules
+    table = _exit_codes_table()
+    exit_4 = next(line for line in table.splitlines() if line.startswith("| 4 "))
+    assert "step 2 manifest write, in every mode (`manifest-write-failed`)" in exit_4
+
+
+# --------------------------------------------------------------------------
+# #593: no stage types an envelope, a timestamp or a result file name
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("rel", [SKILL, SELECT, EXECUTE, REPORT])
+def test_no_stage_types_an_envelope(rel):
+    text = _read(rel)
+    assert PREFIX + "{" not in text, "the emitter prints the line"
+    assert "{headlessContract}" not in text and "headlessContract:" not in text
+
+
+def test_the_emitter_stamps_the_time_and_writes_the_result_files():
+    assert "Generate and store `timestamp`" not in _read(SKILL)
+    contract = _section(_read(REPORT), "### Result Contract", "### Post-drop hook")
+    assert "Write the result contract per" not in contract
+    assert _one_command(contract, "emit --workflow skf-drop-skill") == (
+        'uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}" '
+        '--result-dir "{skills_output_folder}" < "{run_dir}/result-context.json"')
+    assert "Bind `{result_json_path}` ← that line's `result_path`" in contract
+    hook = _section(_read(REPORT), "### Post-drop hook", "### 3. ")
+    assert "`{result_json_path}` is not null" in hook
+    assert 'rm -rf "{run_dir}"' in hook
+
+
+# --------------------------------------------------------------------------
+# #594: helpers before the first prompt; arguments answer their gates
+# --------------------------------------------------------------------------
+
+def test_required_helpers_resolve_before_the_first_prompt():
+    activation = _section(_read(SKILL), "## On Activation", None)
+    preflight = _section(activation, "**Pre-flight: helpers", "and then execute `references/select.md`")
+    resolve = next(line for line in preflight.splitlines() if line.startswith("   First, resolve "))
+    for helper, script in (("emitEnvelopeHelper", "skf-emit-result-envelope.py"),
+                           ("manifestOpsHelper", "skf-manifest-ops.py"),
+                           ("rebuildManagedSectionsHelper", "skf-rebuild-managed-sections.py")):
+        assert f"`{{{helper}}}`" in resolve and f"`{script}`" in resolve, helper
+        installed = REPO / "src" / "shared" / "scripts" / script  # where _bmad/skf/shared/scripts/ comes from
+        assert installed.is_file(), script
+    assert ("the first that exists of `{project-root}/_bmad/skf/shared/scripts/<script>` (installed) and "
+            "`{project-root}/src/shared/scripts/<script>` (development tree)") in resolve
+    missing = next(line for line in preflight.splitlines() if "resolved to no path" in line)
+    assert 'HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:helpers`)' in missing
+    assert preflight.index("resolved to no path") < preflight.index("check that `{skills_output_folder}` is writable")
+    # The steps use the resolved helpers: no step resolves one again, halts on a missing one after
+    # the manifest changed, or keeps an in-prompt fallback that no run can reach.
+    execute = _read(EXECUTE)
+    assert "If no candidate exists, HALT" not in execute
+    assert "HALT (exit code 4, `halt_reason: \"manifest-write-failed\"`) if no candidate exists" not in execute
+    for rel in (SELECT, EXECUTE, REPORT):
+        text = _read(rel)
+        for gone in ("manifestOpsProbeOrder", "rebuildManagedSectionsProbeOrder", "emitEnvelopeProbeOrder",
+                     "manifest file in-prompt", "the in-prompt computation", "manifest in-prompt",
+                     "by comparing version components numerically"):
+            assert gone not in text, f"{rel}: {gone}"
+        if rel != EXECUTE:
+            assert "the `{manifestOpsHelper}` On-Activation §4 resolved" in text, rel
+    roster = _section(_read(SELECT), "### 3. List Available Skills", "### 4. ")
+    assert "**If `{skillInventoryHelper}` does not resolve:** list the `manifest.exports` skills and nothing else" \
+        in roster, "the inventory fallback stays: it changes what is offered"
+    for start, end in (("### 2. Update Export Manifest", "### 3. "), ("### 3. Rebuild Context Files", "### 4. ")):
+        assert "halts before the first prompt" not in _section(execute, start, end), start
+    rule = next(line for line in _read(SKILL).splitlines()
+                if line.startswith("- If any instruction references a subprocess"))
+    assert "never type an envelope or edit the manifest or a context file yourself" in rule
+
+
+def test_a_supplied_skill_name_answers_the_skill_gate_in_both_modes():
+    ask = _section(_read(SELECT), "### 4. Ask Which Skill", "### 5. ")
+    gate = next(line for line in ask.splitlines() if line.startswith("**GATE [default: use args]:**"))
+    assert "take it as the answer below in either mode, without showing the prompt" in gate
+    assert 'headless mode HALTs (exit code 2, `halt_reason: "input-missing"`' in gate
+    assert "If `{headless_mode}` and skill name was provided" not in ask
+
+
+def test_the_version_argument_answers_the_scope_gate():
+    scope = _section(_read(SELECT), "### 6. Ask Scope", "### 7. ")
+    assert "**GATE [default: use args]:** the `version` argument answers this section in either mode" in scope
+    draft = _section(scope, "**If `target_in_manifest = false`:**", "**If `target_in_manifest = true`:**")
+    assert 'HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:scope`) in either mode' in draft
+    assert "Re-run with `version=all`." in draft
+    assert "the drop never widens it to every version" in draft
+    exported = _section(scope, "**If `target_in_manifest = true`:**", "**If [N] Specific version:**")
+    assert "a `version` argument of `all` takes **[A]** below, and any other value takes **[N]**" in exported
+    assert 'headless mode HALTs (exit code 2, `halt_reason: "input-missing"`, phase `select:scope`)' in exported
+    assert "draft skills can only be dropped as a whole" not in scope, "a draft no longer ignores the argument"
+    # The versions are named and checked from §5's ordered rows, never from the manifest map by eye.
+    assert "one of its versions ({each `{version_rows}` entry with `in_manifest` true})" in exported
+    assert "Validate that the version is a `{version_rows}` entry with `in_manifest` true." in scope
+    assert "{its manifest versions, newest first}" not in scope and "`versions` map" not in scope
+    versions = _section(_read(SELECT), "### 5. Display Version Details", "### 6. ")
+    assert "bind `{version_rows}` ← §3's `affected-versions` list for `{target_skill}`" in versions
+    gates = next(line for line in _contract_text(with_skill=True).splitlines() if line.startswith("| **Gates** |"))
+    assert "Scope Gate [use args] (§6 version)" in gates
+
+
+def test_the_mode_argument_answers_the_mode_gate():
+    gates = next(line for line in _contract_text(with_skill=True).splitlines() if line.startswith("| **Gates** |"))
+    assert "Mode Gate [use args] (§8 mode)" in gates
+    mode = _section(_read(SELECT), "### 8. Ask Mode", "### 8b. ")
+    gate = "**GATE [default: use args]:** a `mode` argument answers this section in either mode, then `{defaultMode}`"
+    assert gate in mode and mode.index(gate) < mode.index("**If `target_in_manifest = false`:**")
+
+
+def test_the_purge_option_names_the_folders_the_purge_check_bound():
+    """The [P] option and §9 read the §8b purge check, never path templates no step defines."""
+    select = _read(SELECT)
+    for template in ("{skill_package}", "{skill_group}", "{forge_version}", "{forge_group}"):
+        assert template not in select, template
+    option = next(line for line in select.splitlines() if line.startswith("- **[P]** Purge (hard)"))
+    assert "delete {affected_directories} from disk" in option
+    mode = _section(select, "### 8. Ask Mode", "### 8b. ")
+    assert mode.index("run the §8b purge check at the current scope") < mode.index("- **[P]** Purge (hard)")
+
+
+def test_the_confirm_gate_cancel_is_interactive_only():
+    """A headless run auto-confirms [Y], so the [N] HALT and the cancel rule print no envelope."""
+    select = _read(SELECT)
+    confirm = _section(select, "### 10. Confirmation Gate", "### 11. ")
+    cancel = next(line for line in confirm.splitlines() if line.startswith("- **If `N`**"))
+    assert 'HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `select:confirm`).' in cancel
+    assert "halt envelope" not in cancel
+    rules = _section(select, "## Rules", "## MANDATORY SEQUENCE")
+    assert "headless envelope" not in rules and "the §10 commit gate adds its own tip on top of this" in rules
+
+
+# --------------------------------------------------------------------------
+# #597: the counts and the new active version come from the resolve helper
+# --------------------------------------------------------------------------
+
+def test_no_drop_file_reads_the_version_paths_knowledge():
+    for path in sorted(DROP.rglob("*")):
+        if path.suffix in (".md", ".toml"):
+            text = path.read_text(encoding="utf-8")
+            assert "versionPathsKnowledge" not in text and "knowledge/version-paths.md" not in text, path.name
+
+
+def test_the_guard_and_the_blast_radius_read_the_resolve_counts():
+    select = _read(SELECT)
+    versions = _section(select, "### 5. Display Version Details", "### 6. ")
+    assert "Bind `{version_rows}` ← `resolve.versions`" in versions
+    assert "`{version_counts}` ← `resolve.counts`" in versions
+    guard = _section(select, "### 7. Active Version Guard", "### 8. ")
+    assert "Read `{version_counts}.non_deprecated` (§5)" in guard and "above `1`" in guard
+    assert "The guard never counts by hand" in guard
+    assert "Count the number of OTHER versions" not in guard
+    blast = _section(select, "#### 9b.", "### 10. ")
+    assert "`{version_counts}.non_deprecated` (§5)" in blast and "`{version_counts}.on_disk` for a draft" in blast
+    assert "count of non-deprecated versions in" not in blast
+    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+    assert "`resolve.newest_non_deprecated`" in delete and "`resolve.counts.non_deprecated`" in delete
+    assert "the newest non-deprecated version in its `versions` map" not in delete
+
+
+def _write_skill(skills: Path, name: str, version: str) -> None:
+    package = skills / name / version / name
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_bytes(f"# {name} {version}\n".encode("utf-8"))
+    (package / "metadata.json").write_bytes(json.dumps(
+        {"name": name, "version": version, "generated_by": "create-skill"}).encode("utf-8"))
+
+
+def _write_manifest(skills: Path, name: str, active: str, statuses: dict) -> None:
+    versions = {v: {"ides": ["claude-code"], "last_exported": "2026-01-01", "status": s}
+                for v, s in statuses.items()}
+    manifest = {"schema_version": "2", "exports": {name: {"active_version": active, "versions": versions}}}
+    (skills / ".export-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
+
+
+def _resolve(rel: str, start: str, end: str, skills: Path, forge: Path, name: str) -> dict:
+    command = _one_command(_section(_read(rel), start, end), "{skillInventoryHelper} resolve")
+    proc = _run(command, {"skillInventoryHelper": str(INVENTORY), "skills_output_folder": str(skills),
+                          "forge_data_folder": str(forge), "target_skill": name})
+    result = json.loads(proc.stdout.decode("utf-8"))
+    assert proc.returncode == 0 and result["status"] == "ok", result
+    return result["resolve"]
+
+
+@pytest.mark.parametrize("statuses, refused", [
+    ({"0.6.0": "active", "0.5.0": "archived", "0.1.0": "deprecated"}, True),
+    ({"0.6.0": "active", "0.5.0": "deprecated", "0.1.0": "deprecated"}, False),
+], ids=["another-version-kept", "only-non-deprecated"])
+def test_resolve_counts_drive_the_active_version_guard(tmp_path, statuses, refused):
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version in statuses:
+        _write_skill(skills, "cognee", version)
+    _write_manifest(skills, "cognee", "0.6.0", statuses)
+    forge.mkdir()
+    resolved = _resolve(SELECT, "### 5. Display Version Details", "### 6. ", skills, forge, "cognee")
+    assert [row["version"] for row in resolved["versions"]] == ["0.6.0", "0.5.0", "0.1.0"]
+    # §7: dropping the active 0.6.0 is refused when the count is above 1.
+    assert (resolved["counts"]["non_deprecated"] > 1) is refused
+
+
+def test_resolve_lists_a_draft_skill_by_its_folders(tmp_path):
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version in ("0.2.0", "0.10.0"):
+        _write_skill(skills, "draft", version)
+    forge.mkdir()
+    resolved = _resolve(SELECT, "### 5. Display Version Details", "### 6. ", skills, forge, "draft")
+    rows = [(row["version"], row["on_disk"], row["in_manifest"]) for row in resolved["versions"]]
+    assert rows == [("0.10.0", True, False), ("0.2.0", True, False)], "newest first, 0.10.0 above 0.2.0"
+    assert (resolved["counts"]["on_disk"], resolved["counts"]["non_deprecated"]) == (2, 0)
+
+
+def _new_active(resolved: dict) -> str | None:
+    """execute.md §4: the version `active` points at after a version purge, or None to remove it."""
+    if resolved["counts"]["non_deprecated"] == 0:
+        return None
+    status = {row["version"]: row["status"] for row in resolved["versions"]}
+    active = resolved["active_version"]
+    if active is None or status.get(active) == "deprecated":
+        return resolved["newest_non_deprecated"]
+    return active
+
+
+def test_the_new_active_rule_covers_a_null_active_version():
+    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+    assert ("`{new_active_version}` ← `resolve.active_version`, the version the manifest lists as active, "
+            "unless it is null or its `resolve.versions` entry has `status` `\"deprecated\"`; "
+            "then `resolve.newest_non_deprecated`") in delete
+
+
+@pytest.mark.parametrize("active, statuses, dropped, expected", [
+    ("0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.5.0", "0.6.0"),
+    ("0.5.0", {"0.5.0": "active", "0.4.0": "archived", "0.3.0": "archived"}, "0.5.0", "0.4.0"),
+    ("0.5.0", {"0.5.0": "active"}, "0.5.0", None),
+    (None, {"0.6.0": "active", "0.5.0": "archived", "0.4.0": "archived"}, "0.6.0", "0.5.0"),
+    ("../0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.6.0", "0.5.0"),
+], ids=["manifest-active-kept", "newest-non-deprecated", "none-left", "no-active-version",
+        "active-version-not-a-folder-name"])
+def test_resolve_gives_the_version_active_points_at_after_a_purge(tmp_path, active, statuses, dropped, expected):
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version in statuses:
+        _write_skill(skills, "cognee", version)
+    forge.mkdir()
+    # The state step 2 leaves: the version deprecated in the manifest and its folder deleted.
+    _write_manifest(skills, "cognee", active, {**statuses, dropped: "deprecated"})
+    shutil.rmtree(skills / "cognee" / dropped)
+    resolved = _resolve(EXECUTE, "### 4. Delete Files (Purge Mode Only)", "### 5. ", skills, forge, "cognee")
+    assert _new_active(resolved) == expected
