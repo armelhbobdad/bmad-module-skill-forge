@@ -589,5 +589,21 @@ def main(argv=None):
     return 2 if "code" in result else 0
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdout and stderr to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which cannot print every character
+    of the --help text, so --help would stop with UnicodeEncodeError.
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdout, sys.stderr)
     raise SystemExit(main())

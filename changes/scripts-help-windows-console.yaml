@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-setup, skf-create-stack-skill, skf-test-skill, skf-verify-stack
+summary: |
+  Five helper scripts no longer stop with `UnicodeEncodeError` when their `--help` runs on a Windows console, whose cp1252 output cannot print every character of the help text: `skf-detect-tools.py`, `skf-enumerate-stack-skills.py`, `skf-qmd-classify-collections.py`, `verify-declared-numerator.py` and `skf-report-delta.py` now write UTF-8. Verify Stack's synthesis step points the model at `skf-report-delta.py --help`, so on Windows that step could not read the script's contract.
+prs: [623]
