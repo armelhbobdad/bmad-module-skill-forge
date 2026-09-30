@@ -3,6 +3,9 @@ nextStepFile: 'confirm-brief.md'
 recommendScopeTypeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-recommend-scope-type.py'
   - '{project-root}/src/shared/scripts/skf-recommend-scope-type.py'
+githubProbeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-github-probe.py'
+  - '{project-root}/src/shared/scripts/skf-github-probe.py'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -16,6 +19,7 @@ partyModeSkill: '/bmad-party-mode'
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
 - **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules — revise in place, do not append.
+- **Ratify run (`ratify_mode: true`):** the hydrated brief's selections are the prior selections of the re-entry rule above, and the intent that §1 shows and §2c classifies is the change the user asked for when choosing [R], read with the hydrated `description`. For a source brief, step 2 has analyzed the brief's repository and §2c runs the recommender on that analysis: its `scope_type` and `matched_heuristic` replace the hydrated `recommended` and `heuristic`, and the §2c capture rules set the rest of `scope.rationale` from this pass (a brief without one gets one).
 
 ## Sequence
 
@@ -77,27 +81,48 @@ Load `{scopeTemplatesPath}` for the scope type options ([F], [M], [P], [C], [R])
 
 **Recommend a scope type — don't present the five options as equal weight.** SKILL.md states this workflow "steers toward the smaller, sharper version when scope is unclear" — surface that opinion at decision time. Use the analysis from step 2 and the user's intent from step 1 to pick the best-fit recommendation, then present the menu with that option marked as the suggested default.
 
-**Resolve `{recommendScopeTypeHelper}`** from `{recommendScopeTypeProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{recommendScopeTypeHelper}`** from `{recommendScopeTypeProbeOrder}`; first existing path wins. HALT if no candidate exists. For a GitHub source, resolve `{githubProbeHelper}` from `{githubProbeProbeOrder}`; first existing path wins; with none, the call below runs on the `[]` listing of a failed call.
 
-**Delegate the recommendation to `{recommendScopeTypeHelper}`** instead of walking the heuristic ladder in prose. The script is the single source of truth for the five-rule ladder (component-registry → reference-app keywords → specific-modules naming/count → narrow-public-api → default full-library) plus the docs-only short-circuit. Both the interactive recommendation and the §6 headless GATE invoke the same script — same inputs, same outputs, no drift.
+**Delegate the recommendation to `{recommendScopeTypeHelper}`**: it reads no free text, so what the intent asks for is your judgment, passed as three signals.
 
-**Fetch registry-file contents before building the payload.** Step-02 §4.1 fetches `package.json` plus the entry-point files but does not fetch `registry.ts` / `components.ts` — the deep-match branch of the component-registry rule needs those contents. Scan the tree for any of `registry.ts` / `registry.tsx` / `components.ts` / `components.tsx` (any depth). For each match, fetch its contents in **one message with N parallel Bash calls** (`gh api repos/{owner}/{repo}/contents/{path}?ref={analysis_ref}` for GitHub — `{analysis_ref}` is the ref resolved in step 02 §1, defaulting to `HEAD`; file reads for local), then base64-decode the responses together. Skip the fetch if the tree contains no registry files.
+**Classify the intent into signals.** Read the user's intent and scope hints from step 1 and set each signal by what they mean:
 
-Build the payload and invoke:
+| Signal | Set it when the user | Example |
+|---|---|---|
+| `wants_wiring_pattern` (`true`/`false`) | wants the skill to teach how an app, starter, template or example wires its parts together (IPC, build config, an integration), not a library's API | "skill the IPC wiring of this Electron starter" |
+| `named_module_subset` (list) | limits the skill to named modules: list them as step 2 names them, `[]` when none | "just the auth module" → `["auth"]` |
+| `wants_narrow_api` (`true`/`false`) | asks for the public API, the SDK or the client surface only | "the SDK only, not the internals" |
+
+Judge the meaning, never a word: a negated or contrasted mention sets nothing ("the whole library, not just the parser" names no module; "the client library, not a demo app or starter template" wants no wiring pattern), and a word inside another word is not that word ("Kickstarter-style" says nothing about a starter). A signal the intent does not state stays `false` (or `[]`).
+
+**Run the recommender in one Bash call**; it reads the file list through `--tree-file` and the registry files (`registry.ts`, `components.ts` and their `.tsx` forms) through `--entry-dir`, never a list or a file typed into the payload. For a GitHub source:
 
 ```bash
-echo '{
-  "intent": "<combined intent + scope_hint text from step 1>",
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+uv run {githubProbeHelper} tree --repo "{owner}/{repo}" --ref "{analysis_ref}" > "$work/tree.json"
+uv run {recommendScopeTypeHelper} --tree-file "$work/tree.json" --registry-files | while IFS= read -r rel; do
+  mkdir -p "$work/files/$(dirname "$rel")"
+  gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$rel?ref={analysis_ref}" > "$work/files/$rel" || rm -f "$work/files/$rel"
+done
+uv run {recommendScopeTypeHelper} --tree-file "$work/tree.json" --entry-dir "$work/files" <<'SKF_SCOPE_PAYLOAD'
+{
+  "signals": {
+    "wants_wiring_pattern": <true|false>,
+    "named_module_subset": [<module names, or nothing>],
+    "wants_narrow_api": <true|false>
+  },
   "module_count": <count from step 2 §4.3>,
   "export_count": <count from step 2 §4.3>,
-  "tree": [<flat list of repo-relative file paths from step 2 §1>],
-  "entry_files": [{"path": "<registry path>", "content": "<contents>"}, ...],
   "source_type": "source",
   "mode": "interactive"
-}' | uv run {recommendScopeTypeHelper}
+}
+SKF_SCOPE_PAYLOAD
 ```
 
-`entry_files` carries the registry contents fetched above; omit when no registry files exist in the tree. `mode: "interactive"` activates the content-inspection branch of the component-registry rule (10+ entries or `Component[]` annotation); the headless GATE in §6 uses `mode: "headless"` which falls back to presence-only matching. `source_type: "docs-only"` short-circuits to `docs-only` regardless of the other signals.
+- **A local source, or step 2's clone.** For a local path, or `{tmp_dir}` when step 2 cloned the repository on `[L]`, list that folder and read its registry files in place: replace the probe line with `git -C "<folder>" -c core.quotePath=false ls-files > "$work/tree.json"` (outside a git work tree: `(cd "<folder>" && find . -type f -not -path './.git/*' -not -path '*/node_modules/*') > "$work/tree.json"`), drop the fetch loop, and pass `--entry-dir "<folder>"`.
+- **`mode`.** `"interactive"` lets a registry file's contents decide the component-registry rule (10+ entries or a `Component[]` annotation), so a file whose contents could not be read does not count; the §6 headless GATE passes `"headless"`, which counts such a file by its presence.
+- **A failed call.** The call prints one JSON object, or exits 2 and names the problem on stderr. For a payload key or signal the script does not accept, fix the payload and run the call again. For a tree listing that failed (the stderr line carries the listing's own message), do not retry the network: run the call again with `printf '[]' > "$work/tree.json"` in place of the listing line, and log `"warn: scope-type recommendation ran without the file list ({message}); the component-registry check did not run"`. Interactively, show that warning with the recommendation, so the user can still pick [C].
 
 The script returns `{scope_type, matched_heuristic, signals, rationale}`. Use `rationale` directly — it already names the specific signals that fired.
 
@@ -200,7 +225,7 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 
 - **GATE [default: C]** — If `{headless_mode}`: consume the headless inputs from step 1 in priority order:
   - If `scope_type` was supplied, use it (must match one of the six valid types) and skip the §2c template menu.
-  - Otherwise auto-select via `{recommendScopeTypeHelper}` — invoke the script with the **same payload shape** documented in §2c but with `mode: "headless"` (presence-only matching for the component-registry rule, since `entry_files` may not be available without an interactive context). Use the returned `scope_type` and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`. The script's docs-only short-circuit handles `source_type=docs-only` automatically.
+  - Otherwise auto-select via `{recommendScopeTypeHelper}`: classify the `intent` and `scope_hint` arguments into the three signals by the §2c rules (all `false` and `[]` when neither was supplied), log `"headless: scope signals wants_wiring_pattern={value} named_module_subset={list} wants_narrow_api={value} (from intent/scope_hint)"`, then run the §2c call with `"mode": "headless"`. Use the returned `scope_type` and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`. For `source_type=docs-only`, run `uv run {recommendScopeTypeHelper} --json '{"source_type": "docs-only", "mode": "headless"}'` instead: it short-circuits to `docs-only` and needs no tree or signals.
   - If `include`/`exclude` were supplied, use them verbatim (split on comma) instead of running the boundary prompts in §3.
   - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
   - Set `scope.rationale`: `recommended`/`heuristic` from the script (or `recommended = scope_type` arg, `heuristic = "user-supplied-arg"` when `scope_type` was passed); `chosen = <resolved type>`; `accepted_recommendation = (no scope_type arg)`; `reason = "<script rationale>"` (auto path) or `"headless: scope_type supplied as argument"` (arg path); `recorded = {date}`. No prompt — headless never asks "why".

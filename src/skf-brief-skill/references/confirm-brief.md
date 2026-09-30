@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'write-brief.md'
 reviseStepFile: 'scope-definition.md'
+analyzeStepFile: 'analyze-target.md'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -20,6 +21,8 @@ partyModeSkill: '/bmad-party-mode'
 Use the values already accepted in steps 01-03 directly — do not re-load `{briefSchemaPath}` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.
 
 **Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (interactive `[R]` at gather-intent §3.1a, or the headless §8 GATE `from_brief` route), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output — the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 pins it via `version_resolved`).
+
+After a `[R]` pass on a ratify run, take `scope.*`, `scripts_intent`, `assets_intent` and `doc_urls` from step 3; every other field stays hydrated.
 
 Compile all gathered data from steps 01-03 into the complete brief:
 
@@ -149,7 +152,7 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 
 #### Menu Handling Logic:
 
-- IF R: Load, read entire file, then execute {reviseStepFile} to re-enter scope definition
+- IF R: When `ratify_mode` is true, `source_type` is not `docs-only` and `ratify_analyzed` is not set, load, read entire file, then execute {analyzeStepFile}, which chains to scope definition. Otherwise load, read entire file, then execute {reviseStepFile} to re-enter scope definition
 - IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
