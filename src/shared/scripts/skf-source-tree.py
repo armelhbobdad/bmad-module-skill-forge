@@ -11,28 +11,36 @@ workspace path rule of create-skill's source-resolution-protocols.md:
 SKF run on the repository shares that clone and leaves it at the commit it
 needed, so update-skill never reads it as it stands. This helper gives each
 update-skill run a private tree at one commit, moves the shared clone to
-the commit the update recorded, and removes the tree at the end.
+the commit the update recorded, and removes the tree at the end. resolve
+does the same for a run that starts from a brief or a chosen ref
+(create-skill, audit-skill): it turns a version into a tag, reads that
+tag into a private tree, and moves the shared clone there when asked.
 
 CLI:
 
   uv run skf-source-tree.py open --source-repo <repo> --source-root <path> \\
       --source-ref <ref> --pinned-commit <sha> [--target-ref <ref>] \\
       [--timeout <seconds>]
+  uv run skf-source-tree.py resolve --source-repo <repo> \\
+      [--source-root <path>] [--target-ref <ref>] \\
+      [--version <version> [--name <name>] [--implicit]] \\
+      [--update-clone] [--hygiene-helper <path>] \\
+      [--lock-timeout <seconds>] [--timeout <seconds>]
   uv run skf-source-tree.py advance --clone <path> --source-repo <repo> \\
       --target <sha> [--expect-commit <sha>] [--target-ref <ref>] \\
       [--tree <path>] [--hygiene-helper <path>] [--drift-helper <path>] \\
       [--lock-timeout <seconds>] [--timeout <seconds>]
   uv run skf-source-tree.py close --tree <path>
 
---tree (advance and close) takes the `tree` path open printed or the run
-folder that holds it.
+--tree (advance and close) takes the `tree` path open or resolve printed,
+or the run folder that holds it.
 
-Time limit. open and advance finish within --timeout seconds (100 by
-default, so a shell tool that stops commands after two minutes still gets
-the JSON): every git call and sibling helper is cut to the time left, a
-network call leaves the last 15 seconds to the local steps after it, a
-local call leaves the last 5 to the final read of the clone's HEAD, and a
-step that runs out of time reports `timed-out`. A call the limit stops is
+Time limit. open, resolve and advance finish within --timeout seconds
+(100 by default, so a shell tool that stops commands after two minutes
+still gets the JSON): every git call and sibling helper is cut to the
+time left, a network call leaves the last 15 seconds to the local steps
+after it, a local call leaves the last 5 to the final read of the clone's
+HEAD, and a step that runs out of time reports `timed-out`. A call the limit stops is
 stopped with everything it started (git's transport, a filter it runs):
 on POSIX SIGTERM to its process group first, so git removes its lock
 files, then SIGKILL; on Windows `taskkill /T /F`. Its output goes to
@@ -103,6 +111,84 @@ open
   never a link, and on POSIX only folders the current user owns. Folder
   times are never used.
 
+resolve
+
+  Takes a source when --source-repo names a remote repository (anything
+  else is `skipped` with `not-remote`: read the local path as it is), and
+  picks the ref to read:
+
+  1. --target-ref: `HEAD` (any letter case) for the remote's default
+     branch, a 40-character commit, or a tag or branch. A commit is taken
+     as given, without `git ls-remote`, and one the remote does not have
+     ends `unavailable` with `fetch-failed`. A tag or branch is looked up
+     with `git ls-remote` (a tag wins over a branch of the same name); one
+     it does not find adds a warning and falls through.
+  2. --version, matched against the remote's tags. --implicit (a version
+     the brief only carries as a hint) tries two forms, the version as
+     given and `v<version>`; otherwise seven, adding, with --name,
+     `<name>@<version>`, `@<scope>/<name>@<version>` (any scope),
+     `<name>/v<version>`, `<name>/<version>` and `<name>-v<version>` (a
+     leading `v` of --version is dropped in the forms after the first).
+     One match is read. Several are `ambiguous`: nothing is read, and
+     tag_resolution.candidates lists them in that order; run resolve again
+     with the chosen one as --target-ref. None falls back to `HEAD`, with
+     the five tags nearest the version in tag_resolution.nearest.
+  3. Otherwise `HEAD`, the remote's default branch.
+
+  An empty, `null` or `none` value (any letter case: a JSON null written
+  out) of --target-ref, --version, --name or --source-root counts as not
+  given, so a brief's `target_ref: null` falls through to its version.
+  Only `HEAD` asks for the default branch.
+
+  It then builds a private tree at that commit exactly as open does (same
+  run folder, run.json and refs/skf/target; no changed-files.json), from
+  SKF's clone when the clone holds the commit, else from the remote.
+  Without --source-root, the clone is the workspace path computed from
+  --source-repo. With --source-root, the clone is that folder when it is
+  SKF's clone of --source-repo as open decides (the workspace path,
+  present or missing, or a clone of the same repository under another
+  workspace folder). A folder that is not SKF's clone, at either place,
+  is never used: the tree comes from the remote and --update-clone skips
+  with `not-a-clone`.
+
+  With --update-clone it then moves that clone to the commit, as advance
+  does but without --expect-commit (this run owns the move): inside one
+  process it clones a missing clone, takes `.skf-workspace.lock`, runs
+  --hygiene-helper, leaves a clone with local changes to tracked files
+  alone and never forces a checkout. It also leaves alone a clone whose
+  HEAD does not resolve (`head-unverified`): that may be another run's
+  clone still being written, since create-skill clones before it locks.
+  The tree is read either way, so a clone that could not be moved never
+  changes what the run reads.
+
+  Output (one ASCII line; every key is always present):
+    status             "ready" | "ambiguous" | "skipped" | "unavailable"
+    skip_reason        null | "not-remote"
+    reason             null | one of OPEN_REASONS (unavailable)
+    message            one line for the user (ambiguous, unavailable), else null
+    workspace_path     SKF's clone path for --source-repo (the Compute
+                       workspace path rule), null when skipped
+    clone              SKF's clone it read from or moved, present or
+                       missing; null when that folder is not SKF's clone
+    source_ref         the ref picked ("HEAD" for the default branch), else null
+    ref_kind           "tag" | "branch" | "head" | "commit" | null
+    source_commit      40-hex commit the tree holds, else null
+    tree               absolute path of this run's tree (ready), else null
+    tag_resolution     {"status": "target-ref" | "matched" | "ambiguous" |
+                        "fallback-head" | "none",
+                        "mode": "explicit" | "implicit" | null,
+                        "requested": the --version (or --target-ref) or null,
+                        "candidates": [matching tags],
+                        "nearest": [up to five tags, newest first],
+                        "reason": null | "no-matching-tag" |
+                                  "target-ref-not-found"}
+    clone_status       null (no --update-clone) | "advanced" | "ok" | "skipped"
+    clone_skip_reason  null | one of ADVANCE_SKIP_REASONS
+    clone_created      true when this call cloned the missing clone
+    warnings           list of strings
+
+  Remove the tree with close once the run no longer reads it.
+
 advance
 
   Moves the shared clone (--clone) to --target, the commit the update
@@ -115,7 +201,11 @@ advance
   only when the drift helper confirms the clone still holds --expect-commit
   and no tracked file has local changes, taking the commit from the tree
   --tree names before the remote. It never forces a checkout. A missing
-  clone is cloned first, as create-skill does (clone first, lock after).
+  clone is cloned first, as create-skill does (clone first, lock after),
+  into a folder beside it that is renamed to --clone once the clone is
+  complete: no other run sees it half made, and when another run made
+  --clone meanwhile, this call removes only its own folder
+  (`clone-failed`).
 
   refs/skf/advance, the ref a fetch into the clone writes, is always
   deleted again. When the time limit stops a fetch or the checkout in the
@@ -152,9 +242,10 @@ close
      "tree": <--tree>, "warnings": [...]}
 
 Exit codes:
-  0  open: ready, offline or skipped; advance and close: always once JSON
-     is printed (they never gate)
-  3  open: unavailable (JSON on stdout; the caller halts)
+  0  open: ready, offline or skipped; resolve: ready, ambiguous or
+     skipped; advance and close: always once JSON is printed (they never
+     gate)
+  3  open, resolve: unavailable (JSON on stdout; the caller halts)
   1  unexpected error: {"status": "error", "message": ...} on stderr,
      nothing on stdout
   2  usage error (argparse)
@@ -170,6 +261,7 @@ credential-manager prompt and no hooks. It needs git 2.15 or newer.
 from __future__ import annotations
 
 import argparse
+import bisect
 import errno
 import json
 import os
@@ -239,6 +331,9 @@ _DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 # Characters that stop a host, owner or repository name from naming one
 # folder: Windows reads `\` as a separator and `C:` as a drive.
 _NOT_A_NAME_RE = re.compile(r"[\\:\x00-\x1f\x7f]")
+_VERSION_TAIL_RE = re.compile(
+    r"(?P<nums>\d+(?:\.\d+)*)(?P<pre>(?:-|(?=[A-Za-z]))[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z.-]+)?")
+NEAREST_TAGS = 5
 
 # Keep identical to GIT_LOCATION_VARS in skf-check-workspace-drift.py.
 GIT_LOCATION_VARS = (
@@ -350,6 +445,44 @@ def _resolve_outside_cwd(command: str) -> str | None:
         if os.path.normcase(os.path.abspath(resolved_dir)) == cwd:
             return None
     return resolved
+
+
+# skf-check-workspace-drift.py (upstream) and skf-github-probe.py load this
+# file for split_version, _run, _resolve_outside_cwd, _last_error,
+# _stat_dir, SHA40_RE and REF_RE: keep those names and what they take and
+# return.
+def split_version(name: str) -> tuple[str, tuple] | None:
+    """(prefix, sort key) of a tag name that ends in a version, else None.
+
+    The version is a dotted number with an optional pre-release (`-rc.1`,
+    `rc1`) and build (`+build`) after it; the prefix is what comes before
+    it and never ends in a digit or a dot (`v`, `pkg@`, `tokio/v`). When a
+    name holds several, the one with the most numbers wins, then the first
+    (`lib2-v1.0` is `lib2-v` and 1.0, `v1.0.0-rc1` is `v` and 1.0.0-rc1).
+    Keys sort by version: trailing zeros do not count (1.2 == 1.2.0), a
+    release sorts after its pre-releases, pre-release numbers compare as
+    numbers. key[1] is 0 for a pre-release, 1 for a release.
+    """
+    best = None
+    for i, ch in enumerate(name):
+        if not ch.isdigit() or (i and name[i - 1] in "0123456789."):
+            continue
+        m = _VERSION_TAIL_RE.fullmatch(name, i)
+        if m is None:
+            continue
+        nums = [int(part) for part in m.group("nums").split(".")]
+        if best is None or len(nums) > len(best[1]):
+            best = (name[:i], nums, m.group("pre"))
+    if best is None:
+        return None
+    prefix, nums, pre = best
+    while len(nums) > 1 and nums[-1] == 0:
+        nums.pop()
+    if pre is None:
+        return prefix, (tuple(nums), 1, ())
+    ids = tuple((0, int(tok), "") if tok.isdigit() else (1, 0, tok.lower())
+                for tok in re.findall(r"\d+|[A-Za-z]+", pre))
+    return prefix, (tuple(nums), 0, ids)
 
 
 # Keep identical to is_skippable_pinned in skf-check-workspace-drift.py
@@ -762,6 +895,64 @@ def resolve_ref(url: str, ref: str) -> tuple[str, str | None, str | None, str | 
     return "ref-not-found", None, None, None, None
 
 
+def list_tags(url: str) -> tuple[dict | None, str | None]:
+    """({tag: commit}, None) for the remote at url, or (None, git's last error line).
+
+    An annotated tag maps to the commit it names (its peeled `^{}` line).
+    """
+    res = _git(tempfile.gettempdir(), "ls-remote", "--tags", "--", url, timeout=LS_REMOTE_TIMEOUT_SEC,
+               network=True)
+    if not _ok(res):
+        return None, _err(res)
+    tags = {}
+    for line in res[1].decode("utf-8", errors="replace").splitlines():
+        sha, _, name = line.partition("\t")
+        sha, name = sha.strip(), name.strip()
+        if not SHA40_RE.match(sha) or not name.startswith("refs/tags/"):
+            continue
+        name = name[len("refs/tags/"):]
+        if name.endswith("^{}"):
+            tags[name[:-3]] = sha
+        else:
+            tags.setdefault(name, sha)
+    return tags, None
+
+
+def match_tags(tags, version: str, name: str | None = None, implicit: bool = False) -> list[str]:
+    """The tags that name `version`, in the order the forms are tried.
+
+    Implicit: the version as given and `v<version>`. Otherwise also, with
+    name, `<name>@<v>`, `@<scope>/<name>@<v>` (any scope, by name),
+    `<name>/v<v>`, `<name>/<v>` and `<name>-v<v>`, where <v> drops a
+    leading `v` of the version.
+    """
+    bare = version[1:] if re.match(r"^[vV]\d", version) else version
+    forms = [version, f"v{bare}"]
+    if name and not implicit:
+        scoped = re.compile(rf"@[^/@]+/{re.escape(name)}@{re.escape(bare)}")
+        forms += [f"{name}@{bare}", *sorted(t for t in tags if scoped.fullmatch(t)),
+                  f"{name}/v{bare}", f"{name}/{bare}", f"{name}-v{bare}"]
+    return [tag for tag in dict.fromkeys(forms) if tag in tags]
+
+
+def nearest_tags(tags, version: str, count: int = NEAREST_TAGS) -> list[str]:
+    """Up to `count` tags that sort next to `version` by version, newest first."""
+    wanted = split_version(version)
+    if wanted is None:
+        return []
+    keyed = sorted((split[1], tag) for tag in tags if (split := split_version(tag)) is not None)
+    at = bisect.bisect_left([key for key, _tag in keyed], wanted[1])
+    lo, hi, picked = at - 1, at, []
+    while len(picked) < count and (lo >= 0 or hi < len(keyed)):
+        if hi < len(keyed) and (lo < 0 or hi - at <= at - 1 - lo):
+            picked.append(keyed[hi])
+            hi += 1
+        else:
+            picked.append(keyed[lo])
+            lo -= 1
+    return [tag for _key, tag in sorted(picked, reverse=True)]
+
+
 # --------------------------------------------------------------------------
 # Run folders
 # --------------------------------------------------------------------------
@@ -911,16 +1102,51 @@ def _seed(tree: Path, sha: str, name: str, clone: str | None, usable: bool, url:
     return _rev(tree, dest) is not None
 
 
-# --------------------------------------------------------------------------
-# open
-# --------------------------------------------------------------------------
+def _make_tree(source_repo: str, repo: str, sha: str, clone: str | None, usable: bool, url: str,
+               remote_ref: str | None, warnings: list[str]) -> tuple[Path | None, dict | None, str | None]:
+    """A new run folder whose tree holds sha in refs/skf/target: (tree, run.json record, None).
+
+    (None, None, None) when no run folder could be made, and (None, None,
+    error line) when the commit could not be fetched; the folder is then
+    removed again.
+    """
+    run = _new_run_dir(warnings)
+    if run is None:
+        return None, None, None
+    tree = run / repo
+    record = {"tool": TOOL, "created": datetime.now(timezone.utc).strftime(STAMP_FORMAT), "tree": str(tree),
+              "source_repo": source_repo, "clone": clone}
+    _write_json(run / RUN_FILE, record)
+    init = _git(run, "init", "--quiet", "--template=", repo)
+    if _ok(init) and _seed(tree, sha, "target", clone, usable, url, remote_ref):
+        return tree, record, None
+    _rmtree(run)
+    return None, None, _err(init) if not _ok(init) else "the commit could not be fetched"
+
+
+def _check_out(tree: Path) -> tuple[str | None, tuple[int, bytes, str] | None]:
+    """Check the tree out at refs/skf/target: (the commit, or None when that failed; git's result)."""
+    target_commit = _rev(tree, "refs/skf/target")
+    checkout = _git(tree, *CHECKOUT_OPTS, "checkout", "--quiet", "--detach", target_commit or "",
+                    timeout=NETWORK_TIMEOUT_SEC)
+    if not target_commit or not _ok(checkout) or _rev(tree, "HEAD") != target_commit:
+        return None, checkout
+    return target_commit, checkout
 
 
 def _unavailable(out: dict, reason: str, message: str) -> tuple[int, dict]:
-    out.update(status="unavailable", reason=reason, message=message, tree=None,
-               target_commit=None, moved=None, diff_status=None, changed_files=None,
-               changed_counts=None)
+    """Mark out unavailable and null the result keys the command reports (open or resolve)."""
+    out.update(status="unavailable", reason=reason, message=message)
+    for key in ("tree", "target_commit", "moved", "diff_status", "changed_files", "changed_counts",
+                "source_commit"):
+        if key in out:
+            out[key] = None
     return 3, out
+
+
+# --------------------------------------------------------------------------
+# open
+# --------------------------------------------------------------------------
 
 
 def _diff(tree: Path, base: str, target: str) -> list[dict] | None:
@@ -1012,23 +1238,15 @@ def open_tree(args: argparse.Namespace) -> tuple[int, dict]:
         offline_message = (f"Could not reach {source_repo} ({error}); read the pinned commit "
                            f"{pin_full[:12]} from the local copy, so upstream changes were not checked")
 
-    repo = parsed[2]
     while True:
-        run = _new_run_dir(out["warnings"])
-        if run is None:
+        tree, record, fetch_error = _make_tree(source_repo, parsed[2], sha, clone, usable, url, remote_ref,
+                                               out["warnings"])
+        if tree is not None:
+            break
+        if fetch_error is None:
             return _unavailable(out, "tree-folder-failed",
                                 "Could not create a folder for this run's source tree in the SKF "
                                 "workspace or the system temp folder")
-        tree = run / repo
-        created = datetime.now(timezone.utc).strftime(STAMP_FORMAT)
-        record = {"tool": TOOL, "created": created, "tree": str(tree), "source_repo": source_repo,
-                  "clone": clone}
-        _write_json(run / RUN_FILE, record)
-        init = _git(run, "init", "--quiet", "--template=", repo)
-        if _ok(init) and _seed(tree, sha, "target", clone, usable, url, remote_ref):
-            break
-        fetch_error = _err(init) if not _ok(init) else "the commit could not be fetched"
-        _rmtree(run)
         if offline_message is None and not args.target_ref and pin_local:
             sha, kind, remote_ref = pin_full, "pinned", None
             offline_message = (f"Could not fetch {ref} from {source_repo}; read the pinned commit "
@@ -1036,10 +1254,9 @@ def open_tree(args: argparse.Namespace) -> tuple[int, dict]:
             continue
         return _unavailable_or_late("fetch-failed", f"Could not fetch {ref} from {source_repo}: {fetch_error}")
 
-    target_commit = _rev(tree, "refs/skf/target")
-    checkout = _git(tree, *CHECKOUT_OPTS, "checkout", "--quiet", "--detach", target_commit or "",
-                    timeout=NETWORK_TIMEOUT_SEC)
-    if not target_commit or not _ok(checkout) or _rev(tree, "HEAD") != target_commit:
+    run = tree.parent
+    target_commit, checkout = _check_out(tree)
+    if target_commit is None:
         _rmtree(run)
         return _unavailable_or_late("checkout-failed",
                                     f"Could not check out {ref} of {source_repo}: {_err(checkout)}")
@@ -1069,6 +1286,143 @@ def open_tree(args: argparse.Namespace) -> tuple[int, dict]:
     _write_json(run / RUN_FILE, record)
     out.update(status="offline" if offline_message else "ready", message=offline_message,
                tree=str(tree), ref_kind=kind, target_commit=target_commit, moved=moved)
+    return 0, out
+
+
+# --------------------------------------------------------------------------
+# resolve
+# --------------------------------------------------------------------------
+
+
+def _given(value: str | None) -> str:
+    """value stripped; "" for an empty, `null` or `none` value (a JSON null written out)."""
+    value = (value or "").strip()
+    return "" if value.lower() in ("null", "none") else value
+
+
+def resolve(args: argparse.Namespace) -> tuple[int, dict]:
+    out = {
+        "status": None, "skip_reason": None, "reason": None, "message": None, "workspace_path": None,
+        "clone": None, "source_ref": None, "ref_kind": None, "source_commit": None, "tree": None,
+        "tag_resolution": {"status": "none", "mode": None, "requested": None, "candidates": [], "nearest": [],
+                           "reason": None},
+        "clone_status": None, "clone_skip_reason": None, "clone_created": False, "warnings": [],
+    }
+    tags_out = out["tag_resolution"]
+    _start_clock(args.timeout)
+    source_repo = args.source_repo.strip()
+    target_ref, version, name = _given(args.target_ref), _given(args.version), _given(args.name)
+    source_root = _given(args.source_root)
+    ref = None
+
+    def _unavailable_or_late(reason: str, message: str) -> tuple[int, dict]:
+        if _late(reason, _OPEN_NETWORK_LATE, _OPEN_LOCAL_LATE):
+            reason = "timed-out"
+            message = (f"Reading {ref or target_ref or version or 'HEAD'} of {source_repo} did not finish "
+                       f"within the {args.timeout:g}-second time limit; a first fetch of a large repository "
+                       "is slow")
+        return _unavailable(out, reason, message)
+
+    parsed = parse_remote(source_repo)
+    if parsed is None or not _stays_inside(parsed):
+        out.update(status="skipped", skip_reason="not-remote")
+        return 0, out
+    workspace = clone_path(parsed)
+    out["workspace_path"] = str(workspace)
+    found = classify(source_repo, source_root or str(workspace))
+    out["warnings"].extend(found["warnings"])
+    clone, usable = found["clone"], found["usable"]
+    if clone is None and not found["warnings"]:
+        out["warnings"].append(f"{source_root} is not SKF's clone of {source_repo}; "
+                               "the tree is read from the remote and that folder is left alone")
+    out["clone"] = clone
+    if _resolve_outside_cwd("git") is None:
+        return _unavailable(out, "git-unavailable", f"git is not installed; it is needed to read {source_repo}")
+    url = _url(source_repo, parsed)
+
+    kind = sha = remote_ref = None
+    if target_ref:
+        tags_out["requested"] = target_ref
+        wanted = "HEAD" if target_ref.lower() == "head" else target_ref
+        wanted = wanted.lower() if re.fullmatch(r"[0-9A-Fa-f]{40}", wanted) else wanted
+        state = "ref-not-found"
+        if wanted == "HEAD" or SHA40_RE.match(wanted) or _ref_ok(wanted):
+            state, kind, sha, remote_ref, error = resolve_ref(url, wanted)
+        if state == "unreachable":
+            return _unavailable_or_late("upstream-unreachable", f"Could not reach {source_repo} ({error}), "
+                                                                f"so {target_ref} could not be read")
+        if state == "ok":
+            ref = wanted
+            tags_out["status"] = "target-ref"
+        else:
+            tags_out.update(status="fallback-head", reason="target-ref-not-found")
+            out["warnings"].append(f"target_ref ({target_ref}) does not resolve in {source_repo}; "
+                                   + ("falling back to version matching" if version else "reading HEAD"))
+
+    if ref is None and version:
+        mode = "implicit" if args.implicit else "explicit"
+        tags_out.update(mode=mode, requested=version, reason=None)
+        tags, error = list_tags(url)
+        if tags is None:
+            return _unavailable_or_late("upstream-unreachable",
+                                        f"Could not list the tags of {source_repo} ({error})")
+        candidates = match_tags(tags, version, name or None, implicit=args.implicit)
+        tags_out["candidates"] = candidates
+        if len(candidates) > 1:
+            tags_out["status"] = "ambiguous"
+            out.update(status="ambiguous",
+                       message=(f"Several tags of {source_repo} match version {version}: "
+                                f"{', '.join(candidates)}. Run resolve again with the one to use as "
+                                "--target-ref."))
+            return 0, out
+        if candidates:
+            ref, kind, sha, remote_ref = candidates[0], "tag", tags[candidates[0]], f"refs/tags/{candidates[0]}"
+            tags_out["status"] = "matched"
+        else:
+            nearest = nearest_tags(tags, version)
+            tags_out.update(status="fallback-head", reason="no-matching-tag", nearest=nearest)
+            out["warnings"].append(f"no tag of {source_repo} matches version {version}; reading HEAD, the "
+                                   f"default branch (nearest tags: {', '.join(nearest) or 'none'})")
+
+    if ref is None:
+        state, kind, sha, remote_ref, error = resolve_ref(url, "HEAD")
+        if state == "unreachable":
+            return _unavailable_or_late("upstream-unreachable",
+                                        f"Could not reach {source_repo} ({error}), so HEAD could not be read")
+        if state != "ok":
+            return _unavailable(out, "ref-not-found", f"{source_repo} has no default branch to read")
+        ref = "HEAD"
+    out.update(source_ref=ref, ref_kind=kind)
+
+    sweep(out["warnings"])
+    tree, record, fetch_error = _make_tree(source_repo, parsed[2], sha, clone, usable, url, remote_ref,
+                                           out["warnings"])
+    if tree is None and fetch_error is None:
+        return _unavailable(out, "tree-folder-failed",
+                            "Could not create a folder for this run's source tree in the SKF "
+                            "workspace or the system temp folder")
+    if tree is None:
+        return _unavailable_or_late("fetch-failed", f"Could not fetch {ref} from {source_repo}: {fetch_error}")
+    source_commit, checkout = _check_out(tree)
+    if source_commit is None:
+        _rmtree(tree.parent)
+        return _unavailable_or_late("checkout-failed",
+                                    f"Could not check out {ref} of {source_repo}: {_err(checkout)}")
+    record["target_commit"] = source_commit
+    _write_json(tree.parent / RUN_FILE, record)
+    out.update(status="ready", tree=str(tree), source_commit=source_commit)
+
+    if args.update_clone:
+        if clone is None:
+            out.update(clone_status="skipped", clone_skip_reason="not-a-clone")
+        else:
+            moved = _advance(argparse.Namespace(
+                clone=clone, source_repo=source_repo, target=source_commit, expect_commit="", target_ref=ref,
+                tree=str(tree), hygiene_helper=args.hygiene_helper, drift_helper="",
+                lock_timeout=args.lock_timeout, timeout=args.timeout), verify=False)
+            out.update(clone_status=moved["status"], clone_skip_reason=moved["skip_reason"],
+                       clone_created=moved["created"])
+            out["warnings"].extend(f"clone: {w}" for w in moved["warnings"])
     return 0, out
 
 
@@ -1122,8 +1476,49 @@ def _helper_file(path: str) -> str | None:
         return None
 
 
+def _clone_new(clone: Path, url: str, branch: list[str], warnings: list[str]) -> tuple[int, bytes, str] | None:
+    """Clone url to the missing folder clone, through a folder of this call's own.
+
+    git writes the clone to `.<repo>.skf-clone-*/<repo>` beside clone, and
+    that folder is renamed to clone once the clone is complete: no other
+    run ever sees a clone half made, and when another run made clone
+    meanwhile, only this call's folder is removed. git's result, or (1, b"",
+    error line) when a folder could not be made or moved.
+    """
+    try:
+        os.makedirs(clone.parent, exist_ok=True)
+        holder = Path(tempfile.mkdtemp(prefix=f".{clone.name}.skf-clone-", dir=clone.parent))
+    except OSError as e:
+        return 1, b"", f"error: {e}"
+    try:
+        made = holder / clone.name
+        res = _git(holder, *CHECKOUT_OPTS, "clone", "--quiet", "--depth", "1", *branch, "--", url, str(made),
+                   timeout=NETWORK_TIMEOUT_SEC, network=True)
+        if not _ok(res):
+            return res
+        # On POSIX os.rename replaces an empty folder: never take the place of a clone another run just began.
+        if not os.path.lexists(clone):
+            try:
+                os.rename(made, clone)
+                return res
+            except OSError as e:
+                if not os.path.lexists(clone):
+                    return 1, b"", f"error: could not move the new clone to {clone}: {e}"
+        return 1, b"", f"error: another run created {clone} while this one cloned it"
+    finally:
+        if not _rmtree(holder):
+            warnings.append(f"could not remove {holder}")
+
+
 def advance(args: argparse.Namespace) -> dict:
     _start_clock(args.timeout)
+    return _advance(args)
+
+
+def _advance(args: argparse.Namespace, verify: bool = True) -> dict:
+    """advance within the time limit already started; verify=False (resolve)
+    moves a clone at any commit, since that run owns the move, once its HEAD
+    resolves."""
     out = {"status": "skipped", "skip_reason": None, "head_sha": None, "created": False,
            "lock": "not-taken", "hygiene": "skipped", "log_message": "", "warnings": []}
     target = args.target.strip().lower()
@@ -1160,15 +1555,8 @@ def advance(args: argparse.Namespace) -> dict:
         branch = []
         if target_ref.lower() not in HEAD_ALIASES and not SHA40_RE.match(target_ref.lower()):
             branch = [f"--branch={target_ref}"]
-        try:
-            os.makedirs(clone.parent, exist_ok=True)
-            res = _git(clone.parent, *CHECKOUT_OPTS, "clone", "--quiet", "--depth", "1", *branch, "--",
-                       url, str(clone), timeout=NETWORK_TIMEOUT_SEC, network=True)
-        except OSError as e:
-            res = (1, b"", f"error: {e}")
+        res = _clone_new(clone, url, branch, out["warnings"])
         if not _ok(res):
-            if os.path.lexists(clone):
-                _rmtree(clone)
             out["warnings"].append(_err(res))
             return finish("skipped", "clone-failed")
         out["created"] = True
@@ -1202,19 +1590,24 @@ def advance(args: argparse.Namespace) -> dict:
                 os.close(fd)
                 fd = None
 
+        head = _rev(clone, "HEAD")
+        if head is None and not verify:
+            # This run owns the move, but a HEAD that does not resolve may be another run's clone still
+            # being written (create-skill clones before it locks): leave that clone to its run.
+            return finish("skipped", "head-unverified")
+
         hygiene = _helper_file(args.hygiene_helper)
         if hygiene:
             ran = _run_sibling(hygiene, "workspace", "--repo", str(clone))
             out["hygiene"] = "ran" if ran is not None and ran[0] == 0 else "failed"
 
-        head = _rev(clone, "HEAD")
         out["_old"] = head[:7] if head else "none"
         if head == target:
             return finish("ok")
-        if out["created"]:
+        if verify and out["created"]:
             if head != clone_head:
                 return finish("skipped", "head-moved")
-        else:
+        elif verify:
             drift = _helper_file(args.drift_helper)
             if not drift:
                 return finish("skipped", "head-unverified")
@@ -1340,6 +1733,24 @@ def _build_parser() -> argparse.ArgumentParser:
     p_open.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SEC,
                         help="seconds open may take (default 100)")
 
+    p_resolve = sub.add_parser("resolve",
+                               help="pick the ref a new run reads and prepare its private source tree")
+    p_resolve.add_argument("--source-repo", required=True, help="the remote repository (URL or owner/repo)")
+    p_resolve.add_argument("--source-root", default="",
+                           help="SKF's clone of it, when not at the workspace path (metadata.json source_root)")
+    p_resolve.add_argument("--target-ref", default="", help="tag, branch, HEAD or commit to read")
+    p_resolve.add_argument("--version", default="", help="version to find among the tags")
+    p_resolve.add_argument("--name", default="", help="skill name, for the monorepo tag forms")
+    p_resolve.add_argument("--implicit", action="store_true",
+                           help="--version is only a hint: try the version and v<version> alone")
+    p_resolve.add_argument("--update-clone", action="store_true",
+                           help="also move SKF's clone to the commit read (clone it when missing)")
+    p_resolve.add_argument("--hygiene-helper", default="", help="path of skf-ccc-git-hygiene.py")
+    p_resolve.add_argument("--lock-timeout", type=float, default=LOCK_WAIT_SEC,
+                           help="seconds to wait for the workspace lock")
+    p_resolve.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SEC,
+                           help="seconds resolve may take (default 100)")
+
     p_advance = sub.add_parser("advance", help="move the workspace clone to the recorded commit")
     p_advance.add_argument("--clone", required=True, help="the workspace clone open reported")
     p_advance.add_argument("--source-repo", required=True, help="metadata.json source_repo")
@@ -1365,6 +1776,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "open":
             code, out = open_tree(args)
+        elif args.cmd == "resolve":
+            code, out = resolve(args)
         elif args.cmd == "advance":
             code, out = 0, advance(args)
         else:

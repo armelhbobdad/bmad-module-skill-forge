@@ -1047,6 +1047,12 @@ def _m4_tree(env, m3: str) -> str:
     return r.json["tree"]
 
 
+def _clone_v2(env) -> dict:
+    """advance, in this process, of the missing clone to v2."""
+    return _mod().advance(_args("advance", "--clone", str(env.clone), "--source-repo", URL,
+                                "--target", env.sha("v2"), "--target-ref", "v2"))
+
+
 class TestAdvance:
     def test_advances_clone_from_old_pin(self, env):
         m3 = env.sha("main")
@@ -1186,6 +1192,70 @@ class TestAdvance:
         assert r.json["created"] is True
         assert r.json["status"] == "advanced", r.json
         assert _g(env.clone, "rev-parse", "HEAD") == m3 == r.json["head_sha"] != m4
+
+    def test_new_clone_appears_only_once_complete(self, env, monkeypatch):
+        """git writes the clone in a folder beside it; the finished clone is renamed into place."""
+        mod = _mod()
+        real = mod._git
+        during = []
+
+        def watch(cwd, *args, **kw):
+            if "clone" in args:
+                during.append((os.path.lexists(env.clone), Path(args[-1]).parent.parent == env.clone.parent))
+            return real(cwd, *args, **kw)
+
+        monkeypatch.setattr(mod, "_git", watch)
+        out = _clone_v2(env)
+        assert (out["status"], out["created"]) == ("ok", True), out
+        assert during == [(False, True)]
+        assert _g(env.clone, "rev-parse", "HEAD") == env.sha("v2")
+        assert _g(env.clone, "status", "--porcelain") == "?? .skf-workspace.lock"
+        assert [p.name for p in env.clone.parent.iterdir()] == ["lib"]
+
+    @pytest.mark.parametrize("theirs", ["empty", "begun"])
+    def test_clone_another_run_made_meanwhile_is_left_alone(self, env, monkeypatch, theirs):
+        """Another run's clone took the place while this one cloned: only this call's folder goes.
+
+        `empty` is the instant after that run's git made the folder, which
+        os.rename would replace on POSIX.
+        """
+        mod = _mod()
+        real = mod._git
+
+        def race(cwd, *args, **kw):
+            if "clone" in args:
+                env.clone.mkdir(parents=True)
+                if theirs == "begun":
+                    (env.clone / "theirs.txt").write_bytes(b"theirs\n")
+            return real(cwd, *args, **kw)
+
+        monkeypatch.setattr(mod, "_git", race)
+        out = _clone_v2(env)
+        assert (out["status"], out["skip_reason"], out["created"]) == ("skipped", "clone-failed", False), out
+        assert any("another run created" in w for w in out["warnings"]), out["warnings"]
+        assert [p.name for p in env.clone.iterdir()] == ([] if theirs == "empty" else ["theirs.txt"])
+        assert [p.name for p in env.clone.parent.iterdir()] == ["lib"]
+
+    @pytest.mark.parametrize("how", ["unreachable", "killed"])
+    def test_failed_clone_leaves_nothing_behind(self, env, monkeypatch, how):
+        """A clone git gave up on, or one the time limit killed half way, leaves no folder."""
+        mod = _mod()
+        if how == "unreachable":
+            env.unreachable()
+        else:
+            real = mod._git
+
+            def killed(cwd, *args, **kw):
+                if "clone" not in args:
+                    return real(cwd, *args, **kw)
+                _write(Path(args[-1]) / ".git" / "objects" / "pack" / "tmp_pack_x", "partial\n")
+                return mod.KILLED, b"", "timeout"
+
+            monkeypatch.setattr(mod, "_git", killed)
+        out = _clone_v2(env)
+        assert (out["status"], out["skip_reason"], out["created"]) == ("skipped", "clone-failed", False), out
+        assert not os.path.lexists(env.clone)
+        assert list(env.clone.parent.iterdir()) == []
 
     def test_time_limit_leaves_clone_and_says_so(self, env):
         m3 = env.sha("main")
@@ -1528,6 +1598,358 @@ class TestClose:
             c = env.run("close", "--tree", str(run))
             assert c.rc == 0 and c.json["status"] == "refused", (name, c.json)
             assert (run / "lib").is_dir()
+
+
+# --------------------------------------------------------------------------
+# resolve
+# --------------------------------------------------------------------------
+
+
+def _resolve(env, *extra: str):
+    return env.run("resolve", "--source-repo", URL, *extra)
+
+
+def _tag(env, *names: str, at: str = "main") -> None:
+    """Create lightweight tags in the upstream at `at` (a ref or commit)."""
+    for name in names:
+        _g(env.bare, "tag", name, at)
+
+
+class TestSplitVersion:
+    """Also sorts tags for skf-check-workspace-drift.py upstream and skf-github-probe.py."""
+
+    @pytest.mark.parametrize("name, prefix", [
+        ("1.2.3", ""),
+        ("v1.2.3", "v"),
+        ("V2", "V"),
+        ("pkg@1.2.3", "pkg@"),
+        ("@scope/pkg@1.2.3", "@scope/pkg@"),
+        ("tokio/v1.0.0", "tokio/v"),
+        ("tokio-v1.0.0", "tokio-v"),
+        ("lib2-v1.0", "lib2-v"),
+        ("go1.21.0", "go"),
+        ("release-2024.01", "release-"),
+        ("v1.0.0-rc1", "v"),
+        ("v2.0.0rc1", "v"),
+        ("1.0.0+build.5", ""),
+    ])
+    def test_prefix(self, name, prefix):
+        split = _mod().split_version(name)
+        assert split is not None and split[0] == prefix, split
+
+    @pytest.mark.parametrize("name", ["stable", "latest", "", "v", "1.0.0_beta"])
+    def test_no_version(self, name):
+        assert _mod().split_version(name) is None
+
+    def test_order(self):
+        ordered = ["1.0.0-alpha", "1.0.0-alpha.2", "1.0.0-alpha.10", "1.0.0-beta", "1.0.0-rc.1", "1.0.0",
+                   "1.0.1", "1.2", "1.10.0", "2.0.0-rc1", "2.0.0", "10.0.0"]
+        keys = [_mod().split_version(name)[1] for name in ordered]
+        assert keys == sorted(keys)
+        assert len(set(keys)) == len(keys)
+
+    def test_trailing_zeros_do_not_count(self):
+        split = _mod().split_version
+        assert split("v1.2")[1] == split("v1.2.0")[1] == split("1.2.0.0")[1]
+
+    def test_prerelease_flag(self):
+        assert _mod().split_version("v1.0.0-rc.1")[1][1] == 0
+        assert _mod().split_version("v1.0.0")[1][1] == 1
+
+
+class TestMatchTags:
+    TAGS = ["0.5.0", "v0.5.0", "lib@0.5.0", "@acme/lib@0.5.0", "@zed/lib@0.5.0", "lib/v0.5.0", "lib/0.5.0",
+            "lib-v0.5.0", "other@0.5.0", "lib@0.6.0", "@acme/libx@0.5.0"]
+
+    def test_seven_forms_in_order(self):
+        assert _mod().match_tags(self.TAGS, "0.5.0", "lib") == [
+            "0.5.0", "v0.5.0", "lib@0.5.0", "@acme/lib@0.5.0", "@zed/lib@0.5.0", "lib/v0.5.0", "lib/0.5.0",
+            "lib-v0.5.0"]
+
+    def test_implicit_tries_two_forms(self):
+        assert _mod().match_tags(self.TAGS, "0.5.0", "lib", implicit=True) == ["0.5.0", "v0.5.0"]
+        assert _mod().match_tags(["lib@0.5.0"], "0.5.0", "lib", implicit=True) == []
+
+    def test_without_a_name_only_two_forms(self):
+        assert _mod().match_tags(self.TAGS, "0.5.0") == ["0.5.0", "v0.5.0"]
+
+    @pytest.mark.parametrize("tag", ["lib@0.5.0", "@acme/lib@0.5.0", "lib/v0.5.0", "lib/0.5.0", "lib-v0.5.0"])
+    def test_each_monorepo_form_alone(self, tag):
+        assert _mod().match_tags([tag, "lib@0.4.0"], "0.5.0", "lib") == [tag]
+
+    def test_leading_v_of_the_version(self):
+        assert _mod().match_tags(["v1.2.0", "lib/v1.2.0"], "v1.2.0", "lib") == ["v1.2.0", "lib/v1.2.0"]
+
+    def test_regex_characters_in_the_name_are_literal(self):
+        assert _mod().match_tags(["@s/a.b@1.0", "@s/axb@1.0"], "1.0", "a.b") == ["@s/a.b@1.0"]
+
+
+class TestNearestTags:
+    def test_five_nearest_newest_first(self):
+        tags = ["v1", "v1.0.1", "v2", "v2.4.0", "v2.6.0", "v3.0.0", "latest"]
+        assert _mod().nearest_tags(tags, "2.5.0") == ["v3.0.0", "v2.6.0", "v2.4.0", "v2", "v1.0.1"]
+
+    def test_fewer_tags_and_no_version(self):
+        assert _mod().nearest_tags(["v1", "stable"], "9.0") == ["v1"]
+        assert _mod().nearest_tags(["v1"], "not-a-version") == []
+        assert _mod().nearest_tags([], "1.0") == []
+
+
+class TestResolve:
+    def test_head_by_default_reads_a_private_tree_and_leaves_the_clone(self, env):
+        r = _resolve(env)
+        assert r.rc == 0, r.stderr
+        out = r.json
+        assert (out["status"], out["source_ref"], out["ref_kind"]) == ("ready", "HEAD", "head")
+        assert out["source_commit"] == env.sha("main")
+        assert out["workspace_path"] == str(env.clone) == out["clone"]
+        assert out["tag_resolution"]["status"] == "none"
+        assert out["clone_status"] is None and out["clone_created"] is False
+        tree = Path(out["tree"])
+        assert _g(tree, "rev-parse", "HEAD") == env.sha("main")
+        assert not (tree / "scripts" / "release.sh").exists()  # deleted on main
+        record = json.loads((tree.parent / "run.json").read_text(encoding="utf-8"))
+        assert record["target_commit"] == out["source_commit"] and record["tool"] == "skf-source-tree"
+        assert not env.clone.exists(), "resolve without --update-clone created the shared clone"
+
+    def test_version_matches_an_annotated_tag(self, env):
+        r = _resolve(env, "--version", "2", "--implicit")
+        out = r.json
+        assert (out["status"], out["source_ref"], out["ref_kind"]) == ("ready", "v2", "tag"), r.stdout
+        assert out["source_commit"] == env.sha("v2")
+        assert out["tag_resolution"] == {"status": "matched", "mode": "implicit", "requested": "2",
+                                         "candidates": ["v2"], "nearest": [], "reason": None}
+        assert (Path(out["tree"]) / "src" / "extra.py").is_file()
+
+    @pytest.mark.parametrize("tag", ["lib@3.0.0", "@acme/lib@3.0.0", "lib/v3.0.0", "lib/3.0.0", "lib-v3.0.0"])
+    def test_explicit_version_finds_monorepo_tags(self, env, tag):
+        _tag(env, tag, at="v1")
+        r = _resolve(env, "--version", "3.0.0", "--name", "lib")
+        assert (r.json["status"], r.json["source_ref"]) == ("ready", tag), r.stdout
+        assert r.json["source_commit"] == env.sha("v1")
+        assert r.json["tag_resolution"]["mode"] == "explicit"
+
+    def test_implicit_version_skips_monorepo_tags_and_falls_back(self, env):
+        _tag(env, "lib@3.0.0", "v2.9.0")
+        r = _resolve(env, "--version", "3.0.0", "--name", "lib", "--implicit")
+        out = r.json
+        assert (out["status"], out["source_ref"]) == ("ready", "HEAD"), r.stdout
+        res = out["tag_resolution"]
+        assert (res["status"], res["reason"], res["mode"]) == ("fallback-head", "no-matching-tag", "implicit")
+        # nearest by version, whatever the prefix: the monorepo tag hints at --target-ref
+        assert res["nearest"] == ["lib@3.0.0", "v2.9.0", "v2", "v1"]
+        assert any("no tag of" in w and "3.0.0" in w for w in out["warnings"])
+
+    def test_several_matches_are_ambiguous_and_read_nothing(self, env):
+        _tag(env, "3.0.0", "v3.0.0")
+        r = _resolve(env, "--version", "3.0.0", "--update-clone")
+        out = r.json
+        assert r.rc == 0
+        assert (out["status"], out["tree"], out["source_ref"], out["source_commit"]) == ("ambiguous", None, None, None)
+        assert out["tag_resolution"]["candidates"] == ["3.0.0", "v3.0.0"]
+        assert "--target-ref" in out["message"]
+        assert _trees(env) == [] and not env.clone.exists()
+        again = _resolve(env, "--target-ref", "v3.0.0", "--version", "3.0.0")
+        assert (again.json["status"], again.json["source_ref"]) == ("ready", "v3.0.0")
+        assert again.json["tag_resolution"]["status"] == "target-ref"
+
+    def test_target_ref_wins_over_the_version(self, env):
+        r = _resolve(env, "--target-ref", "v1", "--version", "2")
+        assert (r.json["source_ref"], r.json["source_commit"]) == ("v1", env.sha("v1"))
+        assert r.json["tag_resolution"]["requested"] == "v1"
+
+    def test_unknown_target_ref_falls_back_with_a_warning(self, env):
+        r = _resolve(env, "--target-ref", "nope", "--version", "2")
+        assert (r.json["status"], r.json["source_ref"]) == ("ready", "v2")
+        assert r.json["tag_resolution"]["status"] == "matched"
+        assert any("target_ref (nope) does not resolve" in w for w in r.json["warnings"])
+        r = _resolve(env, "--target-ref=-bad")
+        assert (r.json["status"], r.json["source_ref"]) == ("ready", "HEAD")
+        assert (r.json["tag_resolution"]["status"], r.json["tag_resolution"]["reason"]) == (
+            "fallback-head", "target-ref-not-found")
+
+    @pytest.mark.parametrize("ref, kind", [("main", "branch"), ("HEAD", "head"), ("head", "head")])
+    def test_target_ref_kinds(self, env, ref, kind):
+        r = _resolve(env, "--target-ref", ref)
+        assert (r.json["ref_kind"], r.json["source_commit"]) == (kind, env.sha("main"))
+        assert r.json["tag_resolution"]["status"] == "target-ref"
+
+    @pytest.mark.parametrize("value", ["null", "None", "NONE", " "])
+    def test_null_target_ref_falls_through_to_the_version(self, env, value):
+        """A brief's `target_ref: null`, written out, asks for no ref: the version decides, not HEAD."""
+        r = _resolve(env, "--target-ref", value, "--version", "2", "--implicit")
+        out = r.json
+        assert (out["status"], out["source_ref"]) == ("ready", "v2"), r.stdout
+        assert out["source_commit"] == env.sha("v2")
+        assert out["tag_resolution"] == {"status": "matched", "mode": "implicit", "requested": "2",
+                                         "candidates": ["v2"], "nearest": [], "reason": None}
+        assert out["warnings"] == []
+
+    def test_null_version_name_and_source_root_are_not_given(self, env):
+        _tag(env, "null@3.0.0", "none@3.0.0")
+        r = _resolve(env, "--version", "null", "--source-root", "None")
+        out = r.json
+        assert (out["source_ref"], out["tag_resolution"]["status"], out["tag_resolution"]["reason"]) == (
+            "HEAD", "none", None), r.stdout
+        assert out["clone"] == out["workspace_path"] == str(env.clone) and out["warnings"] == []
+        # A null name is no name: the monorepo forms are not tried with it.
+        for name in ("null", "none"):
+            r = _resolve(env, "--version", "3.0.0", "--name", name)
+            assert (r.json["source_ref"], r.json["tag_resolution"]["reason"]) == ("HEAD", "no-matching-tag")
+            assert r.json["tag_resolution"]["candidates"] == []
+
+    def test_commit_the_remote_lacks_is_fetch_failed(self, env):
+        """A 40-character commit is taken as given, with no ls-remote, so a missing one ends the run."""
+        missing = "0123456789abcdef0123456789abcdef01234567"
+        r = _resolve(env, "--target-ref", missing, "--version", "2")
+        assert r.rc == 3, r.stdout + r.stderr
+        out = r.json
+        assert (out["status"], out["reason"], out["tree"], out["source_ref"]) == (
+            "unavailable", "fetch-failed", None, missing)
+        assert out["tag_resolution"]["status"] == "target-ref" and out["warnings"] == []
+        assert _trees(env) == []
+
+    def test_source_root_that_is_no_clone_reads_the_remote_and_moves_nothing(self, env):
+        """--source-root is not SKF's clone: the workspace clone is neither read nor moved."""
+        env.clone_at("v1")
+        other = env.tmp_path / "somewhere" / "lib"
+        other.mkdir(parents=True)
+        r = _resolve(env, "--source-root", str(other), "--target-ref", "v2", "--update-clone")
+        out = r.json
+        assert (out["status"], out["clone"], out["clone_status"], out["clone_skip_reason"]) == (
+            "ready", None, "skipped", "not-a-clone"), r.stdout
+        assert out["workspace_path"] == str(env.clone) and out["source_commit"] == env.sha("v2")
+        assert any("is not SKF's clone" in w for w in out["warnings"])
+        assert _g(env.clone, "rev-parse", "HEAD") == env.sha("v1")
+        assert list(other.iterdir()) == []
+
+    def test_full_sha_reads_from_the_clone_offline(self, env):
+        """A relocated clone (another workspace folder) holding the commit serves it with no network."""
+        other = env.tmp_path / "other-ws" / "repos" / "github.com" / "acme" / "lib"
+        env.clone_at("v1", dest=other)
+        env.unreachable()
+        r = _resolve(env, "--source-root", str(other), "--target-ref", env.sha("v1").upper())
+        assert r.rc == 0, r.stdout + r.stderr
+        out = r.json
+        assert (out["status"], out["ref_kind"], out["source_commit"]) == ("ready", "commit", env.sha("v1"))
+        assert out["clone"] == str(other) and out["workspace_path"] == str(env.clone)
+
+    def test_unreachable_is_unavailable(self, env):
+        env.unreachable()
+        for extra in ((), ("--version", "2"), ("--target-ref", "v2")):
+            r = _resolve(env, *extra)
+            assert r.rc == 3, r.stdout
+            assert (r.json["status"], r.json["reason"], r.json["tree"]) == ("unavailable", "upstream-unreachable", None)
+            assert r.json["message"]
+        assert _trees(env) == []
+
+    def test_local_source_skips(self, env):
+        r = env.run("resolve", "--source-repo", "./lib")
+        assert r.rc == 0
+        assert (r.json["status"], r.json["skip_reason"], r.json["workspace_path"]) == ("skipped", "not-remote", None)
+
+    def test_git_missing_is_unavailable(self, env, monkeypatch):
+        monkeypatch.setattr(_mod(), "_resolve_outside_cwd", lambda _name: None)
+        code, out = _mod().resolve(_args("resolve", "--source-repo", URL))
+        assert (code, out["status"], out["reason"]) == (3, "unavailable", "git-unavailable")
+
+    def test_update_clone_creates_then_moves_the_clone(self, env):
+        r = _resolve(env, "--version", "1", "--implicit", "--update-clone", "--hygiene-helper", str(HYGIENE))
+        out = r.json
+        assert (out["status"], out["clone_status"], out["clone_created"]) == ("ready", "ok", True), r.stdout
+        assert _g(env.clone, "rev-parse", "HEAD") == env.sha("v1")
+        assert (env.clone / ".skf-workspace.lock").is_file()
+        first_tree = Path(out["tree"])
+        r = _resolve(env, "--target-ref", "v2", "--update-clone", "--hygiene-helper", str(HYGIENE))
+        assert (r.json["clone_status"], r.json["clone_skip_reason"], r.json["clone_created"]) == (
+            "advanced", None, False), r.stdout
+        assert _g(env.clone, "rev-parse", "HEAD") == env.sha("v2")
+        assert _g(env.clone, "status", "--porcelain") == ""
+        # The first run's tree never moved with the clone.
+        assert _g(first_tree, "rev-parse", "HEAD") == env.sha("v1")
+        assert not (first_tree / "src" / "extra.py").exists()
+
+    def test_update_clone_leaves_local_changes(self, env):
+        env.clone_at("v1")
+        _write(env.clone / "src" / "core.py", "edited\n")
+        r = _resolve(env, "--target-ref", "v2", "--update-clone")
+        out = r.json
+        assert (out["status"], out["clone_status"], out["clone_skip_reason"]) == ("ready", "skipped", "local-changes")
+        assert _g(env.clone, "rev-parse", "HEAD") == env.sha("v1")
+        assert (env.clone / "src" / "core.py").read_text(encoding="utf-8") == "edited\n"
+        assert (Path(out["tree"]) / "src" / "extra.py").is_file()
+
+    def test_update_clone_takes_the_workspace_lock(self, env):
+        env.clone_at("v1")
+        lock = env.clone / ".skf-workspace.lock"
+        holder = (
+            "import importlib.util, os, sys, time\n"
+            f"spec = importlib.util.spec_from_file_location('m', {str(HELPER)!r})\n"
+            "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+            f"fd = os.open({str(lock)!r}, os.O_RDWR | os.O_CREAT, 0o644)\n"
+            "m._acquire_lock(fd)\n"
+            "print('locked', flush=True)\n"
+            "time.sleep(3)\n"
+        )
+        child = subprocess.Popen([sys.executable, "-c", holder], stdout=subprocess.PIPE, text=True)
+        try:
+            assert child.stdout.readline().strip() == "locked"
+            r = _resolve(env, "--target-ref", "v2", "--update-clone", "--lock-timeout", "0.5")
+        finally:
+            child.wait(timeout=30)
+        assert (r.json["status"], r.json["clone_status"], r.json["clone_skip_reason"]) == (
+            "ready", "skipped", "lock-busy")
+        assert _g(env.clone, "rev-parse", "HEAD") == env.sha("v1")
+
+    def test_update_clone_never_takes_a_foreign_folder(self, env):
+        env.clone.mkdir(parents=True)
+        (env.clone / "mine.txt").write_bytes(b"not a clone\n")
+        r = _resolve(env, "--update-clone")
+        out = r.json
+        assert (out["status"], out["clone"], out["clone_status"], out["clone_skip_reason"]) == (
+            "ready", None, "skipped", "not-a-clone")
+        assert sorted(p.name for p in env.clone.iterdir()) == ["mine.txt"]
+
+    def test_update_clone_leaves_a_clone_another_run_is_still_writing(self, env):
+        """create-skill clones before it locks: a clone with no HEAD yet is not this run's to move."""
+        env.clone.mkdir(parents=True)
+        _g(env.clone, "init", "-q")
+        _g(env.clone, "remote", "add", "origin", URL)
+        exclude = env.clone / ".git" / "info" / "exclude"
+        before = exclude.read_bytes() if exclude.exists() else None
+        r = _resolve(env, "--target-ref", "v2", "--update-clone", "--hygiene-helper", str(HYGIENE))
+        out = r.json
+        assert (out["status"], out["clone"], out["clone_status"], out["clone_skip_reason"]) == (
+            "ready", str(env.clone), "skipped", "head-unverified"), r.stdout
+        assert out["source_commit"] == env.sha("v2") and (Path(out["tree"]) / "src" / "extra.py").is_file()
+        assert _g(env.clone, "for-each-ref") == ""
+        assert _g(env.clone, "rev-parse", "--verify", "-q", "HEAD", check=False) == ""
+        assert _g(env.clone, "count-objects").startswith("0 objects"), "resolve fetched into the clone"
+        assert (exclude.read_bytes() if exclude.exists() else None) == before, "the hygiene helper ran there"
+
+    def test_close_removes_a_resolved_tree(self, env):
+        tree = _resolve(env).json["tree"]
+        r = env.run("close", "--tree", tree)
+        assert r.json["status"] == "removed"
+        assert not Path(tree).parent.exists()
+
+    def test_cli_shape(self, env):
+        _tag(env, "3.0.0", "v3.0.0")
+        results = [(_resolve(env), 0), (_resolve(env, "--version", "3.0.0"), 0),
+                   (env.run("resolve", "--source-repo", "./x"), 0)]
+        env.unreachable()
+        results.append((_resolve(env), 3))
+        keys = {"status", "skip_reason", "reason", "message", "workspace_path", "clone", "source_ref", "ref_kind",
+                "source_commit", "tree", "tag_resolution", "clone_status", "clone_skip_reason", "clone_created",
+                "warnings"}
+        for result, rc in results:
+            assert result.rc == rc, (result.stdout, result.stderr)
+            assert result.stdout.count("\n") == 1 and result.stdout.isascii()
+            assert set(result.json) == keys
+            assert set(result.json["tag_resolution"]) == {"status", "mode", "requested", "candidates", "nearest",
+                                                          "reason"}
+        assert [r.json["status"] for r, _rc in results] == ["ready", "ambiguous", "skipped", "unavailable"]
+        assert env.run("resolve").rc == 2
 
 
 # --------------------------------------------------------------------------
