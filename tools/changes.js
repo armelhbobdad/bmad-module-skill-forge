@@ -48,16 +48,48 @@
  *              --review <file> also writes the "Review before approving"
  *              text for the bot PR. --notes-only skips CHANGELOG.md.
  *              --date YYYY-MM-DD overrides today's date (UTC).
+ *   pr         Check one branch, from its merge base with the base branch
+ *              to HEAD (commits only: the working tree is not read). The
+ *              base is --base <ref>, else origin/$GITHUB_BASE_REF on a pull
+ *              request, else origin/main. The branch fails (exit 1) when:
+ *              it changes the code the package ships (src/, tools/cli/,
+ *              tools/skf-npx-wrapper.js) or .npmignore with no fragment of
+ *              its own and no "Changelog: none (<reason>)" line in one of its
+ *              commit messages, merge commits included; a covered item it
+ *              removes is not named in backticks by a breaking fragment on
+ *              the branch; a covered item it adds is not covered by an added
+ *              or breaking fragment on the branch; a fragment it adds or
+ *              edits fails the checks of `check`, or edits, renames or copies
+ *              a released fragment. The line covers the whole branch, but
+ *              never a removal or an addition. An added or breaking fragment
+ *              the branch adds covers every addition; an unreleased fragment
+ *              it only edits counts only for the items it names in backticks,
+ *              and then also stands in for a fragment of its own. The rest of
+ *              what the package ships (package.json, README.md, docs/) is not
+ *              checked. A failure prints what is missing and a fragment to
+ *              fill in, typed and scoped from the changes, which fails
+ *              `check` until its marked sentences are rewritten; in GitHub
+ *              Actions the verdict and the surface changes to review also go
+ *              to the step summary. A head ref under release/bot/
+ *              (GITHUB_HEAD_REF: the release commit of release.yaml) passes
+ *              with a note only when PR_HEAD_REPO and GITHUB_REPOSITORY name
+ *              the same repository; otherwise it is checked like any other
+ *              branch. The released-fragment rule takes the last stable tag
+ *              reachable from the base (--tag <ref> replaces it). Exit 2 when
+ *              the base or, in CI, the stable tag is missing, or when a
+ *              shallow clone hides the merge base.
  *
- * Common options: --base <ref> (instead of the last stable tag), --root <dir>
- * (another checkout; the tests use this). With no stable tag a CI run exits
- * 2; a local run selects every fragment, skips the surface diff and says so.
+ * Common options: --base <ref> (instead of the last stable tag; for pr, the
+ * base branch), --root <dir> (another checkout; the tests use this). With no
+ * stable tag a CI run exits 2; a local run selects every fragment, skips the
+ * surface diff and says so.
  *
  * Usage:
  *   node tools/changes.js check
  *   node tools/changes.js preview [--bump major]
  *   node tools/changes.js gate --bump minor
  *   node tools/changes.js release [--review release_review.md]
+ *   node tools/changes.js pr [--base origin/main]
  */
 
 const { execFileSync } = require('node:child_process');
@@ -66,11 +98,13 @@ const path = require('node:path');
 // Dev-only tool: yaml and semver are devDependencies (release.yaml runs npm ci first).
 const semver = require('semver');
 const YAML = require('yaml');
-const { compareRefs, lastStableTag, resolveCommit } = require('./covered-surfaces.js');
+const { KINDS, compareRefs, lastStableTag, resolveCommit } = require('./covered-surfaces.js');
 const { hasEmDash } = require('./validate-no-em-dash.js');
 
 const CHANGES_DIR = 'changes';
 const NOT_FRAGMENTS = new Set(['README.md', '.gitkeep']);
+const NOT_A_FRAGMENT = 'not a fragment: fragments are <topic>.yaml files (README.md and .gitkeep are the only other files allowed)';
+const IN_SUBFOLDER = 'fragments go directly in changes/, not in a subfolder';
 const FRAGMENT_NAME = /^[a-z0-9][a-z0-9-]*\.yaml$/;
 const KEYS = ['type', 'scope', 'summary', 'migration', 'issues', 'prs'];
 const TYPES = ['breaking', 'added', 'changed', 'fixed', 'docs', 'lead'];
@@ -87,6 +121,9 @@ const LEVELS = ['none', 'patch', 'minor', 'major'];
 const BUMPS = ['alpha', 'beta', 'rc', 'patch', 'minor', 'major'];
 const PREIDS = new Set(['alpha', 'beta', 'rc']);
 const SCOPE = /^[a-z0-9][a-z0-9 ,._/-]*$/;
+// fragmentTemplate starts each sentence to rewrite with this, so a template committed as printed fails.
+const TEMPLATE_MARK = 'Rewrite this paragraph';
+const TEMPLATE_FIX = { summary: 'say what changed, in words a user understands', migration: 'give the exact action a user takes' };
 // A pull request body holds at most 65536 characters; leave room for the rest of the body.
 const REVIEW_LIMIT = 60_000;
 
@@ -140,6 +177,7 @@ function validateFragment(data) {
       errors.push(`${key} has an em dash: use a colon, a comma, parentheses or a new sentence`);
     if (text.includes('§')) errors.push(`${key} cites a step-file section: describe the behaviour instead`);
     if (/\n[ \t]*\n/.test(text.trim())) errors.push(`${key} must be one paragraph`);
+    if (text.includes(TEMPLATE_MARK)) errors.push(`${key} still holds the template text ("${TEMPLATE_MARK}"): ${TEMPLATE_FIX[key]}`);
   }
   return errors;
 }
@@ -178,14 +216,11 @@ function readFragments(root) {
     const file = `${CHANGES_DIR}/${entry.name}`;
     if (NOT_FRAGMENTS.has(entry.name)) continue;
     if (!entry.isFile()) {
-      problems.push({ file, errors: ['fragments go directly in changes/, not in a subfolder'] });
+      problems.push({ file, errors: [IN_SUBFOLDER] });
       continue;
     }
     if (!entry.name.endsWith('.yaml')) {
-      problems.push({
-        file,
-        errors: ['not a fragment: fragments are <topic>.yaml files (README.md and .gitkeep are the only other files allowed)'],
-      });
+      problems.push({ file, errors: [NOT_A_FRAGMENT] });
       continue;
     }
     fragments.push(parseFragment(file, fs.readFileSync(path.join(root, file), 'utf8')));
@@ -223,6 +258,46 @@ function hashFiles(root, files) {
 }
 
 /**
+ * The fragments `baseTag` released: each path with its blob id, and each
+ * blob id with the first path that holds it.
+ */
+function releasedIndex(root, baseTag) {
+  const atBase = fragmentBlobsAtRef(root, baseTag);
+  const releasedAs = new Map();
+  for (const [file, sha] of atBase) {
+    if (!NOT_FRAGMENTS.has(path.posix.basename(file)) && !releasedAs.has(sha)) releasedAs.set(sha, file);
+  }
+  return { baseTag, atBase, releasedAs };
+}
+
+/**
+ * Why `file`, with blob id `hash`, breaks the released-fragment rule, or
+ * null: a released fragment whose content changed, or a new path with the
+ * content of a released one (a rename or a copy).
+ */
+function releasedProblem({ baseTag, atBase, releasedAs }, file, hash) {
+  if (atBase.has(file)) {
+    if (atBase.get(file) === hash) return null;
+    return {
+      file,
+      errors: [
+        `is in ${baseTag}, so it was already released, and it has changed since. A released fragment is never read again: ` +
+          `restore it (git checkout ${baseTag} -- ${file}) and put the new change in a fragment with a new name.`,
+      ],
+    };
+  }
+  const source = releasedAs.get(hash);
+  if (!source) return null;
+  return {
+    file,
+    errors: [
+      `has the same content as ${source}, which ${baseTag} already released, so it would announce that change again: ` +
+        'delete it, or write the new change in it.',
+    ],
+  };
+}
+
+/**
  * Split the fragments on disk into those this release takes and those it
  * refuses. A fragment whose path was in `baseTag` was released: it is left
  * out, and refused when its content changed since. A fragment with a new
@@ -232,11 +307,7 @@ function hashFiles(root, files) {
  */
 function selectFragments(root, baseTag, fragments) {
   if (!baseTag) return { selected: fragments, problems: [] };
-  const atBase = fragmentBlobsAtRef(root, baseTag);
-  const releasedAs = new Map();
-  for (const [file, sha] of atBase) {
-    if (!NOT_FRAGMENTS.has(path.posix.basename(file)) && !releasedAs.has(sha)) releasedAs.set(sha, file);
-  }
+  const released = releasedIndex(root, baseTag);
   const hashes = hashFiles(
     root,
     fragments.map((fragment) => fragment.file),
@@ -244,31 +315,9 @@ function selectFragments(root, baseTag, fragments) {
   const selected = [];
   const problems = [];
   for (const [index, fragment] of fragments.entries()) {
-    const hash = hashes[index];
-    if (atBase.has(fragment.file)) {
-      if (atBase.get(fragment.file) !== hash) {
-        problems.push({
-          file: fragment.file,
-          errors: [
-            `is in ${baseTag}, so it was already released, and it has changed since. A released fragment is never read again: ` +
-              `restore it (git checkout ${baseTag} -- ${fragment.file}) and put the new change in a fragment with a new name.`,
-          ],
-        });
-      }
-      continue;
-    }
-    const source = releasedAs.get(hash);
-    if (source) {
-      problems.push({
-        file: fragment.file,
-        errors: [
-          `has the same content as ${source}, which ${baseTag} already released, so it would announce that change again: ` +
-            'delete it, or write the new change in it.',
-        ],
-      });
-      continue;
-    }
-    selected.push(fragment);
+    const problem = releasedProblem(released, fragment.file, hashes[index]);
+    if (problem) problems.push(problem);
+    else if (!released.atBase.has(fragment.file)) selected.push(fragment);
   }
   return { selected, problems };
 }
@@ -831,16 +880,526 @@ function runRelease(root, argv, env) {
   return 0;
 }
 
+// --- Pull request check ---
+
+// The code the npm package ships, and .npmignore, which decides what ships: a
+// branch that changes one of these needs a change fragment, or a
+// "Changelog: none (<reason>)" line in one of its commit messages. The
+// package also ships package.json, README.md and docs/, which are not
+// checked: a change a user notices there still takes a fragment.
+const SHIPPED_PATHS = [/^src\//, /^tools\/cli\//, /^tools\/skf-npx-wrapper\.js$/, /^\.npmignore$/];
+const SHIPPED_PATHSPECS = ['src', 'tools/cli', 'tools/skf-npx-wrapper.js', '.npmignore'];
+// release.yaml pushes its release commit to release/bot/vX.Y.Z-<run id>.
+const BOT_BRANCH = /^release\/bot\//;
+const TRAILER_LINE = /^changelog\s*:(.*)$/i;
+const TRAILER_NONE = /^none\s*\((.*)\)$/i;
+// The reason as the tool's own messages print it, pasted unchanged: no reason at all.
+const TRAILER_PLACEHOLDER = /^<[^>]*>$/;
+const TRAILER_FORM = '`Changelog: none (<reason>)`';
+const NO_FINDINGS = { hard: [], additive: [], review: [] };
+const PR_SUMMARY_TITLE = '### Change fragments for this pull request';
+
+/** True for a file of the code the npm package ships, or .npmignore, which decides what it ships. */
+function isShipped(file) {
+  return SHIPPED_PATHS.some((pattern) => pattern.test(file));
+}
+
+/** "a", "a and b", "a, b and c". */
+function andList(items) {
+  return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+}
+
+/** The first few items of a list: "a, b, c and 4 more". */
+function someOf(items, shown = 3) {
+  return items.length <= shown ? items.join(', ') : `${items.slice(0, shown).join(', ')} and ${items.length - shown} more`;
+}
+
+/**
+ * The "Changelog: none (<reason>)" lines of the branch's commit messages,
+ * and the lines that start "Changelog:" in any other shape (no reason, the
+ * `<reason>` placeholder itself, or not "none"), which cover nothing.
+ *
+ * @param {{commit: string, message: string}[]} commits
+ * @returns {{waivers: {commit: string, reason: string}[], malformed: {commit: string, line: string}[]}}
+ */
+function changelogTrailers(commits) {
+  const waivers = [];
+  const malformed = [];
+  for (const { commit, message } of commits) {
+    for (const raw of message.split('\n')) {
+      const line = raw.trim();
+      const key = TRAILER_LINE.exec(line);
+      if (!key) continue;
+      const none = TRAILER_NONE.exec(key[1].trim());
+      const reason = none ? none[1].trim() : '';
+      if (reason && !TRAILER_PLACEHOLDER.test(reason)) waivers.push({ commit, reason });
+      else malformed.push({ commit, line });
+    }
+  }
+  return { waivers, malformed };
+}
+
+/** Fragments whose type could be read, invalid ones included (their errors are reported on their own). */
+function typedFragments(fragments) {
+  return fragments.filter((fragment) => fragment.data && TYPES.includes(fragment.data.type));
+}
+
+/** An unreleased fragment the branch edits rather than adds (a fragment with no status counts as added). */
+const isEdited = (fragment) => fragment.status !== undefined && fragment.status !== 'A';
+
+/**
+ * True when `fragment` covers the covered-surface `finding` of `group`: a
+ * removal needs a breaking fragment that names it in backticks; an addition
+ * needs an added or breaking fragment the branch adds, or one it edits that
+ * names it in backticks.
+ */
+function coversFinding(fragment, group, finding) {
+  const { type } = fragment.data;
+  if (group === 'hard') return type === 'breaking' && namesToken(fragment, finding.token);
+  return (type === 'added' || type === 'breaking') && (!isEdited(fragment) || namesToken(fragment, finding.token));
+}
+
+/**
+ * What a branch is missing and what it must fix. A fragment the branch adds
+ * (status A, or no status) counts for every rule. An unreleased fragment it
+ * only edits (another status) counts only for the covered items it names in
+ * backticks, and stands in for a fragment of its own only when it names one:
+ * otherwise editing someone else's pending fragment would cover anything.
+ *
+ * @param {object} input
+ * @param {string[]} input.touched - The files the branch changes in the code the package ships (see isShipped)
+ * @param {object[]} input.fragments - The fragments it adds, and the unreleased ones it edits, parsed, each with its status
+ * @param {{file: string, errors: string[]}[]} [input.problems] - Files it adds to changes/ that are not usable fragments
+ * @param {{hard: object[], additive: object[], review: object[]}|null} [input.surfaces] - Covered-surface findings, merge base to HEAD
+ * @param {{waivers: object[], malformed: object[]}} [input.trailers] - Its "Changelog:" commit-message lines
+ * @returns {{failures: string[], missing: {fragment: boolean, hard: object[], additive: object[]}, template: string|null}}
+ */
+function evaluatePullRequest({ touched, fragments, problems = [], surfaces = null, trailers = { waivers: [], malformed: [] } }) {
+  const failures = [];
+  for (const { file, errors } of [...problems, ...fragments]) {
+    for (const error of errors) failures.push(`${file}: ${error}`);
+  }
+  const typed = typedFragments(fragments);
+  const edited = typed.filter((fragment) => isEdited(fragment));
+  const breaking = typed.filter((fragment) => fragment.data.type === 'breaking');
+  const found = surfaces || NO_FINDINGS;
+  const coversAny = (fragment) =>
+    found.hard.some((finding) => coversFinding(fragment, 'hard', finding)) ||
+    found.additive.some((finding) => coversFinding(fragment, 'additive', finding));
+  const missing = {
+    fragment:
+      touched.length > 0 &&
+      trailers.waivers.length === 0 &&
+      !typed.some((fragment) => fragment.data.type !== 'lead' && (!isEdited(fragment) || coversAny(fragment))),
+    hard: found.hard.filter((finding) => !typed.some((fragment) => coversFinding(fragment, 'hard', finding))),
+    additive: found.additive.filter((finding) => !typed.some((fragment) => coversFinding(fragment, 'additive', finding))),
+  };
+  if (missing.fragment) {
+    const editedFiles = edited.map((fragment) => fragment.file);
+    const onlyEdited =
+      editedFiles.length > 0
+        ? ` Editing an unreleased fragment (${andList(editedFiles)}) does not count here: an edited fragment counts only for a ` +
+          'covered item the branch removes or adds that it names in backticks.'
+        : '';
+    failures.push(
+      `this branch changes the code the package ships (${someOf(touched)}) and adds no change fragment: add one ` +
+        "(this check's output gives a template), or, when no user or pipeline can notice any of the branch's changes, " +
+        `add a ${TRAILER_FORM} line to one of its commit messages.${onlyEdited}`,
+    );
+    for (const { commit, line } of trailers.malformed) {
+      failures.push(`commit ${commit}: "${line}" covers nothing: write ${TRAILER_FORM}, with the actual reason inside the parentheses.`);
+    }
+  }
+  const notWaived = trailers.waivers.length > 0 ? ' A Changelog: none line never covers a surface change.' : '';
+  const named = andList(breaking.map((fragment) => fragment.file));
+  for (const finding of missing.hard) {
+    failures.push(
+      `${finding.text}, and no breaking fragment on this branch names \`${finding.token}\` in backticks: ` +
+        `${named ? `name it in ${named}, or add` : 'add'} a breaking fragment that says what changed and gives the migration.${notWaived}`,
+    );
+  }
+  const editedCovering = andList(
+    edited.filter((fragment) => fragment.data.type === 'added' || fragment.data.type === 'breaking').map((fragment) => fragment.file),
+  );
+  for (const finding of missing.additive) {
+    const orName = editedCovering ? `, or name \`${finding.token}\` in backticks in ${editedCovering}, which it edits` : '';
+    failures.push(
+      `${finding.text}, and no added or breaking fragment on this branch covers it: add one that describes it${orName}.${notWaived}`,
+    );
+  }
+  const needed = missing.fragment || missing.hard.length > 0 || missing.additive.length > 0;
+  return {
+    failures,
+    missing,
+    template: needed ? fragmentTemplate({ hard: missing.hard, additive: missing.additive, touched }) : null,
+  };
+}
+
+/** The scope a template names for a file the branch changes. */
+function scopeOfPath(file) {
+  const workflow = /^src\/(skf-[^/]+)\//.exec(file);
+  if (workflow) return workflow[1];
+  if (file.startsWith('src/forger/')) return 'skf-forger';
+  if (file.startsWith('src/')) return 'all workflows';
+  if (file.startsWith('tools/cli/')) return 'installer';
+  return 'packaging';
+}
+
+/** The scope a template names for a covered-surface finding. */
+function scopeOfFinding(finding) {
+  if (finding.workflow.startsWith('skf-')) return finding.workflow;
+  return finding.workflow === 'preferences' ? 'skf-forger' : 'all workflows';
+}
+
+/** One scope line: the workflows by name, up to three, else "all workflows". */
+function templateScope(scopes) {
+  const unique = [...new Set(scopes)].sort();
+  const workflows = unique.filter((scope) => scope.startsWith('skf-'));
+  const others = unique.filter((scope) => !scope.startsWith('skf-'));
+  const wide = others.includes('all workflows') || workflows.length > 3;
+  const scope = [...(wide ? [] : workflows), ...others.filter((name) => name !== 'all workflows')];
+  return [...(wide ? ['all workflows'] : []), ...scope].join(', ') || 'all workflows';
+}
+
+function itemNames(findings) {
+  return [...new Set(findings.map((finding) => `${KINDS[finding.kind] ? KINDS[finding.kind].label : finding.kind} \`${finding.token}\``))];
+}
+
+/**
+ * A fragment for what the branch is missing, typed and scoped from the
+ * covered items it removes or adds, else from the files it changes. Each
+ * sentence to rewrite starts with TEMPLATE_MARK, which validateFragment
+ * refuses, so the template fails `check` until those sentences are rewritten.
+ *
+ * @returns {string} YAML, ending with one newline
+ */
+function fragmentTemplate({ hard = [], additive = [], touched = [] }) {
+  let type = 'fixed';
+  if (hard.length > 0) type = 'breaking';
+  else if (additive.length > 0) type = 'added';
+  const findings = [...hard, ...additive];
+  const scopes = findings.length > 0 ? findings.map((finding) => scopeOfFinding(finding)) : touched.map((file) => scopeOfPath(file));
+  const lines = [
+    '# The type is what a user sees: breaking, added, changed, fixed or docs (changes/README.md).',
+    `type: ${type}`,
+    `scope: ${templateScope(scopes)}`,
+    'summary: |',
+  ];
+  const added = itemNames(additive);
+  if (type === 'breaking') {
+    const tokens = andList([...new Set(hard.map((finding) => `\`${finding.token}\``))]);
+    const adds = added.length > 0 ? ` Adds the ${andList(added)}.` : '';
+    lines.push(
+      `  Removes the ${andList(itemNames(hard))}.${adds} ${TEMPLATE_MARK}: what a user or a pipeline sees now, and why.`,
+      'migration: |',
+      `  ${TEMPLATE_MARK}: the exact action a user takes instead of relying on ${tokens}.`,
+    );
+  } else if (type === 'added') {
+    const each = added.length === 1 ? 'it does' : 'each one does';
+    lines.push(`  New ${andList(added)}. ${TEMPLATE_MARK}: what ${each}, and when a user needs it.`);
+  } else {
+    lines.push(`  ${TEMPLATE_MARK}: what a user or a pipeline now sees, with flags, statuses and file names in backticks.`);
+  }
+  lines.push('# prs: [<pull request number>]', '# issues: [<issue number>]');
+  return `${lines.join('\n')}\n`;
+}
+
+function inCi(env) {
+  return env.GITHUB_ACTIONS === 'true' || env.CI === 'true';
+}
+
+/**
+ * The base branch and the branch's merge base with it: --base, else
+ * origin/$GITHUB_BASE_REF on a pull request, else origin/main.
+ */
+function resolveBranchBase(root, argv, env) {
+  const ref = argValue(argv, '--base') || (env.GITHUB_BASE_REF ? `origin/${env.GITHUB_BASE_REF}` : 'origin/main');
+  if (!resolveCommit(root, ref)) {
+    throw new ToolError(
+      `base ${ref} not found, so the branch cannot be compared with it. Fetch it (git fetch origin; in CI, actions/checkout with fetch-depth: 0) or pass --base <ref>.`,
+      2,
+    );
+  }
+  let mergeBase = '';
+  try {
+    mergeBase = git(root, ['merge-base', ref, 'HEAD']).trim();
+  } catch {
+    // No commit in common: reported below.
+  }
+  if (mergeBase) return { ref, mergeBase };
+  let shallow = false;
+  try {
+    shallow = git(root, ['rev-parse', '--is-shallow-repository']).trim() === 'true';
+  } catch {
+    // An older git: report the plain case.
+  }
+  if (shallow) {
+    throw new ToolError(
+      `${ref} and HEAD have no commit in common that this clone has: this clone is shallow, so the merge base is not in it. ` +
+        'Fetch the full history (git fetch --unshallow origin; in CI, actions/checkout with fetch-depth: 0), then run the check again.',
+      2,
+    );
+  }
+  throw new ToolError(`${ref} and HEAD have no commit in common, so the branch cannot be compared with it.`, 2);
+}
+
+/**
+ * The last stable tag, for the released-fragment rule, as the other commands
+ * find it but reachable from the base branch, so a branch forked before the
+ * latest release is checked against it as CI checks it (--tag replaces it).
+ */
+function resolvePrTag(root, argv, env, baseRef) {
+  const tag = argValue(argv, '--tag') || lastStableTag(root, baseRef);
+  if (tag && !resolveCommit(root, tag)) throw new ToolError(`ref ${tag} not found.`, 2);
+  if (tag) return { tag, warnings: [] };
+  if (inCi(env)) {
+    throw new ToolError('no stable release tag found. Fetch tags (actions/checkout with fetch-depth: 0) or pass --tag <ref>.', 2);
+  }
+  return {
+    tag: null,
+    warnings: [
+      'No stable release tag found: the fragments this branch adds or edits were not compared with a release. Fetch tags to fix this.',
+    ],
+  };
+}
+
+/** Each file the branch changes, with its status (A, M, D or T; a rename is a deletion and an addition). */
+function branchChanges(root, mergeBase) {
+  const fields = git(root, ['diff', '--name-status', '--no-renames', '-z', mergeBase, 'HEAD']).split('\0');
+  const changed = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    if (fields[index]) changed.push({ status: fields[index][0], file: fields[index + 1] });
+  }
+  return changed;
+}
+
+/**
+ * The message of each commit on the branch, merge commits included: the
+ * range leaves out every commit of the base branch, and the merge commit CI
+ * checks out for a pull request carries no Changelog line.
+ */
+function branchCommits(root, mergeBase) {
+  const log = git(root, ['log', '--format=%H%x1F%B%x1E', `${mergeBase}..HEAD`]);
+  const commits = [];
+  for (const record of log.split('\u001E')) {
+    const [sha, message = ''] = record.replace(/^\s+/, '').split('\u001F');
+    if (sha) commits.push({ commit: sha.slice(0, 8), message });
+  }
+  return commits;
+}
+
+/**
+ * The fragments the branch adds, and the unreleased ones it edits, read at
+ * HEAD and checked as `check` checks them; the other files it adds to
+ * changes/ that are not fragments; the fragments it deletes.
+ */
+function branchFragments(root, changed, stableTag) {
+  const released = stableTag ? releasedIndex(root, stableTag) : null;
+  const atHead = fragmentBlobsAtRef(root, 'HEAD');
+  const fragments = [];
+  const problems = [];
+  const deleted = [];
+  for (const { status, file } of changed) {
+    if (!file.startsWith(`${CHANGES_DIR}/`)) continue;
+    const name = file.slice(CHANGES_DIR.length + 1);
+    if (status === 'D') {
+      if (!NOT_FRAGMENTS.has(name)) deleted.push(file);
+      continue;
+    }
+    if (NOT_FRAGMENTS.has(name)) continue;
+    if (name.includes('/')) {
+      problems.push({ file, errors: [IN_SUBFOLDER] });
+      continue;
+    }
+    if (!name.endsWith('.yaml')) {
+      problems.push({ file, errors: [NOT_A_FRAGMENT] });
+      continue;
+    }
+    if (released) {
+      const problem = releasedProblem(released, file, atHead.get(file));
+      if (problem) {
+        problems.push(problem);
+        continue;
+      }
+      // Back to its released content: not a fragment of this branch.
+      if (released.atBase.has(file)) continue;
+    }
+    fragments.push({ ...parseFragment(file, git(root, ['show', `HEAD:${file}`])), status });
+  }
+  return { fragments, problems, deleted };
+}
+
+/** A file name for the template, from the branch name, else <topic>. */
+function suggestedFile(root, env) {
+  let branch = env.GITHUB_HEAD_REF || '';
+  if (!branch) {
+    try {
+      branch = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    } catch {
+      branch = '';
+    }
+  }
+  const slug = branch
+    .split('/')
+    .at(-1)
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, '-')
+    .replaceAll(/^-+|-+$/g, '');
+  const file = `${CHANGES_DIR}/${slug}.yaml`;
+  if (!slug || slug === 'head' || !FRAGMENT_NAME.test(`${slug}.yaml`) || fs.existsSync(path.join(root, file))) {
+    return `${CHANGES_DIR}/<topic>.yaml`;
+  }
+  return file;
+}
+
+/**
+ * The exemption of the release branch, and the note to print. It fails
+ * closed: only a head repository known to be this repository is exempt, so
+ * an empty PR_HEAD_REPO (a deleted fork, or a step that does not pass it) is
+ * checked like any other branch.
+ */
+function botBranch(env) {
+  const head = env.GITHUB_HEAD_REF || '';
+  if (!BOT_BRANCH.test(head)) return { exempt: false, note: null };
+  if (env.PR_HEAD_REPO && env.PR_HEAD_REPO === env.GITHUB_REPOSITORY) {
+    return {
+      exempt: true,
+      note:
+        `${head} is the release branch of release.yaml: its release commit only bumps the version and renders the notes ` +
+        'from fragments already merged, so it needs no fragment of its own.',
+    };
+  }
+  let why = `it comes from ${env.PR_HEAD_REPO}, not ${env.GITHUB_REPOSITORY}`;
+  if (!env.PR_HEAD_REPO) why = 'PR_HEAD_REPO does not say which repository it comes from';
+  else if (!env.GITHUB_REPOSITORY) why = `GITHUB_REPOSITORY is not set, so ${env.PR_HEAD_REPO} cannot be confirmed as this repository`;
+  return { exempt: false, note: `${head} is named like the release branch, but ${why}, so it is checked like any other branch.` };
+}
+
+function surfaceMark(group, finding, typed) {
+  if (group === 'review') return null;
+  const covering = typed.filter((fragment) => coversFinding(fragment, group, finding)).map((fragment) => fragment.file);
+  if (group === 'hard') return covering.length > 0 ? `named in ${andList(covering)}` : 'NOT NAMED in a breaking fragment on this branch';
+  return covering.length > 0 ? `covered by ${andList(covering)}` : 'NOT COVERED by an added or breaking fragment on this branch';
+}
+
+const PR_GROUP_TITLES = {
+  hard: 'Hard (a breaking fragment on the branch names each one)',
+  additive: 'Additive (an added or breaking fragment on the branch covers each one)',
+  review: 'Review (never fails; decide whether each one needs a note)',
+};
+
+function runPr(root, argv, env) {
+  const bot = botBranch(env);
+  if (bot.exempt) {
+    console.log(`Passed without a check: ${bot.note}`);
+    writeStepSummary(env, [PR_SUMMARY_TITLE, '', `**Passes.** ${bot.note}`, '']);
+    return 0;
+  }
+  const base = resolveBranchBase(root, argv, env);
+  const { tag, warnings } = resolvePrTag(root, argv, env, base.ref);
+  if (bot.note) warnings.push(bot.note);
+  const uncommitted = git(root, ['status', '--porcelain', '--untracked-files=all', '--', CHANGES_DIR, ...SHIPPED_PATHSPECS]).trim() !== '';
+  if (uncommitted) {
+    warnings.push(
+      'changes under changes/ or in the code the package ships are not committed, and this check reads commits only: ' +
+        'commit them, then run it again.',
+    );
+  }
+  const changed = branchChanges(root, base.mergeBase);
+  const touched = changed.map((entry) => entry.file).filter((file) => isShipped(file));
+  const { fragments, problems, deleted } = branchFragments(root, changed, tag);
+  const surfaces = changed.some((entry) => entry.file.startsWith('src/')) ? compareRefs(root, base.mergeBase, 'HEAD') : null;
+  const trailers = changelogTrailers(branchCommits(root, base.mergeBase));
+  const result = evaluatePullRequest({ touched, fragments, problems, surfaces, trailers });
+  const typed = typedFragments(fragments);
+  const short = base.mergeBase.slice(0, 8);
+
+  const out = [
+    ...warnings.map((warning) => `warning: ${warning}`),
+    `Branch: ${base.ref} (merge base ${short}) -> HEAD`,
+    `Files changed in the code the package ships: ${touched.length}`,
+    ...touched.map((file) => `  ${file}`),
+    `Change fragments on this branch: ${fragments.length}`,
+    ...(fragments.length > 0
+      ? fragmentLines(fragments).map((line, index) => (fragments[index].status === 'A' ? line : `${line}  (edited)`))
+      : []),
+    ...problems.map(({ file }) => `  ?         ${file}  (not a usable fragment)`),
+    ...deleted.map((file) => `  deleted   ${file}`),
+    `Changelog: none lines: ${trailers.waivers.length}`,
+    ...trailers.waivers.map(({ commit, reason }) => `  commit ${commit}: ${reason}`),
+  ];
+  if (surfaces) {
+    out.push(`Covered surfaces, ${short} -> HEAD:`);
+    for (const group of ['hard', 'additive', 'review']) {
+      out.push(`  ${group}: ${surfaces[group].length}`);
+      for (const finding of surfaces[group]) {
+        const mark = surfaceMark(group, finding, typed);
+        out.push(`    - ${finding.text}${mark ? `  [${mark}]` : ''}`);
+      }
+    }
+  } else {
+    out.push('Covered surfaces: not compared (the branch changes nothing under src/).');
+  }
+  const file = result.template ? suggestedFile(root, env) : null;
+  if (result.failures.length === 0) {
+    out.push(
+      '',
+      uncommitted
+        ? 'The branch has the change fragments it needs, in its commits: the uncommitted changes were not read.'
+        : 'The branch has the change fragments it needs.',
+    );
+  } else {
+    out.push('', `The branch needs ${result.failures.length} fix(es):`, ...result.failures.map((failure) => `  - ${failure}`));
+    if (result.template) out.push('', `A fragment to fill in; save it as ${file}:`, '', '```yaml', result.template.trimEnd(), '```');
+    out.push('', 'The fragment format is in changes/README.md. Commit the fix, then run npm run changes:pr again.');
+  }
+  console.log(out.join('\n'));
+  for (const failure of result.failures) annotate(env, 'error', failure);
+
+  const summary = [
+    PR_SUMMARY_TITLE,
+    '',
+    result.failures.length === 0 ? '**Passes.**' : `**Fails:** ${result.failures.length} fix(es) needed.`,
+    '',
+    ...warnings.map((warning) => `- Warning: ${warning}`),
+    `- Base: \`${base.ref}\`, merge base \`${short}\``,
+    `- Files changed in the code the package ships: ${touched.length}${touched.length > 0 ? ` (${someOf(touched.map((name) => `\`${name}\``))})` : ''}`,
+    `- Change fragments on this branch: ${fragments.length > 0 ? fragments.map((fragment) => `\`${fragment.file}\``).join(', ') : 'none'}`,
+    `- \`Changelog: none\` lines: ${trailers.waivers.length > 0 ? trailers.waivers.map(({ commit, reason }) => `${commit} (${reason})`).join('; ') : 'none'}`,
+    '',
+  ];
+  if (result.failures.length > 0) summary.push('**To fix:**', '', ...result.failures.map((failure) => `- ${failure}`), '');
+  if (surfaces) {
+    summary.push('**Covered-surface changes on this branch**', '');
+    for (const group of ['hard', 'additive', 'review']) {
+      const items = surfaces[group].map((finding) => {
+        const mark = surfaceMark(group, finding, typed);
+        return `- ${finding.text}${mark ? ` (${mark})` : ''}`;
+      });
+      summary.push(`${PR_GROUP_TITLES[group]}:`, '', ...(items.length > 0 ? items : ['- none']), '');
+    }
+  } else {
+    summary.push('Covered surfaces: not compared (the branch changes nothing under `src/`).', '');
+  }
+  if (result.template)
+    summary.push(`**A fragment to fill in**; save it as \`${file}\`:`, '', '```yaml', result.template.trimEnd(), '```', '');
+  writeStepSummary(env, summary);
+  return result.failures.length > 0 ? 1 : 0;
+}
+
 const USAGE = `Usage: node tools/changes.js <command> [options]
 
   check                        validate changes/ and the empty [Unreleased] of CHANGELOG.md
   preview [--bump <type>]      fragments, surface changes, minimum bump, next version, gate verdict, rendered block
   gate --bump <type>           refuse a version_bump the fragments and surfaces do not allow
   release [--review <file>]    render CHANGELOG.md (stable only) and release_notes.md
+  pr [--base <branch>]         check the fragments a branch needs, from its merge base to HEAD
 
   <type> is one of ${BUMPS.join(', ')}.
   Options: --base <ref>, --root <dir>, and for release --version <v>, --date YYYY-MM-DD,
-  --notes <file>, --notes-only. The fragment format is in changes/README.md.`;
+  --notes <file>, --notes-only; for pr, --base is the base branch (default origin/main,
+  or origin/$GITHUB_BASE_REF on a pull request) and --tag <ref> replaces the last stable
+  tag. The fragment format is in changes/README.md.`;
 
 function main(argv = process.argv.slice(2), env = process.env) {
   const [command, ...rest] = argv;
@@ -859,6 +1418,9 @@ function main(argv = process.argv.slice(2), env = process.env) {
       case 'release': {
         return runRelease(root, rest, env);
       }
+      case 'pr': {
+        return runPr(root, rest, env);
+      }
       case '--help':
       case '-h': {
         console.log(USAGE);
@@ -871,10 +1433,13 @@ function main(argv = process.argv.slice(2), env = process.env) {
       }
     }
   } catch (error) {
-    if (!(error instanceof ToolError)) throw error;
-    console.error(`error: ${error.message}`);
-    annotate(env, 'error', error.message);
-    return error.exitCode;
+    // pr exits 2 on a git failure, so a broken checkout never reads as a branch that lacks a fragment.
+    const gitFailure = command === 'pr' && error && error.stderr !== undefined;
+    if (!(error instanceof ToolError) && !gitFailure) throw error;
+    const message = error instanceof ToolError ? error.message : `git failed: ${String(error.stderr || error.message).trim()}`;
+    console.error(`error: ${message}`);
+    annotate(env, 'error', message);
+    return error instanceof ToolError ? error.exitCode : 2;
   }
 }
 
@@ -885,8 +1450,12 @@ if (require.main === module) {
 module.exports = {
   BUMPS,
   TYPES,
+  changelogTrailers,
   evaluateGate,
+  evaluatePullRequest,
+  fragmentTemplate,
   insertIntoChangelog,
+  isShipped,
   main,
   minimumBump,
   namesToken,

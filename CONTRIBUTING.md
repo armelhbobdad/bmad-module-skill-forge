@@ -41,7 +41,7 @@ The `npm run quality` script is your contract with CI. It runs:
 - `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`, `validate:em-dash`, `validate:changes` (the change fragments in `changes/`, see [Change Fragments](#change-fragments))
 - `docs:validate-drift` — SKF docs vs. the canonical [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills) output
 
-If `npm run quality` passes locally, CI should too. The same steps run in [`.github/workflows/quality.yaml`](.github/workflows/quality.yaml) on every pull request.
+If `npm run quality` passes locally, CI should too. The same steps run in [`.github/workflows/quality.yaml`](.github/workflows/quality.yaml) on every pull request. A pull request also runs `npm run changes:pr`, which compares your branch with its base branch and so is not part of `npm run quality`: see [The pull request check](#the-pull-request-check).
 
 Write no em dashes (U+2014) in anything you add, including commit messages: use a colon, a comma, parentheses or a new sentence. `validate:em-dash` fails on any em dash in the published docs (`README.md`, `docs/` outside `docs/_internal/`, `website/`) and on any em dash in the lines or commit messages your branch adds. The one exception is the context-snippet lines SKF generates (`|IMPORTANT:`, `|key-types:` and the like, a pipe followed directly by a key and a colon), which docs may quote as they are.
 
@@ -72,13 +72,13 @@ Write no em dashes (U+2014) in anything you add, including commit messages: use 
 
    Not mandatory, but we prefer accurate attribution over silent ghostwriting.
 
-7. **Add a change fragment** in the same pull request for each change a user or a pipeline can notice: see [Change Fragments](#change-fragments).
+7. **Add a change fragment** in the same pull request for each change a user or a pipeline can notice, and run `npm run changes:pr` before you push: see [Change Fragments](#change-fragments).
 
 ## Change Fragments
 
 Release notes are written from change fragments, not from commit subjects. A pull request that changes something a user or a pipeline can notice adds one short YAML file per change to [`changes/`](changes/README.md), named after the change: `changes/<topic>.yaml`. At release, the workflow renders every fragment added since the last stable release into the new `CHANGELOG.md` block and the GitHub Release, and refuses a `version_bump` smaller than the fragments call for. Fragments are never deleted: a release takes only the ones added since the last stable tag. A released fragment is never read again, so a new change always goes in a new file: the release refuses a released fragment that was edited, renamed or copied.
 
-**When.** Add a fragment when a workflow behaves differently, when a flag, status, exit code, halt reason or preference appears or goes, when the install changes, or when the user docs gain something worth announcing. Refactors, tests, CI and maintainer-only docs need none.
+**When.** Add a fragment when a workflow behaves differently, when a flag, status, exit code, halt reason or preference appears or goes, when the install changes, or when the user docs gain something worth announcing. Refactors, tests, CI and maintainer-only docs need none; a refactor of the code the package ships says so in a commit message instead (see [The pull request check](#the-pull-request-check)).
 
 **Which type.** Type the change by what a user sees, not by the commit prefix, and pick the higher type when unsure:
 
@@ -99,7 +99,44 @@ prs: [517]
 issues: [511]
 ```
 
-Write flags, statuses, codes and file names in backticks: a release that removes a covered item needs a `breaking` fragment that names it, and only a name in backticks counts. Add `prs:` once the pull request has a number. Before pushing, run `npm run changes:preview`: it lists the fragments added since the last stable tag, the covered-surface changes against it (`tools/covered-surfaces.js`), the minimum bump and why, and the rendered block. It also prints the release gate's verdict for the whole next release, not for your pull request alone: a refusal about an item or a fragment your pull request touches is yours to fix; any other refusal is for the maintainer who cuts the release, and your pull request only needs its own fragments to pass `npm run validate:changes`. For each new halt reason or exit code it lists, ask again whether an input that used to succeed now stops. `npm run validate:changes` checks the format, which [`changes/README.md`](changes/README.md) describes in full.
+Write flags, statuses, codes and file names in backticks: a release that removes a covered item needs a `breaking` fragment that names it, and only a name in backticks counts. Add `prs:` once the pull request has a number. Before pushing, run `npm run changes:preview`: it lists the fragments added since the last stable tag, the covered-surface changes against it (`tools/covered-surfaces.js`), the minimum bump and why, and the rendered block. It also prints the release gate's verdict for the whole next release, not for your pull request alone: a refusal about an item or a fragment your pull request touches is yours to fix; any other refusal is for the maintainer who cuts the release, and your pull request only needs its own fragments to pass `npm run validate:changes` and `npm run changes:pr`. For each new halt reason or exit code it lists, ask again whether an input that used to succeed now stops. `npm run validate:changes` checks the format, which [`changes/README.md`](changes/README.md) describes in full.
+
+### The pull request check
+
+The required `em-dash` check runs `npm run changes:pr` on every pull request. It compares your branch, from its merge base with the base branch to `HEAD`, and fails when:
+
+- the branch changes the code the npm package ships (anything under `src/` or `tools/cli/`, and `tools/skf-npx-wrapper.js`) or `.npmignore`, which decides what ships, and has no change fragment of its own;
+- a covered item the branch removes (a schema enum value or property, a Ferris menu code, a pipeline alias or a flag) is not named in backticks by a `breaking` fragment on the branch;
+- a covered item the branch adds (one of those, a preference key or an exit code) has no `added` or `breaking` fragment on the branch;
+- a fragment the branch adds or edits is not valid, or the branch edits, renames or copies a fragment an earlier release shipped.
+
+A fragment on the branch is one it adds. A fragment it edits that no release has shipped yet, such as another pull request's pending one, counts only for the covered items it names in backticks: a follow-up that removes a flag can name it in the pending `breaking` fragment it extends, and then needs no other fragment, but an edit that names none of the branch's covered items never stands in for a fragment of its own.
+
+The check reads only the code the package ships. The package also ships `package.json`, `README.md` and part of `docs/`, and the check asks nothing of a branch that changes only those or other files (the other `tools/*.js` scripts, `test/`, `.github/`). A change a user notices there still takes a fragment, as **When** says above: a user docs change worth announcing takes a `docs` fragment, and a raised `engines.node` floor or a new runtime requirement in `package.json` is `breaking`.
+
+When no user or pipeline can notice any change the branch makes to the code the package ships, such as a refactor with the same output or a reworded comment, give the reason in one of the branch's commit messages instead of a fragment, on a line of its own (with the other trailers is best). A merge commit on the branch counts too. To add the line to a branch you already pushed, push an empty commit that carries it (`git commit --allow-empty`):
+
+```text
+Changelog: none (refactor, the output is unchanged)
+```
+
+The reason inside the parentheses is required: `Changelog: none` alone covers nothing, and neither does `Changelog: none (<reason>)` pasted as it is. One such line covers the whole branch, so use it only when nothing the branch changes in the code the package ships is noticeable: a branch that mixes a refactor and a fix still needs a fragment for the fix. The line only stands in for a fragment the first rule asks for. It never covers a covered item the branch removes or adds: those always need their fragment, because the release notes and the version bump come from it.
+
+Run the check before you push. It reads commits, not the working tree, so commit first, and fetch the base branch so the merge base is current:
+
+```bash
+git fetch origin
+npm run changes:pr
+```
+
+It compares with `origin/main` by default (on a pull request, with `origin/<base branch>`); pass `-- --base <ref>` for another base. In a fork, `origin` is your fork, so compare with the upstream repository instead:
+
+```bash
+git fetch upstream
+npm run changes:pr -- --base upstream/main
+```
+
+The released-fragment rule takes the last stable tag reachable from the base, as CI does, so a branch forked before the latest release is still checked against it. On a failure the check prints what is missing and a fragment to fill in, with the type and scope worked out from what the branch changes, and exits `1`; in CI the same text is in the job summary. The fragment it prints fails `npm run validate:changes` until you rewrite each sentence that starts with "Rewrite this paragraph". It exits `2` when it cannot run, for example when the base branch has not been fetched, or when a shallow clone does not hold the merge base (`git fetch --unshallow origin`). The release workflow's own pull request, from a `release/bot/*` branch of this repository, is exempt: its one commit bumps the version and renders the notes from fragments already merged. A `release/bot/*` branch from a fork, or from a repository the check cannot confirm, is checked like any other.
 
 ## The Quality Gate
 
@@ -109,7 +146,7 @@ Write flags, statuses, codes and file names in backticks: a release that removes
 - **If a Python test fails on your machine but not in CI,** check your `uv` version and re-run `npm run test:python` from a clean shell.
 - **If `docs:validate-drift` fails,** you either touched a pinned version/commit SHA that no longer resolves in [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills), or you added a library reference the whitelist doesn't cover. Fix the reference; don't relax the validator unless the fix is clearly out of scope.
 
-CI re-runs everything on the PR. A green local run and a red CI run means either (a) you have uncommitted files, or (b) your Node/uv versions drift from `.nvmrc` / `test:python`. Check both before filing a CI bug.
+CI re-runs everything on the PR. A green local run and a red CI run means (a) you have uncommitted files, (b) your Node/uv versions drift from `.nvmrc` / `test:python`, or (c) the pull request check failed: `npm run changes:pr` is not part of `npm run quality`, so run it after committing. Check all three before filing a CI bug.
 
 ## Releasing
 
