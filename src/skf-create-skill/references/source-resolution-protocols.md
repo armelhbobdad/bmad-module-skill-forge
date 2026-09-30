@@ -2,57 +2,67 @@
 
 ## Shell Path Quoting
 
-Every shell snippet in this document uses `{...}` placeholders for paths. **Always wrap path interpolations in double quotes** when emitting the actual command — `git -C "{workspace_repo_path}"`, `rm -rf "{temp_path}"`, `cd "{project-root}"`. SKF's supported platforms are Linux and macOS; user home directories on macOS frequently contain spaces, which break unquoted shell. WSL2 users see the same. Native Windows is untested but the quoting convention is also required there.
+Every shell snippet in this document and in step 3 §2b uses `{...}` placeholders for paths. **Always wrap path interpolations in double quotes** when emitting the actual command: `uv run {sourceTreeHelper} resolve --source-repo "{source_repo}"`, `cd "{remote_clone_path}"`, `cd "{project-root}"`. Home folders on macOS often contain spaces, which break unquoted shell, and WSL2 and Windows paths do too, so the quoting convention applies on every platform.
 
 ## Tag Resolution
 
-Tag resolution maps a declared version in the brief onto a concrete git ref before cloning, so the skill is built from code matching its declared version. Three signals can drive it, in priority order: an explicit `brief.target_ref` (a ref the user states verbatim — highest priority), an **explicit** `brief.target_version` (deliberate user intent), or an **implicit** `brief.version` (auto-populated hint from `brief-skill`). All apply only when `source_repo` is a remote URL.
+Tag resolution maps a declared version in the brief onto a concrete git ref, so the skill is built from code matching its declared version. Three signals can drive it, in priority order: an explicit `brief.target_ref` (a ref the user states verbatim, highest priority), an **explicit** `brief.target_version` (deliberate user intent), or an **implicit** `brief.version` (auto-populated hint from `brief-skill`). They apply only to a remote source read at Forge tier or above: step 3 §2b hands them to the `resolve` subcommand of `{sourceTreeHelper}` as flags (its command shows which), and resolve lists the remote's tags and does the matching. A Quick-tier remote source reads `HEAD`.
 
-**Explicit ref override (when `target_ref` is set):** When `brief.target_ref` is present AND `source_repo` is a remote URL, use its value verbatim as `source_ref` and skip all version-to-tag matching below. This is the escape hatch for ref conventions the matching heuristics don't cover — notably monorepo crate tags whose prefix differs from the skill name (e.g. skill `livekit-rust` built from tag `livekit/v0.7.42`). Confirm it resolves first: `git ls-remote "{source_repo}" "{target_ref}"` (matches a tag or branch) — if it returns nothing, ⚠️ warn "`target_ref` ({target_ref}) does not resolve in {source_repo}; falling back to version matching" and continue with the version-based matching below.
+| The brief sets | What resolve reads |
+|---|---|
+| `target_ref` (it takes priority) | that ref as given: a tag (a tag wins over a branch of the same name), a branch, `HEAD` or a full commit |
+| `target_version` | the first of seven tag forms that exists (Explicit Tag Resolution) |
+| only `version` | the first of two tag forms that exists (Implicit Tag Resolution) |
+| none of them | `HEAD`, the default branch |
 
-**When none of `brief.target_ref`, `brief.target_version`, or `brief.version` is set:** skip tag resolution entirely. Set `source_ref` to `HEAD` (default branch).
+`target_ref` is the escape hatch for ref conventions the tag forms do not cover, notably monorepo crate tags whose prefix differs from the skill name (skill `livekit-rust` built from tag `livekit/v0.7.42`). When the brief sets it and a version too, resolve gets both: a `target_ref` the remote does not have adds the warning "target_ref ({target_ref}) does not resolve in {source_repo}; falling back to version matching", and resolve matches the version instead.
 
 ### Explicit Tag Resolution (when target_version is set)
 
-When `brief.target_version` is present AND `source_repo` is a remote URL, resolve the target version to a git tag before cloning:
+resolve tries these forms of `{target_version}` against the remote's tags, in priority order (every form but the first drops a leading `v` of the version):
 
-1. **List available tags:**
-   - `gh api repos/{owner}/{repo}/tags --paginate --jq '.[].name'`
-   - Fallback: `git ls-remote --tags "{source_repo}" | sed 's|.*refs/tags/||'`
+- **Exact match:** `{target_version}` (e.g., `0.5.0`)
+- **With `v` prefix:** `v{target_version}` (e.g., `v0.5.0`)
+- **With package scope (monorepos):** `{brief.name}@{target_version}` or `@{scope}/{brief.name}@{target_version}`
+- **With crate/package-directory prefix (monorepos):** `{brief.name}/v{target_version}`, `{brief.name}/{target_version}`, or `{brief.name}-v{target_version}` (e.g. `tokio/v1.0.0`). These cover monorepos whose tags are prefixed by the crate or package directory **when that directory equals the skill name**. When it differs (crate `livekit` for skill `livekit-rust`, tag `livekit/v0.7.42`), no form can infer it: set `target_ref` instead.
 
-2. **Match `target_version` against tags** in priority order:
-   - **Exact match:** `{target_version}` (e.g., `0.5.0`)
-   - **With `v` prefix:** `v{target_version}` (e.g., `v0.5.0`)
-   - **With package scope (monorepos):** `{brief.name}@{target_version}` or `@{scope}/{brief.name}@{target_version}`
-   - **With crate/package-directory prefix (monorepos):** `{brief.name}/v{target_version}`, `{brief.name}/{target_version}`, or `{brief.name}-v{target_version}` (e.g. `tokio/v1.0.0`). Covers monorepos whose tags are prefixed by the crate/package directory **when that directory equals the skill name**. When the directory differs from the skill name (e.g. crate `livekit` for skill `livekit-rust`, tag `livekit/v0.7.42`), this heuristic can't infer it — set `target_ref` explicitly instead.
+Outcomes, from `tag_resolution.status`:
 
-3. **Resolution outcomes:**
-   - **Single match:** Store the matched tag as `source_ref`. Use it as `{branch}` in all subsequent clone/API commands.
-   - **Multiple matches:** Present the matching tags to the user — "Multiple tags match version {target_version}: {list}. Which one should I use?" Wait for selection.
-   - **Zero matches:** ⚠️ Warn: "No git tag found matching version {target_version}. Closest available tags: {list 5 nearest by semver sort}. Falling back to default branch — **extracted code may not match target version.**" Set `source_ref` to `HEAD` and proceed with default branch.
+- **`matched`:** one form matched. resolve read that tag, and it is `source_ref`.
+- **`ambiguous`:** several tags matched, and nothing was read yet: see Several Matching Tags below.
+- **`fallback-head`:** no tag matched, and resolve read `HEAD`; the warning it printed names the nearest tags. ⚠️ Add: "**Extracted code may not match target version {target_version}.**"
 
-4. **Store `source_ref`** in context. This value is written to metadata.json and provenance-map.json for downstream workflows (update-skill, audit-skill) to re-clone from the same ref.
+`source_ref` is written to metadata.json and provenance-map.json for downstream workflows (update-skill, audit-skill) to read the same ref again.
 
 ### Implicit Tag Resolution (when only brief.version is set)
 
-When `brief.target_version` is absent but `brief.version` is present AND `source_repo` is a remote URL, treat `brief.version` as an **implicit** target version and attempt tag resolution before cloning. This matches `brief-skill`'s behavior, which auto-populates `brief.version` from the latest non-prerelease release tag — so a tag matching `brief.version` is the common case, and silently cloning HEAD would produce a skill labeled with `brief.version` but built from an unrelated default-branch commit.
+When `brief.target_version` is absent but `brief.version` is present, `brief.version` is an **implicit** target version. This matches `brief-skill`'s behavior, which auto-populates `brief.version` from the latest non-prerelease release tag, so a tag matching `brief.version` is the common case, and silently reading HEAD would produce a skill labeled with `brief.version` but built from an unrelated default-branch commit.
 
-1. **List available tags** exactly as in Explicit Tag Resolution above.
+With `--implicit`, resolve tries only two forms, in this order:
 
-2. **Match `brief.version` against tags** in this reduced priority order. Package-scoped monorepo variants are **not** tried — those require deliberate user intent via `target_version`, since implicit matching against a monorepo tag like `{brief.name}@{version}` could silently select a sibling package's ref:
-   - **Exact match:** `{brief.version}` (e.g., `0.3.37`)
-   - **With `v` prefix:** `v{brief.version}` (e.g., `v0.3.37`)
+- **Exact match:** `{brief.version}` (e.g., `0.3.37`)
+- **With `v` prefix:** `v{brief.version}` (e.g., `v0.3.37`)
 
-3. **Resolution outcomes:**
-   - **Single match:** Store the matched tag as `source_ref`. Use it as `{branch}` in all subsequent clone/API commands. Do not warn — this is the expected path.
-   - **Multiple matches:** Present the matching tags to the user — "Multiple tags match `brief.version` ({brief.version}): {list}. Which one should I use, or fall back to HEAD?" Wait for selection.
-   - **Zero matches:** ⚠️ Warn: "No git tag found matching `brief.version` ({brief.version}). Falling back to default branch — **extracted code may not match the declared version.** If you intended to pin a specific version, set `target_version` explicitly in the brief." Set `source_ref` to `HEAD` and proceed with default branch. Append `tag_resolution: {status: "fallback-head", requested: "{brief.version}", reason: "no-matching-tag"}` to the in-context evidence-report payload so step 5 §7 surfaces the fallback in the evidence report. This turns the warning into a persistent audit trail a reviewer can grep later, not just a one-shot stderr line.
+Package-scoped monorepo forms are **not** tried: they need deliberate user intent through `target_version`, since implicit matching against a monorepo tag like `{brief.name}@{version}` could silently select a sibling package's ref.
 
-4. **Do not halt on zero matches.** Unlike the explicit path, implicit resolution never blocks compilation — `brief.version` is an auto-populated hint, and some repositories simply do not tag releases. The warning is sufficient notice; the evidence report in step 8 will surface the HEAD fallback for reviewers.
+Outcomes, from `tag_resolution.status`:
 
-5. **Store `source_ref`** in context exactly as in the explicit path. It flows through to metadata.json and provenance-map.json so downstream workflows (update-skill, audit-skill) can re-clone from the same ref.
+- **`matched`:** no warning; this is the expected path.
+- **`ambiguous`:** see Several Matching Tags below, where `HEAD` is one of the choices.
+- **`fallback-head`:** no tag matched, and resolve read `HEAD`; the warning it printed names the nearest tags. ⚠️ Add: "**Extracted code may not match the declared version {brief.version}.** If you intended to pin a specific version, set `target_version` explicitly in the brief." Keep the `tag_resolution` record resolve printed (`status: "fallback-head"`, `requested`, `reason: "no-matching-tag"`) in the in-context evidence-report payload so step 5 §7 surfaces the fallback in the evidence report: a persistent audit trail a reviewer can grep later, not just a one-shot warning.
 
-**Interaction with Version Reconciliation (below):** When implicit tag resolution succeeds, the clone's source files should carry the same version as `brief.version` — so the Version Reconciliation section's source-vs-brief mismatch warning will not fire. When implicit resolution falls back to HEAD, Version Reconciliation runs normally against the default branch's version file and may produce its own mismatch warning.
+**Do not halt on zero matches.** Implicit resolution never blocks compilation: `brief.version` is an auto-populated hint, and some repositories simply do not tag releases. The warning is sufficient notice; the evidence report in step 8 will surface the HEAD fallback for reviewers.
+
+**Interaction with Version Reconciliation (below):** When implicit tag resolution matches a tag, the tree's source files should carry the same version as `brief.version`, so the Version Reconciliation section's source-vs-brief mismatch warning will not fire. When implicit resolution falls back to HEAD, Version Reconciliation runs normally against the default branch's version file and may produce its own mismatch warning.
+
+### Several Matching Tags
+
+When resolve prints `ambiguous`, it read nothing, and `tag_resolution.candidates` lists the matching tags in the priority order above. This is the one choice tag resolution leaves to you:
+
+- Ask: "Multiple tags match version {tag_resolution.requested}: {candidates}. Which one should I use?", adding "or should I fall back to HEAD?" for an implicit version, and "Setting `target_ref` in the brief skips this question next time." Wait for the selection.
+- **GATE [default: first candidate]**: under `{headless_mode}`, take the first candidate, log "headless: tag {tag} chosen from {candidates} for version {tag_resolution.requested}", and record the auto-decision per the Workflow Rules (step `extract`, gate `tag-choice`, decision `{tag}`, rationale "headless mode: first matching tag in priority order").
+
+Step 3 §2b then runs resolve again with the chosen tag (or `HEAD`) as `--target-ref`.
 
 ### Local Source Warning
 
@@ -68,143 +78,15 @@ Implicit resolution via `brief.version` is **not applied to local sources** — 
 
 ## Remote Source Resolution
 
-**Note:** Quick-tier remote sources do not use the workspace/clone protocol described below. Quick tier accesses remote files via the `gh_bridge.read_file` path described in step 3 section 4.
+**Note:** Quick-tier remote sources are never read into a tree. Quick tier accesses remote files via the `gh_bridge.read_file` path described in step 3 section 4.
 
-If `source_repo` is a local path: proceed with the tier-appropriate strategy as normal.
+A remote source (a GitHub URL, an `owner/repo` shorthand or another git URL) read at Forge, Forge+ or Deep tier goes through one `resolve` call of `{sourceTreeHelper}` (step 3 §2b). It reads the commit Tag Resolution picks into a private tree of this run's own, which no other run can move, and with `--update-clone` moves SKF's workspace clone to the same commit in the same call, under the clone's `.skf-workspace.lock` and after running `{cccGitHygieneHelper}` there, never forcing a checkout (the `resolve` section of `skf-source-tree.py` has the details). The tree is removed with the helper's `close` subcommand at the end of step 7, or before any HALT after step 3 §2b.
 
-If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is Forge, Forge+, or Deep:
+**Compute workspace path:** SKF's workspace clone of a repository is `{workspace_root}/repos/{host}/{owner}/{repo}/`, where `{workspace_root}` is the environment variable `SKF_WORKSPACE` when set, otherwise `~/.skf/workspace/` (where `~` is the user's home directory on all platforms). resolve prints it as `workspace_path`.
 
-1. **Check `git` availability:** Verify `git` is functional (`git --version`). If `git` is not available, skip to the fallback warning below.
+**Scope filtering:** the tree is a full checkout (no sparse-checkout), so apply `include_patterns` and `exclude_patterns` from the brief as **file-level filters** when building the extraction file list. Always-included root files (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Package.swift`, `setup.py`, `setup.cfg`, `VERSION`) are exempt from pattern filtering.
 
-2. **Compute workspace path:** Derive a persistent local path from the remote URL:
-
-   - **Parse the URL** to extract `{host}`, `{owner}`, `{repo}`:
-     - `https://github.com/facebook/react` or `https://github.com/facebook/react.git` → `github.com/facebook/react`
-     - `git@github.com:facebook/react.git` → `github.com/facebook/react`
-     - `facebook/react` (owner/repo shorthand) → `github.com/facebook/react`
-   - **Resolve workspace root:** Use environment variable `SKF_WORKSPACE` if set, otherwise `~/.skf/workspace/` (where `~` is the user's home directory on all platforms)
-   - **Workspace repo path:** `{workspace_root}/repos/{host}/{owner}/{repo}/`
-
-3. **Workspace check — resolve the source locally:**
-
-   **Concurrency guard:** all of the operations below (the git hygiene check, fetch, checkout, rev-parse, and the extraction read that follows in step 3) must be wrapped in an exclusive `flock` on `{workspace_repo_path}/.skf-workspace.lock`. On a workspace hit, acquire the lock before the git hygiene check, hold it across fetch + checkout + rev-parse, AND keep holding it through the extraction-time read of the working tree. On a workspace miss the folder does not exist yet, and `git clone` refuses a folder that is not empty: never create `{workspace_repo_path}` or the lock file before the clone. Clone first, then acquire the lock (a run whose clone fails because another run is cloning the same repository takes the ephemeral fallback). Two concurrent batch runs that target the same workspace clone but different `source_ref` values would otherwise race — one would `checkout` while the other was reading files mid-extraction, corrupting the inventory. The lock makes the per-workspace-repo unit of work serial. Use `flock -x {lockfile} -c "..."` or `fcntl.flock(LOCK_EX)`. If `flock` is unavailable, log a warning ("Concurrency guard unavailable — concurrent forges against the same workspace repo may produce inconsistent extraction inventories") and proceed. The git hygiene check lists the lock file in the clone's `.git/info/exclude`, so `git status` never reports it and `git stash --include-untracked` never moves it.
-
-   **If `{workspace_repo_path}/.git/` exists (workspace hit):**
-
-   The repo was previously cloned into the workspace. Fetch updates and checkout the requested ref.
-
-   **Git hygiene check (before any fetch):** from `{project-root}`, resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}` (declared in `extract.md`'s frontmatter; first existing path wins) and run:
-
-   ```
-   uv run {cccGitHygieneHelper} workspace --repo "{workspace_repo_path}"
-   ```
-
-   A forge that indexed this clone with ccc may have left `# CocoIndex Code (ccc)` and `/.cocoindex_code/` appended to the clone's tracked `.gitignore`, or a new `.gitignore` holding only those two lines, and git refuses a checkout that would overwrite that change. The helper lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's `.git/info/exclude`, then restores a tracked `.gitignore` whose only change is those two lines (or deletes an untracked one that holds only them), and leaves every other local change alone. The checkout below therefore behaves as it always has: git carries over a local change it can keep and refuses one it would overwrite, which sends the run to the ephemeral fallback. Read nothing from its output. If the helper does not resolve, or the command fails, continue without it: the workspace is a cache, never a gate.
-
-   **Detect tag vs branch for `source_ref`** (skipped when `source_ref` is `HEAD` — in that case fetch default branch without a ref argument):
-
-   ```
-   # Ask the remote whether source_ref exists as a tag
-   git -C "{workspace_repo_path}" ls-remote --tags origin {source_ref} | grep -q "refs/tags/{source_ref}$" && ref_kind=tag || ref_kind=branch
-   ```
-
-   Fetch using the ref-kind-appropriate invocation so tag refs are written into `refs/tags/*` rather than being dropped by a branch-only fetch:
-
-   ```
-   if ref_kind == tag:
-     git -C "{workspace_repo_path}" fetch origin tag {source_ref}
-   else:
-     git -C "{workspace_repo_path}" fetch origin {source_ref}
-   ```
-
-   Check if checkout is needed — skip if the requested ref is already checked out:
-
-   ```
-   current_head = git -C "{workspace_repo_path}" rev-parse HEAD
-   fetched_head = git -C "{workspace_repo_path}" rev-parse FETCH_HEAD
-   ```
-
-   If `current_head != fetched_head`:
-   ```
-   git -C "{workspace_repo_path}" -c advice.detachedHead=false checkout FETCH_HEAD
-   ```
-
-   If fetch or checkout fails, proceed to the **ephemeral fallback** (step 5).
-
-   **If `{workspace_repo_path}/.git/` does not exist (workspace miss):**
-
-   Clone the repository into the workspace for persistent reuse. Create the parent directory first (`{workspace_root}/repos/{host}/{owner}/`):
-
-   ```
-   mkdir -p "{workspace_root}/repos/{host}/{owner}/"
-   ```
-
-   Clone with the appropriate branch flag — `--branch` is only valid for real branch/tag names, not for `HEAD`. **Do not pass `--single-branch`** here: workspace clones are persistent and re-used for future forges with different `source_ref` values (a later run may target a different tag or branch). A single-branch workspace clone would force every re-forge with a new ref to fall through to ephemeral cloning, defeating the workspace cache:
-
-   ```
-   # If source_ref is a real branch or tag (not HEAD/null):
-   git clone --depth 1 --branch {source_ref} "{source_repo}" "{workspace_repo_path}"
-
-   # If source_ref is HEAD or not set (default branch):
-   git clone --depth 1 "{source_repo}" "{workspace_repo_path}"
-   ```
-
-   **Note:** No `--filter=blob:none` — blobs for the current tree are needed for indexing and the cost is amortized across all future forges. No sparse-checkout — a full checkout serves all consumers (different briefs with different include/exclude patterns) without configuration conflicts. `--single-branch` is reserved for ephemeral clones (step 5); workspace clones keep all branches available so re-forges against different refs can fetch + checkout without re-cloning.
-
-   If this is the **first repo** in the workspace (workspace root was just created), print an informational message:
-
-   "Caching source at `{workspace_repo_path}` (saves time on re-forges). Override location with `SKF_WORKSPACE` env var."
-
-   If clone fails, proceed to the **ephemeral fallback** (step 5).
-
-   **After the clone succeeds:** record `clone_head` = `git -C "{workspace_repo_path}" rev-parse HEAD`, acquire the lock (**Concurrency guard** above), then run the **git hygiene check** above: `uv run {cccGitHygieneHelper} workspace --repo "{workspace_repo_path}"`. If `git -C "{workspace_repo_path}" rev-parse HEAD` no longer equals `clone_head`, another run took the lock first and checked out its own ref: continue with the workspace-hit steps from **Detect tag vs branch** on, so this run checks out `{source_ref}` again.
-
-4. **If workspace resolution succeeds:** Set `source_root = {workspace_repo_path}` — this updates the working source path for all subsequent operations (AST extraction, CCC indexing, artifact generation). Capture the source commit: `git -C "{workspace_repo_path}" rev-parse HEAD` — store as `source_commit` in context. Proceed with the **Forge/Deep Tier** extraction strategy below. Set context:
-   - `source_root = {workspace_repo_path}`
-   - `remote_clone_path = {workspace_repo_path}`
-   - `remote_clone_type = "workspace"`
-
-   **Scope filtering:** Since the workspace uses a full checkout (no sparse-checkout), apply `include_patterns` and `exclude_patterns` from the brief as **file-level filters** when building the extraction file list. Always-included root files (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Package.swift`, `setup.py`, `setup.cfg`, `VERSION`) are exempt from pattern filtering.
-
-5. **Ephemeral fallback (on any workspace failure):**
-
-   If the workspace clone, fetch or checkout fails for any reason (network error, auth failure, disk full, timeout, or a local change in the clone that the checkout would overwrite), fall back to ephemeral cloning — the pre-workspace behavior that always works:
-
-   ```
-   temp_path = {system_temp}/skf-ephemeral-{skill-name}-{timestamp}/
-
-   # If source_ref is a real branch or tag (not HEAD/null):
-   git clone --depth 1 --branch {source_ref} --single-branch --filter=blob:none "{source_repo}" "{temp_path}"
-
-   # If source_ref is HEAD or not set (default branch):
-   git clone --depth 1 --single-branch --filter=blob:none "{source_repo}" "{temp_path}"
-   ```
-
-   If ephemeral clone succeeds: Set `source_root = {temp_path}`. Capture `source_commit`. Set context:
-   - `source_root = {temp_path}`
-   - `remote_clone_path = {temp_path}`
-   - `remote_clone_type = "ephemeral"`
-
-   Apply `include_patterns` and `exclude_patterns` from the brief as file-level filters when building the extraction file list.
-
-6. **If all cloning fails (workspace AND ephemeral):**
-
-   ⚠️ **Warn the user explicitly:**
-
-   "Clone of `{source_repo}` failed: {error}. Degrading to source reading (T1-low) for this run. For T1 (AST-verified) confidence, clone the repository locally and update `source_repo` in your brief to the local path."
-
-   Proceed with Quick tier extraction strategy below. Note the degradation reason in context for the evidence report.
-
-**Remote clone cleanup:** After extraction is complete for all files in scope (whether successful or partially failed), before presenting the Gate 2 summary (Section 6):
-
-- **If `remote_clone_type == "ephemeral"`:** Cleanup is required.
-  1. **Reset working directory first:** Run `cd "{project-root}"` using the **absolute path** captured at workflow start.
-  2. **Delete the clone:** `rm -rf "{temp_path}"`
-  3. **Log:** "Ephemeral source clone cleaned up."
-
-  This ensures cleanup runs even if some extractions failed. If any error halts the step before Gate 2, cleanup must still occur.
-
-- **If `remote_clone_type == "workspace"`:** No cleanup. The workspace checkout persists for future forges.
+**When no tree can be read** (resolve prints `unavailable`, or does not finish), step 3 §2b warns the user and degrades this run to source reading (T1-low), with the Quick tier extraction strategy.
 
 ---
 
@@ -215,12 +97,14 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 After the source path is accessible, capture the current commit hash for provenance tracking:
 
 - **Local path:** `git -C "{source_root}" rev-parse HEAD` — if the path is a git repo
-- **Ephemeral clone (Forge/Deep):** already captured during clone (step 3 above)
+- **Remote source at Forge tier or above:** the `source_commit` resolve printed in step 3 §2b, the commit the tree holds
 - **Quick tier (remote, no clone):** `gh api repos/{owner}/{repo}/commits/{source_ref} --jq '.sha'`
 
 Store the result as `source_commit` in context. If capture fails (not a git repo, API unavailable), set `source_commit: null` — this is not an error.
 
 Also store `source_ref` in context (from tag resolution above, or `HEAD` if no tag was resolved, or `"local"` for local sources). This value is persisted to metadata.json and provenance-map.json so downstream workflows (update-skill, audit-skill) can re-access the same source ref.
+
+**The `source_root` metadata.json records** is `{resolved-source-path}` (`assets/skill-sections.md`): the local path for a local source; the remote URL for a remote source read without a tree (Quick tier, or a run degraded to source reading) or one whose workspace path holds a folder that is not SKF's clone; SKF's workspace clone (resolve's `clone`) for a remote source read from a private tree; null for a docs-only skill. Never the tree itself: step 7 removes it, while update-skill, test-skill and audit-skill read the skill's source from the workspace clone.
 
 ---
 
@@ -230,7 +114,7 @@ Also store `source_ref` in context (from tag resolution above, or `HEAD` if no t
 
 **If `source_type: "docs-only"`:** skip this section — no source files exist to reconcile.
 
-After the source path is accessible (local path from step 1, or workspace/ephemeral clone from above), check whether the source contains a version identifier and reconcile it with `brief.version`. Look for the first matching version file in the resolved source path:
+After the source path is accessible (local path from step 1, or the private tree from above), check whether the source contains a version identifier and reconcile it with `brief.version`. Look for the first matching version file in the resolved source path:
 
 - Python: `pyproject.toml` (`[project] version`), `setup.py` (`version=`), `__version__` in `__init__.py`
 - JavaScript/TypeScript: `package.json` (`"version"`). **Monorepo resolution:** When multiple `package.json` files exist (workspace root + packages), resolve version using this priority:

@@ -1,11 +1,14 @@
 ---
 nextStepFile: 'fetch-docs.md'
-# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
+forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
+# Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves.
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# path wins. §2 reads the registry through it and §4 changes the registry only
+# through it. If neither resolves, §2 finds no cached entry and §4 skips the
+# registry change with a warning: temporal enrichment never halts the workflow.
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -52,9 +55,15 @@ Local repositories that are clones of GitHub repos contain temporal context (iss
 
 ### 2. Check Cache (Skip If Fresh)
 
-Read `forge-tier.yaml` from the sidecar path.
+Resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` and read the registry as JSON, from `{project-root}`:
 
-- Look for a `qmd_collections` entry where `skill_name` matches the current brief AND `type` is `"temporal"`.
+```bash
+uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"
+```
+
+Bind `{registry_collections}` ← its `data.qmd_collections`: an empty list when `exists` is false, the list is missing, the command fails or no candidate resolves. Section 4 reads it again for its embed check.
+
+- Look for a `{registry_collections}` entry where `skill_name` matches the current brief AND `type` is `"temporal"`.
 - If `{temporal_feeder}` holds no `.md` file, continue to section 3 even when that entry is fresh: a cache hit must leave step 5c files to read, and an earlier SKF release deleted the folder once it was indexed.
 - If found AND `created_at` is within the last **7 days** (rationale: temporal context — issues, PRs, changelogs — rarely changes meaningfully on shorter horizons; a 7-day window balances freshness against re-fetch cost and GitHub rate limits): the temporal collection is fresh. Display:
 
@@ -194,45 +203,31 @@ If none was (all fetches failed), delete the fetch folder (`rm -rf "{forge_data_
 
 **Index `{temporal_feeder}`:**
 
-If a `{skill-name}-temporal` collection already exists, remove and recreate for atomic replace. **Wrap the remove + add pair with rollback on `add` failure** — a `remove` that succeeds followed by an `add` that fails must not leave the registry claiming a collection that no longer exists in QMD:
+If a `{skill-name}-temporal` collection already exists, remove and recreate for atomic replace. **Wrap the remove + add pair with rollback on `add` failure:** a `remove` that succeeds followed by an `add` that fails must not leave the registry claiming a collection that no longer exists in QMD. The registry changes below go through `{forgeTierRwHelper}` (resolved in section 2), which holds `{sidecar_path}/forge-tier.yaml.lock` for its one read-modify-write, so no step takes a lock of its own:
 
 ```bash
 qmd collection remove {skill-name}-temporal
 if ! qmd collection add "{temporal_feeder}" --name {skill-name}-temporal --mask "*.md"; then
-  # add failed after remove succeeded — the collection is gone from QMD. Clean the registry too.
-  # Remove any {skill-name}-temporal entry from forge-tier.yaml qmd_collections[].
-  # Warn the user, do not fail the workflow (temporal enrichment degrades gracefully).
-  echo "WARN: qmd add failed after remove — registry entry for {skill-name}-temporal removed to keep forge-tier.yaml consistent with QMD state."
-  # [skip the embed step]
+  # add failed after remove succeeded: the collection is gone from QMD, so its registry entry goes too.
+  uv run {forgeTierRwHelper} remove-qmd-collection --target "{forgeTierConfig}" --name {skill-name}-temporal
+  echo "WARN: qmd add failed after remove; registry entry for {skill-name}-temporal removed to keep forge-tier.yaml consistent with QMD state."
 else
   qmd embed --collection {skill-name}-temporal
 fi
 ```
 
-**Rollback rule:** if the `qmd collection add` step fails (non-zero exit, network error, parse error) after the prior `remove` succeeded, remove the canonical registry entry in `forge-tier.yaml` to match QMD's actual state. A dangling registry entry that points at a non-existent QMD collection poisons subsequent cache-hit checks in §2. Emit a warning in evidence-report and skip the embed — enrichment degrades to no-QMD for this run.
+**Rollback rule:** if the `qmd collection add` step fails (non-zero exit, network error, parse error) after the prior `remove` succeeded, the `remove-qmd-collection` call above removes the registry entry, to match QMD's actual state. A dangling registry entry that points at a non-existent QMD collection poisons subsequent cache-hit checks in §2. Emit a warning in evidence-report and skip the embed and the registration below: enrichment degrades to no-QMD for this run.
 
-**Scope the embed:** Always pass `--collection {skill-name}-temporal` to `qmd embed`. An unscoped `qmd embed` re-embeds every collection in the QMD store, which can take minutes per run in batch mode and generates wasteful GPU/API cost. If the installed `qmd` CLI does not accept `--collection` (older upstream versions), gate the embed behind a per-skill check: if a previous `{skill-name}-temporal` entry already exists in `qmd_collections` and its `created_at` is within 24 hours, skip the embed entirely and warn "qmd embed skipped — upstream qmd lacks --collection scope; re-embedding all collections would be wasteful in batch mode". Log the skip in the evidence report.
+**Scope the embed:** Always pass `--collection {skill-name}-temporal` to `qmd embed`. An unscoped `qmd embed` re-embeds every collection in the QMD store, which can take minutes per run in batch mode and generates wasteful GPU/API cost. If the installed `qmd` CLI does not accept `--collection` (older upstream versions), gate the embed behind a per-skill check: if the `{skill-name}-temporal` entry section 2 found in `{registry_collections}` has a `created_at` within 24 hours, skip the embed entirely and warn "qmd embed skipped: upstream qmd lacks --collection scope; re-embedding all collections would be wasteful in batch mode". Log the skip in the evidence report.
 
 **Note:** `qmd embed` generates vector embeddings required for semantic (`type:'vec'`) and HyDE (`type:'hyde'`) sub-queries inside the QMD `query` tool. Without embeddings, only BM25 (`type:'lex'`) keyword search works. Run `qmd embed` after every `qmd collection add`.
 
-**Update the registry** in `forge-tier.yaml` under a file lock to prevent concurrent batch runs from clobbering each other's entries:
+**Register the collection** only when `qmd collection add` succeeded. The helper replaces the entry with `name: "{skill-name}-temporal"` or appends it, and its lock keeps concurrent batch runs from losing each other's entries:
 
-1. Acquire an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock` (create the lock file if absent). Use `flock -x {lockfile} -c "..."` or an equivalent `fcntl.flock(LOCK_EX)` guard.
-2. Read the current `forge-tier.yaml`, capturing its `st_mtime` as `mtime_before`.
-3. Perform the read-modify-write below.
-4. Write via `python3 {atomicWriteHelper} write --target {sidecar_path}/forge-tier.yaml`.
-5. Release the flock.
-
-**Fallback when `flock` is unavailable:** re-stat the file after the write; if the on-disk `st_mtime` is newer than `mtime_before` by more than this run's own write timestamp, halt with "forge-tier.yaml modified mid-update by another process — refusing to clobber. Re-run after the other run completes." This read-CAS-by-mtime is the belt-and-braces safety net for environments without `flock`.
-
-If an entry with `name: "{skill-name}-temporal"` already exists in `qmd_collections`, replace it. Otherwise, append:
-
-```yaml
-  - name: "{skill-name}-temporal"
-    type: "temporal"
-    source_workflow: "create-skill"
-    skill_name: "{skill-name}"
-    created_at: "{current ISO date}"
+```bash
+uv run {forgeTierRwHelper} register-qmd-collection --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
+{"name": "{skill-name}-temporal", "type": "temporal", "source_workflow": "create-skill", "skill_name": "{skill-name}", "created_at": "{current ISO date}"}
+SKF_REGISTRY_ENTRY
 ```
 
 **Keep `{temporal_feeder}`.** It is the source path of the `{skill-name}-temporal` collection and the temporal feeder step 5c's doc-rot scan reads, on this run and on every cache hit until a later fetch replaces it (section 3), so this step never deletes it. Its `.skf-` name, like the fetch folder's, marks it as SKF output to SKF's ownership checks, so it stays with the skill's forge folder: a purge of the whole skill deletes it and a rename moves it.
@@ -240,7 +235,7 @@ If an entry with `name: "{skill-name}-temporal"` already exists in `qmd_collecti
 **Error handling:**
 
 - If QMD indexing fails: log the error, note that temporal enrichment will be unavailable. Do not fail the workflow. The files stay in `{temporal_feeder}` for step 5c.
-- If registry update fails: log the error, continue. The collection may exist in QMD even if the registry entry failed.
+- If a registry command fails, or `{forgeTierRwHelper}` does not resolve: log the error, continue. The collection may exist in QMD even if the registry entry failed.
 
 Display brief confirmation:
 

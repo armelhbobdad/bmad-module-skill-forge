@@ -39,7 +39,7 @@ Check `tools.ccc` from forge-tier.yaml. If `tools.ccc` is false, set `{ccc_disco
 
 If `tools.ccc` is true, check the remote source guard **before** proceeding to section 2:
 
-**Remote source guard:** If `source_root` is a remote URL (GitHub repository — workspace clone or ephemeral clone happens in step 3), CCC cannot operate yet. Set `{ccc_discovery: []}` and display: "CCC discovery deferred — remote source will be indexed after clone in step 3." Auto-proceed to section 5 (step completion). Step-03 will detect the deferred scenario and run CCC discovery on the resolved clone (workspace or ephemeral) before AST extraction begins.
+**Remote source guard:** If `source_root` is a remote URL (a GitHub repository, which step 3 reads into a private tree), CCC cannot operate yet. Set `{ccc_discovery: []}` and display: "CCC discovery deferred: remote source will be indexed after clone in step 3." Auto-proceed to section 5 (step completion). Step-03 will detect the deferred scenario and run CCC discovery on SKF's workspace clone, once it holds the commit step 3 reads, before AST extraction begins.
 
 If `source_root` is a local path, continue to section 2.
 

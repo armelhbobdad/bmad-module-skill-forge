@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'report.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
+cccIndexCheckData: 'references/ccc-index-check.md'
 # Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}` in
 # order (installed SKF module path first, src/ dev-checkout fallback); first
 # existing path wins. §1 runs its write check before any directory is
@@ -10,8 +11,8 @@ skillInventoryProbeOrder:
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves — the active-symlink flip and registry
-# writes below go through the atomic helper for concurrency safety.
+# path wins. HALT if neither resolves: the active-symlink flip below goes
+# through the atomic helper for concurrency safety.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -24,11 +25,25 @@ cccGitHygieneProbeOrder:
   - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
 # Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves — §6b's ccc-index registry round-trip is
-# comment-preserving and has no prose fallback.
+# path wins. §6 and §6b change the registry only through it, a
+# comment-preserving round-trip with no prose fallback. If neither resolves,
+# they skip the registry change with a warning: registration never halts the
+# workflow.
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
+# Resolve `{mergeCccExclusionsHelper}` to the first existing path. §6b
+# prepares the settings.yml of SKF's workspace clone with it; if neither path
+# exists, §6b skips the index of a remote source.
+mergeCccExclusionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
+  - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
+# Resolve `{sourceTreeHelper}` to the first existing path. §7 removes the
+# private tree step 3 read a remote source from; if neither path exists, the
+# tree stays until a later run removes it, seven days on.
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -191,32 +206,32 @@ Proceeding to compilation report..."
 
 Index the generated skill artifacts into a QMD collection so that audit-skill and update-skill can perform high-signal searches against curated extraction data instead of raw source files.
 
-**Collection creation:** Create (or replace) a QMD collection from the skill artifacts:
+Resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}`; first existing path wins. Every registry change below goes through it: it holds `{sidecar_path}/forge-tier.yaml.lock` for its one read-modify-write of `{forgeTierConfig}`, so no step takes a lock of its own. If no candidate exists, warn "forge-tier.yaml registry not updated: skf-forge-tier-rw.py is missing; re-install SKF" and leave out every registry command below.
+
+**Collection creation:** Create (or replace) a QMD collection from the skill artifacts. When `qmd collection add` fails after the `remove`, the collection is gone from QMD, so its registry entry goes too:
+
 ```bash
 qmd collection remove {name}-extraction 2>/dev/null  # no-op if new
-qmd collection add {skill_package} --name {name}-extraction --mask "**/*"
-qmd embed --collection {name}-extraction  # generates vector embeddings for semantic (vec) and HyDE query sub-types; scope to this collection to avoid re-embedding others. If the installed qmd CLI lacks --collection, gate the embed behind a per-skill freshness check (skip when the existing {name}-extraction entry is within 24 hours — rationale: an unscoped embed re-runs over every collection, which in a populated QMD store can cost minutes of GPU time per create-skill run; 24 hours is long enough to absorb rapid re-forges from the same brief without losing meaningful content freshness) and warn in evidence-report.
+if qmd collection add {skill_package} --name {name}-extraction --mask "**/*"; then
+  qmd embed --collection {name}-extraction
+else
+  uv run {forgeTierRwHelper} remove-qmd-collection --target "{forgeTierConfig}" --name {name}-extraction
+fi
 ```
 
-**Registry update:**
+`qmd embed` generates the vector embeddings for semantic (`vec`) and HyDE query sub-types; scope it to this collection to avoid re-embedding others. If the installed qmd CLI lacks `--collection`, gate the embed behind a per-skill freshness check: read the registry with `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"`, skip the embed when the `{name}-extraction` entry in its `data.qmd_collections` was created within the last 24 hours, and warn in evidence-report. An unscoped embed re-runs over every collection, which in a populated QMD store can cost minutes of GPU time per create-skill run; 24 hours is long enough to absorb rapid re-forges from the same brief without losing meaningful content freshness.
 
-Read `{forgeTierConfig}` and update the `qmd_collections` array **under an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock`** (see step 3b §4 for the full pattern — acquire lock → read → modify → atomic write via `skf-atomic-write.py write` → release). If `flock` is unavailable, fall back to read-CAS-by-mtime.
+**Registry update:** only when `qmd collection add` succeeded, register the collection. The helper replaces the entry with the same `name`, or appends one:
 
-If an entry with `name: "{name}-extraction"` already exists, replace it. Otherwise, append:
-
-```yaml
-  - name: "{name}-extraction"
-    type: "extraction"
-    source_workflow: "create-skill"
-    skill_name: "{name}"
-    created_at: "{current ISO date}"
+```bash
+uv run {forgeTierRwHelper} register-qmd-collection --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
+{"name": "{name}-extraction", "type": "extraction", "source_workflow": "create-skill", "skill_name": "{name}", "created_at": "{current ISO date}"}
+SKF_REGISTRY_ENTRY
 ```
-
-Write the updated forge-tier.yaml.
 
 **Error handling:**
 - If QMD collection creation fails: log the error, note that indexing can be retried via [SF] setup. Do not fail the workflow.
-- If forge-tier.yaml update fails: log the error, continue. The collection exists in QMD even if the registry entry failed.
+- If a registry command fails: log the error, continue. The collection exists in QMD even if the registry entry failed.
 
 **IF forge tier is not Deep:** Skip this section silently. No messaging.
 
@@ -224,52 +239,56 @@ Write the updated forge-tier.yaml.
 
 **IF `tools.ccc` is true in forge-tier.yaml (Forge+ or Deep with ccc available):**
 
-Ensure the source path used for extraction is indexed by ccc and registered in the `ccc_index_registry` array.
+Ensure the source of this skill is indexed by ccc and registered in the `ccc_index_registry` array.
+
+**Pick the folder:** bind `{ccc_root}`, the folder the index belongs to, and `{ccc_settings_owner}`:
+
+- **Docs-only skill** (`source_type: "docs-only"`): there is no source to index. Skip the rest of this section.
+- **Remote source** (`source_repo` is a GitHub URL, an `owner/repo` shorthand or another git URL): the index belongs in SKF's workspace clone, which persists, and not in the tree step 3 read the source from, which §7 removes. When step 3 bound `{remote_clone_path}`, the clone holds `source_commit`: bind `{ccc_root}` ← `{remote_clone_path}` and `{ccc_settings_owner}` ← `skf`. When it left `{remote_clone_path}` null (Quick tier, a run step 3 degraded to source reading, or a clone it did not move to this skill's commit), skip the rest of this section, including the registry update.
+- **Local source:** bind `{ccc_root}` ← `{source_root}` and `{ccc_settings_owner}` ← `user`.
 
 **Index verification:**
 
-**Working-directory contract:** `ccc init`, `ccc index`, and `ccc status` take **no positional path argument** — each operates on the current working directory, and passing a path makes them exit non-zero with `Got unexpected extra argument`. Run them from `{source_root}` (`cd {source_root} && ccc …`, the same form `extract.md` step 2b and `knowledge/ccc-bridge.md` use), then return to `{project-root}` before the registry update below, which resolves `{forgeTierConfig}` relative to the project.
+**Working-directory contract:** `ccc init`, `ccc index`, and `ccc status` take **no positional path argument**: each operates on the current working directory, and passing a path makes them exit non-zero with `Got unexpected extra argument`. Run them from `{ccc_root}` (`cd "{ccc_root}" && ccc …`, the same form `extract.md` step 2b and `knowledge/ccc-bridge.md` use), then return to `{project-root}` before the registry update below, which resolves `{forgeTierConfig}` relative to the project.
 
-**Project root without settings:** check this before running any ccc command. When `{source_root}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index` — `/skf-setup` initializes the project index with the SKF exclusions, and in a project nested inside another git checkout `ccc index` would index the enclosing repository instead. Skip the rest of this section, including the registry update, note that re-running `/skf-setup` enables the index, and continue to §7.
+**Project root without settings:** check this before running any ccc command. When `{ccc_root}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index`: `/skf-setup` initializes the project index with the SKF exclusions, and in a project nested inside another git checkout `ccc index` would index the enclosing repository instead. Skip the rest of this section, including the registry update, note that re-running `/skf-setup` enables the index, and continue to §7.
 
-Otherwise, `ccc index` requires the directory to be initialized first. Run `cd "{source_root}" && ccc init` (idempotent — a no-op once initialized) before `cd "{source_root}" && ccc index`, or use the ccc MCP tool. `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. Indexing is a no-op if the source was already indexed during setup or step 2b.
+Otherwise, `ccc index` requires the directory to be initialized first:
 
-**Nested project marker:** when `{source_root}` is a folder inside a git checkout whose `.git` is a folder, or inside a folder that holds `.cocoindex_code/settings.yml` — a local source such as `./packages/lib`, or a linked worktree or submodule inside such a checkout, whose `.git` file ccc does not count as a marker — `ccc init` exits non-zero with `A parent directory has a project marker`. This is expected — re-run as `cd {source_root} && ccc init -f` to initialize at the subtree anyway, then `ccc index`. Do not treat the parent-marker warning as fatal. ccc writes no `.gitignore` entry for such a project; **Keep the index out of git** below covers it.
+- `{ccc_settings_owner}` `skf`: resolve `{mergeCccExclusionsHelper}` from `{mergeCccExclusionsProbeOrder}` and, from `{project-root}`, run `uv run {mergeCccExclusionsHelper} --clone-root "{ccc_root}"`. It runs `ccc init -f` in the clone when its `settings.yml` is missing and adds the standard build and dependency exclusions the file lacks, as step 3 §2b does, so it changes nothing once step 3 prepared the clone. When no candidate resolves, the command fails or `settings_ready` is false, log it and skip the rest of this section, including the registry update.
+- `{ccc_settings_owner}` `user`: run `cd "{ccc_root}" && ccc init` (idempotent: a no-op once initialized).
 
-**Verify the index is not degraded:** after `ccc index`, run `cd "{source_root}" && ccc status`. If it prints an `Indexing in progress:` line, a pass is still running and the counts below it are not final: run `cd "{source_root}" && ccc index` again, which waits for the running pass to finish and then makes a quick incremental pass, then run `ccc status` again. If the line is still there after 3 such runs, log "index unverified", skip the language check and the repairs below, and continue with **Keep the index out of git**. Once the line is gone, read the `Languages:` breakdown — a non-zero `Chunks`/`Files` total is not sufficient. Confirm the source's primary language (`{brief.language}`) reports a non-trivial chunk count. An index dominated by `markdown`/config chunks with the source language absent or near-zero means the source code was never indexed, which silently cripples later `skf-audit-skill` / `skf-update-skill` searches with no error surfaced. When the source language is absent, apply these repairs in order, stopping at the first one after which `Languages:` shows the source language:
+Then run `cd "{ccc_root}" && ccc index`, or use the ccc MCP tool. `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. Indexing is a no-op if the source was already indexed during setup, step 2b or step 3.
 
-1. **No project of its own:** `{source_root}/.cocoindex_code/settings.yml` is missing and the `Project:` line of `ccc status` names another folder, so ccc indexed an enclosing project. Run `cd "{source_root}" && ccc init -f`, then `ccc index`, then run `ccc status` and check `Languages:` again.
-2. **Language not included:** ccc indexes only the file types listed in `include_patterns`, and its default list leaves some languages out (Elixir's `.ex`, for example). Take the extensions of the `{brief.language}` files in the step 3 filtered file list that no `include_patterns` entry matches, at most 3. If there are none, the files are excluded rather than left out of `include_patterns`: skip this repair and log which `exclude_patterns` entry covers the `{brief.language}` source files. For the extensions found:
-   - When `{remote_clone_path}` is set and `{source_root}` is inside it (a clone SKF made), append one single-quoted `- '**/*.{ext}'` item per extension (YAML reads an unquoted leading `*` as an alias, and ccc then fails to load the file) to the existing `include_patterns` list in `{source_root}/.cocoindex_code/settings.yml`, keeping every entry. If the file has no `include_patterns` list, add nothing: a list written from scratch replaces ccc's default file types. Display "Added {patterns} to include_patterns in {source_root}/.cocoindex_code/settings.yml so ccc indexes {brief.language} files.", run a plain `cd "{source_root}" && ccc index`, then run `ccc status` and check `Languages:` again.
-   - Otherwise the settings belong to the user's project, so do not edit them. Display that ccc did not index `{brief.language}` files, and the exact lines to add under `include_patterns` in `{source_root}/.cocoindex_code/settings.yml` (one `- '**/*.{ext}'` line per extension), followed by a plain `ccc index`.
+**Nested project marker:** when `{ccc_root}` is a local source inside a git checkout whose `.git` is a folder, or inside a folder that holds `.cocoindex_code/settings.yml` (a local source such as `./packages/lib`, or a linked worktree or submodule inside such a checkout, whose `.git` file ccc does not count as a marker), `ccc init` exits non-zero with `A parent directory has a project marker`. This is expected: re-run as `cd "{ccc_root}" && ccc init -f` to initialize at the subtree anyway, then `ccc index`. Do not treat the parent-marker warning as fatal. ccc writes no `.gitignore` entry for such a project; **Keep the index out of git** below covers it.
 
-A plain `ccc index` is enough after any `settings.yml` edit; nothing needs deleting first. Do not run `ccc reset`: it deletes only the index databases and keeps `settings.yml`, so it cannot repair the settings, a `ccc index` right after it can fail and leave the project with no index, and run from a folder without its own `settings.yml` it deletes the enclosing project's index. If the source language is still missing after these repairs, log it and continue per the error handling below — a degraded index is not workflow-fatal, but it must be recorded so the gap is visible.
+**Verify the index is not degraded:** after `ccc index`, load `{cccIndexCheckData}` and run it with `{ccc_root}` and `{ccc_settings_owner}`. An index that misses the source language silently cripples later `skf-audit-skill` / `skf-update-skill` searches with no error surfaced. On **index unverified**, log "index unverified" and continue with **Keep the index out of git**. On **degraded**, log it and continue per the error handling below: a degraded index is not workflow-fatal, but it must be recorded so the gap is visible.
 
-**Keep the index out of git:** once the ccc commands above are done — after the repairs, after "index unverified", or after a ccc command failed — return to `{project-root}` and resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}`; first existing path wins. If no candidate exists, or the helper exits non-zero or prints no JSON, log "ccc git hygiene skipped" and continue to the registry update: this check never fails the workflow.
+**Keep the index out of git:** once the ccc commands above are done (after the check, after "index unverified", or after a ccc command failed), return to `{project-root}` and resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}`; first existing path wins. If no candidate exists, or the helper exits non-zero or prints no JSON, log "ccc git hygiene skipped" and continue to the registry update: this check never fails the workflow.
 
-- **Workspace clone** (`remote_clone_type` is `"workspace"`, so `{source_root}` is `{remote_clone_path}`): run `uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"`. It undoes the edit a `ccc init` or `ccc index` made to the clone's tracked `.gitignore` and keeps the index folder out of git through the clone's `.git/info/exclude`, so a later checkout of another ref is not blocked. Read nothing from its output.
-- **Local source** (`{remote_clone_path}` is not set): run `uv run {cccGitHygieneHelper} nested --dir "{source_root}" --project-root "{project-root}"`. ccc gitignores its index only at the top of a git checkout whose `.git` is a folder, so for a project in a subfolder of a checkout (the `ccc init -f` case above), a linked worktree or a submodule, `git status` lists the index database and a `git add -A` would commit it. When git does not ignore `{source_root}/.cocoindex_code/`, the helper writes a `.gitignore` holding `*` inside that folder so the folder ignores itself; SKF never edits a project's own `.gitignore`. It also repairs a nested index an earlier run left, and does nothing for `{project-root}` itself, for a folder without `.cocoindex_code/settings.yml`, or outside a git work tree. Bind `{ccc_ignore_notice}` ← `notice` and display `{ccc_ignore_notice}` verbatim when it is not null: its remedy command is quoted for paths with spaces.
-
-An ephemeral clone matches neither case: it is deleted after extraction.
+- **Workspace clone** (`{ccc_settings_owner}` is `skf`): run `uv run {cccGitHygieneHelper} workspace --repo "{ccc_root}"`. It undoes the edit a `ccc init` or `ccc index` made to the clone's tracked `.gitignore` and keeps the index folder out of git through the clone's `.git/info/exclude`, so a later move of the clone to another ref is not blocked. Read nothing from its output.
+- **Local source** (`{ccc_settings_owner}` is `user`): run `uv run {cccGitHygieneHelper} nested --dir "{ccc_root}" --project-root "{project-root}"`. ccc gitignores its index only at the top of a git checkout whose `.git` is a folder, so for a project in a subfolder of a checkout (the `ccc init -f` case above), a linked worktree or a submodule, `git status` lists the index database and a `git add -A` would commit it. When git does not ignore `{ccc_root}/.cocoindex_code/`, the helper writes a `.gitignore` holding `*` inside that folder so the folder ignores itself; SKF never edits a project's own `.gitignore`. It also repairs a nested index an earlier run left, and does nothing for `{project-root}` itself, for a folder without `.cocoindex_code/settings.yml`, or outside a git work tree. Bind `{ccc_ignore_notice}` ← `notice` and display `{ccc_ignore_notice}` verbatim when it is not null: its remedy command is quoted for paths with spaces.
 
 **Registry update:**
 
-**Resolve `{forgeTierRwHelper}`** from `{forgeTierRwProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{forgeTierRwHelper}`** from `{forgeTierRwProbeOrder}`; first existing path wins. If no candidate exists, log it and skip the registry update.
 
-Register the indexed source path via `register-ccc-index` — a comment-preserving round-trip on `forge-tier.yaml`. This differs from §6, which mutates the registry with an inline read→modify→atomic-write under `flock`; here the helper owns the read→modify→write internally so the `ccc_index_registry` deduplication logic stays in the script. Acquire an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock`, then:
+Register the indexed folder with `register-ccc-index`, a comment-preserving round-trip on `forge-tier.yaml` that keeps the `ccc_index_registry` deduplication in the script. Like every registry change of §6, the helper holds `{sidecar_path}/forge-tier.yaml.lock` for its one read-modify-write. Write `{ccc_root}` with `/` separators, so the JSON stays valid on Windows:
 
 ```bash
-echo '{"source_repo":"{brief.source_repo}","path":"{source_root}","skill_name":"{name}","indexed_at":"{current ISO date}","source_workflow":"create-skill"}' \
-  | uv run {forgeTierRwHelper} register-ccc-index --target {forgeTierConfig}
+uv run {forgeTierRwHelper} register-ccc-index --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
+{"source_repo": "{brief.source_repo}", "path": "{ccc_root}", "skill_name": "{name}", "indexed_at": "{current ISO date}", "source_workflow": "create-skill"}
+SKF_REGISTRY_ENTRY
 ```
 
-Deduplicates by `source_repo` + `skill_name` (not local `path`, which may be ephemeral). Release the lock after the command completes. If `flock` is unavailable, fall back to read-CAS-by-mtime.
+Deduplicates by `source_repo` + `skill_name`, not by the local `path`.
 
-**Error handling:** If ccc indexing or registry update fails, log and continue — do not fail the workflow.
+**Error handling:** If ccc indexing or registry update fails, log and continue: do not fail the workflow.
 
 **IF `tools.ccc` is false:** Skip this section silently.
 
 ### 7. Auto-Proceed
 
-No user interaction. Once all 7 files are written and verified (and optionally indexed into QMD), load `{nextStepFile}`, read it fully, then execute it. A QMD-indexing failure does not block; a file-write failure halts (§5) rather than proceeding with partial output.
+**Remove the private source tree.** When step 3 bound `{source_tree}`, no later step reads the source: resolve `{sourceTreeHelper}` from `{sourceTreeProbeOrder}` and, from `{project-root}`, run `uv run {sourceTreeHelper} close --tree "{source_tree}"`. Go on whatever it prints. On `left` or `refused`, a command that fails or prints no JSON, or no candidate, display "This run's source tree `{source_tree}` was not removed; a later SKF run removes it once it is seven days old." Then set `{source_tree}` to null.
 
+No user interaction. Once all 7 files are written and verified (and optionally indexed into QMD), load `{nextStepFile}`, read it fully, then execute it. A QMD-indexing failure does not block; a file-write failure halts (§5) rather than proceeding with partial output.

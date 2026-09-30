@@ -4,12 +4,26 @@ Validates the doc-sources step contract: correct pipeline wiring, required
 sections, script reference integrity, doc_sources schema completeness in
 skill-sections.md, and stages-table positioning.  Chain-reachability tests
 cover link resolution; these tests cover the semantic contract.
+
+The README entry §3 adds comes from one skf-detect-docs.py readme-entry
+call: the raw GitHub file at the ref step 3 resolved (a file:// URL for a
+local source), README.md picked before a translation. Run as the step writes
+it, its hash equals what audit-skill's compare-hashes computes for the same
+bytes, from a web server or a local file.
 """
 
 from __future__ import annotations
 
+import importlib.util
+import json
+import os
 import pathlib
 import re
+import shlex
+import subprocess
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -331,3 +345,215 @@ class TestStagesTable:
         assert idx_6 is not None and idx_5a < idx_6, (
             "Step 5a must come before step 6 (Validate)"
         )
+
+
+# ---------------------------------------------------------------------------
+# README entry (#592): the raw file at the resolved ref, built by readme-entry
+# ---------------------------------------------------------------------------
+
+
+def _readme_section() -> str:
+    return _section(_read(STEP_FILE), r"3\.\s+Ensure README Entry")
+
+
+def _readme_command() -> str:
+    """The fenced readme-entry command §3 runs."""
+    [fence] = re.findall(r"```bash\n(.*?)```", _readme_section(), re.DOTALL)
+    return fence.strip()
+
+
+def _documented_argv(source_repo: str, source_ref: str, source_root: str | None) -> list[str]:
+    """§3's command filled in as its "Pass `--local-root`" sentence says, without `uv run {detectDocsHelper}`."""
+    command = _readme_command().replace("uv run {detectDocsHelper} ", "", 1)
+    command = re.sub(r"\[([^\[\]]*)\]", lambda m: m.group(1) if source_root is not None else "", command)
+    for key, value in {"{source_repo}": source_repo, "{source_ref}": source_ref,
+                       "{source_root}": source_root or ""}.items():
+        command = command.replace(key, value)
+    assert "{" not in command, command
+    return shlex.split(command)
+
+
+def _no_proxy_env() -> dict:
+    env = {k: v for k, v in os.environ.items() if k.lower() not in ("http_proxy", "https_proxy", "all_proxy")}
+    env["NO_PROXY"] = env["no_proxy"] = "*"
+    return env
+
+
+def _helper(*argv: str, stdin: str = "", raw_base: str | None = None) -> dict:
+    """Run skf-detect-docs.py; with raw_base, its GitHub raw-file host is that local server."""
+    if raw_base is None:
+        command = [sys.executable, str(DETECT_DOCS_SCRIPT), *argv]
+    else:
+        code = (
+            "import importlib.util, sys\n"
+            f"spec = importlib.util.spec_from_file_location('skf_detect_docs', {str(DETECT_DOCS_SCRIPT)!r})\n"
+            "m = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(m)\n"
+            f"m.RAW_GITHUB = {raw_base!r}\n"
+            f"sys.argv = ['skf-detect-docs.py', *{list(argv)!r}]\n"
+            "raise SystemExit(m.main())\n"
+        )
+        command = [sys.executable, "-c", code]
+    proc = subprocess.run(command, input=stdin.encode("utf-8"), capture_output=True, env=_no_proxy_env(),
+                          timeout=60)
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")
+    return json.loads(proc.stdout.decode("utf-8"))
+
+
+def _audit(entries: list) -> dict:
+    """What audit-skill's doc-drift step runs on the recorded entries."""
+    return _helper("compare-hashes", "-", stdin=json.dumps({"doc_sources": entries}))
+
+
+def _detect_docs():
+    spec = importlib.util.spec_from_file_location("skf_detect_docs_readme", DETECT_DOCS_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def raw_host():
+    """A local stand-in for raw.githubusercontent.com: path -> bytes, served as they are."""
+    files: dict[str, bytes] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 (http.server's name)
+            body = files.get(self.path)
+            self.send_response(200 if body is not None else 404)
+            self.end_headers()
+            self.wfile.write(body if body is not None else b"404: Not Found")
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", files
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def _tree(root: pathlib.Path, files: dict[str, bytes]) -> pathlib.Path:
+    root.mkdir(parents=True)
+    for name, body in files.items():
+        (root / name).write_bytes(body)
+    return root
+
+
+class TestReadmeEntry:
+    def test_one_helper_call_builds_and_hashes_the_entry(self) -> None:
+        section = _readme_section()
+        assert _readme_command() == ('uv run {detectDocsHelper} readme-entry --source-repo "{source_repo}" '
+                                     '--ref "{source_ref}" [--local-root "{source_root}"]')
+        assert "Pass `--local-root` when `{source_root}` is a local folder" in section
+        assert "add each entry of its `doc_sources`, at most one, as the helper wrote it" in section
+        assert "When `skip_reason` is `not-github`, `doc_sources` is empty" in section
+        # The helper parses the repository, picks the README and builds the URL: none of it is prose.
+        for by_hand in ("hexdigest", "base64-decode", "repos/{owner}/{repo}", "sha256", "raw.githubusercontent",
+                        "{readme_name}", "{readme_url}", "{owner}", "hash-urls"):
+            assert by_hand not in section, by_hand
+        for code in ("**Exit 0:**", "**Exit 2:**"):
+            assert code in section, code
+        assert "/blob/main/" not in _read(STEP_FILE)
+
+    def test_detection_gets_no_path_into_the_private_tree(self) -> None:
+        detection = _section(_read(STEP_FILE), r"2\.\s+Run Doc Detection")
+        assert "--local-path" not in re.search(r"```bash\n(.*?)```", detection, re.DOTALL).group(1)
+        assert "Pass no `--local-path`" in detection
+        assert "{source_path}" not in _read(STEP_FILE)
+
+    @pytest.mark.parametrize("source_repo", [
+        "https://github.com/acme/lib", "https://github.com/acme/lib.git", "https://github.com/acme/lib/",
+        "http://www.github.com/acme/lib", "git@github.com:acme/lib.git", "ssh://git@github.com/acme/lib.git",
+        "github.com/acme/lib", "acme/lib",
+    ], ids=["https", "dot-git", "slash", "www", "scp", "ssh", "no-scheme", "shorthand"])
+    def test_every_github_form_names_the_repository(self, source_repo: str) -> None:
+        assert _detect_docs().parse_github_repo(source_repo) == ("acme", "lib")
+
+    def test_a_repository_name_keeps_its_dots_and_other_hosts_are_not_github(self) -> None:
+        detect_docs = _detect_docs()
+        assert detect_docs.parse_github_repo("https://github.com/vercel/next.js") == ("vercel", "next.js")
+        for other in ("https://gitlab.com/acme/lib", "https://github.com/acme/lib/tree/main", "./packages/lib"):
+            assert detect_docs.parse_github_repo(other) is None, other
+
+    @pytest.mark.parametrize("names, picked", [
+        (["README-zh_CN.md", "README.md", "README-ja.md"], "README.md"),
+        (["README.zh-CN.md", "readme.md"], "readme.md"),
+        (["README-ja.md", "README.rst"], "README.rst"),
+        (["README-ja.md", "README"], "README"),
+        (["README.en.md", "README-ja.md"], "README-ja.md"),
+        (["setup.py", "LICENSE"], None),
+    ], ids=["md-over-translations", "any-case", "plain-rst", "no-extension", "translations-only", "none"])
+    def test_readme_md_comes_before_a_translation(self, names: list[str], picked: str | None) -> None:
+        assert _detect_docs().pick_readme(names) == picked
+
+    def test_name_order_alone_would_pick_the_translation(self) -> None:
+        """`-` sorts before `.`: the first README by name is README-zh_CN.md, not README.md."""
+        names = ["README.md", "README-zh_CN.md"]
+        assert sorted(names)[0] == "README-zh_CN.md"
+        assert _detect_docs().pick_readme(names) == "README.md"
+
+    def test_github_source_records_the_raw_file_at_the_resolved_ref(self, raw_host, tmp_path) -> None:
+        base, files = raw_host
+        tree = _tree(tmp_path / "tree", {"README.md": b"# lib\r\n\nUse `lib.run()`.\n", "README-zh_CN.md": b"zh\n"})
+        files["/acme/lib/v1.2.0/README.md"] = b"# lib\r\n\nUse `lib.run()`.\n"
+        out = _helper(*_documented_argv("https://github.com/acme/lib.git", "v1.2.0", tree.as_posix()),
+                      raw_base=base)
+        [entry] = out["doc_sources"]
+        assert out["skip_reason"] is None
+        assert entry["url"] == f"{base}/acme/lib/v1.2.0/README.md"
+        assert entry["detected_via"] == "readme_always" and entry["content_hash"].startswith("sha256:")
+        assert set(entry) == {"url", "detected_via", "content_hash", "recorded_at"}
+        assert _audit([entry])["stats"]["unchanged"] == 1
+        files["/acme/lib/v1.2.0/README.md"] = b"# lib\n\nUse `lib.start()`.\n"
+        assert [c["url"] for c in _audit([entry])["changed"]] == [entry["url"]]
+
+    def test_a_scoped_tag_stays_readable_in_the_url(self, tmp_path) -> None:
+        tree = _tree(tmp_path / "tree", {"README.rst": b"lib\n"})
+        url = _detect_docs().readme_url("acme/lib", "lib@2.0.0", tree.as_posix())
+        assert url == "https://raw.githubusercontent.com/acme/lib/lib@2.0.0/README.rst"
+
+    def test_missing_readme_gets_a_null_hash_the_audit_skips(self, raw_host, tmp_path) -> None:
+        base, _files = raw_host
+        tree = _tree(tmp_path / "tree", {"setup.py": b""})
+        out = _helper(*_documented_argv("acme/lib", "HEAD", tree.as_posix()), raw_base=base)
+        [entry] = out["doc_sources"]
+        assert entry["url"] == f"{base}/acme/lib/HEAD/README.md" and entry["content_hash"] is None
+        assert _audit([entry])["skipped_null_hash"] == [{"url": entry["url"]}]
+
+    def test_local_readme_round_trips_through_a_file_url(self, tmp_path) -> None:
+        source = _tree(tmp_path / "src dir", {"README.rst": b"lib\n===\n", "README-ja.rst": b"ja\n"})
+        out = _helper(*_documented_argv(source.as_posix(), "local", source.as_posix()))
+        [entry] = out["doc_sources"]
+        # Written as the helper reads it back: the path after file://, never percent-encoded.
+        assert entry["url"] == "file://" + (source / "README.rst").as_posix()
+        assert entry["content_hash"].startswith("sha256:")
+        assert _audit([entry])["stats"]["unchanged"] == 1
+        (source / "README.rst").write_bytes(b"lib 2\n=====\n")
+        assert _audit([entry])["stats"]["changed"] == 1
+
+    def test_another_host_gets_no_entry(self) -> None:
+        out = _helper(*_documented_argv("https://gitlab.com/acme/lib", "v1.0.0", None))
+        assert out["skip_reason"] == "not-github"
+        assert out["doc_sources"] == [] and out["fetch_failed"] == []
+
+    def test_without_a_local_folder_github_lists_the_top_level(self, monkeypatch) -> None:
+        detect_docs = _detect_docs()
+        calls = []
+
+        def fake_gh(args):
+            calls.append(args)
+            return "README-ja.md\nREADME.rst\nsetup.py"
+
+        monkeypatch.setattr(detect_docs, "_run_gh", fake_gh)
+        assert detect_docs.readme_url("acme/lib", "lib@2.0.0") == (
+            "https://raw.githubusercontent.com/acme/lib/lib@2.0.0/README.rst")
+        assert calls[-1][:2] == ["api", "repos/acme/lib/contents?ref=lib%402.0.0"]
+        assert detect_docs.readme_url("acme/lib", "HEAD").endswith("/acme/lib/HEAD/README.rst")
+        assert calls[-1][1] == "repos/acme/lib/contents"
+        monkeypatch.setattr(detect_docs, "_run_gh", lambda args: None)
+        assert detect_docs.readme_url("acme/lib", "") == "https://raw.githubusercontent.com/acme/lib/HEAD/README.md"

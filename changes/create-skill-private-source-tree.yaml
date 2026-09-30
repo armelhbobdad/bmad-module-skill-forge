@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  At Forge tier and above, Create Skill now reads a remote source from a private tree at the resolved commit, made by `skf-source-tree.py resolve` in one call that also matches `target_version` or `version` against the repository's tags and moves SKF's workspace clone to that commit. Another run can no longer move the files while this one extracts them (the lock the steps asked to hold across tool calls could never be held), and a clone that cannot be moved no longer sends the run to a temporary clone. The workspace clone's ccc settings are merged by `skf-merge-ccc-exclusions.py --clone-root`, and `forge-tier.yaml` registry entries (`qmd_collections` and `ccc_index_registry`) are written only by `skf-forge-tier-rw.py`, which holds `forge-tier.yaml.lock` for each write, so concurrent `--batch` runs keep each other's entries and a failed `qmd collection add` removes its entry again. When several tags match the brief's version, a headless run now takes the first in priority order and logs the choice instead of waiting for an answer.
+issues: [588, 592]

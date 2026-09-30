@@ -7,19 +7,23 @@ ccc reads `settings.yml` again on every index run, so a plain `ccc index`
 `settings.yml`, and run from a folder without its own settings file it
 deletes the enclosing project's index. These tests keep the create-skill
 step files and the ccc knowledge fragment on that contract:
-- no workflow or shared file tells the agent to run `ccc reset`, and both
-  repair sites forbid it;
-- the workspace standard exclusions use the `**/name` form (a trailing-slash
-  form such as `build/` matches nothing in ccc), and every pattern SKF adds
-  to `settings.yml` is a single-quoted YAML item (YAML reads an unquoted
-  leading `*` as an alias, and ccc then cannot load the file);
+- no workflow or shared file tells the agent to run `ccc reset`, and the
+  one repair procedure forbids it;
+- create-skill writes a workspace clone's `settings.yml` only through
+  `skf-merge-ccc-exclusions.py --clone-root` (whose tests pin the `**/name`
+  form and the single-quoted items), and every pattern a step shows the user
+  to add is a single-quoted YAML item (YAML reads an unquoted leading `*` as
+  an alias, and ccc then cannot load the file);
 - a reused workspace index still gets the standard exclusions and a plain
   `ccc index`, and the deferred discovery block needs no `--refresh`;
-- both degraded-index repairs fix `settings.yml` (a project of its own, or a
-  missing language in `include_patterns`, skipped when no extension is
-  missing), wait for a running pass with `ccc index` rather than a sleep,
-  and step 7 edits only a clone SKF made;
-- step 7 checks the project-root exception before any `ccc init`;
+- the verify-and-repair procedure is written once, in
+  references/ccc-index-check.md, which step 3 and step 7 both load: its
+  repairs fix `settings.yml` (a project of its own, or a missing language in
+  `include_patterns`, skipped when no extension is missing), it waits for a
+  running pass with `ccc index` rather than a sleep, and it edits only a
+  clone SKF made;
+- step 7 indexes SKF's workspace clone of a remote source, never the private
+  tree, and checks the project-root exception before any `ccc init`;
 - create-skill discovery branches on every `ccc_index.status` value setup
   writes (setup never writes "stale") plus any other status: all but "none"
   and "failed" search setup's index with `--refresh` under a timeout with a
@@ -28,8 +32,8 @@ step files and the ccc knowledge fragment on that contract:
   index lazily. Create-stack-skill integration detection and the
   extraction-patterns summary state the same rule, and no reader gates on a
   subset of those statuses or names "stale" as a live one;
-- every step that runs ccc outside the project root, and every workspace
-  fetch or checkout, runs `skf-ccc-git-hygiene.py`, which never gates: a workspace
+- every step that runs ccc outside the project root, and every move of a
+  workspace clone, runs `skf-ccc-git-hygiene.py`, which never gates: a workspace
   clone gets ccc's `.gitignore` edit undone and the index and lock listed
   in `.git/info/exclude`, a nested local index gets a self-ignoring
   `.cocoindex_code/.gitignore`, the lazy index never initializes the
@@ -55,6 +59,7 @@ REPO_ROOT = Path(__file__).parent.parent
 SRC = REPO_ROOT / "src"
 EXTRACT = SRC / "skf-create-skill" / "references" / "extract.md"
 GENERATE = SRC / "skf-create-skill" / "references" / "generate-artifacts.md"
+CCC_CHECK = SRC / "skf-create-skill" / "references" / "ccc-index-check.md"
 CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "sub" / "ccc-discover.md"
 CCC_BRIDGE = SRC / "knowledge" / "ccc-bridge.md"
 SOURCE_RESOLUTION = SRC / "skf-create-skill" / "references" / "source-resolution-protocols.md"
@@ -71,8 +76,6 @@ STEP_FILES = sorted(SRC.glob("skf-*/references/**/*.md"))
 WORKFLOW_FILES = sorted({*SRC.glob("skf-*/**/*.md"), *SRC.glob("shared/**/*.md")})
 
 FORBID = "Do not run `ccc reset`"
-STANDARD_ENTRY_RE = re.compile(r"^\*\*/[A-Za-z0-9_.-]+$")
-STANDARD_ITEM_RE = re.compile(r"^- '\*\*/[A-Za-z0-9_.-]+'$")
 # A YAML list item whose value starts with an unquoted `*` (an alias).
 UNQUOTED_GLOB_ITEM_RE = re.compile(r"(?:^|`)[ \t]*- \*(?:\*/|\.)", flags=re.MULTILINE)
 QUOTED_INCLUDE_ITEM = "`- '**/*.{ext}'`"
@@ -109,8 +112,8 @@ def _extract_item(number: int, heading: str, next_heading: str) -> str:
     return _slice(_deferred_block(), f"{number}. **{heading}", next_heading)
 
 
-def _extract_repair() -> str:
-    return _extract_item(3, "Index the clone", "4. **Construct semantic query")
+def _extract_index() -> str:
+    return _extract_item(2, "Index the clone", "3. **Construct semantic query")
 
 
 def _generate_6b() -> str:
@@ -119,6 +122,18 @@ def _generate_6b() -> str:
 
 def _generate_repair() -> str:
     return _slice(_generate_6b(), "**Verify the index is not degraded:**", "**Registry update:**")
+
+
+def _check_repair() -> str:
+    """The one verify-and-repair procedure, from its repair section to its end."""
+    text = _read(CCC_CHECK)
+    return text[text.index("## 3. Repair"):]
+
+
+def _check_branch(owner: str) -> str:
+    """The `skf` or `user` branch of the language repair."""
+    repair = _slice(_check_repair(), "**Language not included:**", "A plain `ccc index` is enough")
+    return _slice(repair, f"   - `{owner}`:", "\n")
 
 
 def test_step_file_glob_is_recursive():
@@ -143,33 +158,48 @@ def test_no_step_file_prescribes_ccc_reset():
                 )
 
 
-@pytest.mark.parametrize("slicer", [_extract_repair, _generate_repair], ids=["extract", "generate-6b"])
-def test_repair_sites_forbid_ccc_reset(slicer):
-    section = slicer()
+def test_the_one_repair_procedure_forbids_ccc_reset():
+    section = _check_repair()
     assert FORBID in section
     assert "A plain `ccc index` is enough after any `settings.yml` edit" in section
 
 
-def test_standard_exclusions_use_double_star_form():
-    item = _extract_item(2, "Initialize index", "3. **Index the clone")
-    excl = _slice(item, "**Apply standard exclusions", "**Note:**")
-    fences = _fences(excl)
-    assert len(fences) == 1, "expected exactly one fence with the standard exclusions"
-    lines = [line.strip() for line in fences[0].strip().splitlines()]
-    for line in lines:
-        assert STANDARD_ITEM_RE.match(line), f"not a single-quoted '**/name' YAML item: {line!r}"
-    entries = yaml.safe_load(fences[0])
-    assert isinstance(entries, list) and entries
-    assert len(entries) == len(lines)
-    for entry in entries:
-        assert STANDARD_ENTRY_RE.match(entry), f"not a **/name entry: {entry!r}"
-        assert not entry.endswith("/"), entry
-    assert {"**/build", "**/out", "**/node_modules"} <= set(entries)
-    assert len(entries) == len(set(entries))
-    assert "matches nothing" in excl
-    assert "add nothing" in excl
-    assert "single-quoted YAML list item" in excl
-    assert "alias" in excl
+@pytest.mark.parametrize("path, section", [
+    (EXTRACT, ("**Deferred CCC Discovery", "**CCC Discovery Integration")),
+    (GENERATE, ("### 6b.", "### 7.")),
+], ids=["extract", "generate-6b"])
+def test_both_stages_load_the_one_check(path, section):
+    """The verify-and-repair procedure is written once, in the file both stages load."""
+    text = _read(path)
+    assert yaml.safe_load(_frontmatter(text))["cccIndexCheckData"] == "references/ccc-index-check.md"
+    body = _slice(text, *section)
+    assert "load `{cccIndexCheckData}` and run it with `{ccc_root}`" in body
+    for copy in ("Indexing in progress:", "**No project of its own:**", "**Language not included:**",
+                 "Do not run `ccc reset`"):
+        assert copy not in body, copy
+
+
+def test_the_check_is_written_once():
+    for path in sorted((SRC / "skf-create-skill").rglob("*.md")):
+        count = _read(path).count("**Language not included:**")
+        assert count == (1 if path == CCC_CHECK else 0), path.relative_to(REPO_ROOT)
+
+
+def test_standard_exclusions_are_merged_by_the_helper():
+    """The model never appends to a clone's settings.yml by hand: the helper owns the list and its quoting."""
+    item = _extract_item(1, "Prepare the settings", "2. **Index the clone")
+    assert 'uv run {mergeCccExclusionsHelper} --clone-root "{remote_clone_path}"' in item
+    assert "`**/node_modules`" in item
+    assert _fences(item) == [], "the standard exclusions live in the helper, not in a fence of step prose"
+    assert "keeping every entry already there" in item
+    assert "set `{ccc_discovery: []}` and continue" in item
+    for path in sorted((SRC / "skf-create-skill").rglob("*.md")):
+        text = _read(path)
+        for by_hand in ("Read `settings.yml` and append", "put single quotes around each unquoted",
+                        "append one single-quoted"):
+            assert by_hand not in text, (path.relative_to(REPO_ROOT), by_hand)
+    frontmatter = yaml.safe_load(_frontmatter(_read(EXTRACT)))
+    assert frontmatter["mergeCccExclusionsProbeOrder"][-1] == "{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py"
 
 
 def test_unquoted_yaml_glob_item_breaks_settings():
@@ -180,19 +210,19 @@ def test_unquoted_yaml_glob_item_breaks_settings():
     assert yaml.safe_load("exclude_patterns:\n- '**/build'\n") == {"exclude_patterns": ["**/build"]}
 
 
-@pytest.mark.parametrize("slicer", [_extract_repair, _generate_repair], ids=["extract", "generate-6b"])
-def test_added_include_patterns_are_single_quoted(slicer):
-    section = slicer()
-    assert QUOTED_INCLUDE_ITEM in section
-    assert "single-quoted" in section
+@pytest.mark.parametrize("owner", ["skf", "user"])
+def test_added_include_patterns_are_single_quoted(owner):
+    branch = _check_branch(owner)
+    assert QUOTED_INCLUDE_ITEM in branch
+    assert "single-quoted" in branch
     for bare in ("one `**/*.{ext}` entry", "`**/*.{ext}` entry per"):
-        assert bare not in section, bare
+        assert bare not in branch, bare
 
 
-def test_generate_6b_display_hint_is_single_quoted():
-    section = _generate_repair()
-    hint = _slice(section, "Otherwise the settings belong to the user's project", "\n")
-    assert QUOTED_INCLUDE_ITEM in hint
+def test_user_settings_hint_is_single_quoted():
+    hint = _check_branch("user")
+    assert "do not edit them" in hint
+    assert QUOTED_INCLUDE_ITEM in _slice(hint, "the exact lines to add", "followed by a plain `ccc index`")
 
 
 def test_no_unquoted_yaml_glob_items_in_prose():
@@ -205,27 +235,25 @@ def test_no_unquoted_yaml_glob_items_in_prose():
 
 
 def test_reused_index_applies_standard_exclusions():
-    item = _extract_item(1, "Check existing index", "2. **Initialize index")
-    assert "{remote_clone_path}/.cocoindex_code/settings.yml" in item
-    assert "standard exclusions" in item
-    assert "run step 3" in item
+    item = _extract_item(1, "Prepare the settings", "2. **Index the clone")
+    assert "--clone-root \"{remote_clone_path}\"" in item
+    assert "on a first run and on a reused index alike" in item
+    assert "run step 3" not in item
     for gone in ("skip steps 2-3", "proceed directly to step 4", "--refresh"):
         assert gone not in item, gone
-    item2 = _extract_item(2, "Initialize index", "3. **Index the clone")
-    assert "**Apply standard exclusions (first run and reused index):**" in item2
-    assert "Added {N} standard exclusions to the reused workspace index settings." in item2
+    assert "Added {patterns_added} standard exclusions to the reused workspace index settings." in item
+    assert "When `settings_yml_existed` is true and `patterns_added_list` is not empty" in item
 
 
 def test_deferred_discovery_needs_no_refresh_flag():
     block = _deferred_block()
     assert "--refresh" not in block
-    search = _extract_item(5, "Execute search", "6. **Store results")
+    search = _extract_item(4, "Execute search", "5. **Store results")
     assert 'ccc search --limit 20 "{query}"' in search
 
 
-@pytest.mark.parametrize("slicer", [_extract_repair, _generate_repair], ids=["extract", "generate-6b"])
-def test_degraded_index_repair_targets_settings(slicer):
-    section = slicer()
+def test_degraded_index_repair_targets_settings():
+    section = _read(CCC_CHECK)
     for token in (
         "Indexing in progress:",
         "ccc index` again, which waits for the running pass to finish",
@@ -238,7 +266,7 @@ def test_degraded_index_repair_targets_settings(slicer):
         "include_patterns",
         "**/*.{ext}",
         "at most 3",
-        "add nothing",
+        "it adds nothing",
     ):
         assert token in section, token
     for gone in (
@@ -251,36 +279,51 @@ def test_degraded_index_repair_targets_settings(slicer):
     ):
         assert gone not in section, gone
     assert section.index("ccc init -f") < section.index("**/*.{ext}"), "repairs are out of order"
+    for step in (_extract_index(), _generate_repair()):
+        assert "load `{cccIndexCheckData}`" in step
 
 
-@pytest.mark.parametrize("slicer", [_extract_repair, _generate_repair], ids=["extract", "generate-6b"])
-def test_language_repair_skips_when_no_extension_is_missing(slicer):
-    section = slicer()
-    repair = _slice(section, "**Language not included:**", "A plain `ccc index` is enough")
-    none = "If there are none, the files are excluded rather than left out of `include_patterns`"
-    assert none in repair
-    assert "skip this repair" in repair
-    assert "`exclude_patterns` entry covers the `{brief.language}` source files" in repair
-    assert repair.index(none) < repair.index(QUOTED_INCLUDE_ITEM)
+def test_language_repair_skips_when_no_extension_is_missing():
+    none = "the files are excluded rather than left out of `include_patterns`"
+    covers = "`exclude_patterns` entry covers the `{brief.language}` source files"
+    skf = _check_branch("skf")
+    # Only extensions an include entry already matches point at an exclusion: with no include list,
+    # the helper added nothing and the files were never excluded.
+    assert "When `includes_covered_list` holds every extension, " + none in skf
+    assert "When `includes_added_list` is empty" not in skf
+    assert "skip this repair" in skf and covers in skf
+    assert skf.index("`--include-ext` per extension") < skf.index("When `includes_covered_list` holds")
+    no_list = _slice(skf, "On a file with no `include_patterns` list", "When `includes_covered_list`")
+    assert "has no `include_patterns` list to add the `{brief.language}` file types to" in no_list
+    assert "return **degraded**" in no_list
+    user = _check_branch("user")
+    assert "If there are none, " + none in user and covers in user
+    assert user.index(none) < user.index(QUOTED_INCLUDE_ITEM)
 
 
 def test_generate_6b_skips_language_check_when_unverified():
+    wait = _slice(_read(CCC_CHECK), "## 1. Wait for the Pass", "## 2.")
+    assert "return **index unverified** to the caller and skip §2 and §3" in wait
+    check = _slice(_read(CCC_CHECK), "## 2. Check the Languages", "## 3.")
+    assert "Once the line is gone, read the `Languages:` breakdown" in check
     section = _generate_repair()
-    assert "skip the language check and the repairs below" in section
-    assert "Once the line is gone, read the `Languages:` breakdown" in section
+    assert 'On **index unverified**, log "index unverified" and continue with **Keep the index out of git**' in section
 
 
 def test_generate_6b_edits_include_patterns_only_in_skf_clones():
-    section = _generate_repair()
-    assert "When `{remote_clone_path}` is set and `{source_root}` is inside it" in section
-    assert "do not edit them" in section
-    assert section.index("is inside it") < section.index("do not edit them")
+    pick = _slice(_generate_6b(), "**Pick the folder:**", "**Index verification:**")
+    assert "bind `{ccc_root}` ← `{remote_clone_path}` and `{ccc_settings_owner}` ← `skf`" in pick
+    assert "bind `{ccc_root}` ← `{source_root}` and `{ccc_settings_owner}` ← `user`" in pick
+    assert "`skf` when `{ccc_root}` is SKF's workspace clone of a remote source" in _read(CCC_CHECK)
+    assert 'uv run {mergeCccExclusionsHelper} --clone-root "{ccc_root}" --include-ext {ext}' in _check_branch("skf")
+    assert "do not edit them" in _check_branch("user")
+    assert "--clone-root" not in _check_branch("user")
 
 
 def test_project_root_without_settings_is_not_initialized_in_6b():
     section = _generate_6b()
     guard = _slice(section, "**Project root without settings:**", "\n\n")
-    assert "`{source_root}` is `{project-root}`" in guard
+    assert "`{ccc_root}` is `{project-root}`" in guard
     assert "`{project-root}/.cocoindex_code/settings.yml` does not exist" in guard
     assert "do not run `ccc init` or `ccc index`" in guard
     assert "`/skf-setup`" in guard
@@ -290,6 +333,20 @@ def test_project_root_without_settings_is_not_initialized_in_6b():
     assert exception < section.index("requires the directory to be initialized first")
     assert exception < section.index('ccc init` (idempotent')
     assert exception < section.index("**Nested project marker:**")
+
+
+def test_generate_6b_indexes_the_workspace_clone_never_the_tree():
+    """The private tree is removed in §7: an index or registry entry there would outlive nothing."""
+    pick = _slice(_generate_6b(), "**Pick the folder:**", "**Index verification:**")
+    assert "the index belongs in SKF's workspace clone, which persists, and not in the tree" in pick
+    assert "When it left `{remote_clone_path}` null" in pick and "skip the rest of this section" in pick
+    # A docs-only brief has no source: it never indexes or registers a folder another brief left bound.
+    bullets = [line for line in pick.splitlines() if line.startswith("- **")]
+    assert bullets[0].startswith('- **Docs-only skill** (`source_type: "docs-only"`)')
+    assert "Skip the rest of this section." in bullets[0]
+    registry = _slice(_generate_6b(), "**Registry update:**", "**Error handling:**")
+    assert '"path": "{ccc_root}"' in registry
+    assert "{source_tree}" not in _generate_6b()
 
 
 def _setup_written_statuses() -> set[str]:
@@ -502,19 +559,11 @@ HYGIENE_PROBE_PATHS = [
     "{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py",
     "{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py",
 ]
-WORKSPACE_CORE = (
-    "The helper lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's "
-    "`.git/info/exclude`, then restores a tracked `.gitignore` whose only change is those "
-    "two lines (or deletes an untracked one that holds only them), and leaves every other "
-    "local change alone."
-)
-WS_CMD = 'uv run {cccGitHygieneHelper} workspace --repo "{workspace_repo_path}"'
 NESTED_CMD = 'uv run {cccGitHygieneHelper} nested --dir "{source_root}" --project-root "{project-root}"'
+GENERATE_NESTED_CMD = 'uv run {cccGitHygieneHelper} nested --dir "{ccc_root}" --project-root "{project-root}"'
 NOTICE_BINDING = "`{ccc_ignore_notice}` ← `notice`"
 # The notice carries a quoted `git rm -r --cached -- "<dir>"` remedy: shown as printed.
 NOTICE_DISPLAY = "display `{ccc_ignore_notice}` verbatim when it is not null"
-CREATE_HIT = "**If `{workspace_repo_path}/.git/` exists (workspace hit):**"
-CREATE_MISS = "**If `{workspace_repo_path}/.git/` does not exist (workspace miss):**"
 
 
 def _frontmatter(text: str) -> str:
@@ -550,47 +599,82 @@ def test_hygiene_probe_order_declared(loader, users):
         assert "{cccGitHygieneHelper}" in _read(user), user.relative_to(REPO_ROOT)
 
 
-def _create_hit() -> str:
-    return _slice(_read(SOURCE_RESOLUTION), CREATE_HIT, CREATE_MISS)
+def _resolve_command() -> str:
+    """extract.md §2b's fenced resolve command, its backslash continuations joined."""
+    section = _slice(_read(EXTRACT), "### 2b. Resolve Source Access", "**Deferred CCC Discovery")
+    [fence] = [f for f in _fences(section) if "resolve" in f]
+    return " ".join(line.strip().rstrip("\\").strip() for line in fence.strip().splitlines())
 
 
-@pytest.mark.parametrize("slicer", [_create_hit], ids=["create"])
-def test_workspace_hit_runs_hygiene_before_fetch(slicer):
-    hit = slicer()
-    for token in (WS_CMD, WORKSPACE_CORE, "from `{project-root}`", "Read nothing from its output",
-                  "never a gate"):
-        assert token in hit, token
-    assert hit.index(WS_CMD) < hit.index("fetch origin") < hit.index("checkout FETCH_HEAD")
+def test_resolve_runs_hygiene_before_it_moves_the_clone():
+    """create-skill no longer fetches or checks out the workspace clone itself: resolve does, hygiene first."""
+    command = _resolve_command()
+    assert "--update-clone" in command
+    assert '[--hygiene-helper "{cccGitHygieneHelper}"]' in command
+    remote = _slice(_read(SOURCE_RESOLUTION), "## Remote Source Resolution", "## Source Commit Capture")
+    assert "after running `{cccGitHygieneHelper}` there" in remote
+    assert "never forcing a checkout" in remote
     # Regression guard only: the check is ccc's exact edit, never a status gate.
-    assert "status --porcelain" not in hit
+    for path in sorted((SRC / "skf-create-skill").rglob("*.md")):
+        text = _read(path)
+        for by_hand in ("status --porcelain", "fetch origin", "checkout FETCH_HEAD", "git clone --depth"):
+            assert by_hand not in text, (path.relative_to(REPO_ROOT), by_hand)
 
 
-def test_workspace_miss_clones_then_locks():
-    text = _read(SOURCE_RESOLUTION)
-    guard = _slice(text, "**Concurrency guard:**", CREATE_HIT)
-    for token in ("never create `{workspace_repo_path}` or the lock file before the clone",
-                  "Clone first, then acquire the lock", "`.git/info/exclude`"):
-        assert token in guard, token
-    assert "Acquire the lock before the workspace-hit check" not in guard
-    miss = _slice(text, CREATE_MISS, "4. **If workspace resolution succeeds:**")
-    for token in ("**After the clone succeeds:**", "clone_head", WS_CMD, "**Detect tag vs branch**"):
-        assert token in miss, token
-    assert miss.index("git clone") < miss.index(WS_CMD)
-    assert miss.index("**After the clone succeeds:**") < miss.index(WS_CMD)
+def test_no_create_skill_step_holds_the_workspace_lock():
+    """The clone lock lives inside the helper call that moves the clone, never across tool calls."""
+    for path in sorted((SRC / "skf-create-skill").rglob("*.md")):
+        text = _read(path)
+        for gone in ("**Concurrency guard:**", "flock -x", "fcntl.flock", "acquire the lock"):
+            assert gone not in text, (path.relative_to(REPO_ROOT), gone)
+    remote = _slice(_read(SOURCE_RESOLUTION), "## Remote Source Resolution", "## Source Commit Capture")
+    assert "moves SKF's workspace clone to the same commit in the same call" in remote
+    assert "under the clone's `.skf-workspace.lock`" in remote
 
 
-def test_fallback_trigger_names_checkout():
-    step5 = _slice(_read(SOURCE_RESOLUTION), "5. **Ephemeral fallback", "6. **If all cloning fails")
-    assert "If the workspace clone, fetch or checkout fails" in step5
+def test_no_ephemeral_clone_is_left():
+    """The private tree replaced the ephemeral fallback clone and its cleanup."""
+    for path in sorted((SRC / "skf-create-skill").rglob("*.md")):
+        text = _read(path)
+        for gone in ("ephemeral", "remote_clone_type", "{temp_path}", "{workspace_repo_path}"):
+            assert gone not in text, (path.relative_to(REPO_ROOT), gone)
+
+
+# component-extraction.md Phase 1 still points its demo scan at `remote_clone_path`, which is SKF's
+# clone, not the tree extraction reads. Its fix scans the §2 list rebuilt from `{source_root}`; the
+# assertion below then fails, and this entry goes.
+STALE_CLONE_READERS = {"component-extraction.md": "scan the local workspace/clone path (`remote_clone_path`)"}
+
+
+def test_only_the_ccc_steps_name_the_workspace_clone():
+    """`{remote_clone_path}` is SKF's clone, which another run can move: only ccc indexes it."""
+    allowed = {
+        "extract.md": _slice(_read(EXTRACT), "### 2b. Resolve Source Access", "### 2a."),
+        "generate-artifacts.md": _generate_6b(),
+        "source-resolution-protocols.md": _slice(_read(SOURCE_RESOLUTION), "## Shell Path Quoting",
+                                                 "## Tag Resolution"),
+    }
+    for path in sorted((SRC / "skf-create-skill").rglob("*.md")):
+        text = _read(path)
+        stale = STALE_CLONE_READERS.get(path.name)
+        if stale is not None:
+            assert stale in text, f"{path.name} no longer names the clone: drop it from STALE_CLONE_READERS"
+            text = text.replace(stale, "")
+        for line in text.splitlines():
+            if "remote_clone_path" in line:
+                assert line in allowed.get(path.name, ""), (path.relative_to(REPO_ROOT), line[:100])
+    extraction = _slice(_read(EXTRACT), "**Forge/Forge+/Deep Tier (AST available):**", "1. Detect language")
+    assert "the §2 filtered file count (rebuilt in §2b for a remote source)" in extraction
+    assert "step 1's file tree" not in extraction
 
 
 def test_extract_leaves_workspace_clone_clean():
     block = _deferred_block()
     marker = "**Leave the workspace clone clean:**"
-    assert block.index("7. **On failure:**") < block.index(marker)
+    assert block.index("6. **On failure:**") < block.index(marker)
     clean = block[block.index(marker):]
     for token in ('uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"',
-                  '`remote_clone_type` is `"workspace"`', "after step 6 or step 7", "step 2 or step 3"):
+                  "after step 5 or step 6", "step 1 or step 2"):
         assert token in clean, token
     # The sentence reads "... and read nothing from its output".
     assert "read nothing from its output" in clean.lower()
@@ -601,9 +685,9 @@ def test_extract_leaves_workspace_clone_clean():
 def test_generate_6b_keeps_index_out_of_git():
     repair = _generate_repair()
     marker = "**Keep the index out of git:**"
-    assert repair.index("A plain `ccc index` is enough") < repair.index(marker)
+    assert repair.index("load `{cccIndexCheckData}`") < repair.index(marker)
     keep = repair[repair.index(marker):]
-    for token in ('uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"', NESTED_CMD,
+    for token in ('uv run {cccGitHygieneHelper} workspace --repo "{ccc_root}"', GENERATE_NESTED_CMD,
                   NOTICE_BINDING, NOTICE_DISPLAY, "SKF never edits a project's own `.gitignore`",
                   "never fails the workflow", 'after "index unverified"'):
         assert token in keep, token
@@ -638,8 +722,11 @@ def test_audit_checkout_clears_ccc_traces_before_dirty_probe():
 
 def test_tier_degradation_mentions_hygiene():
     text = _read(TIER_DEGRADATION)
-    item2 = _line_starting(text, "2. If `git` is available")
-    assert "git hygiene check" in item2 and "`.gitignore`" in item2
+    item1 = _line_starting(text, "1. `skf-source-tree.py resolve` reads")
+    assert "git hygiene check" in item1 and "`.gitignore`" in item1
+    # resolve itself reports a missing git: no step runs `git --version` first.
+    assert "resolve reports `git-unavailable`" in _line_starting(text, "2. When `git` is missing")
+    assert "git --version" not in text
     assert "fetch or checkout fails" in _line_starting(text, "6. If")
 
 
@@ -650,8 +737,10 @@ def test_ccc_bridge_keeps_indexes_out_of_git():
                   "`git check-ignore -q --no-index`", "`.git/info/exclude`"):
         assert token in exclusion, token
     deferred = _slice(text, "### Deferred Discovery", "### Relationship to QMD Registry")
-    for token in ("skf-ccc-git-hygiene.py workspace", "`/.skf-workspace.lock`", "ephemeral clone"):
+    for token in ("skf-ccc-git-hygiene.py workspace", "`/.skf-workspace.lock`", "never the tree",
+                  "skf-merge-ccc-exclusions.py --clone-root"):
         assert token in deferred, token
+    assert "ephemeral" not in deferred
     assert "--refresh" not in deferred
     ensure = _slice(text, "### `ccc_bridge.ensure_index(path)`", "### `ccc_bridge.status()`")
     assert "ccc init -f" in ensure

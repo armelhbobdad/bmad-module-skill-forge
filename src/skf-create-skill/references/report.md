@@ -6,6 +6,12 @@ nextStepFile: 'health-check.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{sourceTreeHelper}` to the first existing path. The Result Contract
+# on HARD HALT removes the private source tree with it; if neither path
+# exists, the tree stays until a later run removes it, seven days on.
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -134,6 +140,8 @@ End workflow. No further steps.
 Log success or failure to `workflow_warnings[]` but never fail the workflow on a hook error — the skill is already written and the result contract is final. The hook runs last so a git-add, registry registration, notifier, or downstream-skill chain sees a complete package. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
 ### Result Contract on HARD HALT
+
+**Remove the private source tree first.** Before every HARD HALT after step 3 §2b, headless or not: when `{source_tree}` is set (the private tree step 3 §2b read a remote source into), resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}` and run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}`, then go on whatever it prints.
 
 The success-variant contract above is only reached at step 8. The ~10 HARD HALT conditions in steps 1–7 (forge-config missing, no brief, brief invalid, source not found, prerequisite failure in load-brief; atomic/detect/auth/frontmatter-validator helper unresolved and the Tier-1 split-count drop in extract/validate; the description angle-bracket check in validate (`description-angle-brackets`); the non-symlink active-link refusal in generate-artifacts; the ownership refusal in generate-artifacts §1 (`not-skf-output`, `flat-layout`)) otherwise print a human string and exit with **no machine-readable outcome** — a pipeline polling `create-skill-result-latest.json` cannot distinguish "halted at brief-invalid" from "still running" from "crashed". Mirror skf-quick-skill: **whenever `{headless_mode}` is true, every HARD HALT must surface an error-variant result before exiting.**
 

@@ -117,9 +117,9 @@ When a tool becomes unavailable mid-session (e.g., ast-grep uninstalled between 
 
 When source is remote (GitHub URL) and tier is Forge, Forge+, or Deep:
 1. AST extraction requires local files — ast-grep cannot operate on remote URLs
-2. The extraction step attempts an **ephemeral shallow clone** to a system temp path (if `git` is available)
-3. If the clone succeeds: AST extraction proceeds on the local clone, then the temp directory is cleaned up
-4. If the clone fails (or `git` is unavailable): the step warns the user explicitly and degrades to source reading (T1-low) with actionable guidance
+2. The extraction step reads the resolved commit into a **private tree** of the run's own (if `git` is available), from SKF's workspace clone of the repository when it holds the commit and from the remote otherwise
+3. If the tree is read: AST extraction proceeds on it, and the tree is removed at the end of the run
+4. If no tree can be read (or `git` is unavailable): the step warns the user explicitly and degrades to source reading (T1-low) with actionable guidance
 5. Silent degradation is forbidden — the user must always know when AST extraction was skipped and why
 
 ## Anti-Patterns

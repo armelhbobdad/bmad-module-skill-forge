@@ -747,6 +747,11 @@ CREATE_SECTIONS = "src/skf-create-skill/assets/skill-sections.md"
 DOC_SOURCES_STEP = REPO / "src" / "skf-create-skill" / "references" / "step-doc-sources.md"
 QUICK_METADATA = SRC / "shared" / "scripts" / "skf-render-quick-metadata.py"
 
+_dspec = importlib.util.spec_from_file_location("skf_detect_docs_for_rewrite",
+                                                SRC / "shared" / "scripts" / "skf-detect-docs.py")
+detect_docs = importlib.util.module_from_spec(_dspec)
+_dspec.loader.exec_module(detect_docs)
+
 
 def _template_json(rel: str, heading: str):
     """The ```json template under `heading` in a src file, its `//` comment lines dropped."""
@@ -789,14 +794,16 @@ def _create_skill_json(name: str, repo: str = "acme/lib"):
     sections = (REPO / CREATE_SECTIONS).read_text(encoding="utf-8")
     assert '"source_library": "{library-name — defaults to skill name for single skills}"' in sections
     doc_step = DOC_SOURCES_STEP.read_text(encoding="utf-8")
-    assert "- `url`: Construct from `{source_repo}/blob/main/README.md`" in doc_step
-    assert '- `detected_via`: `"readme_always"`' in doc_step
+    assert "uv run {detectDocsHelper} readme-entry" in doc_step
     source = {"source_repo": f"https://github.com/{repo}",
               "source_commit": "2b5553f32895739befe549da1ceb6dee4fa1cd0b", "source_ref": "v1.0.0"}
     metadata = _fill(_template_json(CREATE_SECTIONS, "## metadata.json Structure"))
     metadata.update(name=name, source_root=f"/home/me/.skf/workspace/repos/github.com/{repo}", **source)
     readme = _fill(_template_optional(CREATE_SECTIONS, "## metadata.json Structure", "doc_sources")[0])
-    readme.update(url=f"{source['source_repo']}/blob/main/README.md", detected_via="readme_always")
+    # The URL readme-entry builds from a tree whose README is README.md, as this checkout's is.
+    readme.update(url=detect_docs.readme_url(source["source_repo"], source["source_ref"], str(REPO)),
+                  detected_via=detect_docs.README_ALWAYS_DETECTED_VIA)
+    assert readme["url"] == f"https://raw.githubusercontent.com/{repo}/{source['source_ref']}/README.md"
     metadata["doc_sources"] = [readme]
     provenance = _fill(_template_json(CREATE_SECTIONS, "## provenance-map.json Structure"))
     del provenance["integrations"], provenance["constituents"]
@@ -846,7 +853,7 @@ class TestSkillNamedAfterItsLibrary:
         code, verdict = _rename_and_verify(tmp_path, self.OLD, self.NEW, snippet, metadata, provenance)
         assert code == 1
         assert [(m["region"], m["text"]) for m in verdict["hard_matches"]] == [
-            ("metadata-json", f'"url": "https://github.com/acme/{self.OLD}/blob/main/README.md",')]
+            ("metadata-json", f'"url": "https://raw.githubusercontent.com/acme/{self.OLD}/v1.0.0/README.md",')]
 
     def test_source_values_that_hold_a_moved_folder_path_stay(self, tmp_path):
         """A repository of an org called `skills`: §3 changes none of its values, and §5 reports the README URL.
@@ -863,7 +870,7 @@ class TestSkillNamedAfterItsLibrary:
         assert after == {**provenance, "skill_name": self.NEW}
         assert code == 1
         assert [(m["region"], m["text"]) for m in verdict["hard_matches"]] == [
-            ("metadata-json", f'"url": "https://github.com/skills/{self.OLD}/blob/main/README.md",')]
+            ("metadata-json", f'"url": "https://raw.githubusercontent.com/skills/{self.OLD}/v1.0.0/README.md",')]
 
     def test_a_source_file_under_a_folder_called_like_the_skills_folder_stays_and_rolls_back(self, tmp_path):
         """A skill collection keeps its packages under skills/<name>/: those paths are the source's, not SKF's."""

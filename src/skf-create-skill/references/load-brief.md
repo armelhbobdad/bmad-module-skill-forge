@@ -116,7 +116,7 @@ The complete contract — required fields, optional fields, types, and rules —
 **If source_repo is a GitHub URL or owner/repo format:**
 - Verify repository exists via `gh_bridge.list_tree(owner, repo, branch)` — **Tool resolution:** `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` or direct file listing if local; see `knowledge/tool-resolution.md`
 - If branch not specified, detect default branch
-- Store resolved: owner, repo, branch, file tree — note: `source_root` for remote repos is initially set to the remote URL (for detection and API access purposes) and then updated to the local workspace/clone path during step 3 source resolution
+- Store resolved: owner, repo, branch, file tree. Note: `source_root` for remote repos is initially set to the remote URL (for detection and API access purposes), and step 3 source resolution then sets it to the private tree it reads the source into, at Forge tier and above
 - **Version-to-tag pinning intent:** If `brief.target_version` is absent but `brief.version` is present, record the intent to apply **implicit tag resolution** from `brief.version` when step 3 resolves the source. Do not resolve the tag here — tag resolution runs in step 3 alongside the clone. This step only notes the pinning intent so step 3 knows to attempt it. See `references/source-resolution-protocols.md` → "Implicit Tag Resolution".
 
 **If source_repo is a local path:**

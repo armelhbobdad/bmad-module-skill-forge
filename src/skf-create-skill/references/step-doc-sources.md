@@ -2,9 +2,9 @@
 nextStepFile: 'step-auto-shard.md'
 # Resolve `{detectDocsHelper}` by probing `{detectDocsProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves — §2 has no prose fallback for doc-source
-# detection (Pages-API walk, docs/ folder scan, content hashing), and §2a none
-# for docs-only URL hashing.
+# path wins. HALT if neither resolves: §2 has no prose fallback for doc-source
+# detection (Pages-API walk, docs/ folder scan, content hashing), §2a none
+# for URL hashing and §3 none for the README entry.
 detectDocsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
@@ -54,11 +54,10 @@ Invoke the detect-docs script:
 ```bash
 uv run {detectDocsHelper} \
   --repo-url {source_repo} \
-  [--local-path {source_path}] \
   [--skip-pages-api]
 ```
 
-Pass `--local-path {source_path}` when a local clone exists from the extraction step to avoid redundant cloning for `docs/` folder detection.
+Pass no `--local-path`: step 3 read a remote source from a private tree that step 7 removes, and a `file://` URL into it could never be fetched again at audit time. Without it the helper lists the `docs/` folder through the GitHub API, whose raw file URLs `skf-audit-skill` can fetch again.
 
 **Handle exit codes:**
 - **Exit 0** (found ≥1 doc): parse JSON stdout as `doc_detection_results`
@@ -87,21 +86,22 @@ Skip §3 — a docs-only brief has no repository README to track. Continue at §
 
 ### 3. Ensure README Entry
 
-**If `source_type` is `"docs-only"`:** skip this section — `source_repo` is the documentation site, not a repository, so there is no README to track and `{source_repo}/blob/main/README.md` would be a fabricated URL. Continue at §4.
+**If `source_type` is `"docs-only"`:** skip this section: `source_repo` is the documentation site, not a repository, so there is no README to track, and any README URL built from it would be fabricated. Continue at §4.
 
 After obtaining detection results, check if any entry has a URL matching `*/README.md` or `*/readme.md`.
 
 **If a README entry already exists** from detection (e.g., `detected_via: "docs_folder"` found a README): keep it as-is.
 
-**If no README entry exists,** add one:
+**If no README entry exists,** add the one the `readme-entry` subcommand builds. It picks the README at the top of the source (`README.md` before a translation such as `README-ja.md`), records the raw GitHub file at the ref step 3 resolved (a `file://` URL for a local source), and hashes it with the fetch `skf-audit-skill`'s `compare-hashes` runs again, so an unchanged README reads as unchanged at audit time. **Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. HALT if no candidate exists. From `{project-root}`, run:
 
-- `url`: Construct from `{source_repo}/blob/main/README.md`
-- `detected_via`: `"readme_always"`
-- `content_hash`: Hash the README content using `sha256:{hexdigest}` convention:
-  - If `{source_path}` is available: read `{source_path}/README.md` locally with `encoding="utf-8"`, compute `sha256:{hexdigest}`
-  - Else: fetch via `gh api repos/{owner}/{repo}/readme --jq '.content'`, base64-decode, hash
-  - If README cannot be found or fetched: set `content_hash` to `null`
-- `recorded_at`: current ISO-8601 timestamp with timezone
+```bash
+uv run {detectDocsHelper} readme-entry --source-repo "{source_repo}" --ref "{source_ref}" [--local-root "{source_root}"]
+```
+
+Pass `--local-root` when `{source_root}` is a local folder: the local source, or the private tree step 3 read a remote source into. Without it the helper lists the top of a GitHub repository through the GitHub API.
+
+- **Exit 0:** add each entry of its `doc_sources`, at most one, as the helper wrote it (`url`, `detected_via: "readme_always"`, `content_hash`, `recorded_at`). `content_hash` is `null` when the README could not be fetched, and the audit then skips the entry instead of reporting drift. When `skip_reason` is `not-github`, `doc_sources` is empty: add evidence note `"Doc sources: README not tracked, {source_repo} is not a GitHub repository"`.
+- **Exit 2:** add no README entry, and add evidence note `"Doc sources: README not tracked, skf-detect-docs.py readme-entry error (exit 2)"`.
 
 ### 4. Build doc_sources Array
 
@@ -118,7 +118,7 @@ Map each detection result to the `doc_sources` schema:
 
 Field mapping from `skf-detect-docs.py` output:
 - `url` ← `url` (direct copy)
-- `detected_via` ← `detected_via` (direct copy; or `"readme_always"` for the mandatory README entry)
+- `detected_via` ← `detected_via` (direct copy; `"readme_always"` for the README entry §3 adds)
 - `content_hash` ← `content_hash` (direct copy, already in `sha256:{hexdigest}` format)
 - `recorded_at` ← generated at step execution time (ISO-8601 with timezone)
 
