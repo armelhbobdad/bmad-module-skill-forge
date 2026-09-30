@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  The naive coherence check no longer raises a High async finding because an export's description holds the word `async`. A script now finds where the skill describes each exported function and every call to it in the examples, and whether each call awaits it, and the check reads what the descriptions say about that export. So a sync function documented beside its async variant (`readFileSync`, "the sync counterpart of the async `readFile`") passes, and a call awaited through `Promise.all`, `asyncio.run`, `async for` or Rust's `.await` counts as awaited. A skill whose example leaves a documented async call unawaited still gets the High finding, as does one whose example awaits a function the skill documents as sync.
+prs: [624]
+issues: [582]

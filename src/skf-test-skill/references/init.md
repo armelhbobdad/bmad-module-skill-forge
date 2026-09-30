@@ -10,13 +10,31 @@ skillsOutputFolder: '{skills_output_folder}'
 frontmatterScriptProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
-# Resolve `{skillInventoryHelper}` to the first existing path. §2 step 5 runs
-# it with `--skill` before a flat skill moves: only a flat skill whose
-# metadata.json carries an SKF marker (`flat_skf`) is migrated.
+# Resolve `{skillInventoryHelper}` to the first existing path. §2 runs its
+# `resolve` command to choose the version under test and bind its paths,
+# and runs it with `--skill` before a flat skill moves: only a flat skill
+# whose metadata.json carries an SKF marker (`flat_skf`) is migrated.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-versionPathsKnowledge: 'knowledge/version-paths.md'
+# Resolve `{versionPathsKnowledge}` to the first existing path. §2 loads only
+# its "Migration: Flat to Versioned" section, and only to migrate a flat skill.
+versionPathsKnowledgeProbeOrder:
+  - '{project-root}/_bmad/skf/knowledge/version-paths.md'
+  - '{project-root}/src/knowledge/version-paths.md'
+# Resolve `{checkWorkspaceDriftHelper}` to the first existing path; §5b HALTs
+# if neither exists. It runs the workspace drift guard, once per repository
+# of a stack skill.
+checkWorkspaceDriftProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
+  - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
+# Resolve `{runLockHelper}` to the first existing path; §6a HALTs if neither
+# exists. §6a takes the run lock and the run id through it, and it stays
+# bound for the rest of the run: report.md §4c renews the lock through it,
+# and every later HALT and report.md §7 release it.
+runLockProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
+  - '{project-root}/src/shared/scripts/skf-run-lock.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -61,19 +79,38 @@ If `{pipeline_alias}` is set in the workflow data context (forwarded by the forg
 - **If `{pipeline_alias}` is present but NOT in the table:** `{pipeline_default_threshold}` remains unset. Score.md falls through to `{defaultThreshold}`.
 - **If `{pipeline_alias}` is absent** (standalone TS invocation, not running inside a pipeline): `{pipeline_default_threshold}` remains unset. Score.md falls through to `{defaultThreshold}`.
 
+### 1c. Check the Runtime
+
+From §2 on, every step runs SKF's helpers through `uv run`, which also installs the dependencies each script declares (PEP 723); bare `python3` ignores them, so a helper such as the frontmatter validator fails on its PyYAML import. Confirm that `python3` and `uv` are both on `$PATH` (`command -v python3` and `command -v uv`). If either is missing, HALT: "**test-skill needs `{the missing tool}`, which is not on your PATH.** Install it (`uv` is a documented runtime prerequisite: see `docs/getting-started.md`), then re-run." Nothing is written.
+
 ### 2. Validate Skill Exists (version-aware)
 
-Resolve the skill path using version-aware resolution (see `{versionPathsKnowledge}`):
+The inventory helper chooses the version to test and binds its paths by the Reading Workflows rules of the version-paths knowledge (the Manifest-lag guard included), so this step never walks the export manifest or the `active` link by hand. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
 
-1. Read `{skillsOutputFolder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
-2. **Manifest-lag guard.** If the skill is in the manifest, also read the `active` symlink target at `{skillsOutputFolder}/{skill_name}/active`. If that symlink resolves to a *different* version than `active_version`, prefer the **symlink target** as `{resolved_version}` and emit an Info note: "manifest active_version {M} lags the active symlink {N} — testing the symlink target (the just-forged version); run export-skill to reconcile the manifest." This is the canonical SS→TS→EX case: create-stack-skill flipped `active` to the new version, but the manifest only advances when export-skill runs — so a bare manifest-first resolution would test the *previously exported* version and report a PASS for the wrong version (silent false confidence). When the symlink matches `active_version` (or no `active` symlink exists), use `active_version`. See `{versionPathsKnowledge}` "Reading Workflows".
-3. If found: resolve to `{skill_package}` = `{skillsOutputFolder}/{skill_name}/{resolved_version}/{skill_name}/`
-4. If not in manifest: check for `active` symlink at `{skillsOutputFolder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
-5. If neither: fall back to the flat path `{skillsOutputFolder}/{skill_name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
-   - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skillsOutputFolder} --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
-   - **`{group_flat_skf}` is true:** auto-migrate per `{versionPathsKnowledge}` migration rules.
+```bash
+uv run {skillInventoryHelper} resolve {skillsOutputFolder} --skill {skill_name} --forge-data-folder {forge_data_folder}
+```
+
+Bind from its `resolve` object:
+
+- `{resolved_version}` ← `chosen_version`
+- `{resolved_skill_package}` ← `skill_package`
+- `{forge_version}` ← `forge_version`: the version's folder in the forge data, where this run writes its report, its result files and its lock
+- `{forge_provenance_map}` ← `paths.provenance_map.path` and `{forge_evidence_report}` ← `paths.evidence_report.path`: the version folder's file when it exists, else the flat copy an older skill may still keep in `{forge_data_folder}/{skill_name}/`, else null. Every later step reads the provenance map and the evidence report through these two bindings, except coverage-check §4c: it checks the version folder's own map, whose lines update-skill moves.
+
+Log each entry of `resolve.errors` (a broken `active` link, for example), and `resolve.manifest_error` when it is set (an export manifest that cannot be read), as an Info note, then act on `reason`:
+
+1. `manifest-and-link`, `manifest` or `link`: the export manifest or the `active` link names the version, and its package is on disk. Continue.
+2. `manifest-lags-link`: the `active` link names a version the manifest has not caught up with (the Manifest-lag guard). Continue, and emit the helper's `detail` as an Info note.
+3. If neither: fall back to the flat path `{skillsOutputFolder}/{skill_name}/` (`reason` is `flat-layout`: `SKILL.md` sits at the skill folder root, with no version folder yet). Check that SKF generated it before anything moves:
+   - Run `uv run {skillInventoryHelper} {skillsOutputFolder} --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
+   - **`{group_flat_skf}` is true:** auto-migrate per the migration rules of `{versionPathsKnowledge}` (resolve it ← first existing path in `{versionPathsKnowledgeProbeOrder}` and load only its "Migration: Flat to Versioned" section), then run the `resolve` command above again and bind its values anew: they now name the version folder.
    - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill_name}` is not SKF output — nothing was moved.** `{skillsOutputFolder}/{skill_name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or test it. A shared `{skillsOutputFolder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill_name}` yourself. Only if `{skillsOutputFolder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. In `{headless_mode}`, emit to **stderr** `SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"not-skf-output"}`. HALT — do not proceed.
-6. Store the resolved path as `{resolved_skill_package}`
+4. `missing`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version of the skill is on disk. Take the SKILL.md error below.
+5. `newest-on-disk`: version folders exist, but neither the export manifest nor a working `active` link names one. The Reading Workflows rules test only a version one of them names, so take the SKILL.md error below.
+6. Any other error, or no JSON: HALT with the helper's stderr message. Nothing is written.
+
+If no helper candidate resolves, SKF can neither choose the version nor check a flat skill's marker. Nothing moves: when `{skillsOutputFolder}/{skill_name}/SKILL.md` exists, take step 3's Otherwise branch; else HALT with "Error: cannot locate skf-skill-inventory.py at `{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py` or `{project-root}/src/shared/scripts/skf-skill-inventory.py`. Install the SKF module or run from a development checkout with src/ present."
 
 Check that the skill package contains required files:
 
@@ -81,10 +118,10 @@ Check that the skill package contains required files:
 - `{resolved_skill_package}/SKILL.md` — the skill documentation
 - `{resolved_skill_package}/metadata.json` — skill metadata
 
-**If SKILL.md missing:**
+**If SKILL.md missing** (or step 4 or 5 found no version to test):
 "**Error: SKILL.md not found at `{resolved_skill_package}/SKILL.md`**
 
-This skill has not been created yet. Run the **create-skill** workflow first."
+This skill has not been created yet. Run the **create-skill** workflow first." When step 4 applies, name the skill instead of the path and add the helper's `detail` or `error`. When step 5 applies, say instead: "**Error: no version of `{skill_name}` is named for testing.** {the helper's `detail`}. Point `{skillsOutputFolder}/{skill_name}/active` at the version to test, then re-run."
 
 **Headless envelope (if `{headless_mode}`):** emit to **stderr**:
 
@@ -119,9 +156,7 @@ SKF module (`skf init`) or run from a development checkout with src/ present.
 
 Do not proceed. No partial test report is written.
 
-**3b. Python runtime probe (before invoking the validator).** Confirm both `python3` and `uv` are on `$PATH` (`command -v python3` and `command -v uv`). Both are required: `uv run` shells through to `python3` and honors the script's PEP 723 PyYAML dependency declaration that bare `python3` ignores (bare `python3` fails with `ModuleNotFoundError: No module named 'yaml'` on a fresh interpreter — `docs/getting-started.md` documents uv as the runtime prereq for exactly this). If either is missing, set `analysis_confidence: degraded` in workflow context and carry a **score cap** into step 5: `capped_score = threshold - 1` → forces auto-FAIL until the runtime is restored. Record the reason in evidence-report and the test report frontmatter (`analysisConfidence: degraded`, `toolingStatus: python3-missing` or `uv-missing` as appropriate). `uv` is a documented runtime prerequisite — see `docs/getting-started.md` for install instructions.
-
-**3c. Run the validator (30s timeout — the deterministic validator should finish in <1s; the cap only guards against runaway python).**
+**3b. Run the validator (30s timeout: the deterministic validator should finish in under 1s, and the cap only guards against runaway python).**
 
 ```bash
 timeout 30s uv run {frontmatterScript} {resolved_skill_package}/SKILL.md --skill-dir-name {skill_name}
@@ -185,55 +220,61 @@ Read `metadata.json` to extract:
 - `source_ref` — pinned ref (tag/branch/`HEAD`) used at extraction time
 - `generation_date` — when skill was generated
 - `confidence_tier` — tier used during creation
+- `generated_by`: the SKF workflow that built the skill (coverage-check §2 reads it at Quick tier)
 
 If source path override was provided as optional input, use that instead.
 
 ### 5b. Verify Workspace HEAD Matches Pinned Commit
 
-Test-skill reads `source_path` during coverage and coherence analysis. If the local workspace has drifted from `metadata.source_commit`, gap and signature-mismatch findings will silently reflect the drifted tree, not the skill's pinned source — producing false positives that downstream update-skill runs may then "repair" by corrupting correct documentation.
+Test-skill reads `source_path` during coverage and coherence analysis. If the local workspace has drifted from `metadata.source_commit`, gap and signature-mismatch findings silently reflect the drifted tree, not the skill's pinned source: false positives that downstream update-skill runs may then "repair" by corrupting correct documentation.
 
-- Resolve `pinned_commit` from `metadata.source_commit`.
-- **If `pinned_commit` is null, empty, or `"local"`:** skip the guard; log `workspace_drift_check: skipped (no pinned commit)` and continue to section 6.
-- **If `pinned_commit` is a per-repo map (stack skills):** iterate each `{repo_path: commit}` entry — for each repo run `git -C "{repo_path}" rev-parse HEAD` and compare to its pinned commit (accept full-SHA or short-SHA-prefix match). If ANY repo diverges and the user did not pass `--allow-workspace-drift`, HALT with exit status `workspace-drift` listing every mismatched repo (in `{headless_mode}`, emit the same `workspace-drift` stderr envelope shown in the single-tree branch below before halting). On all-match: log `workspace_drift_check: ok (stack, {N} repos verified)` and continue to section 6. This guard must iterate every repo — do not skip stack skills.
-- **If `source_path` is not a git working tree** (bare checkout, tarball extract, docs-only source) — detect by `git -C "{source_path}" rev-parse --is-inside-work-tree`, non-zero exit means skip: log `workspace_drift_check: skipped (not a git working tree)` and continue to section 6.
-- **Otherwise** run `git -C "{source_path}" rev-parse HEAD` and compare to `pinned_commit`. Accept full-SHA or short-SHA-prefix match (stored pins are often 8-char short hashes — see `src/knowledge/provenance-tracking.md`).
-  - **On match:** log `workspace_drift_check: ok ({short_sha})` and continue.
-  - **On mismatch, AND the user did not pass `--allow-workspace-drift`:** HALT with exit status `workspace-drift`. Display:
+The guard runs through `{checkWorkspaceDriftHelper}`, never through `git` commands run by hand. Resolve it ← first existing path in `{checkWorkspaceDriftProbeOrder}`. If neither path exists, HALT with: "Error: cannot locate skf-check-workspace-drift.py at `{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py` or `{project-root}/src/shared/scripts/skf-check-workspace-drift.py`. Install the SKF module or run from a development checkout with src/ present." No test report is written.
 
-    ```
-    Workspace HEAD does not match the commit this skill was pinned against.
+Run it once per source tree, from `{project-root}`, passing `--allow-drift` only when the user passed `--allow-workspace-drift`:
 
-      pinned (metadata.source_commit): {pinned_commit}
-      pinned ref (metadata.source_ref): {source_ref or "unset"}
-      workspace HEAD ({source_path}):  {head_sha}
+```bash
+uv run {checkWorkspaceDriftHelper} "{tree}" --pinned-commit "{pinned_commit}" [--source-ref "{source_ref}"] [--allow-drift] --workflow test-skill
+```
 
-    Test-skill verifies against the source the skill was extracted from.
-    Testing against a drifted tree produces false gaps/mismatches. Re-sync:
+- **One tree:** `{tree}` is `{source_path}`, `{pinned_commit}` is `metadata.source_commit` (an empty string when it is null), and `{source_ref}` is `metadata.source_ref` when it is set.
+- **A stack skill** (`metadata.source_commit` is a `{repo_path: commit}` map): one call per entry, with that repo path as `{tree}`, its commit as `{pinned_commit}`, and the same key's value of `metadata.source_ref` as `{source_ref}` when that is a map too. Check every repo: do not skip stack skills.
+- Make no call for a tree that is not on disk (coverage then reads the provenance map, State 2 of the source access protocol), and log `workspace_drift_check: skipped (no local source at {tree})`. The helper itself skips a tree with no pinned commit (`""` or `"local"`) and one that is not a git working tree.
 
-      git -C "{source_path}" checkout {source_ref or pinned_commit}
+Log each call's `log_message`, then act on the statuses together:
 
-    Or re-run test-skill with `--allow-workspace-drift` to test against the
-    current workspace (accepts that findings reflect HEAD, not the pin).
-    ```
+- **Any `mismatch`** (exit 2): HALT with `halt_reason: "workspace-drift"`, displaying the `halt_message` of every tree that drifted, verbatim: it names the pinned commit and ref, the workspace HEAD, the `git checkout` that re-syncs the tree, and `--allow-workspace-drift`.
 
-    **Headless envelope (if `{headless_mode}`):** emit to **stderr**:
+  **Headless envelope (if `{headless_mode}`):** emit to **stderr**:
 
-    ```
-    SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"workspace-drift"}
-    ```
+  ```
+  SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"workspace-drift"}
+  ```
 
-    Do not proceed. The test report has not been created; no partial writes.
-  - **On mismatch WITH `--allow-workspace-drift`:** log `workspace_drift_check: overridden (pinned={pinned_commit}, head={head_sha})`, carry the warning into the final report frontmatter (`workspaceDrift: overridden`), and set `allow_workspace_drift: true` in workflow context (consumed by step 5 §5 drift override — a PASS under drift is demoted to `pass-with-drift` and `nextWorkflow` is forced to `update-skill`, never `export-skill`). Continue.
+  Do not proceed. The test report has not been created; no partial writes.
+- **Any `overridden`, and no `mismatch`:** carry `workspaceDrift: overridden` into the report frontmatter and set `allow_workspace_drift: true` in workflow context (consumed by step 5 §5 drift override: a PASS under drift is demoted to `pass-with-drift` and `nextWorkflow` is forced to `update-skill`, never `export-skill`). Continue.
+- **Otherwise** every call is `ok` or `skipped`: set `workspaceDrift: ok` when at least one tree was checked, else `not-checked`, and continue.
+- A call that exits 1 or prints no JSON could not read its tree (for example, `git` is not installed): log `workspace_drift_check: skipped (helper error: {its stderr})`, count it as `skipped`, and continue.
 
 ### 6. Create Output Document
 
-**6a. Generate `{run_id}`**: a per-run identifier of the form `{YYYYMMDDTHHmmssZ}-{pid}-{rand4}` (UTC timestamp + process PID + 4-char random hex). Store in workflow context. All per-run artifacts in this and subsequent steps must carry this suffix; step 6 verifies `testDate` in the resulting report matches the run's stamp and fail-fast otherwise.
+**6a. Take the run lock and the run id.** A run spans many tool calls and turns, so no process can hold a lock for it: the lock is a file, `{forge_version}/.test-skill.lock`, that names its owner and the time, and it keeps two test-skill runs against this version from writing the same result files. Resolve `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`; it stays bound for the rest of the run. If neither path exists, HALT with: "Error: cannot locate skf-run-lock.py at `{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py` or `{project-root}/src/shared/scripts/skf-run-lock.py`. Install the SKF module or run from a development checkout with src/ present." From `{project-root}`, run:
 
-**6b. Acquire the per-skill test lock**: `flock {forge_version}/.test-skill.lock` for the duration of this run to serialize concurrent `skf-test-skill` invocations against the same skill. If the lock is already held by another run, HALT with "another test-skill run is active for {skill_name}". **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
+```bash
+uv run {runLockHelper} acquire --lock "{forge_version}/.test-skill.lock" --owner "test-skill:{skill_name}"
+```
+
+The owner names no run id, so the helper adds one. Bind `{run_id}` ← `run_id` (the UTC time and a random suffix, safe in file names) and `{run_owner}` ← `owner`. Every per-run artifact of this and the later steps carries `{run_id}`, and every release names `{run_owner}` (SKILL.md Workflow Rules).
+
+**6b. Act on the result:**
+
+- `acquired` is true: the lock is this run's. When `stale_replaced` is not null, a run that ended without releasing its lock left it: log `run lock: replaced the stale lock of {stale_replaced.held_by} (held since {stale_replaced.held_since})` and continue.
+- `acquired` is false (exit 3): another run holds a lock that has not gone stale. HALT with "**Another test-skill run is active for {skill_name}.** {message}": the helper's `message` names that run, the lock file to delete when no run is active, and the time the lock goes stale. **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
 
 ```
 SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"another-run-active"}
 ```
+
+- The helper exits 1 or 2, or prints no JSON: HALT with its stderr message (exit 2: the lock file could not be written, so check that `{forge_version}` is writable). This run holds no lock, so nothing is released.
 
 **6c. Create `{outputFile}` from `{templateFile}`** — use `{forge_version}/test-report-{skill_name}-{run_id}.md` Initial frontmatter:
 
@@ -241,7 +282,7 @@ SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":nu
 ---
 workflowType: 'test-skill'
 skillName: '{skill_name}'
-skillDir: '{skill_path}'
+skillDir: '{resolved_skill_package}'
 runId: '{run_id}'
 testMode: ''
 forgeTier: '{detected_tier}'

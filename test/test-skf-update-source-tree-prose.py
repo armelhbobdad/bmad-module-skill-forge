@@ -8,7 +8,7 @@ keep update-skill's step files on the contract of skf-source-tree.py:
 - init.md reads the source fields from metadata.json, runs the helper's
   `open` before change detection in every mode but gap-driven, binds every
   field it consumes, halts `blocked` (`init:source-tree`) when no commit
-  can be read, releases the PID lock only when the run took it, and shows
+  can be read, releases the run lock only when the run took it, and shows
   the commit change in the baseline;
 - detection takes modified files from git's file list, re-extraction reads
   only the tree (never the gh contents API, zread or deepwiki) and skips ccc
@@ -39,6 +39,27 @@ what it did:
 - a reference app's stats are recomputed with `--shape reference-app`, and
   both documented stats calls run through the helper as written.
 
+And they pin the helpers update-skill hands its deterministic work to:
+
+- skf-run-lock.py takes the run lock in init.md, renews it before merge.md
+  and write.md write the skill (halting when this run no longer holds it,
+  even when the renewal took the lock again), and releases it at every exit
+  after it (init.md §1b's release contract, SKILL.md's Workflow Rules and the
+  health check), by the owner acquire printed; no step keeps a PID, `kill -0`
+  or `rm -f` lock, and the documented calls run against the helper;
+- skf-skill-inventory.py `version` compares the source's version in init.md
+  and gives merge.md the next patch version;
+- the verifier's `definition-lines` finds the spot-check's definition lines,
+  its `kind-at` looks up node kinds in write.md §2 and §6a, its `fix`
+  applies §6a's citation and line fixes, and §6a skips the export set diff
+  for a reference app, both through the helper and in the by-hand fallback;
+- every path a documented helper call passes sits in double quotes;
+- re-extract's Forge tier runs the AST Extraction Protocol over the changed
+  files, and its per-file workers take their matches from those runs;
+- under the drift override, write.md §2 keeps the public API counts
+  metadata.json records, and a rescope halts at the drift gate, naming the
+  amendment step 2 left in the skill brief.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -51,6 +72,8 @@ import io
 import json
 import re
 import shlex
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -82,7 +105,7 @@ DRIFT_PATHS = [
     "{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py",
     "{project-root}/src/shared/scripts/skf-check-workspace-drift.py",
 ]
-READ_ONLY_RELEASE = 'release the lock unless `detect_only_mode` or `dry_run_mode` is true (`rm -f "$LOCK"`)'
+READ_ONLY_RELEASE = "run §1b's release (the read-only modes took no lock)"
 OPEN_BINDINGS = {
     "{source_tree_status}": "status",
     "{source_tree_reason}": "reason",
@@ -315,7 +338,7 @@ def test_init_rules_release_contract_and_read_only_promise():
     six = _slice(text, "### 6. Resolve the Source", "### 6b.")
     for section in (four, six):
         assert READ_ONLY_RELEASE in section
-        assert 'release the lock (`rm -f "$LOCK"`)' not in section
+        assert "rm -f" not in section
 
 
 def test_init_target_ref_flag():
@@ -339,10 +362,9 @@ def test_version_detection_moved_to_init():
     six_c = _slice(_read(INIT), "### 6c. Detect the Source Version", "### 7.")
     assert "bind `{source_version_detected}`" in six_c and "higher semantic version" in six_c
     # SKF's own patch bumps put the skill ahead of a source that did not raise its version: no warning then.
-    lower = six_c[six_c.index("Otherwise leave `{source_version_detected}` unset"):]
-    assert "when the source's major and minor version numbers are lower than those of `{version}`" in lower
+    lower = six_c[six_c.index("- **Otherwise** leave `{source_version_detected}` unset"):]
+    assert "When `major_minor` is `lower`, add `source-version-lower:" in lower
     assert "when the source's version is lower," not in lower
-    assert lower.index("major and minor") < lower.index("`source-version-lower:")
     assert "A source version lower only in its patch number is expected" in lower
     merge = _read(MERGE)
     assert "step 1 §6c recorded" in merge and "detected during step 3" not in merge
@@ -569,8 +591,13 @@ def test_skill_md_contract():
     text = _read(SKILL)
     flags = _slice(text, "| **Flags** |", "\n")
     assert "`--target-ref <ref>`" in flags
+    # One sentence for the caller: init.md §1b holds the lock's owner, stale time, renewals and releases.
     concurrency = _slice(text, "| **Concurrency** |", "\n")
-    assert "(§4, §6 and §6b" in concurrency
+    for token in ("A second real update of the same skill halts `halted-for-concurrent-run` while the first holds "
+                  "its run lock (init.md §1b)", "`--detect-only` and `--dry-run` take no lock"):
+        assert token in concurrency, token
+    for gone in ("PID", "self-heal", "minutes", "renews", "\u2014"):
+        assert gone not in concurrency, gone
     assert "no mode writes to the shared workspace clone before write.md §6b" in concurrency
     rules = _slice(text, "## Workflow Rules", "## Stages")
     assert 'close --tree "{source_tree}"' in rules and "source-tree-missing" in rules
@@ -603,6 +630,596 @@ def test_schema_descriptions():
         assert token in warnings, token
     assert props["status"]["enum"] == STATUS_ENUM
     assert props["headless_decisions"]["items"]["properties"]["gate"]["enum"] == GATE_ENUM
+
+
+# --------------------------------------------------------------------------
+# The run lock: skf-run-lock.py takes, renews and releases it (#588)
+# --------------------------------------------------------------------------
+
+RUN_LOCK_HELPER = SRC / "shared" / "scripts" / "skf-run-lock.py"
+INVENTORY_HELPER = SRC / "shared" / "scripts" / "skf-skill-inventory.py"
+VERIFIER = SRC / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
+HASH_CONTENT = SRC / "shared" / "scripts" / "skf-hash-content.py"
+RUN_LOCK_PATHS = [
+    "{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py",
+    "{project-root}/src/shared/scripts/skf-run-lock.py",
+]
+INVENTORY_PATHS = [
+    "{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py",
+    "{project-root}/src/shared/scripts/skf-skill-inventory.py",
+]
+VERIFIER_PATHS = [
+    "{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py",
+    "{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py",
+]
+LOCK_FILE = "{forge_data_folder}/{skill_name}/.skf-update.lock"
+VERIFY_JSON = "{forge_data_folder}/{skill_name}/.skf-update-verify.json"
+
+
+def _module(path: Path, name: str):
+    assert path.is_file(), f"missing helper: {path}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _argv(call: str, helper: str, values: dict, optional: bool = False) -> list[str]:
+    """The arguments of one documented helper call, split as a shell splits them and then filled in.
+
+    Split first, fill after: POSIX shlex.split would drop the backslashes of a Windows path. A line ending in
+    a backslash goes on in the next, as in a shell. A `[--flag ...]` synopsis group is kept, without its
+    brackets, when `optional`, and dropped otherwise.
+    """
+    rest = call.split("uv run {" + helper + "}", 1)[1].replace("\\\n", " ")
+    rest = re.sub(r"\[(--[^\]]*)\]", lambda m: m.group(1) if optional else "", rest)
+    argv = []
+    for arg in shlex.split(rest):
+        for key, value in values.items():
+            arg = arg.replace("{" + key + "}", value)
+        assert "{" not in arg, arg
+        argv.append(arg)
+    return argv
+
+
+def _lock_calls() -> dict[str, str]:
+    """Each documented run-lock call: init's acquire and release, the renewals in merge and write, and the releases
+    in SKILL.md's Workflow Rules and the health check."""
+    rule = _slice(_slice(_read(SKILL), "## Workflow Rules", "## Stages"),
+                  "- Once `references/init.md` §1b has bound `{lock_owner}`", "\n")
+    inline = re.search(r"`(uv run \{runLockHelper\} release [^`]*)`", rule)
+    assert inline, "SKILL.md's release rule runs no release"
+    guard = _slice(_read(INIT), "### 1b. Concurrency Guard", "### 2.")
+    return {
+        "acquire": _fence(guard, "uv run {runLockHelper} acquire"),
+        "init-release": _fence(guard, "uv run {runLockHelper} release"),
+        "renew": _fence(_slice(_read(MERGE), "**Renew the run lock**", "**Choose the version this update writes**"),
+                        "uv run {runLockHelper} acquire"),
+        "renew-write": _fence(_slice(_read(WRITE), "**Renew the run lock first:**", "`{lock_recovery}` is"),
+                              "uv run {runLockHelper} acquire"),
+        "halt-release": inline.group(1),
+        "release": _fence(_slice(_read(HEALTH), "1. **Release the concurrency lock**", "1b. **"),
+                          "uv run {runLockHelper} release"),
+    }
+
+
+def test_run_lock_replaces_the_pid_guard():
+    """init takes the lock through skf-run-lock.py, merge and write renew it, every exit releases it by owner (#588).
+
+    A PID written by one Bash call is dead by the next, so the old guard never saw a live run. A renewal that
+    exits 0 has taken the lock again even when this run had lost it, so only `refreshed` true lets the run write.
+    """
+    for path, halts in ((INIT, True), (HEALTH, False)):
+        frontmatter = _frontmatter(_read(path))
+        assert yaml.safe_load(frontmatter)["runLockProbeOrder"] == RUN_LOCK_PATHS, path.name
+        assert ("HALT if neither" in _comment_before(frontmatter, "runLockProbeOrder")) is halts, path.name
+    calls = _lock_calls()
+    for name, call in calls.items():
+        assert f'--lock "{LOCK_FILE}"' in call, name  # the full path, never a shell variable of an earlier call
+    assert '--owner "update-skill:{skill_name}"' in calls["acquire"]
+    for name in ("renew", "renew-write", "init-release", "halt-release", "release"):
+        assert '--owner "{lock_owner}"' in calls[name], name
+    # the stale time is stated once, as the flag every acquire passes, never restated in the prose
+    for name in ("acquire", "renew", "renew-write"):
+        assert "--stale-after 60" in calls[name], name
+    assert calls["renew"] == calls["renew-write"]
+    released = {name: " ".join(calls[name].replace("\\\n", " ").split())
+                for name in ("init-release", "halt-release", "release")}
+    assert len(set(released.values())) == 1, released
+    for path in sorted(UPDATE.rglob("*.md")):
+        assert not re.search(r"60[ -]minute", _read(path)), path.name
+    guard = _slice(_read(INIT), "### 1b. Concurrency Guard", "### 2.")
+    for token in ("**Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true.**",
+                  "bind `{lock_owner}` ← `owner`", "`stale_replaced`", "`run-lock-replaced:",
+                  "or held by one still waiting at a gate, whose renewal will then halt",
+                  "**3** (`acquired` false)", 'status: "halted-for-concurrent-run"', 'phase: "init:concurrency-guard"',
+                  'reason: "another update in progress: {message}"', "This run took no lock, so it releases none",
+                  'reason: "run-lock-failed: {that message}"', "**Release contract:**",
+                  "so a run that halts does not block the next one", "the Stack Skill Guard",
+                  "every later step's halts",
+                  "`run-lock-not-released: " + LOCK_FILE + "`",
+                  "A release deletes the lock only while `{lock_owner}` holds it",
+                  "merge.md §6b and write.md §2 renew the lock before the run writes the skill"):
+        assert token in guard, token
+    for gone in ("pid=", "self-heal", "never blocks the next one", "a held `flock`", "adds a run id"):
+        assert gone not in guard, gone
+    # init's own halts run §1b's release; only the later steps' halts rely on SKILL.md
+    assert "as SKILL.md's Workflow Rules say" not in _read(INIT)
+    lost = ('reason: "run-lock-lost: this run\'s lock lapsed while it waited; another update may have changed the '
+            'skill since this run read it"')
+    renewals = {
+        "merge": (_slice(_read(MERGE), "**Renew the run lock**", "**Choose the version this update writes**"),
+                  "before this section writes anything", 'phase: "merge:run-lock"'),
+        "write": (_slice(_read(WRITE), "**Renew the run lock first:**", "Update `{skill_package}/metadata.json`:"),
+                  "before writing `metadata.json`", 'phase: "write:run-lock"'),
+    }
+    for name, (renewal, before, phase) in renewals.items():
+        for token in ("- **Exit 0 with `refreshed` true:**", "- **Exit 0 with `refreshed` false, or exit 3:**",
+                      "HALT with status `halted-for-concurrent-run` " + before, phase, lost,
+                      'or on exit 3 `reason: "another update in progress: {message}"`',
+                      "- **Any other exit, or no JSON:** HALT with status `blocked`", 'reason: "run-lock-failed:'):
+            assert token in renewal, (name, token)
+        assert "- **Exit 0:**" not in renewal and "- **Exit 3:**" not in renewal, name
+    merge_renewal = renewals["merge"][0]
+    for token in ("On exit 0 the lock was gone, or `stale_replaced` names another update's stale lock, and this "
+                  "acquire took it again", "wrote nothing to the skill package",
+                  "The halt's release (SKILL.md's Workflow Rules) removes a lock this acquire took"):
+        assert token in merge_renewal, token
+    write_renewal = _slice(_read(WRITE), "**Renew the run lock first:**", "Update `{skill_package}/metadata.json`:")
+    for token in ("step 4 §8 may have waited at its gate", "`{lock_recovery}` is, outside gap-driven mode",
+                  "delete `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`",
+                  "which step 4 created for this update", "in gap-driven mode",
+                  "needs manual recovery before you re-run update-skill"):
+        assert token in write_renewal, token
+    merge = _read(MERGE)
+    assert (merge.index("### 6b. Write Merged Files to Disk") < merge.index("**Renew the run lock**")
+            < merge.index("**Choose the version this update writes**") < merge.index("stage-dir --target"))
+    write = _read(WRITE)
+    assert (write.index("### 2. Write Updated metadata.json") < write.index("**Renew the run lock first:**")
+            < write.index("Update `{skill_package}/metadata.json`:") < write.index("### 3."))
+    rule = _slice(_slice(_read(SKILL), "## Workflow Rules", "## Stages"),
+                  "- Once `references/init.md` §1b has bound `{lock_owner}`", "\n")
+    for token in ("every HALT, ABORT or other exit before step 8", "the Stack Skill Guard's redirect included",
+                  "before it emits its envelope, if any", "never stops on the result",
+                  "`run-lock-not-released: " + LOCK_FILE + "`"):
+        assert token in rule, token
+    for gone in ("The helper deletes the lock", "health-check.md"):
+        assert gone not in rule, gone
+    health = _read(HEALTH)
+    step1 = _slice(health, "1. **Release the concurrency lock**", "1b. **")
+    for token in ("- `released` true, or `reason` `absent`: continue.", "- `reason` `not-owner`:",
+                  "- No candidate resolves, or the command fails or prints no JSON:", "then continue."):
+        assert token in step1, token
+    assert "Release the lock before delegating" not in step1
+    assert "apart from one line when the lock or the tree stays on disk" in _slice(health, "## STEP GOAL:", "## Steps")
+    # no step keeps the lock in a shell process, and none deletes it without checking its owner
+    for path in sorted(UPDATE.rglob("*.md")):
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        text = _read(path)
+        assert not re.search(r"(?<!\$)\$\$(?!\$)", text), (rel, "the shell's PID")
+        for gone in ("kill -0", "HELD_PID", '"$LOCK"', "PID-file"):
+            assert gone not in text, (rel, gone)
+        for line in text.splitlines():
+            assert not ("rm " in line and ".skf-update.lock" in line), (rel, line)
+    props = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]
+    status = props["status"]["description"]
+    for token in ("'init:concurrency-guard'", "'merge:run-lock' or 'write:run-lock'", "'run-lock-lost: ...'",
+                  "never a PID",
+                  "after write.md §6a's provenance fixes (both error.phase 'write:verify-manual-integrity')"):
+        assert token in status, token
+    assert "PID-file" not in status and "minutes" not in status and "\u2014" not in status
+    for token in ("run-lock-replaced", "run-lock-not-released"):
+        assert token in props["warnings"]["description"], token
+
+
+def _lock_main(lock_module, call: str, values: dict, capsys) -> tuple[int, dict]:
+    code = lock_module.main(_argv(call, "runLockHelper", values))
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_the_documented_run_lock_calls_hold_across_runs(tmp_path, capsys):
+    """Run the lock calls as the step files write them: a fresh lock halts a second update, a stale one is
+    taken over, a renewal tells a run whether it still holds its lock, and a release never removes a lock
+    another run took (#588)."""
+    lock_module = _module(RUN_LOCK_HELPER, "skf_run_lock_prose")
+    calls = _lock_calls()
+    forge = tmp_path / "forge data"
+    base = {"forge_data_folder": str(forge), "skill_name": "lib"}
+    lock = forge / "lib" / ".skf-update.lock"
+    stale_since = "2020-01-01T00:00:00Z"
+
+    def age():
+        """Date the lock back past its stale time, as a run left waiting at a gate for hours would."""
+        record = json.loads(lock.read_bytes())
+        record["acquired_at"] = stale_since
+        lock.write_bytes((json.dumps(record) + "\n").encode("utf-8"))
+
+    def acquire() -> tuple[dict, dict]:
+        code, out = _lock_main(lock_module, calls["acquire"], base, capsys)
+        assert code == 0 and out["acquired"] is True, out
+        return out, {**base, "lock_owner": out["owner"]}
+
+    a, run_a = acquire()
+    assert a["stale_replaced"] is None and a["stale_after_minutes"] == 60
+    assert re.fullmatch(r"update-skill:lib:\d{8}T\d{6}Z-[0-9a-f]{8}", a["owner"]), a["owner"]
+    assert Path(a["lock"]).as_posix() == lock.as_posix()
+    # a second update halts while the lock is fresh; the message names the file to delete when no update runs
+    code, b = _lock_main(lock_module, calls["acquire"], base, capsys)
+    assert code == 3 and b["acquired"] is False and b["held_by"] == a["owner"]
+    assert str(lock) in b["message"] and "stale" in b["message"]
+    # the first renews before merge.md and write.md write (`refreshed` true: still its lock), and releases at the end
+    for renewal in ("renew", "renew-write"):
+        code, renewed = _lock_main(lock_module, calls[renewal], run_a, capsys)
+        assert code == 0 and renewed["refreshed"] is True, renewal
+    code, released = _lock_main(lock_module, calls["release"], run_a, capsys)
+    assert code == 0 and released["released"] is True and not lock.exists()
+    code, again = _lock_main(lock_module, calls["halt-release"], run_a, capsys)
+    assert code == 0 and again["released"] is False and again["reason"] == "absent"
+
+    # A waits at a gate past the stale time, B takes the lock over: A's renewal halts (exit 3), A's halt leaves
+    # B's lock, and B's release removes it
+    a, run_a = acquire()
+    age()
+    b, run_b = acquire()
+    assert b["stale_replaced"] == {"held_by": a["owner"], "held_since": stale_since}
+    code, renewed = _lock_main(lock_module, calls["renew"], run_a, capsys)
+    assert code == 3 and renewed["held_by"] == b["owner"]
+    code, left = _lock_main(lock_module, calls["init-release"], run_a, capsys)
+    assert code == 0 and (left["released"], left["reason"]) == (False, "not-owner") and lock.exists()
+    code, released = _lock_main(lock_module, calls["release"], run_b, capsys)
+    assert code == 0 and released["released"] is True and not lock.exists()
+    # B finished and released while A still waited: A's renewal exits 0 but takes the lock anew (`refreshed`
+    # false, nothing replaced), so A halts before it writes, and A's halt releases the lock that renewal took
+    code, renewed = _lock_main(lock_module, calls["renew-write"], run_a, capsys)
+    assert code == 0 and (renewed["acquired"], renewed["refreshed"], renewed["stale_replaced"]) == (True, False, None)
+    code, released = _lock_main(lock_module, calls["halt-release"], run_a, capsys)
+    assert code == 0 and released["released"] is True and not lock.exists()
+
+    # B's lock went stale too while B waited: A's renewal replaces it (`refreshed` false, `stale_replaced` names
+    # B), A halts and releases, and B's own renewal then finds no lock and halts as well
+    a, run_a = acquire()
+    age()
+    b, run_b = acquire()
+    age()
+    code, renewed = _lock_main(lock_module, calls["renew"], run_a, capsys)
+    assert code == 0 and renewed["refreshed"] is False
+    assert renewed["stale_replaced"] == {"held_by": b["owner"], "held_since": stale_since}
+    code, released = _lock_main(lock_module, calls["halt-release"], run_a, capsys)
+    assert code == 0 and released["released"] is True
+    code, renewed = _lock_main(lock_module, calls["renew-write"], run_b, capsys)
+    assert code == 0 and (renewed["refreshed"], renewed["stale_replaced"]) == (False, None)
+    code, released = _lock_main(lock_module, calls["halt-release"], run_b, capsys)
+    assert code == 0 and released["released"] is True and not lock.exists()
+
+    # the PID and time lines an older SKF version wrote name no owner and go stale the same way
+    lock.write_bytes(b"12345\n2020-01-01T00:00:00Z\n")
+    code, c = _lock_main(lock_module, calls["acquire"], base, capsys)
+    assert code == 0 and c["stale_replaced"] == {"held_by": None, "held_since": stale_since}
+
+
+# --------------------------------------------------------------------------
+# Versions from skf-skill-inventory.py (#597)
+# --------------------------------------------------------------------------
+
+
+def test_versions_come_from_the_inventory_helper(capsys):
+    """init §6c orders the source's version against the skill's, merge §6b takes the next patch (#597)."""
+    for path in (INIT, MERGE):
+        assert yaml.safe_load(_frontmatter(_read(path)))["skillInventoryProbeOrder"] == INVENTORY_PATHS, path.name
+    six_c = _slice(_read(INIT), "### 6c. Detect the Source Version", "### 7.")
+    order = _fence(six_c, "uv run {skillInventoryHelper} version order")
+    for token in ("bind `{source_version_detected}` ← `a.normalized`", "When `major_minor` is `lower`",
+                  "reads {a.normalized}, older than {version}", "Never compare the two by hand", "`NOT_A_VERSION`",
+                  "When no version file gives one, leave `{source_version_detected}` unset"):
+        assert token in six_c, token
+    assert "strip build metadata as" not in six_c
+    choose = _slice(_read(MERGE), "**Choose the version this update writes**", "**Create the version folder**")
+    next_patch = re.search(r"`(uv run \{skillInventoryHelper\} version next-patch [^`]*)`", choose)
+    assert next_patch, "merge §6b runs no next-patch"
+    for token in ("bind `{new_version}` ← `next_patch`", "Never increment it by hand",
+                  "HALT with status `halted-for-write-failure` before writing anything",
+                  'phase: "merge:new-version-folder", path: "{skill_package}/metadata.json"'):
+        assert token in choose, token
+    assert "Version Sanitization" not in choose
+    inventory = _module(INVENTORY_HELPER, "skf_skill_inventory_prose")
+
+    def run(call: str, values: dict) -> tuple[int, dict]:
+        code = inventory.main(_argv(call, "skillInventoryHelper", values))
+        return code, json.loads(capsys.readouterr().out)
+
+    code, out = run(order, {"the source's version": "v1.10.0+build.7", "version": "1.9.0"})
+    assert code == 0 and out["order"] == "higher" and out["a"]["normalized"] == "1.10.0"
+    code, out = run(order, {"the source's version": "1.2.0", "version": "1.2.1"})
+    assert code == 0 and (out["order"], out["major_minor"]) == ("lower", "equal")  # no source-version-lower
+    code, out = run(order, {"the source's version": "1.9.4", "version": "2.0.1"})
+    assert code == 0 and (out["order"], out["major_minor"]) == ("lower", "lower")
+    code, out = run(order, {"the source's version": "dynamic", "version": "1.0.0"})
+    assert code == 1 and out["code"] == "NOT_A_VERSION"
+    code, out = run(next_patch.group(1), {"version": "1.2.3"})
+    assert code == 0 and out["next_patch"] == "1.2.4"
+    code, out = run(next_patch.group(1), {"version": "1.2.3-rc.1"})
+    assert code == 0 and out["next_patch"] == "1.2.3"
+
+
+# --------------------------------------------------------------------------
+# The verifier's definition-lines, fix and kind-at (#584, #549)
+# --------------------------------------------------------------------------
+
+API_PY = b"import os\n\n\n@decorate\ndef search(q):\n    return q\n"
+
+
+def test_spot_check_reads_definition_lines_from_the_verifier(tmp_path, capsys):
+    """re-extract §0's spot-check asks definition-lines, the rules write §6a's verify applies (#584)."""
+    text = _read(RE_EXTRACT)
+    assert yaml.safe_load(_frontmatter(text))["verifyProvenanceCompletenessProbeOrder"] == VERIFIER_PATHS
+    # one missing-helper policy for the verifier in every stage file: advisory, and never a line found by eye
+    comment = _comment_before(_frontmatter(text), "verifyProvenanceCompletenessProbeOrder")
+    assert "when §0 bullet 2 first needs it" in comment and "records `unknown`" in comment
+    assert "Advisory" in comment and "HALT" not in comment
+    assert "Advisory" in _comment_before(_frontmatter(_read(WRITE)), "verifyProvenanceCompletenessProbeOrder")
+    found = _slice(text, "   - **If export found:**", "   - Record verification outcome:")
+    call = _fence(found, "uv run {verifyProvenanceCompletenessHelper} definition-lines")
+    for token in ("Take the definition lines from its output, never by eye", "`file-missing`",
+                  "`skipped-export-type`",
+                  "`skipped-language` means the rules cover no such file: read the file and take the line that "
+                  "declares the export itself, never a decorator or comment above it",
+                  "Record `unknown` for an entry whose call exits 2 or prints no JSON.",
+                  "When no candidate resolves, record `unknown` for every entry and add `provenance: spot-checks not "
+                  "run: skf-verify-provenance-completeness.py is missing; re-install SKF` to `warnings[]`"):
+        assert token in found, token
+    for gone in ("PEP 695", "**TS/JS:**", "**Python:**", "**Indentation:**", "read the whole source file",
+                 "they cover Python and TS/JS", "a definition one line away", "re-extract:spot-check"):
+        assert gone not in text, gone
+    outcome = _slice(text, "   - Record verification outcome:", "\n")
+    for token in ("`line_is_definition` true", "`definition_lines` holds that one line",
+                  "`line_check` is `file-missing`", "(an empty `definition_lines`)"):
+        assert token in outcome, token
+    assert "found that line by the verifier's text rules" in _slice(_read(MERGE), "**Priority 5", "**Priority 6")
+    verifier = _module(VERIFIER, "skf_verify_provenance_spot_check_prose")
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    (src / "lib.rs").write_bytes(b"pub fn add() {}\n")
+
+    def run(values: dict, optional: bool = False) -> dict:
+        argv = _argv(call, "verifyProvenanceCompletenessHelper", {"source_root": str(src), **values}, optional)
+        assert verifier.main(argv) == 0
+        return json.loads(capsys.readouterr().out)
+
+    entry = {"source_file": "pkg/api.py", "export_name": "search", "export_type": "function"}
+    out = run({**entry, "source_line": "5"})
+    assert (out["line_check"], out["line_is_definition"], out["definition_lines"]) == ("checked", True, [5])
+    out = run({**entry, "source_line": "4"}, optional=True)  # the decorator line: `moved` to 5
+    assert (out["line_is_definition"], out["definition_lines"]) == (False, [5])
+    assert run({**entry, "source_file": "pkg/gone.py", "source_line": "5"})["line_check"] == "file-missing"
+    assert run({**entry, "source_line": "1", "export_type": "module"}, optional=True)["line_check"] == \
+        "skipped-export-type"
+    rust = run({"source_file": "lib.rs", "export_name": "add", "source_line": "1"})
+    assert rust["line_check"] == "skipped-language"
+
+
+def test_6a_fixes_through_the_verifier_and_skips_the_set_diff_for_a_reference_app(tmp_path, capsys):
+    """§6a writes verify's JSON beside the lock and hands it to fix; a reference app gets no orphans (#549, #584)."""
+    six_a = _slice(_read(WRITE), "### 6a.", "### 6b.")
+    verify = _fence(six_a, "uv run {verifyProvenanceCompletenessHelper} verify")
+    fix = _fence(six_a, "uv run {verifyProvenanceCompletenessHelper} fix")
+    assert f'-o "{VERIFY_JSON}"' in verify and f'--verify "{VERIFY_JSON}"' in fix
+    assert '--manual-inventory "{manual_inventory}"' in fix and "[--no-line-moves]" in fix
+    for token in ("- `summary.set_diff`: `not-applicable` for a reference app (`scope_type: reference-app`",
+                  "its `status` comes from `stale[]`, `citations[]` and `node_kinds[]` alone",
+                  "note `set diff not applicable: reference app` in the Validation Summary, never as a WARN",
+                  "- **`manual_verify.ok` is false** (a [MANUAL] block changed): HALT with status "
+                  "`halted-for-manual-mismatch`",
+                  'phase: "write:verify-manual-integrity", path: "{skill_package}/SKILL.md", reason: "[MANUAL] blocks '
+                  'changed after the provenance fixes: ..."',
+                  "Never apply them by hand", "each `left_as_warn[]` item stays for a person to decide",
+                  "a finding `fix` left as `line-moves-skipped`"):
+        assert token in six_a, token
+    assert ("`fix` prints `applied[]` (each fix it made), `left_as_warn[]` (each finding it left for a person, with "
+            "its `why`), `files_written[]` and `manual_verify`") in six_a
+    for gone in ("plan every move before making any", "apply every planned citation move in one pass",
+                 "Skip this step when", "moves no citation of a line another entry also records",
+                 "writes each changed file through skf-atomic-write.py", "which only a gap-driven run reaches"):
+        assert gone not in six_a, gone
+    grace = _slice(six_a, "**Graceful degradation:**", "\n")
+    assert "Skip the set diff for a reference app (`scope_type: reference-app`" in grace
+    assert "note `set diff not applicable: reference app`" in grace
+
+    verifier = _module(VERIFIER, "skf_verify_provenance_fix_prose")
+    src = tmp_path / "src"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    package = tmp_path / "skills" / "app" / "1.0.1" / "app"
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_bytes(
+        b"---\nname: app\n---\n# app\n\nSearch is cached [AST:pkg/api.py:L4].\n\n"
+        b"<!-- [MANUAL:notes] -->\nKeep [SRC:pkg/api.py:L4] as written.\n<!-- [/MANUAL:notes] -->\n")
+    (package / "metadata.json").write_bytes(json.dumps(
+        {"name": "app", "generated_by": "create-skill", "scope_type": "reference-app", "exports": []}).encode("utf-8"))
+    forge = tmp_path / "forge"
+    forge_version = forge / "app" / "1.0.1"
+    forge_version.mkdir(parents=True)
+    entry = {"export_name": "search", "export_type": "function", "source_file": "pkg/api.py", "source_line": 4,
+             "confidence": "T1-low", "extraction_method": "source-read", "ast_node_type": None,
+             "signature_source": "T1-low"}
+    (forge_version / "provenance-map.json").write_bytes(json.dumps({"entries": [entry]}, indent=2).encode("utf-8"))
+    inventory = forge / "app" / ".skf-update-manual-inventory.json"
+    proc = subprocess.run([sys.executable, str(HASH_CONTENT), "manual-inventory", str(package / "SKILL.md")],
+                          capture_output=True)
+    assert proc.returncode == 0, proc.stderr
+    inventory.write_bytes(proc.stdout)
+    values = {"skill_package": str(package), "forge_version": str(forge_version), "source_root": str(src),
+              "forge_data_folder": str(forge), "skill_name": "app", "manual_inventory": str(inventory)}
+
+    assert verifier.main(_argv(verify, "verifyProvenanceCompletenessHelper", values)) == 1
+    found = json.loads((forge / "app" / ".skf-update-verify.json").read_bytes())
+    assert found["summary"]["set_diff"] == "not-applicable" and found["missing"] == found["orphaned"] == []
+    assert [s["reason"] for s in found["stale"]] == ["line-not-definition"]
+    assert [c["reason"] for c in found["citations"]] == ["prefix-mismatch"]
+    code = verifier.main(_argv(fix, "verifyProvenanceCompletenessHelper", values))
+    fixed = json.loads(capsys.readouterr().out)
+    assert code == 1 and fixed["manual_verify"]["ok"] is True
+    assert sorted(a["kind"] for a in fixed["applied"]) == ["citation-line", "citation-prefix", "source-line"]
+    assert [(w["kind"], w["why"]) for w in fixed["left_as_warn"]] == [("citation-line", "inside-manual-block")]
+    skill_md = (package / "SKILL.md").read_bytes()
+    assert b"Search is cached [SRC:pkg/api.py:L5]." in skill_md
+    assert b"Keep [SRC:pkg/api.py:L4] as written." in skill_md
+    assert json.loads((forge_version / "provenance-map.json").read_bytes())["entries"][0]["source_line"] == 5
+    assert verifier.main(_argv(verify, "verifyProvenanceCompletenessHelper", values)) == 0
+    # the verify JSON beside the lock is one of SKF's own names: the forge folder stays SKF's
+    proc = subprocess.run([sys.executable, str(INVENTORY_HELPER), str(tmp_path / "skills"), "--skill", "app",
+                           "--forge-data-folder", str(forge)], capture_output=True, encoding="utf-8")
+    group = json.loads(proc.stdout)["forge_groups"][0]
+    assert (group["ownership"], group["foreign_entries"]) == ("skf", []), group
+
+
+UNQUOTED_OK = {"{source_line}"}  # a line number, never a path
+
+
+def _unquoted_placeholders(call: str, helper: str) -> list[str]:
+    """The `{...}` values of a documented call outside double quotes, less a line number."""
+    rest = call.split("uv run {" + helper + "}", 1)[1]
+    outside = rest.split('"')[::2]  # the text around each quoted argument
+    return [p for part in outside for p in re.findall(r"\{[^{}]+\}", part) if p not in UNQUOTED_OK]
+
+
+def test_documented_helper_calls_quote_every_path():
+    """A project path with a space (common under Windows and macOS user folders) stays one argument in every
+    helper call this change documents: each path it passes sits in double quotes. _argv fills the values after
+    the split, so it cannot see an unquoted one."""
+    assert _unquoted_placeholders('uv run {h} x --a {p}/b "{q}" --line {source_line}', "h") == ["{p}"]
+    calls = [(call, "runLockHelper") for call in _lock_calls().values()]
+    six_c = _slice(_read(INIT), "### 6c. Detect the Source Version", "### 7.")
+    calls.append((_fence(six_c, "uv run {skillInventoryHelper} version order"), "skillInventoryHelper"))
+    choose = _slice(_read(MERGE), "**Choose the version this update writes**", "**Create the version folder**")
+    next_patch = re.search(r"`(uv run \{skillInventoryHelper\} version next-patch [^`]*)`", choose)
+    assert next_patch, "merge §6b runs no next-patch"
+    calls.append((next_patch.group(1), "skillInventoryHelper"))
+    verifier = "verifyProvenanceCompletenessHelper"
+    found = _slice(_read(RE_EXTRACT), "   - **If export found:**", "   - Record verification outcome:")
+    calls.append((_fence(found, "uv run {" + verifier + "} definition-lines"), verifier))
+    six_a = _slice(_read(WRITE), "### 6a.", "### 6b.")
+    for sub in ("verify", "fix"):
+        calls.append((_fence(six_a, "uv run {" + verifier + "} " + sub), verifier))
+    kind_at = re.findall(r"`(uv run \{" + verifier + r"\} kind-at [^`]*)`", _read(WRITE))
+    assert len(kind_at) == 2, kind_at
+    calls += [(call, verifier) for call in kind_at]
+    assert len(calls) == 13
+    for call, helper in calls:
+        assert _unquoted_placeholders(call, helper) == [], call
+
+
+def test_node_kinds_are_looked_up_with_kind_at():
+    """write §2's relabel and §6a's node-kind fix run one kind-at call, with the patterns file as --recipes (#584)."""
+    write = _read(WRITE)
+    frontmatter = yaml.safe_load(_frontmatter(write))
+    # one name for extraction-patterns.md in every stage file, as re-extract.md names it
+    assert "extractionPatternsProbeOrder" not in frontmatter and "{extractionPatterns}" not in write
+    assert "{extractionPatterns}" not in _read(RE_EXTRACT)
+    assert frontmatter["extractionPatternsDataProbeOrder"] == [
+        "{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md",
+        "{project-root}/src/skf-create-skill/references/extraction-patterns.md"]
+    two = _slice(write, "### 2. Write Updated metadata.json", "### 3.")
+    six_a = _slice(write, "### 6a.", "### 6b.")
+    calls = []
+    for section in (two, six_a):
+        match = re.search(r"`(uv run \{verifyProvenanceCompletenessHelper\} kind-at [^`]*)`", section)
+        assert match, "no kind-at call"
+        calls.append(match.group(1))
+    assert calls[0] == calls[1]
+    assert '--recipes "{extractionPatternsData}"' in calls[0]
+    assert "which runs the ast-grep recipes for its language" not in two
+    for section in (two, six_a):
+        assert "`status` is `found`" in section and "never invent a kind" in section.replace("Never", "never")
+    assert "run the recipes `{extraction" not in six_a
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
+def test_the_documented_kind_at_call_runs(tmp_path, capsys):
+    """The kind-at call write §2 and §6a document finds a recipe's kind with the probe-ordered patterns (#584)."""
+    write = _read(WRITE)
+    call = re.search(r"`(uv run \{verifyProvenanceCompletenessHelper\} kind-at [^`]*)`", write).group(1)
+    patterns = yaml.safe_load(_frontmatter(write))["extractionPatternsDataProbeOrder"][1]
+    src = tmp_path / "src"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    values = {"source_root": str(src), "source_file": "pkg/api.py", "source_line": "5", "export_name": "search",
+              "extractionPatternsData": str(REPO_ROOT / patterns[len("{project-root}/"):])}
+    verifier = _module(VERIFIER, "skf_verify_provenance_kind_at_prose")
+    code = verifier.main(_argv(call, "verifyProvenanceCompletenessHelper", values))
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and (out["status"], out["kind"]) == ("found", "function_definition"), out
+
+
+# --------------------------------------------------------------------------
+# The drift override counts nothing at HEAD (W1 handoff), and the AST protocol
+# --------------------------------------------------------------------------
+
+
+def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
+    """Under the override write §2 takes no public API count from HEAD, so a rescope, which needs one, halts (#557)."""
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    counts = _slice(two, "  **Public API counts under the drift override**", "\n")
+    for token in ("count nothing at `{source_root}`, which is HEAD, not the pinned commit",
+                  "the values `{skill_package}/metadata.json` records in `stats`",
+                  "once the queued `metadata_patches[]` above are applied",
+                  "step 3's drift gate halted on every new, modified or rescoped export"):
+        assert token in counts, token
+    assert (two.index("  **Judgment payload") < two.index("  **Public API counts under the drift override**")
+            < two.index("  **Shape:**"))
+    assert "- `a public API recount from the tree (rule R1)`: a rescope (`DELETED_EXPORT`);" in _drift_gate()
+    zero_a = _zero_a()
+    assert "and on every rescope, whose stats recount would count the public API there" in zero_a
+    assert "write.md §2 keeps the public API counts metadata.json records" in zero_a
+    deleted = _slice(_read(RE_EXTRACT), "   - **If the entry is `DELETED_EXPORT` (rescope, rule R1):**", "\n")
+    assert "the §0.a drift gate halted on every `DELETED_EXPORT` before bullet 1" in deleted
+    init = _slice(_read(INIT), "- `--allow-workspace-drift` (gap-driven mode only)", "\n")
+    assert "counts no public API there" in init
+    assert "which every new or modified export does, and on every rescope" in init
+    flags = _slice(_read(SKILL), "| **Flags** |", "\n")
+    assert "a gap that needs the pinned tree, a rescope included, halts `halted-for-workspace-drift`" in flags
+    # the rescope's amendment stays in the brief: the halt names it, since a re-run appends it again
+    gate = _drift_gate()
+    assert "A rescope's amendment, which step 2 wrote to the skill brief (rule R1), stays there, and the message " \
+           "names it" in gate
+    message = _fence(gate, "Workspace drift blocks {N} gap(s)")
+    for token in ("{if a gap above is a rescope:",
+                  "Kept in skill-brief.yaml, which step 2 amended for the rescopes above.",
+                  "re-run adds them again, so remove them before you re-run or drop the repair:",
+                  "{for each rescope: - {name}: its scope.amendments[] entry and scope.exclude {path}}}"):
+        assert token in message, token
+    assert "kept in skill-brief.yaml: {name} (scope.exclude {path})" in _slice(gate, "In `{headless_mode}`", "\n")
+    summary = yaml.safe_load(_read(REPO_ROOT / "changes" / "update-drift-override-halts.yaml"))["summary"]
+    for token in ("no count of the public API", "and as a rescope (a gap that takes an export out of the skill's "
+                  "scope) does", "the stats keep the public API counts `metadata.json` records",
+                  "it names the scope amendment each rescope already wrote to the skill brief"):
+        assert token in summary, token
+    assert "(removals, provenance line fixes" not in summary
+
+
+def test_forge_tier_follows_the_ast_extraction_protocol():
+    """The #556 pre-release fix for the AST extraction protocol, update part: re-extract §1b runs the protocol over
+    the changed files and states only the wiring the protocol does not carry, and §2's workers take its matches."""
+    text = _read(RE_EXTRACT)
+    one_b = _slice(text, "### 1b. Determine Extraction Strategy by Tier", "### 2. Extract Changed Files")
+    forge = _slice(one_b, "**Forge tier (AST structural extraction):**", "**Tier degradation handling")
+    for token in ("Run the **AST Extraction Protocol** in `{extractionPatternsData}` with §2's changed files "
+                  "(in §0a, its resolved file set) as its files in scope",
+                  "the per-file workers (§2, §0a) take their file's matches from those runs",
+                  "A run that returns as many matches as its cap is incomplete, and an export it dropped would read "
+                  "as deleted"):
+        assert token in forge, token
+    # the protocol's thresholds, line rule and Known Limitations live in extraction-patterns.md only
+    for gone in ("500", "find_code", ".vue", "metaVariables", "range.start.line", "Known Limitation", "--json",
+                 "forward slashes", "the decision tree based on the number of changed files"):
+        assert gone not in forge, gone
+    tool = _slice(one_b, "**Tool resolution:**", "\n")
+    assert "`find_code` only as the fallback of Known Limitation #4" in tool
+    assert "ast-grep MCP tools (`find_code`, `find_code_by_rule`)" not in tool
+    worker = _slice(text, "launch a subprocess that:", "3. Extract each export")
+    assert ("2. At Forge tier and above, takes this file's matches from §1b's recipe runs; at Quick tier, matches "
+            "the file's text as §1b says") in worker
+    assert "Performs tier-appropriate extraction" not in worker
 
 
 # --------------------------------------------------------------------------
@@ -648,7 +1265,8 @@ def test_drift_status_binding_and_warning():
 
 
 DRIFT_GATE = "**Drift gate (only when `{workspace_drift_status}` is `overridden`).**"
-GATE_REASONS = ["a line from the tree (rule R3)", "a line and a signature from the tree", "a signature from the tree"]
+GATE_REASONS = ["a public API recount from the tree (rule R1)", "a line from the tree (rule R3)",
+                "a line and a signature from the tree", "a signature from the tree"]
 
 
 def _drift_gate() -> str:
@@ -666,7 +1284,9 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
                   "merge Priority 4 replaces a modified export's content with a fresh extraction",
                   "merge Priority 5 appends a new export's content",
                   "HALT with status `halted-for-workspace-drift` before merge runs",
-                  "nothing is written and §0a never runs",
+                  "merge writes nothing and §0a never runs",
+                  "A rescope's amendment, which step 2 wrote to the skill brief (rule R1), stays there",
+                  "Every `DELETED_EXPORT` needs the tree as well: in gap-driven mode it is a rescope (rule R1)",
                   'phase: "re-extract:workspace-drift"'):
         assert token in gate, token
     # severity and the map no longer decide whether an entry halts: the #551 conditions are gone
@@ -690,7 +1310,7 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
                   "Run a normal update (without --from-test-report)"):
         assert token in message, token
     headless = _slice(gate, "In `{headless_mode}`", "\n")
-    assert 'reason: "drift-override: {N} gap(s) need the pinned tree: {name} ({reason}), ..."' in headless
+    assert 'reason: "drift-override: {N} gap(s) need the pinned tree: {name} ({reason}), ...' in headless
     # the gate runs before any spot-check, and §0a says it never runs under the override
     assert text.index("**Drift gate") < text.index("1. Use the provenance map") < text.index("### 0a.")
     used_by = _slice(text, "**Used by:** §0 bullet 2", "**Purpose:**")
@@ -715,17 +1335,19 @@ def test_every_change_category_halts_or_passes_the_drift_gate():
     assert categories == ["NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT", "STRUCTURAL_FIX",
                           "metadata update"]
     gate = _drift_gate()
-    halts = _slice(gate, "Every `NEW_EXPORT`", " needs it,")
-    passes = _slice(gate, "A `DELETED_EXPORT`", " need nothing from the tree and pass.")
+    halts = _slice(gate, "Every `NEW_EXPORT`", " needs it,") + _slice(gate, "Every `DELETED_EXPORT`", " needs the tree")
+    passes = _slice(gate, "A rule R5 `MOVED_EXPORT`", " need nothing from the tree and pass.")
     for category in categories:
         token = f"`{category}`"
         assert (token in halts) != (token in passes), category
-    assert "`NEW_EXPORT`" in halts and "`MODIFIED_EXPORT`" in halts
+    assert "`NEW_EXPORT`" in halts and "`MODIFIED_EXPORT`" in halts and "`DELETED_EXPORT`" in halts
 
 
 def test_merge_says_no_new_or_modified_export_arrives_under_the_override():
-    """Merge Priority 4 and 5 state the route under the override: the drift gate halted first (#557)."""
+    """Merge Priority 1, 4 and 5 state the route under the override: the drift gate halted first (#557)."""
     merge = _read(MERGE)
+    one = _slice(merge, "**Priority 1", "**Priority 2")
+    assert "no `DELETED_EXPORT` reaches this priority: step 3's drift gate halted on every rescope" in one
     four = _slice(merge, "**Priority 4", "**Priority 5")
     assert "no `MODIFIED_EXPORT` reaches this priority" in four
     assert "could only be read at HEAD, so step 3's drift gate halted on it before merge" in four
@@ -739,14 +1361,14 @@ def test_relabel_runs_no_recipe_under_the_override():
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
     relabel = _slice(two, "**Label violations.**", "\n")
     drift = _slice(relabel, "**Under the drift override**", "When the run cannot tell")
-    for token in ("run no recipe at `{source_root}`",
+    for token in ("run no recipe at `{source_root}`, so no `kind-at`",
                   "Leave each violation that needs a kind from the tree in place",
                   "list it as a WARN ending ` " + DRIFT_NOTE + ")`",
                   "a relabel that reads nothing from the tree still applies",
-                  "With the status `ok` or `skipped`, run the recipes as above"):
+                  "With the status `ok` or `skipped`, run the lookup as above"):
         assert token in drift, token
-    # the gate follows the recipe run it gates, and the re-run keeps the shape (#550)
-    assert relabel.index("run the ast-grep recipes for its language") < relabel.index("**Under the drift override**")
+    # the gate follows the lookup it gates, and the re-run keeps the shape (#550)
+    assert relabel.index("kind-at --source-root") < relabel.index("**Under the drift override**")
     assert "re-run the helper with the same payload and `--shape`" in relabel
 
 
@@ -786,7 +1408,7 @@ def test_spot_checks_move_and_pin_no_line_under_the_override():
     cited = _slice(text, "     - **If the manifest entry has a `source_citation`", "\n")
     drift = "under the drift override (`{workspace_drift_status}` is `overridden`, §0.a) no entry reaches this branch"
     assert drift in cited
-    assert cited.index(drift) < cited.index("Otherwise read the file that citation names")  # drift clause first
+    assert cited.index(drift) < cited.index("Otherwise run the \"export found\" branch's `definition-lines` call")
     assert "the §0.a drift gate halted on every `NEW_EXPORT` and `MODIFIED_EXPORT` before bullet 1" in cited
     assert "unknown_reason: drift-override" not in cited  # no cited export is kept from its spot-check any more
     assert "so step 6 writes" not in cited and "write.md §3 adds a full entry" in cited
@@ -857,11 +1479,11 @@ def test_write_adds_the_cited_export_entry_and_names_the_drift():
     assert "- **Any record whose `reachability` is `not-checked`**" not in three
     write = _read(WRITE)
     six_a = _slice(write, "### 6a.", "### 6b.")
-    assert "Skip this step when `{workspace_drift_status}` is `overridden`" in six_a
+    assert "Pass `--no-line-moves` when `{workspace_drift_status}` is `overridden`" in six_a
     drift_6a = _slice(six_a, "**Under the drift override** (`{workspace_drift_status}` is `overridden`, step 3 §0.a)",
                       "\n")
     for token in ("end the `Provenance:` line of the Validation Summary", "`file-missing`, `line-out-of-bounds`",
-                  "an unverified export or a finding step 2 skipped", DRIFT_NOTE):
+                  "an unverified export or a finding `fix` left as `line-moves-skipped`", DRIFT_NOTE):
         assert token in drift_6a, token
     assert "allow_workspace_drift" not in write
     priority5 = _slice(_read(MERGE), "**Priority 5", "**Priority 6")
@@ -907,8 +1529,9 @@ def _doc_line(name: str, *needles: str) -> str:
 def test_override_is_described_where_the_flag_is():
     """init.md, SKILL.md and the docs say the override moves or pins no line and halts on gaps that need one.
 
-    init.md and SKILL.md also say it takes no signature, parameter list, return type or node kind from HEAD
-    (#557); the docs pages follow in the docs package that owns them.
+    init.md and both docs pages also say it takes no signature, parameter list, return type or node kind from
+    HEAD, so every new or modified export halts, whatever its severity, and SKILL.md gives the flag one clause
+    (#557).
     """
     init = _slice(_read(INIT), "- `--allow-workspace-drift` (gap-driven mode only)", "\n")
     assert "moves or pins no provenance line read there" in init and "halted-for-workspace-drift" in init
@@ -916,18 +1539,33 @@ def test_override_is_described_where_the_flag_is():
                   "reads no signature, parameter list, return type or node kind there",
                   "which every new or modified export does"):
         assert token in init, token
+    # SKILL.md gives the caller one clause; re-extract.md §0.a holds what the override keeps out
     flags = _slice(_read(SKILL), "| **Flags** |", "\n")
-    assert "no provenance line read at HEAD is moved or pinned" in flags
     for token in ("update-skill takes nothing from HEAD",
-                  "no signature, parameter list, return type or node kind is read there",
-                  "as every new or modified export does, halts `halted-for-workspace-drift` before merge"):
+                  "a gap that needs the pinned tree, a rescope included, halts `halted-for-workspace-drift` before "
+                  "merge"):
         assert token in flags, token
-    # the docs package rewrites these two lines for #557, so pin only what any wording of the rule keeps
+    # the docs say it in their own words; the #551 wording, under which only a gap that needed a line halted, is gone
     gap_driven = ("`--allow-workspace-drift`", "Update Skill with `--from-test-report`")
     verifying = _doc_line("verifying-a-skill.md", *gap_driven)
-    assert "provenance line" in verifying and "`halted-for-workspace-drift`" in verifying
     workflows = _doc_line("workflows.md", *gap_driven)
-    assert "provenance line" in workflows
+    for doc in (verifying, workflows):
+        for token in ("takes nothing from", "provenance line", "signature, parameter list, return type or node kind",
+                      "new or changed export", "whatever its severity", "`halted-for-workspace-drift`",
+                      "before it changes the skill"):
+            assert token in doc, token
+    assert "a gap that needs a line from the source" not in verifying
+    assert "stops on a gap that needs one" not in workflows
+    # the reports verifying-a-skill.md says still run hold only categories the drift gate lets through; removed
+    # exports stay out, as the gate halts on a rescope once write.md §2 keeps the recorded public API counts
+    gate = _drift_gate()
+    end = gate.index(" need nothing from the tree and pass.")
+    passes = gate[gate.rindex(". ", 0, end) + 2:end]
+    still_runs = _slice(verifying, "A report whose gaps are only", " still runs")
+    for category, words in (("MOVED_EXPORT", "provenance line fixes"), ("STRUCTURAL_FIX", "structural fixes"),
+                            ("metadata update", "metadata patches")):
+        assert f"`{category}`" in passes and words in still_runs, category
+    assert "removed exports" not in still_runs
     for text in (init, flags, verifying, workflows):
         assert "\u2014" not in text
 

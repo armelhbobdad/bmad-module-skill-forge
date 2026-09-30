@@ -15,6 +15,9 @@ validateBriefSchemaProbeOrder:
 emitBriefEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
+githubProbeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-github-probe.py'
+  - '{project-root}/src/shared/scripts/skf-github-probe.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -162,7 +165,7 @@ Wait for user response. Branch:
 - **[R] Ratify** — Confirm overwrite up front: store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context. Hydrate the brief context variables from the parsed `brief` payload so step 4 has the same field set it normally derives from steps 1-3:
   - `name` ← `brief.name`; `version` ← `brief.version`; `target_version` ← `brief.target_version`
   - `target_ref` ← `brief.target_ref`; `source_ref` ← `brief.source_ref` (optional git refs; preserve when present)
-  - `source_repo` ← `brief.source_repo`; `source_type` ← `brief.source_type`; `source_authority` ← `brief.source_authority`; `doc_urls` ← `brief.doc_urls`
+  - `source_repo` ← `brief.source_repo`; `source_type` ← `brief.source_type` (`source` when absent, the schema default); `source_authority` ← `brief.source_authority`; `doc_urls` ← `brief.doc_urls`
   - `language` ← `brief.language`; `description` ← `brief.description`; `forge_tier` ← `brief.forge_tier`
   - `created` ← `brief.created`; `created_by` ← `brief.created_by`
   - `scope.type` / `scope.include` / `scope.exclude` / `scope.tier_a_include` / `scope.notes` / `scope.rationale` / `scope.amendments` ← `brief.scope.*` (preserve `tier_a_include` and the `amendments` log verbatim — do not re-derive or drop them)
@@ -189,11 +192,12 @@ Skip §3.3 and continue at "Confirm the target" below.
 #### 3.3 Branch — Source (GitHub URL or local path)
 
 - Set `source_type: "source"` (default)
-- **Pre-validate the target before continuing.** Issue these probes in a single message with parallel Bash calls:
-  - **GitHub URL:** `curl -sI --max-time 5 {url}`. On a 4xx (typically 404 for a typo'd repo or org), warn `"GitHub returned {status} for {url} — confirm the URL is correct."` and re-prompt. On 2xx, accept.
-  - **GitHub URL, in parallel:** `gh api repos/{owner}/{repo} --jq .name` (5-second timeout via `gh api --hostname github.com --method GET ... ` or just rely on default). On 403/404, warn `"GitHub API returned {status} for {owner}/{repo} — the repo may be private or your token may not have access. Step-02 will HALT here if this is not resolved. Continue anyway, or fix and re-prompt?"` and offer `[K] Keep anyway` / re-prompt for a corrected URL. Do not HALT — the canonical HALT still happens in step 2 §1, but surfacing access failures at URL-entry time prevents 5+ minutes of intent investment getting lost. On any other error (network failure, missing binary), log silently and let `gh auth status` below catch it. On 2xx, accept silently.
-  - **GitHub URL, in parallel:** `gh auth status` — if it reports unauthenticated or the binary is missing, warn `"GitHub CLI not authenticated; step 2 will HALT when it tries to fetch the tree. Run 'gh auth login' before continuing, or supply a local clone path instead."` (Do not HALT here — let the user choose to fix or proceed; the canonical HALT still happens in step 2 §1's failure-class triage.)
-  - **Local path:** verify the directory exists (`test -d {path}`). If not, warn `"Local path {path} does not exist."` and re-prompt.
+- **Pre-validate the target before continuing.** An access problem caught at URL entry spares the user 5+ minutes of intent investment. Never HALT here: the canonical HALT stays in step 2 §1.
+  - **GitHub URL:** resolve `{githubProbeHelper}` from `{githubProbeProbeOrder}` (first existing path wins) and run `uv run {githubProbeHelper} repo --repo "{url}" --timeout 20`. It prints one JSON line, and tells a missing or logged-out `gh`, a repository that does not exist and one the account cannot read apart:
+    - `status: "ok"`: accept silently, a private repository that `gh` can read included. When `gh` is `"missing"` or `"unauthenticated"` (the repository was read without it), warn `"The GitHub CLI (gh) is not installed or not logged in: step 2 reads the repository through gh and will HALT until you install it or run 'gh auth login'. Fix it now, or supply a local clone path instead."` and continue.
+    - `status: "unavailable"`: warn with its `message`, which names the cause (`cause`) and the fix, and offer `[K] Keep anyway` or a corrected URL, which is probed the same way. On `[K]`, keep the URL: step 2 §1 reports the cause again if it still holds. Headless: keep the URL and log `"warn: {message}"`; step 2 §1 halts with its classified reason if the cause still holds.
+    - No JSON (the helper is missing, or exits 1 or 2): continue silently; step 2 §1 checks the repository.
+  - **Local path:** verify the directory exists (`test -d {path}`). If not, warn `"Local path {path} does not exist."` and re-prompt. Headless: keep the path and log the warning; step 2 §1 halts with `target-inaccessible`.
 - Optionally ask: "Are there any documentation URLs you'd like to include for supplemental context? (These will be fetched as T3 external references.)"
 - If yes: collect doc URLs into `doc_urls`
 
@@ -352,7 +356,7 @@ The schema's `description` field is 1-3 sentences and surfaces in skill registri
 
 Compose a candidate 1-3 sentence description from the gathered material. **Write like a human library maintainer would** — what does an agent get from this skill, and when should it route here? Two facts must come through (what the skill is, when to use it); everything else is voice. Resist filling in the same skeleton every time.
 
-Load `{descriptionVoiceExamplesPath}` for the five voice examples (range of acceptable leads and structures) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints.
+Load `{descriptionVoiceExamplesPath}` for the five voice examples (range of acceptable leads and structures) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints. Write it in `{document_output_language}`, the language of the text the brief persists.
 
 **Whatever lead you choose, the description must contain a literal `Use when` clause somewhere** — validators test for that exact phrase, so alternatives like "Triggers on…" or "Reach for this when…" do not satisfy it on their own. The clause need not lead: a descriptive opener followed by `Use when …` is both good voice and validator-clean.
 

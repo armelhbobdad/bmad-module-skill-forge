@@ -114,7 +114,7 @@ scope:
 | `recommended` | string (one of the six `scope.type` values) | yes | `skf-recommend-scope-type.py` → `scope_type` |
 | `chosen` | string (one of the six) | yes | final `scope.type` |
 | `accepted_recommendation` | bool | yes | `chosen == recommended` |
-| `heuristic` | string | yes | script `matched_heuristic` |
+| `heuristic` | string | yes | script `matched_heuristic` (values listed in `skf-recommend-scope-type.py`); `user-supplied-arg` when a headless run passed `scope_type`; older briefs may carry `reference-app-keywords` |
 | `reason` | string | yes | accepted → script `rationale` verbatim; overridden → user's stated reason, or `"user overrode {recommended}->{chosen}; reason not stated"` |
 | `recorded` | string (ISO date `YYYY-MM-DD`) | yes | current date — mirrors `amendments[].date` |
 

@@ -32,7 +32,7 @@ Read {outputFile} frontmatter to get the skill directory path (`skillDir`).
 
 ### 1b. Check for Recent Validation Results (Auto-Reuse)
 
-Before running external validators, find the evidence report: `{forge_version}/evidence-report.md`, where SKF writes it, or, only when that file does not exist, the flat-layout `{forge_data_folder}/{skill_name}/evidence-report.md`, where an older skill may still keep it. Bind `{forge_evidence_report}` to the first of the two that exists, and check if it contains validation results (a `## Validation Results` section with quality scores).
+Before running external validators, check whether `{forge_evidence_report}`, the evidence report init.md §2 bound (the skill version folder's, or the flat copy an older skill may still keep), contains validation results (a `## Validation Results` section with quality scores). When it is null, go to section 2.
 
 **Staleness check:** Determine whether SKILL.md has changed since the evidence report was generated. Walk through these checks in order:
 

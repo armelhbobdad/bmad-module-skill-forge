@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  Brief Skill no longer recommends a scope type by matching words in your intent. "Kickstarter-style" no longer reads as asking for a starter app (`reference-app`), "the whole library, not just the parser" no longer reads as naming one module (`specific-modules`), and "not a demo app or starter template" no longer reads as asking for one. The workflow now judges what the intent asks for and hands the recommendation three signals (a wiring pattern wanted, modules named, only the public API wanted), in interactive runs and in headless runs that pass no `scope_type`. The recommendation also reads the repository's file list and its component registry files itself instead of copies typed out by hand, so on a large repository its component-registry check no longer runs on a shortened list, and a headless run now judges a registry file by its contents, as an interactive run does, instead of by its presence alone. A brief whose scope type came from a wiring-pattern intent now records `reference-app-intent` in `scope.rationale.heuristic` instead of `reference-app-keywords`.
+prs: [624]
+issues: [582, 592]

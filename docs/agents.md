@@ -46,7 +46,7 @@ The first three depend on your capability tier, which Setup Forge sets from the 
 
 **Menu:**
 
-Ferris shows his menu as a numbered table and waits for your choice. Pick a row by its code (for example `QS`), its number, or a plain request such as "quick skill".
+Ferris shows his menu as a numbered table and waits for your choice. Pick a row by its code (for example `QS`), its number, or a plain request such as "quick skill". Each workflow works best in a fresh session: when you pick one after another workflow already ran in the same session, Ferris first offers the command to paste into a new session, or the remaining steps chained as a pipeline, and runs it in place only if you ask.
 
 | # | Code | What it does | Skill |
 |---|------|--------------|-------|
@@ -66,9 +66,9 @@ Ferris shows his menu as a numbered table and waits for your choice. Pick a row 
 | 14 | DS | Drop a skill: deprecate it (soft) or purge it (hard) | `skf-drop-skill` |
 | 15 | CA | Run a campaign that builds many coordinated skills across sessions; start it with `@Ferris CA` or `@Ferris campaign` | `skf-campaign` |
 | 16 | KI | List the knowledge fragments, short reference notes that workflows load when a step needs them | built into Ferris |
-| 17 | WS | Show your current lifecycle position, active skill briefs and forge tier | built into Ferris |
+| 17 | WS | Show where each skill stands (briefed, compiled, tested or exported), your forge tier, and the next code to run for each skill in flight | built into Ferris |
 
-On your first run, before Setup Forge has set a capability tier, Ferris points you to four places to start: **SF** (run this first), **QS** (the fastest trial: give it a GitHub URL or package name), **BS** (the guided path to a high-quality skill) and **KI**. If your project also has the BMAD Method installed, you can ask for the `bmad-help` skill at any time for advice on what to do next. A project with SKF alone does not have it. Say "dismiss" or "exit persona" to leave Ferris.
+On your first run, before Setup Forge has set a capability tier, Ferris points you to five places to start: **SF** (run this first), **forge-auto `<repo-or-doc-url>`** (the one-command verified path, from source to a tested, exported skill), **QS** (the fastest trial: an uncited draft from a GitHub URL or package name), **BS** (the guided path to a high-quality skill) and **KI** (the knowledge fragments). If your project also has the BMAD Method installed, you can ask for the `bmad-help` skill at any time for advice on what to do next. A project with SKF alone does not have it. Say "dismiss" or "exit persona" to leave Ferris.
 
 **Pipeline Aliases:**
 

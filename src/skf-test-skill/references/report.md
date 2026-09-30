@@ -30,6 +30,8 @@ skillInventoryProbeOrder:
 
 Generate a detailed gap report listing every issue found during coverage and coherence analysis, assign severity to each gap, provide specific actionable remediation suggestions, and finalize the test report document. Do not recalculate scores — that ran in step 5. This step chains to the local health-check step via `{nextStepFile}` after completion; the user-facing report is not the terminal step.
 
+Every HALT in this step releases the run lock first (SKILL.md Workflow Rules), and §7 releases it when the run ends.
+
 ### 1. Collect All Issues
 
 Read `{outputFile}` and extract every issue found across all analysis sections:
@@ -132,6 +134,21 @@ Realistic prompt patterns for synthesis (§4b.1 fallback):
 
 ### 4c. Result Contract (atomic write)
 
+**Renew the run lock** before anything below writes. The lock init.md §6a took goes stale 60 minutes after it was taken, and a long run can outlast that; an acquire by the owner that holds the lock renews it. From `{project-root}`, run:
+
+```bash
+uv run {runLockHelper} acquire --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"
+```
+
+- Exit 0: the lock is this run's again; continue.
+- Exit 3 (`acquired` is false): another run took the lock over after this run's lock went stale. HALT before writing anything, with "**Another test-skill run took over the run lock for {skill_name}.** This run wrote no result files. {message}", where `{message}` is the helper's. **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
+
+  ```
+  SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":null,"exit_code":1,"halt_reason":"another-run-active"}
+  ```
+
+- Exit 1 or 2, or no JSON: HALT with the helper's stderr message, as init.md §6b does.
+
 **Resolve `{atomicWriteHelper}`:** probe `{atomicWriteProbeOrder}`. HALT if neither candidate exists — the contract is a downstream-consumer protocol and must never be written non-atomically. **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
 
 ```
@@ -139,7 +156,7 @@ SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":nu
 ```
 
 Write the result contract per `{outputContractSchema}`:
-- Per-run record: `{forge_version}/skf-test-skill-result-{run_id}.json` (the `{run_id}` set in step 1 §6a — already carries UTC timestamp + PID + random suffix, so no same-second collision).
+- Per-run record: `{forge_version}/skf-test-skill-result-{run_id}.json` (the `{run_id}` init.md §6a took with the run lock: the UTC time and a random suffix, so two runs in the same second never collide).
 - Latest copy: `{forge_version}/skf-test-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink).
 
 Both writes must go through the atomic writer so partial writes are never observable:
@@ -156,7 +173,7 @@ Payload contents:
 - `runId` — the workflow's `{run_id}` for downstream correlation
 - `healthCheckDispatched` — boolean, set by §7 after the dispatch decision
 
-The `{forge_version}/.test-skill.lock` acquired in step 1 §6b remains held until the end of this step — it guards against concurrent latest-file overwrites.
+The run lock renewed above stays held until §7 releases it after the result contract's last rewrite, so no other run overwrites `skf-test-skill-result-latest.json` meanwhile.
 
 **Post-finalization hook.** If `{onCompleteCommand}` (resolved in SKILL.md On Activation §3 from `workflow.on_complete` scalar) is non-empty, invoke it as:
 
@@ -283,7 +300,7 @@ SKF_TEST_RESULT_JSON: {"status":"success","skill_name":"{skill_name}","verdict":
 
 ### 7. Health-Check Dispatch + MENU OPTIONS
 
-**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from §1 of `init.md` — `--no-health-check` flag on invocation), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). Log Info note "health-check — skipped: --no-health-check flag set" and exit the workflow: in `{headless_mode}`, exit with `{headless_exit_code}` (determined in §6b); non-headless, simply terminate after the §6 presentation. Do not resolve `{healthCheckFile}`, do not display the menu, do not chain to `{nextStepFile}`. This flag is the one path where §7 does not dispatch the health-check.
+**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from the `--no-health-check` flag, `init.md` §1), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). That rewrite is the run's last write to the result files: release the run lock now, from `{project-root}`, with `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"`. Log Info note "health-check: skipped, --no-health-check flag set" and exit the workflow: in `{headless_mode}`, exit with `{headless_exit_code}` (determined in §6b); non-headless, simply terminate after the §6 presentation. Do not resolve `{healthCheckFile}`, do not display the menu, do not chain to `{nextStepFile}`. This flag is the one path where §7 does not dispatch the health-check.
 
 Resolve `{healthCheckFile}`: probe `{healthCheckProbeOrder}` in order. **HALT** if neither candidate exists — the health-check is the true terminal step; without it the workflow cannot complete honestly:
 
@@ -308,6 +325,12 @@ Before displaying the menu, write the dispatch decision into the output report f
 - `health_check_dispatched: false` — should be rare (only if operator explicitly skips, e.g. future flag)
 
 Also mirror the boolean into the `healthCheckDispatched` field of the result contract written in §4c (re-write atomically via `{atomicWriteHelper}` if the dispatch decision is made after the initial contract write).
+
+**Release the run lock:** that rewrite is the run's last write to the result files, and releasing before the menu keeps a run that waits at [C], and the health check after it, from holding the lock. From `{project-root}`, run:
+
+```bash
+uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"
+```
 
 Display: "**Test complete.** [C] Finish"
 

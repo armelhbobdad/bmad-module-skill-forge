@@ -10,6 +10,11 @@ mergeConflictRulesFile: 'references/merge-conflict-rules.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{skillInventoryHelper}` to the first existing path when §6b needs
+# the next patch version; HALT if neither resolves: never pick it by hand.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -51,6 +56,7 @@ Apply merge in the following priority order:
 - If [MANUAL] attached: flag as ORPHAN conflict (do not remove)
 - If no [MANUAL]: remove generated content cleanly
 - **Gap-driven rescopes** (`DELETED_EXPORT` from detect-changes §0 rule R1, verification `rescoped`) are processed here with the same removal. Step 6 also removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). The brief's `scope.amendments[]` (`action: "excluded"`) + `scope.exclude` entry must already exist — step 3 §0 HALTs otherwise, so no unscoped removal reaches here.
+- **Gap-driven, under the drift override:** no `DELETED_EXPORT` reaches this priority: step 3's drift gate halted on every rescope.
 
 **Priority 2 — Process MOVED exports:**
 - Update file:line citations in generated content
@@ -74,7 +80,7 @@ Apply merge in the following priority order:
 - Append new export content to appropriate section
 - Place before any [MANUAL] blocks at section boundary
 - No conflicts expected (new content, no existing [MANUAL])
-- **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (step 3 §0 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check read that line by eye, so the prefix is `SRC`, never `AST`.
+- **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (step 3 §0 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check found that line by the verifier's text rules, not by an ast-grep recipe, so the prefix is `SRC`, never `AST`.
 - **Gap-driven, under the drift override:** no `NEW_EXPORT` reaches this priority either. Step 3's drift gate halted on every one before merge, whatever its severity and whether the provenance map holds it.
 
 **Priority 6 — Process script/asset file changes (from Category D in change manifest):**
@@ -181,10 +187,23 @@ Merge Results:
 
 Write the merged content produced by sections 3–4 directly to disk now. Later steps read from these files for validation and verification. The write must happen exactly once, here.
 
+**Renew the run lock** before anything below writes: this run may have waited at a gate past the time init.md §1b's lock goes stale. From `{project-root}`, run the acquire init.md §1b ran, with this run's own owner and the `{runLockHelper}` §1b resolved:
+
+```bash
+uv run {runLockHelper} acquire \
+    --lock "{forge_data_folder}/{skill_name}/.skf-update.lock" \
+    --owner "{lock_owner}" \
+    --stale-after 60
+```
+
+- **Exit 0 with `refreshed` true:** the lock is still this run's, now renewed; continue.
+- **Exit 0 with `refreshed` false, or exit 3:** this run's lock lapsed while it waited, so another update may have changed the skill since this run read it. On exit 0 the lock was gone, or `stale_replaced` names another update's stale lock, and this acquire took it again; on exit 3 another update holds it. HALT with status `halted-for-concurrent-run` before this section writes anything: display "**This update of {skill_name} lost its run lock while it waited.** Another update of the skill may have run in the meantime, so this update wrote nothing to the skill package: run it again{on exit 3: once that update ends. {message}}." In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:run-lock", path: "{forge_data_folder}/{skill_name}/.skf-update.lock", reason: "run-lock-lost: this run's lock lapsed while it waited; another update may have changed the skill since this run read it"}`, or on exit 3 `reason: "another update in progress: {message}"`). The halt's release (SKILL.md's Workflow Rules) removes a lock this acquire took.
+- **Any other exit, or no JSON:** HALT with status `blocked` before this section writes anything: display "**The run lock could not be renewed:** {the message the helper printed on stderr}. This update wrote nothing to the skill package." In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:run-lock", path: "{forge_data_folder}/{skill_name}/.skf-update.lock", reason: "run-lock-failed: {that message}"}`).
+
 **Choose the version this update writes** and bind `{new_version}`:
 
 - **Gap-driven mode** (`update_mode` is `gap-driven`): a repair keeps the version it repairs — `{new_version}` is the metadata.json `version`, SKILL.md is written into the current `{skill_package}`, and the version folder below is skipped.
-- **Every other mode** (normal, degraded and docs-only): `{new_version}` is `{source_version_detected}` when step 1 §6c recorded one (a higher version than the previous metadata version), otherwise the previous version with its patch number incremented, named by the Version Sanitization rules of `knowledge/version-paths.md`.
+- **Every other mode** (normal, degraded and docs-only): `{new_version}` is `{source_version_detected}` when step 1 §6c recorded one (a higher version than the previous metadata version), otherwise the previous version with its patch number incremented, as `{skillInventoryHelper}` computes it (resolve it ← first existing path in `{skillInventoryProbeOrder}`). From `{project-root}`, run `uv run {skillInventoryHelper} version next-patch "{version}"` with the metadata.json `version` and bind `{new_version}` ← `next_patch`: `1.2.3` gives `1.2.4`, and a pre-release gives its release (`1.2.3-rc.1` gives `1.2.3`). Never increment it by hand. Both values are version folder names already: the helper drops build metadata. When no candidate resolves, or the command exits 1 (`code` `NOT_A_VERSION`: the metadata.json `version` names no version) or prints no JSON, HALT with status `halted-for-write-failure` before writing anything: "**The next version of {skill_name} could not be computed:** {the helper's `error`, or 'skf-skill-inventory.py is missing; re-install SKF'}. Nothing was written. When the metadata.json `version` names no version, set the version the skill was forged at there, then re-run." In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:new-version-folder", path: "{skill_package}/metadata.json", reason: "next-version-failed: {that message}"}`).
 
 **Create the version folder** (every mode but gap-driven). Each version keeps a folder of its own (`knowledge/version-paths.md`), so the previous version stays on disk unchanged and step 6 §5b can point the `active` link at the new one:
 

@@ -57,7 +57,7 @@ Report to the user:
 SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":"FAIL","score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":"update-skill","exit_code":2,"halt_reason":"hard-gate-blocked"}
 ```
 
-HALT — do not chain to `{nextStepFile}`.
+Release the run lock: from `{project-root}`, run `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"`. Then HALT: do not chain to `{nextStepFile}`.
 
 ### §4. Pass — No Critical/High Findings
 

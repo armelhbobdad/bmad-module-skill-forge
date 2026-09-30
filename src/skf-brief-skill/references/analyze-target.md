@@ -23,6 +23,7 @@ emitBriefEnvelopeProbeOrder:
 
 - Do not make scoping decisions or recommendations
 - Do not hallucinate or guess about repository contents
+- **Ratify run (`ratify_mode: true`):** this step runs only from step 4 `[R] Revise Scope`, to give step 3 an analysis of the brief's repository, and never replaces the hydrated `name`, `version` or `language`. §1 treats the hydrated `target_ref` and `target_version` as set in step 01, and a hydrated `version` without either as an implicit `target_version`: it matches the tag `{version}` or `v{version}`, and with no match analyzes `HEAD` without the zero-match warning. §1b selects, without asking, the workspace whose path begins the hydrated `scope.include` globs (the repo root when none does). §3 runs only to choose §4's path: the brief keeps the hydrated `language`, which the §5 summary shows with the hydrated `version`. Skip §4b. At §5, set `ratify_analyzed: true` in workflow context, so a later `[R]` goes straight to step 3.
 
 ## Sequence
 
@@ -49,7 +50,7 @@ emitBriefEnvelopeProbeOrder:
     [L] Clone locally and re-analyze (slower but complete)
     [P] Proceed with the partial tree (faster, may miss exports under deeper paths)
   ```
-  On `[L]`: shallow-clone (`git clone --depth 1 {url} {tmp_dir}`), restart this section against the local path, and remove `{tmp_dir}` after the analysis summary in §5. On `[P]` (or under headless): record `tree_truncated: true` in the analysis summary and continue without HALT.
+  On `[L]`: shallow-clone (`git clone --depth 1 {url} {tmp_dir}`), restart this section against the local path, and keep `{tmp_dir}` for step 3 §2c, which reads it on every pass through scope definition; remove it once step 5 has written the brief, or when the run halts. On `[P]` (or under headless): record `tree_truncated: true` in the analysis summary and continue without HALT.
 
 **On API failure (non-200 from `gh api`):**
 
