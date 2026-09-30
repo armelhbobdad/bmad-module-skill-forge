@@ -640,12 +640,6 @@ def test_no_ephemeral_clone_is_left():
             assert gone not in text, (path.relative_to(REPO_ROOT), gone)
 
 
-# component-extraction.md Phase 1 still points its demo scan at `remote_clone_path`, which is SKF's
-# clone, not the tree extraction reads. Its fix scans the §2 list rebuilt from `{source_root}`; the
-# assertion below then fails, and this entry goes.
-STALE_CLONE_READERS = {"component-extraction.md": "scan the local workspace/clone path (`remote_clone_path`)"}
-
-
 def test_only_the_ccc_steps_name_the_workspace_clone():
     """`{remote_clone_path}` is SKF's clone, which another run can move: only ccc indexes it."""
     allowed = {
@@ -656,16 +650,15 @@ def test_only_the_ccc_steps_name_the_workspace_clone():
     }
     for path in sorted((SRC / "skf-create-skill").rglob("*.md")):
         text = _read(path)
-        stale = STALE_CLONE_READERS.get(path.name)
-        if stale is not None:
-            assert stale in text, f"{path.name} no longer names the clone: drop it from STALE_CLONE_READERS"
-            text = text.replace(stale, "")
         for line in text.splitlines():
             if "remote_clone_path" in line:
                 assert line in allowed.get(path.name, ""), (path.relative_to(REPO_ROOT), line[:100])
     extraction = _slice(_read(EXTRACT), "**Forge/Forge+/Deep Tier (AST available):**", "1. Detect language")
     assert "the §2 filtered file count (rebuilt in §2b for a remote source)" in extraction
     assert "step 1's file tree" not in extraction
+    # the demo scan reads the list extraction reads, not SKF's clone
+    component = _read(SRC / "skf-create-skill" / "references" / "component-extraction.md")
+    assert "rebuilt the filtered file list from `{source_root}`" in component
 
 
 def test_extract_leaves_workspace_clone_clean():
