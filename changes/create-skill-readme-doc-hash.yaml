@@ -2,4 +2,5 @@ type: changed
 scope: skf-create-skill
 summary: |
   Create Skill now records the README of a GitHub source in `metadata.json` `doc_sources` as the raw file at the ref the skill was built from (`https://raw.githubusercontent.com/<owner>/<repo>/<ref>/README.md`, with the README's own file name), picking `README.md` over a translation such as `README-ja.md`, and hashes it with the same fetch Audit Skill's doc-drift check runs again (`skf-detect-docs.py readme-entry`). The entry used to be `<source_repo>/blob/main/README.md`, an HTML page, or a URL with no scheme for an `owner/repo` source, so every audit reported the README as changed or could not fetch it. A local source's README is recorded as a `file://` URL, and a source on another host gets no README entry. Pages of the repository's `docs/` folder are now recorded as raw GitHub URLs, not as `file://` paths into SKF's clone. The first audit of a skill after it is compiled again sees the new URLs.
+prs: [622]
 issues: [592]
