@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-stack-skill
+summary: |
+  A stack skill's `confidence_distribution` in `metadata.json` now counts each library once, by the library's tier, so its four bins sum to `library_count`, the sum validation checks. Before, nothing said what one count stood for, and a run could bin each provenance entry instead (22 entries against 3 libraries, say) and publish the stack with a validation issue it could no longer fix. The compilation review and the final summary show these library counts, `T3` included, and the evidence report's confidence tier distribution counts the provenance entries, one per entry by its `signature_source`.
+prs: [623]
+issues: [528]

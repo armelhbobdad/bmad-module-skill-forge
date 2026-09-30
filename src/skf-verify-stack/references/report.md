@@ -1,8 +1,8 @@
 ---
-# {outputFile} and {outputFileLatest} resolve from the activation-stored
-# {project_slug}, {timestamp}, and {outputFolderPath} variables (set in
-# SKILL.md On Activation §2 + §4) — same template as init.md frontmatter
-# so every stage sees the same path.
+# {outputFile} and {outputFileLatest} resolve from {timestamp} (fixed in
+# SKILL.md On Activation §2), {project_slug} (bound at the top of init.md)
+# and {outputFolderPath} (On Activation §4), with the same template as the
+# init.md frontmatter, so every stage sees the same path.
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 feasibilitySchemaProbeOrder:
@@ -23,7 +23,7 @@ nextStepFile: 'health-check.md'
 
 ## STEP GOAL:
 
-Present the complete feasibility report to the user. Display the overall verdict prominently, walk through key findings from each analysis pass, present actionable next steps based on the verdict, and offer the user options to review the full report or exit.
+Present the complete feasibility report to the user. Display the overall verdict prominently, walk through key findings from each analysis pass, present actionable next steps based on the verdict, write the result contract, and finish.
 
 ## Rules
 
@@ -38,24 +38,23 @@ Read the entire `{outputFile}` to have all data available for presentation.
 
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
-**Validate report structure and schema version (deterministic gate).** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). Then run:
+**Validate the report (deterministic gate).** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope. Then run:
 
 ```bash
-python3 {validateFeasibilityReportHelper} {outputFile}
+uv run {validateFeasibilityReportHelper} "{outputFile}"
 ```
 
-The script (see `--help`) deterministically confirms the five required body sections — `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources` — are all present and in canonical order per `{feasibilitySchemaRef}`, **and** that frontmatter `schemaVersion == "1.0"`. It emits a JSON verdict on stdout (`headingsOk`, `missingHeadings`, `orderViolations`, `schemaVersionOk`, `schemaVersionFound`, `violation`) and exits `0` when valid, `1` on a schema violation, `2` on an IO/parse error.
+The script (see `--help`) checks the report against `{feasibilitySchemaRef}`: the five required body sections (`## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`) in canonical order, frontmatter `schemaVersion == "1.0"`, and whatever else its `--help` lists. It prints a JSON verdict on stdout (`violation` names the class; the detail fields say what failed) and exits `0` when valid, `1` on a schema violation, `2` when the report cannot be read.
 
-**Graceful degradation:** if no `{validateFeasibilityReportProbeOrder}` candidate exists (e.g. partial installation, or `python3` unavailable), perform the equivalent structural check inline — confirm the five headings above are all present and in that exact order, and that frontmatter `schemaVersion` is `"1.0"` — and apply the same halt semantics below. The report is already on disk from steps 1-5, so a missing validator degrades to the inline check rather than blocking presentation.
+On any non-zero exit, HALT (exit code 5, `halt_reason: "schema-violation"`): do not display partial results. Report the specific violation from the JSON:
 
-On any non-zero exit (or an inline check that fails), HALT (exit code 5, `halt_reason: "schema-violation"`) — do not display partial results. Report the specific violation from the JSON:
-
-- a missing or out-of-order section (`missingHeadings` / `orderViolations`); or
-- a schemaVersion mismatch — "Report frontmatter schemaVersion `{schemaVersionFound}` does not match producer schema `1.0` — report was corrupted between steps. Re-run [VS]." (Producer never proceeds past a schema mismatch.)
+- a missing or out-of-order section (`missingHeadings` / `orderViolations`);
+- a schemaVersion mismatch: "Report frontmatter schemaVersion `{schemaVersionFound}` does not match producer schema `1.0`: report was corrupted between steps. Re-run [VS]." (The producer never proceeds past a schema mismatch.)
+- any other detail the JSON carries, such as a missing or doubled canonical verdict table or an unknown verdict token.
 
 In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `report_path: "{outputFile}"`, `overall_verdict: null`.
 
-With the deterministic gate passed (sections present + in order, `schemaVersion == "1.0"`), **extract metrics from `{outputFile}` frontmatter** (per shared schema in `{feasibilitySchemaRef}`): `skillsAnalyzed`, `coveragePercentage`, `pairsVerified` (as `verified_count`), `pairsPlausible` (as `plausible_count`), `pairsRisky` (as `risky_count`), `pairsBlocked` (as `blocked_count`), `requirementsFulfilled` (as `fulfilled_count`), `requirementsPartial` (as `partial_count`), `requirementsNotAddressed` (as `not_addressed_count`), `requirementsPass`, `overallVerdict`, and `recommendationCount`. Use these mapped display names in the summary table and next steps below.
+With the deterministic gate passed, **extract metrics from `{outputFile}` frontmatter** (per shared schema in `{feasibilitySchemaRef}`): `skillsAnalyzed`, `coveragePercentage`, `pairsVerified` (as `verified_count`), `pairsPlausible` (as `plausible_count`), `pairsRisky` (as `risky_count`), `pairsBlocked` (as `blocked_count`), `requirementsFulfilled` (as `fulfilled_count`), `requirementsPartial` (as `partial_count`), `requirementsNotAddressed` (as `not_addressed_count`), `requirementsPass`, `overallVerdict`, and `recommendationCount`. Use these mapped display names in the summary table and next steps below.
 
 ### 2. Present Summary
 
@@ -88,13 +87,13 @@ With the deterministic gate passed (sections present + in order, `schemaVersion 
 
 ### 3. Present Detailed Findings
 
-Walk through the highlights — coverage gaps, risky/blocked integrations, and partial/unaddressed requirements (when a PRD pass ran). Cite specific items by name; cap at the top ~5 per category to keep the summary scannable. The full detail is in `{outputFile}` for the user to inspect via the [R] Review menu (§5).
+Walk through the highlights: coverage gaps, risky/blocked integrations, and partial/unaddressed requirements (when a PRD pass ran). Cite specific items by name; cap at the top ~5 per category to keep the summary scannable. The full detail is in `{outputFile}`.
 
 ### 4. Present Next Steps
 
 Step 05 already wrote a **Suggested next workflow** block (keyed on the case-sensitive `overallVerdict` token) at the end of `## Recommendations`. Surface that block from the §1 load rather than re-deriving it, prefixed with the one-line verdict-specific framing:
 
-- **`FEASIBLE`:** "**Your stack is verified.** All technologies are covered, integrations are compatible, and requirements are all fulfilled (or requirements pass was skipped)."
+- **`FEASIBLE`:** "**Your stack is verified.**" Then give the verdict rationale from the report's `## Executive Summary`: synthesize wrote there what was verified, including when there was no integration pair to verify.
 - **`CONDITIONALLY_FEASIBLE`:** "**Your stack is conditionally feasible.** There are {recommendationCount} items to address before proceeding." — then list the specific recommendations from the report's `## Recommendations` section.
 - **`NOT_FEASIBLE`:** "**Critical blockers must be resolved.** The stack cannot support the architecture as described." — then list the blocked-integration and missing-skill recommendations from the report's `## Recommendations` section.
 
@@ -114,26 +113,12 @@ SKF_VERIFY_STACK_RESULT_JSON: {"status":"success","report_path":"{outputFile}","
 
 `{overallVerdict}` uses the schema tokens (`FEASIBLE` / `CONDITIONALLY_FEASIBLE` / `NOT_FEASIBLE`).
 
-**Result-contract ordering:** The result contract is written exactly once on the first entry to step 6 (the `[X] Exit verification` path). Re-walks of the report via the `[R] Review full report` menu option do not regenerate it — the contract captures the run, not the presentation loop. If the user selects `[R]` repeatedly before exiting, the single on-disk contract written on first entry remains authoritative.
+### 5. Finish
 
-### 5. Present Menu
-
-Display: "**[R] Review full report** | **[X] Exit verification**"
-
-#### Menu Handling Logic:
-
-- **IF R:** Walk through the report section by section, presenting each section's content from {outputFile} in a readable format. After completing the walkthrough, redisplay the menu. (Note: the R walkthrough loop terminates only when the user selects X.)
-- **IF X:** "**Feasibility report saved to:** `{outputFile}`
+"**Feasibility report saved to:** `{outputFile}` (a copy at `{outputFileLatest}`). Ask me to walk through any section of it.
 
 Re-run **[VS] Verify Stack** anytime after making changes to your skills or architecture document.
 
 **Verification workflow complete.**"
 
-  If `{workflow.on_complete}` is non-empty, execute it now (e.g. route the verdict onward or trigger a downstream step); in headless, log the action. Then load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
-
-#### EXECUTION RULES:
-
-- **GATE [default: X]** — If `{headless_mode}`: auto-proceed with [X] Exit verification, log: "headless: auto-exit past report menu"
-- R may be selected multiple times — always walk through the full report
-
-
+If `{workflow.on_complete}` is non-empty, execute it now (e.g. route the verdict onward or trigger a downstream step); in headless, log the action. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow.

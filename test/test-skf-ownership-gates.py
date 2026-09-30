@@ -794,20 +794,24 @@ def test_version_paths_names_writers_and_forge_folders():
         assert name in tree, f"the forge tree must name {name!r}"
 
 
+# Each stack roster site: the extra bindings it makes, and whether it keeps a
+# helper-less fallback. verify-stack halts when the helper is missing (#599);
+# refine-architecture still walks the folder itself.
 STACK_ROSTER_SITES = {
-    "src/skf-verify-stack/references/init.md": (),
-    "src/skf-refine-architecture/references/init.md": ("`{pairs}` ← `pairs`",),
+    "src/skf-verify-stack/references/init.md": ((), False),
+    "src/skf-refine-architecture/references/init.md": (("`{pairs}` ← `pairs`",), True),
 }
 
 
 @pytest.mark.parametrize("rel", sorted(STACK_ROSTER_SITES))
 def test_stack_rosters_read_only_skf_output(rel):
     text = _read(rel)
+    extra_bindings, has_fallback = STACK_ROSTER_SITES[rel]
     assert "uv run {enumerateStackSkillsHelper}" in text
     assert "python3 {enumerateStackSkillsHelper}" not in text
     bindings = ("`{not_skf_output}` ← `not_skf_output`", "`{inventory_reliable}` ← `inventory_reliable`",
                 "`{warning_count}` ← `warning_count`", "`{skill_count}` ← `skill_count`",
-                "`{inventory_warnings}` ← `warnings`") + STACK_ROSTER_SITES[rel]
+                "`{inventory_warnings}` ← `warnings`") + extra_bindings
     for binding in bindings:
         assert binding in text, binding
     assert "Skipped (not SKF output): {not_skf_output}" in text
@@ -816,10 +820,18 @@ def test_stack_rosters_read_only_skf_output(rel):
                   "orphan-versions", "maps `confidence_tier`", "{warning_count}/{skill_count + warning_count}",
                   "{exports_documented}", "| {skill_name} | {language}"):
         assert stale not in text, stale
-    # The halt counts warnings as warnings; the helper-less fallback applies the marker rule
-    # and binds the counts and warnings the halt, §3 and §5 read.
-    for needle in ("warning(s) across {skill_count}", "without counting a warning", "`generated_by`",
-                   "`tool_versions`", "`individual`", "{exports_source}", "{confidence}"):
+    # The halt counts warnings as warnings.
+    for needle in ("warning(s) across {skill_count}", "{exports_source}", "{confidence}"):
+        assert needle in text, needle
+    if not has_fallback:
+        # The helper is required: no subagent fan-out rebuilds the roster by hand.
+        assert "**Fallback path" not in text and "subagents concurrently" not in text
+        resolve = _section(text, "**Resolve `{enumerateStackSkillsHelper}`**", "uv run {enumerateStackSkillsHelper}")
+        assert '(exit code 3, `halt_reason: "resolution-failure"`)' in resolve
+        return
+    # The helper-less fallback applies the marker rule and binds the counts and
+    # warnings the halt, §3 and §5 read.
+    for needle in ("without counting a warning", "`generated_by`", "`tool_versions`", "`individual`"):
         assert needle in text, needle
     fallback = _section(text, "**Fallback path", "### 3.")
     assert "bind `{skill_count}` to the number of skills found" in fallback

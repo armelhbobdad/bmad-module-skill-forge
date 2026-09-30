@@ -144,7 +144,7 @@ TS → {forge_version}/test-report.md (pass/fail gate)
        ↓ (passing skill consumed by EX — resolved via export manifest v2)
 EX → agentskills.io bundle + context snippets (flat platform paths)
 
-VS → feasibility-report-{project_name}.md (verdict + integration verdicts)
+VS → feasibility-report-{project_slug}-{timestamp}.md + a feasibility-report-{project_slug}-latest.md copy (verdict + integration verdicts)
        ↓ (report consumed by RA)
 RA → refined-architecture-{arch_project_name}.md (gaps filled, issues flagged, improvements suggested)
        ↓ (refined doc consumed by SS compose-mode)

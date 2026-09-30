@@ -1,6 +1,14 @@
 ---
 nextStepFile: 'improvements.md'
 refinementRulesData: '{refinementRulesPath}'
+# Resolve `{validateFeasibilityReportHelper}` by probing
+# `{validateFeasibilityReportProbeOrder}` in order (installed SKF module
+# path first, src/ dev-checkout fallback); first existing path wins. §4
+# calls it only to read the [VS] report again when the JSON Step 01 cached
+# is no longer in context.
+validateFeasibilityReportProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
+  - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Append issue-detection findings to the RA state file in {document_output_language}. -->
@@ -9,7 +17,7 @@ refinementRulesData: '{refinementRulesPath}'
 
 ## STEP GOAL:
 
-Find contradictions between what the architecture document claims and what the generated skills reveal about actual API surfaces. Detect language boundary issues not addressed, protocol mismatches assumed away, and missing bridge layers. If a VS feasibility report is available, incorporate RISKY and BLOCKED verdicts as confirmed issues.
+Find contradictions between what the architecture document claims and what the generated skills reveal about actual API surfaces. Detect language boundary issues not addressed, protocol mismatches assumed away, and missing bridge layers. If a VS feasibility report is available, incorporate its `Risky` and `Blocked` verdicts as confirmed issues and its `Plausible` verdicts as potential ones.
 
 ## Rules
 
@@ -66,12 +74,23 @@ For each extracted claim, verify against the compact API surfaces already collec
 
 If `vs_report_available` is true:
 
-**Scope filter (reuse `{out_of_scope_skills}` from Step 02 §2b):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Before promoting any verdict, check the pair's scope — if a verdict is for an **out-of-scope** pair (either library in `{out_of_scope_skills}`), do not promote it to an issue for this architecture; record it under the informational Out-of-Scope bucket instead. Only **in-scope** pairs' verdicts are promoted by the rules below.
+**Read the verdicts from `{vs_report}`**, the report JSON Step 01 §1 cached from the feasibility-report helper; never read the report file by hand. Its `pairVerdicts` lists each pair of the report's canonical verdict table as `{lib_a, lib_b, verdict, rationale}`, and `overallVerdict` gives the report's overall verdict for context. Step 01 halted on a report whose `unknownTokens` was not empty, so every `verdict` is a token the schema defines: compare it exactly as written (tokens are case-sensitive) and never map another spelling.
 
-**Load the VS feasibility report and extract verdicts:**
-- **Risky verdicts** (match case-insensitively): Promote to confirmed issues with the VS evidence as additional citation
-- **Blocked verdicts** (match case-insensitively): Promote to critical issues requiring architecture redesign
-- **Plausible verdicts:** Note informatively — Plausible is not an issue by itself. Only flag as a potential issue if the VS rationale text explicitly states "no direct API evidence" or "weak evidence"
+**Recover the report JSON.** If `{vs_report}` is no longer in context, read the `[RA-VS]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`, and run Step 01's path mode with `{vs_report_path}` set to the `path` the block records:
+
+```bash
+uv run {validateFeasibilityReportHelper} "{vs_report_path}"
+```
+
+Use its JSON when it exits 0 with the `generatedAt` the block records. When it exits non-zero with a JSON, or its `generatedAt` differs ([VS] rewrote the report during this run), the verdicts this run started from are gone: HALT (exit code 8, `halt_reason: "recovery-failed"`) naming the VS report, and in headless emit the error envelope. An exit 2 with no JSON is a malformed call, as in Step 01: fix it and run it again.
+
+**Scope filter (reuse `{in_scope_pairs}` and `{out_of_scope_pairs}` from Step 02 §3, or the `[RA-SCOPE]` block of the same state file if they are no longer in context):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Map each pair's `lib_a` and `lib_b` to the inventory skill whose name, or one of the aliases Step 02 §2 passed to the mentions helper, equals it (compared case-insensitively). A verdict whose pair is in `{in_scope_pairs}`, in either order, is promoted by the rules below. Record every other verdict (a pair in `{out_of_scope_pairs}`, or one naming a library no inventory skill matches) under the informational Out-of-Scope bucket instead of promoting it to an issue for this architecture.
+
+**Promote the in-scope verdicts by their token:**
+- **`Risky`:** Promote to confirmed issues with the VS evidence as additional citation
+- **`Blocked`:** Promote to critical issues requiring architecture redesign
+- **`Plausible`:** Flag as a potential issue. The token means every compatibility check passed but neither skill cites the other literally, so the integration rests on weaker evidence; the token decides this, never phrases in the rationale text
+- **`Verified`:** Not an issue
 
 **For each VS-sourced issue, include dual citations:**
 - Evidence from the skill content
@@ -88,7 +107,7 @@ For each detected issue, cite it in this format:
 
 Architecture states: "{quoted claim from original document}" (Section: {section_name})
 Skill reality: {skill_name} exports: `{actual_api}` — {explanation of contradiction}
-{IF VS report}: VS verdict: {Risky|Blocked} for {pair} — {VS rationale}
+{IF VS report}: VS verdict: {Risky|Blocked|Plausible} for {pair}: {VS rationale}
 
 Suggestion: {specific correction with API evidence}
 ```
@@ -96,7 +115,7 @@ Suggestion: {specific correction with API evidence}
 **Severity classification:**
 - **Critical:** Blocked VS verdicts, fundamental language barriers with no bridge
 - **Major:** Risky VS verdicts, protocol mismatches, missing bridge layers
-- **Minor:** Plausible VS verdicts where the VS rationale explicitly states "no direct API evidence" or "weak evidence", minor type differences with easy conversion
+- **Minor:** `Plausible` VS verdicts, minor type differences with easy conversion
 
 ### 6. Report Issues & Store Findings
 

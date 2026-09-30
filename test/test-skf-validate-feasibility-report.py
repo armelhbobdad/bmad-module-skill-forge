@@ -30,13 +30,15 @@ scan_headings = mod.scan_headings
 slugify = mod.slugify
 locate_report = mod.locate_report
 read_verdict_table = mod.read_verdict_table
+frontmatter_list = mod.frontmatter_list
 
 
 def _report(schema_version='"1.0"', sections=None):
     """Build a feasibility-report string.
 
     `sections` is the ordered list of body headings to emit; defaults to the
-    canonical order. Each section gets a line of filler body.
+    canonical order. Each section gets a line of filler body, and the
+    Integration Verdicts section also gets the canonical table, empty.
     """
     if sections is None:
         sections = [
@@ -58,6 +60,10 @@ def _report(schema_version='"1.0"', sections=None):
         body_lines.append("")
         body_lines.append(f"Body text for {s}.")
         body_lines.append("")
+        if s == "Integration Verdicts":
+            body_lines.append("| lib_a | lib_b | verdict | rationale |")
+            body_lines.append("|-------|-------|---------|-----------|")
+            body_lines.append("")
     return "\n".join(fm_lines + body_lines) + "\n"
 
 
@@ -168,6 +174,14 @@ def test_missing_file_io_error(tmp_path):
     assert code == 2
     assert result["status"] == "error"
     assert result["violation"] == "io-error"
+    # The values earlier callers read stay; the read keys say nothing was read.
+    assert result["schemaVersionOk"] is False
+    assert result["headingsOk"] is False
+    assert result["schemaVersion"] is None
+    assert result["overallVerdict"] is None
+    assert result["coverageMeasured"] is None
+    assert result["pairVerdicts"] == []
+    assert set(result) == VALIDATE_KEYS | {"error"}
 
 
 # --- helper-level unit checks ----------------------------------------------
@@ -241,19 +255,35 @@ def test_cli_exit_codes(tmp_path):
     assert err.returncode == 2
 
 
-def test_validate_mode_keys_unchanged(tmp_path):
-    # --locate is a separate mode: the validate-mode verdict keeps its keys.
+# The keys both modes check and read the same way (read_report()): an explicit
+# report path gets the JSON a located report gets.
+READ_KEYS = {
+    "status",
+    "path",
+    "schemaVersion",
+    "schemaVersionOk",
+    "headingsOk",
+    "missingHeadings",
+    "orderViolations",
+    "generatedAt",
+    "overallVerdict",
+    "coveragePercentage",
+    "coverageMeasured",
+    "verdictTableFound",
+    "duplicateVerdictTableLine",
+    "pairVerdicts",
+    "unknownTokens",
+    "violation",
+}
+
+# Validate mode also keeps schemaVersionFound, the name earlier callers read.
+VALIDATE_KEYS = READ_KEYS | {"schemaVersionFound"}
+
+
+def test_validate_mode_keys(tmp_path):
     result, _ = validate_report(str(_write(tmp_path, _report())))
-    assert set(result) == {
-        "status",
-        "path",
-        "schemaVersionOk",
-        "schemaVersionFound",
-        "headingsOk",
-        "missingHeadings",
-        "orderViolations",
-        "violation",
-    }
+    assert set(result) == VALIDATE_KEYS
+    assert result["schemaVersionFound"] == result["schemaVersion"] == "1.0"
 
 
 # --- slug rule (--locate) --------------------------------------------------
@@ -302,11 +332,14 @@ def _verdict_table(rows, header="| lib_a | lib_b | verdict | rationale |"):
     return "\n".join(lines)
 
 
-def _full_report(overall='"NOT_FEASIBLE"', schema_version='"1.0"', verdicts=None):
+def _full_report(
+    overall='"NOT_FEASIBLE"', schema_version='"1.0"', verdicts=None, extra_frontmatter=()
+):
     """A report shaped like skf-verify-stack's feasibility-report-template.md.
 
     `verdicts` is the Integration Verdicts section body; defaults to the
     canonical table over PAIR_ROWS followed by the producer's display table.
+    `extra_frontmatter` lines are appended to the frontmatter as written.
     """
     if verdicts is None:
         verdicts = "\n".join(
@@ -324,7 +357,8 @@ def _full_report(overall='"NOT_FEASIBLE"', schema_version='"1.0"', verdicts=None
     fm += ["reportType: feasibility", 'projectName: "My Project"', 'projectSlug: "my-project"']
     if overall is not None:
         fm.append(f"overallVerdict: {overall}")
-    fm += ["pairsVerified: 1", "pairsPlausible: 1", "pairsRisky: 0", "pairsBlocked: 1", "---"]
+    fm += ["pairsVerified: 1", "pairsPlausible: 1", "pairsRisky: 0", "pairsBlocked: 1"]
+    fm += [*extra_frontmatter, "---"]
     body = [
         "",
         "# Stack Feasibility Report: My Project",
@@ -381,21 +415,7 @@ def test_locate_reads_latest_report(tmp_path):
     assert result["violation"] is None
 
 
-LOCATE_KEYS = {
-    "status",
-    "projectName",
-    "projectSlug",
-    "latestPath",
-    "path",
-    "schemaVersion",
-    "schemaVersionOk",
-    "overallVerdict",
-    "verdictTableFound",
-    "duplicateVerdictTableLine",
-    "pairVerdicts",
-    "unknownTokens",
-    "violation",
-}
+LOCATE_KEYS = READ_KEYS | {"projectName", "projectSlug", "latestPath"}
 
 
 def test_locate_result_keys(tmp_path):
@@ -811,6 +831,10 @@ def test_cli_locate_writes_output_file(tmp_path):
         ["report.md", "--project-name", "My Project"],  # name without --locate
         ["report.md", "--locate", "forge", "--project-name", "My Project"],  # both modes
         [],  # neither mode
+        # An unquoted path that holds a space splits in two: a caller's
+        # malformed call, never a finding about the report.
+        ["--locate", "/data/First", "Last/forge", "--project-name", "My Project"],
+        ["/data/First", "Last/report.md"],
     ],
 )
 def test_cli_usage_errors(argv, capsys):
@@ -823,3 +847,229 @@ def test_cli_usage_errors(argv, capsys):
     with pytest.raises(SystemExit) as excinfo:
         mod._build_parser().parse_args(argv)
     assert excinfo.value.code == 2
+
+
+# --- validate mode reads a report path as --locate reads -latest ------------
+
+
+def _write_report_and_latest(tmp_path, content):
+    """The same text as an explicit report and as the project's -latest copy."""
+    report = _write(tmp_path, content, name="feasibility-report-my-project-20260930-101010.md")
+    _write_latest(tmp_path, content)
+    return report
+
+
+# The template's empty canonical table with a filled one appended below it.
+DUPLICATE_VERDICTS = "\n".join([TEMPLATE_VERDICTS, "", _verdict_table(PAIR_ROWS)])
+
+# Reports that exercise every outcome of read_report().
+SAME_JSON_REPORTS = {
+    "ok": _full_report(),
+    "schema-mismatch": _full_report(schema_version='"2.0"'),
+    "duplicate-table": _full_report(verdicts=DUPLICATE_VERDICTS),
+    "unknown-tokens": _full_report(
+        overall='"Feasible"', verdicts=_verdict_table([("react", "vite", "risky", "lower case")])
+    ),
+    "no-table": _full_report(verdicts="No table here."),
+    "missing-section": _full_report().replace("## Recommendations", "## Advice"),
+    "coverage-measured": _full_report(
+        extra_frontmatter=['generatedAt: "2026-09-30T10:00:00Z"', "coveragePercentage: 80",
+                           "stepsCompleted: ['init', 'coverage', 'integrations']"]
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SAME_JSON_REPORTS))
+def test_report_path_gives_the_located_json(tmp_path, name):
+    # An explicit report path (validate mode) and the located -latest copy get
+    # the same checks, the same keys and the same exit code.
+    report = _write_report_and_latest(tmp_path, SAME_JSON_REPORTS[name])
+    validated, validate_code = validate_report(str(report))
+    located, locate_code = locate_report(str(tmp_path), "My Project")
+    assert validate_code == locate_code
+    for key in READ_KEYS - {"path"}:
+        assert validated[key] == located[key], key
+    assert validated["path"] == str(report)
+    assert located["path"] == str(tmp_path / "feasibility-report-my-project-latest.md")
+
+
+def test_validate_reads_verdicts_and_coverage(tmp_path):
+    frontmatter = ['generatedAt: "2026-09-30T10:00:00Z"', "coveragePercentage: 80",
+                   "stepsCompleted: ['init', 'coverage']"]
+    report = _write(tmp_path, _full_report(extra_frontmatter=frontmatter))
+    result, code = validate_report(str(report))
+    assert code == 0
+    assert result["status"] == "ok"
+    assert result["overallVerdict"] == "NOT_FEASIBLE"
+    assert result["generatedAt"] == "2026-09-30T10:00:00Z"
+    assert result["coveragePercentage"] == 80
+    assert result["coverageMeasured"] is True
+    assert result["verdictTableFound"] is True
+    assert result["pairVerdicts"] == _pairs(PAIR_ROWS)
+    assert result["unknownTokens"] == []
+
+
+@pytest.mark.parametrize(
+    "verdicts,overall,check",
+    [
+        ("No table here.", '"NOT_FEASIBLE"', "no-table"),
+        (DUPLICATE_VERDICTS, '"NOT_FEASIBLE"', "duplicate"),
+        (_verdict_table([("react", "vite", "Verified (capped)", "x")]), '"NOT_FEASIBLE"',
+         "pair-token"),
+        (_verdict_table(PAIR_ROWS), '"feasible"', "overall-token"),
+    ],
+    ids=["no-table", "duplicate-table", "unknown-pair-token", "unknown-overall-token"],
+)
+def test_validate_fails_on_the_verdict_table_and_tokens(tmp_path, verdicts, overall, check):
+    # The sections and schemaVersion are fine: the verdict table or a token
+    # alone makes the report a schema violation, as it does for --locate.
+    report = _write(tmp_path, _full_report(overall=overall, verdicts=verdicts))
+    result, code = validate_report(str(report))
+    assert code == 1
+    assert result["status"] == "error"
+    assert result["violation"] == "schema-violation"
+    assert result["headingsOk"] is True
+    assert result["schemaVersionOk"] is True
+    if check == "no-table":
+        assert result["verdictTableFound"] is False
+    elif check == "duplicate":
+        assert result["duplicateVerdictTableLine"] is not None
+    else:
+        assert result["unknownTokens"]
+
+
+def test_validate_cli_emits_the_read_keys(tmp_path):
+    frontmatter = ["coveragePercentage: 64", "stepsCompleted: [init, coverage]"]
+    report = _write(tmp_path, _full_report(extra_frontmatter=frontmatter))
+    run = _run(str(report))
+    assert run.returncode == 0, run.stderr
+    payload = json.loads(run.stdout)
+    assert set(payload) == VALIDATE_KEYS
+    assert payload["coveragePercentage"] == 64
+    assert payload["coverageMeasured"] is True
+    assert payload["pairVerdicts"] == _pairs(PAIR_ROWS)
+
+
+def test_locate_checks_the_sections(tmp_path):
+    _write_latest(tmp_path, _full_report().replace("## Evidence Sources", "## Sources"))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["status"] == "error"
+    assert result["violation"] == "schema-violation"
+    assert result["headingsOk"] is False
+    assert result["missingHeadings"] == ["Evidence Sources"]
+    # The rest of the report is still read.
+    assert result["pairVerdicts"] == _pairs(PAIR_ROWS)
+
+
+def test_locate_not_found_reads_nothing(tmp_path):
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0
+    assert result["headingsOk"] is None
+    assert result["missingHeadings"] == [] and result["orderViolations"] == []
+    assert result["generatedAt"] is None
+    assert result["coveragePercentage"] is None
+    assert result["coverageMeasured"] is None
+
+
+# --- coveragePercentage, coverageMeasured and generatedAt --------------------
+
+
+@pytest.mark.parametrize(
+    "frontmatter,percentage,measured",
+    [
+        (["coveragePercentage: 80", "stepsCompleted: ['init', 'coverage']"], 80, True),
+        (["coveragePercentage: 0", 'stepsCompleted: ["init", "coverage", "integrations"]'],
+         0, True),
+        (["coveragePercentage: 100", "stepsCompleted: [init, coverage]"], 100, True),
+        (["coveragePercentage: '75'", "stepsCompleted:", "  - init", "  - 'coverage'"], 75, True),
+        (["coveragePercentage: 75", "stepsCompleted:", "- init", "- coverage  # measured"],
+         75, True),
+        (["coveragePercentage: 75", "stepsCompleted: ['init',", "  'coverage']"], 75, True),
+        # A run that stopped before its coverage step holds the 0 it started with.
+        (["coveragePercentage: 0", "stepsCompleted: ['init']"], 0, False),
+        (["coveragePercentage: 0", "stepsCompleted: []"], 0, False),
+        (["coveragePercentage: 0"], 0, False),
+        (["coveragePercentage: 90", "stepsCompleted: coverage"], 90, False),
+        (["coveragePercentage: 90", "stepsCompleted: ['coverage-draft']"], 90, False),
+        # A value that is no whole percentage is not recorded, measured or not.
+        (["coveragePercentage: 87.5", "stepsCompleted: ['init', 'coverage']"], None, False),
+        (["coveragePercentage: 101", "stepsCompleted: ['init', 'coverage']"], None, False),
+        (["coveragePercentage: -3", "stepsCompleted: ['init', 'coverage']"], None, False),
+        (["coveragePercentage: ''", "stepsCompleted: ['init', 'coverage']"], None, False),
+        (["stepsCompleted: ['init', 'coverage']"], None, False),
+        (["coveragePercentage: 64  # from the tally", "stepsCompleted: ['coverage']"], 64, True),
+    ],
+    ids=[
+        "flow-single-quotes", "zero-measured", "flow-bare", "block-indented", "block-flush",
+        "flow-two-lines", "init-only", "empty-list", "no-list", "scalar-not-list", "other-step",
+        "fraction", "above-100", "negative", "empty-value", "no-percentage", "trailing-comment",
+    ],
+)
+def test_coverage_fields(tmp_path, frontmatter, percentage, measured):
+    _write_latest(tmp_path, _full_report(extra_frontmatter=frontmatter))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0, result
+    assert result["coveragePercentage"] == percentage
+    assert result["coverageMeasured"] is measured
+
+
+def test_coverage_fields_of_the_verify_stack_template(tmp_path):
+    # The producer's template, as [VS] writes it when a run starts: the 0 is
+    # read, but it was never measured.
+    assets = Path(__file__).parent.parent / "src" / "skf-verify-stack" / "assets"
+    template = (assets / "feasibility-report-template.md").read_text(encoding="utf-8")
+    _write_latest(tmp_path, template)
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 0, result
+    assert result["coveragePercentage"] == 0
+    assert result["coverageMeasured"] is False
+    assert result["generatedAt"] is None  # the template leaves it empty
+    assert result["verdictTableFound"] is True and result["pairVerdicts"] == []
+
+
+def test_generated_at(tmp_path):
+    _write_latest(tmp_path, _full_report(extra_frontmatter=['generatedAt: "2026-09-30T10:00:00Z"']))
+    result, _ = locate_report(str(tmp_path), "My Project")
+    assert result["generatedAt"] == "2026-09-30T10:00:00Z"
+
+
+def test_an_uninterpreted_report_gives_no_coverage(tmp_path):
+    frontmatter = ['generatedAt: "2026-09-30T10:00:00Z"', "coveragePercentage: 80",
+                   "stepsCompleted: ['coverage']"]
+    _write_latest(tmp_path, _full_report(schema_version='"2.0"', extra_frontmatter=frontmatter))
+    result, code = locate_report(str(tmp_path), "My Project")
+    assert code == 1
+    assert result["generatedAt"] is None
+    assert result["coveragePercentage"] is None
+    assert result["coverageMeasured"] is None
+
+
+# --- frontmatter_list ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "lines,items",
+    [
+        (["steps: ['a', \"b\", c]"], ["a", "b", "c"]),
+        (["steps: []"], []),
+        (["steps:", "  - a", "", "  # a comment", "  - 'b'  # trailing", "other: 1", "  - c"],
+         ["a", "b"]),
+        (["steps: [a,", "   b]"], ["a", "b"]),
+        (["steps: a"], None),
+        (["steps:"], None),
+        (["other: [a]"], None),
+        (["nested:", "  steps: [a]"], None),
+        (["steps: [a]", "steps: [b]"], ["b"]),
+    ],
+    ids=["flow", "flow-empty", "block", "flow-two-lines", "scalar", "no-items", "absent",
+         "indented", "last-wins"],
+)
+def test_frontmatter_list(lines, items):
+    content = "\n".join(["---", *lines, "---", "", "# Body"])
+    assert frontmatter_list(content, "steps") == items
+
+
+def test_frontmatter_list_needs_a_frontmatter_block():
+    assert frontmatter_list("steps: [a]\n", "steps") is None
+    assert frontmatter_list("---\nsteps: [a]\n", "steps") is None  # never closed

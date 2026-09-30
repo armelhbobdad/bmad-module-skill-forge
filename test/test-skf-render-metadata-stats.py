@@ -16,7 +16,11 @@ Core guarantees under test:
     not to exports_documented
   - labels follow the extraction tool: every T1 or T1-low entry's confidence,
     signature_source and ast_node_type must match its extraction_method, in
-    compute and --check mode alike (issue #530)
+    compute and --check mode alike (issue #530), and an entry read by eye
+    never claims a T1 signature_source, whatever its confidence (issue #555)
+  - a stack's distribution still bins provenance entries: stack metadata
+    counts libraries, so create-stack-skill reads only the label check
+    (issue #528)
 """
 
 from __future__ import annotations
@@ -226,12 +230,38 @@ class TestShapes:
         # citation-count sum is a healthy state, NOT a coherence violation
         assert mod.coherence_compute(result, prov)["ok"] is True
 
-    def test_stack_distribution_sums_to_constituent_count(self):
-        # 6 cited constituent-contract entries; own barrel empty
-        prov = {"entries": _entries(4, 0, 2, 0)}
+    def test_stack_distribution_bins_entries_not_libraries(self):
+        # 6 provenance entries of 2 libraries; own barrel empty. The helper's
+        # distribution counts the entries, while a stack's metadata.json bins
+        # each library once (sum = library_count), so create-stack-skill
+        # reads only the label check from a stack-shaped run.
+        entries = [dict(e, source_library=lib)
+                   for e, lib in zip(_entries(4, 0, 2, 0), ["liba"] * 3 + ["libb"] * 3)]
+        prov = {"entries": entries}
         result = mod.derive_stats(prov, {"exports_documented": 0}, "stack")
         assert sum(result["confidence_distribution"].values()) == 6
+        assert len({e["source_library"] for e in entries}) == 2
         assert result["stats"]["exports_documented"] == 0
+        assert mod.coherence_compute(result, prov)["ok"] is True
+
+    def test_stack_label_check_in_compute_mode(self):
+        # #555 A: the code-mode stack map of the issue, as step 4 writes its
+        # export records. An ast-grep match is ast_bridge / T1; an export read
+        # by eye is source_reading / T1-low, whatever the forge tier.
+        record = {"source_library": "liba", "source_file": "libs/liba/api.py"}
+        prov = {"entries": [
+            dict(record, **_row("connect", "ast_bridge", "T1", "T1"), source_line=6),
+            dict(record, **_row("get_config", "ast_bridge", "T1", "T1"), source_line=13),
+            dict(record, **_row("Client", "source_reading", "T1", "T1"), source_line=17),
+        ]}
+        result = mod.derive_stats(prov, {}, "stack")
+        coherence = mod.coherence_compute(result, prov)
+        assert [(v["field"], v["expected"]) for v in coherence["violations"]] == [
+            ("provenance.entries[2].confidence", "T1-low"),
+            ("provenance.entries[2].signature_source", "T1-low"),
+        ]
+        prov["entries"][2].update(confidence="T1-low", signature_source="T1-low")
+        assert mod.coherence_compute(mod.derive_stats(prov, {}, "stack"), prov)["ok"] is True
 
     def test_check_mode_detects_shape_from_metadata(self):
         prov = {"entries": _entries(3)}
@@ -348,6 +378,17 @@ def _by_field(violations):
     return {v["field"]: v for v in violations}
 
 
+# Rows a, b and c of #555: read by eye, off T1 / T1-low, yet claiming a T1
+# signature. The distribution bins them in t1, so each one is flagged.
+READ_BY_EYE_T1_SIGNATURE = [
+    _row("a", "source-read", sig="T1", node="function_definition"),
+    _row("b", "source-read", "T2", "T1"),
+    _row("c", "source_reading", "T3", "T1"),
+]
+READ_BY_EYE_IDS = ["source-read-no-confidence", "source-read-t2", "source_reading-t3"]
+# Row d of #555: an ast-grep match on a T2 entry with a T1 signature is valid.
+AST_GREP_T2_ROW = _row("d", "ast-grep", "T2", "T1", "function_definition")
+
 # The I/O matrix rows of the #530 spec: (entries, file_entries, label violations, exit code).
 LABEL_ROWS = {
     "read-by-eye-labeled-t1": (
@@ -366,6 +407,7 @@ LABEL_ROWS = {
         [_row("config", "source-read", "T1-low", "t1", None)], [], 1, 1),
     "ast-grep-kind-copied-from-expected": (
         [_row("search", "ast-grep", "T1", "T1", "non-null")], [], 1, 1),
+    "read-by-eye-t1-signature-at-any-confidence": (READ_BY_EYE_T1_SIGNATURE, [], 3, 1),
     "exempt-rows": (
         [_row("a", "ast_bridge", "T1", "T1", None),
          _row("b", "source_reading", "T1-low", "T2", "function_definition"),
@@ -373,7 +415,8 @@ LABEL_ROWS = {
          _row("d", "compose-from-skill", "T1-low", "T1"),
          _row("e", "direct-read", "T2", "T2", "function_definition"),
          _row("f", "source-read", "T3", "T3", "function_definition"),
-         _row("g", "direct-read", sig="T1", node="function_definition")],
+         _row("g", "direct-read", sig="T1", node="function_definition"),
+         AST_GREP_T2_ROW],
         [{"file_name": "scripts/run.sh", "file_type": "script", "confidence": "T1",
           "extraction_method": "file-copy"}],
         0, 0),
@@ -481,6 +524,45 @@ class TestLabelAgreement:
         assert labels[0]["actual"] == "t1"
 
     @pytest.mark.parametrize("mode", MODES)
+    @pytest.mark.parametrize("row", READ_BY_EYE_T1_SIGNATURE, ids=READ_BY_EYE_IDS)
+    def test_read_by_eye_t1_signature_at_any_confidence(self, mode, row):
+        # Off T1 / T1-low only the signature is judged: no confidence or node
+        # kind violation, one signature_source violation.
+        prov = {"entries": [row]}
+        coherence = _coherence(prov, mode)
+        assert coherence["ok"] is False
+        labels = _labels(coherence)
+        assert labels == coherence["violations"]
+        assert len(labels) == 1
+        v = labels[0]
+        assert set(v) == VIOLATION_KEYS
+        assert v["field"] == "provenance.entries[0].signature_source"
+        assert v["expected"] == "T1-low"
+        assert v["actual"] == "T1"
+        assert v["export_name"] == row["export_name"]
+        assert "any tier but T1 passes" in v["note"]
+
+    @pytest.mark.parametrize("mode", MODES)
+    def test_issue_map_flags_rows_a_b_c_and_leaves_d(self, mode):
+        prov = {"entries": [*READ_BY_EYE_T1_SIGNATURE, AST_GREP_T2_ROW]}
+        coherence = _coherence(prov, mode)
+        labels = _labels(coherence)
+        assert labels == coherence["violations"]
+        assert [v["field"] for v in labels] == [
+            f"provenance.entries[{i}].signature_source" for i in range(3)]
+
+    def test_relabeled_signatures_leave_the_t1_bin(self):
+        # Before the fix, rows a, b and c counted as T1 with no violation.
+        prov = {"entries": [*READ_BY_EYE_T1_SIGNATURE, AST_GREP_T2_ROW]}
+        derived = mod.derive_stats(prov, _judgment(prov), "library")
+        assert derived["confidence_distribution"] == {"t1": 4, "t1_low": 0, "t2": 0, "t3": 0}
+        relabeled = {"entries": [dict(row, signature_source="T1-low") for row in READ_BY_EYE_T1_SIGNATURE]
+                     + [AST_GREP_T2_ROW]}
+        assert mod.check_label_agreement(relabeled) == []
+        again = mod.derive_stats(relabeled, _judgment(relabeled), "library")
+        assert again["confidence_distribution"] == {"t1": 1, "t1_low": 3, "t2": 0, "t3": 0}
+
+    @pytest.mark.parametrize("mode", MODES)
     @pytest.mark.parametrize("confidence", ["T1", "T1-low", "t1-LOW"])
     @pytest.mark.parametrize("method", ["direct-read", "Source-Read", _ABSENT, None],
                              ids=["direct-read", "wrong-case", "absent", "null"])
@@ -514,9 +596,19 @@ class TestLabelAgreement:
         _row("g", "direct-read", sig="T1", node="function_definition"),
         _row("h", "ast-grep", "t1", "T1", "function_declaration"),
         _row("i", "source-read", " t1-low ", "t2", None),
+        AST_GREP_T2_ROW,
+        _row("j", "ast_bridge", "T3", "T1"),
+        _row("k", "qmd_bridge", "T2", "T1"),
+        _row("l", "compose-from-skill", "T3", "T1"),
+        _row("m", "Source-Read", "T2", "T1"),
+        _row("n", "source-read", sig="T1-low", node="function_definition"),
+        _row("o", "source_reading", "T2", "T2"),
     ], ids=["ast_bridge-t1", "source_reading-t1-low", "source_reading-no-kind", "qmd_bridge",
             "qmd_bridge-t1-low", "compose-from-skill", "compose-from-skill-t1", "t2-row", "t3-row",
-            "no-confidence", "ast-grep-lower-case", "source-read-padded"])
+            "no-confidence", "ast-grep-lower-case", "source-read-padded", "ast-grep-t2-t1-signature",
+            "ast_bridge-t3-t1-signature", "qmd_bridge-t2-t1-signature",
+            "compose-from-skill-t3-t1-signature", "unknown-case-method-off-t1",
+            "source-read-no-confidence-t1-low-signature", "source_reading-t2-t2-signature"])
     def test_exempt_rows(self, mode, row):
         prov = {"entries": [row]}
         coherence = _coherence(prov, mode)

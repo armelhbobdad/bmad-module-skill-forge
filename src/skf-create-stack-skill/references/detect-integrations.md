@@ -104,7 +104,7 @@ Instead of co-import grep, detect integrations from architecture document:
    - Include VS feasibility verdict if a feasibility report matching the filename pattern defined in `src/shared/references/feasibility-report-schema.md` exists under `{forge_data_folder}/` (timestamped `feasibility-report-{project_slug}-{YYYYMMDD-HHmmss}.md` or the stable `feasibility-report-{project_slug}-latest.md` copy). Schema version `"1.0"` is required; see the schema for the full contract.
    - Cite evidence from both skills: `[from skill: {skill_name}]`
 
-All integration evidence inherits confidence tiers from the source skills. Load and apply the full **Confidence Tier Inheritance** matrix from `{composeModeRulesPath}` to compute the correct tier for each pair (covers T1+T1, T1+T1-low, T1-low+T1-low, T1+T2, T1-low+T2, T2+T2 cases). Apply the `[composed]` suffix to all confidence labels — e.g., `T1 [composed]`, `T1-low [composed, +T2 annotations]`.
+All integration evidence inherits confidence tiers from the source skills. Load and apply the **Confidence Tier Inheritance** rule from `{composeModeRulesPath}` to compute each pair's tier: the weaker of the two constituents' tiers, the rule §3 applies in both modes. Apply the `[composed]` suffix to all confidence labels, e.g. `T1 [composed]` or `T2 [composed]`.
 
 **VS verdict parsing (if feasibility report exists):** The feasibility report format is defined by the shared schema at `src/shared/references/feasibility-report-schema.md` (single source of truth; skf-verify-stack is the producer, this skill is the consumer). Follow the schema strictly:
 

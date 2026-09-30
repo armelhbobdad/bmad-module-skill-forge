@@ -40,9 +40,16 @@ distribution ALWAYS bins `entries[]`, so it always sums to `len(entries)`. What
     to the *citation count* (= `len(entries)`), NOT to `exports_documented`
     (which is the pattern-surface proxy `pattern_surfaces_documented`, a
     judgment value). `effective_denominator` is never emitted.
-  - **stack** — `entries[]` are the cited constituent contracts, so the
-    distribution sums to the *constituent count* (= `len(entries)`), NOT to
-    `exports_documented` (a stack's own barrel is empty by design).
+  - **stack**: `exports_documented` comes from the payload (a stack's own
+    barrel is empty by design), and the distribution still sums to the
+    *entry count* (= `len(entries)`), one per provenance entry. A stack's
+    metadata.json counts libraries instead: its `confidence_distribution`
+    bins each library once, by the library's tier, and sums to
+    `library_count`. So create-stack-skill runs this shape in compute mode
+    for the label check (`coherence`) and for its evidence report's
+    per-entry counts, and writes neither `stats` nor
+    `confidence_distribution` into metadata.json; `--check` does not fit a
+    stack.
 
 Modes
 -----
@@ -108,9 +115,14 @@ the tool that produced the entry, never the forge tier:
     null (an absent key counts as null).
   - qmd_bridge and compose-from-skill carry no pairing.
 
-Rows with another `confidence` (T2, T3, none) and `file_entries[]` are not
-checked. Each disagreement is a violation keyed by the row's index, because
-reference-app and stack maps repeat export names::
+A row read by eye (source-read, source_reading) is checked at any other
+`confidence` (T2, T3, none) too, for its `signature_source` alone: the
+distribution bins every row by `signature_source`, so a T1 there would count
+a signature read by eye as T1. The other rows with another confidence
+(ast-grep, ast_bridge, qmd_bridge, compose-from-skill, an unknown method)
+and `file_entries[]` are not checked. Each disagreement is a violation keyed
+by the row's index, because reference-app and stack maps repeat export
+names::
 
     {"field": "provenance.entries[12].confidence", "export_name": "search",
      "expected": "T1-low", "actual": "T1",
@@ -148,7 +160,7 @@ _KNOWN_METHODS = (
     "ast-grep", "source-read", "ast_bridge", "source_reading", "qmd_bridge", "compose-from-skill",
 )
 _T1_METHODS = ("ast-grep", "ast_bridge")            # confidence T1
-_T1_LOW_METHODS = ("source-read", "source_reading")  # confidence T1-low, signature_source not T1
+_T1_LOW_METHODS = ("source-read", "source_reading")  # confidence T1-low, signature_source never T1
 _LABELED_CONFIDENCE = ("T1", "T1-LOW")
 
 
@@ -322,13 +334,16 @@ def _upper(value: object) -> str | None:
 
 
 def check_label_agreement(prov: dict) -> list[dict]:
-    """Check that each T1 / T1-low entry's labels match its extraction_method.
+    """Check that each T1 / T1-low entry's labels match its extraction_method,
+    and that no entry read by eye claims a T1 signature_source.
 
     Returns one violation per disagreeing field, keyed by the entry's index
     (`provenance.entries[<i>].<field>`) since export names repeat in
     reference-app and stack maps. `expected` is the value the method implies;
     the caller relabels the entry to it and never changes a known method.
-    Entries with any other confidence, and `file_entries[]`, are not checked.
+    An entry read by eye (source-read, source_reading) with any other
+    confidence is checked for its signature_source alone; the other entries
+    with another confidence, and `file_entries[]`, are not checked.
     """
     entries = prov.get("entries")
     if not isinstance(entries, list):
@@ -339,10 +354,14 @@ def check_label_agreement(prov: dict) -> list[dict]:
         if not isinstance(entry, dict):
             continue
         confidence = entry.get("confidence")
-        if _upper(confidence) not in _LABELED_CONFIDENCE:
+        method = entry.get("extraction_method")
+        labeled = _upper(confidence) in _LABELED_CONFIDENCE
+        # Off T1 / T1-low only an entry read by eye is checked, for its
+        # signature_source: binning reads that label whatever the confidence,
+        # so a T1 there would count a signature read by eye as T1.
+        if not labeled and method not in _T1_LOW_METHODS:
             continue
         name = entry.get("export_name")
-        method = entry.get("extraction_method")
 
         def flag(field: str, expected: object, actual: object, note: str) -> None:
             violations.append({
@@ -372,7 +391,7 @@ def check_label_agreement(prov: dict) -> list[dict]:
                      "extraction_method ast-grep pairs with a non-null ast_node_type: copy "
                      "the kind the matching recipe declares")
         elif method in _T1_LOW_METHODS:
-            if _upper(confidence) != "T1-LOW":
+            if labeled and _upper(confidence) != "T1-LOW":
                 flag("confidence", "T1-low", confidence,
                      f"extraction_method {method} pairs with confidence T1-low")
             sig = entry.get("signature_source")
@@ -381,7 +400,7 @@ def check_label_agreement(prov: dict) -> list[dict]:
                      f"extraction_method {method} pairs with a signature_source other than T1 "
                      "(any tier but T1 passes)")
             node = entry.get("ast_node_type")
-            if method == "source-read" and node is not None:
+            if labeled and method == "source-read" and node is not None:
                 flag("ast_node_type", None, node,
                      "extraction_method source-read pairs with ast_node_type null: no ast-grep "
                      "rule matched this entry")
@@ -397,8 +416,8 @@ def coherence_compute(derived: dict, prov: dict) -> dict:
     the entry count means some entries carry a missing/unrecognized
     signature_source). When the provenance-map already tracks scripts/assets in
     file_entries[], those counts must agree with the stats counts. Every T1 or
-    T1-low entry's labels must match its extraction_method
-    (check_label_agreement).
+    T1-low entry's labels must match its extraction_method, and no entry read
+    by eye may claim a T1 signature_source (check_label_agreement).
     """
     violations: list[dict] = []
     entry_count = derived["_derivation"]["entry_count"]
@@ -530,8 +549,9 @@ def build_parser() -> argparse.ArgumentParser:
             "provenance-map (compute mode), or re-verify an on-disk metadata.json "
             "against the map (--check). Both modes also check that each T1 or "
             "T1-low entry's confidence, signature_source and ast_node_type match "
-            "its extraction_method. Replaces the hand-binning/summing in "
-            "skf-create-skill compile.md §4 and validate.md §7."
+            "its extraction_method, and that no entry read by eye claims a T1 "
+            "signature_source at any confidence. Replaces the hand-binning/summing "
+            "in skf-create-skill compile.md §4 and validate.md §7."
         ),
     )
     parser.add_argument("provenance_map", help="path to the staged provenance-map.json")

@@ -3,6 +3,9 @@ nextStepFile: 'detect-integrations.md'
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
   - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
+renderMetadataStatsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
+  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -17,6 +20,7 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 - Extract per-library using subprocess Pattern 4 (parallel) when available; if unavailable, extract sequentially
 - Each subprocess returns structured extraction, not raw file contents
+- Label each export by the tool that read it, never by the forge tier
 - Do not analyze cross-library integrations (Step 05)
 
 ## MANDATORY SEQUENCE
@@ -52,6 +56,7 @@ The script emits JSON of the form:
       "exports": ["..."],
       "exports_source": "metadata|references|skill-md|unknown",
       "confidence": "T1|T2|T1-low",
+      "evidence_tier": "T1|T1-low|T2|T3",
       "metadata_hash": "sha256:..."
     }
   ],
@@ -71,7 +76,7 @@ Build a `per_library_extractions[]` entry for each confirmed skill, from the `sk
 - `library`: `inventory.skills[i].name`
 - `exports`: `inventory.skills[i].exports`
 - `exports_source`: `inventory.skills[i].exports_source` (one of `metadata|references|skill-md|unknown` — capture for step 7 provenance)
-- `confidence`: `inventory.skills[i].confidence` (one of `T1|T2|T1-low`; `unknown` source ⇒ `T1-low`). Do not silently drop T3 evidence; carry whatever tier the source skill declared if §1+ subagent analysis upgrades the value.
+- `confidence`: `inventory.skills[i].evidence_tier` (one of `T1|T1-low|T2|T3`), the library's tier, which steps 5 and 7 read. Never `inventory.skills[i].confidence`: it only says where the export list came from.
 - `metadata_hash`: that entry's `metadata_hash` — the digest of the package's `metadata.json`, recorded for step 7 provenance.
 - `usage_patterns`: populated by the §1+ per-skill subagent fan-out, NOT by this script. The script provides the inventory + exports; the subagent does the per-skill usage analysis. They're complementary.
 
@@ -80,6 +85,13 @@ Report the loaded extractions — for each skill: export count, confidence tier,
 **If not compose_mode:** Continue with section 1 (existing flow).
 
 ### 1. Prepare Extraction Plan
+
+**Export labels, at every tier:**
+
+- An export an ast-grep rule matched: `extraction_method: "ast_bridge"`, `confidence: "T1"`, `signature_source: "T1"`.
+- An export read by eye, for any reason (Quick tier, ast-grep unavailable, a file ast-grep could not parse, a rule that matched nothing, or a file read instead of running a rule): `extraction_method: "source_reading"`, `confidence: "T1-low"`, `signature_source: "T1-low"`.
+
+Deep-tier temporal findings are T2 annotations, never export labels.
 
 **AST Tool Availability Check (Forge/Deep only):**
 
@@ -93,7 +105,7 @@ Degrade to Quick tier extraction. Note the degradation reason in context for the
 
 **Per-file AST failure handling:**
 
-If ast-grep fails on an individual file (parse error, unsupported syntax), fall back to source reading for that file only. Label the affected file's results T1-low; unaffected files retain T1. Log a warning noting which file degraded and why.
+If ast-grep fails on an individual file (parse error, unsupported syntax), fall back to source reading for that file only, and log a warning noting which file degraded and why.
 
 For each library in `confirmed_dependencies`, determine extraction strategy based on forge tier:
 
@@ -101,16 +113,14 @@ For each library in `confirmed_dependencies`, determine extraction strategy base
 - Read source files that import the library
 - Extract usage patterns from import statements and function calls
 - Identify key exports used in this project
-- Confidence: T1-low (source reading inference)
 
 **Forge Tier (adds to Quick):**
 - Use ast_bridge to analyze structural exports from library source
 - Extract function signatures, type definitions, class hierarchies
 - Map parameter types and return types
-- Confidence: T1 (AST-verified structural extraction)
 
 **Deep Tier (adds to Forge):**
-- Perform all Forge tier extractions (T1)
+- Perform all Forge tier extractions
 - Additionally: query existing QMD temporal collections for each library
 - Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`
 - For each library in `confirmed_dependencies`, search for a registry entry where `skill_name` matches the library name AND `type` is `"temporal"`
@@ -124,7 +134,6 @@ For each library in `confirmed_dependencies`, determine extraction strategy base
 - **If no matching temporal collection found:**
   - Log: "No temporal collection for {library_name}. T2 enrichment skipped."
   - Continue with T1/T1-low extraction only
-- Confidence: T1 for structural (AST), T2 for temporal annotations (QMD-enriched)
 
 ### 2. Launch Parallel Extraction
 
@@ -134,16 +143,27 @@ Each subprocess:
 1. Reads all files importing the library (from step 03 file lists)
 2. Extracts key exports used in this project (functions, classes, types, constants)
 3. Identifies usage patterns (initialization, configuration, common call patterns)
-4. Labels confidence tier based on extraction method
-5. Returns structured extraction to parent:
+4. Labels each export by the tool that read it (§1)
+5. Returns structured extraction to parent, one record per export:
 
 ```
 {
   library: "name",
   version: "from_manifest",
-  exports_found: ["fn1", "fn2", "Type1"],
+  exports: [
+    {
+      export_name: "fn1",
+      export_type: "function|class|type|constant",
+      params: ["typed param strings"],
+      return_type: "type",
+      source_file: "path relative to {scan_root}",
+      source_line: 0,
+      extraction_method: "ast_bridge|source_reading",
+      confidence: "T1|T1-low",
+      signature_source: "T1|T1-low"
+    }
+  ],
   usage_patterns: ["pattern description with file:line"],
-  confidence: "T1|T1-low|T2|T3",
   files_analyzed: count,
   warnings: [],
   temporal: {
@@ -155,6 +175,8 @@ Each subprocess:
 }
 ```
 
+`{scan_root}` is the project root, `project_root` from step 1: `source_file` is relative to it, with forward slashes (a library installed outside it, in a global site-packages say, is relative to its install folder, and step 7 warns on it). `source_line` is the export's `def`, `class` or declaration line, not a decorator above it. The subprocess returns no library tier: §3a sets it.
+
 **If parallel subprocess unavailable:** Process libraries sequentially in main thread. Report progress after each library.
 
 **Per-subprocess timeout (S6):** Apply a 60-second wall-clock timeout to each library's extraction subprocess. On timeout, mark the library as `partial-failure` with `warnings: ["extraction timeout after 60s"]`, store whatever partial data was returned (if any), and continue with the remaining libraries. Do NOT abort the batch on a single timeout.
@@ -163,7 +185,7 @@ Each subprocess:
 
 For each library extraction:
 
-**Success:** Store extraction result.
+**Success:** Store the extraction result as the library's `per_library_extractions[]` entry.
 
 **Partial failure:** Store partial result with warnings, continue with other libraries.
 
@@ -173,16 +195,35 @@ For each library extraction:
 
 **If ALL extractions fail:** HALT — cannot produce meaningful stack skill. Before halting (B7):
 
-1. Purge any in-flight staging artifacts under the forge workspace: remove `{forge_data_folder}/{project_name}-stack/{version}/*-tmp` and any `{forge_data_folder}/{project_name}-stack/{version}/*.skf-tmp` directories so partial state does not linger.
+1. Purge any in-flight staging artifacts under the forge workspace: remove `{forge_data_folder}/{project_name}-stack/{version}/*-tmp`, any `{forge_data_folder}/{project_name}-stack/{version}/*.skf-tmp` directories and the §3a labels file `{forge_data_folder}/{project_name}-stack.skf-labels.json` so partial state does not linger.
 2. Emit the result envelope on stderr per the Result Contract in SKILL.md (`stack_libraries` carries the confirmed library names that failed extraction), and exit `2`:
 
    ```
    SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":2,"halt_reason":"all-extractions-failed"}
    ```
 
+### 3a. Check the Export Labels
+
+Code mode only (compose mode leaves this step at §0). Steps 5 to 7 read the labels checked here. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}`; if neither path exists, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "label-check-skipped"`, `message`: the reason) and go to the library tiers below.
+
+Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{forge_data_folder}/{project_name}-stack.skf-labels.json`, and run:
+
+```bash
+echo '{}' | uv run {renderMetadataStatsHelper} {forge_data_folder}/{project_name}-stack.skf-labels.json --shape stack
+```
+
+Rely on its JSON, not the exit code, and write neither its `stats` nor its `confidence_distribution` into `metadata.json`. If it exits `2` (no JSON), append a `label-check-skipped` entry with its stderr as the message, delete the file and go to the library tiers. Otherwise fix each `coherence` violation in the stored records:
+
+- **`provenance.entries[<i>].<field>`:** set that field of record `<i>` to the violation's `expected` value and keep its `extraction_method`, which names the tool that read the export. When the violation is on `extraction_method` itself (unknown or missing), set `ast_bridge` only when an ast-grep rule matched the export, `source_reading` otherwise.
+- **`confidence_distribution`:** some records carry no valid `signature_source`: set `T1` on each such `ast_bridge` record and `T1-low` on each such `source_reading` record.
+
+Rewrite the file and run the helper again until `coherence.ok` is true, keep that run's `confidence_distribution` as §4's export label counts, and delete the file. When a record changed, append one `workflow_warnings[]` entry (`step: "step-04"`, `severity: "info"`, `code: "export-labels-relabeled"`) naming each relabeled export and its library.
+
+**Library tiers.** Set each library's `per_library_extractions[].confidence`: `T1` when it has export records and every one is `ast_bridge`, `T1-low` otherwise. Step 5 takes each integration's tier from it, and step 7 bins each library once by it.
+
 ### 4. Display Extraction Summary
 
-Report the extraction results: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; and the T1 / T1-low / T2 confidence distribution. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
+Report the extraction results: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; the number of libraries at each tier (the unit of `metadata.json`'s `confidence_distribution`); and the export label counts §3a kept. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
 
 ### 5. Auto-Proceed to Next Step
 

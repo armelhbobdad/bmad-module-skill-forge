@@ -22,6 +22,8 @@ Plus:
   - --expect-hashes: changed, missing and new skills against a recorded run
   - candidates: explicit, manifest and active-link candidates, the
     exclusion reasons, stale manifest keys and manifest parse errors
+  - scope: the --pairs pairs split by the skills in scope, and the in-scope
+    names that are no inventory skill
   - CLI subprocess invocation produces valid JSON
   - Empty skills root → empty inventory, exit 0
   - Bad skills root → exit 1
@@ -1839,3 +1841,120 @@ class TestCandidates:
         assert "The export manifest is never read." not in doc
         assert "`enumerate` never reads the export manifest" in doc
         assert "candidates <skills-root> [--explicit a,b]" in doc
+
+
+# --------------------------------------------------------------------------
+# scope: the pairs split by the skills in scope (refine-architecture §3)
+# --------------------------------------------------------------------------
+
+
+SCOPE_KEYS = {
+    "in_scope", "out_of_scope", "unknown", "in_scope_pairs", "out_of_scope_pairs",
+    "pair_count", "in_scope_pair_count", "out_of_scope_pair_count",
+}
+
+
+def _pair_set(pairs: list[dict]) -> set[tuple[str, str]]:
+    return {(p["library_a"], p["library_b"]) for p in pairs}
+
+
+class TestScope:
+    def test_split_keeps_pairs_order_and_count(self) -> None:
+        names = ["delta", "alpha", "gamma", "beta"]
+        result = mod.compute_scope(names, ["gamma", "alpha", "beta"])
+        assert set(result) == SCOPE_KEYS
+        assert result["in_scope"] == ["alpha", "beta", "gamma"]
+        assert result["out_of_scope"] == ["delta"]
+        assert result["unknown"] == []
+        assert result["in_scope_pairs"] == [
+            {"library_a": "alpha", "library_b": "beta"},
+            {"library_a": "alpha", "library_b": "gamma"},
+            {"library_a": "beta", "library_b": "gamma"},
+        ]
+        assert result["out_of_scope_pairs"] == [
+            {"library_a": "alpha", "library_b": "delta"},
+            {"library_a": "beta", "library_b": "delta"},
+            {"library_a": "delta", "library_b": "gamma"},
+        ]
+        counts = ("pair_count", "in_scope_pair_count", "out_of_scope_pair_count")
+        assert [result[key] for key in counts] == [6, 3, 3]
+
+    def test_halves_are_the_pairs_flag_output(self) -> None:
+        # Every pair --pairs emits lands in exactly one half, in --pairs order.
+        names = [f"skill-{n:02d}" for n in range(12)]
+        in_scope = names[::3]
+        result = mod.compute_scope(names, in_scope)
+        pairs = mod.compute_pairs([{"name": n} for n in names])
+        assert _pair_set(result["in_scope_pairs"]).isdisjoint(_pair_set(result["out_of_scope_pairs"]))
+        assert sorted(result["in_scope_pairs"] + result["out_of_scope_pairs"], key=pairs.index) == pairs
+        assert result["in_scope_pairs"] == [p for p in pairs if p in result["in_scope_pairs"]]
+        k = len(in_scope)
+        assert result["in_scope_pair_count"] == k * (k - 1) // 2
+        assert result["pair_count"] == len(pairs) == 66
+
+    def test_a_pair_with_one_skill_out_of_scope_is_out(self) -> None:
+        result = mod.compute_scope(["a", "b"], ["a"])
+        assert result["in_scope_pairs"] == []
+        assert result["out_of_scope_pairs"] == [{"library_a": "a", "library_b": "b"}]
+
+    def test_unknown_names_are_listed_once_in_order(self) -> None:
+        result = mod.compute_scope(["react", "vite"], ["vite", "Reakt", "zod", "Reakt", "React"])
+        assert result["unknown"] == ["Reakt", "zod", "React"]  # names compare exactly
+        assert result["in_scope"] == ["vite"]
+        assert result["in_scope_pairs"] == []
+
+    def test_every_skill_in_scope(self) -> None:
+        names = ["c", "a", "b"]
+        result = mod.compute_scope(names, names)
+        assert result["out_of_scope"] == [] and result["out_of_scope_pairs"] == []
+        assert result["in_scope_pairs"] == mod.compute_pairs([{"name": n} for n in names])
+
+    def test_no_skill_in_scope(self) -> None:
+        result = mod.compute_scope(["a", "b", "c"], [])
+        assert result["in_scope"] == [] and result["in_scope_pairs"] == []
+        assert result["out_of_scope"] == ["a", "b", "c"]
+        assert result["out_of_scope_pair_count"] == 3
+
+    def test_cli_scope(self) -> None:
+        result = _run_cli("scope", "--skills", " zod, react ,vite,", "--in-scope", "react, vite, reactt")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert set(payload) == SCOPE_KEYS
+        assert payload["in_scope"] == ["react", "vite"]
+        assert payload["unknown"] == ["reactt"]
+        assert payload["in_scope_pairs"] == [{"library_a": "react", "library_b": "vite"}]
+        assert payload["out_of_scope_pair_count"] == 2
+
+    def test_cli_scope_matches_the_enumerate_pairs(self, tmp_path: Path) -> None:
+        for name in ("vite", "react", "zod"):
+            _make_skill(tmp_path, name, metadata={"name": name, "exports": ["x"]})
+        inventory = json.loads(_run_cli("enumerate", str(tmp_path), "--pairs").stdout)
+        names = ",".join(entry["name"] for entry in inventory["skills"])
+        payload = json.loads(_run_cli("scope", "--skills", names, "--in-scope", "react,zod").stdout)
+        assert payload["pair_count"] == inventory["pair_count"]
+        # Each half lists its pairs in the order --pairs emitted them.
+        for half in ("in_scope_pairs", "out_of_scope_pairs"):
+            assert payload[half] == [p for p in inventory["pairs"] if p in payload[half]]
+        assert payload["in_scope_pairs"] == [{"library_a": "react", "library_b": "zod"}]
+        assert len(payload["out_of_scope_pairs"]) == inventory["pair_count"] - 1
+
+    def test_cli_scope_empty_in_scope_is_allowed(self) -> None:
+        payload = json.loads(_run_cli("scope", "--skills", "a,b", "--in-scope", "").stdout)
+        assert payload["in_scope"] == [] and payload["out_of_scope_pair_count"] == 1
+
+    def test_cli_scope_skills_naming_no_skill_exits_1(self) -> None:
+        result = _run_cli("scope", "--skills", " , ", "--in-scope", "a")
+        assert result.returncode == 1
+        assert "--skills names no skill" in result.stderr
+        assert result.stdout == ""
+
+    @pytest.mark.parametrize(
+        "argv", [["scope", "--skills", "a,b"], ["scope", "--in-scope", "a"]], ids=["no-in-scope", "no-skills"]
+    )
+    def test_cli_scope_needs_both_lists(self, argv: list[str]) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            mod._build_parser().parse_args(argv)
+        assert excinfo.value.code == 2
+
+    def test_docstring_lists_the_scope_subcommand(self) -> None:
+        assert "scope --skills a,b,c --in-scope a,b" in mod.__doc__

@@ -34,6 +34,7 @@ These rules apply to every step in this workflow:
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
+- Every helper a stage runs (a `scripts/` file, or a shared helper from the stage's probe order) is required: if the probe order resolves to no path, or the helper cannot start, HALT (exit code 3, `halt_reason: "resolution-failure"`; in headless, emit the error envelope). Never recompute a helper's result by hand: the main-thread rule above covers subagent work, not helpers.
 
 ## Stages
 
@@ -44,7 +45,7 @@ These rules apply to every step in this workflow:
 | 3 | Integration Verification | references/integrations.md | Yes |
 | 4 | Requirements Mapping | references/requirements.md | Yes |
 | 5 | Synthesize Verdict | references/synthesize.md | Yes |
-| 6 | Report | references/report.md | No (confirm) |
+| 6 | Report | references/report.md | Yes |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
@@ -53,7 +54,7 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | architecture_doc_path [required], prd_path [optional], previous_report_path [optional] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--prd <path>` (skip step 1 prompt for the optional PRD); `--previous-report <path>` (skip step 1 prompt for delta comparison) |
-| **Gates** | step 1 Input Gate (use args); step 6 Report Menu ([R] review / [X] exit, headless default X). Steps 2-3 also hold elective vacuous-analysis guards (0% coverage, all-Blocked) that only fire in degenerate cases; every guard auto-resolves to Continue in headless. |
+| **Gates** | step 1 Input Gate (use args), including the offer to compare against the newest earlier report (headless default: use it). No later stage waits for input: a run with 0% coverage or only Blocked pairs prints one warning and continues, so its report still carries the recommendations. |
 | **Outputs** | `feasibility-report-{projectSlug}-{timestamp}.md` and `feasibility-report-{projectSlug}-latest.md` (copy, not symlink) per the SKF shared feasibility report schema (`_bmad/skf/shared/references/feasibility-report-schema.md`; `src/shared/references/…` in a dev checkout) — with integration verdicts, coverage analysis, recommendations, and evidence sources; plus `verify-stack-result-{timestamp}.json` and `verify-stack-result-latest.json` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--prd`, `--previous-report`) consumed at the gates that would otherwise prompt. |
 | **Exit codes** | See `references/exit-codes.md` |
@@ -66,7 +67,7 @@ When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **st
 SKF_VERIFY_STACK_RESULT_JSON: {"status":"success|error","report_path":"…|null","report_latest_path":"…|null","overall_verdict":"…|null","coverage_percentage":0,"recommendation_count":0,"exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any halt. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"skills-folder-missing"`, `"insufficient-skills"`, `"forge-folder-unconfigured"`, `"resolution-failure"`, `"previous-report-collision"`, `"inventory-unreliable"`, `"schema-violation"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches `references/exit-codes.md` (the `analysis-halted` / exit-8 gates are interactive-only, so they never reach this envelope). `overall_verdict` uses the schema tokens (`FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`).
+`status` is `"success"` on the terminal happy path, `"error"` on any halt. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"skills-folder-missing"`, `"insufficient-skills"`, `"forge-folder-unconfigured"`, `"resolution-failure"`, `"previous-report-collision"`, `"inventory-unreliable"`, `"schema-violation"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches `references/exit-codes.md`. `overall_verdict` uses the schema tokens (`FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`).
 
 ## On Activation
 
@@ -74,10 +75,10 @@ SKF_VERIFY_STACK_RESULT_JSON: {"status":"success|error","report_path":"…|null"
    - `project_name`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
 
-2. **Compute run-scoped variables** (same place as config so every stage can reference them without re-derivation):
-   - `project_slug` ← slugify `project_name` (lowercase, hyphens only, no unicode, no whitespace)
+2. **Fix the run-scoped variables** so no stage derives them again:
    - `timestamp` ← UTC `YYYYMMDD-HHmmss` captured at activation time
-   - These two combine in init.md §4 into `{outputFile}` per the stage frontmatter template, but the values themselves are fixed for the entire workflow run — every later reference to `{outputFile}` resolves consistently.
+   - `project_slug` is bound by init.md before its §1, from the shared feasibility-report helper, which holds the one slug rule the consumers of this report also apply; never slugify `project_name` by hand
+   - The two combine in init.md §4 into `{outputFile}` and `{outputFileLatest}` per the stage frontmatter template, and stay fixed for the whole run, so every later reference to either file resolves to the same path.
 
 3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 

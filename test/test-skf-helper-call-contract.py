@@ -11,6 +11,10 @@ helper itself:
   the helper's own parser, so a subcommand it does not have, a flag it does
   not know (spelled in full: abbreviations fail), a missing required flag or
   a stray argument fails the test.
+- A flag-only helper listed in FLAG_ONLY (argparse, no subcommands, such as
+  skf-render-metadata-stats.py and skf-names-present.py): the same check,
+  so a missing positional or required flag, an unknown flag or a value
+  outside a flag's choices fails the test.
 - skf-manifest-ops.py reads sys.argv by hand, the skills folder first: the
   call must name, second, a command its main() dispatches, with at least as
   many arguments as main() requires for it.
@@ -59,6 +63,14 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
 MANIFEST_OPS = SRC / "shared" / "scripts" / "skf-manifest-ops.py"
+# Helpers without subcommands whose calls are checked all the same. A helper
+# joins only when every prose call to it fits: a flag-only helper that reads
+# sys.argv by hand (skf-detect-docs.py, skf-rebuild-managed-sections.py)
+# cannot be parsed this way.
+FLAG_ONLY = frozenset({
+    SRC / "shared" / "scripts" / "skf-render-metadata-stats.py",
+    SRC / "shared" / "scripts" / "skf-names-present.py",
+})
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
@@ -89,7 +101,7 @@ def _uses_subcommands(script: Path) -> bool:
 
 
 def _checked(script: Path) -> bool:
-    return script == MANIFEST_OPS or _uses_subcommands(script)
+    return script == MANIFEST_OPS or script in FLAG_ONLY or _uses_subcommands(script)
 
 
 # --------------------------------------------------------------------------
@@ -387,6 +399,8 @@ MUST_FIND = [
     ("src/shared/references/description-guard-protocol.md", "skf-description-guard.py", "capture"),
     ("src/skf-quick-skill/references/finalize.md", "skf-atomic-write.py", "flip-link"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-atomic-write.py", "commit-dir"),
+    ("src/skf-create-stack-skill/references/generate-output.md", "skf-verify-provenance-completeness.py", "verify"),
+    ("src/skf-create-stack-skill/references/generate-output.md", "skf-verify-provenance-completeness.py", "fix"),
     ("src/skf-update-skill/references/write.md", "skf-update-active-symlink.py", "update"),
     ("src/skf-update-skill/references/write.md", "skf-update-active-symlink.py", "verify"),
     ("src/skf-drop-skill/references/execute.md", "skf-update-active-symlink.py", "update"),
@@ -404,6 +418,31 @@ def _command_word(call: Call) -> str | None:
 def test_the_extractor_finds_known_calls(rel, script, command):
     found = [_command_word(c) for c in CALLS if c.rel == rel and c.script.name == script]
     assert command in found, f"{rel}: the {script} calls found start with {found}"
+
+
+# Every step that runs a flag-only helper on a provenance map, so a call
+# that drops the map, misspells a flag or names no real shape fails.
+FLAG_ONLY_MUST_FIND = [
+    ("src/skf-create-skill/references/compile.md", "skf-render-metadata-stats.py", ()),
+    ("src/skf-create-skill/references/validate.md", "skf-render-metadata-stats.py", ("--check",)),
+    ("src/skf-update-skill/references/write.md", "skf-render-metadata-stats.py", ("--shape", "reference-app")),
+    ("src/skf-create-stack-skill/references/parallel-extract.md", "skf-render-metadata-stats.py",
+     ("--shape", "stack")),
+    ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-metadata-stats.py",
+     ("--shape", "stack")),
+    ("src/skf-create-stack-skill/references/generate-output.md", "skf-names-present.py",
+     ("--provenance", "--skill-dir")),
+]
+
+
+@pytest.mark.parametrize("rel,script,flags", FLAG_ONLY_MUST_FIND)
+def test_the_extractor_finds_flag_only_calls(rel, script, flags):
+    assert _script(script) in FLAG_ONLY
+    runs = [words for words in (_words(c.rest) or [] for c in CALLS if c.rel == rel and c.script.name == script)
+            if words and not {"-h", "--help"} & set(words)]
+    assert runs, f"{rel}: no {script} call on a provenance map found"
+    assert any(all(flag in words for flag in flags) for words in runs), (
+        f"{rel}: no {script} call passes {flags}: {runs}")
 
 
 def test_the_extractor_sees_many_calls():
@@ -441,6 +480,18 @@ def test_manifest_ops_commands_are_read_from_its_main():
     ("skf-manifest-ops.py", " rename {old_name} {new_name}"),
     ("skf-manifest-ops.py", " {skills_output_folder} move {old_name} {new_name}"),
     ("skf-manifest-ops.py", " {skills_output_folder} rename {old_name}"),
+    # The flag-only stats helper: the map left out, a shape it lacks (spelled out
+    # or inside a {a|b} placeholder), a misspelled flag, a stray argument.
+    ("skf-render-metadata-stats.py", " --shape stack"),
+    ("skf-render-metadata-stats.py", " {labels_json} --shape bundle"),
+    ("skf-render-metadata-stats.py", " {labels_json} --shape {stack|bundle}"),
+    ("skf-render-metadata-stats.py", " {p}/provenance-map.json --chek {p}/metadata.json"),
+    ("skf-render-metadata-stats.py", " {p}/provenance-map.json {p}/metadata.json"),
+    # The names helper: the package left out, a map given without its flag,
+    # an abbreviated flag.
+    ("skf-names-present.py", " --provenance {forge_version}/provenance-map.json"),
+    ("skf-names-present.py", " {forge_version}/provenance-map.json --skill-dir {skill_staging}"),
+    ("skf-names-present.py", " --provenance {p}/provenance-map.json --skill-dir {s} --drop"),
 ])
 def test_the_checker_rejects_broken_calls(script, rest):
     assert call_error(_script(script), rest), f"{script}{rest} must not fit the CLI"
@@ -456,6 +507,13 @@ def test_the_checker_rejects_broken_calls(script, rest):
     ("skf-emit-brief-result-envelope.py", " emit --target {stdout|stderr}"),
     ("skf-manifest-ops.py", ' "{skills_output_folder}" rename {new_name} {old_name}'),
     ("skf-manifest-ops.py", " {skills_output_folder} read"),
+    ("skf-render-metadata-stats.py", " {forge_data_folder}/{project_name}-stack.skf-labels.json --shape stack"),
+    ("skf-render-metadata-stats.py",
+     " <staging-skill-dir>/provenance-map.json --check <staging-skill-dir>/metadata.json"),
+    ("skf-render-metadata-stats.py", " {p}/provenance-map.json --shape {library|reference-app}"),
+    ("skf-render-metadata-stats.py", " --help"),
+    ("skf-names-present.py", " --provenance {forge_version}/provenance-map.json --skill-dir {skill_staging}"),
+    ("skf-names-present.py", " --provenance {p}/provenance-map.json --skill-dir {s} --drop-absent"),
 ])
 def test_the_checker_accepts_valid_calls(script, rest):
     assert call_error(_script(script), rest) is None

@@ -16,7 +16,8 @@ which co-occurring problems to name, how to phrase the recommendation — stays 
 prompt; this script emits only the token plus the stable condition codes the prompt
 cites when it writes that rationale.
 
-The ladder (exactly mirrors synthesize.md §1; evaluate top-to-bottom, first match wins):
+The ladder (synthesize.md §1 runs it and cites its condition codes; evaluate top-to-bottom,
+first match wins):
 
   1. Zero-coverage short-circuit  — coveragePercentage == 0  -> NOT_FEASIBLE
      (no live coverage: analysis is vacuous; the remainder of the ladder is skipped).
@@ -29,13 +30,18 @@ The ladder (exactly mirrors synthesize.md §1; evaluate top-to-bottom, first mat
      CONDITIONALLY_FEASIBLE.
 
   Post-verdict zero-integration-pairs guard (applied after ANY verdict): when all four
-  integration counts are 0 AND the user continued past a step-2 zero-state [C] gate,
-  the guard fires — a FEASIBLE verdict is overridden to CONDITIONALLY_FEASIBLE, and
-  regardless of verdict the prompt appends the "no integration claims found" note.
+  integration counts are 0 AND two or more live technologies are Covered
+  (coveredCount >= 2), no integration was verified although one could have been, so
+  the guard fires: a FEASIBLE verdict is overridden to CONDITIONALLY_FEASIBLE, and
+  regardless of verdict the prompt appends the "no integration pair found" note. With
+  one Covered technology there is no pair to find, so the guard stays off.
 
 Note that coveragePercentage and missingCount are independent inputs on purpose: half-up
 rounding means a stack with covered=199, missing=1 rounds to coveragePercentage == 100
 while missingCount is still > 0, so the Missing trigger reads missingCount directly.
+coveredCount is checked against coveragePercentage only where they cannot disagree: no
+Covered technology means 0% coverage, so coveredCount 0 with a percentage above 0 is
+rejected (a caller that left the count at 0 would silently switch the guard off).
 
 CLI usage:
   uv run skf-verdict-rollup.py '<JSON>'                  # JSON literal positional
@@ -46,14 +52,14 @@ Input schema (one object; counts come straight from the report frontmatter/table
   {
     "coveragePercentage": <int 0..100>,      # from coverage.md (coverage-tally)
     "missingCount": <int>,                   # Missing technologies (Replaced excluded)
+    "coveredCount": <int>,                   # Covered technologies (the coverage tally's covered_count)
     "pairsBlocked": <int>,                   # from integrations.md
     "pairsRisky": <int>,
     "pairsPlausible": <int>,                 # includes Check-4-missing caps
     "pairsVerified": <int>,
     "requirementsEvaluated": <bool>,         # optional (default false): requirementsPass == "completed"
     "requirementsNotAddressed": <int>,       # optional (default 0); ignored unless evaluated
-    "requirementsPartial": <int>,            # optional (default 0); ignored unless evaluated
-    "continuedPastZeroState": <bool>         # optional (default false): user pressed [C] past a step-2 zero-state gate
+    "requirementsPartial": <int>             # optional (default 0); ignored unless evaluated
   }
 
 Output (stdout, one object):
@@ -82,12 +88,18 @@ import sys
 VERDICTS = ("FEASIBLE", "CONDITIONALLY_FEASIBLE", "NOT_FEASIBLE")
 REQUIRED_COUNTS = (
     "missingCount",
+    "coveredCount",
     "pairsBlocked",
     "pairsRisky",
     "pairsPlausible",
     "pairsVerified",
 )
 OPTIONAL_COUNTS = ("requirementsNotAddressed", "requirementsPartial")
+
+# The zero-pairs guard needs a pair that could have been found: two Covered
+# technologies (the schema's "two or more live technologies", all of them Covered
+# whenever the verdict could otherwise be FEASIBLE).
+ZERO_PAIRS_MIN_COVERED = 2
 
 
 def make_error(message):
@@ -117,9 +129,11 @@ def _validate(inp):
         if field in inp and inp[field] is not None and not _is_nonneg_int(inp[field]):
             return f"{field} must be a non-negative integer when present"
 
-    for field in ("requirementsEvaluated", "continuedPastZeroState"):
-        if field in inp and not isinstance(inp[field], bool):
-            return f"{field} must be a boolean when present"
+    if "requirementsEvaluated" in inp and not isinstance(inp["requirementsEvaluated"], bool):
+        return "requirementsEvaluated must be a boolean when present"
+
+    if inp["coveredCount"] == 0 and pct > 0:
+        return "coveredCount is 0 but coveragePercentage is above 0: pass the coverage tally's covered_count"
 
     return None
 
@@ -139,7 +153,7 @@ def rollup(inp):
     req_eval = bool(inp.get("requirementsEvaluated", False))
     not_addressed = inp.get("requirementsNotAddressed") or 0
     partial = inp.get("requirementsPartial") or 0
-    continued = bool(inp.get("continuedPastZeroState", False))
+    covered = inp["coveredCount"]
 
     matched: list[str] = []
 
@@ -179,7 +193,7 @@ def rollup(inp):
 
     # Post-verdict zero-integration-pairs guard.
     zero_pairs = blocked == 0 and risky == 0 and plausible == 0 and verified == 0
-    guard_fired = zero_pairs and continued
+    guard_fired = zero_pairs and covered >= ZERO_PAIRS_MIN_COVERED
     if guard_fired:
         if verdict == "FEASIBLE":
             verdict = "CONDITIONALLY_FEASIBLE"
@@ -198,18 +212,15 @@ def rollup(inp):
 def _build_parser():
     parser = argparse.ArgumentParser(
         prog="skf-verdict-rollup",
-        description=(
-            "Deterministic overall-feasibility verdict rollup (synthesize.md §1). "
-            "Consumes the persisted coverage / integration / requirements counts and "
-            "emits the FEASIBLE / CONDITIONALLY_FEASIBLE / NOT_FEASIBLE token plus the "
-            "condition codes the prompt cites in its rationale."
-        ),
+        # The module docstring is the contract synthesize.md points --help at:
+        # the ladder, the input and output schemas and the condition codes.
+        description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Example:\n"
             "  uv run skf-verdict-rollup.py "
-            "'{\"coveragePercentage\":100,\"missingCount\":0,\"pairsBlocked\":0,"
-            "\"pairsRisky\":0,\"pairsPlausible\":0,\"pairsVerified\":3}'"
+            "'{\"coveragePercentage\":100,\"missingCount\":0,\"coveredCount\":4,"
+            "\"pairsBlocked\":0,\"pairsRisky\":0,\"pairsPlausible\":0,\"pairsVerified\":3}'"
         ),
     )
     src = parser.add_mutually_exclusive_group()

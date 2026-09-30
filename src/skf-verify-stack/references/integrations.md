@@ -31,7 +31,7 @@ Cross-reference API surfaces between library pairs that the architecture documen
 
 ## MANDATORY SEQUENCE
 
-**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback) — used by the verdict-cap references and the append step below.
+**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). The append step below uses it.
 
 ### 1. Load Integration Verification Rules
 
@@ -63,7 +63,7 @@ Parse the architecture document for statements describing two or more technologi
 
 <!-- Subagent delegation: read SKILL.md files in parallel, return compact JSON -->
 
-For each library in an integration pair, delegate SKILL.md reading to a parallel subagent. Launch up to **8 subagents concurrently** (batch if needed — same 8-way cap as step 1 §2; keeps aggregate token window manageable while still parallelizing typical stack sizes). Each subagent receives one skill's SKILL.md path and:
+For each library in an integration pair, delegate SKILL.md reading to a parallel subagent. Launch up to **8 subagents concurrently**, in batches of 8 when more libraries need reading (the cap keeps the aggregate token window manageable while still parallelizing typical stack sizes). Each subagent receives one skill's SKILL.md path and:
 1. Reads the SKILL.md file
 2. Extracts the API surface
 3. Returns only this compact JSON — no prose, no extra commentary:
@@ -81,21 +81,16 @@ For each library in an integration pair, delegate SKILL.md reading to a parallel
 **Extraction rules for subagents:**
 - `skill_name`, `language`: mirror the skill's metadata fields
 - `exports`: exported functions with signatures, exported types/interfaces/classes (extracted from SKILL.md prose)
-- `protocols_inferred`: best-effort prose scan — protocol tokens mentioned in SKILL.md descriptions/examples; not a declared field in `metadata.json`
-- `data_formats_inferred`: best-effort prose scan — format tokens mentioned in SKILL.md descriptions/examples; not a declared field in `metadata.json`
+- `protocols_inferred`, `data_formats_inferred`: protocol and format tokens mentioned in the SKILL.md descriptions and examples
 - If a field has no matches, return an empty array `[]`
 
-**These fields are inferred, not declared.** `protocols` and `data_formats` do not exist in any skill's `metadata.json` — treat them as weak evidence from prose scanning only. When either list is used to justify compatibility in Check 2, cap the per-pair verdict at `Plausible` (see the schema's producer obligations — `{feasibilitySchemaRef}`).
+**These two lists are inferred from prose, not declared** (no skill's `metadata.json` has `protocols` or `data_formats`), so they are weak evidence: Check 2 reads them as `{integrationRulesData}` says.
 
 **Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`). Reject responses missing required keys and exclude that skill from pair evaluation; if more than **20%** (same failure-budget threshold as step 1 §2; see the justification there) of subagent calls return malformed JSON, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with "API-surface extraction unreliable — more than 20% of subagent reads returned malformed JSON. Re-run [VS] after skills stabilize." In headless, emit the error envelope.
 
 **Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context.
 
-**From metadata.json (read in parent — lightweight), also extract:**
-- `language` — primary programming language (authoritative — overrides subagent `language` if they disagree)
-- `exports` — export names array (populated for individual skills; empty for stack skills)
-- `stats.exports_documented` — export count
-- `confidence_tier` — extraction confidence level
+**From `skill_inventory` (step 1 §2), also take** each skill's `language` (a string, or a list for a stack; it is authoritative and overrides the subagent's `language` when the two disagree), `exports` (empty for a stack skill) and `exports_documented` (the export count). The enumerate helper read them from `metadata.json`, so the parent never opens it.
 
 **mtime re-verification:** Re-stat each `metadata.json` and compare against the mtime captured in step 1. If any mtime moved during the run, abort any pair involving that skill with rationale "skill modified mid-run — re-run [VS]".
 
@@ -103,21 +98,19 @@ Store collected API surface summaries for cross-referencing.
 
 ### 4. Cross-Reference Each Integration Pair
 
-For each integration pair `{library_a, library_b}`, run the four-check protocol and assign the per-pair verdict per `{integrationRulesData}` (loaded in §1): the Cross-Reference Protocol defines Check 1 (language boundary), Check 2 (protocol compatibility), Check 3 (type compatibility), and Check 4 (documentation cross-reference, required for `Verified`); the Verdict Definitions table and promotion rule define the `Verified` / `Plausible` / `Risky` / `Blocked` thresholds and the cap-at-`Plausible` rule that applies whenever Check 4 surfaces no literal citation. Do not restate those mechanics here.
-
-**Step-specific input for Check 2:** Check 2 draws only on the `protocols_inferred` / `data_formats_inferred` lists surfaced by the §3 subagent prose scan. A shared or complementary token (e.g., "HTTP client" ↔ "HTTP server") reads as inferred compatibility; no token on either side, or conflicting tokens with no adapter, flags a risk. Any pair whose compatibility rests on this inferred evidence caps at `Plausible` per §3.
+For each integration pair `{library_a, library_b}`, run the four-check protocol and assign the per-pair verdict per `{integrationRulesData}` (loaded in §1): its Cross-Reference Protocol defines Checks 1 to 4, and its Verdict Definitions define the four verdicts and the Plausible cap. Apply them as written there. Check 2 reads the `protocols_inferred` / `data_formats_inferred` lists from §3.
 
 **Each verdict includes:**
 - Which checks passed and which flagged
 - Evidence citations: specific exports, types, or literal substrings from the skills
 - `source: stack manifest` or `source: prose co-mention` tag (per section 2)
 - For `Verified`: the exact Check 4 literal citation (e.g., `"see also: {lib_b}"` quoted from Skill A's SKILL.md, line N)
-- **Tier annotation:** For each contributing skill, append `(evidence from Tier {n} skill)` citing that skill's `confidence_tier` (e.g., `(evidence from Tier 1 skill)`). This lets reviewers weigh evidence strength by extraction confidence.
+- **Tier annotation:** For each contributing skill, append `(evidence from a {evidence_tier} skill)` with that skill's `evidence_tier` from `skill_inventory` (e.g., `(evidence from a T1 skill)`), so reviewers weigh the evidence by the tier its skill rests on.
 
 **Cycle detection (after all pairs evaluated):** Deciding the edge set is a Check-4 judgment and stays here; the traversal is deterministic and is delegated to the shared helper (the in-prose DFS misses real multi-hop cycles or invents spurious ones as the pair count grows). 
 
 1. **Build the directed pair graph in the prompt:** an edge `A → B` exists when skill A literally cites skill B via Check 4. Serialize the edges as JSON: `{"edges": [["A", "B"], ["B", "C"], ...]}` (each `[from, to]` pair is one Check-4 citation direction).
-2. **Resolve `{cycleFinderHelper}`** from `{cycleFinderProbeOrder}`; first existing path wins. Enumerate cycles deterministically (run `uv run {cycleFinderHelper} find --help` for the contract):
+2. **Resolve `{cycleFinderHelper}`** from `{cycleFinderProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope. Enumerate cycles deterministically (run `uv run {cycleFinderHelper} find --help` for the contract):
 
    ```bash
    uv run {cycleFinderHelper} find --edges -
@@ -127,8 +120,6 @@ For each integration pair `{library_a, library_b}`, run the four-check protocol 
    {"cycles": [["A", "B", "C", "A"], ...], "cycle_count": N}
    ```
    Each `cycles[]` entry is a closed node path (first node repeated at the end); every simple directed cycle appears exactly once, de-duplicated across rotations.
-
-   **Graceful degradation:** if no `{cycleFinderProbeOrder}` candidate exists (e.g. `uv` unavailable on claude.ai web), run the equivalent DFS (visited set + recursion stack) directly per the `--help` contract and proceed with the same cycle set.
 3. **For each cycle** in `cycles[]`, append a synthetic row to the verdict table with verdict `Risky` and rationale "circular integration dependency detected: `{A → B → C → A}`" (render the arrow chain from the cycle's node path). Do not otherwise modify the individual pair verdicts.
 
 ### 5. Display Integration Results
@@ -158,25 +149,18 @@ For each integration pair `{library_a, library_b}`, run the four-check protocol 
 
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
-Write the **Integration Verdicts** section to `{outputFile}` (heading is fixed — consumers grep for `## Integration Verdicts`; the table header is the canonical `| lib_a | lib_b | verdict | rationale |` per `{feasibilitySchemaRef}`, and consumers parse that exact header, so a different one breaks them; the skill-local display table with the extra Context/Source/Evidence columns can be rendered beneath it for human readers):
-- Emit the canonical `| lib_a | lib_b | verdict | rationale |` table first (verdict tokens are exactly one of `Verified`, `Plausible`, `Risky`, `Blocked`, case-sensitive — any other token is a schema violation consumers reject)
-- Include the extended table with Context, Source, and Evidence columns below it
+Write the **Integration Verdicts** section of `{outputFile}`. The report template already holds the canonical table under `## Integration Verdicts`: the header `| lib_a | lib_b | verdict | rationale |` (per `{feasibilitySchemaRef}`) and its delimiter row. Consumers read that table and reject a report that holds it twice, so fill it in place instead of appending another one:
+- Add one row per pair and per §4 cycle row under the template's header. With zero integration pairs, leave the table with its header and delimiter rows only.
+- Each verdict token is exactly one of `Verified`, `Plausible`, `Risky`, `Blocked` (case-sensitive): any other token is a schema violation consumers reject.
+- After one blank line, add the display table with the extra Context, Source and Evidence columns for human readers (a separate table, so consumers skip it).
 - Include recommendations for Risky and Blocked pairs (each Blocked recommendation cites a named candidate per step 5 H6, or the explicit no-candidate notice)
 - Update frontmatter: append `'integrations'` to `stepsCompleted`; set `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked` counts
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 7. Auto-Proceed to Next Step
 
-**Early halt guard:** If ALL integration pairs are Blocked, present: "**All integrations are Blocked** — fundamental incompatibilities detected across all library pairs. Remaining analysis will produce limited value. **[X] Halt workflow (recommended)** | **[C] Continue anyway**" — wait for user input.
-
-**GATE [default: C]** — Interactive-only guard. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: continuing past all-Blocked integration gate". Headless never takes [X], so step 6 still emits the result contract — any Blocked pair resolves the run to `NOT_FEASIBLE` in synthesize.
-
-- If X: halt with: "**Workflow halted — all integrations blocked.** Integration Verdicts saved to `{outputFile}`. Run **[VS]** after applying architectural changes. **Blocked integrations:** {list each blocked pair with reason}." HALT (exit code 8, `halt_reason: "analysis-halted"`).
-- If C: continue.
-
-{IF NOT halted (user selected C, or early halt guard did not trigger):}
+{IF at least one integration pair exists and every pair is Blocked:} display one warning line (headless: log it) and continue, so synthesize can recommend a way past each Blocked pair: "**Warning:** every integration pair is Blocked; the run will resolve to `NOT_FEASIBLE`, and the report will name a replacement library or a bridge for each Blocked pair."
 
 "**Proceeding to requirements verification...**"
 
 Load, read the full file and then execute `{nextStepFile}`.
-

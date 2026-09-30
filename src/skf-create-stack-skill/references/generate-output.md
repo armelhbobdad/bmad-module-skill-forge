@@ -7,11 +7,7 @@ nextStepFile: 'validate.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}`
-# in order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. Used by the §8 pre-commit frontmatter + body-size gate
-# (`--max-body-lines`). If neither resolves, the gate degrades to a WARNING —
-# step 8 (validate.md) still runs the full post-commit check.
+# Advisory: see §8.
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
@@ -22,6 +18,18 @@ frontmatterValidatorProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# Advisory: see §7.
+verifyProvenanceCompletenessProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
+  - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
+# Advisory: see §8.
+namesPresentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-names-present.py'
+  - '{project-root}/src/shared/scripts/skf-names-present.py'
+# Advisory: see §8b.
+renderMetadataStatsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
+  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -199,12 +207,13 @@ Write `{skill_staging}/metadata.json`, populating every field from the metadata.
 
 - `version` — the `{version}` resolved in §1 (not the template's literal `1.0.0`, which is only the new-stack default).
 - `forge_tier` — the run tier (Quick/Forge/Forge+/Deep) resolved in step 1.
+- `confidence_distribution`: each library in `libraries[]` counted once, in the bin of its `per_library_extractions[].confidence` (step 4 sets it), so the four bins sum to `library_count`. Only the evidence report bins provenance entries (§8b).
 - `confidence_tier` — the dominant T-code from `confidence_distribution`. Pick the tier with the highest count; resolve ties toward the weaker tier (T1-low > T1, T2 > T1-low, T3 > T2) so the reported value never overstates confidence. When `confidence_distribution` is empty (no libraries extracted), emit `"T1-low"` as the conservative default.
 - `source_authority` — the lowest authority among constituent skills (official > community > internal).
 
 ### 7. Write Forge Data Artifacts (Workspace)
 
-Write workspace artifacts directly to `{forge_version}` (they are workspace-only, not part of the skill package, so they need no staging). Each individual file MUST be written via `skf-atomic-write.py write` to avoid partial-write corruption. This section writes `provenance-map.json`; §8b writes `evidence-report.md` after the §8 gate, so the report lists the warnings the gate records:
+Write workspace artifacts directly to `{forge_version}` (they are workspace-only, not part of the skill package, so they need no staging). Each individual file MUST be written via `skf-atomic-write.py write` to avoid partial-write corruption. This section writes `provenance-map.json` and, in code mode, checks its source lines; §8b writes `evidence-report.md` after the §8 gate, so the report lists the warnings both record:
 
 ```bash
 <json-content> | python3 {atomicWriteHelper} write --target {forge_version}/provenance-map.json
@@ -216,36 +225,62 @@ If any workspace write fails, invoke the rollback contract from §1.
 
 Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canonical templates and field definitions of both variants:
 
-- **In code-mode:** use the code-mode variant (`source_repo` / `source_commit` populated; `extraction_method` ∈ `ast_bridge|source_reading|qmd_bridge`; `detection_method = "co-import grep"`).
-- **In compose-mode:** use the compose-mode variant (source-anchor fields `null`; `extraction_method = "compose-from-skill"`; `detection_method ∈ "architecture_co_mention|constituent_documented_contract|inferred_from_shared_domain"`; includes the additional `constituents[]` array for drift detection).
+- **In code-mode:** use the code-mode variant (`source_repo` / `source_commit` populated; `detection_method = "co-import grep"`), with one entry per export record step 4 checked, its fields as recorded and `source_library` set to its library.
+- **In compose-mode:** use the compose-mode variant (source-anchor fields `null`; `extraction_method = "compose-from-skill"`; `detection_method ∈ "architecture_co_mention|constituent_documented_contract|inferred_from_shared_domain"`; includes the additional `constituents[]` array for drift detection). Each entry's `confidence` and `signature_source` are its constituent's tier (`per_library_extractions[].confidence`), and its `export_name` is the literal identifier of the cited contract as the staged `SKILL.md` or a `.md` file directly in `references/` writes it, never a descriptive label or a name written only in `references/integrations/` (§8 checks it).
 
 Populate compose-mode `constituents[].metadata_hash` from the value stored in workflow state at step 2 (S13), not a fresh re-hash at step-7 time — `{provenanceMapSchemaPath}` carries the rationale for why the manifest-detection-time hash is the correct provenance anchor.
 
-### 8. Pre-Commit Frontmatter & Body-Size Gate
+**Source lines (code mode only).** The provenance verifier checks that each entry's `source_line` is the line that defines its export (a `def` recorded on its decorator line is not). Resolve `{verifyProvenanceCompletenessHelper}` from `{verifyProvenanceCompletenessProbeOrder}` and run `verify`, then `fix`, which moves each `source_line` to its export's definition line when the file has exactly one, then `verify` once more. `{scan_root}` is the project root, `project_root` from step 1, which each `source_file` is relative to:
 
-The full schema/frontmatter validation runs in step 8 (`validate.md`) — but that runs *after* commit-dir and flip-link have already published the package. The most common non-auto-fixable `skill-check` hard rejects — a `description` over the 1024-char limit (which `skill-check --fix` cannot trim for you) and a SKILL.md body over the `body.max_lines` limit (default **500**) — would therefore only surface on an already-committed, symlink-active artifact, forcing edits to the live `SKILL.md`. `skill-check` also *warns* (non-blocking) when the body exceeds `body.max_tokens` (default **5000**). Additive re-composition of an already-large stack grows the body monotonically, so body overflow is the likeliest trigger. Catch these here, while the package is still in `.skf-tmp`.
+```bash
+uv run {verifyProvenanceCompletenessHelper} verify \
+    --metadata {skill_staging}/metadata.json \
+    --provenance {forge_version}/provenance-map.json \
+    --source-root {scan_root} \
+    -o {forge_version}/provenance-verify.skf-tmp
+uv run {verifyProvenanceCompletenessHelper} fix \
+    --verify {forge_version}/provenance-verify.skf-tmp \
+    --provenance {forge_version}/provenance-map.json \
+    --skill-dir {skill_staging}
+```
 
-Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins). Run it against the **staged** `SKILL.md`, passing the real skill name so the directory-match check is not fooled by the `.skf-tmp` staging suffix, `--max-body-lines 500` to assert the skill-check body-line limit, and `--max-body-tokens 5000` to surface the skill-check body-token *warning* pre-commit (advisory — see disposition below):
+Rely on each call's JSON, not its exit code (`1` means findings, or items `fix` left), and ignore `missing` and `orphaned`: a stack's `exports` is `[]` by design. Append one `workflow_warnings[]` entry (`step: "step-07"`, `severity: "info"`, `code: "provenance-lines-fixed"`) naming each line `fix` moved (its `applied[]`), and one (`severity: "warn"`, `code: "provenance-line-unverified"`, `message`: its `export_name`, `source_file`, `source_line`, `reason` and `definition_lines`) for each `stale[]` item the last `verify` reports, for a person to decide. When neither probe path exists, a call exits `2` (no JSON) or `summary.stale_check` is `skipped-no-source-root`, append one entry (`step: "step-07"`, `severity: "warn"`, `code: "provenance-lines-unchecked"`, `message`: the reason) instead and end the check. Delete `{forge_version}/provenance-verify.skf-tmp` when the check ends.
+
+### 8. Pre-Commit Gate
+
+Step 8 validates only after commit-dir and flip-link have published the package, so catch here, while it is staged, the `skill-check` rejects `--fix` cannot correct: a `description` over 1024 characters and a body over `body.max_lines` (500). Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` and run it on the **staged** `SKILL.md`, with the real skill name so the `.skf-tmp` suffix does not fail the directory-match check:
 
 ```bash
 uv run {frontmatterValidator} {skill_staging}/SKILL.md --skill-dir-name {project_name}-stack --max-body-lines 500 --max-body-tokens 5000
 ```
 
-The validator emits JSON: `status` (`pass`/`warn`/`fail`), `issues[]` (each with `severity` ∈ `high|medium|low`, `field`, `message`), `body_lines` (the counted body size), `body_tokens` (the estimated token count), and `summary`. Disposition:
+Act on the `issues[]` severities in its JSON, not on the exit code (an over-long `description` is `medium` and exits `0`):
 
-- **`status` is `fail`, OR any `issues[]` entry has `severity` `high` or `medium`** — a hard violation that `npx skill-check` (step 8) would reject and `--fix` cannot auto-correct. HALT-to-fix **in staging**, then re-run the validator until it clears. Remediate by `field`:
-  - `description` / `name` / `compatibility` — trim/correct `{skill_staging}/SKILL.md` (e.g. shorten `description` to ≤ 1024 chars).
-  - `body` (`body lines N exceeds max 500`) — reduce the staged body: prefer a **selective split** of the largest Tier-2 section(s) into `{skill_staging}/references/`, keeping Tier-1 content inline (mirrors `validate.md` §3); or trim redundant content. Re-run the gate until `body_lines ≤ 500`. (An over-`body_tokens` estimate is advisory, not a hard stop — see the low-severity note below.)
+- **`status` is `fail`, or an issue is `high` or `medium`:** HALT-to-fix **in staging** and re-run the validator until it clears; do NOT proceed to §8b or the §9 commit-dir before then. Remediate by `field`:
+  - `description` / `name` / `compatibility`: correct `{skill_staging}/SKILL.md` (shorten `description` to ≤ 1024 chars).
+  - `body` (`body lines N exceeds max 500`): prefer a **selective split** of the largest Tier-2 section(s) into `{skill_staging}/references/`, keeping Tier-1 content inline (as `validate.md` §3 does), or trim redundant content.
     When the split moves the catalog into `{skill_staging}/references/stack-catalog.md`, rewrite each `[ref](references/{name}.md)` in it to `[ref]({name}.md)`, as §3 above does for a catalog step 06 extracted.
+- **Only `low` issues** (an unexpected field, or `body token estimate N exceeds max 5000`, a char/4 estimate that `skill-check` only warns on): append each to `workflow_warnings[]` (`step: "step-07"`, `severity: "warn"`, `code: "pre-commit-gate-issue"`, `message`: the issue's `field` and `message`) and proceed.
 
-  Do NOT proceed to §8b or the §9 commit-dir with an unresolved high/medium issue. Note: an over-long `description` is rated `medium` and exits `0`, so key the HALT on the issue severities above, not on the exit code.
-- **Only `low`-severity issues (e.g. an unexpected field, or a `body token estimate N exceeds max 5000` advisory):** append each to `workflow_warnings[]` (`step: "step-07"`, `severity: "warn"`, `code: "pre-commit-gate-issue"`, `message`: the issue's `field` and `message`) and proceed; these do not block the commit, and §8b lists them in the evidence report. The body-token estimate is a char/4 heuristic that runs higher than `skill-check`'s own whitespace-split count, and `skill-check` treats `body.max_tokens` as a non-blocking warning, so an over-token estimate is advisory here, not a HALT (the `body.max_lines` gate above remains the hard body pre-check).
+**If `{frontmatterValidator}` does not resolve or cannot run**, append a `workflow_warnings[]` entry (`step: "step-07"`, `severity: "warn"`, `code: "pre-commit-gate-skipped"`, `message: "pre-commit frontmatter + body-size gate skipped: validator unavailable"`) and proceed: step 8 remains the post-commit backstop.
 
-**If `{frontmatterValidator}` does not resolve** (neither probe path exists) **or the invocation cannot run**, append a WARNING to `workflow_warnings[]` (`step: "step-07"`, `severity: "warn"`, `code: "pre-commit-gate-skipped"`, `message: "pre-commit frontmatter + body-size gate skipped: validator unavailable"`) and proceed. Step 8 (`validate.md`) remains the post-commit backstop (including the `body.max_lines` split path in its §3); this gate is a best-effort early catch, never a new hard dependency.
+**Compose-mode export names (compose mode only).** `skf-test-skill` credits a compose-mode entry toward Export Coverage only when the package writes its `export_name`. Resolve `{namesPresentHelper}` from `{namesPresentProbeOrder}` and run:
+
+```bash
+uv run {namesPresentHelper} --provenance {forge_version}/provenance-map.json --skill-dir {skill_staging}
+```
+
+Its `absent[]` lists each entry (`entry_index`, `export_name`, `source_library`) whose name `skf-test-skill` would not find in the staged package; when it is empty, go on to §8b. Otherwise, when `{headless_mode}` is false, set the `export_name` of each absent entry whose contract a staged file names by a literal identifier (a descriptive label was recorded in its place) to that identifier, and rewrite the map with the atomic writer as §7 does. Then, in both modes, run the call again with `--drop-absent`, which drops every entry still absent and rewrites the map. Append a `workflow_warnings[]` entry (`step: "step-07"`, `severity: "warn"`, `message`: its `source_library` and `export_name`, the old and the new one for a rename) per renamed entry (`code: "compose-export-name-renamed"`) and per `dropped[]` entry (`code: "compose-export-name-dropped"`). If neither probe path exists or a run exits `2` (no JSON), append one `compose-export-names-unchecked` entry with the reason.
 
 ### 8b. Write the Evidence Report (Workspace)
 
-Now that the §8 gate has recorded its warnings, write `evidence-report.md` to `{forge_version}` the same way as §7, through the atomic writer and with no staging:
+Now that the §8 gate has recorded its warnings, bin the final map's entries by `signature_source` for the report, in both modes. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}` and run:
+
+```bash
+echo '{}' | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json --shape stack
+```
+
+Then write `evidence-report.md` to `{forge_version}` the same way as §7, through the atomic writer and with no staging:
 
 ```bash
 <md-content> | python3 {atomicWriteHelper} write --target {forge_version}/evidence-report.md
@@ -254,10 +289,10 @@ Now that the §8 gate has recorded its warnings, write `evidence-report.md` to `
 If the write fails, invoke the rollback contract from §1.
 
 **evidence-report.md:**
-- Extraction summary per library
+- Extraction summary per library, with its tier
 - Integration detection results per pair
-- Warnings and failures encountered, including every `workflow_warnings[]` entry recorded so far (the §8 gate's among them)
-- Confidence tier distribution
+- Warnings and failures encountered, including every `workflow_warnings[]` entry recorded so far (the §7 line check's and the §8 gate's among them)
+- Confidence tier distribution: the helper's `confidence_distribution`, one count per provenance entry (`metadata.json` counts libraries, §6), or "not computed" when the helper is missing or exits `2`
 
 ### 9. Commit Staging Directory
 

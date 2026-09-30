@@ -29,29 +29,22 @@ Calculate the overall feasibility verdict based on all three analysis passes, ge
 
 ### 1. Calculate Overall Verdict
 
-**The verdict token is deterministic — do not walk the ladder in prose.** All three passes have already persisted their counts (`coveragePercentage`, `pairsBlocked`/`pairsRisky`/`pairsPlausible`/`pairsVerified`, `requirementsPass` + `requirementsNotAddressed`/`requirementsPartial` in `{outputFile}` frontmatter; the Missing technology count in the Coverage Analysis table). Rolling those already-decided counts up into one token has a single correct answer per input, so delegate it. Count Missing rows directly from the Coverage table — half-up rounding can leave `coveragePercentage == 100` with one technology still Missing — assemble the counts, and run:
+**The verdict token is deterministic: do not walk the ladder in prose.** All three passes have already persisted their counts in `{outputFile}` frontmatter: `coveragePercentage`, `coverageMissing` and `coverageCovered` (step 2's tally), `pairsBlocked`/`pairsRisky`/`pairsPlausible`/`pairsVerified`, and `requirementsPass` + `requirementsNotAddressed`/`requirementsPartial`. Rolling them up into one token has a single correct answer per input, so delegate it. Assemble the counts and run:
 
 ```bash
 echo '<counts JSON>' | uv run {verdictRollupScript} --stdin
 ```
 
-Input keys: `coveragePercentage`, `missingCount`, `pairsBlocked`, `pairsRisky`, `pairsPlausible`, `pairsVerified`; plus, only when the requirements pass ran (`requirementsPass == "completed"`), `requirementsEvaluated: true` with `requirementsNotAddressed`/`requirementsPartial`; plus `continuedPastZeroState: true` if the user pressed `[C] Continue anyway` past a step-2 zero-state gate (all-Replaced or 0%-coverage). The script (run `uv run {verdictRollupScript} --help` for the contract) returns `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired), and `zeroPairsGuardFired`. If `uv` is unavailable (e.g. claude.ai web), apply the ladder below inline.
+Input keys: `coveragePercentage`, `missingCount` ← `coverageMissing`, `coveredCount` ← `coverageCovered`, `pairsBlocked`, `pairsRisky`, `pairsPlausible`, `pairsVerified`; plus, only when the requirements pass ran (`requirementsPass == "completed"`), `requirementsEvaluated: true` with `requirementsNotAddressed`/`requirementsPartial`. Half-up rounding can leave `coveragePercentage == 100` with one technology still Missing, so the percentage stands in for neither count. The script (run `uv run {verdictRollupScript} --help` for the ladder) returns `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired) and `zeroPairsGuardFired`. When it exits non-zero, it rejected its input and says why (its JSON `error`, or a usage line for an empty input): fix the input and run it again.
 
-**The ladder it applies (documented so the rationale can cite it — the script is the executor; evaluate top-to-bottom, first match wins):**
-- `coveragePercentage == 0` → `NOT_FEASIBLE` (short-circuit: no live coverage, analysis vacuous).
-- Any Blocked integration → `NOT_FEASIBLE` (fundamental architectural incompatibility).
-- Any Missing technology, any Risky integration, or — when requirements ran — any Not Addressed / Partially Fulfilled requirement → `CONDITIONALLY_FEASIBLE`.
-- Otherwise → `FEASIBLE`, but any pair capped at `Plausible` (including Check-4-missing caps) downgrades to `CONDITIONALLY_FEASIBLE`.
-- Post-verdict guard: when all four integration counts are 0 and the user continued past a step-2 zero-state gate, `zeroPairsGuardFired` is true — a `FEASIBLE` verdict is overridden to `CONDITIONALLY_FEASIBLE`.
-
-Technologies marked **Replaced** in Step 02 are intentionally being removed and are already excluded from `missingCount` and the coverage denominator — they never trigger `CONDITIONALLY_FEASIBLE` or a [CS]/[QS] recommendation.
+Technologies marked **Replaced** in Step 02 are intentionally being removed and are already excluded from `missingCount` and the coverage denominator: they never trigger `CONDITIONALLY_FEASIBLE` or a [CS]/[QS] recommendation.
 
 **Write the rationale** from `matchedConditions`, naming the specific findings behind each code:
-- `zero-coverage` → "no coverage — analysis vacuous: zero generated skills match the architecture's referenced technologies, so integration and requirements verdicts cannot produce meaningful evidence." Then proceed directly to section 2 to generate recommendations for the Missing and/or Replaced technologies surfaced by Step 02.
+- `zero-coverage` → "no coverage, analysis vacuous: zero generated skills match the architecture's referenced technologies, so integration and requirements verdicts cannot produce meaningful evidence." Then proceed directly to section 2 to generate recommendations for the Missing and/or Replaced technologies surfaced by Step 02.
 - `blocked-integration` → a blocked integration is a fundamental architectural incompatibility; name each Blocked pair and note any co-occurring `missing-coverage`/`risky-integration` codes so the user sees the full set of problems.
 - `missing-coverage` / `risky-integration` / `requirements-not-addressed` / `requirements-partial` / `plausible-cap` → the stack can work but has gaps, risks, or unverified assumptions that must be addressed; name the specific items behind each code.
-- No codes (`FEASIBLE`) → {IF requirements pass completed:} the stack can support the architecture as described — all requirements fully fulfilled, every integration pair has a literal cross-reference. {IF requirements pass was skipped:} the stack can support the architecture as described — requirements were not evaluated (no PRD provided).
-- `zero-integration-pairs` (present whenever the guard fired, regardless of verdict) → append: "No integration claims were found in the architecture document prose. Manual review recommended to confirm that technology relationships are not documented exclusively in diagrams or implied without explicit co-mention."
+- `zero-integration-pairs` (whatever the verdict) → append: "No integration pair between two covered technologies was found in the architecture document prose, so no integration was verified. Relationships drawn only in diagrams, or implied without an explicit co-mention, are not checked: describe them in prose to have them verified."
+- No codes (`FEASIBLE`) → the stack can support the architecture as described: every live technology has a skill, every integration pair is `Verified` (at least one of its two skills cites the other literally), and {IF requirements pass completed:} every requirement is fulfilled {IF requirements pass was skipped:} requirements were not evaluated (no PRD provided). {IF `pairsVerified` is 0:} The architecture names a single live technology, so it has no integration pair to verify.
 
 Store the verdict for use in the report.
 
@@ -69,7 +62,9 @@ For each non-verified finding across all passes, generate an actionable next ste
 **Risky integration (from Step 03):**
 - If protocol mismatch → "Consider adding a bridge layer between `{lib_a}` and `{lib_b}` (e.g., HTTP adapter, message queue). Document the bridge in the architecture."
 - If type incompatibility → "Add a serialization/conversion layer between `{lib_a}` and `{lib_b}` to resolve the type mismatch identified in their API surfaces."
-- If weak evidence (Check 4 missing literal cross-reference) → "Run **[SS] Create Stack Skill** to compose `{lib_a}` and `{lib_b}` and surface integration evidence via the stack manifest, then re-run **[VS]** — the stack manifest's `integration_patterns` block will provide the literal cross-references that promote this pair from `Plausible` to `Verified`."
+
+**Plausible integration (from Step 03; neither skill cites the other):**
+- "Neither `{lib_a}`'s nor `{lib_b}`'s SKILL.md names the other, so the pair stays `Plausible` until one of them does. When a page documents how the two work together (a `{lib_a}` guide that uses `{lib_b}`, say), add it to that skill's brief as a `doc_urls` entry with **[BS] Brief Skill**, re-create the skill with **[CS] Create Skill**, then re-run **[VS]**. Until then, prototype the integration before you rely on it."
 
 **Blocked integration (from Step 03):**
 - If language barrier → "Replace `{lib_a}` with a `{lib_b_language}`-compatible alternative, or introduce an IPC/FFI bridge. Redesign the integration path in the architecture document."
@@ -83,27 +78,27 @@ For each non-verified finding across all passes, generate an actionable next ste
 - "Gap in `{requirement}`: {what_is_missing}. Consider extending `{contributing_skill}` or adding a dedicated library."
 
 **Zero integration pairs (from Step 03):**
-- If zero integration pairs were found AND the architecture references 2+ technologies: "No integration claims were found in the architecture document prose. Add explicit prose descriptions of how your technologies interact (not only in diagrams), then re-run **[VS]** to verify integrations."
+- When `matchedConditions` holds `zero-integration-pairs` (no pair across two or more covered technologies): "No integration claims were found in the architecture document prose. Add explicit prose descriptions of how your technologies interact (not only in diagrams), then re-run **[VS]** to verify integrations."
 
 ### 3. Check for Previous Report
 
-Read `previousReport` from `{outputFile}` frontmatter (set in Step 01). Each run writes a new timestamped `feasibility-report-{projectSlug}-{timestamp}.md`, so prior reports persist on disk automatically — Step 01 auto-discovers the most recent one for delta comparison when no path is supplied. `previousReport` holds the resolved path, or is empty when no prior report exists or the user skipped the comparison.
+Read `previousReport` from `{outputFile}` frontmatter (set in step 1): an earlier run's report, or empty when there is none or the user skipped the comparison. Step 1 compares against the newest earlier report unless the user names another; to compare against an older run, pass its timestamped report in step 1.
 
-**Note:** A manual backup is only needed to compare against a *specific older* snapshot rather than the most recent prior run; provide that backup path when prompted in Step 01.
+**If `previousReport` is set:** comparing two runs has one correct answer, and so does reading their findings: each sits in a table with a pinned header. The delta helper reads both reports itself: the Coverage Analysis rows and the canonical `| lib_a | lib_b | verdict | rationale |` table of each, and the `evidence_tier` column of the previous report's `## Evidence Sources` table (section 5 writes it). This run's tiers go in as JSON: `currentTiers` maps each skill in `skill_inventory` to its `evidence_tier`, on the one scale `T1`, `T1-low`, `T2` and `T3`. Never pass `confidence_tier`: a single skill records its forge tier there (Quick to Deep) and a stack a T-code, so across the roster its values sit on two scales that do not compare. Run:
 
-**If a previous report is found:**
-- Extract from both reports (current run + the previous report's tables/inventory block): the coverage findings (`{technology, verdict}`), the integration findings (`{libA, libB, verdict}`), and each skill's `confidence_tier`. Reading the tables is judgment; classifying the difference is not — so hand the two extracted finding sets to the delta helper rather than diffing in prose (matching pair keys and applying the verdict ranking by hand drifts between runs).
-- Serialize as `{"previous": {"coverage": […], "integration": […]}, "current": {…}, "previousTiers": {skill: tier}, "currentTiers": {…}}` and run:
+```bash
+echo '<tiers JSON>' | uv run {reportDeltaScript} --previous-report "{previousReport}" --current-report "{outputFile}" --stdin
+```
 
-  ```bash
-  echo '<delta JSON>' | uv run {reportDeltaScript} --stdin
-  ```
+with `{"currentTiers": {"<skill>": "<evidence_tier>", …}}` as `<tiers JSON>`. The script (run `uv run {reportDeltaScript} --help` for the contract and rankings) returns `improved`/`regressed`/`unchanged`/`new`/`dropped`/`replaced` label lists with counts, `tierDowngrades` (each `{skill, from, to}`: a drop along `T1` > `T1-low` > `T2` > `T3`, such as `T1` to `T1-low`, counts as a regression) and `previousTiersRecorded`. Branch on its exit code and its JSON `code`:
 
-  The script (run `uv run {reportDeltaScript} --help` for the contract and rankings) returns `improved`/`regressed`/`unchanged`/`new`/`dropped`/`replaced` label lists with counts, plus `tierDowngrades` (each `{skill, from, to}`) — a tier drop (Tier 1 → Tier 2, or T1 → T1-low) counts as a regression. If `uv` is unavailable, apply the ranking from `--help` inline (coverage Missing<Covered; integration Blocked<Risky<Plausible<Verified; tier T2<T1-low<T1; Replaced findings bucketed, not scored).
-- Render the delta section from those results. For each tier downgrade, flag: "skill `{skill}` regressed from `{from}` to `{to}` — re-extract with [CS] at the prior tier level".
+- Exit 0: render the delta section from those results. When `previousTiersRecorded` is false (a report written before tiers were recorded), add "The previous report records no skill tiers, so tier changes were not compared." For each tier downgrade, flag: "skill `{skill}` evidence fell from `{from}` to `{to}`: check the forge tier with [SF] Setup Forge, then re-create the skill at its earlier tier with [CS] ([SS] for a stack skill)".
+- `UNKNOWN_TIER` (exit 2): the previous report's tier table holds a token outside the scale. Run it again with `--no-tiers` added, render the delta section from that run, and add "Tier changes were not compared: {error}".
+- `INVALID_REPORT` (exit 2): its `error` names a report that is not read (a `schemaVersion` other than `1.0`, a missing coverage or verdict table, the verdict table twice, or a verdict outside its token set). Write "No delta: {error}" in place of the delta section.
+- `INVALID_INPUT` (exit 2): `<tiers JSON>` was built wrong; fix it and run again.
+- `HELPER_MISSING` (exit 1): the shared report reader it loads is not installed; HALT per the Workflow Rules (exit code 3, `halt_reason: "resolution-failure"`).
 
-**If no previous report found:**
-- Note: "First verification run — no delta available."
+**If `previousReport` is empty:** note "First verification run: no delta available."
 
 ### 4. Compile Synthesis Section
 
@@ -115,8 +110,10 @@ Assemble the following for the report:
 1. Blocked integrations (if any)
 2. Missing skills
 3. Risky integrations
-4. Not Addressed requirements
-5. Partially Fulfilled requirements
+4. Plausible integrations
+5. Zero integration pairs
+6. Not Addressed requirements
+7. Partially Fulfilled requirements
 
 **Delta from previous run** (if applicable):
 - Improved, regressed, new, unchanged counts
@@ -138,14 +135,14 @@ Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}
 - Include prioritized recommendation list under `## Recommendations`
 - Include delta from previous run (if applicable) under `## Recommendations` as a subsection
 - Include suggested next workflow at the end of `## Recommendations`
-- Populate `## Evidence Sources` with per-skill citations (SKILL.md path, `metadata_schema_version`, `confidence_tier`, stack manifest if any) and architecture/PRD doc paths
+- Populate `## Evidence Sources`: the template already holds its table, with the header `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |`. Fill it in place with one row per skill in `skill_inventory` (`name`, `evidence_tier`, `confidence_tier` or `none`, `metadata_schema_version` or `none`, and `{skills_output_folder}/{path}/SKILL.md`); the next run's delta reads its `evidence_tier` column (section 3). Below it, list the stack manifest, if any, and the architecture and PRD document paths.
 - Update frontmatter (shared-schema keys):
   - Append `'synthesize'` to `stepsCompleted`
   - Set `overallVerdict` to one of `FEASIBLE`, `CONDITIONALLY_FEASIBLE`, `NOT_FEASIBLE` (case-sensitive, underscores not spaces)
   - Set `recommendationCount` to the total number of recommendations
   - If delta was computed (section 3), set `deltaImproved`, `deltaRegressed`, `deltaNew`, `deltaUnchanged` from the delta helper's `improvedCount` / `regressedCount` / `newCount` / `unchangedCount`
   - Verify that `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked` match the counts from Step 03 (these were set in Step 03). If a discrepancy is found, overwrite the frontmatter counts with the values from Step 03 — the report file is the system of record
-- **Overall verdict enforcement (schema producer obligation):** write the `overallVerdict` the §1 rollup script returned verbatim — do not re-derive the ladder here. §1 (via `{verdictRollupScript}`) is its single source of truth (the 100%-coverage + zero-Blocked + zero-Check-4-missing bar for `FEASIBLE`, and the `coveragePercentage == 0` → `NOT_FEASIBLE` short-circuit included).
+- Write the `overallVerdict` the §1 rollup returned, verbatim.
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 6. Auto-Proceed to Next Step

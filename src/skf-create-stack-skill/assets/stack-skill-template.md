@@ -26,7 +26,7 @@ description: >
 **Type:** {pattern_type}
 **Pattern:** {description}
 **Key files:** {file_list}
-**Confidence:** {T1/T1-low/T2}
+**Confidence:** {T1/T1-low/T2/T3}
 
 ## Library Reference Index
 
@@ -40,7 +40,7 @@ description: >
 **Role in stack:** {one-line description of what this library does in this project}
 **Key exports used:** {comma-separated list}
 **Usage pattern:** {brief pattern description}
-**Confidence:** {T1/T1-low/T2}
+**Confidence:** {T1/T1-low/T2/T3}
 
 ## Conventions
 
@@ -141,6 +141,8 @@ Indexed format targeting ~80-120 tokens per stack:
 }
 ```
 
+`confidence_distribution` counts libraries, not provenance entries: each library in `libraries[]` sits in the bin of the tier step 4 set (`per_library_extractions[].confidence`), so `t1 + t1_low + t2 + t3` equals `library_count`. The evidence report bins the provenance entries.
+
 ## references/stack-catalog.md Structure
 
 Written **only for large stacks** (see Sizing Guidance) when the catalog is
@@ -169,7 +171,7 @@ from here.
 **Role in stack:** {one-line description of what this library does in this project}
 **Key exports used:** {comma-separated list}
 **Usage pattern:** {brief pattern description}
-**Confidence:** {T1/T1-low/T2}
+**Confidence:** {T1/T1-low/T2/T3}
 ```
 
 ## references/{library}.md Structure
@@ -179,7 +181,7 @@ from here.
 
 **Version:** {version_from_manifest}
 **Import count:** {count} files *(compose-mode: replace with **Export count:** {count} exports)*
-**Confidence:** {T1/T1-low/T2}
+**Confidence:** {T1/T1-low/T2/T3}
 
 ## Key Exports
 [Top exports used in this project with signatures]
@@ -198,7 +200,7 @@ from here.
 
 **Type:** {pattern_type}
 **Co-import files:** {count}
-**Confidence:** {T1/T1-low/T2 [composed]}
+**Confidence:** {T1/T1-low/T2/T3 [composed]}
 
 ## Integration Pattern
 [Detailed description of how these libraries connect]
