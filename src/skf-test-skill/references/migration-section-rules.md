@@ -11,7 +11,11 @@
 Execute this check only when both conditions are met:
 
 1. Forge tier is **Deep** (tool-gated)
-2. `{forge_data_folder}/{skill_name}/evidence-report.md` exists (data-gated)
+2. The evidence report exists (data-gated): `{forge_version}/evidence-report.md`,
+   where SKF writes it, or, only when that file does not exist, the flat-layout
+   `{forge_data_folder}/{skill_name}/evidence-report.md`, where an older skill
+   may still keep it. Bind `{forge_evidence_report}` to the first of the two
+   that exists; the detection contract below reads it.
 
 If either condition fails, skip silently and proceed to the next section.
 
@@ -53,7 +57,7 @@ narrative body.
 ```bash
 # Extract t2_future_count from frontmatter. Requires a `---` delimiter pair.
 awk '/^---$/{c++;next} c==1 && /^t2_future_count:/{print $2; exit}' \
-    {forge_data_folder}/{skill_name}/evidence-report.md
+    {forge_evidence_report}
 ```
 
 - **Frontmatter missing OR `t2_future_count` absent** → treat as Case 4 (see

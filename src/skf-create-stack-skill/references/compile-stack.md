@@ -83,7 +83,7 @@ For each confirmed library (ordered by integration connectivity, then import cou
 - Key exports used in this project
 - Usage patterns from extraction
 - Confidence tier label
-- Link to reference file: `references/{library}.md`
+- Link to reference file: `references/{library}.md` in SKILL.md, but `{library}.md` in `references/stack-catalog.md`. A link resolves from the file that holds it, and the extracted catalog sits in `references/` beside the per-library files
 
 ### 5. Compile Project Conventions
 
@@ -103,6 +103,8 @@ Place per the §4 catalog-placement decision (inline for small stacks; in
 | ... | ... | ... | ... | ... |
 
 (**in compose-mode**: replace the Imports column with Export Count from source skill metadata, since import counts are not available)
+
+The Reference column follows the §4 link rule: `[ref](references/{name}.md)` when the index stays in SKILL.md, `[ref]({name}.md)` when it goes to `references/stack-catalog.md`.
 
 ### 7. Present Compiled SKILL.md Preview
 

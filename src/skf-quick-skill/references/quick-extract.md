@@ -41,14 +41,26 @@ If README is unavailable, note and continue.
 
 After the README has loaded, classify the repo shape from the available signals before committing further effort to extraction. Quick-skill is designed to wrap a library; non-library repos sail through silently today and produce low-quality skills the user only notices via the description field after compilation.
 
+The signals are the README and one filtered listing of the repository tree: every root-level file, and every `SKILL.md`, `module.yaml` and `module-help.csv` at any depth.
+
+```bash
+gh api "repos/{owner}/{repo}/git/trees/{source_ref or HEAD}?recursive=1" \
+  --jq '.tree[] | select(.type == "blob") | .path | select((contains("/") | not) or test("(^|/)(SKILL\\.md|module\\.yaml|module-help\\.csv)$"))'
+```
+
 **Classify as one of:**
 
+- **skills-module**: the repository ships agent skills rather than code. Skill folders alone qualify (a plain Agent Skills package), and a `module-help.csv` adds menu codes. The shape is library-like: record `repo_shape: skills-module` and `skills_root` in the extraction inventory, proceed with no gate, and follow the skills-module branch of §2 and §3. Find the skills root in the listing:
+  - A skill folder holds its own `SKILL.md`. A module root is a folder that directly holds `module.yaml` or `module-help.csv`: the listing shows `<folder>/module.yaml` or `<folder>/module-help.csv` (the bare name at the repository root). A copy that sits in a skill folder, such as a skill's `assets/module.yaml`, makes no module root.
+  - The skill folders of a module root are all the folders below it that hold a `SKILL.md` and sit in no other skill folder. The skill folders of any other folder are its direct subfolders that hold one (`<folder>/<name>/SKILL.md`).
+  - When `scope_hint` is set, it is the only candidate, and it counts whenever it has skill folders. Otherwise the candidates are the repository root and each top-level folder that has skill folders, and a candidate counts only when it is a module root or the root ships no code. The root ships no code when it has no package manifest (one from the §2 table, or another such as `setup.cfg` or `Gemfile`), or when its only one is a `package.json` that declares no `main` (or an empty one), `exports`, `bin` or `workspaces` and has no `index.js` or `index.ts` beside it. Fetch that `package.json` when the check needs it; §2 reuses it. So a library with a manifest and one `skill/SKILL.md` stays a library.
+  - When several candidates count, prefer a module root, then the one with the most skill folders.
 - **library** (default) — README has installation / usage / API content; manifest at root with publishable metadata. Proceed normally.
 - **awesome-list** — README H1 contains "awesome" (case-insensitive) or `awesome-` is in the repo name; README body is dominated by curated bullet links of the form `- [name](url) — desc`; no manifest at root.
 - **docs-site / website** — README is short (under ~50 non-empty lines) and primarily points elsewhere ("See https://… for docs"); root has no manifest, or only a docs-framework manifest (e.g. `docusaurus.config.js`, `astro.config.mjs`, `mkdocs.yml`).
 - **examples-only / tutorial** — README explicitly labels the repo as examples or a tutorial ("Code examples for…", "Tutorial: …", "Learn X by building Y"); typically no published package; many small standalone files instead of a single API surface.
 
-**If a non-library shape is detected** — soft-warn and gate before continuing:
+**If an awesome-list, docs-site or examples-only shape is detected**, soft-warn and gate before continuing:
 
 "**Heads up — `{repo_name}` looks like a `{shape}` repo, not a library.**
 
@@ -78,6 +90,18 @@ Fetch the manifest file and the top-level entry-point file(s) for the detected l
 
 For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first, then loop §2+§3 per module. Batch the sub-module fetches per the parallel-fetch directive at the top of this step.
 
+**Skills module** (`repo_shape: skills-module`): fetch no entry-point files. In one batched tool-call message, fetch the manifest from the table when the root has one and §1.5 did not fetch it, the `module-help.csv` directly in the skills root (`<skills root>/module-help.csv`) when the listing shows one, and the frontmatter of the `SKILL.md` in every skill folder of the skills root. One loop prints each frontmatter under a `=== <folder>` line and leaves the bodies out, so a module with many skills stays small:
+
+```bash
+for dir in <each skill folder path §1.5 found, e.g. skills/bmad-agent-builder or src/workflows/testarch/bmad-testarch-atdd>; do
+  printf '=== %s\n' "$dir"
+  gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$dir/SKILL.md?ref={source_ref}" \
+    | awk '{ sub(/\r$/, "") } NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit } { print }'
+done
+```
+
+Fetch `module-help.csv` whole, with the same `gh api -H "Accept: application/vnd.github.raw"` call on its path. Drop `?ref={source_ref}` when `source_ref` is unset.
+
 ### 3. Parse Manifest and Scan Exports
 
 Run the shared extractor against the contents fetched in §2. The helper does manifest parse + export scan in one invocation and emits a structured envelope ready to feed §4's inventory.
@@ -106,6 +130,13 @@ Capture the helper's output into the extraction context. The shape of the envelo
 
 **Multi-module loop:** when `modules[]` is non-empty, fetch each sub-module's manifest + entry-point files (§2) and re-invoke the helper per module (§3), aggregating `exports[]` across all module envelopes. The aggregated `exports[]`, `dependencies[]`, and a single resolved `package_name` (from the parent manifest) feed §4.
 
+**Skills module** (`repo_shape: skills-module`): when §2 fetched a manifest, run the helper as above with `"entries": []`. It still reads `package_name`, `version`, `description` and `dependencies`, and returns no exports. With no manifest, skip the helper and take `{repo_name}` as `package_name`. Then build `exports[]` from the skills root, reading each frontmatter as YAML and `module-help.csv` by its header names:
+
+- One `{name, type: "skill", brief_description}` per skill folder, in listing order: `name` from the frontmatter `name` (the folder name when it has none), `brief_description` from its `description`.
+- Then one `{name, type: "menu-code", brief_description}` per `module-help.csv` row that has a `menu-code`, in file order: `name` is the code, and `brief_description` is the row's `description`, followed by its `display-name` and the `skill` it runs, with the row's `action` when set.
+
+Skip the rows whose `skill` is empty or starts with `_` (the `_meta` row). Every other row also gives §4 a usage pattern: its menu code, display name and `description`, the skill and action it runs, its `args`, and its `preceded-by` and `followed-by` entries when set.
+
 ### 4. Build Extraction Inventory
 
 Assemble the extraction inventory from collected data:
@@ -116,16 +147,21 @@ extraction_inventory:
   package_name: {from manifest}
   version: {from manifest}
   language: {detected}
+  repo_shape: {the §1.5 shape, when one was recorded}
+  skills_root: {skills-module only: the folder that holds the skill folders}
   exports: [{name, type, brief_description}]
-  usage_patterns: [{pattern from README examples}]
+  usage_patterns: [{pattern from README examples, or from the module-help.csv rows of a skills module}]
   dependencies: [{key deps from manifest}]
   confidence: {high/medium/low based on data quality}
 ```
+
+For a skills module, confidence is `high` when every skill folder's frontmatter gave a `name` and a `description`, else `medium`.
 
 **If no exports found:**
 - Set confidence to `low`
 - Use README description and features as fallback content
 - Note: "No exports detected — SKILL.md will be based on README content only"
+- If a folder below the repository root has skill folders (as §1.5 defines them), add to the note: "`{folder}` holds skill folders: re-run with `scope={folder}` to document them as a skills module." Name the module root with the most skill folders or, when the listing shows no module root, the folder with the most.
 
 ### 4.5. Zero-Exports Soft Gate (rescue mode)
 
@@ -156,6 +192,7 @@ Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) ·
 
 - **Package:** {package_name} v{version}
 - **Language:** {language}
+{If `repo_shape` was recorded, add:} - **Repo shape:** {repo_shape} (for `skills-module`: {skill count} skills and {menu code count} menu codes in `{skills_root}`)
 - **Exports found:** {count}
 - **Confidence:** {confidence}
 - **Source files read:** {count}

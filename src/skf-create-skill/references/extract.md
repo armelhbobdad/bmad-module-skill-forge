@@ -68,13 +68,7 @@ From the brief, apply scope and pattern filters:
 
 Build the filtered file list from the source tree resolved in step 1. Record the result: "**Filtered file count: {N} files in scope**" — this count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file.
 
-### 2a. Discovered Authoritative Files Protocol
-
-**Skip this section entirely if `source_type: "docs-only"`** — there is no source tree to scan.
-
-Load `{authoritativeFilesProtocol}` and execute it. The full protocol (heuristic scan list, helper invocation, classification dispatch, prompt flow, P/S/U decision-apply, summary, provenance-map handoff, downstream consumption) lives there.
-
-Briefly: scan the source tree for authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) that the brief's scope filters may have excluded. The `{resolveAuthoritativeFilesHelper}` helper does the deterministic work (walk, scope diff, amendment reconcile, preview load, hashing); the LLM applies the resulting `unresolved[]` prompt loop. Promoted decisions are persisted to the brief immediately so re-runs replay deterministically.
+Sections 2b and 2a follow in that order: §2b resolves the source to a local tree, and §2a scans that tree for authoritative files.
 
 ### 2b. Resolve Source Access
 
@@ -154,6 +148,20 @@ If `{ccc_discovery}` is in context and non-empty (populated by step 2b or deferr
 - Display: "**CCC discovery: {N} files pre-ranked by semantic relevance** — extraction will prioritize these first."
 
 If `{ccc_discovery}` is empty or not in context: proceed with existing file ordering (no change to current behavior).
+
+### 2a. Discovered Authoritative Files Protocol
+
+**Runs after §2b, not before it.** The scan walks a local tree, so it waits for §2b to resolve one: `{source_root}` now names the local source itself, or the workspace or ephemeral clone of a remote source. On a workspace clone the scan is one of the reads of the working tree that the `.skf-workspace.lock` concurrency guard in `{sourceResolutionData}` covers.
+
+**Start clean:** set `authoritative_files_scan` to null and `promoted_docs[]` to empty before either skip below, so that in a `--batch` run one brief's scan never carries into the next.
+
+**Skip this section entirely if `source_type: "docs-only"`:** there is no source tree to scan.
+
+**Remote source guard:** if `source_root` is still a remote URL after §2b, there is no local tree to walk, and the helper refuses a source root that is not a directory. That happens for a Quick-tier remote source, which §2b never clones, and for a remote source whose clone failed, which §2b falls back to reading like Quick tier. Skip the scan and continue to §2c: record `authoritative_files_scan: {not_scanned: "remote source not cloned"}` for the evidence report and display "**Authoritative files scan skipped:** `{source_repo}` was not cloned in this run, so authoritative AI documentation files (`llms.txt`, `AGENTS.md` and the like) outside the brief's scope were not looked for. A run with a local tree (a local checkout, or a remote source cloned at Forge tier or higher) scans them."
+
+Load `{authoritativeFilesProtocol}` and execute it. The full protocol (heuristic scan list, helper invocation, classification dispatch, prompt flow, P/S/U decision-apply, summary, provenance-map handoff, downstream consumption) lives there.
+
+Briefly: scan the source tree for authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) that the brief's scope filters may have excluded. The `{resolveAuthoritativeFilesHelper}` helper does the deterministic work (walk, scope diff, amendment reconcile, preview load, hashing); the LLM applies the resulting `unresolved[]` prompt loop. Promoted decisions are persisted to the brief immediately so re-runs replay deterministically.
 
 ### 2c. Component Library Delegation
 

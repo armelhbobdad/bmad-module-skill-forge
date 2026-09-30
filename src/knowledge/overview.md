@@ -6,7 +6,7 @@ Agent-level knowledge files capture cross-cutting principles and patterns that F
 
 ## Rationale
 
-The SKF module has 14 workflows containing operational `references/` and `assets/` files within each skill directory. References contain rules, patterns, and protocols for decision-making; assets contain templates, schemas, and output formats. Both are tightly coupled to individual steps. But several principles — zero hallucination, confidence tiers, provenance — cut across multiple workflows and need a single authoritative source rather than fragmented repetition.
+The SKF module has 15 workflows containing operational `references/` and `assets/` files within each skill directory. References contain rules, patterns, and protocols for decision-making; assets contain templates, schemas, and output formats. Both are tightly coupled to individual steps. But several principles (zero hallucination, confidence tiers, provenance) cut across multiple workflows and need a single authoritative source rather than fragmented repetition.
 
 Without a knowledge folder:
 - Cross-cutting principles get duplicated across workflow steps
@@ -26,7 +26,7 @@ With knowledge files:
 | [confidence-tiers.md](confidence-tiers.md)                 | T1/T1-low/T2/T3 trust model and citation formats                  | AN, BS, CS, QS, SS, US, AS, TS, EX, RA, VS |
 | [progressive-capability.md](progressive-capability.md)     | Quick/Forge/Forge+/Deep tier philosophy and behavior adaptation          | SF, AN, BS, CS, QS, SS, US, AS, TS, EX, VS, RA |
 | [agentskills-spec.md](agentskills-spec.md)                 | agentskills.io output format principles and compliance            | CS, QS, SS, US, TS, EX             |
-| [skill-lifecycle.md](skill-lifecycle.md)                   | End-to-end pipeline — workflow connections, artifact flow, decision rules for workflow selection, pipeline invocation syntax and aliases | All 14                             |
+| [skill-lifecycle.md](skill-lifecycle.md)                   | End-to-end pipeline: workflow connections, artifact flow, decision rules for workflow selection, pipeline invocation syntax and aliases | All 15                             |
 | [provenance-tracking.md](provenance-tracking.md)           | Provenance-map.json entries and file_entries, evidence reports, claim traceability | CS, QS, SS, US, AS, TS             |
 | [manual-section-integrity.md](manual-section-integrity.md) | \[MANUAL\] marker preservation and merge algorithm                | CS, US, AS, TS, EX                 |
 | [qmd-registry.md](qmd-registry.md)                         | Progressive QMD collection registry and collection gate principle | SF, BS, CS, US, AS                 |

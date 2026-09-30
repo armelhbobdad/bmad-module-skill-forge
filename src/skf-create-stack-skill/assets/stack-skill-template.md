@@ -64,6 +64,10 @@ ceilings at compile time:
   below). For a **small stack**, keep them inline — inline passive context yields
   higher task accuracy than on-demand retrieval, and small stacks fit comfortably.
   Integration Patterns and Conventions stay inline regardless (Tier 1, load-bearing).
+  Whenever the catalog moves into `references/stack-catalog.md`, at compile time
+  or in a later body-size split, its Reference links become file-relative,
+  `[ref]({name}.md)`, because a link resolves from the file that holds it (see
+  "references/stack-catalog.md Structure" below).
 - **Inline pointer form** (replaces the two sections above when extracted):
 
   ```markdown
@@ -140,7 +144,12 @@ Indexed format targeting ~80-120 tokens per stack:
 ## references/stack-catalog.md Structure
 
 Written **only for large stacks** (see Sizing Guidance) when the catalog is
-extracted out of SKILL.md. Holds the two sections verbatim from the inline form:
+extracted out of SKILL.md. Holds the two sections from the inline form with
+their links rewritten: a link resolves from the file that holds it, and this
+file sits in `references/` beside the per-library files, so a link to one of
+them is `{name}.md` (the Reference column's `[ref]({name}.md)`). The inline
+form's `references/{name}.md` would resolve to `references/references/{name}.md`
+from here.
 
 ```markdown
 # {project_name} Stack — Library Catalog
@@ -152,7 +161,7 @@ extracted out of SKILL.md. Holds the two sections verbatim from the inline form:
 
 | Library | Imports | Key Exports | Confidence | Reference |
 |---------|---------|-------------|------------|-----------|
-| {name} | {count} | {top_exports} | {tier} | [ref](references/{name}.md) |
+| {name} | {count} | {top_exports} | {tier} | [ref]({name}.md) |
 
 ## Per-Library Summaries
 

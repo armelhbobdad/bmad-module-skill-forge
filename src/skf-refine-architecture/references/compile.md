@@ -28,6 +28,8 @@ This is the base. Every line of the original appears in the refined document unm
 
 **Context recovery check:** If gap, issue, or improvement findings from Steps 02-04 are not available in context (e.g., due to context degradation in long runs), attempt to read the durability state from `{forge_data_folder}/ra-state-{project_name}.md`. Parse the `<!-- [RA-GAPS] -->`, `<!-- [RA-ISSUES] -->`, and `<!-- [RA-IMPROVEMENTS] -->` comment blocks to recover the complete formatted findings (each block contains full citation text with evidence, not just counts). If a section is still missing or contains only summary counts after recovery, HALT (exit code 8, `halt_reason: "recovery-failed"`): "⚠️ Context for the [Gaps|Issues|Improvements] analysis was lost and the durability state is insufficient to reconstruct findings. Re-run [RA] from the beginning — step 01 will reset the state file, then steps 02-04 will rebuild all findings." In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`.
 
+**Scope recovery:** the Refinement Summary (§5) also needs `{unverified_technologies}` from Step 02 §2b. If it is not in context, read it from the `<!-- [RA-SCOPE] -->` block of the same state file; if that block is missing too, HALT the same way (exit code 8, `halt_reason: "recovery-failed"`), naming the Scope analysis.
+
 ### 2. Insert Gap-Fill Subsections
 
 For each gap finding from Step 02:
@@ -71,7 +73,7 @@ For each issue finding from Step 03:
 
 ### 4. Insert Improvement Suggestions
 
-For each improvement finding from Step 04:
+For each in-scope improvement finding from Step 04 (the `[RA-IMPROVEMENTS]` findings; out-of-scope improvements and synergies stay under `[RA-OUT-OF-SCOPE]` and never enter the refined document):
 
 **Locate the section** where the library is discussed.
 
@@ -106,8 +108,13 @@ Append a `## Refinement Summary` section containing:
 | Issues Flagged | {issue_count} | Critical: {critical_count}, Major: {major_count}, Minor: {minor_count} |
 | Improvements Suggested | {improvement_count} | High: {high_count}, Medium: {medium_count}, Low: {low_count} |
 | Skills Used as Evidence | {skill_count} | — |
+| Not verified (no skill) | {unverified_count} | {unverified_technologies} |
+| VS Coverage | {vs_coverage} | technologies with a skill when [VS] ran, from `{vs_report_name}` |
+
+The Not verified (no skill) row is always written: `{unverified_count}` is the number of technologies in `{unverified_technologies}` (Step 02 §2b), and its Breakdown names them comma-separated, or reads `none`. Write the VS Coverage row only when a VS report was used (`vs_report_available` is true): `{vs_coverage}` is the `coveragePercentage` in that report's frontmatter followed by `%`. Write `not recorded` instead when the frontmatter has no `coveragePercentage`, or when its `stepsCompleted` does not include `coverage`: [VS] writes `coveragePercentage: 0` before its coverage step runs, so the report of a run that stopped earlier holds a 0 that was never measured. `{vs_report_name}` is the file name of `{vs_report_path}` without its folder (for example `feasibility-report-<slug>-latest.md`): the refined document is shared, so it names no local path.
+
 - **Evidence Sources table:** Each skill name and how many refinements cite it
-- **Next Steps:** Review `[!WARNING]` issues, `[!NOTE]` gaps, `[!TIP]` improvements; then run **[SS] Stack Skill** to compose your individual skills into a unified stack skill, providing this refined architecture doc when prompted
+- **Next Steps:** Review `[!WARNING]` issues, `[!NOTE]` gaps, `[!TIP]` improvements; then run **[SS] Stack Skill** to compose your individual skills into a unified stack skill, providing this refined architecture doc when prompted. When `{unverified_technologies}` is not empty, add one line before [SS] that names them: nothing checked what the architecture says about them, so generate their skills with **[CS] Create Skill** or **[QS] Quick Skill** and re-run **[RA]** first.
 
 ### 6. Write the Refined Document
 

@@ -68,12 +68,14 @@ Apply merge in the following priority order:
 - Preserve [MANUAL] blocks adjacent to the export
 - Check for position conflicts (new content shifts [MANUAL] block)
 - If position conflict: flag as POSITION conflict
+- **Gap-driven, under the drift override** (step 3 §0.a `{workspace_drift_status}` is `overridden`): no `MODIFIED_EXPORT` reaches this priority. Its fresh signature, parameters and return type could only be read at HEAD, so step 3's drift gate halted on it before merge.
 
 **Priority 5 — Process NEW exports:**
 - Append new export content to appropriate section
 - Place before any [MANUAL] blocks at section boundary
 - No conflicts expected (new content, no existing [MANUAL])
 - **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (step 3 §0 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check read that line by eye, so the prefix is `SRC`, never `AST`.
+- **Gap-driven, under the drift override:** no `NEW_EXPORT` reaches this priority either. Step 3's drift gate halted on every one before merge, whatever its severity and whether the provenance map holds it.
 
 **Priority 6 — Process script/asset file changes (from Category D in change manifest):**
 
@@ -113,6 +115,7 @@ For each entry in the in-context `promoted_docs_new[]` list:
 For each `STRUCTURAL_FIX` entry forwarded by step 3 §0/1a:
 
 - Apply the surgical edit described in the entry's `remediation` text to the **generated output file only** (e.g., escape an unescaped `|` inside a code span, balance a fence, repair a broken intra-skill anchor in SKILL.md or a `references/*.md`).
+- **A split-body consistency finding** (rule R2: the SKILL.md body and a `references/*.md` file document one export differently): edit the `references/*.md` file so it documents the export as the SKILL.md body does, whichever of the two files the gap's `Source:` names. The body is authoritative (test-skill coverage-check §1b), so never change the body to match the reference file.
 - Do **not** add, modify, or remove any provenance `entries[]` row — STRUCTURAL_FIX never touches the provenance map.
 - Preserve any [MANUAL] blocks; if the fix location overlaps a [MANUAL] block, flag as a POSITION conflict instead of editing.
 - Record in the update report: `"Structural fix: {remediation summary} at {file}:{line}"`.

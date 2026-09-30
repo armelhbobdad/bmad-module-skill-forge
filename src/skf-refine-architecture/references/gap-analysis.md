@@ -49,7 +49,33 @@ Resolve the in-scope skill set:
 
 **Safe default:** If scope cannot be derived (e.g. the architecture references no inventory skill by name) and no `{scope_skills}` was provided, treat all skills as in-scope and note: "Could not derive document scope — analyzing all skill pairs." This keeps borderline gaps visible rather than hiding them.
 
-Store `{in_scope_skills}` and `{out_of_scope_skills}` as workflow state — Step 03 (issue detection) reuses them.
+**Confirm a derived scope.** When the scope was derived (no `{scope_skills}`) and `{out_of_scope_skills}` is not empty, show the split once, before §4 loads the API surfaces, so the user can correct it without a re-run. A scope from `--scope-skills` is already the user's choice, and the safe default leaves no skill out, so neither shows this gate.
+
+"**Document scope** (derived from the architecture document)
+
+| Skill | Scope | Why |
+|-------|-------|-----|
+| {skill} | In scope | {named as `term`, or ambiguous and kept in scope} |
+| {skill} | Out of scope | not named in the document |
+
+Pairs, VS verdicts and improvement suggestions that involve an out-of-scope skill are listed for awareness only and stay out of the refined document.
+
+- Type **C** to keep this scope
+- Type skill names to bring them **into** scope
+- Type **-skill_name** to take a skill **out** of scope"
+
+Display: **Select:** [C] Continue with this scope | [X] Cancel
+
+**GATE [default: C]**: present the menu and wait for the user's choice. If `{headless_mode}`: keep the derived sets and auto-proceed with [C], log: "headless: auto-confirm derived document scope (in scope: {in_scope_skills}; out of scope: {out_of_scope_skills})".
+
+- IF C: keep the current sets and go on with the rest of this section.
+- IF cancel / exit / [X] / q / :q: HALT (exit code 6, `halt_reason: "user-cancelled"`) and display "Cancelled: no refinement was performed." These global cancel tokens pre-empt the edit branch below.
+- IF the input names skills: each skill name moves that skill into `{in_scope_skills}` and each `-skill_name` moves it out; recompute `{out_of_scope_skills}`. Name any entry that is not an inventory skill, and refuse an edit that would leave `{in_scope_skills}` empty. Then redisplay the table and the menu.
+- IF anything else: answer it (a question about the split, say), then redisplay the menu.
+
+**Technologies with no skill.** `{unverified_technologies}` = the libraries, frameworks, databases, services and tools the architecture document names that match no inventory skill under the rule above (skill name and library/technology keywords, case-insensitive, word-boundary). Programming languages, protocols and data formats do not count, and neither does a technology the document marks as deprecated, removed or being replaced, since no skill should exist for it. Keep each name as the document writes it, in order of first mention. No step can check what the document says about these technologies: §6 names them, and Step 05 lists them in the Refinement Summary as not verified. The list depends on the inventory, not on the scope, so `--scope-skills` and the edits above leave it unchanged.
+
+Store `{in_scope_skills}`, `{out_of_scope_skills}` and `{unverified_technologies}` as workflow state. Step 03 (issue detection) and Step 04 (improvements) reuse the scope sets, and Step 05 (compile) reuses `{unverified_technologies}`; §6 also records all three in the RA state file.
 
 ### 3. Read the Pre-Computed Library Pairs
 
@@ -121,12 +147,15 @@ Suggestion: {proposed architecture section content}
 
 ### 6. Report Gaps & Store Findings
 
-Report the in-scope gap count, then list each gap as a row of **# / Library A / Library B / Gap Type / Connecting APIs** followed by its full §5 citation. Two signals are not inferable from the counts and must survive regardless of format:
+Report the in-scope gap count, then list each gap as a row of **# / Library A / Library B / Gap Type / Connecting APIs** followed by its full §5 citation. Three signals are not inferable from the counts and must survive regardless of format:
 
 - **N == 1 (only one skill loaded):** gap analysis is skipped — pairwise integration analysis needs ≥2 skills, and libraries without a matching skill are invisible to it. Recommend generating skills for all architecture libraries with [CS] or [QS] before re-running [RA], and note issue detection still runs.
 - **Out-of-scope compatible pairs exist (from §2b/§5):** list them separately for awareness only — they were not counted as gaps — and note that re-running with `--scope-skills` (naming the skills to include) pulls any that belong into scope.
+- **The architecture names technologies with no skill (`{unverified_technologies}` from §2b is not empty):** name them. No skill backs what the document says about them, so no step checks it; recommend generating their skills with [CS] or [QS] before re-running [RA].
 
 Store the **in-scope** gap findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-GAPS] ... -->` block. Record out-of-scope pairs under a separate `<!-- [RA-OUT-OF-SCOPE] ... -->` marker so Step 05 leaves them out of the refined document — they are informational only.
+
+Append the scope under a `<!-- [RA-SCOPE] ... -->` block too: `{in_scope_skills}`, `{out_of_scope_skills}`, how the scope was set (`--scope-skills`, derived, derived then edited at the §2b confirmation, or every skill by the safe default) and `{unverified_technologies}`. Step 04 and Step 05 read the block back if context degrades on a long run.
 
 ### 7. Auto-Proceed to Next Step
 

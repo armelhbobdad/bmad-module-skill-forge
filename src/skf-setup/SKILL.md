@@ -61,7 +61,7 @@ You are a system executor performing environment resolution. Run each step in se
 
 2. **Load config** from `{project-root}/_bmad/skf/config.yaml` and resolve `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `skills_output_folder`, `forge_data_folder`, `sidecar_path`. Both halts here use `path` `{project-root}/_bmad/skf/config.yaml`, and an interactive run displays the reason as its diagnostic:
 
-   - The file does not exist: halt with phase `on-activation:config-missing` and reason `Setup cannot proceed: _bmad/skf/config.yaml was not found`.
+   - The file does not exist: halt with phase `on-activation:config-missing` and reason `Setup cannot proceed: _bmad/skf/config.yaml was not found. SKF is not installed in this project: from the project root, run npx bmad-module-skill-forge install (or npx bmad-method install and add SKF), then re-run /skf-setup.`
    - The YAML is invalid: halt with phase `on-activation:config-malformed` and reason `Setup cannot proceed: _bmad/skf/config.yaml is not valid YAML: <first line of the parser error>`.
 
 3. **Reconcile `{headless_mode}`** with `preferences.yaml`: OR the parsed flag with `headless_mode: true` from the YAML. Then, if `{headless_mode}` is true, set `{quiet_mode}` to true: setup's headless output is the same envelope-only output, and `shared/health-check.md` reads `{quiet_mode}` alone.

@@ -6,8 +6,8 @@ Bridge names (`ast_bridge`, `ccc_bridge`, `qmd_bridge`, `gh_bridge`) and subproc
 
 | Bridge       | Operation                        | Claude Code                                                      | Cursor         | CLI                                                | Fallback                         |
 |--------------|----------------------------------|------------------------------------------------------------------|----------------|----------------------------------------------------|----------------------------------|
-| `ast_bridge` | `scan_definitions()`             | `mcp__ast-grep__find_code` or `mcp__ast-grep__find_code_by_rule` | ast-grep MCP   | `sg run` / `ast-grep -p`                           | Source reading (T1-low)          |
-| `ast_bridge` | `detect_co_imports()`            | `mcp__ast-grep__find_code_by_rule` with co-import YAML rule      | ast-grep MCP   | `ast-grep run -p 'import $$$' --json=stream`       | grep-based co-import count       |
+| `ast_bridge` | `scan_definitions()`             | `mcp__ast-grep__find_code_by_rule` with each recipe, `output_format="json"`; `mcp__ast-grep__find_code` only as the fallback | ast-grep MCP   | `ast-grep scan -r {recipe_file} --json=stream`     | Source reading (T1-low)          |
+| `ast_bridge` | `detect_co_imports()`            | `mcp__ast-grep__find_code_by_rule` with co-import YAML rule      | ast-grep MCP   | `ast-grep scan -r {rule_file} --json=stream`       | grep-based co-import count       |
 | `ccc_bridge` | `search(query, root, top_k)`     | `/ccc` skill search                                              | ccc MCP server | `cd {root} && ccc search --limit {top_k} "{query}"` | Skip silently                    |
 | `ccc_bridge` | `ensure_index(root)`             | `/ccc` skill indexing                                            | ccc MCP server | `cd {root} && ccc init` + `ccc index`               | Skip silently                    |
 | `ccc_bridge` | `status()`                       | `/ccc` skill status                                              | ccc MCP server | `ccc --help` + `ccc doctor`                        | Unavailable = `tools.ccc: false` |
@@ -16,6 +16,8 @@ Bridge names (`ast_bridge`, `ccc_bridge`, `qmd_bridge`, `gh_bridge`) and subproc
 | `qmd_bridge` | `version()`                      | `qmd --version` → parse `"qmd X.Y.Z"` → `"X.Y.Z"`              | qmd MCP server | `qmd --version`                                    | `"unknown"`                      |
 | `gh_bridge`  | `list_tree(owner, repo, branch)` | `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1`     | gh CLI         | `gh api ...`                                       | Direct file listing if local     |
 | `gh_bridge`  | `read_file(owner, repo, path)`   | `gh api repos/{owner}/{repo}/contents/{path}`                    | gh CLI         | `gh api ...`                                       | Direct file read if local        |
+
+`scan_definitions()` follows the AST Extraction Protocol in create-skill's `extraction-patterns.md`, which holds the recipes: its decision tree, not the priority order below, picks between the MCP call and the CLI template, and `find_code` serves only as its Known Limitation #4 fallback.
 
 ## Subprocess Pattern Definitions
 

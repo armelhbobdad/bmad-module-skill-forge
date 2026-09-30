@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-audit-skill
+summary: |
+  Audit Skill's re-index step now reads exports at Forge, Forge+ and Deep with Create Skill's ast-grep recipes and extraction protocol: each recipe runs once over the files the skill covers, each export records the line of its name, and the plain `find_code` pattern search is only a fallback. Before, the step named no recipes, so exports could be matched with plain patterns that find nothing for some forms on ast-grep 0.45.3 (such as `export function` in `.tsx` files or a Rust `pub fn`) and then be read by eye or reported as removed. At Deep, the re-index no longer asks QMD about each export's history, which never reached `extraction-snapshot.json`; Deep audits still compare QMD context in the semantic drift step.
+prs: [618]
+issues: [561]

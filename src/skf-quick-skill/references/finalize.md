@@ -51,6 +51,8 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 **Authority:** community
 **Confidence:** {extraction confidence}
 {If `scope_hint` is non-empty, add:} **Scope:** {scope_hint}
+{If step 3 recorded a `repo_shape`, add:} **Repo shape:** {repo_shape}
+{If it is `skills-module`, add:} **Skills:** {skill count} skills and {menu code count} menu codes, documented as the exports below
 
 **Files written:**
 - `{skill_package}/SKILL.md`

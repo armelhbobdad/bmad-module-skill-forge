@@ -29,7 +29,7 @@ Read the `{outputFile}` to have all data available for presentation.
 
 Verify the `## Refinement Summary` section is present. If it is absent, HALT (exit code 8, `halt_reason: "recovery-failed"`): "⚠️ Refinement Summary not found in `{outputFile}`. Step 05 may not have completed successfully. Re-run [RA] from the beginning." In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`.
 
-**Extract metrics from the Refinement Summary section:** Parse `gap_count`, `issue_count`, `improvement_count`, `critical_count`, `major_count`, `minor_count`, `high_count`, `medium_count`, `low_count`, and `skill_count` from the Changes Made table and Evidence Sources table. Use these extracted values in the summary table and next-steps sections below.
+**Extract metrics from the Refinement Summary section:** Parse `gap_count`, `issue_count`, `improvement_count`, `critical_count`, `major_count`, `minor_count`, `high_count`, `medium_count`, `low_count`, and `skill_count` from the Changes Made table and Evidence Sources table, `unverified_count` and `unverified_technologies` from the Count and Breakdown cells of the table's Not verified (no skill) row, and `vs_coverage` from the Count cell of its VS Coverage row. That last row is written only when a VS report was used; when it is absent, leave the VS Coverage row out of the summary below. Use these extracted values in the summary table and next-steps sections below.
 
 ### 2. Display Summary
 
@@ -43,6 +43,8 @@ Verify the `## Refinement Summary` section is present. If it is absent, HALT (ex
 | **Issues Flagged** | {issue_count} (Critical: {critical_count}, Major: {major_count}, Minor: {minor_count}) |
 | **Improvements Suggested** | {improvement_count} (High: {high_count}, Medium: {medium_count}, Low: {low_count}) |
 | **Skills Used as Evidence** | {skill_count} |
+| **Not verified (no skill)** | {unverified_count} ({unverified_technologies}) |
+| **VS Coverage** | {vs_coverage} |
 
 **Evidence Sources:** (which skills contributed evidence)
 
@@ -57,6 +59,9 @@ The original architecture content is fully preserved. All refinements are clearl
 ### 3. Present Next Steps
 
 "**Recommended next steps:**
+
+{IF unverified_count > 0:}
+**Generate the missing skills first:** no skill covers {unverified_technologies}, so nothing checked what the architecture says about them. Create their skills with **[CS] Create Skill** or **[QS] Quick Skill**, then re-run **[RA]** before moving on to **[SS] Stack Skill**.
 
 1. **Review the refined document** — accept, modify, or remove individual refinements
 2. **[SS] Stack Skill** — compose-mode activates automatically when SS detects existing individual skills without a codebase; provide this refined architecture doc as the architecture document when prompted

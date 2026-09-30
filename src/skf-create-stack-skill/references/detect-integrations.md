@@ -28,6 +28,14 @@ Analyze co-import patterns between confirmed libraries to identify integration p
 
 ### 1. Generate Library Pairs
 
+**If `compose_mode` is true:**
+
+Skip the file-list intersection. Step 3 counts no imports in compose mode, so the per-library file lists this pass intersects do not exist, and the §2 compose branch builds the compose-mode pair set itself: architecture-document co-mentions, or shared-domain inference when no architecture document is available.
+
+Skip to [Detect Co-Import Files](#2-detect-co-import-files).
+
+**If not compose_mode:**
+
 From `confirmed_dependencies`, conceptually you have N*(N-1)/2 unordered pairs. Rather than enumerating and grep-testing each one, prune the matrix via a deterministic **file-list intersection fast path** (MANDATORY first pass, all N): pairs whose per-library file lists do not overlap cannot be integration candidates by construction — drop them. Subsequent grep passes (§2) run only against pairs with a non-empty intersection, and grep scope is restricted to those intersection files rather than the whole source tree. This is NOT a "subprocess-unavailable" fallback; it is the default strategy for every N. Rationale: at N≈21 this collapses 210 prescribed pair greps to ~12 non-empty-intersection pairs in typical codebases; at larger N the compression is even greater.
 
 **Compute the intersection deterministically via the shared script:**

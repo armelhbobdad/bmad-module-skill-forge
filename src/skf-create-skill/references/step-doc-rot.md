@@ -24,11 +24,11 @@ Scan feeder artifacts for doc-rot correction indicators and annotate the compile
 
 ### §1. Locate Feeder Artifacts
 
-Identify the feeder artifacts in the **staging directory** for the current skill. This step (5c) runs **before** step 7 promotes the staging tree to `{forge_data_folder}/{skill-name}/{version}/`, so the feeder artifacts only exist under the staging path compile (step 5 §1a) wrote — reading the not-yet-promoted `{forge_data_folder}` path would make every match a no-op:
+Identify the feeder artifacts for the current skill. The ones compile wrote (items 1, 2 and 4) are in the **staging directory**: this step (5c) runs **before** step 7 promotes the staging tree to `{forge_data_folder}/{skill-name}/{version}/`, so they only exist under the staging path compile (step 5 §1a) wrote, and reading the not-yet-promoted version folder would make every match a no-op. The temporal feeder (item 3) is the one feeder outside it: step 3b keeps it in the skill's forge folder, beside the version folders.
 
 1. **Evidence report:** `_bmad-output/.skf-stage/{skill-name}/evidence-report.md`
 2. **Provenance map:** `_bmad-output/.skf-stage/{skill-name}/provenance-map.json` — focus on T2/T3 entries with temporal annotations
-3. **Temporal context:** changelogs, migration guides, and issue/PR data fetched by step 3b and enriched by step 4 (available in workflow context)
+3. **Temporal context (Deep tier):** the changelog, release, issue and PR files at `{forge_data_folder}/{skill-name}/.skf-temporal/*.md`, which step 3b fetched on this run or kept from an earlier fetch on a cache hit. Step 3b keeps that folder after indexing it into QMD and binds `{temporal_feeder}` to it whenever the run passed its eligibility checks. Before the checks below, set `{temporal_feeder_notice}` to null, so that in a `--batch` run one brief's notice never carries into the next. When `{temporal_feeder}` is null or was never bound (a tier other than Deep, a source other than GitHub, or no authenticated `gh`), no temporal feeder was expected and there is nothing to report. When it is set but the folder holds no `.md` file (every fetch failed and no earlier fetch left files there, or the folder was deleted), bind `{temporal_feeder_notice}` ← `Temporal feeder missing: step 3b left no files in the skill's .skf-temporal/ folder, so the doc-rot scan read no upstream changelog, release, issue or PR text.` and display it: step 7 writes it into the evidence report's `## Remaining Warnings`, so a lost feeder never goes unnoticed. The notice names the folder, not its resolved path, which is local to this machine.
 4. **Compiled SKILL.md:** the staged `_bmad-output/.skf-stage/{skill-name}/SKILL.md` itself — check for `[QMD:...]` or `[DOC:...]` annotations referencing corrections. **Do not treat its own self-authored regions as correction sources:** compile already wrote the `## Migration & Deprecation Warnings` section (step 5 §4b) and the frontmatter `description` (step 5 §2) from the same T2-future annotations, so both restate already-surfaced corrections — §2 discards matches that land in either.
 
 For each artifact, attempt to load its content. If an artifact does not exist or is empty, skip it — this is not an error.
@@ -45,10 +45,10 @@ uv run {scanDocRotHelper} \
   --max-corrections 10 \
   _bmad-output/.skf-stage/{skill-name}/evidence-report.md \
   _bmad-output/.skf-stage/{skill-name}/provenance-map.json \
-  _bmad-output/{skill-name}-temporal/*.md
+  "{forge_data_folder}/{skill-name}/.skf-temporal/"*.md
 ```
 
-(Pass whichever of the §1 feeder paths actually exist — the script skips any that are missing or empty, and reports the loaded set in `scanned`.)
+(Pass whichever of the §1 feeder paths actually exist, and the `.skf-temporal` files only when `{temporal_feeder}` is set: the script skips any path that is missing or empty, and reports the loaded set in `scanned`.)
 
 The script emits `{scanned: [...], matches: [...], match_count, excluded_count, deduped_count, capped_count, cap}` on stdout. Each entry in `matches` is a match record with the deterministic fields the script owns:
 
@@ -117,6 +117,8 @@ For each entry in `correction_matches`, insert a `## CORRECTION` block into the 
 **Affected:** {affected}
 **Detail:** {context_line}
 ```
+
+`{source}` is the match's `source`, except for a match from the temporal feeder (item 3 of §1): cite that file the way step 4 cites it, in the T2 form `[QMD:{skill-name}-temporal:{file name}]`, for example `[QMD:mylib-temporal:changelog.md]`. Its `.skf-temporal` path is a git-ignored folder on this machine, and an absolute one when `{forge_data_folder}` resolves to an absolute path, so a reader of the published skill could not follow it.
 
 **Insertion rules:**
 - **After the relevant API section** in SKILL.md if the `affected` function or section can be identified and located in the document

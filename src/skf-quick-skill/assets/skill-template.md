@@ -28,10 +28,10 @@ description: >
 {README-derived description of what the package does}
 
 ## Key Exports
-{List of public exports with brief descriptions}
+{List of public exports with brief descriptions. For a skills module: each skill with its description, then each menu code with its description, display name and the skill it runs}
 
 ## Usage Patterns
-{Common usage patterns extracted from README examples}
+{Common usage patterns extracted from README examples. For a skills module with module-help.csv: one entry per row, giving the menu code, display name and description, the skill and action it runs, its args, and the skills it follows or precedes}
 ```
 
 ### Optional Sections (include when data available)
@@ -108,3 +108,5 @@ Indexed format targeting ~80-120 tokens per skill:
   }
 }
 ```
+
+For a skills module (`repo_shape: skills-module`), `exports` lists the skill names, then the menu codes, and the export counts in `stats` and `confidence_distribution.t1_low` count both.

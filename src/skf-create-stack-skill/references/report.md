@@ -2,7 +2,8 @@
 nextStepFile: 'health-check.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves.
+# path wins. If neither resolves, §2b skips the advisory result-contract
+# writes with a warning instead of halting.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -18,7 +19,7 @@ Display the final summary of the forged stack skill with confidence distribution
 
 ## Rules
 
-- Do not write or modify any files — report is console output only
+- Write only the §2b result contract: the per-run record in `{forge_version}/` and `create-stack-skill-result-latest.json` at the stack group root. The rest of the report is console output only
 - Lead with the positive summary, then details, then warnings
 - Recommend next workflows based on what was produced
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing report is NOT the terminal step
@@ -71,6 +72,8 @@ Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs`
 
 If either atomic write fails, log the error, leave any prior `-latest.json` untouched, and continue — the report is advisory and should not block the health-check chain.
 
+**Missing atomic writer.** If no `{atomicWriteProbeOrder}` candidate exists, make neither write: append `{step: "step-09", severity: "warn", code: "result-contract-skipped", message: "result contract skipped: skf-atomic-write.py not found (re-install SKF)"}` to `workflow_warnings[]` and print its message, since §1 has already listed the warnings; leave any prior `-latest.json` untouched, and continue with the headless success envelope below. The result contract is advisory, so a missing writer never halts the report.
+
 **Headless success envelope.** When `{headless_mode}` is true, emit the single-line result envelope on **stdout** (the success counterpart to the error envelopes every HARD HALT emits on stderr) before chaining to step 10. `skill_package` is the absolute path to the committed package; `stack_libraries` is the included library names:
 
 ```
@@ -79,11 +82,13 @@ SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"{skill_package}","sk
 
 ### 2c. Post-Completion Hook (optional)
 
-If `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it now — after the result contract (§2b) is written, before chaining to health-check:
+If `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it now, after §2b and before chaining to health-check:
 
 ```bash
 {onCompleteCommand}
 ```
+
+The hook runs even when §2b did not update `create-stack-skill-result-latest.json` (a missing atomic writer or a failed write); that file then still holds an earlier forge's record, if any.
 
 Run it with a bounded timeout (default 60s). On success, continue. On non-zero exit, timeout, or any failure, append the reason to `workflow_warnings[]` (e.g. `on_complete — failed (exit {N}): {stderr_first_line}`) and continue. **The hook must never fail the workflow** — it is integration glue (catalog registration, downstream pipeline notify) orthogonal to the forged stack. When `{onCompleteCommand}` is empty (bundled default), skip this section entirely.
 

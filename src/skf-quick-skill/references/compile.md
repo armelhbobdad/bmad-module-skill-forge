@@ -42,6 +42,8 @@ Populate the SKILL.md section structure from `{skillTemplateData}` § "SKILL.md 
 - **Description:** From `{overrides.description}` if set (subject to the same length/voice checks as extracted descriptions); otherwise from extraction_inventory.description (README-derived)
 - **Key Exports:** From `{overrides.exports}` if set (comma-separated names parsed and trimmed; empty items skipped); otherwise from extraction_inventory.exports — list each with name, type, brief description
 
+**Skills module** (`repo_shape: skills-module`): Unless `{overrides.exports}` is set, Key Exports lists the skills first, each with its description, then the menu codes, each with its description, display name and the skill it runs, in the inventory's order. Usage Patterns gives one entry per `module-help.csv` usage pattern in the inventory; with no `module-help.csv`, it comes from the README as for a library.
+
 **Scripts & Assets Note** (add as an optional section if source contains `scripts/`, `bin/`, `assets/`, `templates/`, or `schemas/` directories): "This package may include scripts and assets. Run create-skill for full extraction with provenance tracking."
 
 **If confidence is low** — include a note: "This skill was generated with limited source data. Consider running create-skill for a more thorough compilation."
@@ -57,6 +59,7 @@ The snippet anchors point to the QS template's actual headings — `#usage-patte
 **If fewer than 5 exports:** Use all available exports.
 **If no exports:** Omit the api line.
 **If no gotchas known:** Omit the gotchas line.
+**If `repo_shape` is `skills-module`:** the api line names up to five skills, without `()`, and the key-types summary lists the menu codes when there are any.
 
 ### 4. Generate Metadata JSON
 
@@ -105,14 +108,11 @@ Then proceed directly to §6 — the GATE default action takes over.
 
 ---
 
-**metadata.json:**
-
-{Display the JSON}
+**metadata.json:** version {metadata.version}, confidence tier {metadata.confidence_tier}, {metadata.stats.exports_documented} exports documented (step 5 writes the full file)
 
 ---
 
 **Extraction confidence:** {confidence}
-**Exports documented:** {count}
 
 Review the output above, then choose: [C] continue to validation, [E] edit the description, [S] adjust scope and re-extract, or [Q] quit without writing."
 

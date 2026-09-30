@@ -291,6 +291,26 @@ def test_blocked_reason_rules_stated():
     assert "first line of the parser error" in malformed
 
 
+def test_config_missing_reason_names_the_installer():
+    """Setup never writes config.yaml, only the installer does, so the halt
+    names it (#608). The reason keeps the troubleshooting heading as its
+    prefix, and it travels in a single-quoted JSON payload from a code span,
+    so it holds no quote, backslash or backtick and the helper carries it
+    through unchanged."""
+    m = re.search(r"phase `on-activation:config-missing` and reason `([^`]+)`", _on_activation(_read(SKILL_MD)))
+    assert m, "config-missing halt not found"
+    reason = m.group(1)
+    assert reason.startswith("Setup cannot proceed: _bmad/skf/config.yaml was not found. ")
+    for command in ("npx bmad-module-skill-forge install", "npx bmad-method install"):
+        assert command in reason, command
+    assert not set(reason) & set("'\"\\`"), reason
+    done = _emit_blocked({"phase": "on-activation:config-missing", "reason": reason,
+                          "path": "/project/_bmad/skf/config.yaml"})
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    [line] = done.stdout.decode("utf-8").splitlines()
+    assert json.loads(line[len("SKF_SETUP_RESULT_JSON: "):])["skf_setup"]["error"]["reason"] == reason
+
+
 def test_detector_failure_branch_is_defined():
     section = _section(_read(REFS / "detect-and-tier.md"), "### 2.")
     branch = next(b for _, _, b in _prose_blocks(section) if "exits non-zero" in b)

@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-update-skill
+summary: |
+  Update Skill now records each update in one place, at the top level of `provenance-map.json`, replacing what the previous update wrote there: `last_update`, `update_type`, `files_changed`, `exports_affected`, `confidence_tier` and `manual_sections_preserved`. A repair from a test report records `update_type` `gap-driven` (a normal update records `incremental`, a rebuild without a provenance map `full`). `metadata.json` no longer carries `last_update` or `update_type`: an update records itself there only in `generation_date`, and removes either key that an earlier SKF version left. Before, a repair from a test report had no `update_type` value to record and could put `last_update` in either file, so the two files could give different dates.
+migration: |
+  Read `last_update` and `update_type` from the top level of `provenance-map.json`, not from `metadata.json`.
+prs: [618]
+issues: [548]

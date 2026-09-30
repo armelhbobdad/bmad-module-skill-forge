@@ -19,9 +19,25 @@ keep update-skill's step files on the contract of skf-source-tree.py:
   the knowledge files say the same, and remote-source-resolution.md, the
   update-skill copy of create-skill's clone steps, is gone;
 - a gap-driven spot-check under `--allow-workspace-drift` with HEAD off the
-  pinned commit moves or pins no line, a gap that needs a line from the tree
-  halts in step 3 before merge, and a cited new export whose spot-check pins
-  a line gets its provenance entry.
+  pinned commit moves or pins no line, every new or modified export halts in
+  step 3 before merge (its line, signature, parameters and return type could
+  only come from HEAD), write.md §2 runs no ast-grep recipe there, and a
+  cited new export whose spot-check pins a line gets its provenance entry.
+
+They also pin how a gap-driven run routes a test report's gaps and records
+what it did:
+
+- a split-body consistency finding (a `Source:` inside the skill package) is
+  a structural fix that edits the reference file, never a modified export;
+- a blocking gap with no citation that pins a line and no path to scan halts
+  in step 3 with `halted-for-remediation-path`, `--dry-run` included, one
+  severity rule holds in detect-changes, re-extract and write, and write's
+  defensive halt has a documented status;
+- the update bookkeeping has one home in provenance-map.json, with an
+  `update_type` for each mode, and an update removes the copy an older SKF
+  version left in metadata.json;
+- a reference app's stats are recomputed with `--shape reference-app`, and
+  both documented stats calls run through the helper as written.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -31,8 +47,11 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import io
 import json
 import re
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
@@ -628,39 +647,107 @@ def test_drift_status_binding_and_warning():
         assert token in other, token
 
 
-def test_drift_gate_halts_before_merge_on_gaps_that_need_a_line():
-    """Under the override, rule R3 and blocking gaps that need a line halt in step 3, before merge (#530)."""
+DRIFT_GATE = "**Drift gate (only when `{workspace_drift_status}` is `overridden`).**"
+GATE_REASONS = ["a line from the tree (rule R3)", "a line and a signature from the tree", "a signature from the tree"]
+
+
+def _drift_gate() -> str:
+    return _slice(_read(RE_EXTRACT), DRIFT_GATE, "\n1. Use the provenance map")
+
+
+def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
+    """Under the override every new or modified export halts in step 3, before merge (#530, #557)."""
     text = _read(RE_EXTRACT)
-    gate = _slice(text, "**Drift gate (only when `{workspace_drift_status}` is `overridden`).**",
-                  "\n1. Use the provenance map")
-    for token in ("a `DELETED_EXPORT` or `MOVED_EXPORT` never gets one",
-                  "A `severity` is blocking unless it is `Medium`, `Low` or `Info`, compared case-insensitively; "
-                  "a missing or unrecognized `severity` is blocking.",
-                  "a provenance-completeness gap (rule R3, `provenance_completeness: true`)",
-                  "no `source_citation`, a non-empty `remediation_paths[]` and a blocking severity",
-                  "an entry with a `source_citation` and a blocking severity (a cited export not in the map",
+    gate = _drift_gate()
+    for token in ("update-skill writes nothing read there, neither a provenance line nor a signature, parameter "
+                  "list, return type or node kind",
+                  "Every `NEW_EXPORT` and every `MODIFIED_EXPORT` needs it, whatever its `severity` and whether the "
+                  "provenance map holds the export",
+                  "merge Priority 4 replaces a modified export's content with a fresh extraction",
+                  "merge Priority 5 appends a new export's content",
                   "HALT with status `halted-for-workspace-drift` before merge runs",
                   "nothing is written and §0a never runs",
                   'phase: "re-extract:workspace-drift"'):
         assert token in gate, token
-    assert "cited new export" not in gate and "`Critical` or `High` entry with" not in gate
+    # severity and the map no longer decide whether an entry halts: the #551 conditions are gone
+    for gone in ("an export the map holds needs no new line",
+                 "a non-empty `remediation_paths[]` and a blocking severity",
+                 "Gaps that need a line:", "{rule R3 | remediation paths | cited export not in the map}"):
+        assert gone not in gate, gone
+    assert re.findall(r"^- `([^`]+)`: ", gate, re.M) == GATE_REASONS
+    # the gap §0a would halt with nothing to scan halts here first under the override (#558 item 4)
+    assert "under the override this gate halts on it first" in gate
     message = _fence(gate, "Workspace drift blocks {N} gap(s)")
-    for token in ("pinned (metadata.source_commit): {source_commit}",
+    for token in ("Workspace drift blocks {N} gap(s) that need the pinned tree.",
+                  "writes nothing read at HEAD: no provenance line, signature, parameter list,\n"
+                  "return type or node kind.",
+                  "Gaps that need the pinned tree:",
+                  '({change_category}, {severity or "no severity"})',
+                  "{" + " | ".join(GATE_REASONS) + "}",
+                  "pinned (metadata.source_commit): {source_commit}",
                   "{if source_ref is set: pinned ref (metadata.source_ref): {source_ref}}",
-                  "{rule R3 | remediation paths | cited export not in the map}",
                   'a) Check out the pinned commit: git -C "{source_root}" checkout {source_commit}',
                   "Run a normal update (without --from-test-report)"):
         assert token in message, token
+    headless = _slice(gate, "In `{headless_mode}`", "\n")
+    assert 'reason: "drift-override: {N} gap(s) need the pinned tree: {name} ({reason}), ..."' in headless
     # the gate runs before any spot-check, and §0a says it never runs under the override
     assert text.index("**Drift gate") < text.index("1. Use the provenance map") < text.index("### 0a.")
     used_by = _slice(text, "**Used by:** §0 bullet 2", "**Purpose:**")
     assert "Never under the drift override (`{workspace_drift_status}` is `overridden`)" in used_by
     four = _slice(text, "4. Set `no_reextraction: true`", "\n")
     assert "a cited `NEW_EXPORT` whose spot-check pinned a line gets a new `source-read` entry at that line" in four
-    assert ("those spot-checks record `unknown` with `unknown_reason: drift-override`, and §0.a's drift gate has "
-            "already halted on every gap that needs a line from the tree, so §0a never runs") in four
-    cited = _slice(text, "     - **If the manifest entry has a `source_citation`", "\n")
-    assert "halted on an entry with a blocking severity and on a rule R3 gap" in cited
+    assert ("a spot-check that would move one records `unknown` with `unknown_reason: drift-override`, and §0.a's "
+            "drift gate has already halted on every `NEW_EXPORT` and `MODIFIED_EXPORT`, so §0a never runs") in four
+    zero_a = _zero_a()
+    # what the override keeps out, by name: write §2 still counts the public surface at `{source_root}`
+    assert ("so update-skill takes no provenance line, signature, parameter list, return type or node kind "
+            "from it") in zero_a
+    assert "takes nothing from it" not in zero_a
+    assert "write.md §2 and §6a look up no node kind there" in zero_a
+    assert "lines move and node kinds are looked up as usual" in zero_a
+
+
+def test_every_change_category_halts_or_passes_the_drift_gate():
+    """Each category detect-changes can emit is named once by the gate: as one that halts or one that passes (#557)."""
+    bullet = _slice(_read(DETECT), "   - **`change_category`**", "\n")
+    categories = re.findall(r"`([A-Z_]+|metadata update)`", bullet)
+    assert categories == ["NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT", "STRUCTURAL_FIX",
+                          "metadata update"]
+    gate = _drift_gate()
+    halts = _slice(gate, "Every `NEW_EXPORT`", " needs it,")
+    passes = _slice(gate, "A `DELETED_EXPORT`", " need nothing from the tree and pass.")
+    for category in categories:
+        token = f"`{category}`"
+        assert (token in halts) != (token in passes), category
+    assert "`NEW_EXPORT`" in halts and "`MODIFIED_EXPORT`" in halts
+
+
+def test_merge_says_no_new_or_modified_export_arrives_under_the_override():
+    """Merge Priority 4 and 5 state the route under the override: the drift gate halted first (#557)."""
+    merge = _read(MERGE)
+    four = _slice(merge, "**Priority 4", "**Priority 5")
+    assert "no `MODIFIED_EXPORT` reaches this priority" in four
+    assert "could only be read at HEAD, so step 3's drift gate halted on it before merge" in four
+    five = _slice(merge, "**Priority 5", "**Priority 6")
+    assert "no `NEW_EXPORT` reaches this priority either" in five
+    assert "whatever its severity and whether the provenance map holds it" in five
+
+
+def test_relabel_runs_no_recipe_under_the_override():
+    """write §2 looks up no node kind at HEAD: the violation stays, with a WARN that names the drift (#557)."""
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    relabel = _slice(two, "**Label violations.**", "\n")
+    drift = _slice(relabel, "**Under the drift override**", "When the run cannot tell")
+    for token in ("run no recipe at `{source_root}`",
+                  "Leave each violation that needs a kind from the tree in place",
+                  "list it as a WARN ending ` " + DRIFT_NOTE + ")`",
+                  "a relabel that reads nothing from the tree still applies",
+                  "With the status `ok` or `skipped`, run the recipes as above"):
+        assert token in drift, token
+    # the gate follows the recipe run it gates, and the re-run keeps the shape (#550)
+    assert relabel.index("run the ast-grep recipes for its language") < relabel.index("**Under the drift override**")
+    assert "re-run the helper with the same payload and `--shape`" in relabel
 
 
 def test_name_lookup_filters_by_the_citation_file():
@@ -688,6 +775,7 @@ def test_spot_checks_move_and_pin_no_line_under_the_override():
     assert ("when `{workspace_drift_status}` is `overridden` (§0.a), record `unknown` with "
             "`unknown_reason: drift-override` instead and set no `new_location`") in moved
     assert "with `unknown_reason: drift-override`, a `moved` the drift override turned into `unknown`" in outcome
+    assert "a cited `NEW_EXPORT` it kept from being spot-checked" not in outcome  # the gate halts those now (#557)
     # an R5 line that defines the export at HEAD stays verified, but never closes silently
     verified = _slice(outcome, "`verified` (the recorded", "`moved` (the file")
     assert "under the drift override a rule R5 `MOVED_EXPORT` still records `verified`" in verified
@@ -696,30 +784,30 @@ def test_spot_checks_move_and_pin_no_line_under_the_override():
     assert "it records `unknown` with `unknown_reason: drift-override` where it would record `moved`" in moved_export
     assert "Record in `pinned_definition_lines` the definition lines its `remediation` lists" in moved_export
     cited = _slice(text, "     - **If the manifest entry has a `source_citation`", "\n")
-    drift = "under the drift override (`{workspace_drift_status}` is `overridden`, §0.a), do not spot-check"
+    drift = "under the drift override (`{workspace_drift_status}` is `overridden`, §0.a) no entry reaches this branch"
     assert drift in cited
     assert cited.index(drift) < cited.index("Otherwise read the file that citation names")  # drift clause first
-    assert "record `unknown` with `unknown_reason: drift-override`, flag it `NEW_EXPORT`" in cited
-    assert "it never reaches the branches below or §0a" in cited
+    assert "the §0.a drift gate halted on every `NEW_EXPORT` and `MODIFIED_EXPORT` before bullet 1" in cited
+    assert "unknown_reason: drift-override" not in cited  # no cited export is kept from its spot-check any more
     assert "so step 6 writes" not in cited and "write.md §3 adds a full entry" in cited
-    # the reachability gate reads barrels at HEAD: skipped under the override, never a reclassification
+    # the reachability gate reads barrels: under the override no new export reaches it (#557)
     gate = _slice(text, "   - **Public-reachability gate (`NEW_EXPORT` only):**", "\n")
     reach = gate[gate.index("**Under the drift override**"):]
-    for token in ("do not run this gate", "Never re-queue an entry as `internal-unreachable` from HEAD",
-                  "set `reachability: not-checked` in its verification record"):
-        assert token in reach, token
+    assert "no entry reaches this gate" in reach
+    assert "halted on every `NEW_EXPORT` and `MODIFIED_EXPORT` before bullet 1" in reach
+    assert "reachability: not-checked" not in text and "`not-checked`" not in _write_3()
     record = _fence(text, "Per-export verification:")
-    for field in ("unknown_reason: drift-override", "reachability: not-checked", "pinned_definition_lines:"):
+    for field in ("unknown_reason: drift-override", "pinned_definition_lines:"):
         assert field in record, field
     breakdown = _slice(record, "confidence_breakdown:", "T2: 0")
     assert ("each cited export not in the map that the spot-check pinned and the public-reachability gate passed"
             in _slice(breakdown, "T1-low:", "\n"))
     assert ("other than a pinned cited export that passed the reachability gate (counted under T1-low)"
             in _slice(breakdown, "unlabeled:", "\n"))
-    summary = _slice(text, '"**Gap-driven re-extraction.**', "Proceeding to merge.\"\n")
-    assert "or a line the drift override kept from being moved or pinned): {unknown_count}" in summary
+    summary = _slice(text, '"**Gap-driven re-extraction.**', "\n")
+    assert summary.endswith("or a line the drift override kept from being moved): {unknown_count}.\"")
     qualifier = _slice(text, "When `{workspace_drift_status}` is `overridden`, add: \"Every check read HEAD", "\n")
-    assert "no line was moved or pinned, and public reachability was not checked" in qualifier
+    assert "no line was moved or pinned.\"" in qualifier and "reachability" not in qualifier
     assert text.index('"**Gap-driven re-extraction.**') < text.index(qualifier)
     assert "`provenance_map.exports`" not in text
     r5 = _slice(_read(DETECT), "- **R5: MOVED_EXPORT", "\n")
@@ -746,25 +834,27 @@ def test_write_adds_the_cited_export_entry_and_names_the_drift():
                   "§2's stats helper pairs `source-read` with these labels"):
         assert token in bullet, token
     assert "the only labels" not in bullet and "no ast-grep rule matched" not in bullet
+    assert ("Under the drift override no such record reaches this bullet: step 3's drift gate halted on every "
+            "`NEW_EXPORT` and `MODIFIED_EXPORT` before merge.") in bullet
     verified = _slice(three, "- **`verified` exports the map already holds**", "\n")
     assert ("`{export_name}: verified at HEAD only " + DRIFT_NOTE +
             "; definition lines per the test report: {pinned_definition_lines})`") in verified
-    # the cited export not in the map gets its entry and its WARN from the `unknown` bullet alone
+    # no drift `unknown` reaches the `unknown` bullet any more: the gate halts every new export first (#557)
     unknown = _slice(three, "- **`unknown` exports**", "\n")
-    assert ("For a record whose `unknown_reason` is `drift-override`, also add `{export_name}: unknown " + DRIFT_NOTE +
-            "; no line taken from HEAD)`") in unknown
-    assert "drift gate" not in unknown  # an uncited blocking unknown with no paths is §0a's, not the gate's
+    assert "under the drift override step 3's drift gate halts on every `NEW_EXPORT` first" in unknown
+    assert "unknown_reason" not in unknown and "no line taken from HEAD" not in unknown
     left = _slice(three, "- **`missing` exports,", "\n")
     assert "When `{workspace_drift_status}` is `overridden`" in left
     assert "`{export_name}: {outcome} " + DRIFT_NOTE + ")`" in left
-    assert "a cited export the map does not hold is the `unknown` bullet's, not this one's" in left
+    assert ("For a record whose `unknown_reason` is `drift-override` (a `moved` the override turned into "
+            "`unknown`), add `{export_name}: unknown " + DRIFT_NOTE + "; no line taken from HEAD)`") in left
+    assert "is the `unknown` bullet's" not in left
     assert "a cited `NEW_EXPORT` it kept from being spot-checked" not in left
     assert ("end its WARN with `; definition lines per the test report: {pinned_definition_lines}` from its step 3 "
             "record") in left
     assert "they apply only while that is still the skill's current source commit" in left
     assert "{source_commit}" not in left and "{lines}" not in left
-    reach = _slice(three, "- **Any record whose `reachability` is `not-checked`**", "\n")
-    assert "`{export_name}: public reachability not checked " + DRIFT_NOTE + ")`" in reach
+    assert "- **Any record whose `reachability` is `not-checked`**" not in three
     write = _read(WRITE)
     six_a = _slice(write, "### 6a.", "### 6b.")
     assert "Skip this step when `{workspace_drift_status}` is `overridden`" in six_a
@@ -807,21 +897,318 @@ def test_report_shows_the_override_once():
     assert "spot-check entries §3 left for a person to decide" in five_b and "left unchanged" not in five_b
 
 
+def _doc_line(name: str, *needles: str) -> str:
+    """The one line of docs/{name} that holds every needle."""
+    lines = [line for line in _read(REPO_ROOT / "docs" / name).splitlines() if all(n in line for n in needles)]
+    assert len(lines) == 1, (name, needles, len(lines))
+    return lines[0]
+
+
 def test_override_is_described_where_the_flag_is():
-    """init.md, SKILL.md and the docs say the override moves or pins no line and halts on gaps that need one."""
+    """init.md, SKILL.md and the docs say the override moves or pins no line and halts on gaps that need one.
+
+    init.md and SKILL.md also say it takes no signature, parameter list, return type or node kind from HEAD
+    (#557); the docs pages follow in the docs package that owns them.
+    """
     init = _slice(_read(INIT), "- `--allow-workspace-drift` (gap-driven mode only)", "\n")
     assert "moves or pins no provenance line read there" in init and "halted-for-workspace-drift" in init
+    for token in ("update-skill takes nothing from HEAD",
+                  "reads no signature, parameter list, return type or node kind there",
+                  "which every new or modified export does"):
+        assert token in init, token
     flags = _slice(_read(SKILL), "| **Flags** |", "\n")
     assert "no provenance line read at HEAD is moved or pinned" in flags
-    verifying = _slice(_read(REPO_ROOT / "docs" / "verifying-a-skill.md"),
-                       "- To read the current commit anyway, pass `--allow-workspace-drift`.", "\n")
-    assert "never moves a provenance line to, or records one from, the current commit" in verifying
-    assert "stops it with `halted-for-workspace-drift` before anything is written" in verifying
-    workflows = _slice(_read(REPO_ROOT / "docs" / "workflows.md"),
-                       "- `--allow-workspace-drift` reads the source at its current commit", "\n")
-    assert "never moves or records a provenance line from that commit, and stops on a gap that needs one" in workflows
+    for token in ("update-skill takes nothing from HEAD",
+                  "no signature, parameter list, return type or node kind is read there",
+                  "as every new or modified export does, halts `halted-for-workspace-drift` before merge"):
+        assert token in flags, token
+    # the docs package rewrites these two lines for #557, so pin only what any wording of the rule keeps
+    gap_driven = ("`--allow-workspace-drift`", "Update Skill with `--from-test-report`")
+    verifying = _doc_line("verifying-a-skill.md", *gap_driven)
+    assert "provenance line" in verifying and "`halted-for-workspace-drift`" in verifying
+    workflows = _doc_line("workflows.md", *gap_driven)
+    assert "provenance line" in workflows
     for text in (init, flags, verifying, workflows):
         assert "\u2014" not in text
+
+
+# --------------------------------------------------------------------------
+# Gap-driven routing: blocking gaps with no path, split-body findings
+# --------------------------------------------------------------------------
+
+BLOCKING_RULE = ("blocking unless it is `Medium`, `Low` or `Info`, compared case-insensitively, so a missing or "
+                 "unrecognized one is blocking, like `Critical` and `High`")
+
+
+def _not_found() -> str:
+    return _slice(_read(RE_EXTRACT), "   - **If export not found in provenance map:**", "   - **If export found:**")
+
+
+def test_one_severity_rule_in_detect_re_extract_and_write():
+    """A missing or unrecognized severity is blocking wherever a gap is routed by severity (#558 item 5)."""
+    severity = _slice(_read(DETECT), "   - **`severity`**", "\n")
+    assert "A severity is " + BLOCKING_RULE in severity
+    assert "only a `Medium`, `Low` or `Info` gap may degrade to `unknown`" in severity
+    assert "a `severity` is " + BLOCKING_RULE in _not_found()
+    text = _read(RE_EXTRACT)
+    assert "`severity` is `Critical` or `High`" not in text  # the test a missing severity slipped through
+    used_by = _slice(text, "**Used by:** §0 bullet 2", "**Purpose:**")
+    assert "a blocking `severity` (anything but `Medium`, `Low` or `Info`, a missing one included)" in used_by
+    # the prose around §0a states the same rule, an unrecognized severity included
+    for gone in ("citation-less Critical/High", "the Critical/High HALT",
+                 "Critical and High gaps, and gaps with no severity"):
+        assert gone not in text, gone
+    rule = "any severity but `Medium`, `Low` or `Info`, a missing or unrecognized one included"
+    assert rule in _slice(text, "**Exception (gap-driven mode):**", "\n")
+    assert rule in _slice(text, "**Purpose:**", "\n")
+    template = " ".join(_fence(text, "Targeted re-extraction failed for {N} gap(s).").split())
+    assert ("A blocking gap (any severity but Medium, Low or Info, a missing or unrecognized one included) must "
+            "resolve to AST provenance.") in template
+    why = _slice(text, "**Why halt instead of degrading to `unknown`:**", "\n")
+    assert "a gap with a missing or unrecognized severity counts as blocking" in why
+    unknown = _slice(_write_3(), "- **`unknown` exports**", "\n")
+    assert "a `severity` of `Medium`, `Low` or `Info`, compared case-insensitively" in unknown
+    assert "(a blocking severity, a missing one included)" in unknown
+
+
+def test_blocking_gap_without_a_path_halts_in_step_3_before_merge():
+    """No citation that pins a line and no path in the Remediation: §0a lists it with files_scanned 0 (#558)."""
+    text = _read(RE_EXTRACT)
+    not_found = _not_found()
+    cited = _slice(not_found, "     - **If the manifest entry has a `source_citation`", "\n")
+    blocking = _slice(not_found, "     - **If the manifest entry has no `source_citation` (or one whose spot-check "
+                      "above pinned no line) and a blocking `severity`", "\n")
+    unknown = _slice(not_found, "     - **If the manifest entry has no `source_citation` (or one whose spot-check "
+                     "above pinned no line), is not a provenance-completeness gap, and its `severity` is `Medium`, "
+                     "`Low` or `Info`:**", "\n")
+    # a citation that pins no line goes on to the two branches, in this order
+    assert "go on to the branches below as if the entry had no `source_citation`" in cited
+    assert not_found.index(cited) < not_found.index(blocking) < not_found.index(unknown)
+    for token in ("the rule R3 branch above did not take it",
+                  "Route this entry to §0a (Targeted Re-Extraction Branch), whatever its `remediation_paths[]`",
+                  "With an empty list it has nothing to scan and lists the entry in `unresolved[]` with "
+                  "`files_scanned: 0`",
+                  "halts the workflow with `halted-for-remediation-path` before merge, `--dry-run` included"):
+        assert token in blocking, token
+    assert "a blocking gap never gets here, whatever its `remediation_paths[]`" in unknown
+    assert "`remediation_paths[]` is empty OR" not in text  # the empty-paths way into `unknown` is gone
+    zero_a = _slice(text, "### 0a. Targeted Re-Extraction Branch", "### 1. Check for Docs-Only Mode")
+    used_by = _slice(zero_a, "**Used by:** §0 bullet 2", "**Purpose:**")
+    assert ("an empty one leaves nothing to scan, so step 4 puts the entry straight into `unresolved[]` with "
+            "`files_scanned: 0`") in used_by
+    assert "that the second case below does not take" in used_by
+    assert "gap-driven runs in which §0 bullet 2 routes no entry here, skip this section entirely" in zero_a
+    match = _slice(zero_a, "4. **Match by name**", "\n")
+    # a rule R3 gap scans its documented `source` reference, so an empty `remediation_paths[]` alone skips nothing
+    assert ("An entry with no path set to scan (a blocking gap with an empty `remediation_paths[]`, or a rule R3 gap "
+            "with neither a documented `source` reference nor remediation paths) is not matched") in match
+    r3 = _slice(used_by, "- a provenance-completeness gap (rule R3", "\n")
+    assert ("treat the export's documented `source` reference (or `remediation_paths[]` when present) as the path "
+            "set") in r3
+    failures = _slice(zero_a, "5. **Track failures across all qualifying entries.**", "\n")
+    assert "every entry step 4 had nothing to scan for (`files_scanned: 0`)" in failures
+    template = _fence(zero_a, "Targeted re-extraction failed for {N} gap(s).")
+    for token in ('- {name} ({severity or "no severity"})', 'remediation_paths: {paths, or "none named"}',
+                  "files_scanned:     {count}", "a) Add a `file:line` citation", "b) Edit the Remediation text",
+                  "c) Downgrade the gap(s) to Medium/Low/Info"):
+        assert token in template, token
+    exit_ = _slice(zero_a, "   Exit with status `halted-for-remediation-path`", "\n")
+    for token in ("under `--dry-run` too", "Step-04 merge has not run; no partial writes",
+                  'phase: "re-extract:targeted-reextraction"'):
+        assert token in exit_, token
+    # detect-changes describes the same route
+    paths = _slice(_read(DETECT), "   - **`remediation_paths: [path, ...]`**", "\n")
+    for token in ("a blocking one still goes to §0a, which has nothing to scan", "`files_scanned: 0`",
+                  "halts the run with `halted-for-remediation-path` before merge",
+                  "a `Medium`, `Low` or `Info` one records `unknown`"):
+        assert token in paths, token
+    assert "depending on severity" not in paths
+
+
+def test_gap_driven_dry_run_stops_after_step_3():
+    """§0 bullet 5 hands off through §6, so a gap-driven --dry-run never loads merge (#558 item 6)."""
+    text = _read(RE_EXTRACT)
+    five = _slice(text, "5. **Skip sections 1–5 of step 3**", "\n")
+    for token in ("then go straight to §6 (Route to Next Step), whose branches hold in gap-driven mode too",
+                  "with `dry_run_mode` true it loads `report.md` (status `dry-run`) and never merge.md",
+                  "A halt in this section (the drift gate, §0a) stops a `--dry-run`"):
+        assert token in five, token
+    assert "Skip all remaining sections of step 3" not in text
+    six = _slice(text, "### 6. Route to Next Step", "\n- **Otherwise**")
+    assert "load `report.md` (NOT `{nextStepFile}`)" in six
+    assert "Proceeding to merge" not in _slice(text, '"**Gap-driven re-extraction.**', "\n")  # §6 says where next
+    halt = "a re-extract halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it"
+    assert halt in _slice(_read(SKILL), "| **Flags** |", "\n")
+    assert halt in _slice(_read(INIT), "- `--dry-run` to run detect-changes + re-extract", "\n")
+
+
+def test_write_keeps_a_documented_defensive_halt():
+    """A blocking `unknown` that still reaches write §3 halts with a documented status and phase (#558).
+
+    `halted-for-remediation-path` tells a pipeline nothing was written; this halt comes after merge rewrote
+    SKILL.md in place, so it takes `blocked`, the schema's status for a halt with no code of its own.
+    """
+    unknown = _slice(_write_3(), "- **`unknown` exports**", "\n")
+    assert "**This path is only for `Medium`, `Low` or `Info`.**" in unknown
+    halt = unknown[unknown.index("If one does (step 3 was skipped or bypassed)"):]
+    for token in ("HALT with status `blocked`", "write no `metadata.json`, `provenance-map.json` or other artifact",
+                  'phase: "write:provenance-map"', 'path: "{forge_version}/provenance-map.json"',
+                  "blocking-gap-unresolved",
+                  # merge Priority 5 and 8 may have edited reference files too
+                  "This repair edited SKILL.md and references/ in place: restore them from version control or a "
+                  "backup"):
+        assert token in halt, token
+    assert "halt with a pointer to §0a" not in unknown  # the old halt named no status
+    status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["enum"]
+    assert "blocked" in status and "halted-for-remediation-path" in status
+
+
+def test_split_body_findings_route_to_a_structural_fix():
+    """A Source inside the skill package marks a split-body finding: STRUCTURAL_FIX, never MODIFIED_EXPORT (#547)."""
+    zero = _slice(_read(DETECT), "### 0. Check for Test Report Input", "### 1. Scan Current Source State")
+    rows = [line for line in zero.splitlines() if line.startswith("| ")]
+    split = next(i for i, row in enumerate(rows) if "Split-body inconsistency" in row)
+    signature = next(i for i, row in enumerate(rows) if "| Signature mismatch |" in row)
+    assert split < signature  # read top-down, the split-body row comes first
+    assert rows[split].startswith("| High | Split-body inconsistency:")
+    assert "with a `Source:` inside the skill package" in rows[split]
+    assert ("STRUCTURAL_FIX, see rule R2 (this row takes precedence over the Signature mismatch row below)"
+            in rows[split])
+    assert "MODIFIED_EXPORT" not in rows[split]
+    r2 = _slice(zero, "- **R2: STRUCTURAL_FIX.**", "\n- **R3")
+    for token in ("a coherence finding from `skf-scan-skill-md-structure.py`",
+                  "a split-body consistency finding (test-skill coverage-check §1b `cross_check_mismatches`)",
+                  "Recognize it by its `Source:`, which points inside the skill package",
+                  "at the skill's own `SKILL.md` or at one of its `references/*.md` files",
+                  "while its issue sets the SKILL.md body against a `references/*.md` file",
+                  "Test for it before the High \"Signature mismatch\" row",
+                  "a High signature gap whose `Source:` points into the source tree, or that has no `Source:`, "
+                  "stays `MODIFIED_EXPORT`",
+                  "routes to merge Priority 8",
+                  "it never adds, modifies, or removes a provenance `entries[]` row"):
+        assert token in r2, token
+    assert "\u2014" not in r2
+    cite = _slice(zero, "   - **`source_citation: {file, line}`**", "\n")
+    assert "or a line inside the skill package (a split-body finding's `SKILL.md:42`, rule R2)" in cite
+    # a STRUCTURAL_FIX needs nothing from the tree: forwarded as is, and the drift gate lets it through
+    forward = _slice(_read(RE_EXTRACT), "   - **`STRUCTURAL_FIX`** (detect-changes §0 rule R2)", "\n")
+    assert "No spot-check, no provenance lookup, no `entries[]` change." in forward
+    assert "a `STRUCTURAL_FIX` (a split-body consistency finding among them)" in _drift_gate()
+
+
+def test_merge_edits_the_reference_file_of_a_split_body_finding():
+    """The SKILL.md body is authoritative (test-skill coverage-check §1b): merge edits the reference file (#547)."""
+    priority8 = _slice(_read(MERGE), "**Priority 8 ", "**Priority 8b")
+    split = _slice(priority8, "- **A split-body consistency finding**", "\n")
+    for token in ("edit the `references/*.md` file so it documents the export as the SKILL.md body does",
+                  "whichever of the two files the gap's `Source:` names",
+                  "never change the body to match the reference file"):
+        assert token in split, token
+    assert "Do **not** add, modify, or remove any provenance `entries[]` row" in priority8
+
+
+# --------------------------------------------------------------------------
+# Write bookkeeping and reference-app stats
+# --------------------------------------------------------------------------
+
+
+def test_update_bookkeeping_has_one_home():
+    """last_update and update_type live in one block at the top of provenance-map.json, one value per mode (#548)."""
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    assert "`generation_date` / `last_update` below" not in two
+    assert "of the fields that mark an update only `generation_date` below changes" in two
+    generation = _slice(two, "- Update `generation_date` timestamp", "\n")
+    assert "§3's update operation block records `last_update` and `update_type` in provenance-map.json" in generation
+    # a copy an older SKF version left in metadata.json goes, or it keeps an earlier update's date
+    for token in ("Write neither key into metadata.json",
+                  "remove a `last_update` or `update_type` an older SKF version left there",
+                  "so metadata.json never keeps the date or type of an earlier update beside the map's current one"):
+        assert token in generation, token
+    block = _slice(_write_3(), "**Add update operation metadata**", "`manual_sections_preserved` =")
+    for token in ("at the top level of `{forge_version}/provenance-map.json`, the one place an update is recorded",
+                  "replacing the values an earlier update wrote, so the map holds one block, for the latest update, "
+                  "never a history",
+                  "Add no other update-history key",
+                  "(`update_operations[]`, `update_metadata`) stays as it is",
+                  "§2 writes neither `last_update` nor `update_type` into metadata.json and removes one an older SKF "
+                  "version left there"):
+        assert token in block, token
+    # metadata.json has a `confidence_tier` of its own, the forge tier, so §3 names the two keys it must not hold
+    assert "records none of these keys" not in block
+    assert '"confidence_tier": "{Quick|Forge|Forge+|Deep}"' in _read(SRC / "skf-create-skill" / "assets" /
+                                                                     "skill-sections.md")
+    fields = json.loads(_fence(block, '"last_update"').replace("{count}", "0"))
+    assert list(fields) == ["last_update", "update_type", "files_changed", "exports_affected", "confidence_tier",
+                            "manual_sections_preserved"]
+    values = dict(re.findall(r"([a-z-]+) if ([a-z-]+)", fields["update_type"]))
+    assert values == {"incremental": "normal", "gap-driven": "gap-driven", "full": "degraded"}
+    # one value for each mode the report names, and the prose names the same pairs
+    modes = re.findall(r"`([a-z-]+)`", _slice(_read(REPORT), "**`{update_mode}`** is one of", "\n"))
+    assert sorted(values.values()) == sorted(modes) == ["degraded", "gap-driven", "normal"]
+    for value, mode in values.items():
+        assert f"`{value}` for `{mode}`" in block, (value, mode)
+
+
+def test_reference_app_stats_use_the_reference_app_shape():
+    """write §2 passes the shape metadata.json records and the Pattern Surface row count, as compile.md §4 does.
+
+    #550: without them the update counted citations as documented exports and dropped the pattern-surface count.
+    """
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    shape = _slice(two, "  **Shape:**", "\n")
+    for token in ("read `scope_type` from `{skill_package}/metadata.json` before this section rewrites it",
+                  "When it is `reference-app`, pass `--shape reference-app` and put `pattern_surfaces_documented` in "
+                  "the payload",
+                  "pass no `--shape` (the helper's default, the library shape)",
+                  "Stack Skill Guard"):
+        assert token in shape, token
+    payload = _slice(two, "  - `pattern_surfaces_documented` (reference app only):", "\n")
+    assert "the number of rows in the `## Pattern Surface` table of the merged SKILL.md" in payload
+    stats = _slice(two, "- **Compute the `stats` block", "\n")
+    assert "sets `exports_documented` = the entry count for the library shape" in stats
+    assert "\u2014" not in stats
+    compile_ = _read(SRC / "skf-create-skill" / "references" / "compile.md")
+    assert "pass `--shape reference-app`" in compile_ and "`pattern_surfaces_documented`" in compile_
+
+
+def _stats_main(block: str, forge_version: Path, monkeypatch, capsys) -> tuple[int, dict]:
+    """Run one of write §2's fenced helper calls, as written, through the helper's own main()."""
+    payload = re.search(r"echo '(.*)' \\", block).group(1)
+    for placeholder, value in (("{N}", "4"), ("{M}", "1"), ("{P}", "2"), ("{scripts-inventory-or-[]}", "[]"),
+                               ("{assets-inventory-or-[]}", "[]")):
+        payload = payload.replace(placeholder, value)
+    # split the template, then fill it in: POSIX shlex.split would drop the backslashes of a Windows path
+    argv = [arg.replace("{forge_version}", str(forge_version))
+            for arg in shlex.split(block.split("uv run {renderMetadataStatsHelper}", 1)[1])]
+    spec = importlib.util.spec_from_file_location("skf_render_metadata_stats_calls", STATS_HELPER)
+    stats = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stats)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    code = stats.main(argv)
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_the_documented_stats_calls_run(tmp_path, monkeypatch, capsys):
+    """Both write §2 calls run as written; the reference-app one keeps the pattern-surface count (#550)."""
+    entries = [{"export_name": f"surface{i}", "source_file": "src/app.py", "source_line": i + 1,
+                "confidence": "T1-low", "extraction_method": "source-read", "ast_node_type": None,
+                "signature_source": "T1-low"} for i in range(3)]
+    # a backslash, as in every Windows path, reaches the helper intact (a separator there, a name character here)
+    forge_version = tmp_path / "Users\\runner"
+    forge_version.mkdir(parents=True)
+    (forge_version / "provenance-map.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    library = _fence(two, "    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json\n")
+    app = _fence(two, "--shape reference-app\n")
+    assert library != app and "--shape" not in library and '"pattern_surfaces_documented": {P}' in app
+    code, out = _stats_main(library, forge_version, monkeypatch, capsys)
+    assert code == 0 and out["coherence"]["ok"] is True
+    assert out["stats"]["exports_documented"] == 3 and "pattern_surfaces_documented" not in out["stats"]
+    code, out = _stats_main(app, forge_version, monkeypatch, capsys)
+    assert code == 0 and out["coherence"]["ok"] is True
+    assert out["stats"]["exports_documented"] == out["stats"]["pattern_surfaces_documented"] == 2
+    assert sum(out["confidence_distribution"].values()) == 3  # per citation, not per pattern surface
+    assert "effective_denominator" not in out["stats"]
 
 
 # --------------------------------------------------------------------------

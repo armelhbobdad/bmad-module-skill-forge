@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill with `--from-test-report` now repairs a split-body consistency gap, where the `SKILL.md` body and a file under `references/` document one export differently, by editing that reference file to match the body. It knows such a gap by a `Source:` that points inside the skill. Before, it could take the gap for a changed signature and leave both files as they were, so the next Test Skill run reported the same High gap.
+prs: [618]
+issues: [547]

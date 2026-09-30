@@ -130,10 +130,19 @@ Parent strips wrapping markdown fences (if present) before parsing. If subagent 
 
 For stack skills, verify integration patterns are complete:
 
-- **All documented integration points have corresponding code examples**
+- **All documented integration points carry the wiring evidence of the stack's mode** (defined below; a fenced code example is not required)
 - **Shared types are consistently used across referenced components**
 - **Middleware/plugin chains show complete flow, not fragments**
 - **Event handlers reference valid event types**
+
+**Integration points.** Each Cross-Cutting Patterns entry and each Library Pair Integrations entry in the stack's Integration Patterns section is one integration point, and `patterns_documented` counts them. The Hub Library Connections list that create-stack-skill adds after them only summarizes each hub library's partners, so its bullets are not integration points: this section does not score them and `patterns_documented` does not count them.
+
+**Wiring evidence (first criterion).** create-stack-skill gives an integration entry no slot for a code example: the entry records a type, the wiring evidence of the stack's mode and a confidence label, so the first criterion reads that evidence. Take the stack's mode from the Confidence labels of its integration entries: the stack is compose-mode when any of them carries the `[composed]` marker (alone or extended, as in `[composed, +T2 annotations]`) or `[inferred from shared domain]`, the markers create-stack-skill puts on every compose-mode integration; otherwise it is code-mode. An integration point meets the first criterion when its entry carries the evidence of its stack's mode:
+
+- **Code mode:** at least one `file:line` citation (a source file path with a line number) where the libraries connect in the codebase, and, for a library-pair entry, a `**Key files:**` line that names at least one file.
+- **Compose mode:** one `[from skill: {skill name}]` line for each constituent skill the entry joins, citing something that skill exports. For a skill that exports functions, that is an exported function signature, the `[from skill: {skill name}] {exported_function_signature}` line of the Integration Evidence Format in `skf-create-stack-skill/references/compose-mode-rules.md`. For any other constituent (a skill whose `scope_type` is `reference-app` or `docs-only`, or whose exports are not functions), it is the export, pattern surface or documented contract the line quotes. A `[from skill: …]` line that cites nothing the skill exports does not count.
+
+A fenced code block is not required in either mode: an entry that carries its mode's evidence meets the criterion without one, and a code block does not stand in for missing evidence. When an entry fails the first criterion, name the missing evidence in its `incomplete_patterns` issue, for example `no file:line citation` or `no [from skill: …] line for {skill name}`.
 
 Build integration completeness findings:
 

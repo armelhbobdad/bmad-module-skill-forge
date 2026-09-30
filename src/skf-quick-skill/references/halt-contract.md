@@ -11,6 +11,7 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 | Code | Meaning                | Raised by                                                   |
 | ---- | ---------------------- | ----------------------------------------------------------- |
 | 0    | success                | step 7 (terminal)                                          |
+| 2    | input-invalid          | SKILL.md On Activation step 5 (`--description` or `--exports` passed with `--batch`, refused before any target runs) |
 | 3    | resolution-failure     | step 1 (prose input §2, registry chain §3, version-tag miss §3a, language abort §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
 | 4    | write-failure          | step 5 §2 (deliverable write failed)                       |
 | 5    | overwrite-cancelled    | step 5 §1 (user selected [N])                              |
@@ -38,7 +39,7 @@ One line, no pretty-print. Matches the prefix-and-envelope convention used by `s
 {skill_package}/quick-skill-result-latest.json   (copy, not symlink)
 ```
 
-so consumers that hardcode the `-latest.json` path see a deterministic file even on failed runs. HALTs at step 1/02/03/04 cannot write to disk because `{skill_package}` is computed only in step 5 §1; for those, the stderr envelope plus exit code is the contract. A HALT while `{skill_package}` has no `metadata.json` (a failed first write in step 5 §2, for example) writes nothing on disk either: a package holding only result files is not SKF output, so the next run's ownership check would refuse it.
+so consumers that hardcode the `-latest.json` path see a deterministic file even on failed runs. HALTs during On Activation or at step 1/02/03/04 cannot write to disk because `{skill_package}` is computed only in step 5 §1; for those, the stderr envelope plus exit code is the contract. A HALT while `{skill_package}` has no `metadata.json` (a failed first write in step 5 §2, for example) writes nothing on disk either: a package holding only result files is not SKF output, so the next run's ownership check would refuse it.
 
 **Schema:**
 
@@ -46,8 +47,8 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
 | --------------- | -------------- | ----------------------------------------------------------------------------------------------------------- |
 | `status`        | string         | always `"error"` for HARD HALTs                                                                             |
 | `exit_code`     | integer        | matches the Exit Codes table above                                                                          |
-| `phase`         | string         | step slug where the HALT occurred (e.g. `resolve-target`, `compile`)                                        |
-| `error.code`    | string         | one of: `resolution-failure`, `write-failure`, `overwrite-cancelled`, `user-cancelled`, `finalize-blocked`, `ecosystem-redirect`, `not-skf-output`, `flat-layout` |
+| `phase`         | string         | step slug where the HALT occurred (e.g. `resolve-target`, `compile`), or `on-activation` for the SKILL.md On Activation refusal |
+| `error.code`    | string         | one of: `input-invalid`, `resolution-failure`, `write-failure`, `overwrite-cancelled`, `user-cancelled`, `finalize-blocked`, `ecosystem-redirect`, `not-skf-output`, `flat-layout` |
 | `error.message` | string         | the user-facing message that was displayed                                                                  |
 | `error.details` | any            | optional — phase-specific context (e.g. the failed file path)                                               |
 | `outputs`       | object         | empty `{}` on early HALTs; partial when files were already written                                          |
