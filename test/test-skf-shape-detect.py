@@ -1328,3 +1328,266 @@ class TestMonorepoAppSignals:
                      {"name": "web", "dependencies": {"next": "14"}})
         result = mod.detect(REPO_URL, [root, app])
         assert result["shape"] == "reference-app"
+
+
+# --------------------------------------------------------------------------
+# --tree-file (issue #592): the script reads the whole tree itself, so no
+# grep pre-filter decides which paths its gates see
+# --------------------------------------------------------------------------
+
+# A tree-sitter grammar repository: its grammar sits at the root.
+TREE_SITTER_FILES = ["grammar.js", "package.json", "src/parser.c", "src/tree_sitter/parser.h",
+                     "bindings/node/index.js", "queries/highlights.scm"]
+# A CPython-shaped tree whose only corroborating member (gate W) is the VM
+# file Python/ceval.c.
+CPYTHON_FILES = ["Parser/lexer/lexer.c", "Parser/parser.c", "Parser/asdl.py", "Python/ast.c",
+                 "Python/ceval.c", "Include/Python.h", "README.rst"]
+# A Go-toolchain-shaped tree whose only corroborating member is the type
+# checker file go/types/check.go.
+GO_CHECK_FILES = ["internal/syntax/scanner.go", "internal/syntax/parser.go", "go/ast/ast.go",
+                  "go/types/check.go", "README.md"]
+# TypeScript's Go port: internal/compiler/ beside internal/parser/,
+# internal/scanner/, internal/ast/ and internal/checker/.
+TSGO_FILES = ["internal/compiler/program.go", "internal/parser/parser.go", "internal/scanner/scanner.go",
+              "internal/ast/ast.go", "internal/checker/checker.go", "go.mod"]
+# A compiler folder with a lexer+parser+AST triad and no corroborating member.
+NO_W_MEMBER = ["src/compiler/lexer.ts", "src/compiler/parser.ts", "src/compiler/ast.ts", "src/index.ts"]
+
+
+def _tree_file(tmp_path: Path, paths, name: str = "tree.txt") -> str:
+    """A listing of `paths`, one per line, as git ls-tree prints them."""
+    path = tmp_path / name
+    path.write_bytes("".join(f"{p}\n" for p in paths).encode("utf-8"))
+    return str(path)
+
+
+def run_tree(tmp_path: Path, paths, *extra: str, manifests: str = "") -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL, "--manifests", manifests,
+         "--tree-file", _tree_file(tmp_path, paths), *extra],
+        capture_output=True, text=True, encoding="utf-8", timeout=60,
+    )
+
+
+class TestTreeFile:
+    @pytest.mark.parametrize(
+        "files,signal",
+        [
+            pytest.param(TREE_SITTER_FILES, "grammar_file:grammar.js", id="root-grammar-js"),
+            pytest.param(CPYTHON_FILES, "tree_triad:Parser:lexer,parser,ast", id="python-ceval"),
+            # go/ast/ sits outside internal/, so the triad near internal/syntax/ is its lexer and parser
+            pytest.param(GO_CHECK_FILES, "tree_triad:internal/syntax:lexer,parser", id="go-check"),
+            pytest.param(TSGO_FILES, "tree_triad:internal/compiler:lexer,parser,ast", id="go-port-of-typescript"),
+        ],
+    )
+    def test_the_script_classifies_the_tree_it_reads(self, tmp_path, files, signal):
+        proc = run_tree(tmp_path, files)
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert_result_shape(out)
+        assert out["shape"] == "language-reference"
+        assert signal in out["signals"]
+
+    @pytest.mark.parametrize(
+        "files,member",
+        [
+            pytest.param(CPYTHON_FILES, "Python/ceval.c", id="ceval"),
+            pytest.param(GO_CHECK_FILES, "go/types/check.go", id="check"),
+        ],
+    )
+    def test_the_corroborating_member_is_load_bearing(self, tmp_path, files, member):
+        """Gate W, not a filter, decides: without its one corroborating file
+        the same tree stays out."""
+        proc = run_tree(tmp_path, [f for f in files if f != member])
+        assert proc.returncode == 1
+        assert json.loads(proc.stdout)["shape"] == "unknown"
+
+    def test_tree_signals_keep_every_folder_and_file(self):
+        grammar, tree = mod.tree_signals(["./grammar.js", "a/b/c/d/e/deep.y", "x/parse.y", "x/y/", "", "a/b/c/d/e/f.go"])
+        assert grammar == ["grammar.js", "x/parse.y"]
+        # folders first (x/y/ is one), then files; a deep grammar is still a tree path
+        assert tree == ["a/", "a/b/", "a/b/c/", "a/b/c/d/", "a/b/c/d/e/", "x/", "x/y/",
+                        "a/b/c/d/e/deep.y", "a/b/c/d/e/f.go", "grammar.js", "x/parse.y"]
+
+    def test_tree_signals_leave_out_hidden_and_non_core_paths(self):
+        """A CI workflow, a script, a test fixture or a doc is not the
+        repository's own code: neither list holds it, in any case."""
+        grammar, tree = mod.tree_signals([
+            ".github/workflows/check.yml", "scripts/check.sh", "test/fixtures/a/b/c/vm.js", "Tools/peg/meta.gram",
+            "docs/grammar.ebnf", "Lib/test/test_eval.py", "examples/calc/parser.y", "src/.cache/vm.js",
+            "src/utils/check.ts", "Grammar/python.gram",
+        ])
+        assert grammar == ["Grammar/python.gram"]
+        assert tree == ["Grammar/", "src/", "src/utils/", "Grammar/python.gram", "src/utils/check.ts"]
+
+    def test_a_deep_grammar_is_a_fixture(self, tmp_path):
+        """A grammar deeper than _GRAMMAR_MAX_DEPTH segments is a vendored or
+        test fixture, not the repository's own."""
+        proc = run_tree(tmp_path, ["README.md", "tests/fixtures/grammars/c/parse.y"])
+        assert proc.returncode == 1
+        assert json.loads(proc.stdout)["shape"] == "unknown"
+
+    @pytest.mark.parametrize(
+        "files,pkg",
+        [
+            pytest.param(["src/Lexer.ts", "src/Parser.ts", "src/Tokenizer.ts", "src/Renderer.ts", "test/specs/x.js"],
+                         {"name": "marked", "main": "lib/marked.js"}, id="marked"),
+            pytest.param(["lib/Parser.js", "lib/Compiler.js", "lib/javascript/JavascriptParser.js",
+                          "test/cases/parsing/ast/index.js"],
+                         {"name": "webpack", "bin": {"webpack": "./bin.js"}, "dependencies": {"acorn": "8.0.0"}},
+                         id="webpack"),
+            pytest.param(NO_W_MEMBER, {"name": "quaxmark", "main": "index.js"}, id="no-w-member"),
+            # one incidental file outside the code is no corroborating member
+            pytest.param([*NO_W_MEMBER, ".github/workflows/check.yml"], {"name": "quaxmark", "main": "index.js"},
+                         id="ci-workflow-check"),
+            pytest.param([*NO_W_MEMBER, "scripts/check.sh"], {"name": "quaxmark", "main": "index.js"},
+                         id="script-check"),
+            pytest.param([*NO_W_MEMBER, "test/fixtures/a/b/c/vm.js"], {"name": "quaxmark", "main": "index.js"},
+                         id="deep-test-fixture-vm"),
+            # glimmer-vm: a compiler folder of its integration tests, an ast.ts six levels down
+            pytest.param(["packages/@glimmer-workspace/integration-tests/test/compiler/compile-options-test.ts",
+                          "packages/@glimmer/syntax/lib/parser.ts", "packages/@glimmer/syntax/lib/v1/ast.ts",
+                          "packages/@glimmer/vm/index.ts"],
+                         {"name": "glimmer-engine", "private": True}, id="glimmer-vm"),
+        ],
+    )
+    def test_negative_controls_stay_out_with_the_whole_tree(self, tmp_path, files, pkg):
+        manifest = write_package_json(tmp_path, pkg)
+        proc = run_tree(tmp_path, ["package.json", *files], manifests=manifest)
+        assert json.loads(proc.stdout)["shape"] != "language-reference"
+
+    def test_a_core_corroborating_member_still_counts(self, tmp_path):
+        """The filter leaves out only non-core paths: a core src/utils/check.ts
+        completes the triad, as a core vm or eval file does."""
+        manifest = write_package_json(tmp_path, {"name": "quaxmark", "main": "index.js"})
+        proc = run_tree(tmp_path, ["package.json", *NO_W_MEMBER, "src/utils/check.ts"], manifests=manifest)
+        assert json.loads(proc.stdout)["shape"] == "language-reference"
+
+    def test_a_triad_far_from_the_compiler_folder_is_no_compiler(self, tmp_path):
+        """PyTorch: torch/compiler/ is the torch.compile API package, its
+        lexer and parser are TorchScript's, four levels below torch/, and
+        its codegen is Inductor's. The triad is judged near each compiler
+        folder, so the library stays a library."""
+        pyproject = write_pyproject_toml(tmp_path, '[project]\nname = "torch"\nversion = "2.9.0"\n')
+        files = ["pyproject.toml", "torch/__init__.py", "torch/compiler/__init__.py", "torch/compiler/config.py",
+                 "torch/csrc/jit/frontend/lexer.cpp", "torch/csrc/jit/frontend/parser.cpp",
+                 "torch/_inductor/codegen/common.py"]
+        proc = run_tree(tmp_path, files, manifests=pyproject)
+        out = json.loads(proc.stdout)
+        assert out["shape"] != "language-reference"
+        assert not any(sig.startswith("tree_triad:") for sig in out["signals"])
+        # the same members beside the compiler folder make it one
+        _, near = mod.tree_signals(["torch/compiler/lexer.cpp", "torch/compiler/parser.cpp",
+                                    "torch/_inductor/codegen/common.py"])
+        assert mod._whole_language_tree(near) == ("torch/compiler", "lexer,parser")
+
+    @pytest.mark.parametrize(
+        "path,near",
+        [
+            pytest.param("src/compiler", True, id="the-folder"),
+            pytest.param("src/compiler/deep/er/parser.ts", True, id="under-it"),
+            pytest.param("src/parser/", True, id="a-sibling"),
+            pytest.param("src/parser/parser.go", True, id="in-a-sibling"),
+            pytest.param("src/parser/x/parser.go", False, id="three-below-the-parent"),
+            pytest.param("lib/parser.ts", False, id="outside-the-parent"),
+            pytest.param("src/compiler2/parser.ts", True, id="two-below-the-parent"),
+        ],
+    )
+    def test_near_a_compiler_folder(self, path, near):
+        assert mod._near_compiler_dir(path, "src/compiler") is near
+        # a root compiler folder: everything two levels deep is near it
+        assert mod._near_compiler_dir("Python/ast.c", "Parser") is True
+        assert mod._near_compiler_dir("Objects/x/ast.c", "Parser") is False
+
+    def test_a_listing_of_only_non_core_paths_is_unknown(self, tmp_path):
+        """The listing was read but holds no path the gates read: unknown
+        (exit 1), not a missing --manifests."""
+        proc = run_tree(tmp_path, [".github/workflows/ci.yml", "docs/index.md", "tests/test_a.py"])
+        assert proc.returncode == 1, proc.stderr
+        assert json.loads(proc.stdout) == {"shape": "unknown", "signals": [], "confidence": 0.0,
+                                           "export_count": 0, "package_count": 0}
+
+    @pytest.mark.parametrize(
+        "listing",
+        [
+            pytest.param(json.dumps({"status": "ok", "tree": [], "count": 0, "truncated": False}), id="probe"),
+            pytest.param(json.dumps({"sha": "abc", "tree": [{"path": "src", "type": "tree"}]}), id="no-blob"),
+        ],
+    )
+    def test_a_listing_that_holds_no_path_is_a_tree_file_error(self, tmp_path, listing):
+        probe = tmp_path / "tree.json"
+        probe.write_bytes(listing.encode("utf-8"))
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL, "--manifests", "", "--tree-file", str(probe)],
+            capture_output=True, text=True, encoding="utf-8", timeout=60,
+        )
+        assert proc.returncode == 2
+        err = json.loads(proc.stderr)
+        assert err["code"] == "TREE_FILE_ERROR" and "holds no file path" in err["error"]
+
+    def test_a_tree_past_10000_files_is_read_whole(self, tmp_path):
+        """More than 10,000 files: the one corroborating file is the last
+        path, so a listing cut short, or a filter's head -n cap, loses it."""
+        paths = [f"src/lib/m{i // 100}/f{i}.c" for i in range(12000)]
+        paths += ["Parser/lexer/lexer.c", "Parser/parser.c", "Python/ast.c", "Python/ceval.c"]
+        probe = tmp_path / "tree.json"
+        probe.write_bytes(json.dumps({"status": "ok", "tree": paths, "count": len(paths),
+                                      "truncated": False}).encode("utf-8"))
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL, "--manifests", "", "--tree-file", str(probe)],
+            capture_output=True, text=True, encoding="utf-8", timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["shape"] == "language-reference"
+
+    def test_a_cut_short_listing_adds_a_signal(self, tmp_path):
+        probe = tmp_path / "tree.json"
+        probe.write_bytes(json.dumps({"status": "ok", "tree": TREE_SITTER_FILES, "truncated": True}).encode("utf-8"))
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL, "--manifests", "", "--tree-file", str(probe)],
+            capture_output=True, text=True, encoding="utf-8", timeout=60,
+        )
+        assert "tree_truncated" in json.loads(proc.stdout)["signals"]
+
+    def test_the_tree_file_reads_stdin(self):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL, "--manifests", "", "--tree-file", "-"],
+            input="\n".join(TREE_SITTER_FILES), capture_output=True, text=True, encoding="utf-8", timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "grammar_file:grammar.js" in json.loads(proc.stdout)["signals"]
+
+    @pytest.mark.parametrize(
+        "extra",
+        [pytest.param(["--grammar-files", "parse.y"], id="grammar-files"),
+         pytest.param(["--tree-paths", "compiler/"], id="tree-paths")],
+    )
+    def test_the_tree_is_passed_once(self, tmp_path, extra):
+        proc = run_tree(tmp_path, TREE_SITTER_FILES, *extra)
+        assert proc.returncode == 2
+        assert json.loads(proc.stderr)["code"] == "INVALID_ARGS"
+
+    def test_a_failed_listing_exits_2(self, tmp_path):
+        probe = tmp_path / "tree.json"
+        probe.write_bytes(json.dumps({"status": "unavailable", "message": "gh is not logged in"}).encode("utf-8"))
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL, "--manifests", "", "--tree-file", str(probe)],
+            capture_output=True, text=True, encoding="utf-8", timeout=60,
+        )
+        assert proc.returncode == 2
+        err = json.loads(proc.stderr)
+        assert err["code"] == "TREE_FILE_ERROR" and "gh is not logged in" in err["error"]
+
+    def test_the_installed_layout_needs_the_listing_reader(self, tmp_path):
+        scripts = tmp_path / "_bmad" / "skf" / "shared" / "scripts"
+        scripts.mkdir(parents=True)
+        for name in ("skf-shape-detect.py", "skf-detect-language.py"):
+            (scripts / name).write_bytes((SCRIPT_PATH.parent / name).read_bytes())
+        cmd = [sys.executable, str(scripts / "skf-shape-detect.py"), "--repo-url", REPO_URL, "--manifests", "",
+               "--tree-file", _tree_file(tmp_path, TREE_SITTER_FILES)]
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
+        assert proc.returncode == 0, proc.stderr
+        (scripts / "skf-detect-language.py").unlink()
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
+        assert proc.returncode == 2
+        assert "cannot load skf-detect-language.py" in json.loads(proc.stderr)["error"]

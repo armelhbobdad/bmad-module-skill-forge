@@ -43,13 +43,38 @@ Detection rules (apply in order, first match wins):
 CLI:
   echo '{"tree": ["path1", "path2", ...]}' | uv run skf-detect-language.py
   uv run skf-detect-language.py --json '{"tree": [...]}'
+  uv run skf-detect-language.py --tree-file <file> [--workspace-signal <manifest_kind>]
+  <listing> | uv run skf-detect-language.py --tree-file - [--workspace-signal <manifest_kind>]
+
+--tree-file reads the repository's file list from a file (`-` reads it from
+stdin), so a tree of any size reaches the script whole and never passes
+through a shell string or the model:
+  - JSON: an object whose `tree` lists the paths, such as the output of
+    skf-github-probe.py tree (a listing whose `status` is not "ok" is
+    refused, with its `message`) or a GitHub git/trees response (only its
+    `blob` entries count); or a JSON list of paths.
+  - Anything else: one path per line, as `git -c core.quotePath=false
+    ls-files` prints them (a leading `./`, as `find .` prints it, is
+    dropped).
+A byte order mark before the listing is dropped, and a listing that holds
+no path is refused. These are the listings skf-recommend-scope-type.py's
+--tree-file reads, which takes `[]` as its deliberate fallback.
+read_tree_file() is the reader skf-detect-workspaces.py and
+skf-shape-detect.py load for their own --tree-file. With --tree-file, stdin
+is never read for the payload, so a payload piped in beside a --tree-file
+<file> is not seen: pass workspace_signal with --workspace-signal (or the
+payload with --json, which may not carry `tree` as well).
+--workspace-signal sets the payload's workspace_signal in any form; passing
+it in the payload as well is an error.
 
 Input (JSON object on stdin or via --json):
-  tree — list of repo-relative file paths (required, non-empty)
-  workspace_signal — optional manifest_kind from skf-detect-workspaces. When it
-                     names a non-JS workspace ("cargo-workspace",
-                     "python-multi-package"), rule 0 returns the root language
-                     and ignores nested package.json/tsconfig matches.
+  tree              list of repo-relative file paths (required, non-empty;
+                    or --tree-file)
+  workspace_signal  optional manifest_kind from skf-detect-workspaces (or
+                    --workspace-signal). When it names a non-JS workspace
+                    ("cargo-workspace", "python-multi-package"), rule 0
+                    returns the root language and ignores nested
+                    package.json/tsconfig matches.
 
 Output (JSON on stdout):
   language          — javascript | typescript | rust | python | go
@@ -71,17 +96,25 @@ Output (JSON on stdout):
                        or [] when language is "unknown".
 
 Exit codes:
-  0 — recommendation produced (even when language is "unknown")
-  2 — internal error (bad JSON input, IO failure)
+  0  recommendation produced (even when language is "unknown")
+  2  bad input: invalid JSON, a missing or empty tree, the tree or the
+     workspace_signal passed twice, or a tree listing that cannot be read,
+     holds no path or reports a failure
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from typing import Any
+
+# A --tree-file listing is JSON when it opens like a JSON object or list of
+# paths. A bare leading bracket is not enough: a line listing can start with
+# a path such as `[slug]/page.tsx`.
+JSON_LISTING_RE = re.compile(r'\{\s*["}]|\[\s*["{\]]')
 
 # Workspace manifest_kind → root language (rule 0). Only non-JS workspace kinds
 # appear here: a Cargo/Python workspace root is unambiguously rust/python, and a
@@ -170,6 +203,12 @@ def _extension(path: str) -> str:
     if "." not in base or base.startswith("."):
         return ""
     return "." + base.rsplit(".", 1)[-1].lower()
+
+
+def is_source_file(path: str) -> bool:
+    """Whether a path is a source file the extension-frequency fallback
+    counts (skf-detect-workspaces.py's tree snapshot counts the same)."""
+    return _extension(path) in _EXTENSION_TO_LANGUAGE
 
 
 def _frequency_fallback(tree: list[str]) -> dict[str, Any]:
@@ -361,13 +400,104 @@ def _winner(payload: dict[str, Any]) -> dict[str, Any]:
     return _frequency_fallback(tree)
 
 
+# --------------------------------------------------------------------------
+# --tree-file listings
+# --------------------------------------------------------------------------
+
+
+class TreeListingError(ValueError):
+    """A --tree-file listing that cannot be read, holds no path or reports a failure."""
+
+
+def parse_tree_listing(text: str, source: str) -> tuple[list[str], bool]:
+    """(the file paths, whether the listing was cut short) of a --tree-file
+    listing: JSON, or one path per line, after a byte order mark (Windows
+    PowerShell writes one into a pipe). Only a JSON listing can say it was
+    cut short (a GitHub tree's `truncated`). `source` says where the
+    listing came from in an error. Raises TreeListingError, also for a
+    listing that holds no path (`[]`, or a tree with no file)."""
+    stripped = text.lstrip("﻿").strip()
+    if not stripped:
+        raise TreeListingError(f"the tree listing {source} is empty; the command that wrote it may have failed")
+    truncated = False
+    if not JSON_LISTING_RE.match(stripped):
+        paths = []
+        for line in stripped.splitlines():
+            path = line.strip().removeprefix("./")
+            if path:
+                paths.append(path)
+    else:
+        try:
+            data = json.loads(stripped)
+        except json.JSONDecodeError as e:
+            raise TreeListingError(f"the tree listing {source} is not valid JSON: {e}") from e
+        entries = data
+        if isinstance(data, dict):
+            status = data.get("status")
+            if status is not None and status != "ok":
+                raise TreeListingError(
+                    f"the tree listing {source} reports a failure ({status}): {data.get('message') or 'no message'}")
+            entries, truncated = data.get("tree"), data.get("truncated") is True
+        if not isinstance(entries, list):
+            raise TreeListingError(f"the tree listing {source} holds no list of paths (a `tree` list, or a JSON list)")
+        paths = []
+        for entry in entries:
+            if isinstance(entry, str):
+                paths.append(entry)
+            elif isinstance(entry, dict) and isinstance(entry.get("path"), str) and entry.get("type", "blob") == "blob":
+                paths.append(entry["path"])
+    if not paths:
+        raise TreeListingError(f"the tree listing {source} holds no file path; the command that wrote it may have failed")
+    return paths, truncated
+
+
+def read_tree_file(value: str) -> tuple[list[str], bool]:
+    """parse_tree_listing() of the file `value` names, or of stdin for `-`
+    (a caller reconfigures stdin to UTF-8 first). Raises TreeListingError."""
+    if value == "-":
+        return parse_tree_listing(sys.stdin.read(), "on stdin")
+    try:
+        with open(value, encoding="utf-8-sig") as fh:
+            text = fh.read()
+    except (OSError, UnicodeDecodeError) as e:
+        raise TreeListingError(f"cannot read --tree-file {value}: {getattr(e, 'strerror', None) or e}") from e
+    return parse_tree_listing(text, f"in {value}")
+
+
 def _parse_argv(argv: list[str]) -> dict:
     parser = argparse.ArgumentParser(
         description="Detect primary language from a flat repo file tree by walking the documented rule table.",
     )
     parser.add_argument("--json", help="JSON payload (alternative to stdin)")
+    parser.add_argument(
+        "--tree-file",
+        help="the repository's file list: JSON (a `tree` list, or a list) or one path per line; - reads stdin. "
+             "With --tree-file <file>, stdin is not read: pass the other keys with --workspace-signal or --json",
+    )
+    parser.add_argument(
+        "--workspace-signal",
+        help="the payload's workspace_signal: the manifest_kind skf-detect-workspaces.py returns",
+    )
     args = parser.parse_args(argv)
-    raw = args.json if args.json is not None else sys.stdin.read()
+    if args.tree_file is not None:
+        # The listing is the tree; stdin is never read for the payload here.
+        payload = _load_payload(args.json) if args.json is not None else {}
+        if "tree" in payload:
+            _die("pass the tree once: in the payload or with --tree-file, not both")
+        try:
+            payload["tree"] = read_tree_file(args.tree_file)[0]
+        except TreeListingError as e:
+            _die(str(e))
+    else:
+        payload = _load_payload(args.json if args.json is not None else sys.stdin.read())
+    if args.workspace_signal is not None:
+        if "workspace_signal" in payload:
+            _die("pass workspace_signal once: in the payload or with --workspace-signal, not both")
+        payload["workspace_signal"] = args.workspace_signal
+    return payload
+
+
+def _load_payload(raw: str) -> dict:
     if not raw or not raw.strip():
         _die("empty input (expected JSON payload on stdin or via --json)")
     try:

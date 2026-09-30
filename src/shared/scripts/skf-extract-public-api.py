@@ -6,14 +6,17 @@
 
 Two modes:
 
-  --mode quick   (the default) A pure parser: takes a JSON payload on stdin
-                 describing one logical package (one manifest, one or more
-                 entry-point files) and emits its package name, version,
-                 description, public exports, declared dependencies and (for
-                 Maven/Gradle) sub-modules. It does NO file I/O: the caller
-                 fetches files (gh api, web browsing, local reads) and pipes
-                 their contents in. Multi-module monorepos are
-                 caller-orchestrated: invoke once per module, aggregate.
+  --mode quick   (the default) A pure parser: takes one logical package (one
+                 manifest, one or more entry-point files) and emits its
+                 package name, version, description, public exports,
+                 declared dependencies and (for Maven/Gradle) sub-modules.
+                 The files come as a JSON payload on stdin, or by path with
+                 --manifest-file and --entry-file, which the script reads
+                 from disk (the caller stages them first: gh api raw fetches
+                 into a folder, or a local checkout), so a file's text never
+                 passes through the model or a shell string. Multi-module
+                 monorepos are caller-orchestrated: invoke once per module,
+                 aggregate.
   --mode full    The ast-grep recipe runner (skf-create-skill and the
                  workflows that extract as it does): runs the recipes in
                  src/shared/data/ast-grep-recipes.yaml over a source tree
@@ -24,7 +27,8 @@ Two modes:
 Quick mode
 ----------
 
-Supported languages (the payload's `language`; first listed is preferred):
+Supported languages (the payload's `language`, or --language; first listed
+is preferred):
 
   js, ts, javascript, typescript    package.json     index.{js,ts}, src/index.{js,ts}
   python                            pyproject.toml   __init__.py / setup.py
@@ -32,10 +36,66 @@ Supported languages (the payload's `language`; first listed is preferred):
   go                                go.mod           top-level *.go
   java                              pom.xml          src/main/java/**/*.java
   kotlin                            build.gradle*    src/main/kotlin/**/*.kt
+  swift                             Package.swift    Sources/<target>/*.swift
 
-Top-level exports only (one entry file per language).
+Top-level exports only, read from the entry files. Quick mode reads no other
+file, so a name an entry file passes on from another module without naming
+it is not an export here: a warning names each such statement, so the caller
+can pass that module as an entry too or read it by eye. A warning also names
+each statement below whose names the file holds in a form quick mode does
+not read (an anonymous default export, a destructuring declaration, an
+assignment inside a block).
 
-Input JSON shape (stdin):
+  JavaScript / TypeScript  read with comments, strings and regular
+      expressions blanked: column-0 `export` declarations (`const`, `let`
+      and `var`, every declarator of the statement, `function`,
+      `function*`, `async function`, `class`, `abstract class`,
+      `interface`, `type`, `enum`, `const enum`, `namespace`, each may be
+      `default` or `declare`), typed by keyword; `export { ... }` and
+      `export type { ... }` lists (`re-export`); `export * as ns from`
+      (`namespace`); `export default <name>` (the type of that local
+      declaration, else `re-export`); TypeScript's `export = <value>`, read
+      as `module.exports = <value>` is; and CommonJS: each `exports.<name> =`
+      and `module.exports.<name> =` (each name of a chain such as tsc's
+      `exports.a = exports.b = void 0`), the keys of a `module.exports =
+      { ... }` object, and the one name of `module.exports = <name>`
+      (`exports = module.exports = <name>` included), a named function or a
+      named class (`function`, `class`, or the local declaration's type,
+      else `variable`). Warned: `export * from`, `module.exports =
+      require(...)`, a spread in the `module.exports` object, a
+      `module.exports` or `export =` that is anonymous or an expression, an
+      `export default` that is anonymous or an expression, an `export const`
+      that destructures, and a `module.exports`, `exports` or
+      `exports.<name>` assignment that does not open its line (in an `if`, a
+      block or a function, so which one runs the file alone cannot tell).
+  Python  with `__all__` (literal lists and tuples, however the module
+      builds it, read as full mode reads it), every public name it lists,
+      typed by what binds it in the file: `def` (async def included),
+      `class`, `variable` (an assignment), `module` (`import x`),
+      `re-export` (an import, or no binding in the file); a part that is no
+      literal (another module's `__all__`) is warned. Without `__all__`, the
+      public def, async def and class names, and the names imported from
+      the package itself (`re-export`: `from .x import Y`, or, in an
+      `__init__.py`, an absolute import that names the package by any
+      trailing run of its folders: `storage`, `cloud.storage` or
+      `acme.cloud.storage` for acme/cloud/storage/__init__.py); a star
+      import from the package is warned. Imports under `if TYPE_CHECKING:`
+      do not count. A module this Python cannot parse is read from its
+      text, with a warning.
+  Rust  column-0 unrestricted `pub` items, qualifiers included (`const`,
+      `async`, `unsafe`, `extern "C"`: `pub const fn f` is the fn `f`),
+      typed by item keyword; each `#[macro_export]` `macro_rules!` macro
+      (`macro`); and each name a column-0 `pub use` brings in (`re-export`,
+      under its alias when it has one); a glob `pub use x::*` is warned. An
+      indented `pub` item is a method or sits in an inline module, not a
+      top-level export.
+  Go  capitalized top-level func, type, var and const names.
+  Java  public classes, interfaces, enums and records, and the classes a
+      Spring or Jakarta annotation marks.
+  Kotlin  declarations not marked internal or private.
+  Swift  public and open declarations.
+
+Input: a JSON payload on stdin,
 
   {
     "language": "python",
@@ -43,6 +103,20 @@ Input JSON shape (stdin):
     "entries":  [{"path": "src/foo/__init__.py", "content": "..."}, ...],
     "mode":     "quick"
   }
+
+or the files, read from disk (stdin is then never read):
+
+  --mode quick --language <language> [--source-root <dir>]
+      [--manifest-file <path>] [--entry-file <path>]...
+
+Each path is relative to --source-root, the folder the files were staged in
+laid out like the repository (or a local checkout), else to the current
+folder, and is the `path` the output names (`source_file`), written with
+`/`. A path under --source-root may not be absolute or lead outside it. A
+file's text is read as UTF-8 (a byte order mark dropped, an invalid byte
+replaced), so a quote or an apostrophe in it reaches the parser as it is.
+An entry named twice is read once. Without --manifest-file the package
+metadata is empty, as for a payload whose manifest `content` is empty.
 
 Output JSON shape (stdout):
 
@@ -61,8 +135,10 @@ Output JSON shape (stdout):
 Exit codes (quick):
 
   0    success
-  1    payload-level error (unknown language, no manifest content)
-  2    stdin / argparse / JSON-decode error
+  1    payload-level error (a language quick mode does not parse)
+  2    input error: stdin, argparse or JSON-decode error, --language missing
+       or given twice with the file inputs, or a --manifest-file or
+       --entry-file that cannot be read or leads outside --source-root
 
 Full mode
 ---------
@@ -254,7 +330,9 @@ Exit codes (full):
        the JSON has the scope and no exports; extract by source reading
 
 CLI examples:
-  echo '<payload-json>' | uv run skf-extract-public-api.py --mode quick
+  uv run skf-extract-public-api.py --mode quick < {payload_json}
+  uv run skf-extract-public-api.py --mode quick --language rust \\
+      --source-root {staged_dir} --manifest-file Cargo.toml --entry-file src/lib.rs
   uv run skf-extract-public-api.py --mode full --source-root {source_root} \\
       --brief {brief_path} --tier Forge -o {extraction_json}
   uv run skf-extract-public-api.py --mode full --source-root {source_root} \\
@@ -501,69 +579,423 @@ def parse_package_swift(content: str) -> dict:
 # Export scanners
 # --------------------------------------------------------------------------
 
-_JS_DECL_RE = re.compile(
-    r"^export\s+(?:default\s+)?(const|function|class|type|interface|enum)\s+(\w+)",
-    re.MULTILINE,
-)
-_JS_REEXPORT_RE = re.compile(r"^export\s*\{([^}]+)\}", re.MULTILINE)
+def _note(warnings: list[str] | None, message: str) -> None:
+    if warnings is not None:
+        warnings.append(message)
 
 
-def scan_exports_js(content: str, source_file: str) -> list[dict]:
+def _unlisted(source_file: str, line: int, statement: str) -> str:
+    """The warning for a statement that exports names quick mode cannot list."""
+    return (f"{source_file} line {line}: {statement} passes on names from a module quick mode does not read: "
+            "pass that module as an entry too, or read it by eye")
+
+
+def _exports(found: list[tuple[int, str, str]], source_file: str) -> list[dict]:
+    """The export records of (offset, name, type) found, in file order, each
+    name once (its first form wins)."""
     out: list[dict] = []
     seen: set[str] = set()
-    for m in _JS_DECL_RE.finditer(content):
-        kind, name = m.group(1), m.group(2)
+    for _, name, kind in sorted(found, key=lambda item: item[0]):
         if name not in seen:
             seen.add(name)
             out.append({"name": name, "type": kind, "source_file": source_file})
-    for m in _JS_REEXPORT_RE.finditer(content):
-        for piece in m.group(1).split(","):
-            piece = piece.strip()
-            if not piece:
-                continue
-            # Handle `foo as bar` — keep the local name (foo) and the alias (bar);
-            # we only emit one entry, the exposed name.
-            if " as " in piece:
-                _, _, exposed = piece.partition(" as ")
-                exposed = exposed.strip()
-            else:
-                exposed = piece
-            m2 = re.match(r"\w+$", exposed)
-            if m2 and exposed not in seen:
-                seen.add(exposed)
-                out.append({"name": exposed, "type": "re-export", "source_file": source_file})
     return out
 
 
-def scan_exports_python(content: str, source_file: str) -> list[dict]:
-    all_names: list[str] | None = None
-    m = re.search(r"^__all__\s*=\s*\[([^\]]+)\]", content, re.MULTILINE | re.DOTALL)
-    if m:
-        all_names = re.findall(r"""['"]([^'"]+)['"]""", m.group(1))
+# A column-0 declaration: `export` (with `declare` or `default`) when it is
+# exported, its keyword and its name. A generator's `*` may touch the name.
+_JS_DECL_RE = re.compile(
+    r"^(export\s+(?:declare\s+)?(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
+    r"(const\s+enum|const|let|var|function\s*\*|function|class|interface|type|enum|namespace|module)"
+    r"(?:(?<=\*)\s*|\s+)([A-Za-z_$][\w$]*)",
+    re.MULTILINE,
+)
+_JS_LIST_RE = re.compile(r"^export\s+(?:type\s+)?\{([^}]*)\}", re.MULTILINE)
+_JS_STAR_RE = re.compile(
+    r"^export\s+(?:type\s+)?\*\s*(?:as\s+([A-Za-z_$][\w$]*)\s*)?from\s*(['\"])", re.MULTILINE)
+_JS_DEFAULT_RE = re.compile(r"^export\s+default\s+([A-Za-z_$][\w$]*)\s*(?:;|$)", re.MULTILINE)
+_JS_ANY_DEFAULT_RE = re.compile(r"^export\s+default\b\s*", re.MULTILINE)
+# `export const { a, b } = obj` or `export let [x, y] = pair`
+_JS_DESTRUCTURE_RE = re.compile(r"^export\s+(?:declare\s+)?(const|let|var)\s*[{[]", re.MULTILINE)
+# A name after a comma of a `const`/`let`/`var` statement: its next declarator.
+_JS_DECLARATOR_RE = re.compile(r"\s*([A-Za-z_$][\w$]*)\s*(?:[=,;:!]|$)", re.MULTILINE)
+_JS_LEADING_COMMA_RE = re.compile(r"\s*,")
+# TypeScript's `export = <value>`, read as `module.exports = <value>` is.
+_TS_EXPORT_ASSIGN_RE = re.compile(r"^export\s*=(?![=>])\s*", re.MULTILINE)
+_CJS_NAMED_RE = re.compile(r"^(?:module\.)?exports\.([A-Za-z_$][\w$]*)\s*=(?![=>])", re.MULTILINE)
+# A column-0 `module.exports =`, also as Express writes it: `exports =
+# module.exports = <value>` (or `module.exports = exports = <value>`).
+_CJS_MODULE_RE = re.compile(
+    r"^(?:exports\s*=\s*)?module\.exports\s*=(?![=>])\s*(?:exports\s*=(?![=>])\s*)?", re.MULTILINE)
+# Any `module.exports`, `exports` or `exports.<name>` assignment; the ones
+# that do not open their line or follow a chain that does (inside an `if`, a
+# block, a function) are warned, since which of them runs the entry file
+# alone cannot tell. TypeScript's CommonJS output opens with a chain:
+# `exports.a = exports.b = void 0;`.
+_CJS_ANY_RE = re.compile(r"(?<![\w$.])(?:module\.exports|exports)(?:\.([A-Za-z_$][\w$]*))?\s*=(?![=>])")
+_CJS_CHAIN_RE = re.compile(r"(?:(?:module\.)?exports(?:\.[A-Za-z_$][\w$]*)?\s*=(?![=>])\s*)*")
+_JS_NAME_RE = re.compile(r"[A-Za-z_$][\w$]*")
+_JS_SPACE_RE = re.compile(r"\s*")
+_JS_REQUIRE_RE = re.compile(r"require\s*\(\s*(['\"])")
+_JS_NAMED_VALUE_RE = re.compile(r"(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)|class\s+([A-Za-z_$][\w$]*)")
+_JS_ANONYMOUS_VALUE_RE = re.compile(r"(?:async\s+)?(?:function\b|class\b|\([^()]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)")
+_JS_FUNCTION_VALUE_RE = re.compile(r"\s*(?:async\s+)?(?:function\b|(?:\([^()]*\)|[A-Za-z_$][\w$]*)\s*=>)")
+_JS_CLASS_VALUE_RE = re.compile(r"\s*class\b")
+_JS_NAME_VALUE_RE = re.compile(r"\s*([A-Za-z_$][\w$]*)\s*(?:[;,})\]]|$)", re.MULTILINE)
+_JS_MEMBER_PREFIX_RE = re.compile(r"(?:(?:get|set|static|async)\s+(?=[\w$'\"*\[]))*\*?\s*")
+# Words the name patterns can meet that name no export: `class extends
+# Base`, `export default true`, and the interop flag compilers set.
+_JS_NOT_NAMES = frozenset({
+    "extends", "implements", "true", "false", "null", "undefined", "this", "new", "void", "typeof",
+    "function", "class", "async", "await", "__esModule",
+})
 
-    out: list[dict] = []
-    for m in re.finditer(r"^(def|class)\s+(\w+)", content, re.MULTILINE):
-        kind, name = m.group(1), m.group(2)
+
+def _js_type(keyword: str) -> str:
+    """The export type of a declaration keyword: `function*` and `async
+    function` are functions, a `const enum` an enum, a `module` a
+    namespace."""
+    keyword = " ".join(keyword.split())
+    if keyword.startswith("function"):
+        return "function"
+    return {"const enum": "enum", "module": "namespace"}.get(keyword, keyword)
+
+
+def _js_string(content: str, code: str, quote: int) -> str:
+    """The text of the string literal whose opening quote is at `quote`."""
+    close = code.find(code[quote], quote + 1)
+    return content[quote + 1: close if close >= 0 else len(content)]
+
+
+def _js_value_type(code: str, pos: int, declared: dict[str, str]) -> str:
+    """The export type of the value assigned at `pos`: a function or class
+    expression, the local declaration a name refers to, else a variable."""
+    if _JS_FUNCTION_VALUE_RE.match(code, pos):
+        return "function"
+    if _JS_CLASS_VALUE_RE.match(code, pos):
+        return "class"
+    name = _JS_NAME_VALUE_RE.match(code, pos)
+    return declared.get(name.group(1), "variable") if name else "variable"
+
+
+def _js_object_members(content: str, code: str, start: int,
+                       declared: dict[str, str]) -> tuple[list[tuple[int, str, str]], list[str]]:
+    """((offset, key, type) of each member of the object literal whose `{`
+    is at `start` in `code`, the spread expressions it holds). A method is
+    a function, `key: value` takes the value's type, a shorthand key the
+    type of its local declaration; a computed key names nothing."""
+    spans: list[tuple[int, int]] = []
+    depth, begin = 0, start + 1
+    for i in range(start, len(code)):
+        ch = code[i]
+        if ch in "{[(":
+            depth += 1
+        elif ch in "}])":
+            depth -= 1
+            if depth == 0:
+                spans.append((begin, i))
+                break
+        elif ch == "," and depth == 1:
+            spans.append((begin, i))
+            begin = i + 1
+    members: list[tuple[int, str, str]] = []
+    spreads: list[str] = []
+    for b, e in spans:
+        pos = b + len(code[b:e]) - len(code[b:e].lstrip())
+        if pos >= e:
+            continue
+        if code.startswith("...", pos):
+            spreads.append(" ".join(content[pos:e].split()))
+            continue
+        pos = _JS_MEMBER_PREFIX_RE.match(code, pos, e).end()
+        if pos >= e:
+            continue
+        if code[pos] in "'\"":
+            close = code.find(code[pos], pos + 1, e)
+            if close < 0:
+                continue
+            key, after = content[pos + 1:close], close + 1
+        else:
+            ident = _JS_NAME_RE.match(code, pos, e)
+            if not ident:
+                continue
+            key, after = ident.group(0), ident.end()
+        rest = code[after:e].lstrip()
+        if rest.startswith("("):
+            kind = "function"
+        elif rest.startswith(":"):
+            kind = _js_value_type(code, code.index(":", after, e) + 1, declared)
+        else:
+            kind = declared.get(key, "variable")
+        if key:
+            members.append((pos, key, kind))
+    return members, spreads
+
+
+def _js_module_exports(content: str, code: str, match: re.Match, source_file: str, declared: dict[str, str],
+                       found: list[tuple[int, str, str]], warnings: list[str] | None,
+                       target: str = "module.exports") -> None:
+    """Add the names one `module.exports = <value>` (or TypeScript's
+    `export = <value>`, the `target`) exports."""
+    pos, line = match.end(), _line_of(code, match.start())
+    assign = target if target.endswith("=") else f"{target} ="
+    if code.startswith("{", pos):
+        members, spreads = _js_object_members(content, code, pos, declared)
+        found.extend(members)
+        for spread in spreads:
+            _note(warnings, _unlisted(source_file, line, f"the `{target}` object's `{spread}`"))
+        return
+    require = _JS_REQUIRE_RE.match(code, pos)
+    if require:
+        spec = _js_string(content, code, require.end(1) - 1)
+        _note(warnings, _unlisted(source_file, line, f"`{assign} require('{spec}')`"))
+        return
+    named = _JS_NAMED_VALUE_RE.match(code, pos)
+    if named:
+        found.append((pos, named.group(1) or named.group(2), "function" if named.group(1) else "class"))
+        return
+    if _JS_ANONYMOUS_VALUE_RE.match(code, pos):
+        _note(warnings, f"{source_file} line {line}: `{target}` is an anonymous function or class: "
+                        "the package's one export has no name here")
+        return
+    name = _JS_NAME_VALUE_RE.match(code, pos)
+    if name and name.group(1) not in _JS_NOT_NAMES:
+        found.append((pos, name.group(1), declared.get(name.group(1), "variable")))
+        return
+    _note(warnings, f"{source_file} line {line}: `{target}` is set to an expression quick mode does not "
+                    "read: read the names it exports by eye")
+
+
+def _js_more_declarators(code: str, pos: int) -> list[tuple[int, str]]:
+    """(offset, name) of each declarator after the first of the `const`,
+    `let` or `var` statement whose first name ends at `pos`: `export const
+    a = 1, b = 2` declares `b` too. The statement ends at a `;`, a bracket
+    it did not open, or a line end that no comma joins to the next line."""
+    names: list[tuple[int, str]] = []
+    depth, last, i = 0, "", pos
+    while i < len(code):
+        ch = code[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and ch == ";":
+            break
+        elif depth == 0 and ch == "\n":
+            if last != "," and not _JS_LEADING_COMMA_RE.match(code, i):
+                break
+        elif depth == 0 and ch == ",":
+            declarator = _JS_DECLARATOR_RE.match(code, i + 1)
+            if declarator and declarator.group(1) not in _JS_NOT_NAMES:
+                names.append((declarator.start(1), declarator.group(1)))
+        if not ch.isspace():
+            last = ch
+        i += 1
+    return names
+
+
+def scan_exports_js(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+    """The names a JS/TS entry file exports (see "Quick mode" above), read
+    from its text with comments, string contents and regular expressions
+    blanked."""
+    code = _blank(content, "js")
+    declared: dict[str, str] = {}
+    found: list[tuple[int, str, str]] = []
+    read_defaults: set[int] = set()  # the `export default` statements a name was read from
+    for m in _JS_DECL_RE.finditer(code):
+        name, kind = m.group(3), _js_type(m.group(2))
+        if name in _JS_NOT_NAMES:
+            continue
+        declared.setdefault(name, kind)
+        if m.group(1):
+            found.append((m.start(), name, kind))
+            if "default" in m.group(1).split():
+                read_defaults.add(m.start())
+        if kind in ("const", "let", "var"):
+            for offset, more in _js_more_declarators(code, m.end(3)):
+                declared.setdefault(more, kind)
+                if m.group(1):
+                    found.append((offset, more, kind))
+    for m in _JS_DESTRUCTURE_RE.finditer(code):
+        _note(warnings, f"{source_file} line {_line_of(code, m.start())}: `export {m.group(1)}` destructures, "
+                        "and quick mode does not read the names it binds: read them by eye")
+    for m in _JS_LIST_RE.finditer(code):
+        for piece in m.group(1).split(","):
+            # `a`, `a as b`, `type T`, `"a-b" as c`: the exposed name comes last
+            words = piece.split()
+            if words and _JS_NAME_RE.fullmatch(words[-1]):
+                found.append((m.start(), words[-1], "re-export"))
+    for m in _JS_STAR_RE.finditer(code):
+        if m.group(1):
+            found.append((m.start(), m.group(1), "namespace"))
+        else:
+            spec = _js_string(content, code, m.end(2) - 1)
+            _note(warnings, _unlisted(source_file, _line_of(code, m.start()), f"`export * from '{spec}'`"))
+    for m in _JS_DEFAULT_RE.finditer(code):
+        if m.group(1) not in _JS_NOT_NAMES:
+            found.append((m.start(), m.group(1), declared.get(m.group(1), "re-export")))
+            read_defaults.add(m.start())
+    for m in _JS_ANY_DEFAULT_RE.finditer(code):
+        if m.start() in read_defaults:
+            continue
+        line = _line_of(code, m.start())
+        if _JS_ANONYMOUS_VALUE_RE.match(code, m.end()):
+            _note(warnings, f"{source_file} line {line}: `export default` is an anonymous function or class: "
+                            "the module's default export has no name here")
+        else:
+            _note(warnings, f"{source_file} line {line}: `export default` is set to an expression quick mode "
+                            "does not read: read the names it exports by eye")
+    for m in _TS_EXPORT_ASSIGN_RE.finditer(code):
+        _js_module_exports(content, code, m, source_file, declared, found, warnings, "export =")
+    for m in _CJS_NAMED_RE.finditer(code):
+        if m.group(1) not in _JS_NOT_NAMES:
+            found.append((m.start(), m.group(1), _js_value_type(code, m.end(), declared)))
+    for m in _CJS_MODULE_RE.finditer(code):
+        _js_module_exports(content, code, m, source_file, declared, found, warnings)
+    nested_lines: set[int] = set()
+    for m in _CJS_ANY_RE.finditer(code):
+        line_start = code.rfind("\n", 0, m.start()) + 1
+        if _CJS_CHAIN_RE.fullmatch(code, line_start, m.start()):
+            # A statement that opens its line, its first target read above;
+            # a later `exports.<name>` of its chain is one more export.
+            if m.start() > line_start and m.group(1) and m.group(1) not in _JS_NOT_NAMES:
+                found.append((m.start(), m.group(1), _js_value_type(code, m.end(), declared)))
+            continue
+        line = _line_of(code, m.start())
+        if line in nested_lines:
+            continue
+        nested_lines.add(line)
+        target = " ".join(m.group(0).rstrip("=").split())
+        require = _JS_REQUIRE_RE.match(code, _JS_SPACE_RE.match(code, m.end()).end())
+        if require:
+            spec = _js_string(content, code, require.end(1) - 1)
+            _note(warnings, _unlisted(source_file, line, f"`{target} = require('{spec}')`"))
+        else:
+            _note(warnings, f"{source_file} line {line}: `{target}` is assigned inside a block or a condition: "
+                            "read the names it exports by eye")
+    return _exports(found, source_file)
+
+
+def _py_export_type(binding: dict | None) -> str:
+    """The quick-mode type of a name by what binds it in the module."""
+    if binding is None or binding["kind"] == "import":
+        return "re-export"
+    if binding["kind"] == "module-import":
+        return "module"
+    return binding.get("form", "def")
+
+
+def _py_all_unread(node: ast.AST | None) -> bool:
+    """Whether an `__all__` value holds a part that is no string literal
+    (another module's `__all__`, a list built at run time)."""
+    if isinstance(node, ast.Constant):
+        return not isinstance(node.value, str)
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return any(_py_all_unread(e) for e in node.elts)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _py_all_unread(node.left) or _py_all_unread(node.right)
+    return True
+
+
+def _py_all_unread_line(text: str) -> int | None:
+    """The line of the first statement that builds `__all__` from a part
+    that is no string literal, whose names no reader of this file alone can
+    list; None when there is none or the module does not parse."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    for node in _module_statements(tree.body):
+        value = None
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if "__all__" in [n for t in targets for n in _target_names(t)]:
+                value = node.value
+        elif (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+              and isinstance(node.value.func, ast.Attribute)
+              and isinstance(node.value.func.value, ast.Name) and node.value.func.value.id == "__all__"
+              and node.value.func.attr in ("extend", "append") and node.value.args):
+            value = node.value.args[0]
+        if value is not None and _py_all_unread(value):
+            return node.lineno
+    return None
+
+
+def scan_exports_python(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+    """The names a Python entry file exports (see "Quick mode" above), read
+    with full mode's module reader: __all__ when the module has one, else
+    its public definitions and the names it imports from its own
+    package."""
+    try:
+        all_names, bound, stars = _py_bindings(content)
+    except SyntaxError as exc:
+        _note(warnings, f"{source_file}: this Python cannot parse it ({exc.msg}, line {exc.lineno}); "
+                        "its names are read from its text")
+        all_names, bound, stars = _py_text_bindings(content)
+    # The package an __init__.py opens, whose own modules its absolute imports
+    # can name: by any trailing run of its folders, as a nested or namespace
+    # package is imported (storage, cloud.storage, acme.cloud.storage).
+    packages: list[str] = []
+    if posixpath.basename(source_file) == "__init__.py":
+        folders = [p for p in posixpath.dirname(source_file).split("/") if p and p != "."]
+        packages = [".".join(folders[i:]) for i in range(len(folders))]
+
+    def own(module: str | None, level: int) -> bool:
+        return level > 0 or bool(module and any(module == p or module.startswith(p + ".") for p in packages))
+
+    unread = _py_all_unread_line(content)
+    if unread is not None:
+        _note(warnings, f"{source_file} line {unread}: `__all__` takes names quick mode cannot read (another "
+                        "module's `__all__`, or a list built at run time): read the names it exports by eye")
+    if all_names is not None:
+        return [{"name": name, "type": _py_export_type(bound.get(name)), "source_file": source_file}
+                for name in dict.fromkeys(all_names) if name.isidentifier() and not name.startswith("_")]
+    found: list[tuple[int, str, str]] = []
+    for name, binding in bound.items():
         if name.startswith("_"):
             continue
-        if all_names is not None and name not in all_names:
-            continue
-        out.append({"name": name, "type": kind, "source_file": source_file})
-    return out
+        if binding["kind"] == "definition" and binding.get("form", "def") in ("def", "class"):
+            found.append((binding["line"], name, binding.get("form", "def")))
+        elif binding["kind"] == "import" and own(binding["module"], binding["level"]):
+            found.append((binding["line"], name, "re-export"))
+    for star in stars:
+        if own(star["module"], star["level"]):
+            source = "." * star["level"] + (star["module"] or "")
+            _note(warnings, _unlisted(source_file, star["line"], f"`from {source} import *`"))
+    return _exports(found, source_file)
 
 
-def scan_exports_rust(content: str, source_file: str) -> list[dict]:
-    out: list[dict] = []
-    for m in re.finditer(
-        r"^\s*pub\s+(fn|struct|enum|trait|mod|type|const|static)\s+(\w+)",
-        content,
-        re.MULTILINE,
-    ):
-        out.append({"name": m.group(2), "type": m.group(1), "source_file": source_file})
-    return out
+# A `#[macro_export]` macro, exported at the crate root wherever it sits;
+# other attributes may stand between the two.
+_RUST_MACRO_EXPORT_RE = re.compile(
+    r"^[ \t]*#\[macro_export\b[^\]]*\](?:\s*#\[[^\]]*\])*\s*macro_rules!\s*((?:r#)?[A-Za-z_]\w*)", re.M)
 
 
-def scan_exports_go(content: str, source_file: str) -> list[dict]:
+def scan_exports_rust(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+    """The names a Rust entry file exports (see "Quick mode" above): its
+    column-0 unrestricted `pub` items, `#[macro_export]` macros and `pub
+    use` names, read with full mode's readers from its text with comments
+    and strings blanked."""
+    code = _blank(content, "rust")
+    found = [(line, name, kind) for name, kind, line in _rust_items(code)]
+    found += [(_line_of(code, m.start(1)), m.group(1), "macro") for m in _RUST_MACRO_EXPORT_RE.finditer(code)]
+    for use in _RUST_USE_RE.finditer(code):
+        line = _line_of(code, use.start())
+        for path, alias, glob in _rust_use_leaves(use.group(1)):
+            if path and path[-1] == "self" and not glob:
+                path = path[:-1]
+            if not path or alias == "_":
+                continue
+            if glob:
+                _note(warnings, _unlisted(source_file, line, f"`pub use {'::'.join(path)}::*`"))
+            else:
+                found.append((line, alias or path[-1], "re-export"))
+    return _exports(found, source_file)
+
+
+def scan_exports_go(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
     out: list[dict] = []
     for m in re.finditer(r"^(func|type|var|const)\s+([A-Z]\w*)", content, re.MULTILINE):
         out.append({"name": m.group(2), "type": m.group(1), "source_file": source_file})
@@ -580,7 +1012,7 @@ _JAVA_ANNOTATION_RE = re.compile(
 )
 
 
-def scan_exports_java(content: str, source_file: str) -> list[dict]:
+def scan_exports_java(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
     out: list[dict] = []
     seen: set[str] = set()
     for m in _JAVA_PUBLIC_RE.finditer(content):
@@ -611,7 +1043,7 @@ _KOTLIN_DECL_RE = re.compile(
 )
 
 
-def scan_exports_kotlin(content: str, source_file: str) -> list[dict]:
+def scan_exports_kotlin(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
     """Kotlin defaults to public — omit internal/private declarations."""
     out: list[dict] = []
     seen: set[str] = set()
@@ -638,7 +1070,7 @@ _SWIFT_DECL_KEYWORDS = {
 }
 
 
-def scan_exports_swift(content: str, source_file: str) -> list[dict]:
+def scan_exports_swift(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
     """Swift defaults to internal — emit only public/open declarations."""
     out: list[dict] = []
     seen: set[str] = set()
@@ -658,7 +1090,8 @@ def scan_exports_swift(content: str, source_file: str) -> list[dict]:
 # --------------------------------------------------------------------------
 
 ManifestParser = Callable[[str], dict]
-ExportScanner = Callable[[str, str], list[dict]]
+# (content, source file, warnings): a scanner may note a form it cannot list.
+ExportScanner = Callable[[str, str, list[str]], list[dict]]
 
 LANGUAGE_DISPATCH: dict[str, tuple[ManifestParser, ExportScanner]] = {
     "js": (parse_package_json, scan_exports_js),
@@ -741,7 +1174,7 @@ def extract(payload: dict) -> dict:
         if not content:
             continue
         try:
-            exports.extend(scanner(content, path))
+            exports.extend(scanner(content, path, warnings))
         except Exception as e:  # noqa: BLE001 — best-effort: scanner errors are warnings, not fatal
             warnings.append(f"export scan failed for {path}: {e}")
 
@@ -1451,6 +1884,47 @@ def _type_list_items(exe: str, root: Path, folder: Path, matches: list[dict], ex
 
 _RUST_RAW_OPEN_RE = re.compile(r'r(#*)"')
 _RUST_CHAR_RE = re.compile(r"'(?:\\(?:x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f]{1,6}\}|.)|[^\\'\n])'")
+# What a JavaScript `/` follows when it opens a regular expression literal
+# rather than dividing: punctuation no operand ends with, or a keyword.
+_JS_REGEX_AFTER = frozenset("(,=:[!&|?{};")
+_JS_REGEX_AFTER_WORDS = frozenset({
+    "return", "typeof", "case", "do", "else", "in", "of", "instanceof", "new", "delete", "void", "throw",
+    "yield", "await",
+})
+
+
+def _js_regex_end(text: str, done: list[str], i: int) -> int | None:
+    """The index of the `/` that closes the regular expression literal the
+    `/` at `i` opens, or None when that `/` divides. `done` is the text up
+    to `i` with its comments and strings blanked; a literal opens a line or
+    follows _JS_REGEX_AFTER or a word of _JS_REGEX_AFTER_WORDS (a `}` before
+    a JSX `/>` aside), and ends on its line."""
+    k = i - 1
+    while k >= 0 and done[k] in " \t\r":
+        k -= 1
+    before = done[k] if k >= 0 else "\n"
+    if before == "}" and text.startswith(">", i + 1):
+        return None
+    if before != "\n" and before not in _JS_REGEX_AFTER:
+        end = k + 1
+        while k >= 0 and (done[k].isalnum() or done[k] in "_$"):
+            k -= 1
+        if "".join(done[k + 1:end]) not in _JS_REGEX_AFTER_WORDS or (k >= 0 and done[k] == "."):
+            return None
+    in_class, j = False, i + 1
+    while j < len(text) and text[j] != "\n":
+        ch = text[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if in_class:
+            in_class = ch != "]"
+        elif ch == "[":
+            in_class = True
+        elif ch == "/":
+            return j
+        j += 1
+    return None
 
 
 def _blank(text: str, language: str) -> str:
@@ -1458,9 +1932,10 @@ def _blank(text: str, language: str) -> str:
     spaces, its lines kept: a pattern run over it finds code only.
     JavaScript/TypeScript (`js`): `//`, `/* */` and '...', "..." and `...`
     strings, a string followed within its line (a template literal spanning
-    lines is not tracked). Go: `//`, `/* */`, "..." and '...' within a line
-    and `...` raw strings across lines. Rust: `//`, nested `/* */`, "..."
-    and r#"..."# strings across lines, and char literals."""
+    lines is not tracked), and the insides of a regular expression literal
+    (`/\\/*$/` opens no comment). Go: `//`, `/* */`, "..." and '...' within a
+    line and `...` raw strings across lines. Rust: `//`, nested `/* */`,
+    "..." and r#"..."# strings across lines, and char literals."""
     out = list(text)
     n = len(text)
 
@@ -1491,6 +1966,12 @@ def _blank(text: str, language: str) -> str:
             i = j
             continue
         ch = text[i]
+        if language == "js" and ch == "/":
+            end = _js_regex_end(text, out, i)
+            if end is not None:
+                blank(i + 1, end)
+                i = end + 1
+                continue
         if language == "rust":
             raw = _RUST_RAW_OPEN_RE.match(text, i) if ch == "r" else None
             if raw and not (i and (text[i - 1].isalnum() or text[i - 1] == "_")):
@@ -2053,15 +2534,17 @@ def _literal_names(node: ast.AST | None) -> list[str] | None:
 def _py_bindings(text: str) -> tuple[list[str] | None, dict[str, dict], list[dict]]:
     """A Python module's (__all__ or None, the names it binds at module
     level, its star imports). A binding: {"line", "kind": "definition" |
-    "import" | "module-import"} and, for an import, its "module", "level"
-    and "imported" name. Raises SyntaxError."""
+    "import" | "module-import"}; a definition's "form" (`def` for a def or
+    async def, `class`, `variable` for an assignment); an import's
+    "module", "level" and "imported" name. Raises SyntaxError."""
     tree = ast.parse(text)
     all_names: list[str] | None = None
     bound: dict[str, dict] = {}
     stars: list[dict] = []
     for node in _module_statements(tree.body):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound.setdefault(node.name, {"line": node.lineno, "kind": "definition"})
+            form = "class" if isinstance(node, ast.ClassDef) else "def"
+            bound.setdefault(node.name, {"line": node.lineno, "kind": "definition", "form": form})
         elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             names = [n for t in targets for n in _target_names(t)]
@@ -2073,7 +2556,7 @@ def _py_bindings(text: str) -> tuple[list[str] | None, dict[str, dict], list[dic
                     all_names = listed
             if not isinstance(node, ast.AugAssign):
                 for name in names:
-                    bound.setdefault(name, {"line": node.lineno, "kind": "definition"})
+                    bound.setdefault(name, {"line": node.lineno, "kind": "definition", "form": "variable"})
         elif isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 if alias.name == "*":
@@ -2095,7 +2578,7 @@ def _py_bindings(text: str) -> tuple[list[str] | None, dict[str, dict], list[dic
 
 
 _PY_ALL_RE = re.compile(r"^__all__\s*\+?=\s*[\[(]([^\])]*)[\])]", re.M)
-_PY_DEF_RE = re.compile(r"^(?:async\s+)?(?:def|class)\s+(\w+)", re.M)
+_PY_DEF_RE = re.compile(r"^(?:async\s+)?(def|class)\s+(\w+)", re.M)
 _PY_FROM_RE = re.compile(r"^from\s+(\.*)([\w.]*)\s+import\s+(\([^)]*\)|[^\n]+)", re.M)
 
 
@@ -2108,7 +2591,7 @@ def _py_text_bindings(text: str) -> tuple[list[str] | None, dict[str, dict], lis
     bound: dict[str, dict] = {}
     stars: list[dict] = []
     for m in _PY_DEF_RE.finditer(text):
-        bound.setdefault(m.group(1), {"line": _line_of(text, m.start(1)), "kind": "definition"})
+        bound.setdefault(m.group(2), {"line": _line_of(text, m.start(2)), "kind": "definition", "form": m.group(1)})
     for m in _PY_FROM_RE.finditer(text):
         line, level, module = _line_of(text, m.start()), len(m.group(1)), m.group(2) or None
         for item in m.group(3).strip("() \t").split(","):
@@ -2989,18 +3472,25 @@ def _main_full(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Extract a package's public-API surface: from manifest and entry-point content on stdin "
-            "(quick, a pure parser), or by running the ast-grep recipes over a source tree (full)."
+            "Extract a package's public-API surface: from manifest and entry-point content on stdin or "
+            "in files (quick, a pure parser), or by running the ast-grep recipes over a source tree (full)."
         ),
     )
     parser.add_argument(
         "--mode",
         default="quick",
         choices=("quick", "full"),
-        help="quick (default): parse the stdin payload; full: run the recipes over --source-root.",
+        help="quick (default): parse the stdin payload, or the --manifest-file and --entry-file files; "
+             "full: run the recipes over --source-root.",
     )
+    quick = parser.add_argument_group("quick mode, files read from disk")
+    quick.add_argument("--manifest-file", metavar="PATH",
+                       help="the package manifest (relative to --source-root when given); needs --language")
+    quick.add_argument("--entry-file", action="append", metavar="PATH",
+                       help="an entry-point file (relative to --source-root when given), repeatable; needs --language")
     full = parser.add_argument_group("full mode")
-    full.add_argument("--source-root", help="the source tree to extract from")
+    full.add_argument("--source-root",
+                      help="the source tree to extract from (quick mode: the folder the file paths are relative to)")
     full.add_argument("--brief", help="a skill-brief.yaml: its scope and language")
     full.add_argument("--include", action="append", metavar="GLOB",
                       help="an include glob, repeatable (replaces the brief's scope.include)")
@@ -3010,7 +3500,8 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="a tier-A glob for effective_denominator, repeatable (replaces scope.tier_a_include)")
     full.add_argument("--scope-type", help="the scope type (replaces the brief's scope.type)")
     full.add_argument("--language", action="append",
-                      help="a language family to extract, repeatable (replaces the brief's language)")
+                      help="a language family to extract, repeatable (replaces the brief's language); quick "
+                           "mode: the files' language, once")
     full.add_argument("--files-from", metavar="FILE",
                       help="read only these files: one path per line, or a JSON list")
     full.add_argument("--recipe-set", choices=RECIPE_SETS,
@@ -3025,16 +3516,78 @@ def _build_parser() -> argparse.ArgumentParser:
 
 FULL_MODE_FLAGS = ("source_root", "brief", "include", "exclude", "tier_a_include", "scope_type", "language",
                    "files_from", "recipe_set", "recipes", "tier", "head_cap", "output")
+# The full mode flags quick mode takes with its file inputs.
+QUICK_FILE_FLAGS = ("source_root", "language")
+
+
+class QuickInputError(Exception):
+    """A --manifest-file or --entry-file quick mode cannot read (exit 2)."""
+
+
+def _read_quick_file(root: Path | None, value: str, flag: str) -> dict:
+    """{"path", "content"} of a --manifest-file or --entry-file: the path as
+    given, written with `/`, and the file's text. Raises QuickInputError."""
+    given = Path(value)
+    path = given
+    if root is not None:
+        if given.is_absolute():
+            raise QuickInputError(f"{flag} must be relative to --source-root: {value}")
+        path = root / given
+        if not path.resolve().is_relative_to(root.resolve()):
+            raise QuickInputError(f"{flag} leads outside --source-root: {value}")
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise QuickInputError(f"cannot read {flag} {value}: {exc.strerror or exc}") from exc
+    return {"path": given.as_posix(), "content": data.decode("utf-8-sig", errors="replace")}
+
+
+def _quick_files_payload(args: argparse.Namespace) -> dict:
+    """The quick payload of --manifest-file and --entry-file, read from
+    disk. Raises QuickInputError."""
+    root = None
+    if args.source_root is not None:
+        root = Path(args.source_root)
+        if not root.is_dir():
+            raise QuickInputError(f"--source-root is not a folder: {args.source_root}")
+    manifest = {"path": "", "content": ""}
+    if args.manifest_file is not None:
+        manifest = _read_quick_file(root, args.manifest_file, "--manifest-file")
+    entries: list[dict] = []
+    for value in args.entry_file or []:
+        entry = _read_quick_file(root, value, "--entry-file")
+        if all(e["path"] != entry["path"] for e in entries):
+            entries.append(entry)
+    return {"language": args.language[0], "manifest": manifest, "entries": entries, "mode": "quick"}
 
 
 def main(argv: list[str]) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    files = args.manifest_file is not None or bool(args.entry_file)
     if args.mode == "full":
+        if files:
+            parser.error("--manifest-file, --entry-file: quick mode only (--mode quick)")
         return _main_full(args)
-    given = [f"--{flag.replace('_', '-')}" for flag in FULL_MODE_FLAGS if getattr(args, flag) is not None]
+    given = [f"--{flag.replace('_', '-')}" for flag in FULL_MODE_FLAGS
+             if getattr(args, flag) is not None and not (files and flag in QUICK_FILE_FLAGS)]
     if given:
-        parser.error(f"{', '.join(given)}: full mode only (--mode full)")
+        hint = ""
+        if any(flag in given for flag in ("--source-root", "--language")):
+            hint = " (quick mode takes --source-root and --language only with --manifest-file or --entry-file)"
+        parser.error(f"{', '.join(given)}: full mode only (--mode full){hint}")
+
+    if files:
+        if not args.language or len(args.language) != 1:
+            parser.error("--manifest-file and --entry-file take one --language")
+        try:
+            payload = _quick_files_payload(args)
+        except QuickInputError as exc:
+            sys.stderr.write(f"error: {exc}\n")
+            return 2
+        result = extract(payload)
+        print(json.dumps(result, indent=2))
+        return 1 if "_error" in result else 0
 
     raw = sys.stdin.read()
     if not raw.strip():
