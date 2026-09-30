@@ -94,9 +94,10 @@ If the validator reports failure for the `description` field, flip the Schema ro
 
 ## Why This Protocol Is Centralized
 
-Previously, each tool invocation in each calling stage carried its own copy of the capture/verify/restore prose. Duplicated defensive logic drifts: a fix in one section did not propagate to the other, and adding a new tool invocation required remembering to copy the pattern. Centralizing the protocol gives every calling stage one place to update when external validator behavior changes. The rules each calling stage acts on, the restore handling and the empty-snapshot refusal, are also stated in the stage's §0, so the stage still follows them when this file cannot be loaded; change them there too.
+Previously, each tool invocation in each calling stage carried its own copy of the capture/verify/restore prose. Duplicated defensive logic drifts: a fix in one section did not propagate to the other, and adding a new tool invocation required remembering to copy the pattern. Centralizing the protocol gives every calling stage one place to update when external validator behavior changes. The rules each calling stage acts on, the restore handling and the empty-snapshot refusal, are also stated in the stage's §0 (quick-skill, which never loads this file, states them beside its one guarded call), so the stage still follows them when this file cannot be loaded; change them there too.
 
 ## Calling Workflows
 
 - `src/skf-create-skill/references/validate.md` — wraps `skill-check check --fix` (§2) and `split-body` (§4). Runs the optional post-restore re-validation.
 - `src/skf-update-skill/references/write.md` — wraps `skill-check check --fix` and `skill-check split-body --write` in §7. Does not run post-restore re-validation today; the post-write checks in §1 catch downstream issues.
+- `src/skf-quick-skill/references/write-and-validate.md`: wraps `skill-check check --fix` in §4, which also states the restore and empty-snapshot rules. With no guard helper it runs skill-check without `--fix`. Does not run post-restore re-validation.

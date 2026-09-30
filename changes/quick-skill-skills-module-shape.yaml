@@ -1,0 +1,5 @@
+type: added
+scope: skf-quick-skill
+summary: |
+  Quick Skill recognizes a skills module, a repository that ships agent skills rather than code, such as a BMAD module or a plain Agent Skills package. It takes the skills from the folder `scope_hint` names, else from the repository root or a top-level folder that holds `module.yaml` or `module-help.csv` (with the skills at any depth below it), or from a folder of skill folders when the repository's own manifest publishes no code, so a library that ships its agent skill beside its code stays a library. It records `repo_shape: skills-module`, reads each skill's frontmatter and the module's `module-help.csv` when there is one, and lists the skill names and menu codes as the skill's Key Exports and in the `exports` of `metadata.json`, with Usage Patterns taken from the `module-help.csv` rows. Such a repository used to pass as a library and give a README-only skill with no exports. When a run that stays a library finds no exports but the repository holds skill folders, the extraction note names the folder to re-run with as `scope=`.
+issues: [527]

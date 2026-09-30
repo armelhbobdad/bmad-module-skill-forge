@@ -32,7 +32,7 @@ Recognised per-line modifiers:
 | `language=<lang>` | Sets `language_hint` for this target — same effect as the optional `language_hint` input on a single-target run. |
 | `scope=<path>` | Sets `scope_hint` for this target — same effect as the optional `scope_hint` input on a single-target run. |
 
-Per-line modifiers shadow the global `--description` / `--exports` / `--skip-snippet` / `--no-active-pointer` overrides only when those override fields are not set. Global overrides apply to every target unless a future modifier extends per-line override syntax.
+`--skip-snippet` and `--no-active-pointer` apply to every target. `--description` and `--exports` are single-target overrides: one description or export list cannot fit every target, so with `--batch` SKILL.md On Activation step 5 halts with exit code 2 (`input-invalid`) before the first target runs. To give a target its own description or export list, run it on its own.
 
 ## Execution
 
@@ -102,3 +102,5 @@ Batch mode emits per-target boundary events on stderr in addition to the per-ste
 ## Exit code
 
 The batch process exits with code `0` when `failed == 0`, otherwise with the exit code of the first failed target (so automators that already branch on the single-target exit-code map continue to work without batch-specific handling). When `--fail-fast` triggers, the exit code is the failing target's code.
+
+A batch refused before its first target (`--description` or `--exports` passed with `--batch`) exits with code `2` and writes no batch summary.

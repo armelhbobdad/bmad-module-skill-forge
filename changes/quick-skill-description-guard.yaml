@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-quick-skill
+summary: |
+  Quick Skill keeps the description you approved when `skill-check --fix` rewrites it. The fix now runs inside the description guard that Create Skill and Update Skill use: the approved description goes back into `SKILL.md`, so it matches `metadata.json` again, and the validation results note the restore. When `skf-description-guard.py` is missing, `skill-check` runs without `--fix` and the validation results say so. The review screen also shows `metadata.json` as one line (version, confidence tier and exports documented) instead of the whole file, which is written in the next step.
+issues: [609]

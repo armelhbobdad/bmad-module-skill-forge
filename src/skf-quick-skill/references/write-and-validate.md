@@ -6,6 +6,14 @@ frontmatterValidatorProbeOrder:
 outputValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
   - '{project-root}/src/shared/scripts/skf-validate-output.py'
+# Resolve `{descriptionGuardHelper}` by probing `{descriptionGuardProbeOrder}`
+# in order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §4 runs `skill-check --fix` between its capture and
+# verify-restore calls; if neither path resolves, §4 runs skill-check without
+# `--fix` and logs a validation issue rather than fixing unguarded.
+descriptionGuardProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
+  - '{project-root}/src/shared/scripts/skf-description-guard.py'
 # Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}` in
 # order (installed SKF module path first, src/ dev-checkout fallback); first
 # existing path wins. §1 runs its write check before any directory is
@@ -101,13 +109,20 @@ Run: `npx skill-check -h`
 
 ### 4. Validate SKILL.md via skill-check (if available)
 
-**If `npx skill-check` is available**, run automated validation + security scan in one invocation against the skill package written in section 2 (security scan is enabled by default when `--no-security-scan` is omitted, so the same call covers §6 and avoids paying the npx startup cost twice):
+**If `npx skill-check` is available**, run automated validation + security scan in one invocation against the skill package written in section 2 (security scan is enabled by default when `--no-security-scan` is omitted, so the same call covers §6 and avoids paying the npx startup cost twice). `--fix` can also rewrite the frontmatter `description` the user approved in step 4, which would leave SKILL.md out of step with `metadata.json`, so the call runs inside the description guard. Resolve `{descriptionGuardHelper}` ← first existing path in `{descriptionGuardProbeOrder}`, then run the three commands in order:
 
 ```bash
+uv run {descriptionGuardHelper} capture {skill_package}/SKILL.md
 npx skill-check check {skill_package} --fix --format json
+uv run {descriptionGuardHelper} verify-restore {skill_package}/SKILL.md \
+    --captured-description '{guarded_description}'
 ```
 
-This validates frontmatter, description, body limits, links, and formatting; runs the security scan; and auto-fixes deterministic issues (field ordering, slug format, required fields, trailing newlines).
+The skill-check call validates frontmatter, description, body limits, links, and formatting; runs the security scan; and auto-fixes deterministic issues (field ordering, slug format, required fields, trailing newlines).
+
+**Guard outputs.** Bind `{guarded_description}` ← `description` from `capture`, and `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from `verify-restore`. When `{guard_restored}` is true, the approved description is back in SKILL.md, matching `metadata.json`: record the validation note "description restored after `skill-check --fix` ({guard_diff_kind})", which §7 lists with the auto-fixed issues. Put `{guarded_description}` between the single quotes as captured, writing each `'` in it as `'\''`: a description often holds double quotes, backticks or `$`, which would split or rewrite a double-quoted argument. `verify-restore` refuses an empty or whitespace-only `--captured-description` (exit 1, file untouched): re-run it with the description compiled in step 4, never with the empty value. When it exits 2 with JSON on stdout (the JSON carries `restore_error`), the restore could not be written, so record a high-severity issue: SKILL.md's description no longer matches `metadata.json`. An exit 2 with no JSON on stdout is a usage error from a mangled call, not a failed write: fix the quoting and run it again.
+
+**If no `{descriptionGuardProbeOrder}` path exists**, never run `--fix` unguarded. Run `npx skill-check check {skill_package} --format json` instead, which validates and scans without fixing, and log the validation issue "description guard unavailable (`skf-description-guard.py` missing): skill-check ran without `--fix`".
 
 **Parse JSON output** to extract:
 - `scores[].score` — overall score (0-100); match the entry by `relativePath`/`skillId`
@@ -153,7 +168,7 @@ Security findings are already collected from the §4 invocation (no separate `np
 
 **SKILL.md:** {pass/issues found} (quality score: {score}/100 if skill-check was available)
 {list any issues}
-{list any auto-fixed issues}
+{list any auto-fixed issues, and the §4 description-guard note when the guard restored the description}
 
 **context-snippet.md:** {pass/issues found}
 {list any issues}
