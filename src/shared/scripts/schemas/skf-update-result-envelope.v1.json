@@ -2,7 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-update-result-envelope.v1.json",
   "title": "SKF_UPDATE_RESULT_JSON envelope (v1)",
-  "description": "Single-line JSON document emitted by skf-update-skill step 7 (report) when {headless_mode} is true, prefixed with the literal 'SKF_UPDATE_RESULT_JSON: '. Pipelines branch on the envelope's top-level fields without parsing the human-readable report. The `headless_decisions[]` array surfaces every auto-resolved gate so non-interactive runs can be audited post-hoc — previously these were buried in the evidence report as free-form log lines. Schema added in PR #319.",
+  "description": "Single-line JSON document skf-update-skill emits when {headless_mode} is true, prefixed with the literal 'SKF_UPDATE_RESULT_JSON: ': once at the end of a run (step 7, report) and once at every halt. Every line, a halt's included, carries the skf_update wrapper, so pipelines branch on skf_update.status without parsing the human-readable report. The headless_decisions[] array surfaces every auto-resolved gate so non-interactive runs can be audited post-hoc.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-update-skill",
+        "prefix": "SKF_UPDATE_RESULT_JSON",
+        "wrapper": "skf_update",
+        "halt_status": "blocked",
+        "result_file": "update-skill-result"
+      }
+    }
+  },
   "type": "object",
   "additionalProperties": false,
   "required": ["skf_update"],

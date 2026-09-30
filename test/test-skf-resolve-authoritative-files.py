@@ -6,7 +6,8 @@ Covers all five deterministic phases of extract.md §2a:
     EXCLUDED_DIR_NAMES, recognizes all 9 heuristics
   - Scope diff: in-scope when include matches AND exclude doesn't; reports
     matching-exclude or no-include-matched
-  - Amendment reconciliation: promoted / skipped / most-recent-wins
+  - Amendment reconciliation: promoted / skipped / deferred-headless (and a
+    legacy headless skip read as one) / most-recent-wins
   - Preview load: first N lines, UTF-8 best effort
   - Hash + size + line_count: SHA-256 prefix, size_bytes, newline count
 """
@@ -341,6 +342,80 @@ class TestResolve:
         result = mod.resolve(source, brief)
         paths = [r["path"] for r in result["already_in_scope"]]
         assert paths == sorted(paths)
+
+
+LEGACY_HEADLESS_SKIP = {"action": "skipped", "path": "llms.txt",
+                        "reason": "headless: no user to prompt", "workflow": "skf-create-skill"}
+DEFERRED = {"action": "deferred-headless", "path": "llms.txt", "workflow": "skf-create-skill"}
+USER_SKIP = {"action": "skipped", "path": "llms.txt", "reason": "user declined promotion at create-skill §2a"}
+PROMOTED = {"action": "promoted", "path": "llms.txt"}
+
+
+class TestDeferredHeadless:
+    """A headless run leaves each authoritative file for the next interactive
+    run: nobody declined it, so it must never read as a person's skip."""
+
+    def _resolve(self, tmp_path: Path, amendments: list[dict], includes=("**.py",)) -> dict:
+        source = tmp_path / "src"
+        _write(source / "llms.txt", "content\n")
+        brief = _make_brief(tmp_path, includes=list(includes), amendments=amendments)
+        return mod.resolve(source, brief)
+
+    def test_deferred_amendment_stays_unresolved(self, tmp_path: Path) -> None:
+        result = self._resolve(tmp_path, [DEFERRED])
+        assert result["summary"]["pre_decided_count"] == 0
+        assert result["summary"]["unresolved_count"] == 1
+        rec = result["unresolved"][0]
+        assert rec["prior_action"] == "deferred-headless"
+        assert rec["content_hash"] == _expected_hash(b"content\n")
+        assert "content" in rec["preview"]
+
+    def test_legacy_headless_skip_is_read_as_deferred(self, tmp_path: Path) -> None:
+        result = self._resolve(tmp_path, [LEGACY_HEADLESS_SKIP])
+        assert result["pre_decided"] == []
+        assert result["unresolved"][0]["prior_action"] == "deferred-headless"
+
+    def test_legacy_reason_matches_with_surrounding_space(self, tmp_path: Path) -> None:
+        amend = {**LEGACY_HEADLESS_SKIP, "reason": "  headless: no user to prompt \n"}
+        assert self._resolve(tmp_path, [amend])["summary"]["unresolved_count"] == 1
+
+    def test_a_person_s_skip_is_still_pre_decided(self, tmp_path: Path) -> None:
+        result = self._resolve(tmp_path, [USER_SKIP])
+        assert result["pre_decided"][0]["prior_action"] == "skipped"
+        assert result["unresolved"] == []
+
+    def test_undecided_file_has_no_prior_action(self, tmp_path: Path) -> None:
+        assert self._resolve(tmp_path, [])["unresolved"][0]["prior_action"] is None
+
+    @pytest.mark.parametrize("amendments,bucket,prior", [
+        ([DEFERRED, PROMOTED], "pre_decided", "promoted"),
+        ([DEFERRED, USER_SKIP], "pre_decided", "skipped"),
+        ([LEGACY_HEADLESS_SKIP, USER_SKIP], "pre_decided", "skipped"),
+        ([USER_SKIP, DEFERRED], "unresolved", "deferred-headless"),
+        ([PROMOTED, LEGACY_HEADLESS_SKIP], "unresolved", "deferred-headless"),
+    ])
+    def test_most_recent_decision_wins(self, tmp_path: Path, amendments, bucket, prior) -> None:
+        result = self._resolve(tmp_path, amendments)
+        assert [r["prior_action"] for r in result[bucket]] == [prior]
+
+    @pytest.mark.parametrize("amendment", [DEFERRED, LEGACY_HEADLESS_SKIP])
+    def test_deferred_file_now_in_scope_is_already_in_scope(self, tmp_path: Path, amendment) -> None:
+        result = self._resolve(tmp_path, [amendment], includes=("**",))
+        assert result["summary"]["already_in_scope_count"] == 1
+        assert result["unresolved"] == [] and result["pre_decided"] == []
+
+    def test_cli_reports_the_deferral(self, tmp_path: Path) -> None:
+        source = tmp_path / "src"
+        _write(source / "llms.txt", "content\n")
+        brief = _make_brief(tmp_path, includes=["**.py"], amendments=[LEGACY_HEADLESS_SKIP])
+        result = _run_cli("resolve", "--source-root", str(source), "--brief", str(brief))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["unresolved"][0]["prior_action"] == "deferred-headless"
+
+    def test_docstring_states_the_deferral_contract(self) -> None:
+        doc = mod.__doc__
+        assert '"prior_action": null | "deferred-headless"' in doc
+        assert "headless: no user to prompt" in doc
 
 
 # --------------------------------------------------------------------------

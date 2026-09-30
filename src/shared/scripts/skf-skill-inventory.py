@@ -20,11 +20,20 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --forge-data-folder <path>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name> --write-check
          [--write-version <version>] [--forge-data-folder <path>]
+     uv run skf-skill-inventory.py resolve <skills-output-folder> --skill <name>
+         --forge-data-folder <path> [--version <version>]
+     uv run skf-skill-inventory.py version normalize <version>
+     uv run skf-skill-inventory.py version order <a> <b>
+     uv run skf-skill-inventory.py version next-patch <version>
+     uv run skf-skill-inventory.py version bump --prior <version>
+         --prior-libraries <a,b> --libraries <a,c>
+     uv run skf-skill-inventory.py version primary <candidates.json|->
 
 Exit 0 when `status` is "ok" (a write check exits 0 whatever its verdict);
-exit 1 on an error (`DIR_NOT_FOUND`, `SKILL_NOT_FOUND` for `--skill`, or
-`USAGE` for a write-check flag used wrongly or `--forge-data-folder` without
-a value).
+exit 1 on an error (`DIR_NOT_FOUND`, `SKILL_NOT_FOUND` for `--skill` or
+`resolve`, `USAGE` for a flag used wrongly or `--forge-data-folder` without
+a value, and for `version`: `NOT_A_VERSION`, `NOT_INCREASING` or
+`BAD_INPUT`).
 
 Ownership. The skills folder can hold skills SKF did not generate (a module's
 own skills, skills installed from elsewhere). Only a `metadata.json` carrying
@@ -70,6 +79,24 @@ Write check. `--skill <name> --write-check [--write-version <v>]` returns
 `write_check` (see `write_check`); the writers run it before creating any
 directory.
 
+Resolve. `resolve` returns `resolve` (see `resolve_skill`) for one skill:
+the manifest's `active_version`, the `active` link's target, the version a
+reading workflow uses and why (the Manifest-lag guard of
+knowledge/version-paths.md, with each version's provenance `generated_at`),
+`forge_version`, the metadata.json, provenance-map.json and
+evidence-report.md paths (versioned first, flat as the fallback), and every
+version newest first with its manifest status and the counts drop-skill and
+rename-skill read. `--version` names the version instead (an operator's
+choice). It reads, never writes, and does not decide ownership.
+
+Version. `version` turns version strings into one answer: `normalize`
+reduces a version or range to one folder name (`^18.2.0` gives `18.2.0`,
+build metadata stripped), `order` compares two (`1.10.0` above `1.9.0`),
+`next-patch` gives the next patch version, `bump` the compose-mode stack
+version after a prior one (major when a library was removed, else minor,
+refused when not above it), and `primary` the code-mode primary library of
+a stack and the version it gives, ties broken by a fixed rule.
+
 The --match-target mode deterministically computes coexistence matches: it
 normalizes scheme / trailing .git / trailing slash, derives the expected kebab
 skill name, compares case-insensitively, and emits a top-level `matches[]`
@@ -85,6 +112,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -766,6 +794,559 @@ def _marked_version_names(skill_group_dir, skill_name):
                   if ".skf-" not in c.name and c.is_dir() and _is_marked_version(c, skill_name))
 
 
+# --------------------------------------------------------------------------
+# Versions: normalize, order, next patch, compose-mode bump, primary library
+# --------------------------------------------------------------------------
+
+# What may follow the dotted numbers of a version: a pre-release tag such as
+# `-rc.1`, `rc1` or `.dev0`, identifiers split by `.` or `-`.
+PRE_RELEASE_RE = re.compile(r"[-._]?[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*")
+BUILD_RE = re.compile(r"[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*")
+# A comparator of a range: npm, Python, Ruby and Cargo operators, then a version.
+COMPARATOR_RE = re.compile(r"(===|==|>=|<=|~=|~>|!=|\^|~|>|<|=)?\s*([^\s,]+)")
+COMPARATOR_SEPARATOR_RE = re.compile(r"\s*,?\s*")
+UPPER_BOUND_OPERATORS = frozenset({"<", "<=", "!="})
+# Trailing wildcard components (`1.2.x`, `1.*`), dropped before a bound is read.
+WILDCARD_TAIL_RE = re.compile(r"(?:\.[xX*])+$")
+WILDCARDS = frozenset({"x", "X", "*"})
+
+
+def _parse_plain_version(text):
+    """(release, pre, build) for a plain version string, else None.
+
+    A leading `v` is dropped and the build metadata after `+` split off.
+    `release` holds the dotted numbers, padded to three (`2.0` is `2.0.0`);
+    `pre` is whatever follows them (`-rc.1`, `rc1`, `.dev0`) as written, or "".
+    A trailing wildcard component (`1.2.x`) is not a plain version.
+    """
+    s = str(text).strip()
+    s, plus, build = s.partition("+")
+    if plus and not BUILD_RE.fullmatch(build):
+        return None
+    m = re.match(r"[vV]?(\d+(?:\.\d+)*)", s)
+    if not m:
+        return None
+    pre = s[m.end():]
+    if pre and (not PRE_RELEASE_RE.fullmatch(pre) or re.match(r"\.[xX](?:\.|$)", pre)):
+        return None
+    release = [str(int(part)) for part in m.group(1).split(".")]
+    release += ["0"] * (3 - len(release))
+    return release, pre, (build or None)
+
+
+def _version_text(parsed):
+    release, pre, _ = parsed
+    return ".".join(release) + pre
+
+
+def _order_key(parsed):
+    """Sort key: numbers compared as numbers (1.10.0 above 1.9.0), a release
+    above its pre-releases, pre-release identifiers compared with their digit
+    runs as numbers (rc10 above rc2) and ranked below letters, as in semver."""
+    release, pre, _ = parsed
+    nums = [int(part) for part in release]
+    while nums and nums[-1] == 0:
+        nums.pop()
+    if not pre:
+        return (tuple(nums), (1,))
+    ids = tuple(
+        tuple((0, int(run)) if run.isdigit() else (1, run) for run in re.findall(r"\d+|\D+", ident))
+        for ident in pre.lstrip("-._").split("."))
+    return (tuple(nums), (0,) + ids)
+
+
+def _lower_bound(spec):
+    """The lower bound of one comparator set (`>=1.2, <2`, `^18.2.0`, `1.0 - 2.0`),
+    as a parsed version, or the reason there is none (a string)."""
+    spec = spec.strip()
+    hyphen = re.fullmatch(r"(\S+)\s+-\s+(\S+)", spec)
+    if hyphen:
+        comparators = [(">=", hyphen.group(1)), ("<=", hyphen.group(2))]
+    else:
+        comparators, pos = [], 0
+        while pos < len(spec):
+            m = COMPARATOR_RE.match(spec, pos)
+            if not m:
+                return f"not a version or range: {spec!r}"
+            comparators.append((m.group(1) or "", m.group(2)))
+            pos = COMPARATOR_SEPARATOR_RE.match(spec, m.end()).end()
+    if not comparators:
+        return "empty version"
+    lows = []
+    for op, token in comparators:
+        if token in WILDCARDS:
+            continue  # admits any version: no bound
+        parsed = _parse_plain_version(WILDCARD_TAIL_RE.sub("", token))
+        if parsed is None:
+            return f"not a version: {token!r}"
+        if op not in UPPER_BOUND_OPERATORS:
+            lows.append(parsed)
+    if not lows:
+        return f"names no lower bound: {spec!r}"
+    return max(lows, key=_order_key)
+
+
+def _reduce_version(text):
+    """((release, pre, build), rule) for a version or range, or a reason string.
+
+    `rule` is "version" for a plain version and "range" for a specifier
+    reduced to its lower bound: the version it names after `^`, `~`, `~=`,
+    `~>`, `>=`, `>`, `=` or `==` (a `>` bound kept as written), the highest
+    such bound when a set has several, the lowest over `||` alternatives, and
+    trailing `x` or `*` components read as 0. `workspace:` and `npm:<name>@`
+    prefixes are dropped. A specifier with no lower bound (`<2.0.0`, `*`,
+    `latest`, a URL or a path) has none.
+    """
+    spec = str(text).strip()
+    if spec.startswith("workspace:"):
+        spec = spec[len("workspace:"):].strip()
+    if spec.startswith("npm:") and "@" in spec[5:]:
+        spec = spec.rsplit("@", 1)[1].strip()
+    if not spec:
+        return "empty version"
+    plain = _parse_plain_version(spec)
+    if plain is not None:
+        return plain, "version"
+    bounds = []
+    for alternative in spec.split("||"):
+        bound = _lower_bound(alternative)
+        if isinstance(bound, str):
+            return bound
+        bounds.append(bound)
+    return min(bounds, key=_order_key), "range"
+
+
+def _reduce_or_raise(text):
+    """The parsed version `text` reduces to; ValueError when it names none."""
+    reduced = _reduce_version(text)
+    if isinstance(reduced, str):
+        raise ValueError(f"{text!r}: {reduced}")
+    return reduced[0]
+
+
+def normalize_version(text):
+    """Reduce a version or a range specifier to one version folder name.
+
+    Returns {input, normalized, rule, build_metadata, reason}: `normalized`
+    is null and `reason` says why when the input names no version. See
+    `_reduce_version` for the rules; build metadata is stripped as the
+    Version Sanitization rules of knowledge/version-paths.md say.
+    """
+    out = {"input": text, "normalized": None, "rule": None, "build_metadata": None, "reason": None}
+    reduced = _reduce_version(text)
+    if isinstance(reduced, str):
+        out["reason"] = reduced
+        return out
+    parsed, rule = reduced
+    out.update(normalized=_version_text(parsed), rule=rule, build_metadata=parsed[2])
+    return out
+
+
+ORDER_WORDS = {-1: "lower", 0: "equal", 1: "higher"}
+
+
+class NotIncreasingError(ValueError):
+    """A computed version that is not above the version it follows."""
+
+
+def _sign(a, b):
+    return (a > b) - (a < b)
+
+
+def order_versions(a, b):
+    """How version `a` orders against version `b`.
+
+    Returns {a, b, order, major_minor, higher}: `order` and `major_minor` (the
+    same test on the first two numbers only) are "lower", "equal" or
+    "higher", read as "a is ... than b"; `higher` is the higher normalized
+    version, null when they are equal. Raises ValueError when either names no
+    version.
+    """
+    pa, pb = _reduce_or_raise(a), _reduce_or_raise(b)
+    cmp = _sign(_order_key(pa), _order_key(pb))
+    mm = _sign(tuple(int(p) for p in pa[0][:2]), tuple(int(p) for p in pb[0][:2]))
+    return {"a": normalize_version(a), "b": normalize_version(b), "order": ORDER_WORDS[cmp],
+            "major_minor": ORDER_WORDS[mm],
+            "higher": None if cmp == 0 else _version_text(pa if cmp > 0 else pb)}
+
+
+def next_patch(text):
+    """The next patch version after `text`: the release of a pre-release
+    (`1.2.3-rc.1` gives `1.2.3`, as semver's patch increment does), else the
+    third number plus one (`1.2.3` gives `1.2.4`; a fourth number is dropped).
+    Raises ValueError when `text` names no version."""
+    parsed = _reduce_or_raise(text)
+    release, pre, _ = parsed
+    if pre:
+        nxt = ".".join(release)
+    else:
+        nxt = f"{release[0]}.{release[1]}.{int(release[2]) + 1}"
+    if _order_key(_parse_plain_version(nxt)) <= _order_key(parsed):
+        raise NotIncreasingError(f"next patch {nxt} is not above {_version_text(parsed)}")
+    return {"input": text, "normalized": _version_text(parsed), "next_patch": nxt}
+
+
+def compose_bump(prior, prior_libraries, libraries):
+    """The compose-mode stack version after `prior` (create-stack-skill S11).
+
+    Major when a library of `prior_libraries` is not in `libraries` (removed
+    or replaced), else minor. Returns {prior, prior_normalized, bump, version,
+    removed, added}. Raises ValueError when `prior` names no version or the
+    result is not above it (NotIncreasingError).
+    """
+    parsed = _reduce_or_raise(prior)
+    release = parsed[0]
+    before, after = set(prior_libraries), set(libraries)
+    removed, added = sorted(before - after), sorted(after - before)
+    if removed:
+        bump, version = "major", f"{int(release[0]) + 1}.0.0"
+    else:
+        bump, version = "minor", f"{release[0]}.{int(release[1]) + 1}.0"
+    if _order_key(_parse_plain_version(version)) <= _order_key(parsed):
+        raise NotIncreasingError(f"{version} is not above the prior version {_version_text(parsed)}")
+    return {"prior": prior, "prior_normalized": _version_text(parsed), "bump": bump,
+            "version": version, "removed": removed, "added": added}
+
+
+def primary_library(candidates):
+    """The code-mode primary library of a stack and the version it gives (S11).
+
+    `candidates` is a list of {name, import_count, version}. The primary is
+    the highest `import_count`. On a tie, a candidate whose version reduces
+    to one (see `normalize_version`) goes first, then the lowest name,
+    compared case-insensitively. `version` falls back to 1.0.0 when the
+    primary has none. Returns {primary, import_count, version_input, version,
+    fallback, tied, reason}; `reason` is "highest-import-count",
+    "tie-usable-version", "tie-name-order" or "no-candidates". Raises
+    ValueError on a malformed candidate.
+    """
+    rows = []
+    for c in candidates:
+        if not isinstance(c, dict) or not isinstance(c.get("name"), str) or not c["name"]:
+            raise ValueError(f"each candidate needs a name: {c!r}")
+        count = c.get("import_count", 0)
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError(f"import_count must be a whole number: {c!r}")
+        version = c.get("version")
+        if version is not None and not isinstance(version, str):
+            raise ValueError(f"version must be a string or null: {c!r}")
+        usable = version is not None and not isinstance(_reduce_version(version), str)
+        rows.append((c["name"], count, version, usable))
+    if not rows:
+        return {"primary": None, "import_count": None, "version_input": None,
+                "version": "1.0.0", "fallback": True, "tied": [], "reason": "no-candidates"}
+    top = max(r[1] for r in rows)
+    tied = [r for r in rows if r[1] == top]
+    pool = [r for r in tied if r[3]] or tied
+    name, count, version, usable = min(pool, key=lambda r: (r[0].casefold(), r[0]))
+    if len(tied) == 1:
+        reason = "highest-import-count"
+    elif len(pool) == 1:
+        reason = "tie-usable-version"
+    else:
+        reason = "tie-name-order"
+    return {"primary": name, "import_count": count, "version_input": version,
+            "version": normalize_version(version)["normalized"] if usable else "1.0.0",
+            "fallback": not usable, "tied": sorted((r[0] for r in tied), key=lambda n: (n.casefold(), n)),
+            "reason": reason}
+
+
+def _version_folder_key(name):
+    """Newest-first sort key for version folder names; a name that is not a
+    version sorts after every version, by name."""
+    parsed = _parse_plain_version(name)
+    if parsed is None:
+        return (0, (), name)
+    return (1, _order_key(parsed), name)
+
+
+# --------------------------------------------------------------------------
+# Resolve: the version a reading workflow uses, and its paths
+# --------------------------------------------------------------------------
+
+ISO_TIME_RE = re.compile(
+    r"(\d{4})-(\d{2})-(\d{2})"
+    r"(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?)?"
+    r"\s*([Zz]|[+-]\d{2}(?::?\d{2})?)?")
+
+
+# Keep identical to _parse_iso_utc in skf-load-provenance.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _parse_iso_utc(value):
+    """An ISO-8601 date or date-time as an aware UTC datetime, else None.
+
+    A time without a zone is read as UTC, a date alone as its midnight UTC.
+    """
+    if not isinstance(value, str):
+        return None
+    m = ISO_TIME_RE.fullmatch(value.strip())
+    if not m:
+        return None
+    year, month, day, hour, minute, second, fraction, zone = m.groups()
+    offset = timedelta(0)
+    if zone and zone not in ("Z", "z"):
+        digits = zone[1:].replace(":", "")
+        offset = timedelta(hours=int(digits[:2]), minutes=int(digits[2:] or 0))
+        if zone[0] == "-":
+            offset = -offset
+    try:
+        moment = datetime(int(year), int(month), int(day), int(hour or 0), int(minute or 0),
+                          int(second or 0), int((fraction or "0")[:6].ljust(6, "0")))
+        return (moment - offset).replace(tzinfo=timezone.utc)
+    except (ValueError, OverflowError):  # no such date, or out of datetime's range
+        return None
+
+
+def _utc_text(moment):
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _provenance_time(path):
+    """(generated_at, source) for a provenance map: its `generated_at` field in
+    UTC ("provenance-map"), else the file's modification time ("mtime"), else
+    (None, None) when there is no map."""
+    data, err = read_json_file(path)
+    if err is None and isinstance(data, dict):
+        moment = _parse_iso_utc(data.get("generated_at"))
+        if moment is not None:
+            return _utc_text(moment), "provenance-map"
+    try:
+        if path.is_file():
+            return _utc_text(datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)), "mtime"
+    except OSError:
+        pass
+    return None, None
+
+
+def _active_link_version(skill_group_dir):
+    """(version, error) for the `active` link of a skill folder.
+
+    The version is the name of the folder the link leads to when that folder
+    sits directly in the skill folder (not a `.skf-` name). A broken or
+    looping link, or one that leads anywhere else, gives (None, reason); no
+    link gives (None, None). A real `active/` folder is not a link.
+    """
+    active = skill_group_dir / "active"
+    if not _is_link_or_junction(active):
+        if active.is_dir():
+            return None, f"`active` is a folder, not a link: {active}"
+        return None, None
+    try:
+        target = active.resolve(strict=True)
+        group = skill_group_dir.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None, f"`active` link is broken: {active}"
+    if target.parent != group or ".skf-" in target.name or not target.is_dir():
+        return None, f"`active` link does not lead to a version folder of the skill: {active}"
+    return target.name, None
+
+
+def _manifest_versions(entry, updated_at):
+    """(active_version, last_exported, {version: status}) from one manifest entry.
+
+    A v2 entry maps each version to its record; a v1 entry lists versions
+    and marks the active one deprecated with `deprecated: true`, as
+    skf-manifest-ops.py migrates it.
+    """
+    if not isinstance(entry, dict):
+        return None, None, {}
+    active = entry.get("active_version")
+    active = active if isinstance(active, str) and active else None
+    versions = entry.get("versions")
+    statuses, last_exported = {}, None
+    if isinstance(versions, dict):
+        for v, record in versions.items():
+            status = record.get("status") if isinstance(record, dict) else None
+            statuses[v] = status if isinstance(status, str) else None
+        record = versions.get(active) if active else None
+        if isinstance(record, dict) and isinstance(record.get("last_exported"), str):
+            last_exported = record["last_exported"]
+    elif isinstance(versions, list):
+        deprecated = entry.get("deprecated") is True
+        for v in versions:
+            if isinstance(v, str):
+                statuses[v] = ("deprecated" if deprecated else "active") if v == active else "archived"
+        last_exported = updated_at if isinstance(updated_at, str) else None
+    return active, last_exported, statuses
+
+
+def _disk_versions(skill_group_dir, skill_name):
+    """The version folders of a skill folder: each folder directly in it that
+    holds a `{name}/` folder (not `active`, a `.skf-` or dot name, or a flat
+    package folder beside a root SKILL.md)."""
+    try:
+        children = list(skill_group_dir.iterdir())
+    except OSError:
+        return []
+    flat = (skill_group_dir / "SKILL.md").is_file()
+    found = []
+    for child in children:
+        name = child.name
+        if (name.startswith(".") or _is_active_pointer(name) or ".skf-" in name
+                or (flat and name in FLAT_PACKAGE_ENTRIES)):
+            continue
+        if child.is_dir() and (child / skill_name).is_dir():
+            found.append(name)
+    return found
+
+
+def _artifact(versioned, flat):
+    """{path, source, versioned, flat}: the first of the two paths that is a
+    file, versioned first; `path` and `source` are null when neither is."""
+    for source, path in (("versioned", versioned), ("flat", flat)):
+        if path is not None and path.is_file():
+            return {"path": str(path), "source": source,
+                    "versioned": str(versioned) if versioned else None, "flat": str(flat)}
+    return {"path": None, "source": None,
+            "versioned": str(versioned) if versioned else None, "flat": str(flat)}
+
+
+RESOLVE_DETAILS = {
+    "requested": "the caller asked for version {chosen}",
+    "manifest-and-link": "the manifest and the `active` link both name {chosen}",
+    "manifest-lags-link": ("the manifest names {manifest} but the `active` link names {chosen}, "
+                           "which a writing workflow flipped after the last export; using the "
+                           "link (run export-skill to reconcile the manifest)"),
+    "manifest": "the manifest names {chosen}",
+    "link": "the `active` link names {chosen}; the manifest does not list the skill",
+    "flat-layout": "the skill still uses the flat layout (SKILL.md at the skill folder root)",
+    "newest-on-disk": ("neither the manifest nor an `active` link names a version on disk; "
+                       "{chosen} is the newest version folder"),
+    "missing": "no version of the skill is on disk",
+}
+
+
+def resolve_skill(skills_folder, skill_name, forge_data_folder, version=None):
+    """Resolve the version a reading workflow uses for `skill_name`, and its paths.
+
+    Implements Reading Workflows in knowledge/version-paths.md. The chosen
+    version and `reason`, first that applies:
+
+    - "requested": `version` was given.
+    - "manifest-and-link": the manifest's `active_version` and the `active`
+      link name the same version, and its package is on disk.
+    - "manifest-lags-link": they differ and the link's version has its
+      package on disk (the Manifest-lag guard: the link wins).
+    - "manifest": the manifest's version has its package on disk (no link,
+      or the link names a version with no package).
+    - "link": the manifest does not list the skill; the link's version has
+      its package on disk.
+    - "flat-layout": no version resolved and SKILL.md sits at the skill
+      folder root; `chosen_version` and `forge_version` are null.
+    - "newest-on-disk": no version resolved, but a version folder holds the
+      package; the newest one.
+    - "missing": nothing on disk; the manifest's version, else the link's,
+      else null.
+
+    `candidates` describes the manifest's and the link's version (package
+    on disk, provenance map, its `generated_at` in UTC or the file's mtime).
+    `paths` gives metadata.json, provenance-map.json and evidence-report.md,
+    each the versioned path when that file exists, else the flat one
+    (`{skill_group}/metadata.json`, `{forge_group}/<file>`), else null.
+    `versions` lists the manifest's and the on-disk versions newest first,
+    with the manifest status of each; `counts` and `newest_non_deprecated`
+    (the newest manifest version whose status is not "deprecated") read
+    them. Returns None when neither the manifest nor the skills folder
+    knows the skill.
+    """
+    skills_dir, forge_dir = Path(skills_folder), Path(forge_data_folder)
+    group, forge_group = skills_dir / skill_name, forge_dir / skill_name
+    errors = []
+    manifest, manifest_error = read_json_file(skills_dir / ".export-manifest.json")
+    if manifest_error and manifest_error.startswith("Not found"):
+        manifest_error = None
+    if manifest is not None and not isinstance(manifest, dict):
+        manifest, manifest_error = None, "the export manifest is not a JSON object"
+    exports = manifest.get("exports") if isinstance(manifest, dict) else None
+    entry = exports.get(skill_name) if isinstance(exports, dict) else None
+    manifest_version, last_exported, statuses = _manifest_versions(
+        entry, manifest.get("updated_at") if isinstance(manifest, dict) else None)
+    if manifest_version is not None and not _safe_segment(manifest_version):
+        errors.append(f"the manifest's active_version is not a folder name: {manifest_version!r}")
+        manifest_version = None
+    if not isinstance(entry, dict) and not os.path.lexists(group):
+        return None
+    is_group = group.is_dir()
+    link_version, link_error = _active_link_version(group) if is_group else (None, None)
+    if link_error:
+        errors.append(link_error)
+    on_disk = _disk_versions(group, skill_name) if is_group else []
+
+    def has_package(v):
+        return v is not None and (group / v / skill_name).is_dir()
+
+    listed = sorted(set(statuses) | set(on_disk), key=_version_folder_key, reverse=True)
+    newest_on_disk = next((v for v in listed if v in on_disk), None)
+    if version is not None:
+        chosen, reason = version, "requested"
+    elif has_package(link_version) and link_version == manifest_version:
+        chosen, reason = link_version, "manifest-and-link"
+    elif has_package(link_version) and manifest_version is not None:
+        chosen, reason = link_version, "manifest-lags-link"
+    elif has_package(manifest_version):
+        chosen, reason = manifest_version, "manifest"
+    elif has_package(link_version):
+        chosen, reason = link_version, "link"
+    elif is_group and (group / "SKILL.md").is_file():
+        chosen, reason = None, "flat-layout"
+    elif newest_on_disk is not None:
+        chosen, reason = newest_on_disk, "newest-on-disk"
+    else:
+        chosen, reason = manifest_version or link_version, "missing"
+
+    def candidate(v):
+        if v is None:
+            return None
+        provenance = forge_group / v / "provenance-map.json"
+        generated_at, source = _provenance_time(provenance)
+        return {"version": v, "skill_package_exists": has_package(v),
+                "provenance_map": str(provenance) if provenance.is_file() else None,
+                "generated_at": generated_at, "generated_at_source": source}
+
+    package = group / chosen / skill_name if chosen else None
+    forge_version = forge_group / chosen if chosen else None
+    if reason == "flat-layout":
+        package = group
+    counts = {"total": len(listed), "manifest": len(statuses), "on_disk": len(on_disk),
+              "non_deprecated": sum(1 for s in statuses.values() if s != "deprecated"),
+              "by_status": {}}
+    for status in statuses.values():
+        key = status if status is not None else "unknown"
+        counts["by_status"][key] = counts["by_status"].get(key, 0) + 1
+    return {
+        "name": skill_name,
+        "layout": "flat" if reason == "flat-layout" else ("versioned" if chosen else "none"),
+        "chosen_version": chosen,
+        "reason": reason,
+        "detail": RESOLVE_DETAILS[reason].format(chosen=chosen, manifest=manifest_version),
+        "active_version": manifest_version,
+        "manifest_last_exported": last_exported,
+        "symlink_target": link_version,
+        "candidates": {"manifest": candidate(manifest_version), "symlink": candidate(link_version)},
+        "skill_group": str(group),
+        "skill_package": str(package) if package else None,
+        "skill_package_exists": package is not None and package.is_dir(),
+        "forge_group": str(forge_group),
+        "forge_version": str(forge_version) if forge_version else None,
+        "paths": {
+            "metadata": _artifact(package / "metadata.json" if chosen else None,
+                                  group / "metadata.json"),
+            "provenance_map": _artifact(forge_version / "provenance-map.json" if chosen else None,
+                                        forge_group / "provenance-map.json"),
+            "evidence_report": _artifact(forge_version / "evidence-report.md" if chosen else None,
+                                         forge_group / "evidence-report.md"),
+        },
+        "versions": [{"version": v, "status": statuses.get(v), "in_manifest": v in statuses,
+                      "on_disk": v in on_disk} for v in listed],
+        "newest_non_deprecated": next(
+            (v for v in listed if v in statuses and statuses[v] != "deprecated"), None),
+        "newest_on_disk": newest_on_disk,
+        "counts": counts,
+        "manifest_error": manifest_error,
+        "errors": errors,
+    }
+
+
 def normalize_url(value):
     """Normalize a URL / path / source_repo for case-insensitive comparison.
 
@@ -976,7 +1557,15 @@ USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "[--skill <name>] [--manifest-only] [--match-target <url-or-name>] "
          "[--forge-data-folder <path>]\n"
          "       uv run skf-skill-inventory.py <skills-output-folder> --skill <name> "
-         "--write-check [--write-version <version>] [--forge-data-folder <path>]")
+         "--write-check [--write-version <version>] [--forge-data-folder <path>]\n"
+         "       uv run skf-skill-inventory.py resolve <skills-output-folder> --skill <name> "
+         "--forge-data-folder <path> [--version <version>]\n"
+         "       uv run skf-skill-inventory.py version normalize <version>\n"
+         "       uv run skf-skill-inventory.py version order <a> <b>\n"
+         "       uv run skf-skill-inventory.py version next-patch <version>\n"
+         "       uv run skf-skill-inventory.py version bump --prior <version> "
+         "--prior-libraries <a,b> --libraries <a,c>\n"
+         "       uv run skf-skill-inventory.py version primary <candidates.json|->")
 
 
 def _flag_value(argv, flag, required=False):
@@ -1002,10 +1591,120 @@ def _safe_segment(value):
     return bool(value) and value not in (".", "..") and "/" not in value and "\\" not in value
 
 
+def _usage_error(message):
+    print(json.dumps({"status": "error", "error": message, "code": "USAGE"}, indent=2))
+    print(USAGE, file=sys.stderr)
+    return 1
+
+
+def _check_flag_pairs(args, flags):
+    """ValueError for an argument that is not one of `flags` followed by its value."""
+    for i in range(0, len(args), 2):
+        if args[i] not in flags:
+            raise ValueError(f"unexpected argument: {args[i]!r}")
+
+
+def _main_resolve(argv):
+    """`resolve <skills-output-folder> --skill <name> --forge-data-folder <path> [--version <v>]`."""
+    try:
+        if not argv or argv[0].startswith("--"):
+            raise ValueError("resolve needs <skills-output-folder> first")
+        skill = _flag_value(argv, "--skill", required=True)
+        forge_data_folder = _flag_value(argv, "--forge-data-folder", required=True)
+        version = _flag_value(argv, "--version", required=True)
+        _check_flag_pairs(argv[1:], ("--skill", "--forge-data-folder", "--version"))
+        if not skill:
+            raise ValueError("resolve needs --skill <name>")
+        if not forge_data_folder:
+            raise ValueError("resolve needs --forge-data-folder <path>")
+        if not _safe_segment(skill):
+            raise ValueError(f"--skill must be one folder name: {skill!r}")
+        if version is not None and not _safe_segment(version):
+            raise ValueError(f"--version must be one folder name: {version!r}")
+    except ValueError as e:
+        return _usage_error(str(e))
+    skills_dir = Path(argv[0])
+    if not skills_dir.is_dir():
+        result = {"status": "error", "error": f"Skills directory not found: {skills_dir}",
+                  "code": "DIR_NOT_FOUND"}
+    else:
+        resolved = resolve_skill(skills_dir, skill, forge_data_folder, version)
+        if resolved is None:
+            result = {"status": "error", "code": "SKILL_NOT_FOUND",
+                      "error": f"Skill '{skill}' is neither in {skills_dir} nor in its export manifest"}
+        else:
+            result = {"status": "ok", "skills_folder": str(skills_dir),
+                      "forge_data_folder": forge_data_folder, "resolve": resolved}
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "ok" else 1
+
+
+def _library_list(value):
+    return [name.strip() for name in value.split(",") if name.strip()]
+
+
+def _read_candidates(source):
+    """The candidate list of `version primary`, from a JSON file or `-` (stdin)."""
+    try:
+        text = sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+        data = json.loads(text)
+    except (OSError, ValueError) as e:
+        raise ValueError(f"cannot read candidates from {source}: {e}") from e
+    if not isinstance(data, list):
+        raise ValueError("candidates must be a JSON array of {name, import_count, version}")
+    return data
+
+
+def _main_version(argv):
+    """`version normalize|order|next-patch|bump|primary ...`; exit 1 with
+    `NOT_A_VERSION`, `NOT_INCREASING`, `BAD_INPUT` or `USAGE` on an error."""
+    command, args = (argv[0], argv[1:]) if argv else (None, [])
+    code = "NOT_A_VERSION"
+    try:
+        if command == "normalize" and len(args) == 1:
+            result = normalize_version(args[0])
+            if result["normalized"] is None:
+                print(json.dumps({"status": "error", "error": result["reason"],
+                                  "code": "NOT_A_VERSION", "command": command, **result}, indent=2))
+                return 1
+        elif command == "order" and len(args) == 2:
+            result = order_versions(args[0], args[1])
+        elif command == "next-patch" and len(args) == 1:
+            result = next_patch(args[0])
+        elif command == "bump":
+            try:
+                prior = _flag_value(args, "--prior", required=True)
+                prior_libraries = _flag_value(args, "--prior-libraries", required=True)
+                libraries = _flag_value(args, "--libraries", required=True)
+                _check_flag_pairs(args, ("--prior", "--prior-libraries", "--libraries"))
+                if prior is None or prior_libraries is None or libraries is None:
+                    raise ValueError("bump needs --prior, --prior-libraries and --libraries")
+            except ValueError as e:
+                return _usage_error(str(e))
+            result = compose_bump(prior, _library_list(prior_libraries), _library_list(libraries))
+        elif command == "primary" and len(args) == 1:
+            code = "BAD_INPUT"
+            result = primary_library(_read_candidates(args[0]))
+        else:
+            return _usage_error(f"unknown version command or wrong arguments: {' '.join(argv)!r}")
+    except NotIncreasingError as e:
+        print(json.dumps({"status": "error", "error": str(e), "code": "NOT_INCREASING"}, indent=2))
+        return 1
+    except ValueError as e:
+        print(json.dumps({"status": "error", "error": str(e), "code": code}, indent=2))
+        return 1
+    print(json.dumps({"status": "ok", "command": command, **result}, indent=2))
+    return 0
+
+
 def main(argv):
     if len(argv) < 1:
         print(USAGE, file=sys.stderr)
         return 1
+    if argv[0] == "resolve":
+        return _main_resolve(argv[1:])
+    if argv[0] == "version":
+        return _main_version(argv[1:])
     folder = argv[0]
     write = "--write-check" in argv
     try:

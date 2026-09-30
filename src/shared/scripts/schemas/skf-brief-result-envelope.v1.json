@@ -3,6 +3,29 @@
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-brief-result-envelope.v1.json",
   "title": "SKF_BRIEF_RESULT_JSON envelope (v1)",
   "description": "Single-line JSON document emitted by skf-brief-skill step 5 §4b when {headless_mode} is true, prefixed with the literal 'SKF_BRIEF_RESULT_JSON: '. Pipelines grep one line out of the workflow log to branch on the brief outcome without parsing prose. Schema mirrors the contract in src/skf-brief-skill/SKILL.md Result Contract section.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-brief-skill",
+        "prefix": "SKF_BRIEF_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-missing": 2,
+          "input-invalid": 2,
+          "forge-tier-missing": 3,
+          "target-inaccessible": 3,
+          "gh-auth-failed": 3,
+          "write-failed": 4,
+          "overwrite-cancelled": 5,
+          "user-cancelled": 6
+        },
+        "success_exit_code": 0,
+        "result_file": null
+      }
+    }
+  },
   "type": "object",
   "additionalProperties": false,
   "required": ["status", "brief_path", "skill_name", "version", "language", "scope_type", "exit_code", "halt_reason", "mode"],
@@ -58,6 +81,11 @@
       "type": ["string", "null"],
       "enum": ["auto", null],
       "description": "'auto' when BS was invoked with the [auto] bracket modifier (pipeline auto-brief generation). Null otherwise (interactive or headless-without-auto)."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies surfaced during the run, one string each, such as customization_resolver_unavailable when the customization resolver could not apply the _bmad/custom/ overrides. Present only when the run recorded at least one, so an envelope without warnings is unchanged."
     }
   }
 }

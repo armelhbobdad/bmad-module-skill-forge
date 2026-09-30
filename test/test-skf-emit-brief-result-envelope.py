@@ -410,3 +410,147 @@ class TestCLIValidate:
         )
         assert proc.returncode == 1
         assert "canonical mapping" in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# warnings (optional v1 property) and the shared emitter behind the alias
+# --------------------------------------------------------------------------
+
+SHARED_EMITTER = SCRIPT_PATH.parent / "skf-emit-result-envelope.py"
+SCHEMA_PATH = SCRIPT_PATH.parent / "schemas" / "skf-brief-result-envelope.v1.json"
+V1_KEYS = ["status", "brief_path", "skill_name", "version", "language", "scope_type",
+           "exit_code", "halt_reason", "mode"]
+
+
+class TestWarnings:
+    def _ctx(self, **extra) -> dict:
+        return {"status": "success", "skill_name": "foo", "halt_reason": None, **extra}
+
+    def test_warnings_land_after_the_v1_keys(self):
+        env = mod.assemble(self._ctx(warnings=["scope_rationale_missing"]))
+        assert list(env) == [*V1_KEYS, "warnings"]
+        assert env["warnings"] == ["scope_rationale_missing"]
+        mod.validate(env)
+
+    def test_no_warnings_key_while_there_are_none(self):
+        assert list(mod.assemble(self._ctx(warnings=[]))) == V1_KEYS
+        assert list(mod.assemble(self._ctx())) == V1_KEYS
+
+    def test_resolver_reason_becomes_a_warning(self):
+        env = mod.assemble(self._ctx(customization_resolver_unavailable="resolver missing"))
+        assert env["warnings"] == ["customization_resolver_unavailable: resolver missing"]
+        assert "customization_resolver_unavailable" not in env
+
+    def test_warnings_must_be_strings(self):
+        with pytest.raises(SystemExit):
+            mod.assemble(self._ctx(warnings=[{"not": "a string"}]))
+        env = mod.assemble(self._ctx())
+        env["warnings"] = [""]
+        with pytest.raises(SystemExit):
+            mod.validate(env)
+
+    def test_schema_keeps_warnings_optional(self):
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        assert schema["required"] == V1_KEYS
+        assert list(schema["properties"]) == [*V1_KEYS, "warnings"]
+        assert schema["properties"]["warnings"]["type"] == "array"
+        assert "customization_resolver_unavailable" in schema["properties"]["warnings"]["description"]
+
+
+class TestAlias:
+    def test_the_alias_restates_no_contract(self):
+        text = SCRIPT_PATH.read_text(encoding="utf-8")
+        for constant in ("HALT_TO_EXIT", "VALID_HALT_REASONS", "KEY_ORDER", "VALID_SCOPE_TYPES"):
+            assert constant not in text, constant
+
+    def test_exit_codes_live_in_the_schema(self):
+        meta = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))["$defs"]["skf-envelope"]["const"]
+        assert meta["exit_codes"] == {
+            "input-missing": 2, "input-invalid": 2, "forge-tier-missing": 3, "target-inaccessible": 3,
+            "gh-auth-failed": 3, "write-failed": 4, "overwrite-cancelled": 5, "user-cancelled": 6,
+        }
+        assert meta["success_exit_code"] == 0 and meta["halt_status"] == "error"
+
+    @pytest.mark.parametrize("ctx", [
+        {"status": "success", "brief_path": "/x.yaml", "skill_name": "foo", "version": "1.0.0",
+         "language": "python", "scope_type": "full-library", "halt_reason": None, "mode": "auto",
+         "warnings": ["w"]},
+        {"status": "error", "skill_name": "foo", "halt_reason": "gh-auth-failed"},
+    ])
+    def test_alias_and_shared_emitter_print_the_same_line(self, ctx):
+        alias = subprocess.run([sys.executable, str(SCRIPT_PATH), "emit"], input=json.dumps(ctx),
+                               capture_output=True, text=True, encoding="utf-8")
+        shared = subprocess.run([sys.executable, str(SHARED_EMITTER), "emit", "--workflow", "skf-brief-skill"],
+                                input=json.dumps(ctx), capture_output=True, text=True, encoding="utf-8")
+        assert alias.returncode == shared.returncode == 0, alias.stderr + shared.stderr
+        assert alias.stdout == shared.stdout
+
+    def test_alias_validate_matches_the_shared_validate(self):
+        env = mod.assemble({"status": "error", "skill_name": "foo", "halt_reason": "write-failed"})
+        env["exit_code"] = 3
+        shared = subprocess.run([sys.executable, str(SHARED_EMITTER), "validate", "--workflow", "skf-brief"],
+                                input=json.dumps(env), capture_output=True, text=True)
+        alias = subprocess.run([sys.executable, str(SCRIPT_PATH), "validate"], input=json.dumps(env),
+                               capture_output=True, text=True)
+        assert alias.returncode == shared.returncode == 1
+        assert alias.stderr == shared.stderr and "canonical mapping" in alias.stderr
+
+    # Halt payloads the replaced helper turned into a valid envelope: it read
+    # only the keys it knew and always derived exit_code.
+    TOLERATED = [
+        ({"status": "error", "skill_name": "x", "halt_reason": "write-failed", "reason": "disk full"},
+         ["payload_key_ignored: reason"]),
+        ({"status": "error", "skill_name": "x", "halt_reason": "write-failed", "reason": "disk full",
+          "exit_code": 1},
+         ["payload_key_ignored: reason", "exit_code_overridden: 1 (halt_reason write-failed maps to 4)"]),
+        ({"status": "success", "skill_name": "x", "halt_reason": None, "exit_code": 3},
+         ["exit_code_overridden: 3 (halt_reason null maps to 0)"]),
+    ]
+
+    @pytest.mark.parametrize("ctx,notes", TOLERATED)
+    def test_alias_emits_what_the_replaced_helper_tolerated(self, ctx, notes):
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "emit", "--target", "stderr"],
+                              input=json.dumps(ctx), capture_output=True, text=True, encoding="utf-8")
+        assert proc.returncode == 0 and proc.stdout == "", proc.stderr
+        [line] = proc.stderr.splitlines()
+        env = json.loads(line[len("SKF_BRIEF_RESULT_JSON: "):])
+        assert env["exit_code"] == (4 if ctx["halt_reason"] else 0)
+        assert env["warnings"] == notes
+        assert list(env) == [*V1_KEYS, "warnings"]
+        mod.validate(env)
+        assert mod.assemble(ctx) == env
+
+    def test_a_typed_exit_code_that_matches_the_mapping_is_silent(self):
+        env = mod.assemble({"status": "error", "skill_name": "x", "halt_reason": "write-failed", "exit_code": 4})
+        assert env["exit_code"] == 4 and "warnings" not in env
+
+    @pytest.mark.parametrize("ctx,_notes", TOLERATED)
+    def test_the_shared_emitter_stays_strict(self, ctx, _notes):
+        """Only the alias keeps the old tolerance; adopting workflows get a refusal."""
+        shared = subprocess.run([sys.executable, str(SHARED_EMITTER), "emit", "--workflow", "skf-brief-skill"],
+                                input=json.dumps(ctx), capture_output=True, text=True, encoding="utf-8")
+        assert shared.returncode == 1 and shared.stdout == ""
+
+    def test_the_line_is_ascii_as_the_replaced_helper_printed_it(self):
+        ctx = {"status": "success", "brief_path": "/p/caf\u00e9/skill-brief.yaml", "skill_name": "caf\u00e9",
+               "version": None, "language": None, "scope_type": None, "halt_reason": None,
+               "warnings": ["line\u2028break"]}
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "emit"], input=json.dumps(ctx),
+                              capture_output=True, text=True, encoding="utf-8")
+        assert proc.returncode == 0, proc.stderr
+        expected = {**{k: ctx.get(k) for k in V1_KEYS}, "exit_code": 0, "warnings": ["line\u2028break"]}
+        assert proc.stdout == "SKF_BRIEF_RESULT_JSON: " + json.dumps(expected, separators=(",", ":")) + "\n"
+
+    def test_installed_layout_loads_the_sibling_emitter(self, tmp_path):
+        import shutil
+        scripts = tmp_path / "_bmad" / "skf" / "shared" / "scripts"
+        shutil.copytree(SCRIPT_PATH.parent / "schemas", scripts / "schemas")
+        for script in (SCRIPT_PATH, SHARED_EMITTER):
+            shutil.copy2(script, scripts / script.name)
+        proc = subprocess.run([sys.executable, str(scripts / SCRIPT_PATH.name), "emit", "--target", "stderr"],
+                              input=json.dumps({"status": "error", "skill_name": "foo",
+                                                "halt_reason": "user-cancelled"}),
+                              capture_output=True, text=True, cwd=tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        env = json.loads(proc.stderr.strip()[len("SKF_BRIEF_RESULT_JSON: "):])
+        assert env["exit_code"] == 6

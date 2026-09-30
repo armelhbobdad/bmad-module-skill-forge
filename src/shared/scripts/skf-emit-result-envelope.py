@@ -2,41 +2,154 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""SKF Emit Result Envelope — Schema-locked headless output for skf-setup.
+"""SKF Emit Result Envelope: one schema-checked emitter for every workflow.
 
-Replaces prose-driven envelope assembly in skf-setup with one Python
-invocation: step 4 (`src/skf-setup/references/report.md` §4) runs `emit`,
-and every halt that names a phase runs `emit-blocked`.
+A workflow with a headless contract ends each run, and each HARD HALT, with
+one prefixed line that pipelines grep out of the workflow log:
+`SKF_<NAME>_RESULT_JSON: {one-line JSON}`. The model never types that line.
+It stages a payload file and runs this script, which fills the derived
+fields, folds in the run's auto-decisions and warnings, checks the envelope
+against the workflow's JSON Schema, writes the run's result files and
+prints the line:
 
-LLM-rendered envelopes risk silent schema drift on every invocation —
-a pipeline that grep's `SKF_SETUP_RESULT_JSON: {…}` out of the workflow
-log can break if the model decides to rename a key or rearrange a
-nested structure. This script is the single source of truth: it takes
-a context payload as JSON on stdin, computes derived fields
-deterministically, and emits the envelope in a fixed shape that
-matches the JSON Schema at
-`src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`.
+  uv run {helper} emit --workflow <name> --run-dir <run_dir> --result-dir <dir> < <run_dir>/result-context.json
+  uv run {helper} emit-halt --workflow <name> --run-dir <run_dir> < <run_dir>/halt.json
 
 Subcommands:
 
-  emit       Read context payload as JSON on stdin, derive missing
-             fields (tools_added/removed, tier_changed, status), assemble
-             the envelope, emit `SKF_SETUP_RESULT_JSON: {one-line JSON}`
-             on stdout. Default subcommand.
+  emit       Build the envelope that ends a run from the context payload
+             on stdin. Without --workflow it builds skf-setup's, from
+             setup's own payload (see "skf-setup" below). Default
+             subcommand.
+
+  emit-halt  Build the envelope of a HARD HALT from the halt payload on
+             stdin: {"phase", "reason", "halt_reason"?, "exit_code"?,
+             "path"?, "status"?} plus any envelope field the halt already
+             knows (a skill name, a version). Needs --workflow.
 
   emit-blocked
-             Read {"phase", "reason", "path"?} as JSON on stdin and emit a
-             status 'blocked' envelope for a halt, with placeholders for
-             the fields a halt does not know (tier 'Quick', no tools,
+             skf-setup's halt: `emit-halt --workflow skf-setup` under its
+             older name. Reads {"phase", "reason", "path"?} on stdin and
+             emits a status 'blocked' envelope, with placeholders for the
+             fields a halt does not know (tier 'Quick', no tools,
              config_path set to the path, files_written []).
 
-  validate   Read an envelope (without the prefix) as JSON on stdin
-             and verify it against the documented schema. No stdout
-             on success; non-zero exit + stderr error on failure.
-             Useful for paranoid pipelines that want to validate a
-             received envelope before consuming it.
+  record     Append one entry to the run's sink: --decision reads one
+             auto-decision (a JSON object) on stdin, --warning takes the
+             warning text. With --workflow a decision is checked against
+             that workflow's headless_decisions item schema first.
 
-Context payload shape (consumed by `emit`):
+  validate   Read an envelope (without the prefix) as JSON on stdin and
+             verify it against the workflow's schema (skf-setup's without
+             --workflow). No stdout on success; non-zero exit + stderr
+             error on failure. Useful for paranoid pipelines that want to
+             validate a received envelope before consuming it.
+
+Workflow schemas. A workflow's envelope schema is
+`schemas/skf-<name>-result-envelope.v<N>.json`, found beside this script in
+both the source tree and an installed project. --workflow takes the
+workflow's folder name (`skf-update-skill`) or the schema's stem
+(`skf-update`); two versions of one schema resolve to the higher. The
+schema tells the emitter what JSON Schema cannot in its `skf-envelope`
+settings: a `$defs` entry that holds them as a `const` and that nothing
+references. `$defs` and `const` are standard keywords, so a strict
+validator (Ajv's default mode) still compiles the schema:
+
+  "$defs": {"skf-envelope": {"const": {
+    "workflow":          "skf-update-skill",
+    "prefix":            "SKF_UPDATE_RESULT_JSON",
+    "wrapper":           "skf_update" | null,
+    "halt_status":       "blocked",
+    "exit_codes":        {"<halt_reason>": <exit code>, ...},
+    "success_exit_code": 0,
+    "result_file":       "update-skill-result" | null
+  }}}
+
+  wrapper names the one property that wraps the envelope (null for a flat
+  envelope); halt_status is the status a halt envelope carries unless its
+  payload names one; exit_codes maps each halt_reason to its exit code, and
+  success_exit_code is the code a null halt_reason carries (both optional);
+  result_file is the stem of the run's result files (null: none).
+
+Building an envelope (every workflow but skf-setup). Each payload key is an
+envelope field of the same name, except `result_contract` and
+`customization_resolver_unavailable` (below). Then:
+
+  - A halt payload's phase, reason, halt_reason, exit_code and path become
+    the fields of the same name the schema declares, and fill its `error`
+    object: phase, reason and path by name, `code` from halt_reason,
+    `message` from reason, and '<n/a>' for a required path the halt has
+    none for. A key the schema has no place for is dropped.
+  - exit_code, when the payload has none, is exit_codes[halt_reason], or
+    for a finished run with a null halt_reason success_exit_code (else 0);
+    a halt without a mapped halt_reason must give its exit_code. A status
+    equal to halt_status needs a halt_reason and any other status a null
+    one, and exit_code must match the mapping, when the schema declares
+    them.
+  - Stamped from the run, never typed: `timestamp` (ISO-8601 UTC, from the
+    clock), `run_id` (the --run-dir folder name without its
+    `<workflow>-` prefix) and `result_path` (the per-run result file this
+    call wrote, or null), each when the schema declares it.
+  - headless_decisions and warnings: the payload's own entries, then the
+    sink's, duplicates dropped. A `customization_resolver_unavailable`
+    reason becomes the warning `customization_resolver_unavailable:
+    <reason>`. An optional list stays out of the envelope while empty.
+  - A required field the payload leaves out gets its schema `default`,
+    else null when the schema allows it; in a halt, else [], {}, false or
+    0 by its type.
+
+  The envelope's keys follow the schema's property order, and the line is
+  ASCII JSON, non-ASCII text escaped, as skf-brief-skill's helper always
+  printed it: no character in a value can break the line for a reader.
+
+Run sink. Every run owns a folder, `_bmad-output/.skf-run/<workflow>-<run_id>/`,
+passed as --run-dir. Each gate records its auto-decision there the moment
+it decides, and each warning as it is raised, with `record`:
+
+  {run_dir}/headless-decisions.jsonl   one decision object per line
+  {run_dir}/warnings.jsonl             one warning string per line
+
+so the decision trail survives context compaction and a halt reports the
+decisions taken before it. `record` writes each line as ASCII JSON, so no
+U+2028, U+2029 or U+0085 inside a value can split it for a reader that
+breaks lines there, and the emitter splits the files on newlines alone. A
+line that is not JSON (a write cut short) or a decision the schema rejects
+is left out and named in the warnings (`sink_line_unreadable:
+<file>:<line>`, `headless_decision_invalid: <file>:<line>: <error>`), so a
+halt still emits.
+
+Result files. With --result-dir naming a folder that exists (the version
+folder), the call writes `<result_file>-<YYYYMMDD-HHmmss>.json` (UTC; `-2`,
+`-3`, ... appended when a run already took that second's name) and then
+the copy `<result_file>-latest.json`, each atomically. The file holds the
+payload's `result_contract` object (see
+`shared/references/output-contract-schema.md`) with `timestamp`, `run_id`,
+`headless_decisions` and `warnings` stamped in, or the envelope itself
+when the payload has none. When --result-dir names no folder, nothing is
+written: a halt before the version folder exists reports on stdout only.
+A write that fails adds the warning `result_file_write_failed: <path>:
+<reason>`, and a failed per-run record leaves `result_path` null. A
+workflow whose `result_file` is null writes none: it ignores --result-dir
+with the warning `result_dir_ignored: <workflow> writes no result file`.
+
+Clock. The helper imports only argparse, json, os, pathlib and sys, so the
+bare interpreters of skf-setup's halt contract run it, and none of those
+reads the wall clock. The time comes from the system clock through the
+filesystem: the modification time of an empty file created, and removed at
+once, in the first of these folders that takes it: the result folder, the
+run folder (created first when it is missing), the working directory, then
+the temporary folder (TMPDIR, TEMP, TMP or /tmp). When none takes it, a
+schema that declares a required, non-null `timestamp` cannot be met: the
+call exits 1 and prints no line.
+
+skf-setup. setup keeps its own payload, which the emitter turns into the
+envelope below (`emit` and `emit-blocked` keep working without --workflow).
+Its envelope follows `schemas/skf-setup-result-envelope.v1.json` and prints
+with sorted keys and raw UTF-8, except that U+2028, U+2029 and U+0085 are
+escaped so the line stays one line. --run-dir appends the sink's warnings
+that setup's own list does not already hold.
+
+Context payload shape (consumed by `emit` for skf-setup):
 
   {
     "tier":                          "Quick|Forge|Forge+|Deep",
@@ -59,24 +172,31 @@ Context payload shape (consumed by `emit`):
     "ccc_registry_stale_removed":    ["/path", ...],
     "ccc_indexing_failed_reason":    "string|null",
     "orphan_auto_resolution":        null|{"action": "keep|remove", "count": int, "source": "headless-default|quiet-default|orphan-action-flag"},
+    "customization_resolver_unavailable": "string|null",
     "error":                         null|{"phase","path","reason"}
   }
 
   When the step-3 orphan-removal gate is resolved non-interactively
   (headless or quiet default Keep, or an explicit --orphan-action), pass
-  `orphan_auto_resolution` so the audit trail lands in `warnings` —
-  most importantly when the destructive `remove` ran headlessly, which a
+  `orphan_auto_resolution` so the audit trail lands in `warnings`: most
+  importantly when the destructive `remove` ran headlessly, which a
   pipeline otherwise could not distinguish from a no-op by reading the
   envelope alone.
 
+  When the On Activation customization resolver was missing or failed,
+  pass its one-line reason as `customization_resolver_unavailable`: the
+  run then used only the skill's own customize.toml, and the warning tells
+  a pipeline that the `_bmad/custom/` overrides were not applied. The
+  emit-blocked payload takes the same key.
+
 Caller does NOT need to compute warnings, tools_added/removed, or
-tier_changed — the script derives them from the inputs above.
+tier_changed: the script derives them from the inputs above.
 
 Setup's step 4 always passes `"error": null`: every halt that names a
 phase emits through `emit-blocked` instead. A non-null error still
 yields status 'blocked'.
 
-CLI — the step files invoke it via `uv run`, like every sibling helper.
+CLI: the step files invoke it via `uv run`, like every sibling helper.
 It imports only the standard library (dependencies = []) and must stay
 that way: the setup halt contract runs `emit-blocked` for the On
 Activation halts, which can fire before `uv` is proven present, under
@@ -85,6 +205,7 @@ the first of `uv run`, `python3`, `python` and `py -3` that works.
   echo '{...context payload...}' | uv run skf-emit-result-envelope.py emit
   echo '{"phase":"...","reason":"...","path":"..."}' | uv run skf-emit-result-envelope.py emit-blocked
   echo '{"skf_setup":{...}}' | uv run skf-emit-result-envelope.py validate
+  uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warning "customization_resolver_unavailable: <reason>"
 
 Exit codes:
   0 success
@@ -107,6 +228,36 @@ TOOL_KEYS = ("ast_grep", "gh_cli", "qmd", "ccc")
 VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
 VALID_FILES = ("forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index")
 VALID_CCC_STATUS = ("fresh", "created", "failed", "none", "skipped")
+
+SCHEMA_DIR = SCHEMA_FILE.parent
+SETUP_WORKFLOW = "skf-setup"
+# The `$defs` entry whose `const` holds a schema's emitter settings.
+META_KEY = "skf-envelope"
+META_FIELDS = ("workflow", "prefix", "wrapper", "halt_status", "exit_codes",
+               "success_exit_code", "result_file")
+SINK_DECISIONS = "headless-decisions.jsonl"
+SINK_WARNINGS = "warnings.jsonl"
+# The halt payload's own keys; each lands only where the schema has a place for it.
+HALT_KEYS = ("phase", "reason", "halt_reason", "exit_code", "path")
+# Payload keys the emitter reads and never copies into the envelope.
+PAYLOAD_ONLY_KEYS = ("result_contract", "customization_resolver_unavailable")
+# The fields of a schema's `error` object a halt fills, and the halt key each reads.
+ERROR_FIELDS = {"phase": "phase", "reason": "reason", "path": "path", "code": "halt_reason",
+                "message": "reason", "halt_reason": "halt_reason", "exit_code": "exit_code"}
+# Every JSON Schema keyword _validate_against_schema enforces, and the ones
+# it may skip: annotations, and `$defs`, which holds only the emitter's
+# settings (no envelope schema has a `$ref`). An envelope schema uses no
+# other keyword, so the built-in validator never passes what the schema
+# forbids.
+VALIDATOR_KEYWORDS = frozenset({"type", "enum", "const", "oneOf", "anyOf", "properties",
+                                "additionalProperties", "required", "items", "uniqueItems",
+                                "minLength", "minimum"})
+ANNOTATION_KEYWORDS = frozenset({"$schema", "$id", "$defs", "title", "description", "default",
+                                 "examples"})
+# What str.splitlines() and some log readers break a line at, and json.dumps
+# leaves raw when it keeps non-ASCII text (it escapes every control character).
+RAW_LINE_BREAKS = ("\x85", "\u2028", "\u2029")
+_MISSING = object()
 
 
 def _die(code: int, message: str) -> None:
@@ -161,13 +312,29 @@ def _compute_tool_deltas(current: dict, previous) -> tuple[list[str], list[str]]
     return added, removed
 
 
+def _resolver_warning(payload: dict) -> list[str]:
+    """The customization_resolver_unavailable warning, when the payload reports one.
+
+    Every workflow's On Activation runs resolve_customization.py. When that
+    script is missing or fails, the run falls back to the skill's own
+    customize.toml, so the team and user overrides under `_bmad/custom/`
+    silently do nothing; the payload key carries the resolver's reason so
+    the envelope says so.
+    """
+    reason = payload.get("customization_resolver_unavailable")
+    if not reason:
+        return []
+    text = reason.strip() if isinstance(reason, str) else ""
+    return [f"customization_resolver_unavailable: {text or '<unknown>'}"]
+
+
 def _assemble_warnings(payload: dict) -> list[str]:
     """Fold every documented warning source into the envelope's warnings array.
 
     Matches the field-rules block in step 4 §4 — pipelines should only need
     to consult `warnings` to surface non-fatal issues.
     """
-    warnings: list[str] = []
+    warnings: list[str] = _resolver_warning(payload)
     if payload.get("tier_override_invalid"):
         bad = payload.get("tier_override_invalid_value")
         suggestion = payload.get("tier_override_invalid_suggestion")
@@ -324,8 +491,14 @@ def _compute_status(error: dict | None, require_tier_satisfied) -> str:
 
 
 def emit_envelope_line(envelope: dict) -> str:
-    """Serialize the envelope as one prefixed line. No embedded newlines, sort_keys=True for determinism."""
+    """Serialize the envelope as one prefixed line. No embedded newlines, sort_keys=True for determinism.
+
+    The body keeps non-ASCII text raw, except the RAW_LINE_BREAKS, which only
+    a string can hold and which are escaped there so the line stays one line.
+    """
     body = json.dumps(envelope, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+    for char in RAW_LINE_BREAKS:
+        body = body.replace(char, f"\\u{ord(char):04x}")
     if "\n" in body:
         _die(2, "envelope serialization produced embedded newline (should be impossible)")
     return ENVELOPE_PREFIX + body
@@ -343,10 +516,11 @@ def _load_schema() -> dict:
 def _validate_against_schema(value, schema: dict, path: str = "$") -> list[str]:
     """Return a list of error strings (empty = valid).
 
-    Implements only the subset of Draft 2020-12 features used by our envelope
-    schema: type, enum, oneOf, properties, additionalProperties, required,
-    items, uniqueItems, minLength, minimum. Sufficient to catch every
-    violation our schema can express; not a general-purpose validator.
+    Implements only the subset of Draft 2020-12 features the envelope
+    schemas use, the VALIDATOR_KEYWORDS: type, enum, const, oneOf, anyOf,
+    properties, additionalProperties, required, items, uniqueItems,
+    minLength, minimum. Sufficient to catch every violation those schemas
+    can express; not a general-purpose validator.
     """
     errors: list[str] = []
 
@@ -354,6 +528,11 @@ def _validate_against_schema(value, schema: dict, path: str = "$") -> list[str]:
         matches = sum(1 for sub in schema["oneOf"] if not _validate_against_schema(value, sub, path))
         if matches != 1:
             errors.append(f"{path}: matched {matches} of {len(schema['oneOf'])} oneOf branches (expected exactly 1)")
+        return errors
+
+    if "anyOf" in schema:
+        if all(_validate_against_schema(value, sub, path) for sub in schema["anyOf"]):
+            errors.append(f"{path}: matched none of {len(schema['anyOf'])} anyOf branches")
         return errors
 
     expected_type = schema.get("type")
@@ -365,6 +544,9 @@ def _validate_against_schema(value, schema: dict, path: str = "$") -> list[str]:
     if "enum" in schema:
         if value not in schema["enum"]:
             errors.append(f"{path}: value {value!r} not in enum {schema['enum']}")
+
+    if "const" in schema and value != schema["const"]:
+        errors.append(f"{path}: value {value!r} is not {schema['const']!r}")
 
     if isinstance(value, dict):
         props = schema.get("properties", {})
@@ -413,6 +595,8 @@ def _matches_type(value, expected) -> bool:
         return isinstance(value, bool)
     if expected == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
     if expected == "null":
         return value is None
     return False
@@ -427,23 +611,664 @@ def _freeze(v):
     return v
 
 
+# ─── workflow schemas ───────────────────────────────────────────────────────
+
+
+def _schema_version(path: Path, suffix: str = "-result-envelope.v") -> tuple[str, int] | None:
+    """(stem, version) of an envelope schema file name, or None for another file."""
+    stem, sep, version = path.name[: -len(".json")].rpartition(suffix)
+    if not sep or not version.isdigit():
+        return None
+    return stem, int(version)
+
+
+def _read_schema(path: Path) -> dict | None:
+    try:
+        schema = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return schema if isinstance(schema, dict) else None
+
+
+def load_workflow_schema(workflow: str) -> tuple[dict, Path]:
+    """Return (schema, path) of the newest envelope schema of `workflow`.
+
+    A schema belongs to the workflow its settings name (`skf-update-skill`),
+    and answers to its file stem too (`skf-update` for
+    skf-update-result-envelope.v1.json). The stem is tried first, so an
+    unreadable sibling schema never stops another workflow's halt.
+    """
+    candidates = sorted(SCHEMA_DIR.glob(f"{workflow}-result-envelope.v*.json"))
+    found = []
+    for path in candidates:
+        parsed = _schema_version(path)
+        if parsed is None or parsed[0] != workflow:
+            continue
+        schema = _read_schema(path)
+        if schema is None:
+            _die(2, f"schema file unreadable: {path.name}")
+        found.append((parsed[1], schema, path))
+    if not found:
+        for path in sorted(SCHEMA_DIR.glob("*-result-envelope.v*.json")):
+            parsed = _schema_version(path)
+            schema = _read_schema(path) if parsed else None
+            meta = _meta_of(schema)
+            if meta is not None and meta.get("workflow") == workflow:
+                found.append((parsed[1], schema, path))
+    if not found:
+        _die(1, f"no result-envelope schema for workflow {workflow!r} in {SCHEMA_DIR.as_posix()}")
+    _, schema, path = max(found, key=lambda item: item[0])
+    _meta(schema, path)
+    return schema, path
+
+
+def _meta_of(schema) -> dict | None:
+    """A schema's emitter settings, the `const` of its `$defs` entry META_KEY, or None."""
+    defs = schema.get("$defs") if isinstance(schema, dict) else None
+    entry = defs.get(META_KEY) if isinstance(defs, dict) else None
+    meta = entry.get("const") if isinstance(entry, dict) else None
+    return meta if isinstance(meta, dict) else None
+
+
+def _meta(schema: dict, path: Path | None = None) -> dict:
+    """The schema's emitter settings, checked for the fields the emitter needs."""
+    meta = _meta_of(schema)
+    name = path.name if path else "schema"
+    if meta is None:
+        _die(2, f"{name}: no $defs.{META_KEY}.const object")
+    for key in ("workflow", "prefix"):
+        if not isinstance(meta.get(key), str) or not meta[key]:
+            _die(2, f"{name}: {META_KEY}.{key} must be a non-empty string")
+    wrapper = meta.get("wrapper")
+    if wrapper is not None and not isinstance(schema.get("properties", {}).get(wrapper), dict):
+        _die(2, f"{name}: {META_KEY}.wrapper {wrapper!r} is not a property of the schema")
+    return meta
+
+
+def _inner_schema(schema: dict) -> dict:
+    """The schema of the envelope's fields: under the wrapper, or the whole schema."""
+    wrapper = (_meta_of(schema) or {}).get("wrapper")
+    return schema["properties"][wrapper] if wrapper else schema
+
+
+def _allows(prop: dict, type_name: str) -> bool:
+    """True when the property schema accepts a value of JSON type `type_name`."""
+    branches = prop.get("oneOf") or prop.get("anyOf")
+    if branches:
+        return any(_allows(branch, type_name) for branch in branches)
+    declared = prop.get("type")
+    if isinstance(declared, list):
+        return type_name in declared
+    return declared == type_name
+
+
+def _object_branch(prop: dict) -> dict | None:
+    """The object schema of a property that may also be null (`error`)."""
+    if prop.get("type") == "object" or "properties" in prop:
+        return prop
+    for branch in prop.get("oneOf") or prop.get("anyOf") or []:
+        if isinstance(branch, dict) and branch.get("type") == "object":
+            return branch
+    return None
+
+
+def _placeholder(prop: dict, halt: bool):
+    """The value a required field the payload left out takes, or _MISSING.
+
+    The schema's `default` first, then null where the schema allows it. A
+    halt knows little about its run, so it also takes an empty list, false
+    or 0 by type; a finished run must supply those itself.
+    """
+    if "default" in prop:
+        return json.loads(json.dumps(prop["default"]))
+    if _allows(prop, "null"):
+        return None
+    if halt:
+        if _allows(prop, "array"):
+            return []
+        if _allows(prop, "boolean"):
+            return False
+        if _allows(prop, "integer") or _allows(prop, "number"):
+            return 0
+        if _allows(prop, "object") and not prop.get("required"):
+            return {}
+    return _MISSING
+
+
+def _ordered(value, schema):
+    """Order an object's keys as its schema lists them (unknown keys last)."""
+    if isinstance(value, dict) and isinstance(schema, dict):
+        branch = _object_branch(schema) or schema
+        props = branch.get("properties") or {}
+        keys = [k for k in props if k in value] + [k for k in value if k not in props]
+        return {k: _ordered(value[k], props.get(k, {})) for k in keys}
+    if isinstance(value, list) and isinstance(schema, dict) and isinstance(schema.get("items"), dict):
+        return [_ordered(item, schema["items"]) for item in value]
+    return value
+
+
+# ─── run sink ───────────────────────────────────────────────────────────────
+
+
+def read_sink(run_dir: Path | None) -> tuple[list[tuple[str, dict]], list[str], list[str]]:
+    """Return (decisions, warnings, problems) the run recorded in its sink.
+
+    decisions pairs each object with its `<file>:<line>` location. A line
+    that is not a JSON object (decisions) or a non-empty string (warnings),
+    such as a write cut short, is left out and named in problems. Lines end
+    at a newline only: str.splitlines() would also cut a line at a raw
+    RAW_LINE_BREAKS character inside a string, which a sink line written by
+    hand may hold.
+    """
+    decisions: list[tuple[str, dict]] = []
+    warnings: list[str] = []
+    problems: list[str] = []
+    if run_dir is None:
+        return decisions, warnings, problems
+    for name, kind in ((SINK_DECISIONS, dict), (SINK_WARNINGS, str)):
+        try:
+            text = (run_dir / name).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeDecodeError) as e:
+            problems.append(f"sink_line_unreadable: {name}: {e}")
+            continue
+        for number, line in enumerate(text.split("\n"), 1):
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                value = None
+            if not isinstance(value, kind) or not value:
+                problems.append(f"sink_line_unreadable: {name}:{number}")
+            elif kind is dict:
+                decisions.append((f"{name}:{number}", value))
+            else:
+                warnings.append(value.strip())
+    return decisions, warnings, problems
+
+
+def _decision_schema(schema: dict) -> dict | None:
+    """The item schema of the envelope's headless_decisions, when it has one."""
+    prop = _inner_schema(schema).get("properties", {}).get("headless_decisions")
+    if not isinstance(prop, dict):
+        return None
+    items = prop.get("items")
+    return items if isinstance(items, dict) else {}
+
+
+def _merged(*lists) -> list:
+    """Concatenate the lists, keeping the first of any duplicate entries."""
+    out, seen = [], set()
+    for items in lists:
+        for item in items:
+            key = json.dumps(item, sort_keys=True, ensure_ascii=False)
+            if key not in seen:
+                seen.add(key)
+                out.append(item)
+    return out
+
+
+def _payload_list(payload: dict, key: str, kind: type) -> list:
+    value = payload.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, kind) for item in value):
+        _die(1, f"{key} must be a list of {'objects' if kind is dict else 'strings'}")
+    return value
+
+
+# ─── clock ──────────────────────────────────────────────────────────────────
+
+
+def _is_dir(path: Path | None) -> bool:
+    """Path.is_dir() that reads a folder it may not stat as no folder."""
+    try:
+        return path is not None and path.is_dir()
+    except OSError:
+        return False
+
+
+def _clock_fallbacks() -> list[Path]:
+    """The folders _clock tries after the run's own: the working directory, then the temporary folder."""
+    folders = []
+    try:
+        folders.append(Path.cwd())
+    except OSError:
+        pass
+    folders += [Path(os.environ[name]) for name in ("TMPDIR", "TEMP", "TMP") if os.environ.get(name)]
+    return folders + [Path("/tmp")]
+
+
+def _clock(folders) -> int | None:
+    """Seconds since the epoch (UTC) now, or None when no folder can tell.
+
+    See "Clock" in the module docstring: the time is the modification time
+    the filesystem gives an empty file created, and removed at once, in the
+    first folder that exists and takes it.
+    """
+    for folder in folders:
+        if not _is_dir(folder):
+            continue
+        probe = folder / f".skf-emit-clock-{os.getpid()}"
+        for _ in range(2):
+            try:
+                os.close(os.open(probe, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            except FileExistsError:
+                # Left behind by a crashed run that had our pid: take it over.
+                try:
+                    probe.unlink()
+                except OSError:
+                    break
+                continue
+            except OSError:
+                break
+            try:
+                return int(probe.stat().st_mtime)
+            except OSError:
+                break
+            finally:
+                try:
+                    probe.unlink()
+                except OSError:
+                    pass
+    return None
+
+
+def _utc_parts(seconds: int) -> tuple[int, int, int, int, int, int]:
+    """(year, month, day, hour, minute, second) of a Unix time, in UTC."""
+    days, rest = divmod(seconds, 86400)
+    # Civil date from a day count (Howard Hinnant's days_from_civil inverse).
+    days += 719468
+    era = days // 146097
+    doe = days - era * 146097
+    yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp = (5 * doy + 2) // 153
+    day = doy - (153 * mp + 2) // 5 + 1
+    month = mp + 3 if mp < 10 else mp - 9
+    year = yoe + era * 400 + (1 if month <= 2 else 0)
+    return year, month, day, rest // 3600, rest % 3600 // 60, rest % 60
+
+
+def _stamps(seconds: int) -> tuple[str, str]:
+    """(ISO-8601 UTC timestamp, YYYYMMDD-HHmmss file stamp) of a Unix time."""
+    y, mo, d, h, mi, s = _utc_parts(seconds)
+    return f"{y:04d}-{mo:02d}-{d:02d}T{h:02d}:{mi:02d}:{s:02d}Z", f"{y:04d}{mo:02d}{d:02d}-{h:02d}{mi:02d}{s:02d}"
+
+
+# ─── generic envelope assembly ──────────────────────────────────────────────
+
+
+def _derived_exit_code(meta: dict, halt_reason):
+    """The exit code the settings map `halt_reason` to, or None when they map none."""
+    if halt_reason is None:
+        return meta.get("success_exit_code", 0)
+    if not isinstance(halt_reason, str):
+        # Not a key the map can hold; the schema check names the bad value.
+        return None
+    return (meta.get("exit_codes") or {}).get(halt_reason)
+
+
+def tolerant_payload(schema: dict, payload: dict) -> tuple[dict, list[str]]:
+    """The payload without what its envelope cannot take, and a warning for each drop.
+
+    For a caller that keeps an older helper's tolerance: a key the envelope
+    has no field for is dropped (`payload_key_ignored: <key>`), and so is an
+    exit_code the schema's exit_codes map decides, which the emitter then
+    derives from halt_reason (`exit_code_overridden: <given> (halt_reason
+    <reason> maps to <code>)` when the two differ). Such a payload still
+    yields an envelope instead of a refusal.
+    """
+    meta = _meta_of(schema) or {}
+    props = _inner_schema(schema).get("properties", {})
+    kept = {k: v for k, v in payload.items() if k in props or k in PAYLOAD_ONLY_KEYS}
+    notes = [f"payload_key_ignored: {k}" for k in payload if k not in kept]
+    if meta.get("exit_codes") and "exit_code" in kept:
+        reason = kept.get("halt_reason")
+        code = _derived_exit_code(meta, reason)
+        if code is not None:
+            given = kept.pop("exit_code")
+            if json.dumps(given) != json.dumps(code):
+                notes.append(f"exit_code_overridden: {json.dumps(given)} "
+                             f"(halt_reason {reason if reason is not None else 'null'} maps to {code})")
+    return kept, notes
+
+
+def build_envelope(schema: dict, payload: dict, *, halt: bool, stamps: dict | None = None,
+                   decisions: list | None = None, warnings: list | None = None) -> dict:
+    """Assemble a workflow's envelope from its payload (see the module docstring).
+
+    `stamps` holds the timestamp, run_id and result_path the run supplies,
+    None where it has none; `decisions` and `warnings` are the run's full
+    lists, the payload's own entries included. Pure apart from _die.
+    """
+    meta = _meta_of(schema)
+    stamps = stamps or {}
+    decisions = decisions if decisions is not None else _payload_list(payload, "headless_decisions", dict)
+    warnings = warnings if warnings is not None else _merged(
+        _payload_list(payload, "warnings", str), _resolver_warning(payload))
+    if meta["workflow"] == SETUP_WORKFLOW:
+        return _setup_envelope(payload, halt, warnings)
+
+    inner_schema = _inner_schema(schema)
+    props = inner_schema.get("properties", {})
+    required = inner_schema.get("required", [])
+    skip = PAYLOAD_ONLY_KEYS + (HALT_KEYS if halt else ())
+    body = {k: v for k, v in payload.items() if k not in skip}
+    if halt:
+        for key in HALT_KEYS:
+            if key in props and key in payload:
+                body[key] = payload[key]
+        if "error" in props and "error" not in body:
+            branch = _object_branch(props["error"])
+            if branch is not None:
+                error = {name: payload[ERROR_FIELDS[name]] for name in branch.get("properties", {})
+                         if name in ERROR_FIELDS and payload.get(ERROR_FIELDS[name]) is not None}
+                if "path" in branch.get("required", []) and "path" not in error:
+                    error["path"] = "<n/a>"
+                body["error"] = error
+        if "status" in props and "status" not in body and meta.get("halt_status"):
+            body["status"] = meta["halt_status"]
+
+    for key in ("timestamp", "run_id", "result_path"):
+        if key not in props:
+            continue
+        value = stamps.get(key)
+        if value is not None:
+            body[key] = value
+        elif _allows(props[key], "null"):
+            body[key] = None
+        else:
+            body.pop(key, None)
+    for key, values in (("headless_decisions", decisions), ("warnings", warnings)):
+        body.pop(key, None)
+        if key in props and (values or key in required):
+            body[key] = list(values)
+    if "exit_code" in props and "exit_code" not in body:
+        # A halt reads its halt_reason even where the schema has no field for
+        # it, and never falls back to the success code.
+        reason = body["halt_reason"] if "halt_reason" in body else payload.get("halt_reason")
+        code = _derived_exit_code(meta, reason) if (reason is not None or not halt) else None
+        if code is not None:
+            body["exit_code"] = code
+    for key in required:
+        # exit_code is given or derived above, never a placeholder.
+        if key not in body and key != "exit_code":
+            value = _placeholder(props.get(key, {}), halt)
+            if value is not _MISSING:
+                body[key] = value
+    body = _ordered(body, inner_schema)
+    return {meta["wrapper"]: body} if meta.get("wrapper") else body
+
+
+def _setup_envelope(payload: dict, halt: bool, warnings: list) -> dict:
+    """skf-setup's envelope through its own builders, with the run's warnings added.
+
+    Setup's own warnings stay as its builders made them, repeats included;
+    the run's are appended when setup's list does not already hold them.
+    """
+    if halt:
+        _check_halt_payload(payload, "emit-halt")
+        envelope = assemble_blocked_envelope(payload["phase"], payload["reason"], payload.get("path"))
+    else:
+        envelope = assemble_envelope(payload)
+    inner = envelope["skf_setup"]
+    inner["warnings"] += [w for w in warnings if w not in inner["warnings"]]
+    return envelope
+
+
+def _check_halt_payload(payload: dict, label: str) -> None:
+    for key in ("phase", "reason"):
+        value = payload.get(key)
+        if not isinstance(value, str) or not value:
+            _die(1, f"{label}: {key!r} must be a non-empty string")
+    path = payload.get("path")
+    if path is not None and not isinstance(path, str):
+        _die(1, f"{label}: 'path' must be a string or omitted")
+
+
+def contract_errors(schema: dict, envelope) -> list[str]:
+    """Schema violations, then the rules of the emitter settings JSON Schema cannot state."""
+    errors = _validate_against_schema(envelope, schema)
+    if errors:
+        return errors
+    meta = _meta_of(schema) or {}
+    wrapper = meta.get("wrapper")
+    inner = envelope.get(wrapper) if wrapper else envelope
+    props = _inner_schema(schema).get("properties", {}) if meta else {}
+    if not isinstance(inner, dict):
+        return errors
+    halt_status = meta.get("halt_status")
+    if halt_status and "status" in props and "halt_reason" in props:
+        status, reason = inner.get("status"), inner.get("halt_reason")
+        if status == halt_status and reason is None:
+            errors.append(f"halt_reason must be set when status is {halt_status!r}")
+        if status != halt_status and reason is not None:
+            errors.append(f"halt_reason must be null when status is {status!r}; got {reason!r}")
+    if meta.get("exit_codes") and "exit_code" in inner:
+        reason = inner.get("halt_reason")
+        expected = _derived_exit_code(meta, reason) if (reason is not None or "success_exit_code" in meta) else None
+        if expected is not None and inner["exit_code"] != expected:
+            errors.append(f"exit_code {inner['exit_code']!r} does not match canonical mapping "
+                          f"for halt_reason {reason!r} (expected {expected})")
+    return errors
+
+
+def envelope_line(schema: dict, envelope: dict) -> str:
+    """The prefixed one-line form: ASCII JSON, as skf-brief-skill's helper printed it.
+
+    skf-setup's keeps its sorted keys and raw UTF-8 (emit_envelope_line).
+    """
+    meta = _meta_of(schema)
+    if meta["workflow"] == SETUP_WORKFLOW:
+        return emit_envelope_line(envelope)
+    return f"{meta['prefix']}: " + json.dumps(envelope, separators=(",", ":"), ensure_ascii=True)
+
+
+# ─── result files ───────────────────────────────────────────────────────────
+
+
+def _claim_result_path(result_dir: Path, stem: str, stamp: str) -> Path:
+    """Create the run's per-run record, empty, under a name no run holds yet.
+
+    `<stem>-<stamp>.json` when it is free, else `-2`, `-3`, ... before
+    `.json`: two runs that end in the same second never overwrite each
+    other's record. The exclusive create makes each claim atomic.
+    """
+    for n in range(1, 1000):
+        path = result_dir / (f"{stem}-{stamp}.json" if n == 1 else f"{stem}-{stamp}-{n}.json")
+        try:
+            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            continue
+        return path
+    raise OSError(f"no free file name for {stem}-{stamp}.json")
+
+
+def _write_json_atomic(path: Path, value) -> None:
+    """Write `value` as indented JSON through a temporary file and one rename."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(value, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _result_record(payload: dict, envelope: dict, timestamp, run_id, decisions: list, warnings: list):
+    """The result file's content: the stamped result contract, or the envelope."""
+    contract = payload.get("result_contract")
+    if contract is None:
+        return envelope
+    record = dict(contract)
+    record["timestamp"] = timestamp
+    if run_id is not None:
+        record["run_id"] = run_id
+    record["headless_decisions"] = list(decisions)
+    record["warnings"] = list(warnings)
+    return record
+
+
 # ─── subcommands ────────────────────────────────────────────────────────────
 
 
-def cmd_emit() -> None:
-    payload = _read_stdin_json("emit")
-    envelope = assemble_envelope(payload)
-    schema = _load_schema()
-    errors = _validate_against_schema(envelope, schema)
-    if errors:
-        _die(2, f"assembled envelope failed schema validation (this is a bug): {errors}")
-    print(emit_envelope_line(envelope))
+def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | None = None,
+             result_dir: str | None = None, target: str = "stdout", tolerant: bool = False) -> None:
+    """Read the payload on stdin, build, check and print the envelope, write the result files.
+
+    `tolerant` passes the payload through tolerant_payload() first, for a
+    caller that keeps an older helper's tolerance.
+    """
+    schema, schema_path = load_workflow_schema(workflow or SETUP_WORKFLOW)
+    meta = _meta_of(schema)
+    workflow = meta["workflow"]
+    payload = _read_stdin_json(label)
+    if not isinstance(payload, dict):
+        _die(1, f"{label}: the payload must be a JSON object")
+    if halt:
+        _check_halt_payload(payload, label)
+    contract = payload.get("result_contract")
+    if contract is not None and not isinstance(contract, dict):
+        _die(1, f"{label}: result_contract must be an object")
+    tolerated: list[str] = []
+    if tolerant:
+        payload, tolerated = tolerant_payload(schema, payload)
+
+    extra: list[str] = []
+    stem = meta.get("result_file")
+    run_path = Path(run_dir) if run_dir else None
+    result_path_dir = Path(result_dir) if result_dir else None
+    if result_path_dir is not None and not stem:
+        # Refusing would leave a halt that passed the flag by mistake with no line.
+        extra.append(f"result_dir_ignored: {workflow} writes no result file")
+        result_path_dir = None
+    writes = _is_dir(result_path_dir)
+    run_id = None
+    if run_path is not None:
+        name, prefix = run_path.name, f"{workflow}-"
+        run_id = name[len(prefix):] if name.startswith(prefix) and len(name) > len(prefix) else name
+
+    timestamp = file_stamp = None
+    props = _inner_schema(schema).get("properties", {})
+    if writes or "timestamp" in props:
+        if run_path is not None:
+            # An early halt may come before any `record` made the run folder.
+            try:
+                run_path.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+        seconds = _clock([result_path_dir if writes else None, run_path, *_clock_fallbacks()])
+        if seconds is None:
+            if writes:
+                extra.append(f"result_file_write_failed: {result_path_dir.as_posix()}: folder not writable")
+                writes = False
+            if "timestamp" in props and not _allows(props["timestamp"], "null"):
+                _die(1, f"{label}: no folder takes the clock probe for {workflow}'s timestamp "
+                        "(the run folder, the working directory and the temporary folder all refused it)")
+        else:
+            timestamp, file_stamp = _stamps(seconds)
+
+    sink_decisions, sink_warnings, problems = read_sink(run_path)
+    item_schema = _decision_schema(schema)
+    valid = []
+    for where, decision in sink_decisions:
+        errors = _validate_against_schema(decision, item_schema) if item_schema else []
+        if errors:
+            problems.append(f"headless_decision_invalid: {where}: {errors[0]}")
+        else:
+            valid.append(decision)
+    decisions = _merged(_payload_list(payload, "headless_decisions", dict), valid)
+
+    per_run = None
+    if writes:
+        try:
+            per_run = _claim_result_path(result_path_dir, stem, file_stamp)
+        except OSError as e:
+            extra.append(f"result_file_write_failed: {result_path_dir.as_posix()}: {e.strerror or e}")
+
+    def assemble() -> tuple[dict, list]:
+        warnings = _merged(_payload_list(payload, "warnings", str), _resolver_warning(payload),
+                           sink_warnings, problems, tolerated, extra)
+        stamps = {"timestamp": timestamp, "run_id": run_id,
+                  "result_path": per_run.as_posix() if per_run else None}
+        envelope = build_envelope(schema, payload, halt=halt, stamps=stamps,
+                                  decisions=decisions, warnings=warnings)
+        errors = contract_errors(schema, envelope)
+        if errors:
+            if per_run is not None:
+                try:
+                    per_run.unlink()
+                except OSError:
+                    pass
+            code = 2 if workflow == SETUP_WORKFLOW else 1
+            _die(code, f"{label}: the {workflow} envelope fails {schema_path.name}: {'; '.join(errors)}")
+        return envelope, warnings
+
+    envelope, warnings = assemble()
+    if per_run is not None:
+        record = _result_record(payload, envelope, timestamp, run_id, decisions, warnings)
+        latest = result_path_dir / f"{stem}-latest.json"
+        for path in (per_run, latest):
+            try:
+                _write_json_atomic(path, record)
+            except OSError as e:
+                extra.append(f"result_file_write_failed: {path.as_posix()}: {e.strerror or e}")
+                if path == per_run:
+                    try:
+                        per_run.unlink()
+                    except OSError:
+                        pass
+                    per_run = None
+                break
+        if extra:
+            envelope, _ = assemble()
+    print(envelope_line(schema, envelope), file=sys.stderr if target == "stderr" else sys.stdout)
 
 
-def cmd_validate() -> None:
+def cmd_record(args) -> None:
+    """Append one decision or one warning to the run's sink, one JSON value per line."""
+    run_dir = Path(args.run_dir)
+    if args.warning is not None:
+        value = args.warning.strip()
+        if not value:
+            _die(1, "record: --warning must be a non-empty string")
+        name = SINK_WARNINGS
+    else:
+        value = _read_stdin_json("record")
+        if not isinstance(value, dict) or not value:
+            _die(1, "record: --decision reads one non-empty JSON object on stdin")
+        if args.workflow:
+            schema, schema_path = load_workflow_schema(args.workflow)
+            item_schema = _decision_schema(schema)
+            if item_schema is None:
+                _die(1, f"record: {schema_path.name} has no headless_decisions")
+            errors = _validate_against_schema(value, item_schema)
+            if errors:
+                _die(1, f"record: the decision fails {schema_path.name}: {'; '.join(errors)}")
+        name = SINK_DECISIONS
+    # ASCII only: a raw RAW_LINE_BREAKS character would split the line for a
+    # reader that breaks lines there.
+    line = json.dumps(value, separators=(",", ":"), ensure_ascii=True) + "\n"
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        with open(run_dir / name, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(line)
+    except OSError as e:
+        _die(1, f"record: cannot append to {(run_dir / name).as_posix()}: {e.strerror or e}")
+
+
+def cmd_validate(workflow: str | None) -> None:
     envelope = _read_stdin_json("validate")
-    schema = _load_schema()
-    errors = _validate_against_schema(envelope, schema)
+    schema, _ = load_workflow_schema(workflow or SETUP_WORKFLOW)
+    errors = contract_errors(schema, envelope)
     if errors:
         _die(1, "; ".join(errors))
 
@@ -484,28 +1309,13 @@ def assemble_blocked_envelope(phase: str, reason: str, path: str | None = None) 
 
 
 def cmd_emit_blocked() -> None:
-    """Emit a blocked envelope. Reads `phase`, `reason`, optional `path` from stdin JSON.
+    """Emit skf-setup's blocked envelope: `emit-halt --workflow skf-setup`.
 
     Designed for the halts (uv missing, config.yaml missing, a failed write,
     etc.) where the regular `emit` subcommand can't run because the run has
     no complete tier/tools/config_path to report.
     """
-    payload = _read_stdin_json("emit-blocked")
-    phase = payload.get("phase")
-    reason = payload.get("reason")
-    if not isinstance(phase, str) or not phase:
-        _die(1, "emit-blocked: 'phase' must be a non-empty string")
-    if not isinstance(reason, str) or not reason:
-        _die(1, "emit-blocked: 'reason' must be a non-empty string")
-    path = payload.get("path")
-    if path is not None and not isinstance(path, str):
-        _die(1, "emit-blocked: 'path' must be a string or omitted")
-    envelope = assemble_blocked_envelope(phase, reason, path)
-    schema = _load_schema()
-    errors = _validate_against_schema(envelope, schema)
-    if errors:
-        _die(2, f"assembled blocked envelope failed schema validation: {errors}")
-    print(emit_envelope_line(envelope))
+    run_emit(SETUP_WORKFLOW, halt=True, label="emit-blocked")
 
 
 def _force_utf8(*streams) -> None:
@@ -528,24 +1338,46 @@ def _force_utf8(*streams) -> None:
 
 
 def main() -> None:
-    _force_utf8(sys.stdin, sys.stdout)
+    _force_utf8(sys.stdin, sys.stdout, sys.stderr)
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="cmd")
-    sub.add_parser("emit",          help="Build envelope from context payload (default).")
-    sub.add_parser("emit-blocked",  help="Emit minimal status='blocked' envelope for early-halt paths.")
-    sub.add_parser("validate",      help="Validate an envelope payload against the schema.")
+    p_emit = sub.add_parser("emit",          help="Build a run's envelope from its context payload (default).")
+    p_halt = sub.add_parser("emit-halt",     help="Build a HARD HALT's envelope from its halt payload.")
+    sub.add_parser("emit-blocked",           help="Emit skf-setup's status='blocked' envelope for early-halt paths.")
+    p_record = sub.add_parser("record",      help="Append an auto-decision or a warning to the run's sink.")
+    p_validate = sub.add_parser("validate",  help="Validate an envelope payload against the schema.")
+    for p in (p_emit, p_halt):
+        p.add_argument("--workflow", required=p is p_halt, default=None,
+                       help="Workflow folder name or schema stem (emit: skf-setup when omitted).")
+        p.add_argument("--run-dir", default=None, help="The run folder that holds the sink.")
+        p.add_argument("--result-dir", default=None,
+                       help="Write the per-run and -latest result files here when the folder exists.")
+        p.add_argument("--target", choices=["stdout", "stderr"], default="stdout",
+                       help="Stream for the envelope line (default stdout).")
+    p_record.add_argument("--run-dir", required=True, help="The run folder that holds the sink.")
+    p_record.add_argument("--workflow", default=None,
+                          help="Check a decision against this workflow's headless_decisions schema.")
+    kind = p_record.add_mutually_exclusive_group(required=True)
+    kind.add_argument("--decision", action="store_true", help="Read one decision object on stdin.")
+    kind.add_argument("--warning", default=None, help="The warning text.")
+    p_validate.add_argument("--workflow", default=None,
+                            help="Workflow folder name or schema stem (skf-setup when omitted).")
     args = parser.parse_args()
 
     cmd = args.cmd or "emit"
-    if cmd == "emit":
-        cmd_emit()
+    if cmd in ("emit", "emit-halt"):
+        run_emit(getattr(args, "workflow", None), halt=cmd == "emit-halt", label=cmd,
+                 run_dir=getattr(args, "run_dir", None), result_dir=getattr(args, "result_dir", None),
+                 target=getattr(args, "target", "stdout"))
     elif cmd == "emit-blocked":
         cmd_emit_blocked()
+    elif cmd == "record":
+        cmd_record(args)
     elif cmd == "validate":
-        cmd_validate()
+        cmd_validate(args.workflow)
 
 
 if __name__ == "__main__":

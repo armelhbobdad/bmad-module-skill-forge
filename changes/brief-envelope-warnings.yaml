@@ -1,0 +1,6 @@
+type: added
+scope: skf-brief-skill
+summary: |
+  The `SKF_BRIEF_RESULT_JSON` envelope may now carry a `warnings` list, an optional property added to `skf-brief-result-envelope.v1.json`. It holds the run's non-fatal warnings, one string each, such as `customization_resolver_unavailable` when the overrides under `_bmad/custom/` could not be applied. The list appears only when the run recorded at least one warning, so an envelope without warnings is unchanged. A pipeline that checks envelopes against its own copy of the v1 schema, which refuses unknown properties, should take the updated copy.
+prs: [616]
+issues: [593, 595]

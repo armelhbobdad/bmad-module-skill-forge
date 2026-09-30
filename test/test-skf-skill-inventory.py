@@ -282,6 +282,7 @@ VALIDATOR_PY = (Path(__file__).parent.parent / "src" / "skf-rename-skill" / "scr
 ENUMERATE_PY = SCRIPTS / "skf-enumerate-stack-skills.py"
 SOURCE_TREE_PY = SCRIPTS / "skf-source-tree.py"
 TESSL_PY = SCRIPTS / "skf-tessl-review.py"
+LOAD_PROVENANCE_PY = SCRIPTS / "skf-load-provenance.py"
 
 # One metadata.json shape per SKF release that wrote the flat layout.
 MARKER_HISTORY = {
@@ -757,12 +758,15 @@ class TestSkfMarkerParity:
         ("_looks_like_skill", ENUMERATE_PY),
         ("_is_link_or_junction", SOURCE_TREE_PY),
         ("_is_link_or_junction", TESSL_PY),
+        ("_parse_iso_utc", LOAD_PROVENANCE_PY),
+        ("ISO_TIME_RE", LOAD_PROVENANCE_PY),
     ])
     def test_copy_is_identical(self, name, source):
         assert _top_level_node(INVENTORY_PY, name) == _top_level_node(source, name), (
             f"{name} in skf-skill-inventory.py differs from {source.name}; keep the copies identical")
 
-    @pytest.mark.parametrize("path", [INVENTORY_PY, CCC_PY, ATOMIC_PY, VALIDATOR_PY, ENUMERATE_PY, SOURCE_TREE_PY, TESSL_PY])
+    @pytest.mark.parametrize("path", [INVENTORY_PY, CCC_PY, ATOMIC_PY, VALIDATOR_PY, ENUMERATE_PY, SOURCE_TREE_PY, TESSL_PY,
+                                      LOAD_PROVENANCE_PY])
     def test_copies_carry_keep_identical_notes(self, path):
         text = path.read_text(encoding="utf-8")
         assert "Keep identical to" in text and "test/test-skf-skill-inventory.py pins the copies" in text
@@ -1498,3 +1502,534 @@ def test_cli_write_check_and_forge_flags(tmp_path):
     _write(tmp_path / "afile")
     code, out, _ = _run_inventory(str(tmp_path / "afile"), "--skill", "a", "--write-check")
     assert (code, out["code"]) == (1, "DIR_NOT_FOUND")
+
+
+# --------------------------------------------------------------------------
+# version: normalize, order, next patch, compose bump, primary library
+# --------------------------------------------------------------------------
+
+
+class TestVersionNormalize:
+    @pytest.mark.parametrize("text, normalized, rule", [
+        ("1.0.0", "1.0.0", "version"),
+        ("0.5.0-beta.1", "0.5.0-beta.1", "version"),
+        # Build metadata stripped (the Version Sanitization table).
+        ("1.0.0-rc.2+build.456", "1.0.0-rc.2", "version"),
+        ("2.0.0+20260404", "2.0.0", "version"),
+        ("2.0", "2.0.0", "version"),
+        ("18", "18.0.0", "version"),
+        ("v1.2.3", "1.2.3", "version"),
+        ("1.02.3", "1.2.3", "version"),
+        ("1.2.3.4", "1.2.3.4", "version"),
+        ("2.0.0rc1", "2.0.0rc1", "version"),
+        ("1.0.0.dev0", "1.0.0.dev0", "version"),
+        (" 1.2.3 ", "1.2.3", "version"),
+        # A range reduces to its lower bound.
+        ("^18.2.0", "18.2.0", "range"),
+        ("~1.2.3", "1.2.3", "range"),
+        ("~=1.4", "1.4.0", "range"),
+        ("~> 1.2", "1.2.0", "range"),
+        (">=1.0, <2.0", "1.0.0", "range"),
+        (">=1.0 <2.0", "1.0.0", "range"),
+        (">1.2.3", "1.2.3", "range"),
+        ("==2.31.0", "2.31.0", "range"),
+        ("=1.2.3", "1.2.3", "range"),
+        (">=1.2, >=1.4, <2", "1.4.0", "range"),
+        ("1.2.x", "1.2.0", "range"),
+        ("1.x", "1.0.0", "range"),
+        ("==1.2.*", "1.2.0", "range"),
+        ("1.2.3 - 2.0.0", "1.2.3", "range"),
+        ("^2.0.0 || ^1.2.3", "1.2.3", "range"),
+        ("npm:react@^18.2.0", "18.2.0", "range"),
+        ("workspace:^1.0.0", "1.0.0", "range"),
+        ("^1.0.0-rc.1+build", "1.0.0-rc.1", "range"),
+    ])
+    def test_normalizes(self, text, normalized, rule):
+        out = mod.normalize_version(text)
+        assert (out["normalized"], out["rule"], out["reason"]) == (normalized, rule, None), out
+        # Idempotent: a normalized version normalizes to itself.
+        assert mod.normalize_version(normalized)["normalized"] == normalized
+
+    def test_reports_build_metadata(self):
+        assert mod.normalize_version("1.0.0-rc.2+build.456")["build_metadata"] == "build.456"
+        assert mod.normalize_version("1.0.0")["build_metadata"] is None
+
+    @pytest.mark.parametrize("text", [
+        "", "   ", "*", "x", "latest", "<2.0.0", "<=2, !=1.5", "1.2.3-", "1.0.0+", "1.0.0+a+b",
+        "file:../lib", "git+https://github.com/o/r.git#v1.0.0", "workspace:*", "^banana",
+        ">=1.0 <two", "1.x.3", "^1.0 || latest",
+    ])
+    def test_names_no_version(self, text):
+        out = mod.normalize_version(text)
+        assert out["normalized"] is None and out["rule"] is None, out
+        assert out["reason"], out
+
+
+class TestVersionOrder:
+    def test_numbers_compare_as_numbers(self):
+        out = mod.order_versions("1.9.0", "1.10.0")
+        assert (out["order"], out["major_minor"], out["higher"]) == ("lower", "lower", "1.10.0")
+        assert mod.order_versions("1.10.0", "1.9.0")["order"] == "higher"
+        assert mod.order_versions("0.10.0", "0.9.9")["order"] == "higher"
+
+    @pytest.mark.parametrize("a, b", [
+        ("1.0", "1.0.0"),
+        ("1.0.0+build.1", "1.0.0+build.2"),
+        ("v2.1.0", "2.1.0"),
+        ("^18.2.0", "18.2.0"),
+        ("1.2.3.0", "1.2.3"),
+    ])
+    def test_equal(self, a, b):
+        out = mod.order_versions(a, b)
+        assert (out["order"], out["higher"]) == ("equal", None), out
+
+    def test_semver_precedence_chain(self):
+        chain = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2",
+                 "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0", "2.0.0"]
+        for lower, higher in zip(chain, chain[1:]):
+            assert mod.order_versions(lower, higher)["order"] == "lower", (lower, higher)
+            assert mod.order_versions(higher, lower)["order"] == "higher", (lower, higher)
+
+    def test_pre_release_digit_runs_compare_as_numbers(self):
+        assert mod.order_versions("2.0.0rc2", "2.0.0rc10")["order"] == "lower"
+        assert mod.order_versions("1.0.0-1", "1.0.0-alpha")["order"] == "lower"
+
+    def test_major_minor(self):
+        out = mod.order_versions("1.2.9", "1.2.0")
+        assert (out["order"], out["major_minor"]) == ("higher", "equal")
+        out = mod.order_versions("1.9.5", "2.0.1")
+        assert (out["order"], out["major_minor"]) == ("lower", "lower")
+
+    def test_raises_on_a_non_version(self):
+        with pytest.raises(ValueError, match="latest"):
+            mod.order_versions("latest", "1.0.0")
+
+
+class TestNextPatch:
+    @pytest.mark.parametrize("text, expected", [
+        ("1.2.3", "1.2.4"),
+        ("1.9.9", "1.9.10"),
+        ("2.0", "2.0.1"),
+        ("v0.5.0", "0.5.1"),
+        ("1.2.3+build.7", "1.2.4"),
+        ("1.2.3.4", "1.2.4"),
+        # The release of a pre-release, as semver's patch increment gives.
+        ("1.2.3-rc.1", "1.2.3"),
+        ("2.0.0rc1", "2.0.0"),
+    ])
+    def test_next_patch(self, text, expected):
+        out = mod.next_patch(text)
+        assert out["next_patch"] == expected, out
+        assert mod.order_versions(expected, text)["order"] == "higher"
+
+    def test_raises_on_a_non_version(self):
+        with pytest.raises(ValueError):
+            mod.next_patch("latest")
+
+
+class TestComposeBump:
+    def test_removed_library_is_major(self):
+        out = mod.compose_bump("3.0.5", ["react", "zod"], ["react"])
+        assert (out["bump"], out["version"], out["removed"], out["added"]) == ("major", "4.0.0", ["zod"], [])
+
+    def test_replaced_library_is_major(self):
+        out = mod.compose_bump("1.4.2", ["react", "zod"], ["react", "valibot"])
+        assert (out["bump"], out["version"], out["removed"], out["added"]) == (
+            "major", "2.0.0", ["zod"], ["valibot"])
+
+    def test_added_library_is_minor(self):
+        out = mod.compose_bump("1.4.2", ["react"], ["react", "zod"])
+        assert (out["bump"], out["version"], out["added"]) == ("minor", "1.5.0", ["zod"])
+
+    def test_same_libraries_is_minor(self):
+        assert mod.compose_bump("1.9.0", ["a"], ["a"])["version"] == "1.10.0"
+
+    def test_prior_is_normalized(self):
+        out = mod.compose_bump("v2.0.0-rc.1+b", ["a"], ["a"])
+        assert (out["prior_normalized"], out["version"]) == ("2.0.0-rc.1", "2.1.0")
+
+    def test_prior_that_is_no_version_raises(self):
+        with pytest.raises(ValueError, match="latest"):
+            mod.compose_bump("latest", ["a"], ["a"])
+
+    def test_refuses_a_result_not_above_the_prior(self, monkeypatch):
+        monkeypatch.setattr(mod, "_order_key", lambda parsed: ())
+        with pytest.raises(mod.NotIncreasingError, match="not above"):
+            mod.compose_bump("1.0.0", ["a"], ["a"])
+        with pytest.raises(mod.NotIncreasingError, match="not above"):
+            mod.next_patch("1.0.0")
+
+
+class TestPrimaryLibrary:
+    def test_highest_import_count(self):
+        out = mod.primary_library([
+            {"name": "zod", "import_count": 3, "version": "3.22.0"},
+            {"name": "react", "import_count": 40, "version": "^18.2.0"},
+        ])
+        assert (out["primary"], out["version"], out["reason"], out["fallback"]) == (
+            "react", "18.2.0", "highest-import-count", False)
+        assert out["tied"] == ["react"]
+
+    def test_tie_goes_to_the_lowest_name(self):
+        rows = [{"name": "react", "import_count": 12, "version": "18.2.0"},
+                {"name": "Axios", "import_count": 12, "version": "1.6.0"},
+                {"name": "zod", "import_count": 1, "version": "3.0.0"}]
+        out = mod.primary_library(rows)
+        assert (out["primary"], out["version"], out["reason"], out["tied"]) == (
+            "Axios", "1.6.0", "tie-name-order", ["Axios", "react"])
+        assert mod.primary_library(list(reversed(rows))) == out
+
+    def test_tie_prefers_a_usable_version(self):
+        out = mod.primary_library([
+            {"name": "alpha", "import_count": 5, "version": "workspace:*"},
+            {"name": "beta", "import_count": 5, "version": "~2.1.0"},
+        ])
+        assert (out["primary"], out["version"], out["reason"]) == ("beta", "2.1.0", "tie-usable-version")
+
+    def test_no_usable_version_falls_back_to_1_0_0(self):
+        out = mod.primary_library([{"name": "lib", "import_count": 2, "version": "latest"},
+                                   {"name": "other", "import_count": 1}])
+        assert (out["primary"], out["version"], out["fallback"], out["version_input"]) == (
+            "lib", "1.0.0", True, "latest")
+
+    def test_no_candidates(self):
+        out = mod.primary_library([])
+        assert (out["primary"], out["version"], out["reason"]) == (None, "1.0.0", "no-candidates")
+
+    @pytest.mark.parametrize("row", [
+        {"import_count": 1}, {"name": "", "import_count": 1}, {"name": "a", "import_count": -1},
+        {"name": "a", "import_count": True}, {"name": "a", "import_count": 1.5},
+        {"name": "a", "import_count": 1, "version": 2}, "a",
+    ])
+    def test_malformed_candidate_raises(self, row):
+        with pytest.raises(ValueError):
+            mod.primary_library([row])
+
+
+class TestIsoTime:
+    @pytest.mark.parametrize("text, expected", [
+        ("2026-04-04T10:00:00Z", "2026-04-04T10:00:00Z"),
+        ("2026-04-04T10:00:00+02:00", "2026-04-04T08:00:00Z"),
+        ("2026-04-04T01:30:00-0230", "2026-04-04T04:00:00Z"),
+        ("2026-04-04T10:00:00.123456789+00:00", "2026-04-04T10:00:00Z"),
+        ("2026-04-04 10:00", "2026-04-04T10:00:00Z"),
+        ("2026-04-04", "2026-04-04T00:00:00Z"),
+    ])
+    def test_parses_to_utc(self, text, expected):
+        assert mod._utc_text(mod._parse_iso_utc(text)) == expected
+
+    @pytest.mark.parametrize("value", [None, 5, "", "yesterday", "2026-13-01", "2026-04-04T25:00:00Z",
+                                       "04/04/2026", "0001-01-01T00:00:00+05:00"])
+    def test_rejects(self, value):
+        assert mod._parse_iso_utc(value) is None
+
+
+# --------------------------------------------------------------------------
+# resolve: the version a reading workflow uses, and its paths
+# --------------------------------------------------------------------------
+
+
+def _resolve_fixture(tmp_path: Path, manifest=None, link=None, versions=("0.5.0", "0.6.0")):
+    """skills/cognee with a package per version, forge/cognee, an optional manifest and link."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for v in versions:
+        _make_version(skills, "cognee", v, metadata={**MARKED, "version": v})
+        (forge / "cognee" / v).mkdir(parents=True, exist_ok=True)
+    (forge / "cognee").mkdir(parents=True, exist_ok=True)
+    if manifest is not None:
+        _write(skills / ".export-manifest.json", manifest)
+    if link is not None:
+        _link_active(skills / "cognee" / "active", link)
+    return skills, forge
+
+
+def _manifest(active, statuses=None):
+    statuses = statuses or {active: "active"}
+    return {"schema_version": "2", "exports": {"cognee": {
+        "active_version": active,
+        "versions": {v: {"status": s, "ides": [], "last_exported": "2026-03-15"}
+                     for v, s in statuses.items()}}}}
+
+
+def _resolve(skills, forge, version=None) -> dict:
+    out = mod.resolve_skill(skills, "cognee", forge, version)
+    assert out is not None
+    return out
+
+
+@pytest.fixture()
+def links_ok(tmp_path):
+    if not _symlinks_supported(tmp_path):
+        pytest.skip("symlinks unavailable")
+
+
+class TestResolve:
+    def test_manifest_and_link_agree(self, tmp_path, links_ok):
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.6.0"), link="0.6.0")
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"], out["layout"]) == ("0.6.0", "manifest-and-link", "versioned")
+        assert (out["active_version"], out["symlink_target"]) == ("0.6.0", "0.6.0")
+        assert out["skill_package"] == str(skills / "cognee" / "0.6.0" / "cognee")
+        assert out["forge_version"] == str(forge / "cognee" / "0.6.0")
+        assert out["skill_package_exists"] is True
+        assert out["manifest_last_exported"] == "2026-03-15"
+
+    def test_manifest_lags_link(self, tmp_path, links_ok):
+        """The [N] case: the link wins, and provenance comes from its version folder."""
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), link="0.6.0")
+        _write(forge / "cognee" / "0.5.0" / "provenance-map.json", {"generated_at": "2026-03-01T00:00:00Z"})
+        _write(forge / "cognee" / "0.6.0" / "provenance-map.json",
+               {"generated_at": "2026-04-04T10:00:00+02:00"})
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"]) == ("0.6.0", "manifest-lags-link")
+        assert "export-skill" in out["detail"]
+        assert out["forge_version"] == str(forge / "cognee" / "0.6.0")
+        assert out["paths"]["provenance_map"] == {
+            "path": str(forge / "cognee" / "0.6.0" / "provenance-map.json"), "source": "versioned",
+            "versioned": str(forge / "cognee" / "0.6.0" / "provenance-map.json"),
+            "flat": str(forge / "cognee" / "provenance-map.json")}
+        cands = out["candidates"]
+        assert (cands["manifest"]["version"], cands["manifest"]["generated_at"],
+                cands["manifest"]["generated_at_source"]) == ("0.5.0", "2026-03-01T00:00:00Z", "provenance-map")
+        assert (cands["symlink"]["version"], cands["symlink"]["generated_at"]) == ("0.6.0", "2026-04-04T08:00:00Z")
+
+    def test_link_to_a_version_without_package_keeps_the_manifest(self, tmp_path, links_ok):
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), versions=("0.5.0",))
+        (skills / "cognee" / "0.7.0").mkdir()
+        _link_active(skills / "cognee" / "active", "0.7.0")
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"], out["symlink_target"]) == ("0.5.0", "manifest", "0.7.0")
+        assert out["candidates"]["symlink"]["skill_package_exists"] is False
+
+    def test_manifest_only(self, tmp_path):
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"))
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"], out["symlink_target"]) == ("0.5.0", "manifest", None)
+        assert out["candidates"]["symlink"] is None
+
+    def test_link_only(self, tmp_path, links_ok):
+        skills, forge = _resolve_fixture(tmp_path, link="0.5.0")
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"], out["active_version"]) == ("0.5.0", "link", None)
+        assert out["candidates"]["manifest"] is None
+
+    def test_newest_on_disk(self, tmp_path):
+        skills, forge = _resolve_fixture(tmp_path, versions=("1.9.0", "1.10.0", "1.2.0"))
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"]) == ("1.10.0", "newest-on-disk")
+        assert [v["version"] for v in out["versions"]] == ["1.10.0", "1.9.0", "1.2.0"]
+
+    def test_flat_layout(self, tmp_path):
+        skills, forge = tmp_path / "skills", tmp_path / "forge"
+        _make_flat(skills, "cognee", metadata=MARKED)
+        _write(forge / "cognee" / "provenance-map.json", {"generated_at": "2026-01-01T00:00:00Z"})
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"], out["layout"]) == (None, "flat-layout", "flat")
+        assert (out["skill_package"], out["forge_version"]) == (str(skills / "cognee"), None)
+        assert out["paths"]["metadata"]["source"] == "flat"
+        assert out["paths"]["metadata"]["versioned"] is None
+        assert out["paths"]["provenance_map"]["path"] == str(forge / "cognee" / "provenance-map.json")
+        assert out["versions"] == []
+
+    def test_flat_package_folders_are_not_versions(self, tmp_path):
+        skills, forge = tmp_path / "skills", tmp_path / "forge"
+        _make_flat(skills, "cognee", metadata=MARKED, extra=("references/cognee/guide.md",))
+        out = _resolve(skills, forge)
+        assert (out["reason"], out["versions"]) == ("flat-layout", [])
+
+    def test_missing_on_disk(self, tmp_path):
+        skills, forge = tmp_path / "skills", tmp_path / "forge"
+        _write(skills / ".export-manifest.json", _manifest("0.5.0"))
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"], out["skill_package_exists"]) == ("0.5.0", "missing", False)
+        assert out["paths"]["metadata"]["path"] is None
+        out_none = mod.resolve_skill(skills, "absent", forge)
+        assert out_none is None
+        (skills / "empty").mkdir()
+        out = mod.resolve_skill(skills, "empty", forge)
+        assert (out["chosen_version"], out["reason"], out["layout"]) == (None, "missing", "none")
+
+    def test_requested_version(self, tmp_path, links_ok):
+        """The [M] case: the operator picks the manifest version over the link."""
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), link="0.6.0")
+        out = _resolve(skills, forge, version="0.5.0")
+        assert (out["chosen_version"], out["reason"]) == ("0.5.0", "requested")
+        assert out["forge_version"] == str(forge / "cognee" / "0.5.0")
+
+    def test_versioned_first_then_flat(self, tmp_path):
+        """test-skill's read sites: provenance and evidence from {forge_version}, flat only as the fallback."""
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.6.0"))
+        _write(forge / "cognee" / "provenance-map.json", {})
+        _write(forge / "cognee" / "evidence-report.md", "# old flat report\n")
+        out = _resolve(skills, forge)
+        assert out["paths"]["provenance_map"]["source"] == "flat"
+        assert out["paths"]["evidence_report"]["path"] == str(forge / "cognee" / "evidence-report.md")
+        _write(forge / "cognee" / "0.6.0" / "provenance-map.json", {})
+        _write(forge / "cognee" / "0.6.0" / "evidence-report.md", "# report\n")
+        out = _resolve(skills, forge)
+        assert out["paths"]["provenance_map"]["path"] == str(forge / "cognee" / "0.6.0" / "provenance-map.json")
+        assert out["paths"]["evidence_report"]["source"] == "versioned"
+        assert out["paths"]["metadata"] == {
+            "path": str(skills / "cognee" / "0.6.0" / "cognee" / "metadata.json"), "source": "versioned",
+            "versioned": str(skills / "cognee" / "0.6.0" / "cognee" / "metadata.json"),
+            "flat": str(skills / "cognee" / "metadata.json")}
+
+    def test_provenance_time_falls_back_to_mtime(self, tmp_path):
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"))
+        prov = forge / "cognee" / "0.5.0" / "provenance-map.json"
+        _write(prov, {"generated_at": "not a date"})
+        os.utime(prov, (1767225600, 1767225600))  # 2026-01-01T00:00:00Z
+        cand = _resolve(skills, forge)["candidates"]["manifest"]
+        assert (cand["generated_at"], cand["generated_at_source"]) == ("2026-01-01T00:00:00Z", "mtime")
+        prov.unlink()
+        cand = _resolve(skills, forge)["candidates"]["manifest"]
+        assert (cand["provenance_map"], cand["generated_at"], cand["generated_at_source"]) == (None, None, None)
+
+    def test_versions_counts_and_newest_non_deprecated(self, tmp_path, links_ok):
+        """drop-skill's active-version guard and repoint, rename-skill's version count."""
+        statuses = {"1.10.0": "deprecated", "1.9.0": "archived", "1.2.0": "active", "0.1.0": "deprecated"}
+        skills, forge = _resolve_fixture(tmp_path, _manifest("1.2.0", statuses),
+                                         link="1.2.0", versions=("1.10.0", "1.9.0", "1.2.0", "2.0.0"))
+        out = _resolve(skills, forge)
+        assert out["versions"] == [
+            {"version": "2.0.0", "status": None, "in_manifest": False, "on_disk": True},
+            {"version": "1.10.0", "status": "deprecated", "in_manifest": True, "on_disk": True},
+            {"version": "1.9.0", "status": "archived", "in_manifest": True, "on_disk": True},
+            {"version": "1.2.0", "status": "active", "in_manifest": True, "on_disk": True},
+            {"version": "0.1.0", "status": "deprecated", "in_manifest": True, "on_disk": False},
+        ]
+        assert out["newest_non_deprecated"] == "1.9.0"
+        assert out["newest_on_disk"] == "2.0.0"
+        assert out["counts"] == {"total": 5, "manifest": 4, "on_disk": 4, "non_deprecated": 2,
+                                 "by_status": {"deprecated": 2, "archived": 1, "active": 1}}
+
+    def test_staging_and_dot_folders_are_not_versions(self, tmp_path):
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), versions=("0.5.0",))
+        (skills / "cognee" / "0.6.0.skf-tmp" / "cognee").mkdir(parents=True)
+        (skills / "cognee" / ".hidden" / "cognee").mkdir(parents=True)
+        (skills / "cognee" / "notes").mkdir()
+        assert [v["version"] for v in _resolve(skills, forge)["versions"]] == ["0.5.0"]
+
+    def test_v1_manifest(self, tmp_path):
+        skills, forge = _resolve_fixture(tmp_path, {"exports": {"cognee": {
+            "active_version": "0.6.0", "versions": ["0.5.0", "0.6.0"]}}, "updated_at": "2026-02-02"})
+        out = _resolve(skills, forge)
+        assert (out["chosen_version"], out["reason"], out["manifest_last_exported"]) == (
+            "0.6.0", "manifest", "2026-02-02")
+        assert {v["version"]: v["status"] for v in out["versions"]} == {"0.6.0": "active", "0.5.0": "archived"}
+
+    def test_manifest_version_that_is_not_a_folder_name(self, tmp_path):
+        skills, forge = _resolve_fixture(tmp_path, _manifest("../../etc"), versions=("0.5.0",))
+        out = _resolve(skills, forge)
+        assert out["active_version"] is None
+        assert (out["chosen_version"], out["reason"]) == ("0.5.0", "newest-on-disk")
+        assert any("not a folder name" in e for e in out["errors"])
+
+    def test_malformed_manifest(self, tmp_path):
+        skills, forge = _resolve_fixture(tmp_path, versions=("0.5.0",))
+        _write(skills / ".export-manifest.json", "{not json")
+        out = _resolve(skills, forge)
+        assert out["manifest_error"] and "JSON" in out["manifest_error"]
+        assert out["chosen_version"] == "0.5.0"
+        _write(skills / ".export-manifest.json", [])
+        assert _resolve(skills, forge)["manifest_error"] == "the export manifest is not a JSON object"
+
+    def test_link_that_leaves_the_skill_folder_is_ignored(self, tmp_path, links_ok):
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), versions=("0.5.0",))
+        elsewhere = tmp_path / "elsewhere" / "9.9.9"
+        (elsewhere / "cognee").mkdir(parents=True)
+        (skills / "cognee" / "active").symlink_to(elsewhere)
+        out = _resolve(skills, forge)
+        assert (out["symlink_target"], out["chosen_version"]) == (None, "0.5.0")
+        assert any("does not lead to a version folder" in e for e in out["errors"])
+
+    def test_broken_link_and_real_active_folder(self, tmp_path, links_ok):
+        skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"), versions=("0.5.0",))
+        (skills / "cognee" / "active").symlink_to("gone")
+        out = _resolve(skills, forge)
+        assert out["symlink_target"] is None and any("broken" in e for e in out["errors"])
+        (skills / "cognee" / "active").unlink()
+        (skills / "cognee" / "active" / "cognee").mkdir(parents=True)
+        out = _resolve(skills, forge)
+        assert out["symlink_target"] is None and any("not a link" in e for e in out["errors"])
+        assert "active" not in [v["version"] for v in out["versions"]]
+
+
+def test_cli_resolve(tmp_path):
+    skills, forge = _resolve_fixture(tmp_path, _manifest("0.5.0"))
+    code, out, _ = _run_inventory("resolve", str(skills), "--skill", "cognee", "--forge-data-folder", str(forge))
+    assert (code, out["status"], out["resolve"]["chosen_version"]) == (0, "ok", "0.5.0")
+    assert (out["skills_folder"], out["forge_data_folder"]) == (str(skills), str(forge))
+    code, out, _ = _run_inventory("resolve", str(skills), "--skill", "cognee", "--forge-data-folder", str(forge),
+                                  "--version", "0.6.0")
+    assert (code, out["resolve"]["chosen_version"], out["resolve"]["reason"]) == (0, "0.6.0", "requested")
+    code, out, _ = _run_inventory("resolve", str(skills), "--skill", "absent", "--forge-data-folder", str(forge))
+    assert (code, out["code"]) == (1, "SKILL_NOT_FOUND")
+    code, out, _ = _run_inventory("resolve", str(tmp_path / "nope"), "--skill", "cognee",
+                                  "--forge-data-folder", str(forge))
+    assert (code, out["code"]) == (1, "DIR_NOT_FOUND")
+    for argv in (
+        ["resolve"],
+        ["resolve", "--skill", "cognee", "--forge-data-folder", str(forge)],
+        ["resolve", str(skills), "--forge-data-folder", str(forge)],
+        ["resolve", str(skills), "--skill", "cognee"],
+        ["resolve", str(skills), "--skill", "cognee", "--forge-data-folder"],
+        ["resolve", str(skills), "--skill", "../x", "--forge-data-folder", str(forge)],
+        ["resolve", str(skills), "--skill", "cognee", "--forge-data-folder", str(forge), "--version", "a/b"],
+        ["resolve", str(skills), "--skill", "cognee", "--forge-data-folder", str(forge), "--versions", "1"],
+        ["resolve", str(skills), "--skill", "cognee", "--forge-data-folder", str(forge), "extra"],
+    ):
+        code, out, err = _run_inventory(*argv)
+        assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv
+        assert "Usage:" in err, argv
+
+
+def test_cli_version(tmp_path):
+    code, out, _ = _run_inventory("version", "normalize", "^18.2.0")
+    assert (code, out["status"], out["command"], out["normalized"], out["rule"]) == (
+        0, "ok", "normalize", "18.2.0", "range")
+    code, out, _ = _run_inventory("version", "normalize", "latest")
+    assert (code, out["status"], out["code"], out["normalized"]) == (1, "error", "NOT_A_VERSION", None)
+    code, out, _ = _run_inventory("version", "order", "1.9.0", "1.10.0")
+    assert (code, out["order"], out["higher"]) == (0, "lower", "1.10.0")
+    code, out, _ = _run_inventory("version", "order", "1.9.0", "*")
+    assert (code, out["code"]) == (1, "NOT_A_VERSION")
+    code, out, _ = _run_inventory("version", "next-patch", "1.2.3+build.9")
+    assert (code, out["next_patch"]) == (0, "1.2.4")
+    code, out, _ = _run_inventory("version", "bump", "--prior", "3.0.5", "--prior-libraries", "react, zod",
+                                  "--libraries", "react")
+    assert (code, out["bump"], out["version"], out["removed"]) == (0, "major", "4.0.0", ["zod"])
+    code, out, _ = _run_inventory("version", "bump", "--prior", "3.0.5", "--prior-libraries", "",
+                                  "--libraries", "react")
+    assert (code, out["bump"], out["version"], out["added"]) == (0, "minor", "3.1.0", ["react"])
+    code, out, _ = _run_inventory("version", "bump", "--prior", "nope", "--prior-libraries", "a",
+                                  "--libraries", "a")
+    assert (code, out["code"]) == (1, "NOT_A_VERSION")
+    candidates = tmp_path / "candidates.json"
+    _write(candidates, [{"name": "react", "import_count": 9, "version": "^18.2.0"},
+                        {"name": "next", "import_count": 9, "version": "14.1.0"}])
+    code, out, _ = _run_inventory("version", "primary", str(candidates))
+    assert (code, out["primary"], out["version"], out["reason"]) == (0, "next", "14.1.0", "tie-name-order")
+    proc = subprocess.run([sys.executable, str(INVENTORY_PY), "version", "primary", "-"],
+                          input=b'[{"name": "zod", "import_count": 1, "version": "3.0.0"}]',
+                          capture_output=True, timeout=60)
+    assert (proc.returncode, json.loads(proc.stdout)["primary"]) == (0, "zod")
+    for bad in ("{not json", '{"name": "a"}', '[{"import_count": 1}]'):
+        _write(candidates, bad)
+        code, out, _ = _run_inventory("version", "primary", str(candidates))
+        assert (code, out["code"]) == (1, "BAD_INPUT"), bad
+    code, out, _ = _run_inventory("version", "primary", str(tmp_path / "missing.json"))
+    assert (code, out["code"]) == (1, "BAD_INPUT")
+    for argv in (
+        ["version"],
+        ["version", "normalize"],
+        ["version", "normalize", "1", "2"],
+        ["version", "order", "1.0.0"],
+        ["version", "compare", "1", "2"],
+        ["version", "bump", "--prior", "1.0.0", "--libraries", "a"],
+        ["version", "bump", "--prior", "1.0.0", "--prior-libraries", "a", "--libraries"],
+        ["version", "bump", "--prior", "1.0.0", "--prior-libraries", "a", "--libraries", "a", "--major", "x"],
+    ):
+        code, out, err = _run_inventory(*argv)
+        assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv
+        assert "Usage:" in err, argv

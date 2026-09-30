@@ -45,6 +45,14 @@ Subcommands:
                 collections without re-rendering the whole file in
                 prose.
 
+  remove-qmd-collection
+                Remove every `qmd_collections` entry whose `name` is
+                --name. All other forge-tier state is preserved verbatim.
+                The rollback of register-qmd-collection, for a caller
+                whose `qmd collection add` failed after it removed the
+                old collection, so the registry matches QMD again. A
+                name with no entry changes nothing (action "absent").
+
   register-ccc-index
                 Append-or-replace a single entry in the
                 `ccc_index_registry` array. Reads the entry as JSON on
@@ -70,13 +78,29 @@ Output schema (the read subcommand and the response from every write):
 
   {"status": "ok", "version": "v1", ...subcommand-specific fields...}
 
+The subcommands that take the registry lock (below) also return
+`lock_stale_replaced`: null, or the {"held_by", "held_since"} of the
+stale lock they replaced.
+
 Errors emit `{"status": "error", "message": "..."}` to stderr and
-exit non-zero (1 for user error, 2 for I/O failure).
+exit non-zero (1 for user error, 2 for I/O failure or a registry lock
+that cannot be taken, 3 when another call held the registry lock for the
+whole --lock-timeout; nothing was written).
 
 Cross-platform: pure stdlib + PyYAML. Atomic writes via temp + rename
-mirror skf-atomic-write.py's pattern. Concurrent access requires
-external `flock` coordination — see step 7 of skf-create-skill for
-the precedent.
+mirror skf-atomic-write.py's pattern.
+
+Registry lock: every subcommand that rewrites forge-tier.yaml
+(write-tools, register-qmd-collection, remove-qmd-collection,
+register-ccc-index, clean-stale) holds `forge-tier.yaml.lock` beside it
+for its one read-modify-write and releases it before it exits, through
+skf-run-lock.py loaded from this script's folder. Concurrent runs never
+lose each other's entries, and no caller takes a lock of its own: the
+lock lives inside one call, never across calls. A call waits up to
+--lock-timeout seconds (30 by default) while another call holds the lock.
+A lock older than 15 seconds was left by a call that was killed, and is
+replaced. An empty lock file holds nothing (the helper never writes one;
+an `flock` on the same path leaves one) and is replaced at once.
 
 CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
 above is auto-resolved on first call and cached. `docs/getting-started.md`
@@ -88,6 +112,9 @@ system-wide:
   uv run skf-forge-tier-rw.py read --target /path/forge-tier.yaml
   echo '{...}' | uv run skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml
   uv run skf-forge-tier-rw.py init-prefs --target /path/preferences.yaml
+  uv run skf-forge-tier-rw.py register-qmd-collection --target /path/forge-tier.yaml < entry.json
+  uv run skf-forge-tier-rw.py remove-qmd-collection --target /path/forge-tier.yaml \\
+      --name foo-extraction
   echo '{...}' | uv run skf-forge-tier-rw.py register-ccc-index --target /path/forge-tier.yaml
   uv run skf-forge-tier-rw.py clean-stale --target /path/forge-tier.yaml \\
       --qmd-live-names foo-brief,bar-extraction --prune-missing-ccc-paths
@@ -96,7 +123,10 @@ system-wide:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import importlib.util
 import json
+import math
 import os
 import sys
 from datetime import datetime, timezone
@@ -106,6 +136,11 @@ import yaml
 
 
 DEFAULT_STALENESS_HOURS = 24
+RUN_LOCK_HELPER = Path(__file__).resolve().parent / "skf-run-lock.py"
+REGISTRY_LOCK_WAIT_SEC = 30.0
+# A call holds the registry lock for milliseconds; one this old was killed.
+REGISTRY_LOCK_STALE_SEC = 15.0
+EXIT_LOCK_BUSY = 3
 PREFERENCES_TEMPLATE = """# Ferris Sidecar: User Preferences
 # Created by setup workflow on first run
 # Edit this file to customize Ferris behavior
@@ -186,6 +221,52 @@ def _atomic_write(target: Path, content: str) -> None:
             except OSError:
                 pass
         _die(2, f"atomic write failed for {target}: {e}")
+
+
+def _load_run_lock():
+    """Load skf-run-lock.py, which installs into the same folder as this script."""
+    try:
+        spec = importlib.util.spec_from_file_location("skf_run_lock", RUN_LOCK_HELPER)
+        if spec is None or spec.loader is None:
+            raise ImportError("no import spec")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except (OSError, ImportError) as e:
+        _die(2, f"cannot load the run-lock helper {RUN_LOCK_HELPER}: {e}")
+    return module
+
+
+@contextlib.contextmanager
+def _registry_lock(target: Path, command: str, timeout: float):
+    """Hold `<target>.lock` through one read-modify-write of forge-tier.yaml.
+
+    Yields the stale lock this call replaced ({"held_by", "held_since"}) or
+    None. Exits 3 when another call holds the lock for `timeout` seconds, 2
+    when the lock cannot be taken (a folder in its place, an I/O error).
+    """
+    run_lock = _load_run_lock()
+    lock = target.with_name(target.name + ".lock")
+    owner = f"forge-tier-rw:{command}:{run_lock.new_run_id()}"
+    try:
+        # The empty file an `flock` on this path leaves (create-skill prose
+        # before 3.0.0) holds nothing, so it must not make the call wait.
+        held = run_lock.acquire_within(lock, owner, REGISTRY_LOCK_STALE_SEC, timeout,
+                                       empty_is_stale=True)
+    except run_lock.LockBusy as busy:
+        info = busy.result
+        _die(EXIT_LOCK_BUSY,
+             f"{command}: {lock} is held by {info['held_by'] or 'an unnamed owner'} since "
+             f"{info['held_since']}: another run is writing {target.name}. Nothing was "
+             f"written; run the command again.")
+    except (OSError, ValueError) as e:
+        _die(2, f"{command}: cannot take {lock}: {e}")
+    try:
+        yield held["stale_replaced"]
+    finally:
+        try:
+            run_lock.release(lock, owner)
+        except (OSError, ValueError):
+            pass  # a lock this call could not delete goes stale on its own
 
 
 def _yaml_block(value, indent: int = 0) -> str:
@@ -294,6 +375,28 @@ def _merge_preserved_fields(payload: dict, existing: dict | None) -> dict:
     return payload
 
 
+def _payload_from(data: dict, **replace) -> dict:
+    """The render payload of an existing forge-tier.yaml, with `replace` applied.
+
+    render_forge_tier_yaml() emits exactly the six known top-level sections
+    (tools, tier, tier_detected_at, ccc_index, ccc_index_registry,
+    qmd_collections), so a rewrite from this payload drops any other
+    top-level key, as cmd_write_tools does. Update render_forge_tier_yaml()
+    and this function together when the schema grows.
+    """
+    payload = {
+        "tools": data.get("tools", {}),
+        "tier": data.get("tier", "Quick"),
+        "tier_detected_at": data.get("tier_detected_at",
+                                     datetime.now(timezone.utc).isoformat()),
+        "ccc_index": data.get("ccc_index", {}),
+        "ccc_index_registry": data.get("ccc_index_registry", []),
+        "qmd_collections": data.get("qmd_collections", []),
+    }
+    payload.update(replace)
+    return payload
+
+
 # ─── Subcommands ─────────────────────────────────────────────────────────────
 
 
@@ -305,7 +408,7 @@ def cmd_read(target: Path) -> None:
     _ok({"exists": True, "data": data})
 
 
-def cmd_write_tools(target: Path) -> None:
+def cmd_write_tools(target: Path, lock_timeout: float = REGISTRY_LOCK_WAIT_SEC) -> None:
     raw = sys.stdin.read()
     if not raw.strip():
         _die(1, "write-tools: empty stdin (expected JSON payload)")
@@ -321,11 +424,12 @@ def cmd_write_tools(target: Path) -> None:
 
     payload.setdefault("tier_detected_at", datetime.now(timezone.utc).isoformat())
 
-    existing = _read_yaml(target)
-    payload = _merge_preserved_fields(payload, existing)
+    with _registry_lock(target, "write-tools", lock_timeout) as stale_replaced:
+        existing = _read_yaml(target)
+        payload = _merge_preserved_fields(payload, existing)
 
-    rendered = render_forge_tier_yaml(payload)
-    _atomic_write(target, rendered)
+        rendered = render_forge_tier_yaml(payload)
+        _atomic_write(target, rendered)
     _ok({
         "wrote": str(target),
         "preserved_arrays": {
@@ -333,6 +437,7 @@ def cmd_write_tools(target: Path) -> None:
             "ccc_index_registry": len(payload.get("ccc_index_registry", [])),
         },
         "tier": payload["tier"],
+        "lock_stale_replaced": stale_replaced,
     })
 
 
@@ -344,13 +449,8 @@ def cmd_init_prefs(target: Path) -> None:
     _ok({"exists": True, "wrote": True, "path": str(target), "first_run": True})
 
 
-def cmd_register_qmd_collection(target: Path) -> None:
-    # Note: render_forge_tier_yaml() emits exactly the six known top-level
-    # sections (tools, tier, tier_detected_at, ccc_index, ccc_index_registry,
-    # qmd_collections). If a future schema revision adds a new top-level key,
-    # this subcommand will silently drop it — same limitation that already
-    # affects cmd_write_tools and cmd_clean_stale. Update render_forge_tier_yaml()
-    # AND those three subcommands together when the schema grows.
+def cmd_register_qmd_collection(target: Path,
+                                lock_timeout: float = REGISTRY_LOCK_WAIT_SEC) -> None:
     raw = sys.stdin.read()
     if not raw.strip():
         _die(1, "register-qmd-collection: empty stdin (expected JSON entry)")
@@ -365,41 +465,67 @@ def cmd_register_qmd_collection(target: Path) -> None:
     if not name or not isinstance(name, str):
         _die(1, "register-qmd-collection: entry must include a non-empty 'name' string")
 
-    data = _read_yaml(target)
-    if data is None:
-        _die(1, f"register-qmd-collection: target does not exist: {target}. "
-                f"Run setup workflow first to create forge-tier.yaml.")
+    missing = (f"register-qmd-collection: target does not exist: {target}. "
+               f"Run setup workflow first to create forge-tier.yaml.")
+    if not target.exists():
+        _die(1, missing)
+    with _registry_lock(target, "register-qmd-collection", lock_timeout) as stale_replaced:
+        data = _read_yaml(target)
+        if data is None:
+            _die(1, missing)
 
-    collections = list(data.get("qmd_collections") or [])
-    replaced = False
-    for i, existing in enumerate(collections):
-        if isinstance(existing, dict) and existing.get("name") == name:
-            collections[i] = entry
-            replaced = True
-            break
-    if not replaced:
-        collections.append(entry)
+        collections = list(data.get("qmd_collections") or [])
+        replaced = False
+        for i, existing in enumerate(collections):
+            if isinstance(existing, dict) and existing.get("name") == name:
+                collections[i] = entry
+                replaced = True
+                break
+        if not replaced:
+            collections.append(entry)
 
-    payload = {
-        "tools": data.get("tools", {}),
-        "tier": data.get("tier", "Quick"),
-        "tier_detected_at": data.get("tier_detected_at",
-                                     datetime.now(timezone.utc).isoformat()),
-        "ccc_index": data.get("ccc_index", {}),
-        "ccc_index_registry": data.get("ccc_index_registry", []),
-        "qmd_collections": collections,
-    }
-    rendered = render_forge_tier_yaml(payload)
-    _atomic_write(target, rendered)
+        rendered = render_forge_tier_yaml(_payload_from(data, qmd_collections=collections))
+        _atomic_write(target, rendered)
     _ok({
         "name": name,
         "action": "replaced" if replaced else "appended",
         "qmd_collections_count": len(collections),
         "wrote": str(target),
+        "lock_stale_replaced": stale_replaced,
     })
 
 
-def cmd_register_ccc_index(target: Path) -> None:
+def cmd_remove_qmd_collection(target: Path, name: str,
+                              lock_timeout: float = REGISTRY_LOCK_WAIT_SEC) -> None:
+    if not name.strip():
+        _die(1, "remove-qmd-collection: --name must be a non-empty collection name")
+
+    missing = (f"remove-qmd-collection: target does not exist: {target}. "
+               f"Run setup workflow first to create forge-tier.yaml.")
+    if not target.exists():
+        _die(1, missing)
+    with _registry_lock(target, "remove-qmd-collection", lock_timeout) as stale_replaced:
+        data = _read_yaml(target)
+        if data is None:
+            _die(1, missing)
+
+        collections = list(data.get("qmd_collections") or [])
+        kept = [e for e in collections if not (isinstance(e, dict) and e.get("name") == name)]
+        removed = len(collections) - len(kept)
+        if removed:
+            rendered = render_forge_tier_yaml(_payload_from(data, qmd_collections=kept))
+            _atomic_write(target, rendered)
+    _ok({
+        "name": name,
+        "action": "removed" if removed else "absent",
+        "removed_count": removed,
+        "qmd_collections_count": len(kept),
+        "wrote": str(target) if removed else None,
+        "lock_stale_replaced": stale_replaced,
+    })
+
+
+def cmd_register_ccc_index(target: Path, lock_timeout: float = REGISTRY_LOCK_WAIT_SEC) -> None:
     raw = sys.stdin.read()
     if not raw.strip():
         _die(1, "register-ccc-index: empty stdin (expected JSON entry)")
@@ -417,100 +543,89 @@ def cmd_register_ccc_index(target: Path) -> None:
     if not skill_name or not isinstance(skill_name, str):
         _die(1, "register-ccc-index: entry must include a non-empty 'skill_name' string")
 
-    data = _read_yaml(target)
-    if data is None:
-        _die(1, f"register-ccc-index: target does not exist: {target}. "
-                f"Run setup workflow first to create forge-tier.yaml.")
+    missing = (f"register-ccc-index: target does not exist: {target}. "
+               f"Run setup workflow first to create forge-tier.yaml.")
+    if not target.exists():
+        _die(1, missing)
+    with _registry_lock(target, "register-ccc-index", lock_timeout) as stale_replaced:
+        data = _read_yaml(target)
+        if data is None:
+            _die(1, missing)
 
-    registry = list(data.get("ccc_index_registry") or [])
-    replaced = False
-    for i, existing in enumerate(registry):
-        if (isinstance(existing, dict)
-                and existing.get("source_repo") == source_repo
-                and existing.get("skill_name") == skill_name):
-            registry[i] = entry
-            replaced = True
-            break
-    if not replaced:
-        registry.append(entry)
+        registry = list(data.get("ccc_index_registry") or [])
+        replaced = False
+        for i, existing in enumerate(registry):
+            if (isinstance(existing, dict)
+                    and existing.get("source_repo") == source_repo
+                    and existing.get("skill_name") == skill_name):
+                registry[i] = entry
+                replaced = True
+                break
+        if not replaced:
+            registry.append(entry)
 
-    payload = {
-        "tools": data.get("tools", {}),
-        "tier": data.get("tier", "Quick"),
-        "tier_detected_at": data.get("tier_detected_at",
-                                     datetime.now(timezone.utc).isoformat()),
-        "ccc_index": data.get("ccc_index", {}),
-        "ccc_index_registry": registry,
-        "qmd_collections": data.get("qmd_collections", []),
-    }
-    rendered = render_forge_tier_yaml(payload)
-    _atomic_write(target, rendered)
+        rendered = render_forge_tier_yaml(_payload_from(data, ccc_index_registry=registry))
+        _atomic_write(target, rendered)
     _ok({
         "source_repo": source_repo,
         "skill_name": skill_name,
         "action": "replaced" if replaced else "appended",
         "ccc_index_registry_count": len(registry),
         "wrote": str(target),
+        "lock_stale_replaced": stale_replaced,
     })
 
 
 def cmd_clean_stale(target: Path, qmd_live_names: list[str] | None,
-                    prune_missing_ccc_paths: bool) -> None:
-    data = _read_yaml(target)
-    if data is None:
-        _die(1, f"clean-stale: target does not exist: {target}")
+                    prune_missing_ccc_paths: bool,
+                    lock_timeout: float = REGISTRY_LOCK_WAIT_SEC) -> None:
+    missing = f"clean-stale: target does not exist: {target}"
+    if not target.exists():
+        _die(1, missing)
+    with _registry_lock(target, "clean-stale", lock_timeout) as stale_replaced:
+        data = _read_yaml(target)
+        if data is None:
+            _die(1, missing)
 
-    qmd_removed: list[str] = []
-    ccc_removed: list[str] = []
+        qmd_removed: list[str] = []
+        ccc_removed: list[str] = []
 
-    if qmd_live_names is not None:
-        live_set = set(qmd_live_names)
-        kept = []
-        for entry in data.get("qmd_collections", []) or []:
-            if not isinstance(entry, dict):
-                kept.append(entry)
-                continue
-            name = entry.get("name")
-            if name in live_set:
-                kept.append(entry)
-            else:
-                qmd_removed.append(str(name))
-        data["qmd_collections"] = kept
+        if qmd_live_names is not None:
+            live_set = set(qmd_live_names)
+            kept = []
+            for entry in data.get("qmd_collections", []) or []:
+                if not isinstance(entry, dict):
+                    kept.append(entry)
+                    continue
+                name = entry.get("name")
+                if name in live_set:
+                    kept.append(entry)
+                else:
+                    qmd_removed.append(str(name))
+            data["qmd_collections"] = kept
 
-    if prune_missing_ccc_paths:
-        kept = []
-        for entry in data.get("ccc_index_registry", []) or []:
-            if not isinstance(entry, dict):
-                kept.append(entry)
-                continue
-            entry_path = entry.get("path")
-            if entry_path and Path(entry_path).exists():
-                kept.append(entry)
-            else:
-                ccc_removed.append(str(entry_path))
-        data["ccc_index_registry"] = kept
+        if prune_missing_ccc_paths:
+            kept = []
+            for entry in data.get("ccc_index_registry", []) or []:
+                if not isinstance(entry, dict):
+                    kept.append(entry)
+                    continue
+                entry_path = entry.get("path")
+                if entry_path and Path(entry_path).exists():
+                    kept.append(entry)
+                else:
+                    ccc_removed.append(str(entry_path))
+            data["ccc_index_registry"] = kept
 
-    if not qmd_removed and not ccc_removed:
-        _ok({"qmd_removed": [], "ccc_removed": [], "wrote": False})
-        return
-
-    # Round-trip through render to preserve the canonical format.
-    # Existing data already contains the full state; render needs the same shape.
-    payload = {
-        "tools": data.get("tools", {}),
-        "tier": data.get("tier", "Quick"),
-        "tier_detected_at": data.get("tier_detected_at",
-                                     datetime.now(timezone.utc).isoformat()),
-        "ccc_index": data.get("ccc_index", {}),
-        "ccc_index_registry": data.get("ccc_index_registry", []),
-        "qmd_collections": data.get("qmd_collections", []),
-    }
-    rendered = render_forge_tier_yaml(payload)
-    _atomic_write(target, rendered)
+        if qmd_removed or ccc_removed:
+            # Round-trip through render to preserve the canonical format.
+            rendered = render_forge_tier_yaml(_payload_from(data))
+            _atomic_write(target, rendered)
     _ok({
         "qmd_removed": qmd_removed,
         "ccc_removed": ccc_removed,
-        "wrote": True,
+        "wrote": bool(qmd_removed or ccc_removed),
+        "lock_stale_replaced": stale_replaced,
     })
 
 
@@ -527,9 +642,15 @@ def main() -> None:
     p_read = sub.add_parser("read", help="Read a forge-tier.yaml and emit JSON")
     p_read.add_argument("--target", type=Path, required=True)
 
+    def add_lock_timeout(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--lock-timeout", type=float, default=REGISTRY_LOCK_WAIT_SEC,
+                       help="seconds to wait while another call holds forge-tier.yaml.lock "
+                            f"(default {REGISTRY_LOCK_WAIT_SEC:g})")
+
     p_write = sub.add_parser("write-tools",
                              help="Write a fresh forge-tier.yaml from a JSON payload on stdin")
     p_write.add_argument("--target", type=Path, required=True)
+    add_lock_timeout(p_write)
 
     p_init = sub.add_parser("init-prefs",
                             help="Create preferences.yaml with first-run defaults if missing")
@@ -544,32 +665,47 @@ def main() -> None:
                               "Omit the flag entirely to skip QMD cleanup.")
     p_clean.add_argument("--prune-missing-ccc-paths", action="store_true",
                          help="Remove ccc_index_registry entries whose path no longer exists.")
+    add_lock_timeout(p_clean)
 
     p_register = sub.add_parser("register-qmd-collection",
                                 help="Append-or-replace a single qmd_collections entry by name")
     p_register.add_argument("--target", type=Path, required=True)
+    add_lock_timeout(p_register)
+
+    p_remove = sub.add_parser("remove-qmd-collection",
+                              help="Remove the qmd_collections entries with this name (rollback)")
+    p_remove.add_argument("--target", type=Path, required=True)
+    p_remove.add_argument("--name", required=True, help="the collection name to remove")
+    add_lock_timeout(p_remove)
 
     p_ccc = sub.add_parser("register-ccc-index",
                            help="Append-or-replace a single ccc_index_registry entry by source_repo+skill_name")
     p_ccc.add_argument("--target", type=Path, required=True)
+    add_lock_timeout(p_ccc)
 
     args = parser.parse_args()
+
+    lock_timeout = getattr(args, "lock_timeout", REGISTRY_LOCK_WAIT_SEC)
+    if not math.isfinite(lock_timeout) or lock_timeout < 0:
+        _die(1, f"{args.cmd}: --lock-timeout must be a number of seconds, 0 or more")
 
     if args.cmd == "read":
         cmd_read(args.target)
     elif args.cmd == "write-tools":
-        cmd_write_tools(args.target)
+        cmd_write_tools(args.target, lock_timeout)
     elif args.cmd == "init-prefs":
         cmd_init_prefs(args.target)
     elif args.cmd == "clean-stale":
         live = None
         if args.qmd_live_names is not None:
             live = [n.strip() for n in args.qmd_live_names.split(",") if n.strip()]
-        cmd_clean_stale(args.target, live, args.prune_missing_ccc_paths)
+        cmd_clean_stale(args.target, live, args.prune_missing_ccc_paths, lock_timeout)
     elif args.cmd == "register-qmd-collection":
-        cmd_register_qmd_collection(args.target)
+        cmd_register_qmd_collection(args.target, lock_timeout)
+    elif args.cmd == "remove-qmd-collection":
+        cmd_remove_qmd_collection(args.target, args.name, lock_timeout)
     elif args.cmd == "register-ccc-index":
-        cmd_register_ccc_index(args.target)
+        cmd_register_ccc_index(args.target, lock_timeout)
 
 
 if __name__ == "__main__":
