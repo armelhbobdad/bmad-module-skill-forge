@@ -2,4 +2,5 @@ type: changed
 scope: packaging
 summary: |
   `package.json` no longer declares `main`, so `require('bmad-module-skill-forge')` now fails with `MODULE_NOT_FOUND` instead of running the installer CLI against the calling program's arguments, and `import('bmad-module-skill-forge')` fails with `ERR_MODULE_NOT_FOUND`. `require.resolve('bmad-module-skill-forge')` fails the same way; to find the installed package, resolve `bmad-module-skill-forge/package.json`, which still works. Requiring the package was never a supported use, and `npx bmad-module-skill-forge` works as before. The npm package also stops shipping `.gitattributes` and `.nvmrc`, which only the SKF repository uses.
+prs: [620]
 issues: [567]
