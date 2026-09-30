@@ -448,7 +448,8 @@ def _resolve_outside_cwd(command: str) -> str | None:
 
 
 # skf-check-workspace-drift.py (upstream), skf-github-probe.py and
-# skf-classify-changed-files.py load this file for split_version, _run,
+# skf-classify-changed-files.py load this file for split_version, match_tags,
+# nearest_tags, _run,
 # _resolve_outside_cwd, _last_error, _stat_dir, SHA40_RE and REF_RE: keep
 # those names and what they take and return.
 def split_version(name: str) -> tuple[str, tuple] | None:

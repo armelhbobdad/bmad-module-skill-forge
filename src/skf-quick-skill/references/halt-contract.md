@@ -12,10 +12,10 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 | ---- | ---------------------- | ----------------------------------------------------------- |
 | 0    | success                | step 7 (terminal)                                          |
 | 2    | input-invalid          | SKILL.md On Activation step 5 (`--description` or `--exports` passed with `--batch`, refused before any target runs) |
-| 3    | resolution-failure     | step 1 (prose input §2, registry chain §3, version-tag miss §3a, language abort §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
+| 3    | resolution-failure     | step 1 (a target that is no GitHub repository or package §2, registry chain §3, an ambiguous package name in headless mode §3, version tag missing or not checkable §3a, language abort §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
 | 4    | write-failure          | step 5 §2 (deliverable write failed)                       |
 | 5    | overwrite-cancelled    | step 5 §1 (user selected [N])                              |
-| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance); step 2 §3 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) |
+| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance) and §3 ([X] at the ambiguous-name gate); step 2 §3 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) |
 | 7    | finalize-blocked       | step 6 §1 (active-pointer flip refused — non-link in place) |
 | 8    | ecosystem-redirect     | step 2 §3 ([I] Install at ecosystem-match gate — user opted to install the existing official skill instead of compiling a custom community skill) |
 | 9    | state-conflict         | step 5 §1 (ownership check: the skill folder or the version folder it writes is not SKF output, or SKF cannot check it → error.code `not-skf-output`; an SKF skill still in the flat layout → `flat-layout`) |
