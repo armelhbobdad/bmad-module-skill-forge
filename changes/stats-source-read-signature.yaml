@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-skill, skf-update-skill
 summary: |
   The metadata stats check now flags a provenance entry read by eye (`source-read` or `source_reading`) that carries `signature_source: T1`, whatever its `confidence`: `T2`, `T3` or none as well as `T1` and `T1-low`. Before, only `T1` and `T1-low` entries were checked, so such an entry passed and counted in the `t1` bin of `confidence_distribution`. Create Skill and Update Skill relabel it to `T1-low`, as they already do for the entries the check covered. No published provenance map holds such an entry.
+prs: [623]
 issues: [555]

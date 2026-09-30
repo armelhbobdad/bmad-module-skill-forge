@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-stack-skill
 summary: |
   Stack Skill in compose mode now checks, before it commits the stack, that each provenance entry's `export_name` appears verbatim (case-sensitive) in the staged `SKILL.md` or in a file directly in `references/`, the files Test Skill searches to credit a name toward Export Coverage. A name that fails is set to the literal identifier the stack documents, or its entry is dropped, and a headless run drops it; each change is listed as a warning in the evidence report. Before, a descriptive label, or a name documented only in `references/integrations/`, was committed and lowered the stack's Export Coverage in Test Skill.
+prs: [623]
 issues: [538]

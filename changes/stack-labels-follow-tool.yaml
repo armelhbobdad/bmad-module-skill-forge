@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-stack-skill
 summary: |
   Stack Skill in code mode labels each export by the tool that read it, at every forge tier: an export an ast-grep rule matched is `T1` (`ast_bridge`), an export read by eye is `T1-low` (`source_reading`) even at Forge or Deep, and a library is `T1` only when an ast-grep rule matched every export it recorded. Before, every export at Forge or Deep read `T1` unless ast-grep failed, so a stack could claim `T1` for code nothing parsed. The labels are now checked before integrations are detected, and in Python and TypeScript or JavaScript sources each provenance entry's `source_line` is checked against the line that defines its export: a decorator line moves to the `def` below it, and any other line the check cannot confirm is listed as a warning in the evidence report. Expect lower integration tiers and a lower `confidence_tier` on some code-mode stacks.
+prs: [623]
 issues: [555]
