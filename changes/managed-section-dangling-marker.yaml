@@ -2,4 +2,5 @@ type: fixed
 scope: skf-export-skill, skf-drop-skill, skf-rename-skill
 summary: |
   Export Skill, Drop Skill and Rename Skill no longer change a context file (`CLAUDE.md`, `AGENTS.md` or `.cursorrules`) where a `<!-- SKF:BEGIN` marker has no `<!-- SKF:END -->` of its own, for example after the end marker was deleted. Export Skill stops there, and Drop Skill and Rename Skill report that file as failed and rebuild the others. Before, Export Skill added a second managed section below the unclosed marker, and the next rebuild deleted the lines between the unclosed marker and that new section, your own lines included. Restore the end marker, or delete the stray begin marker, and run the workflow again. A managed section that still holds the second marker pair Drop Skill and Rename Skill used to write inside it now rebuilds into one section with one marker pair, and the extra `<!-- SKF:END -->` lines those rebuilds left below it are removed.
+prs: [617]
 issues: [591]

@@ -2,4 +2,5 @@ type: fixed
 scope: skf-export-skill
 summary: |
   Export Skill no longer halts on a stack skill whose `confidence_tier` holds the dominant confidence tier of its libraries (`T1`, `T1-low`, `T2` or `T3`), the value Stack Skill writes there. The export gate accepted only the forge tiers (`Quick`, `Forge`, `Forge+`, `Deep`), so these stacks failed the gate and `--all` stopped before exporting the skills beside them. The gate now checks `confidence_tier` against the scale of the skill's `skill_type`, so these stacks export without being forged again. An older stack that still holds its forge tier in `confidence_tier` keeps exporting as before, now with a warning that re-running Stack Skill records the dominant tier. The gate also reads a `scripts/` or `assets/` path in the Scripts & Assets section only from the start of a path, so an upstream file such as `bmad-module-builder/scripts/validate-module.py` is no longer reported as a bundled file missing from the package.
+prs: [617]
 issues: [552]
