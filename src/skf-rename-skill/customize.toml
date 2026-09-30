@@ -53,10 +53,3 @@ on_complete = ""
 # headless decision trail.
 
 force_source_authority_in_headless = ""
-
-# Fallback IDE → context-file mapping for unknown IDEs in `config.yaml.ides`.
-# Empty string = use bundled defaults (AGENTS.md / .agents/skills/).
-# Used by execute.md §7 when rebuilding context files.
-
-unknown_ide_default_context_file = ""
-unknown_ide_default_skill_root = ""

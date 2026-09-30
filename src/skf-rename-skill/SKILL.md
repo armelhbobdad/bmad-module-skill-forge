@@ -17,7 +17,7 @@ Renames a skill across all its versions with transactional safety — copy to th
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
 - **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root — install layout puts both at `{project-root}/_bmad/skf/`. The `versionPathsKnowledge: 'knowledge/version-paths.md'` frontmatter scalar in stage files uses this convention; same for `shared/health-check.md` chained from the terminal step.
-- **Cross-skill data coupling:** `references/execute.md` reads `skf-export-skill/assets/managed-section-format.md` for the IDE→context-file mapping table and the skill-index rebuild rules when re-keying context files post-rename. Rename-skill assumes that asset is present at install time and that its semantics are stable across the two skills' versions.
+- **Shared context-file rebuild:** `references/execute.md` §7 resolves the context files and rebuilds their managed sections through `shared/scripts/skf-rebuild-managed-sections.py` (`resolve-targets`, `check`, `assemble --renamed`, `replace`), the helper export-skill writes them with, so the three skills that write the section produce the same bytes from one IDE mapping (`shared/data/ide-context-files.json`). `skf-export-skill/assets/managed-section-format.md` documents that format.
 
 ## Role
 
@@ -30,7 +30,7 @@ These rules apply to every step in this workflow:
 - Never delete the old skill directories until the new name has been fully materialized and verified
 - Never proceed past a verification failure — roll back (delete new directories) and halt
 - Never allow a rename to collide with an existing skill name
-- Never rename a folder SKF did not generate — select.md §4a checks the `ownership` of the skill folder and of its forge folder, refuses a flat-layout skill and a forge folder that also holds other files or that is a link, is not a folder, or cannot be listed, and leaves any other forge folder SKF did not generate under the old name
+- Never rename a folder SKF did not generate: select.md §4a takes the rename verdict for the skill folder and its forge folder from the inventory helper, which refuses a flat-layout skill and a forge folder that also holds other files or that is a link, is not a folder, or cannot be listed, and leaves any other forge folder SKF did not generate under the old name
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — **except** the atomicity and commit-gate safety helpers that execute.md §0 resolves: a missing one there is a HARD HALT (exit 4), never an LLM fall-through, because hand-driven writes/scans would silently regress the transactional guarantees that keep a failed rename recoverable. The same holds for the select.md §4a ownership check: without the inventory helper it refuses the rename (exit 5), never deciding by hand whether SKF generated a folder
 - Always communicate in `{communication_language}`
@@ -73,7 +73,7 @@ SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
-   - `snippet_skill_root_override` (optional string) — when set, the context-file rebuild in step 2 preserves any snippet `root:` prefix that matches the override instead of rewriting it to the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
+   - `snippet_skill_root_override` (optional string): when set, the context-file rebuild in step 2 passes it to `assemble` as `--skill-root-override`, so every row's `root:` takes it instead of the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
    - Generate and store `timestamp` as `YYYYMMDD-HHmmss` format. This value is fixed for the entire workflow run.
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
@@ -93,14 +93,12 @@ SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each scalar.
 
-   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the four scalars, if the merged value is empty or absent, the bundled default applies:
+   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, the bundled default applies:
 
    - `{forceSourceAuthorityInHeadless}` ← `workflow.force_source_authority_in_headless` (empty or non-`"true"` = HALT in headless on `"official"` source-authority)
-   - `{unknownIdeDefaultContextFile}` ← `workflow.unknown_ide_default_context_file` if non-empty, else `AGENTS.md`
-   - `{unknownIdeDefaultSkillRoot}` ← `workflow.unknown_ide_default_skill_root` if non-empty, else `.agents/skills/`
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — step 3 skips the post-completion hook invocation)
 
-   Stash all four as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
+   Stash both as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
 
    Then apply the resolved array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (entries prefixed `file:` are paths or globs whose contents load as facts — the bundled default loads any `project-context.md` so rename-policy and public-name-stability guardrails stay in mind); and after activation completes, execute each entry in `workflow.activation_steps_append` in order.
 

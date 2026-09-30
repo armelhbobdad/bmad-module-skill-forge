@@ -1,28 +1,21 @@
 ---
 nextStepFile: 'token-report.md'
-managedSectionData: '{managedSectionFormatPath}'
 # Resolve `{rebuildManagedSectionsHelper}` by probing
 # `{rebuildManagedSectionsProbeOrder}` in order (installed SKF module path
-# first, src/ dev-checkout fallback); first existing path wins. §9 uses
-# the `replace` action for the surgical between-marker swap with
-# atomic temp-file + rename, marker preservation, and post-write verify.
-# HALT if no candidate exists — the in-prompt prose path silently regresses
-# the Case 4 (malformed markers) HARD HALT guarantee.
+# first, src/ dev-checkout fallback); first existing path wins. It builds and
+# writes every managed section: `assemble` builds each body, `check` picks
+# the write and enforces the malformed-marker halt, `read` shows the old
+# section, and `insert` / `replace` write atomically and verify. HALT if no
+# candidate exists: a section written in the prompt loses those guarantees.
 rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
-# Resolve `{manifestOpsHelper}` similarly. §9b uses `read` / `set` for
-# atomic v2-schema-aware manifest mutation (handles v1→v2 migration and
-# `platforms`→`ides` rename internally).
+# Resolve `{manifestOpsHelper}` similarly. §9b records each skill of the
+# batch with `set` (v2 schema, v1 migration and the `platforms` to `ides`
+# rename handled inside).
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
-# Resolve `{atomicWriteHelper}` similarly. §6 Case 1 (Create) and §6
-# Case 2 (Append) use it via `write` for safe artifact emission — the
-# in-prompt write would risk half-written files on process kill.
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Render the change preview and managed section in {document_output_language}. -->
@@ -31,15 +24,14 @@ atomicWriteProbeOrder:
 
 ## STEP GOAL:
 
-To update the managed `<!-- SKF:BEGIN/END -->` section in the platform-appropriate context file (CLAUDE.md/AGENTS.md/.cursorrules) using the four-case logic defined by ADR-J (Create, Append, Regenerate, Malformed Markers halt), rebuilding the complete skill index from all exported skills.
+To update the SKF managed section in each target context file (CLAUDE.md, AGENTS.md or .cursorrules) through `skf-rebuild-managed-sections.py`, which builds the section from every exported skill and writes it by the four cases of ADR-J (Create, Append, Regenerate, Malformed Markers halt), and to record every skill of the batch in the export manifest.
 
 ## Rules
 
-- Focus only on the managed section update in the target context file
-- Do not modify any content outside `<!-- SKF:BEGIN -->` and `<!-- SKF:END -->` markers
-- Do not write without user confirmation — this modifies shared project files
-- If `passive_context: false` was detected in step 1, skip this step entirely
-- **Multi-skill mode:** this step executes ONCE for the whole batch, not once per skill. §4b already builds the exported skill set from the manifest (plus current export targets), so a multi-skill run naturally appears as a single rebuild. The only batch adjustment is in §9b: update the manifest entry for every skill in `skill_batch` (not just one), and include all of them when computing `ides_written`. See step 1 §1c.
+- The helper builds and writes the section: never type a snippet, a marker or a date into a context file, and never change the content outside the markers
+- Do not write a context file without user confirmation (§8): this modifies shared project files, and a dry run writes none
+- If `passive_context: false` was detected in step 1, skip to §9b: the export manifest still records the export
+- **Multi-skill mode:** this step runs once for the whole batch: each body lists every skill in `skill_batch` (§4a), one gate confirms every target (§8), and §9b records every skill. See step 1 §1c.
 
 ## MANDATORY SEQUENCE
 
@@ -47,194 +39,129 @@ To update the managed `<!-- SKF:BEGIN/END -->` section in the platform-appropria
 
 **If `passive_context: false` was detected in step 1:**
 
-"**Passive context disabled in preferences.yaml. Skipping context update.**"
+"**Passive context disabled in preferences.yaml. Skipping the context files; the export manifest still records this export.**"
 
-Auto-proceed immediately to {nextStepFile}.
+Run §9b, then auto-proceed to {nextStepFile}.
 
-**If `passive_context: true` (default):** Continue to step 2.
+**If `passive_context: true` (default):** Continue to §2.
 
-### 2. Load Managed Section Format
+### 2. Resolve the Helpers
 
-Load {managedSectionData} and read the complete format template and four-case logic.
+Resolve both in parallel (independent file-existence checks, one tool-call message):
 
-### 3. Determine Target File(s)
+- `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}`
+- `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}`
 
-Using the `target_context_files` list resolved in step 1, determine all target files. Each entry has `{context_file, skill_root}` — the context file to write and the IDE's skill directory for root path resolution.
+If either has no existing candidate, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "SKF cannot write the managed section safely: `{the missing helper}` is missing. Nothing was written. Re-install SKF." In headless mode, emit the error envelope per `references/result-envelope.md` with `context_files_updated: []` and `manifest_path: null`.
 
-For each entry in `target_context_files`, resolve target file path: `{context_file}`
+Step 3 bound `{export_stage_dir}`, the run's folder outside the project that holds each skill's snippet draft under `drafts/`. This step stages each target's new section body under its `previews/` folder, so nothing lands beside a context file before the §8 gate, and deletes the folder on every exit: the §8 dry run and cancel, the end of §9, the orphan-row (c) Cancel and every HALT in this step.
 
-**If multiple context files:** Sections 4-9a execute as a loop — one full pass per target context file. Each iteration uses the same skill index but rewrites root paths per context file's `skill_root` (section 4d) and writes to the target context file. Section 9b executes once after all iterations complete.
+### 3. Determine Target Files
 
-**Processing order:** Process context files in the order listed in `target_context_files`.
+Step 1 resolved `target_context_files` through `resolve-targets`: one `{context_file, skill_root, ides}` entry per file. Process the targets in that order. A context file's path is `{context_path}`, its `{context_file}` in `{project-root}`, and `{target_paths}` is the `{context_path}` of every target, each quoted, space-separated, in that order.
 
 #### 3b. Detect Orphaned Platform Files (Stale Managed Sections)
 
-A context file becomes orphaned when its IDE is removed from `config.yaml` after a prior export. The file still contains an SKF managed section pointing to stale skill versions, but no future export will rewrite it.
+A context file becomes orphaned when its IDE is removed from `config.yaml` after a prior export: it still holds an SKF managed section that lists stale skill versions, but no later export rewrites it.
 
-**Cheap pre-check (always run, ~3 file existence checks):** build `orphaned_context_files` — for each known context file in `{CLAUDE.md, .cursorrules, AGENTS.md}` that is NOT in `target_context_files`, check whether it exists on disk and contains the `<!-- SKF:BEGIN -->` marker. If yes, add `{context_file, file_path}` to `orphaned_context_files`.
+Run `check` on each file of step 1's `{other_context_files}`, the known context files no configured IDE maps to:
 
-**If `orphaned_context_files` is non-empty:** load `references/orphan-context-detection.md` and follow its (a) clear / (b) keep / (c) rewrite gate protocol. The reference handles user prompting, headless default (keep), and downstream-state recording (`orphans_cleared`, `orphans_rewritten`, `rewrite_context_files`). When the user chooses (c), the §4–§9a loop iterates over `target_context_files + rewrite_context_files`.
+```bash
+python3 {rebuildManagedSectionsHelper} "{context_path}" check
+```
+
+A file whose `case` is `regenerate` holds a managed section: add `{context_file, file_path}` to `orphaned_context_files`, with its `{context_path}` as `file_path`. A `malformed` one is left as it is, with the warning "`{context_file}` has malformed SKF markers, so it was left as it is: {error}". Any other case is not orphaned.
+
+**If `orphaned_context_files` is non-empty:** load `references/orphan-context-detection.md` and follow its (a) clear / (b) keep / (c) rewrite gate protocol. It handles user prompting, the headless default (keep), and the state it records (`orphans_cleared`, `orphans_rewritten`, `rewrite_context_files`). Each file the user chose to rewrite joins the targets for §4 to §9, with `.agents/skills/` as its skill root and no IDEs, and `{target_paths}` lists it too.
 
 **If `orphaned_context_files` is empty:** proceed to §4.
 
-### 4. Rebuild Complete Skill Index
+### 4. Build the Managed Section
 
-#### 4a. Read Export Manifest (v2 — version-aware)
+#### 4a. The Skills It Lists
 
-Read the manifest via `{manifestOpsHelper}` (resolved at §9 from `{manifestOpsProbeOrder}` — see frontmatter):
+`assemble` lists each skill of the export manifest whose active version is not deprecated and, through `--include`, every skill in `skill_batch` at the version in its `{resolved_skill_package}/metadata.json`, so a first export, a batch member the manifest does not list yet, and a skill the step 1 manifest-lag guard resolved to a newer version all appear at the version this export publishes. Bind `{batch_includes}` to the comma-joined `{skill-name}@{version}` of every skill in `skill_batch`. `--snippet-dir` hands it the drafts step 3 staged, so a batch skill's row is its new snippet.
+
+#### 4b. Assemble One Body per Target
+
+For each target, run:
 
 ```bash
-python3 {manifestOpsHelper} {skills_output_folder} read
+python3 {rebuildManagedSectionsHelper} assemble "{context_path}" \
+  --skills-folder "{skills_output_folder}" --skill-root "{skill_root}" \
+  --include {batch_includes} --snippet-dir "{export_stage_dir}/drafts" \
+  --orphan-sources {target_paths} --orphans {orphan_mode} \
+  --out "{export_stage_dir}/previews/{context_file}.skf-content" \
+  [--skill-root-override "{snippet_skill_root_override}"]
 ```
 
-The helper handles v2-schema enforcement, v1→v2 migration, and the `platforms`→`ides` rename internally. The `read` action returns a `{"status": "ok", "manifest": {...}}` envelope — parse `result["manifest"]`, **not** the top-level object (`result["exports"]` raises `KeyError`). The `manifest` value is always in canonical v2 shape regardless of on-disk state.
+Add `--skill-root-override` only when `snippet_skill_root_override` is set in `config.yaml`. `{orphan_mode}` is `keep` unless §4c.1 drops the orphan rows. The helper writes the body to the `--out` file, with no marker and no trailing newline, and prints its result as JSON. From each target's result bind `{content_file}` ← `content_file`, `{n_single}` ← `n_single` and `{n_stack}` ← `n_stack`. A non-zero exit writes nothing: HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and report `{context_file}: {error}` (for example a context file that is not UTF-8 text: the error says how to fix it). In headless mode, emit the error envelope per `references/result-envelope.md` with `context_files_updated: []` and `manifest_path: null`.
 
-**Schema reference:** `references/manifest-rebuild.md` documents the v2 shape, the status enum (`active`/`archived`/`deprecated`/`draft`), the v1 migration path, and the `active_version` integrity invariant. Load that file only when an inline schema reminder is needed — the helper enforces the shape so the in-prompt prose is not load-bearing.
+When the first result's `malformed_context_files` is not empty, run the §5 `check` on those files now and take its `malformed` HALT, before §4c.1 asks anything: a target whose `<!-- SKF:BEGIN` marker no `<!-- SKF:END -->` closes is never written.
 
-**Integrity guard:** if the helper returns an entry where `active_version` does not resolve to a key in `versions`, the manifest is inconsistent. Skip the affected skill and log: "**Manifest integrity warning:** `{skill-name}.active_version = v{active_version}` has no matching entry under `versions`. Skipping. Re-run `[EX] Export Skill` on `{skill-name}` to repair the manifest entry."
+#### 4c. Report What Was Left Out
 
-**If the manifest does not exist** (first export or fresh forge): the envelope wraps an empty manifest — `result["manifest"]` is `{"schema_version": "2", "exports": {}}`, so `result["manifest"]["exports"]` is `{}`. Only the current export target will appear in the rebuilt index.
+Every call reads the same manifest and snippets, so report these once, from the first result:
 
-#### 4b. Build Exported Skill Set (version-aware)
+- each `skipped_integrity[]` entry: "**Manifest integrity warning:** `{skill_name}`: {reason}. Skipping. Re-run `[EX] Export Skill` on `{skill_name}` to repair the manifest entry."
+- each `skipped_deprecated[]` entry: "Skipping {skill_name}: active version v{version} is deprecated"
+- each `skipped_missing_snippet[]` entry: "Snippet missing for {skill_name} v{version}: skipping from managed section"
+- each `skipped_malformed_snippet[]` entry: "Snippet of {skill_name} v{version} skipped: {reason}"
+- each `warnings[]` line as it is
 
-Determine the set of skills to include in the rebuilt index:
+With no skill to list, each body holds the header alone (`0 skills|0 stack`).
 
-1. Start with the manifest `exports` entries that survived the §4a integrity guard — those whose `active_version` resolves to a key in `versions` (if manifest exists)
-2. For each surviving skill, record its `active_version` from the manifest (v2 schema)
-3. The §4a integrity guard already skipped (and warned about) any entry whose `active_version` has no matching `versions` key, so build only from those survivors — no re-check or re-warning here.
-4. **Exclude deprecated skills:** If the `active_version` entry in `versions.{active_version}` has `status: "deprecated"`, skip this skill entirely — it has been dropped via drop-skill workflow and must not appear in the managed section. Log: "Skipping {skill-name} — active version v{active_version} is deprecated"
-5. Add the current export target skill name (ensures it is always included even before manifest is written) — use the version from `{resolved_skill_package}/metadata.json` as its `active_version`
-6. This is the **exported skill set** — each entry has a skill name and its resolved `active_version`
+#### 4c.1 Orphaned Managed-Section Rows
 
-#### 4c. Resolve and Filter Snippets (manifest-driven — replaces glob scan)
+A managed-section row is orphaned when the export manifest has no entry for its skill and this run does not export it: typically a skill installed from another repo into `{skills_output_folder}` without going through export-skill. Strict ADR-K would drop such a row, but the row is often the only copy of that skill's snippet, so the helper keeps it verbatim unless told to drop it, and lists it in `orphan_rows` (each with `skill_name`, `version`, `snippet_text` and `source_files`). Every call scans the same files in the same order, so bind `orphan_rows` from the first result.
 
-Instead of globbing `{skills_output_folder}/*/context-snippet.md`, resolve snippets from the exported skill set built in 4b:
+**If `orphan_rows` is non-empty:** load `references/orphan-row-detection.md` and follow its (a) Drop / (b) Preserve verbatim / (c) Cancel gate protocol. It handles user prompting, the headless default (Preserve verbatim), the `deviations[]` record and the result-contract integration. On (a), run §4b again for every target with `--orphans drop`.
 
-**For each skill in the exported skill set:**
-1. Resolve `{skill_package}` using the skill's `active_version`: `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
-2. Read `{skill_package}/context-snippet.md`
-3. **If snippet exists:** Add to skill index
-4. **If snippet does not exist at the versioned path:** Check for `active` symlink at `{skills_output_folder}/{skill-name}/active/{skill-name}/context-snippet.md`.
-5. **If still not found, try the flat layout:** Read `{skills_output_folder}/{skill-name}/context-snippet.md` — a skill still on the pre-versioned flat layout (see `knowledge/version-paths.md` "Migration: Flat to Versioned"). This mirrors the flat-path fallback used when resolving a skill's SKILL.md in `load-skill.md` §1, so a manifest entry (or a first-export `--all` entry) that is still flat on disk is not silently dropped from the managed section.
-6. **If none of the three paths yields a snippet, skip with warning:** "Snippet missing for {skill-name} v{active_version} — skipping from managed section"
+**If `orphan_rows` is empty:** proceed to §5.
 
-**Skills NOT in the exported skill set are never scanned** — they have not been through export-skill and must not appear in the managed section (ADR-K).
+### 5. Check Each Target File
 
-**If no snippets pass the filter:** Generate managed section with zero skills — header only, no skill entries.
+Run `check` on each target:
 
-#### 4c.1 Detect Orphaned Managed-Section Rows (manifest-absent skills)
-
-A managed-section row becomes orphaned when a `[skill-name v...]` entry already exists in the prior managed section but the skill is not in the exported skill set built in 4b — typically an externally-installed skill authored in a different repo and dropped into `{skills_output_folder}` without going through export-skill. Strict ADR-K would silently drop such rows, but the user's managed section is load-bearing — silent removal is a regression.
-
-**Cheap pre-check (always run before §5 assembly).** Scan **every** target context file (not just the first), deduplicate by `(skill_name, version)`, and present one consolidated gate. Asymmetric orphans — a row present in `.cursorrules` but absent from `CLAUDE.md`, or vice versa — must be detected; otherwise the §4 rebuild loop silently overwrites the orphan-bearing file's content (ADR-J violation: silent loss of user content).
-
-The parse / dedup-by-`(skill_name, version)` / set-diff-against-the-exported-set is deterministic marker surgery with one correct answer per input — a mis-parsed row silently drops an installed skill from the rebuilt managed section (the ADR-J/K regression this gate guards against). Delegate it to `{rebuildManagedSectionsHelper}` (resolve from `{rebuildManagedSectionsProbeOrder}` in frontmatter — first existing path wins; if no candidate exists, the same HALT as §9 applies: exit code 4, `halt_reason: "context-rebuild-failed"`). Do not re-derive the rows in-prompt.
-
-1. Run the detector once across **every** target context file — pass each `target_context_files[].context_file` as a positional argument, and the comma-joined list of skill **names** from the exported skill set built in §4b (version is not needed for the orphan test) as `--exported-skills`:
-
-   ```bash
-   python3 {rebuildManagedSectionsHelper} orphan-detect {context-file-1} {context-file-2} … --exported-skills {name1,name2,…}
-   ```
-
-2. Set `orphan_managed_rows = result["orphan_managed_rows"]`. The helper reads each context file that exists and has a `<!-- SKF:BEGIN -->` marker, parses its `[skill-name v...]` rows, drops those whose `skill_name` is in the exported set, and deduplicates the survivors by `(skill_name, version)` — first-seen `snippet_text` wins (divergent snippets across files for the same `(skill, version)` are a user-content asymmetry, but `(b) Preserve verbatim` writes one canonical row to every target file, so first-seen is deterministic), and each file the row appears in is appended to a sorted `source_files`. The returned shape is:
-
-   ```json
-   {"status": "ok", "orphan_managed_rows": [{"skill_name": "…", "version": "…", "snippet_text": "…", "source_files": ["…"]}]}
-   ```
-
-   Each entry's `snippet_text` is the byte-exact prior snippet (re-emitted unchanged if (b) is chosen — the only surviving copy of an orphan's snippet is this known-exact string, never model-reconstructed); `source_files` carries provenance for the gate display and the audit `deviations[]` entry. A missing file, a file with no marker, or a section with no skill rows contributes nothing — the helper already handles those, so the list is empty in those cases.
-
-**If `orphan_managed_rows` is non-empty:** load `references/orphan-row-detection.md` and follow its (a) Drop / (b) Preserve verbatim / (c) Cancel gate protocol. The reference handles user prompting (with per-orphan `source_files` provenance), headless default (Preserve verbatim), `deviations[]` recording (including `source_files` per orphan for audit), and §6 result-contract integration.
-
-**If `orphan_managed_rows` is empty:** proceed to §4d.
-
-#### 4d. Rewrite Root Paths for Target Context File
-
-The context-snippet.md files on disk contain root paths for the IDE they were originally exported to. When assembling the managed section for the current target context file, rewrite root paths if they differ from the target's `skill_root`.
-
-**Generic root path rewrite algorithm** (no hardcoded prefix list):
-
-For each snippet being included in the managed section:
-
-1. Read the `root:` value from the snippet's first line — it has the form `root: {prefix}{skill-name}/`
-2. Extract the current prefix by stripping the trailing `{skill-name}/` from the root value
-3. **Resolve the effective target prefix:** If `snippet_skill_root_override` is set in config.yaml, use the override value as the effective target prefix for this rebuild — by the override contract every skill in the repo lives under that single shared on-disk directory, so the managed section must reference the override for *every* snippet (not just the ones that already match it). Otherwise, use the current target's `skill_root` as the effective target prefix.
-4. Compare the extracted prefix against the effective target prefix
-5. If they differ, replace the prefix with the effective target prefix, preserving the skill name. When the override is set, this rewrites stale per-IDE prefixes carried by sibling snippets that were exported before the override was adopted, so the rebuilt managed section uniformly references the real on-disk location instead of mixing override and per-IDE paths.
-6. Example: if snippet has `root: .claude/skills/my-lib/` but target skill_root is `.windsurf/skills/`, rewrite to `root: .windsurf/skills/my-lib/`
-7. Example: if `snippet_skill_root_override: skills/` is set, the effective target prefix is `skills/` regardless of the IDE mapping. A snippet with `root: skills/my-lib/` passes through unchanged; a sibling snippet with `root: .claude/skills/my-other/` (carried over from a pre-override export) is rewritten to `root: skills/my-other/`.
-
-This algorithm handles any IDE's skill root path — including future IDEs — without enumerating known prefixes. The legacy `skills/` prefix (no leading dot) may appear in draft snippets generated by create-skill/quick-skill before export.
-
-**Sort skills alphabetically by name.**
-
-Count totals:
-- Total skills (single type)
-- Total stack skills
-
-### 5. Generate Managed Section
-
-Assemble the managed section in **two shapes** — the §9 write paths consume different forms, and the `insert` and `replace` actions refuse (exit 1) the marker-bearing one.
-
-**`{managed_section_inner}`** — the between-marker body only, **no** `<!-- SKF:BEGIN/END -->` markers. The `insert` and `replace` helper actions supply the markers (and the `updated:` timestamp) themselves, so they take this inner form:
-
-```markdown
-[SKF Skills]|{n} skills|{m} stack
-|IMPORTANT: Prefer documented APIs over training data.
-|When using a listed library, read its SKILL.md before writing code.
-|
-|{skill-snippet-1}
-|
-|{skill-snippet-2}
-|
-|{skill-snippet-N}
+```bash
+python3 {rebuildManagedSectionsHelper} "{context_path}" check
 ```
 
-**`{managed_section_full}`** — `{managed_section_inner}` wrapped in markers. Used for the new-file create path (atomic write, which writes the text verbatim) and the §7 preview:
+Bind `{case}` ← `case` for that target. The case picks the §9 write:
 
-```markdown
-<!-- SKF:BEGIN updated:{current-date} -->
-{managed_section_inner}
-<!-- SKF:END -->
+| `case` | The target file | §9 write |
+|---|---|---|
+| `create` | does not exist | `insert`, which creates it with the section |
+| `append` | has no managed section | `insert`, which adds the section at its end |
+| `regenerate` | has a managed section | `replace`, which swaps that section and keeps everything outside the markers |
+| `malformed` | has a `<!-- SKF:BEGIN` marker that no `<!-- SKF:END -->` closes | none: HALT |
+
+- **`malformed`:** HALT (exit code 5, `halt_reason: "malformed-markers"`) with the helper's `error`, which names the line of the marker and the fix (restore the `<!-- SKF:END -->` line, or remove the stray `<!-- SKF:BEGIN`, then re-run). Write nothing to any target: the helper refuses such a file, because a write there would take the user's lines below the marker for part of the section. In headless mode, emit the error envelope per `references/result-envelope.md` with `manifest_path: null`, `context_files_updated: []`.
+
+### 6. Read the Current Sections
+
+For each `regenerate` target, read the section §9 replaces:
+
+```bash
+python3 {rebuildManagedSectionsHelper} "{context_path}" read
 ```
 
-### 6. Detect Case and Prepare Changes
-
-**Check target file at `{target-file}`:**
-
-**Case 1: Create (file does not exist)**
-- Action: Create new file with managed section only
-- Diff: Show entire managed section as new content
-
-**Case 2: Append (file exists, no `<!-- SKF:BEGIN` marker found)**
-- Action: Read existing content, append managed section at end
-- Diff: Show managed section being appended after existing content
-- Preserved: ALL existing content untouched
-
-**Case 3: Regenerate (file contains `<!-- SKF:BEGIN` and `<!-- SKF:END -->`)**
-- Action: Replace everything between markers (inclusive) with new managed section
-- Diff: Show old managed section vs new managed section
-- Preserved: ALL content before `<!-- SKF:BEGIN` and after `<!-- SKF:END -->`
-
-**Case 4: Malformed markers (file contains `<!-- SKF:BEGIN` but no `<!-- SKF:END -->`)**
-- Action: HALT (exit code 5, `halt_reason: "malformed-markers"`) with warning: "Malformed SKF markers detected in `{target-file}` — `<!-- SKF:BEGIN` found but `<!-- SKF:END -->` is missing. Please restore the end marker manually before running export."
-- Do NOT attempt to write or append — the file is in an inconsistent state.
-- In headless mode, emit the error envelope per `references/result-envelope.md` with `manifest_path: null`, `context_files_updated: []`.
+Bind `{old_section}` ← `content` for that target; §7 shows it beside the new body.
 
 ### 7. Present Change Preview
 
 "**Context update prepared.{if multi-platform: ' (platform {i}/{total}: {platform})'}**
 
-**Target:** `{target-file}`
-**Case:** {1: Create / 2: Append / 3: Regenerate}
-**Skills in index:** {n} skills, {m} stack
+**Target:** `{context_file}`
+**Case:** {Create / Append / Regenerate}
+**Skills in index:** {n_single} skills, {n_stack} stack
 
 **Changes:**
 
-{Show diff preview:}
-- For Case 1: Show full file content to be created
-- For Case 2: Show `...existing content preserved...\n\n{managed section}`
-- For Case 3: Show old section vs new section with surrounding context preserved
+{Show the diff preview from the new body in `{content_file}`:}
+- For Create: the new file, which holds only the section
+- For Append: `...existing content preserved...` followed by the section
+- For Regenerate: `{old_section}` beside the new body, with the content outside the markers preserved
 
 **Content outside markers:** {preserved / n/a (new file)}
 
@@ -248,116 +175,63 @@ Assemble the managed section in **two shapes** — the §9 write paths consume d
 
 **Proceeding to token report...**"
 
-Auto-proceed to {nextStepFile}.
+Delete the `{export_stage_dir}` folder, then auto-proceed to {nextStepFile}.
 
 **If NOT dry-run:**
 
-Display: "**Select:** [C] Continue — write changes to {target-file} | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)"
+Display: "**Select:** [C] Continue: write changes to {context_file} | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)"
 
 **Multi-target behavior:** When processing multiple context files, present all previews together before asking for a single confirmation. After confirmation, write all target files sequentially, verifying each one.
 
-"**Targets:** {list all context-file → target-file pairs}
+"**Targets:** {list each context_file with its case}
 **Ready to write changes to all targets?**"
 
 Display: "**Select:** [C] Continue — write changes to all targets | [X] Cancel and exit"
 
 #### Gate handling
 
-- **[C]** — write the changes to all target files (or the single target), verify each write succeeded, then load, read entirely, and execute `{nextStepFile}`.
-- **[X]** / `cancel` / `exit` / `:q` — Display "Cancelled — no context files were written." and HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, and `manifest_path: null`.
+- **[C]**: write the targets (§9) and record the export (§9b), then load, read entirely, and execute `{nextStepFile}`.
+- **[X]** / `cancel` / `exit` / `:q`: delete the `{export_stage_dir}` folder, display "Cancelled: no context files were written." and HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, and `manifest_path: null`.
 - **Any other input** — help the user respond, then redisplay this gate.
 - **Headless** [default C]: auto-approve with [C], log "headless: auto-approve context file update".
 - **Dry-run**: auto-proceed without writing.
 
 ### 9. Write and Verify (Non-Dry-Run Only)
 
-After user confirms with 'C', resolve the helpers in parallel — these are independent file-existence checks that batch into one tool-call message:
+For each target, in order, feed the body §4b staged at `{content_file}` to the write its §5 case picked, by stdin redirection. Never pass a body inline as `--content "…"` or through `echo`: snippets carry backticks, `$` and quotes, which the shell expands, and the helper checks the text it received, so it would report success on corrupted bytes.
 
-- `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` (used for Cases 2 and 3)
-- `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used for Case 1)
-- `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (used in §9b)
-
-If any helper has no existing candidate, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and emit the error envelope per `references/result-envelope.md` — the rewrite's safety guarantees depend on these helpers and a fall-through to LLM-driven writes would silently regress atomicity, marker preservation, and the Case 4 malformed-marker HARD HALT contract.
-
-**Stage content via a shell-safe channel (all cases).** Managed-section snippets routinely contain backticks and `$` — API names like `` `Room::connect(...)` ``, tokens like `$threshold` and `${…}`. Inlining them as a double-quoted shell argument (`--content "…"`) or via `echo "…"` lets bash run command substitution and variable expansion, silently corrupting the written bytes — and because the helper's byte-identity verify runs against the already-corrupted string, it would still report success. No quoting style is safe (content can also contain single quotes, e.g. `'eager' | 'on-demand'`), so **never** inline the section into the command. Instead write the assembled section to a staging file with your file-write tool (which performs no shell interpretation), then feed it to the helper via stdin redirection — the helper reads stdin whenever `--content` is absent:
-
-- For **Cases 2 and 3**, write `{managed_section_inner}` to `{target-file}.skf-content` with **no trailing newline** (the helper appends `\n<!-- SKF:END -->` itself; a trailing newline would insert a blank line before the end marker).
-- For **Case 1**, write `{managed_section_full}` to `{target-file}.skf-content` followed by a single trailing newline (matches the verbatim file-end newline convention).
-- After the helper reports success, delete `{target-file}.skf-content`.
-
-For each target context file, dispatch by case:
-
-**Case 1 (Create — file does not exist):**
+**Create and Append:**
 
 ```bash
-python3 {atomicWriteHelper} write --target "{target-file}" < "{target-file}.skf-content"
+python3 {rebuildManagedSectionsHelper} "{context_path}" insert < "{content_file}"
 ```
 
-The helper stages the content into `<target>.skf-tmp`, fsyncs, and atomically renames into place. This path writes verbatim, so the staging file holds the **marker-bearing** `{managed_section_full}`.
-
-**Case 2 (Append — file exists, no `<!-- SKF:BEGIN` marker):**
+**Regenerate:**
 
 ```bash
-python3 {rebuildManagedSectionsHelper} {target-file} insert < "{target-file}.skf-content"
+python3 {rebuildManagedSectionsHelper} "{context_path}" replace < "{content_file}"
 ```
 
-The helper appends the managed section to the end of the file via the same atomic temp-file + rename pattern. The staging file holds the **inner-only** `{managed_section_inner}` — the helper adds the markers and `updated:` timestamp itself and refuses (exit 1) marker-bearing text.
+Both write the `<!-- SKF:BEGIN updated:{date} -->` and `<!-- SKF:END -->` markers around the body themselves (the date from the clock), write the file atomically (temp file + rename) and read it back to check the markers and the bytes outside them. They refuse (exit 1) a body that holds a marker of its own, and a file whose markers became malformed after §5, and leave that file unchanged. They print their result as JSON on stdout and exit 0 only when `status` is `"ok"`.
 
-**Case 3 (Regenerate — file contains `<!-- SKF:BEGIN` and `<!-- SKF:END -->`):**
+On a non-zero exit, bind `{context_error}` ← `error` (the helper's stderr when stdout holds no JSON, such as a Python traceback), HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and report `{context_file}: {context_error}`. The targets already written stay written. In headless mode, emit the error envelope per `references/result-envelope.md` with those targets as `context_files_updated` and `manifest_path: null`.
+
+On success per file, report "**{context_file} updated successfully.** Verified by `{rebuildManagedSectionsHelper}`." and add it to `context_files_updated`. Once every target is written, delete the `{export_stage_dir}` folder.
+
+### 9b. Update Export Manifest
+
+**This section runs once, after every target is written** (§1 sends a run with passive context off straight here). It records each skill in `skill_batch` at the version in its `{resolved_skill_package}/metadata.json`.
+
+**`ides_written`** is the list of IDE identifiers from `config.yaml` `ides` (e.g. `claude-code`, `cursor`, `github-copilot`) whose context file §9 wrote: the `ides` of each `target_context_files` entry §9 wrote, joined, deduplicated and sorted. It is never a context file name (`CLAUDE.md`) or a skill root (`.claude/skills/`). A file §3b rewrote adds no IDE, and with passive context off `ides_written` is empty.
+
+Resolve `{manifestOpsHelper}` from `{manifestOpsProbeOrder}` when §2 did not (passive context off); when no candidate exists, HALT (exit code 4, `halt_reason: "manifest-write-failed"`). For each skill, run `set`, with `--ides` only when `ides_written` is not empty:
 
 ```bash
-python3 {rebuildManagedSectionsHelper} {target-file} replace < "{target-file}.skf-content"
+python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} [--ides {ides_written}]
 ```
 
-The helper performs the surgical between-marker swap with post-write verification (markers present, content outside markers byte-identical). The staging file holds the **inner-only** `{managed_section_inner}` — as with `insert`, the helper supplies the markers and refuses marker-bearing text.
+`{ides_written}` is comma-joined. `set` does the whole update, migrating a v1 manifest first, and writes the manifest atomically (the v2 shape is in `references/manifest-rebuild.md`). It exits 0 with `status: "ok"` only once the manifest is written, so that result confirms the write.
 
-**Case 4 (malformed markers — already HALTed in §6):** never reaches here.
+**Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**" (list every skill in `skill_batch`)
 
-**Verification (deferred to helpers):** the `replace`/`insert`/`write` actions above each perform their own verification. Treat any non-zero exit as a write failure:
-
-- HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and report `{target-file}: {captured stderr}`.
-- In headless mode, emit the error envelope per `references/result-envelope.md`.
-- Continue to the next target file only on success — partial-batch writes are acceptable in single-skill mode but the overall envelope reports per-target outcomes.
-
-On success per file, report: "**{target-file} updated successfully.** Verified by `{rebuildManagedSectionsHelper}` (or `{atomicWriteHelper}` for Case 1)."
-
-### 9b. Update Export Manifest (Non-Dry-Run Only)
-
-**This section executes ONCE after all context-file iterations complete** (outside the per-context-file loop defined in section 3). Only IDEs whose target context files were successfully written and verified in section 9 are recorded.
-
-**`ides` field definition:** `ides` is the list of IDE identifiers from `config.yaml.ides` (e.g. `claude-code`, `cursor`, `github-copilot`) whose context files were successfully written and verified in section 9. It is NOT the context file name (`CLAUDE.md`) and NOT the skill root path (`.claude/skills/`). Each IDE → context file → skill root mapping is defined in `{managedSectionData}`.
-
-1. Read `{skills_output_folder}/.export-manifest.json` (or start with `{"schema_version": "2", "exports": {}}` if it does not exist)
-2. Ensure `schema_version` is `"2"` (if v1 was migrated in section 4a, the migrated structure is already in context). If any version entry still has a legacy `platforms` key, rename it to `ides` in place (see §4a).
-3. Compute `ides_written` — the set of IDE identifiers from `config.yaml.ides` whose mapped context file was successfully written in section 9 (deduplicated, sorted). When `--context-file` was passed explicitly, `ides_written` contains only the IDEs that map to that single context file.
-4. For each skill in `skill_batch` (multi-skill mode) — or the single current skill (single-skill mode) — add or update its entry in v2 format:
-   ```json
-   "{skill-name}": {
-     "active_version": "{version}",
-     "versions": {
-       "{version}": {
-         "ides": ["{ides_written}"],
-         "last_exported": "{current-date}",
-         "status": "active"
-       }
-     }
-   }
-   ```
-   - `{version}` is the version from each skill's `{resolved_skill_package}/metadata.json`
-   - If the skill already has a manifest entry:
-     - Set `active_version` to the current version
-     - If the version already exists in `versions`, union its existing `ides` with `ides_written` (deduplicate, keep sorted), refresh `last_exported`, and set `status: "active"`
-     - If this is a new version, add it to `versions` with `status: "active"` and set any previously-active version's status to `"archived"`
-     - Preserve all other version entries in `versions` (do not delete archived versions)
-5. Write the updated manifest atomically via `{manifestOpsHelper}` after all skills in the batch have been applied. For each skill / version pair, invoke:
-
-   ```bash
-   python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} --ides {ides_written}
-   ```
-
-   `{ides_written}` is the comma-joined sorted IDE set computed in step 3. The helper handles v2-schema validation, v1→v2 migration, and `platforms`→`ides` rename internally — no in-prompt JSON manipulation needed. Each `set` invocation unions the supplied `--ides` into the version entry's existing `ides` (deduplicated, sorted) server-side and refreshes `last_exported`. After all skills have been set, re-read the manifest via `{manifestOpsHelper} {skills_output_folder} read` (the v2 manifest is under the `manifest` key of the returned envelope — see §4a) to confirm the final state matches expectations.
-
-**Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list} — ides: {ides_written}.**" (list every skill in `skill_batch`)
-
-**Error handling:** If `{manifestOpsHelper}` exits non-zero, HALT (exit code 4, `halt_reason: "manifest-write-failed"`) with the captured `stderr`. The managed section was already written successfully; the operator's recovery path is to manually reconcile the on-disk managed section with the manifest, then re-run `[EX] Export Skill --all` to refresh the manifest. In headless mode, emit the error envelope per `references/result-envelope.md` with `manifest_path: null` and the partial `context_files_updated` list.
-
+**Error handling:** If `set` exits non-zero, HALT (exit code 4, `halt_reason: "manifest-write-failed"`) with the helper's `error` (its stderr when stdout holds no JSON). The context files §9 wrote stay written: re-run `[EX] Export Skill` on the batch, which writes the same sections again and records the manifest. In headless mode, emit the error envelope per `references/result-envelope.md` with `manifest_path: null` and the `context_files_updated` list.

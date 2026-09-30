@@ -35,8 +35,8 @@ To present a complete export summary showing all files written, token counts, an
 | File | Status | Tokens |
 |------|--------|--------|
 | context-snippet.md | {✅ written / ⚠️ skipped (passive off) / 👁️ previewed} | ~{t} |
-| {target-file-1} managed section | {✅ updated (case {n}) / ⚠️ skipped / 👁️ previewed} | ~{t} |
-| {target-file-N} managed section | {✅ updated (case {n}) / ⚠️ skipped / 👁️ previewed} | ~{t} |
+| {target-file-1} managed section | {✅ updated ({case}) / ⚠️ skipped / 👁️ previewed} | ~{t} |
+| {target-file-N} managed section | {✅ updated ({case}) / ⚠️ skipped / 👁️ previewed} | ~{t} |
 | Package structure | ✅ validated | ~{t} total |
 
 **Total context cost:** ~{always-on-tokens} tokens always-on, ~{on-trigger-tokens} tokens on-trigger"

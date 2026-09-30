@@ -17,7 +17,7 @@ Drops a specific skill version or an entire skill, either as a soft deprecation 
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
 - **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root — install layout puts both at `{project-root}/_bmad/skf/`. The `versionPathsKnowledge: 'knowledge/version-paths.md'` frontmatter scalar in stage files uses this convention; same for `shared/health-check.md` chained from the terminal step.
-- **Cross-skill data coupling:** `references/execute.md` reads `skf-export-skill/assets/managed-section-format.md` for the IDE→context-file mapping table and the four-case (Create / Append / Regenerate / Malformed) logic when rebuilding context files. Drop-skill assumes that asset is present at install time and that its semantics are stable across the two skills' versions.
+- **Shared context-file rebuild:** `references/select.md` and `references/execute.md` resolve the context files and rebuild their managed sections through `shared/scripts/skf-rebuild-managed-sections.py` (`resolve-targets`, `check`, `assemble`, `replace`), the helper export-skill writes them with, so the three skills that write the section produce the same bytes from one IDE mapping (`shared/data/ide-context-files.json`). `skf-export-skill/assets/managed-section-format.md` documents that format.
 
 ## Role
 
@@ -29,7 +29,7 @@ These rules apply to every step in this workflow:
 
 - Never delete files in purge mode without clearing the §10 confirmation gate (auto-resolved with its default in headless)
 - Never drop an active version when other non-deprecated versions exist — enforce the active version guard
-- Never purge content SKF did not generate — select.md §3, §4 and §8b check the `ownership` of the skill folder and of its forge folder; a forge folder SKF did not generate is left in place, and a purge SKF cannot check is refused
+- Never purge content SKF did not generate: select.md §8b takes the purge verdict for the skill folder and its forge folder from the inventory helper; a forge folder SKF did not generate is left in place, and a purge SKF cannot check is refused
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — except the ownership check: never decide by hand whether SKF generated a folder; without the inventory helper, select.md offers manifest skills only and refuses every purge
 - Always communicate in `{communication_language}`
@@ -65,7 +65,7 @@ Every hard HALT exits with a stable code so headless automators branch on the fa
 | 0    | success              | step 4 (terminal) |
 | 2    | input-missing / input-invalid | step 1 headless input gates — missing or unmatched `skill_name`, `version`, or `--mode` value (§4 / §6 / §8); §8 a draft skill with no manifest entry: `mode=deprecate`, or headless with a `default_mode` of `deprecate` → `input-invalid` |
 | 3    | resolution-failure   | step 1 manifest/skill-list resolution (§2 corrupt manifest, §3 nothing to drop) |
-| 4    | write-failure        | On-Activation write probe; step 2 manifest write / context rebuild / full-purge failure |
+| 4    | write-failure        | On-Activation write probe; step 1 §9b context-file resolution (the rebuild helper is missing or fails, before any change); step 2 manifest write / context rebuild / full-purge failure |
 | 5    | state-conflict       | step 1 active-version guard (§7); step 1 ownership guard — §3/§4 a named folder SKF did not generate (§3 when the roster is empty), §8b a purge of content SKF did not generate or cannot check, in the skill folder or its forge folder → `not-skf-output` |
 | 6    | user-cancelled       | any interactive cancel or confirm-gate `[N]`; On-Activation headless-purge guard |
 
@@ -78,7 +78,7 @@ When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESUL
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
-   - `snippet_skill_root_override` (optional string) — when set, the context-file rebuild in step 2 preserves any snippet `root:` prefix that matches the override instead of rewriting it to the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
+   - `snippet_skill_root_override` (optional string): when set, the context-file rebuild in step 2 passes it to `assemble` as `--skill-root-override`, so every row's `root:` takes it instead of the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
    - Generate and store `timestamp` as `YYYYMMDD-HHmmss` format. This value is fixed for the entire workflow run.
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
@@ -98,15 +98,13 @@ When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESUL
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each scalar.
 
-   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the five scalars, if the merged value is empty or absent, the bundled default applies:
+   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the three scalars, if the merged value is empty or absent, the bundled default applies:
 
    - `{defaultMode}` ← `workflow.default_mode` (empty = always prompt; `"deprecate"` or `"purge"` = skip §8 Ask Mode)
    - `{forbidPurgeInHeadless}` ← `workflow.forbid_purge_in_headless` (empty or non-`"true"` = no guard)
-   - `{unknownIdeDefaultContextFile}` ← `workflow.unknown_ide_default_context_file` if non-empty, else `AGENTS.md`
-   - `{unknownIdeDefaultSkillRoot}` ← `workflow.unknown_ide_default_skill_root` if non-empty, else `.agents/skills/`
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — step 3 skips the post-drop hook entirely)
 
-   Stash all five as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
+   Stash all three as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
 
    Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents), then run `workflow.activation_steps_append` after.
 

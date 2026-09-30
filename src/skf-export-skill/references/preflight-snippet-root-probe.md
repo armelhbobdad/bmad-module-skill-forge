@@ -14,6 +14,12 @@
 rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
+# Resolve `{manifestOpsHelper}` similarly. Step 1 of the probe reads the
+# export manifest through its `read` action, which returns the v2 shape
+# whatever is on disk.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Render the warning and gate prompt in {document_output_language}. -->
@@ -36,7 +42,7 @@ Loaded by `load-skill.md` §1b after `target_context_files` is resolved and `sni
 ## Probe Algorithm
 
 1. Collect candidate snippet paths (manifest-driven orchestration — stays in-prompt):
-   - Read `{skills_output_folder}/.export-manifest.json` if it exists. For each skill in `exports` with a resolvable `active_version`, add `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`.
+   - Read the export manifest through `{manifestOpsHelper}` (resolve it from `{manifestOpsProbeOrder}`; skip this bullet when no candidate exists): `python3 {manifestOpsHelper} {skills_output_folder} read`. For each skill in `result.manifest.exports` whose `active_version` has an entry under `versions`, add `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`. A missing manifest reads as no `exports`.
    - Also include the current skill's snippet if present.
 2. **Read the prefixes and compare via the helper** — reading each snippet's first line, parsing/stripping the `root:` prefix, collecting the unique set, and comparing against the reference is deterministic prefix arithmetic with one correct answer per input. Resolve `{rebuildManagedSectionsHelper}` from `{rebuildManagedSectionsProbeOrder}` (frontmatter — first existing path wins; if no candidate exists, skip the probe and continue to §2 without a warning rather than blocking export on a missing dev-only helper), then run:
 

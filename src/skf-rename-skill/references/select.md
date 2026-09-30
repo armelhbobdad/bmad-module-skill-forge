@@ -3,23 +3,24 @@ nextStepFile: 'execute.md'
 versionPathsKnowledge: 'knowledge/version-paths.md'
 # Resolve `{manifestOpsHelper}` by probing `{manifestOpsProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §7 uses its `affected-versions` action to enumerate the versions a
-# rename must touch — the union of manifest version keys and on-disk version
-# dirs, deduped and semver-sorted (numeric, so 0.10.0 precedes 0.9.0). Unlike
-# execute.md's write helpers this one is not atomicity-critical: if neither path
-# resolves, §7 falls back to computing the union in the prompt.
+# path wins. §2 reads the manifest with its `read` action (v1 migration and a
+# file that does not parse reported as JSON), and §7 uses its
+# `affected-versions` action to enumerate the versions a rename must touch:
+# the union of manifest version keys and on-disk version dirs, deduped and
+# semver-sorted (numeric, so 0.10.0 precedes 0.9.0). Unlike execute.md's write
+# helpers this one is not atomicity-critical: if neither path resolves, §2
+# and §7 fall back to the prompt.
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
 # Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}`
 # (installed SKF module path first, src/ dev-checkout fallback). §3 uses it to
 # enumerate the rename candidates: the union of manifest `exports` and on-disk
-# skill directories, each with its version list and active version — computing
-# that union/count in the prompt has one correct answer per input — plus each
-# folder's `ownership`, `skf_skill`, `flat_skf` and `foreign_entries` and,
-# with `--forge-data-folder`, each skill's forge-folder verdict (`forge_groups`),
-# which §4a checks so a rename never moves a folder SKF did not generate. If neither
-# path resolves, §3 lists manifest skills only and §4a refuses the rename.
+# skill directories, each with its version list, active version and
+# `skf_skill`. §4a runs its `--rename-check`, the rename verdict for the skill
+# folder and its forge folder, so a rename never moves a folder SKF did not
+# generate. If neither path resolves, §3 lists manifest skills only and §4a
+# refuses the rename.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
@@ -68,15 +69,16 @@ You will use these templates and rules to build directory paths, enumerate affec
 
 ### 2. Read Export Manifest
 
-Load `{skills_output_folder}/.export-manifest.json` if it exists.
+**Resolve `{manifestOpsHelper}`** ← first existing path in `{manifestOpsProbeOrder}`, and read the manifest through it rather than by eye: the helper migrates v1 to v2, normalizes `platforms` to `ides`, and reports a file that does not parse:
 
-**If the file is missing or empty:** Treat as an empty manifest — proceed to section 3 and rely entirely on the on-disk directory scan. Drafted or never-exported skills can still be renamed. Store `manifest_exists = false` for later use in step 2 (section 6 will not attempt to update a manifest that does not exist).
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} read
+```
 
-**If the file exists but contains no `exports` entries:** Same handling — proceed to section 3 with the directory scan. Store `manifest_exists = true` so step 2 still touches the (empty) manifest on write.
+- **`status == "error"`** (the file exists but does not parse): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file before renaming." HALT (exit code 3, `halt_reason: "manifest-corrupt"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `old_name: null`, `new_name: null`.
+- **`status == "ok"`**: use `result.manifest` (already in the v2 shape) as `manifest` for the rest of this step. Set `manifest_exists = true` when `manifest.exports` has at least one entry, else `false` (a missing file reads back as an empty `exports`). With no entry, §3's on-disk scan is the whole roster: drafted or never-exported skills can still be renamed, and step 2 §6 has no manifest entry to re-key.
 
-**If the file exists with entries:** Parse JSON and verify `schema_version` is `"2"`. If the manifest is v1 (no `schema_version` field), note this but continue — treat every entry as having a single active version derived from its current state. Store `manifest_exists = true`.
-
-**Hard halt condition:** If the file exists but is malformed (not valid JSON), halt with: "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before renaming." HALT (exit code 3, `halt_reason: "manifest-corrupt"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `old_name: null`, `new_name: null`.
+**If neither `{manifestOpsProbeOrder}` candidate resolves:** read the manifest file in-prompt: a missing or empty file, or one with no `exports` entries, is `manifest_exists = false`; a file with `exports` entries is `true` (no `schema_version` field means v1: treat each entry as a single active version); a file that is not valid JSON takes the corrupt-manifest HALT above.
 
 ### 3. List Available Skills
 
@@ -86,7 +88,7 @@ Enumerate every skill available for rename deterministically. Resolve `{skillInv
 uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}
 ```
 
-Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `ownership` (`"skf"`, `"mixed"` or `"foreign"`), `skf_skill`, `flat_skf` and `foreign_entries`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle — annotate it "(not in manifest)". Annotate an entry whose `ownership` is `"mixed"` with "(holds files SKF did not generate — cannot rename)" and one whose `flat_skf` is true with "(flat layout — migrate first)"; §4a refuses both. Also annotate one whose `result.forge_groups[]` entry is `"mixed"`, or has `errors` and is not `"reserved"`, with "(its forge folder holds files SKF did not generate, or is a link or not a folder SKF can read — cannot rename)"; §4a refuses these too. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered — not SKF output: {not_skf_output}".
+Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `skf_skill`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle: annotate it "(not in manifest)". The §4a rename check decides whether the skill the user picks can move. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_skf_output}".
 
 **If `{skillInventoryHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): build the list from the manifest `exports` only (if `manifest_exists`), reading each one's `active_version` and version count. Folders on disk that are absent from `exports` are not offered: without the helper SKF cannot check that it generated them, and §4a refuses the rename in this mode.
 
@@ -105,7 +107,7 @@ Available skills:
 2. express (1 version, active: 4.18.0)
 3. legacy-helper (not in manifest)
 
-Not offered — not SKF output: my-module-skill
+Not offered (not SKF output): my-module-skill
 ```
 
 ### 4. Ask Which Skill
@@ -125,17 +127,24 @@ Store the selection as `old_name`.
 
 ### 4a. Ownership Check
 
-Rename copies the whole `{skills_output_folder}/{old_name}/` folder and then deletes it, so it only renames a skill SKF generated in the versioned layout. From the §3 `skills[]` entry named `{old_name}`, bind `{target_ownership}` ← `ownership`, `{target_flat_skf}` ← `flat_skf`, `{target_foreign_entries}` ← `foreign_entries` and `{target_errors}` ← `errors`. Also bind `{same_folder}` ← `same_folder` (false when the result has none) and, when `{same_folder}` is false, `{target_forge_ownership}` ← `ownership`, `{target_forge_foreign_entries}` ← `foreign_entries` and `{target_forge_errors}` ← `errors` of the `result.forge_groups[]` entry named `{old_name}` (`"unknown"` when the result has no `same_folder` key or no such entry; both lists are `[]` without an entry). Take the first refusal that applies; each one displays its message and HALTs (exit code 5) with the named `halt_reason`, and in headless mode emits the error envelope with `old_name: "{old_name}"`, `new_name: null`. No lock is held yet (§4b acquires it), so there is nothing to release.
+Rename copies the whole `{skills_output_folder}/{old_name}/` folder and its forge folder, then deletes the old ones, so it only renames a skill SKF generated in the versioned layout. The inventory helper decides that; never decide by hand whether SKF generated a folder. Run:
 
-1. §3 ran without `{skillInventoryHelper}` → `not-skf-output`: "**SKF cannot check that it generated `{old_name}`** because `skf-skill-inventory.py` is missing. Nothing was changed. Re-install SKF and re-run the rename."
-2. `{target_ownership}` is `"foreign"`, or `{old_name}` is in `{not_skf_output}` → `not-skf-output`: "**`{old_name}` is not SKF output — nothing was changed.** `{skills_output_folder}/{old_name}/` has no SKF marker in its `metadata.json`, so SKF will not rename it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{old_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When `{target_errors}` is non-empty (for example, the folder is a link), show it in place of the marker sentence.
-3. `{target_ownership}` is `"mixed"` → `not-skf-output`: "**`{skills_output_folder}/{old_name}/` also holds entries SKF did not generate:** {target_foreign_entries}. Nothing was changed. Rename moves and then deletes the whole folder, so SKF will not rename it. Move those entries out of the folder and re-run. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
-4. `{target_flat_skf}` is true → `flat-layout`: "**`{old_name}` still uses the flat layout.** Nothing was changed. Rename works on the versioned layout only: run `@Ferris TS {old_name}` (or US, AS or EX) once to move it into that layout, then re-run the rename."
-5. `{same_folder}` is false and `{target_forge_ownership}` is `"unknown"` → `not-skf-output`: "**SKF cannot check `{forge_data_folder}/{old_name}/`** because the installed `skf-skill-inventory.py` does not report `forge_groups`. Nothing was changed. Re-install SKF and re-run the rename."
-6. `{target_forge_errors}` is non-empty and `{target_forge_ownership}` is not `"reserved"` → `not-skf-output`: "**SKF will not move `{forge_data_folder}/{old_name}`:** {target_forge_errors}. Nothing was changed." When `{target_forge_errors}` names a link, add: "SKF never moves or deletes through a link: the copy would take the files from where the link points, and removing the old name or rolling back would empty that folder. Replace the link with the folder it points to, then re-run." Otherwise (the path is not a folder, or SKF cannot list it), add: "Rename moves a forge folder only when it is a folder SKF can read. Move that path out of the way or fix its permissions, then re-run."
-7. `{target_forge_ownership}` is `"mixed"` → `not-skf-output`: "**`{forge_data_folder}/{old_name}/` also holds entries SKF did not generate:** {target_forge_foreign_entries}. Nothing was changed. Rename moves and then deletes the whole forge folder, so SKF will not rename it. Move those entries out of the folder and re-run."
+```bash
+uv run {skillInventoryHelper} "{skills_output_folder}" --skill {old_name} --rename-check --forge-data-folder "{forge_data_folder}"
+```
 
-When no refusal applies, set `{forge_move}` ← true when `{same_folder}` is false and `{target_forge_ownership}` is `"skf"` or `"empty"`, else false, and `{forge_left_in_place}` ← `{forge_data_folder}/{old_name}` when it is `"foreign"` or `"reserved"`, else null. A link at or above `{forge_data_folder}` itself is the user's configuration; SKF checks the forge folder and everything in it (a linked folder inside it makes it `"mixed"`). Then continue to §4b.
+From its `rename_check`, bind `{rename_verdict}` ← `verdict`, `{rename_reason}` ← `reason`, `{rename_detail}` ← `detail`, `{rename_entries}` ← `offending_entries`, `{target_errors}` ← `errors`, `{forge_move}` ← `forge_move`, `{forge_left_in_place}` ← `forge_left_in_place` and `{same_folder}` ← `same_folder`. The helper applies the rules below in order, to the skill folder and, unless both settings name one folder, to its forge folder, and returns the first that refuses. When §3 ran without `{skillInventoryHelper}`, the call exits non-zero, or its result has no `rename_check` (an installed `skf-skill-inventory.py` older than the flag), refuse with rule 1.
+
+When `{rename_verdict}` is not `"ok"`, display the message of the rule that applies and HALT (exit code 5) with `halt_reason: "{rename_verdict}"` (`not-skf-output`, or `flat-layout` for rule 4). In headless mode, emit the error envelope with `old_name: "{old_name}"`, `new_name: null`. No lock is held yet (§4b acquires it), so there is nothing to release.
+
+1. No verdict (no helper, a failed call, or no `rename_check`) → `not-skf-output`: "**SKF cannot check that it generated `{old_name}`** because `skf-skill-inventory.py` is missing, or the installed one has no rename check. Nothing was changed. Re-install SKF and re-run the rename."
+2. `{rename_reason}` is `foreign`, `reserved-name` or `absent` (no skill SKF generated at `{skills_output_folder}/{old_name}`) → `not-skf-output`: "**`{old_name}` is not SKF output: nothing was changed.** `{skills_output_folder}/{old_name}/` has no SKF marker in its `metadata.json`, so SKF will not rename it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{old_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When `{target_errors}` is non-empty (for example, the folder is a link), or the reason is `reserved-name` or `absent`, show `{rename_detail}` in place of the marker sentence.
+3. `mixed` → `not-skf-output`: "**`{skills_output_folder}/{old_name}/` also holds entries SKF did not generate:** {rename_entries}. Nothing was changed. Rename moves and then deletes the whole folder, so SKF will not rename it. Move those entries out of the folder and re-run. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
+4. `flat-layout` → `flat-layout`: "**`{old_name}` still uses the flat layout.** Nothing was changed. Rename works on the versioned layout only: run `@Ferris TS {old_name}` (or US, AS or EX) once to move it into that layout, then re-run the rename."
+5. `forge-link`, `forge-not-a-folder` or `forge-unreadable` (the forge folder is a link, is not a folder, or cannot be listed) → `not-skf-output`: "**SKF will not move `{forge_data_folder}/{old_name}`:** {rename_detail}. Nothing was changed." For `forge-link`, add: "SKF never moves or deletes through a link: the copy would take the files from where the link points, and removing the old name or rolling back would empty that folder. Replace the link with the folder it points to, then re-run." Otherwise (the path is not a folder, or SKF cannot list it), add: "Rename moves a forge folder only when it is a folder SKF can read. Move that path out of the way or fix its permissions, then re-run."
+6. `forge-mixed` → `not-skf-output`: "**`{forge_data_folder}/{old_name}/` also holds entries SKF did not generate:** {rename_entries}. Nothing was changed. Rename moves and then deletes the whole forge folder, so SKF will not rename it. Move those entries out of the folder and re-run."
+
+When no rule applies, `{forge_move}` and `{forge_left_in_place}` come from the helper. A link at or above `{forge_data_folder}` itself is the user's configuration; SKF checks the forge folder and everything in it (a linked folder inside it makes it `"mixed"`). Then continue to §4b.
 
 ### 4b. Concurrency Guard
 
@@ -276,9 +285,10 @@ Display the full operation summary:
   Platform context files (CLAUDE.md, .cursorrules, AGENTS.md) will be rebuilt so
   the managed section references `{new_name}` instead of `{old_name}`.
 
-Operation is **transactional** — the new name will be fully materialized and verified
-before the old name is removed. If any step fails before the final delete, the new
-directories are removed and the old skill remains intact.
+Operation is **transactional**: the new name will be fully materialized and verified
+before the old name is removed. If a step fails up to the manifest re-key, the new
+directories are removed and the old skill remains intact. A context file that fails
+to rebuild afterwards is reported and never undoes the rename.
 
 Proceed? [Y/N]
 ```

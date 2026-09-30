@@ -3,12 +3,19 @@ nextStepFile: 'update-context.md'
 snippetFormatData: '{snippetFormatPath}'
 # Resolve `{countTokensHelper}` by probing `{countTokensProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); the first
-# existing path wins. §5 uses it to report the written snippet's authoritative
-# token count (char-over-four, matching step 5's token report) instead of the
-# in-prompt `words * 1.3` heuristic.
+# existing path wins. §4 measures the staged snippet draft with it
+# (char-over-four, the count step 5's token report uses), so the 300-token
+# ceiling is gated by a number, not by an estimate made in the prompt. HALT
+# if no candidate exists.
 countTokensProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py'
   - '{project-root}/src/shared/scripts/skf-count-tokens.py'
+# Resolve `{manifestOpsHelper}` similarly. §3 reads the skill's manifest
+# entry with its `get` action, which returns it in the v2 shape whatever is
+# on disk.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Generate snippet content in {document_output_language}. -->
@@ -23,7 +30,7 @@ To generate or update context-snippet.md for the skill in the Vercel-aligned ind
 
 - Focus only on generating the context-snippet.md content — T1-now only, no T2 annotations
 - If `passive_context: false` was detected in step 1, skip this step entirely
-- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), iterate sections 2–5 per skill. Each skill has its own prior-gotchas carry-forward state (§2.5) — do not share state across skills. §2.7 resolves `{skill_root}` once for the run (it depends on `target_context_files`, not the skill). See step 1 §1c.
+- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), iterate sections 2–5 per skill. Each skill has its own prior-gotchas carry-forward state (§2.5): do not share state across skills. §2.7 resolves `{skill_root}` and §2.8 creates the stage folder once for the run (neither depends on the skill). See step 1 §1c.
 
 ## MANDATORY SEQUENCE
 
@@ -61,6 +68,16 @@ These values will be used as a fallback in section 3 if new gotchas cannot be de
 
 Store `{skill_root}` for use in snippet generation. The context-snippet.md written to disk uses this resolved skill root path.
 
+### 2.8. Stage Folder
+
+Once per run (skip this when `{export_stage_dir}` is already bound, as for the second skill of a batch), create the run's stage folder outside the project and bind `{export_stage_dir}` to the path this prints:
+
+```bash
+python3 -c "import tempfile; print(tempfile.mkdtemp(prefix='skf-export-'))"
+```
+
+§4 stages each skill's snippet draft there, under `drafts/{skill-name}/`, and step 4 stages each context file's new section there, under `previews/`, so a dry run leaves nothing beside a skill package or a context file, and a cancelled export leaves nothing beside a context file. Step 4 deletes the folder on every exit, cancels and halts included.
+
 ### 3. Generate Snippet Content
 
 **For single skills (`skill_type: "single"`):**
@@ -73,7 +90,7 @@ Store `{skill_root}` for use in snippet generation. The context-snippet.md writt
 
    **Detect first-export state before applying carry-forward logic.** The `[CARRIED]` one-cycle expiry is meaningful only on a *re-export*. On a first export, the prior `context-snippet.md` was authored by `create-skill` (or `update-skill`) from the evidence report inside the same forge cycle — those gotchas are freshly derived, not "left over from a previous export." Treating them as carry-forward primes them for premature expiry on the second export.
 
-   Read `{skills_output_folder}/.export-manifest.json` (the same file step 4 §4a will rewrite). If the skill name is **absent** from `exports`, OR present with no resolvable `last_exported` for any version under `versions`, this is a first export — set `is_first_export = true`. Otherwise `is_first_export = false`. (Step-04 reads the manifest authoritatively for the rebuild; this read is the lightweight probe step 3 needs to choose the right branch below.)
+   Resolve `{manifestOpsHelper}` from `{manifestOpsProbeOrder}` (first existing path wins) and read the skill's manifest entry: `python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`. When it returns `not_found`, or an `entry` none of whose `versions` records a `last_exported`, this is a first export: set `is_first_export = true`. Otherwise `is_first_export = false`. The helper returns the entry in the v2 shape whatever is on disk, so a v1 manifest reads the same here as in step 4.
 
    - **If new gotchas are derived:** Use them (they supersede any prior gotchas). Write as `|gotchas: {pitfall-1}, {pitfall-2}` with no marker.
    - **If NO new gotchas are derived AND `is_first_export == true` AND `prior_gotchas` exists:** Treat the prior gotchas as **freshly derived** by create-skill/update-skill — write them **without** the `[CARRIED]` marker. (The marker only applies to re-exports.) No warning needed; this is the normal first-export shape.
@@ -91,11 +108,19 @@ Emit the stack-skill template from {snippetFormatData}, filling `stack` from met
 
 ### 4. Verify Token Count
 
-Estimate the generated snippet's token count with the **char-over-four** convention (`len(snippet)//4`) over the content held in context — the same convention `skf-count-tokens.py` uses for step 5's token report, so the two numbers agree. The freshly generated snippet is only in context here (not yet on disk), so this pre-write estimate stays in-prompt to drive the trim decision below; step 5 confirms it authoritatively against the written file via the helper.
+Write the generated snippet to `{export_stage_dir}/drafts/{skill-name}/context-snippet.md` with your file-write tool, resolve `{countTokensHelper}` from `{countTokensProbeOrder}` (first existing path wins), and measure the draft with it, the count step 5's token report uses:
+
+```bash
+python3 {countTokensHelper} "{export_stage_dir}/drafts/{skill-name}"
+```
+
+Bind `{count}` ← the `tokens` value of its `context-snippet.md` row (`len(text)//4`, the SKF-wide convention).
 
 - Target: ~80-120 tokens per skill (aspirational for Quick/Forge tiers)
-- Warning threshold: >300 tokens (hard ceiling — Deep tier may legitimately exceed 120 when gotchas carry load-bearing breaking-change notices)
-- If exceeding warning threshold, trim description, exports list, or refs to fit — **do NOT drop gotchas to fit the target**; gotchas exist precisely to deliver the "do not rely on training data" signal and are the last thing to cut
+- Hard ceiling: 300 tokens (Deep tier may legitimately exceed 120 when gotchas carry load-bearing breaking-change notices)
+- If `{count}` is above 300, trim the description, the exports list or the refs, write the draft again and measure it again, until `{count}` is 300 or below. **Do NOT drop gotchas to fit**: gotchas exist precisely to deliver the "do not rely on training data" signal and are the last thing to cut
+
+When no `{countTokensProbeOrder}` candidate exists, or the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "SKF cannot measure the snippet: {`skf-count-tokens.py` is missing, or the helper's error}. Re-install SKF and re-run the export." In headless mode, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []` and `manifest_path: null`.
 
 ### 5. Write or Preview Snippet
 
@@ -111,19 +136,15 @@ Estimate the generated snippet's token count with the **char-over-four** convent
 
 **Estimated tokens:** {count}"
 
-Use the §4 char-over-four estimate for `{count}` — nothing is written in dry-run, so the helper has no on-disk snippet to measure. Hold content in context for step 4.
+Nothing is written to the package: step 4 builds its preview from the draft.
 
 **If NOT dry-run:**
 
-Write the generated content to `{resolved_skill_package}/context-snippet.md`.
-
-Then confirm the token count authoritatively: resolve `{countTokensHelper}` from `{countTokensProbeOrder}` (first existing path wins) and run it against the written package, reading the `context-snippet.md` row's `tokens` value:
+Copy the measured draft into the package, byte for byte, so `{count}` is the count of the written file:
 
 ```bash
-python3 {countTokensHelper} {resolved_skill_package}
+cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" "{resolved_skill_package}/context-snippet.md"
 ```
-
-Use that value as `{count}` — it matches step 5's token report exactly. If the helper cannot run (no Python/uv), fall back to the §4 char-over-four estimate.
 
 "**context-snippet.md written.**
 **Path:** `{resolved_skill_package}/context-snippet.md`

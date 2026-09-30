@@ -621,18 +621,20 @@ class TestBodyOnlyContent:
 
 
 # ---------------------------------------------------------------------------
-# Every replace/insert caller in src/ passes the body only
+# Every replace/insert caller in src/ stages the body assemble built
 # ---------------------------------------------------------------------------
 
 RENAME_EXECUTE = "src/skf-rename-skill/references/execute.md"
 DROP_EXECUTE = "src/skf-drop-skill/references/execute.md"
 EXPORT_UPDATE = "src/skf-export-skill/references/update-context.md"
+# Each rebuild section, and the flag that tells assemble which rows the operation removes.
 REBUILD_STEPS = [
-    (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. ", "7"),
-    (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. ", "8"),
+    (RENAME_EXECUTE, "### 7. Rebuild Context Files", "### 8. ", "--renamed {old_name}:{new_name}"),
+    (DROP_EXECUTE, "### 3. Rebuild Context Files", "### 4. ", "--dropped {target_skill}"),
 ]
 BODY_CALL_RE = re.compile(r"\{rebuildManagedSectionsHelper\}\s+\S+\s+(replace|insert)\b")
 MARKER_LINE_RE = re.compile(r"^\s*<!--\s*SKF:(?:BEGIN|END)")
+OVERRIDE_GROUP = '[--skill-root-override "{snippet_skill_root_override}"]'
 
 
 def _md(rel: str) -> str:
@@ -660,8 +662,34 @@ def _fenced_blocks(text: str) -> list[list[str]]:
     return blocks
 
 
+def _helper_calls(text: str) -> list[str]:
+    """The fenced `{rebuildManagedSectionsHelper}` calls of `text`, backslash continuations joined."""
+    calls = []
+    for block in _fenced_blocks(text):
+        joined = ""
+        for line in block:
+            if line.rstrip().endswith("\\"):
+                joined += line.rstrip()[:-1].strip() + " "
+                continue
+            joined += line.strip()
+            if "{rebuildManagedSectionsHelper}" in joined:
+                calls.append(re.sub(r"\s+", " ", joined))
+            joined = ""
+    return calls
+
+
+def _rebuild_calls(flag: str) -> list[str]:
+    """The check, assemble and replace calls drop §3 and rename §7 make, in that order."""
+    return [
+        'python3 {rebuildManagedSectionsHelper} "{context_path}" check',
+        'python3 {rebuildManagedSectionsHelper} assemble "{context_path}" --skills-folder "{skills_output_folder}" '
+        f'--skill-root "{{skill_root}}" {flag} --orphan-sources {{target_paths}} {OVERRIDE_GROUP}',
+        'python3 {rebuildManagedSectionsHelper} "{context_path}" replace < "{context_path}.skf-content"',
+    ]
+
+
 class TestCallersPassTheBody:
-    """Suite 14: the step files build only the body for replace and insert."""
+    """Suite 14: the step files stage the body the helper assembles, and pass only that body to replace and insert."""
 
     def test_callers_are_exactly_these(self):
         sites = {}
@@ -674,62 +702,93 @@ class TestCallersPassTheBody:
         assert sites == {RENAME_EXECUTE: ["replace"], DROP_EXECUTE: ["replace"],
                          EXPORT_UPDATE: ["insert", "replace"]}
 
-    @pytest.mark.parametrize("rel, start, end, item", REBUILD_STEPS)
-    def test_rebuild_builds_the_body_and_binds_the_error(self, rel, start, end, item):
+    @pytest.mark.parametrize("rel, start, end, flag", REBUILD_STEPS)
+    def test_rebuild_lets_the_helper_build_the_body(self, rel, start, end, flag):
         section = _part(_md(rel), start, end)
-        blocks = _fenced_blocks(section)
-        assert blocks, "the section shows the body it builds"
-        for block in blocks:
+        calls = [c for c in _helper_calls(section) if "resolve-targets" not in c]
+        assert calls == _rebuild_calls(flag)
+        for block in _fenced_blocks(section):
             assert not any(MARKER_LINE_RE.match(line) for line in block), block
-        assert any(line.strip() == "[SKF Skills]|{n} skills|{m} stack" for block in blocks for line in block)
-        assert "{new_managed_section_text}" not in section
-        assert f"without its two marker lines. The helper in item {item} writes" in section
+        for stale in ("[SKF Skills]|{n} skills|{m} stack", "{managed_section_inner}", "{new_managed_section_text}",
+                      "Sort skills alphabetically", "{managedSectionLogic}", "{unknownIdeDefault",
+                      "with your file-write tool", "<!-- SKF:BEGIN -->` marker"):
+            assert stale not in section, stale
+        assert "Add `--skill-root-override` only when `snippet_skill_root_override` is set in `config.yaml`." in section
+        assert "orphan rows) kept verbatim" in section
         assert "It refuses a body that holds a marker of its own" in section
         assert "bind `{context_error}` ← `error`" in section
         assert "record `{context_error}` against that context file" in section
         assert "clear `stderr` reason" not in section, "the helper reports on stdout as JSON"
 
-    @pytest.mark.parametrize("rel, start, end, item", REBUILD_STEPS)
-    def test_rebuild_stages_the_body_for_stdin(self, rel, start, end, item):
-        """As export-skill §9 does: a staging file and a redirect, never the body inline."""
+    @pytest.mark.parametrize("rel, start, end, flag", REBUILD_STEPS)
+    def test_rebuild_dispatches_on_check_and_stages_the_body_for_stdin(self, rel, start, end, flag):
+        """The case comes from `check`, never from a marker grep, and the body goes in by redirect."""
         section = _part(_md(rel), start, end)
-        calls = [line.strip() for block in _fenced_blocks(section) for line in block
-                 if "{rebuildManagedSectionsHelper}" in line]
-        assert calls == ['python3 {rebuildManagedSectionsHelper} "{context_file}" replace < "{context_file}.skf-content"']
-        assert "Write `{managed_section_inner}` to `{context_file}.skf-content` with your file-write tool, " \
-               "with **no trailing newline**" in section
+        for case in ("`create`", "`append`", "`malformed`", "`unreadable`", "`regenerate`"):
+            assert case in section, case
+        assert "skip this file, since there is no section to rebuild" in section
         assert "Never pass the body inline as `--content \"…\"` or through `echo`" in section
-        assert "Delete `{context_file}.skf-content` once the helper returns, whatever its exit code." in section
+        assert "Delete `{context_path}.skf-content` once the helper returns, whatever its exit code." in section
 
     @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
-    @pytest.mark.parametrize("rel, start, end, item", REBUILD_STEPS)
-    def test_the_documented_call_keeps_the_body_through_the_shell(self, tmp_path, rel, start, end, item):
-        """Run the step's command line through bash as an agent would: backticks and `$` stay text."""
-        section = _part(_md(rel), start, end)
-        [call] = [line.strip() for block in _fenced_blocks(section) for line in block
-                  if "{rebuildManagedSectionsHelper}" in line]
+    @pytest.mark.parametrize("rel, start, end, flag", REBUILD_STEPS)
+    def test_the_documented_calls_keep_the_body_through_the_shell(self, tmp_path, rel, start, end, flag):
+        """Run the step's assemble and replace lines through bash as an agent would: backticks and `$` stay text."""
+        forge = Forge(tmp_path)
+        for name in ("zod", "cognee"):
+            forge.export(name, "1.4.0", snippet=_render_snippet(name, REAL_GOTCHAS[name]) + "\n")
         context_file = tmp_path / "CLAUDE.md"
-        context_file.write_bytes(REAL_CLAUDE_MD.encode("utf-8"))
-        staging = Path(str(context_file) + ".skf-content")
-        if "{context_file}.skf-content" in call:
-            staging.write_bytes(REAL_BODY.encode("utf-8"))  # the file-write tool, no trailing newline
-        command = re.sub(r"^python3 ", shlex.quote(sys.executable) + " ", call)
-        command = (command.replace("{rebuildManagedSectionsHelper}", shlex.quote(str(SCRIPT)))
-                   .replace("{context_file}", str(context_file))
-                   .replace("{managed_section_inner}", REAL_BODY))
-        proc = subprocess.run(["bash", "-c", command], capture_output=True, encoding="utf-8",
-                              cwd=tmp_path, env={**os.environ, "COGNEE_HOME": "/expanded"})
-        assert proc.returncode == 0, proc.stdout + proc.stderr
+        context_file.write_bytes(REAL_CLAUDE_MD.replace("|IMPORTANT: zod", "|IMPORTANT: old-zod").encode("utf-8"))
+        values = {
+            "rebuildManagedSectionsHelper": shlex.quote(str(SCRIPT)), "context_path": str(context_file),
+            "skills_output_folder": str(forge.skills), "skill_root": ".claude/skills/",
+            "target_paths": shlex.quote(str(context_file)), "old_name": "old-zod", "new_name": "zod",
+            "target_skill": "gone",
+        }
+        for call in _helper_calls(_part(_md(rel), start, end))[-2:]:  # assemble, then replace
+            command = re.sub(r"^python3 ", shlex.quote(sys.executable) + " ", call.replace(OVERRIDE_GROUP, ""))
+            command = re.sub(r"\{(\w+)\}", lambda m: values[m.group(1)], command)
+            proc = subprocess.run(["bash", "-c", command], capture_output=True, encoding="utf-8",
+                                  cwd=tmp_path, env={**os.environ, "COGNEE_HOME": "/expanded"})
+            assert proc.returncode == 0, proc.stdout + proc.stderr
+            assert proc.stderr == ""
         body = mod.find_managed_section(context_file.read_text(encoding="utf-8")).group(2)
-        assert body == "\n" + REAL_BODY + "\n", proc.stderr
-        assert proc.stderr == ""
+        assert body == "\n" + REAL_BODY + "\n"
+        assert context_file.read_text(encoding="utf-8").startswith(BEFORE)
 
-    def test_export_stages_the_body_for_insert_and_replace(self):
+    def test_export_writes_the_staged_body_by_case(self):
         text = _md(EXPORT_UPDATE)
-        assert "For **Cases 2 and 3**, write `{managed_section_inner}`" in text
-        assert "double-wraps" not in text
-        assert "refuses (exit 1) marker-bearing text" in _part(text, "**Case 2 (Append", "**Case 3 (Regenerate")
-        assert "refuses marker-bearing text" in _part(text, "**Case 3 (Regenerate", "**Case 4 (malformed")
+        calls = _helper_calls(_part(text, "### 9. Write and Verify", "### 9b. "))
+        assert calls == ['python3 {rebuildManagedSectionsHelper} "{context_path}" insert < "{content_file}"',
+                         'python3 {rebuildManagedSectionsHelper} "{context_path}" replace < "{content_file}"']
+        assert "double-wraps" not in text and "{managed_section_full}" not in text
+        assert "(inclusive)" not in text, "the helper writes the markers: a caller never replaces them"
+        check = _part(text, "### 5. Check Each Target File", "### 6. ")
+        assert _helper_calls(check) == ['python3 {rebuildManagedSectionsHelper} "{context_path}" check']
+        for case, write in (("`create`", "`insert`"), ("`append`", "`insert`"), ("`regenerate`", "`replace`")):
+            row = next(line for line in check.split("\n") if line.startswith(f"| {case} "))
+            assert row.endswith(write + (", which creates it with the section |" if case == "`create`"
+                                         else ", which adds the section at its end |" if case == "`append`"
+                                         else ", which swaps that section and keeps everything outside the markers |"))
+        assert 'HALT (exit code 5, `halt_reason: "malformed-markers"`)' in check
+        assert "They refuse (exit 1) a body that holds a marker of its own" in text
+
+    def test_export_assembles_every_body_outside_the_project_before_the_gate(self):
+        """determinism-1: assemble builds each body into the stage folder; nothing lands beside a context file."""
+        text = _md(EXPORT_UPDATE)
+        [call] = _helper_calls(_part(text, "#### 4b. Assemble One Body per Target", "#### 4c. "))
+        assert call == (
+            'python3 {rebuildManagedSectionsHelper} assemble "{context_path}" --skills-folder "{skills_output_folder}" '
+            '--skill-root "{skill_root}" --include {batch_includes} --snippet-dir "{export_stage_dir}/drafts" '
+            '--orphan-sources {target_paths} --orphans {orphan_mode} '
+            '--out "{export_stage_dir}/previews/{context_file}.skf-content" ' + OVERRIDE_GROUP)
+        assert "`{content_file}` ← `content_file`" in text
+        assert "bind `orphan_rows` from the first result" in text
+        assert "On (a), run §4b again for every target with `--orphans drop`." in text
+        assert ".skf-content` with **no trailing newline**" not in text, "the helper stages the body, never the model"
+        for stale in ("orphan-detect", "Sort skills alphabetically", "[SKF Skills]|{n} skills|{m} stack",
+                      "{managedSectionData}", "four-case logic and rewrites"):
+            assert stale not in text, stale
 
 
 # ---------------------------------------------------------------------------
@@ -1283,6 +1342,27 @@ class TestAssemble:
         r, body = forge.assemble(forge.root / "CLAUDE.md", snippets={"foo": missing})
         assert _rows(body) == [] and r["skipped_missing_snippet"][0]["tried"] == [missing]
 
+    def test_a_snippet_dir_holds_the_drafts_of_the_skills_it_names(self, forge, tmp_path):
+        """export-skill stages each batch skill's draft as <dir>/<name>/context-snippet.md."""
+        forge.export("foo", "1.0.0", skill_type="stack")
+        forge.export("bar", "1.0.0")
+        drafts = tmp_path / "stage" / "drafts"
+        _put(drafts / "foo" / "context-snippet.md", _snippet("foo", "1.0.0", "x/", "|IMPORTANT: the draft"))
+        _put(drafts / "ghost" / "context-snippet.md", _snippet("ghost", "1.0.0"))
+        r, body = forge.assemble(forge.root / "CLAUDE.md", snippet_dir=str(drafts))
+        assert "|[foo v1.0.0]|root: .claude/skills/foo/\n|IMPORTANT: the draft" in body
+        assert _rows(body) == [("bar", "1.0.0"), ("foo", "1.0.0")], "a draft of a skill the section does not list is not read"
+        sources = {i["skill_name"]: (i["snippet_source"], i["skill_type"]) for i in r["included"]}
+        assert sources == {"bar": ("versioned", "single"), "foo": ("given", "stack")}
+        assert r["warnings"] == []
+        # A --snippet for the same skill wins over the folder.
+        explicit = _put(tmp_path / "explicit.md", _snippet("foo", "1.0.0", "x/", "|IMPORTANT: explicit"))
+        _, body = forge.assemble(forge.root / "CLAUDE.md", snippets={"foo": str(explicit)}, snippet_dir=str(drafts))
+        assert "|IMPORTANT: explicit" in body and "|IMPORTANT: the draft" not in body
+        # A folder with no draft for a skill leaves that skill on its package.
+        _, body = forge.assemble(forge.root / "CLAUDE.md", snippet_dir=str(tmp_path / "empty"))
+        assert "|IMPORTANT: the draft" not in body and _rows(body) == [("bar", "1.0.0"), ("foo", "1.0.0")]
+
     @pytest.mark.parametrize(
         "snippet, reason",
         [
@@ -1467,6 +1547,20 @@ class TestAssembleCommandLine:
         assert json.loads(proc.stdout)["content_file"] == str(out)
         assert _rows(out.read_bytes().decode("utf-8")) == [("foo", "1.0.0")]
         assert not (tmp_path / "CLAUDE.md.skf-content").exists()
+
+    def test_snippet_dir_reaches_the_action(self, tmp_path, tmp_path_factory):
+        forge = Forge(tmp_path)
+        forge.export("foo", "1.0.0")
+        drafts = tmp_path_factory.mktemp("stage") / "drafts"
+        _put(drafts / "foo" / "context-snippet.md", _snippet("foo", "1.0.0", "x/", "|IMPORTANT: staged"))
+        proc = _run(
+            "assemble", str(tmp_path / "CLAUDE.md"), "--skills-folder", str(forge.skills), "--skill-root", ".claude/skills/",
+            "--snippet-dir", str(drafts),
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        [item] = json.loads(proc.stdout)["included"]
+        assert item["snippet_source"] == "given"
+        assert Path(item["snippet_path"]).as_posix() == (drafts / "foo" / "context-snippet.md").as_posix()
 
     def test_an_error_exits_1(self, tmp_path):
         proc = _run("assemble", str(tmp_path / "CLAUDE.md"), "--skills-folder", str(tmp_path / "missing"), "--skill-root", ".claude/skills/")

@@ -1,8 +1,8 @@
 ---
-# Static reference loaded by update-context.md §4a only when manifest
-# schema documentation is needed (the in-prompt schema is otherwise
-# delegated to skf-manifest-ops.py which handles v2 enforcement and
-# v1→v2 migration internally).
+# Static reference named by update-context.md §9b, loaded only when
+# manifest schema documentation is needed (skf-manifest-ops.py enforces
+# the v2 shape and migrates v1 internally, so no step edits the manifest
+# in the prompt).
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -11,7 +11,7 @@
 
 ## Purpose
 
-Reference for the v2 export manifest schema enforced by `skf-manifest-ops.py` and consumed by every workflow that touches `{skills_output_folder}/.export-manifest.json`. This file is the source of truth for the v2 shape; the helper script implements it; downstream skills (drop-skill, rename-skill, update-skill) read this same file to stay aligned.
+Reference for the v2 export manifest schema that `skf-manifest-ops.py` enforces for every workflow that touches `{skills_output_folder}/.export-manifest.json`. This file documents the v2 shape and the helper implements it: export-skill, drop-skill and rename-skill read and edit manifest entries through the helper (`read`, `get`, `set`, `deprecate`, `remove`, `rename`), and `skf-rebuild-managed-sections.py assemble` reads it through the same code. Rename-skill's rollback is the one write outside it: it restores the byte copy of the manifest it kept before the re-key.
 
 ## v2 Schema
 
@@ -54,12 +54,11 @@ Reference for the v2 export manifest schema enforced by `skf-manifest-ops.py` an
 
 Pre-rename v2 manifests used a `platforms` array at the version level. If a version entry contains `platforms` instead of (or in addition to) `ides`, the helper treats `platforms` as `ides` and rewrites it on the next manifest write — silent in-place upgrade, no user prompt.
 
-For v1 manifests (no `schema_version` field), the helper migrates in-place on the first read:
+For v1 manifests (no `schema_version` field), every read returns the v2 shape, and the next write through the helper stores it:
 
-1. For each entry in `exports`, read its `last_exported`
-2. Resolve the skill's current version from `{resolved_skill_package}/metadata.json`
-3. Wrap in v2 structure: `active_version` ← resolved version, single entry in `versions` with `status: "active"`, `ides: []` (unknown — fills on next successful export), and `last_exported`
-4. Set `schema_version: "2"` at root
+1. Each entry's `versions` list becomes a map with one record per version: `ides: []` (unknown, filled on the next successful export) and `last_exported` from the manifest's `updated_at`
+2. The entry's `active_version` keeps its value; that version's record gets `status: "active"`, or `"deprecated"` when the entry carries `deprecated: true`, and every other version `status: "archived"`
+3. The `deprecated` and `deprecated_versions` keys are dropped and `schema_version: "2"` is set at the root
 
 Workflows that load the manifest via `skf-manifest-ops.py read` receive a `{"status": "ok", "manifest": {...}}` envelope; the `manifest` value is always in canonical v2 shape regardless of on-disk state (parse `result["manifest"]`, not the top-level object).
 

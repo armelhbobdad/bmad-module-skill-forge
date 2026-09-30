@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-rename-skill
+summary: |
+  Rename Skill rolls back only a failure up to the manifest re-key: a copy, a file rewrite, the leftover check or the manifest update that fails deletes the new folders and leaves the old skill as it was. A context file that fails to rebuild after the re-key is listed in `context_files_failed` and never undoes the rename, as the exit codes and the docs already said. The step file used to count that rebuild inside the rollback, which could delete the renamed skill after the manifest had moved to the new name.
+issues: [611]
