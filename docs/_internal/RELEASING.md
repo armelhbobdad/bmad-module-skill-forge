@@ -204,9 +204,10 @@ Release notes come from the change fragments in `changes/` (one YAML file per us
 ```bash
 git checkout main && git pull --tags
 npm run changes:preview -- --bump <alpha|beta|rc|patch|minor|major>
+node tools/release-state.js guard --bump <alpha|beta|rc|patch|minor|major>
 ```
 
-The preview prints the fragments added since the last stable tag (`git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*'`), any file in `changes/` to fix, the covered-surface changes against that tag from `tools/covered-surfaces.js` (hard, additive and review groups), the minimum bump with each reason for it, the version the dispatch will produce, the release gate's verdict for that bump, and the exact block the release will write. Fix a missing or mistyped fragment by pull request, then preview again. Read the review group as well. It lists first any flag that left every flag row while its workflow's Markdown still names it: if the workflow no longer accepts that flag, add a `breaking` fragment that names it. A new halt reason, an exit code given another meaning or changed flag text listed there can also be a breaking change that a fragment calls `fixed`.
+The preview prints the fragments added since the last stable tag (`git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*'`), any file in `changes/` to fix, the covered-surface changes against that tag from `tools/covered-surfaces.js` (hard, additive and review groups), the minimum bump with each reason for it, the version the dispatch will produce, the release gate's verdict for that bump, and the exact block the release will write. `node tools/release-state.js guard` gives the verdict of the step that runs before the gate on `main`, which refuses a `minor` or `major` while `main` carries an unpublished version (see [§ The release gate](#the-release-gate)); outside Actions it only prints. Fix a missing or mistyped fragment by pull request, then preview again. Read the review group as well. It lists first any flag that left every flag row while its workflow's Markdown still names it: if the workflow no longer accepts that flag, add a `breaking` fragment that names it. A new halt reason, an exit code given another meaning or changed flag text listed there can also be a breaking change that a fragment calls `fixed`.
 
 Each pull request brings its own fragments, so the preview normally finds nothing missing: the required `em-dash` check runs `npm run changes:pr` on every pull request (see [CONTRIBUTING.md](../../CONTRIBUTING.md#the-pull-request-check)). It fails a pull request that changes the code the package ships (`src/`, `tools/cli/`, `tools/skf-npx-wrapper.js`) or `.npmignore` with no fragment of its own and no `Changelog: none (<reason>)` line in a commit message, one that removes a covered item no `breaking` fragment on it names, one that adds a covered item no `added` or `breaking` fragment on it covers, and one whose fragments are invalid or edit, rename or copy a released one. A pending fragment a pull request only edits counts only for the covered items it names in backticks. It compares each branch with its own merge base, not with the last stable tag, so the preview and the gate stay the check of the release as a whole: a pull request merged before the check existed, a `Changelog: none` line that was wrong (one line covers a whole branch), a user-visible change in what the check does not read (`package.json`, such as a raised `engines.node` floor or a new runtime dependency, `README.md` or the shipped `docs/`), and a change that a halt reason or a changed flag text reveals only in the review group are theirs to catch. The bot PR is exempt: its branch is `release/bot/*` of this repository, and its checks run through `workflow_dispatch`, where the step does not run, so a dispatch run's `em-dash` success does not include this check.
 
@@ -214,14 +215,15 @@ Keep `## [Unreleased]` in `CHANGELOG.md` empty. The release inserts the new bloc
 
 ### The release gate
 
-`release.yaml` runs `node tools/changes.js gate --bump <version_bump>` right after `npm ci`, before the tests and before anything is committed. It refuses the dispatch when:
+`release.yaml` runs `node tools/changes.js gate --bump <version_bump>` after `npm ci` and, on `main`, the `Refuse to bump past an unpublished release` step, before the tests and before anything is committed. It refuses the dispatch when:
 
-- the version the `Bump version` step would produce is below the minimum bump, measured with `semver.diff` from the last stable tag (so a `patch` after a burned, untagged `3.0.0` gives `3.0.1` and still counts as a major step from `v2.2.0`);
+- the version the `Bump version` step would produce is below the minimum bump, measured with `semver.diff` from the last stable tag (so a `patch` after an unpublished, untagged `3.0.0` gives `3.0.1` and still counts as a major step from `v2.2.0`);
 - that version is below the current one: `npm version` moves a prerelease to a lower id without complaint (`alpha` on `3.0.0-rc.1` gives `3.0.0-alpha.0`);
 - a covered item was removed (a schema enum value or property, a Ferris menu code, a pipeline alias or a workflow flag; see STABILITY.md) and no `breaking` fragment names it in backticks. A flag counts as removed when its workflow's Markdown no longer names it, or when it leaves every flag row as a flag the workflow never named before enters them (a possible rename); one that leaves every flag row while the Markdown still names it is not refused, and comes first in the review group instead;
 - a file in `changes/` is not a valid fragment, or a fragment released in the last stable tag was edited, renamed or copied (a released fragment is never read again, so a new change goes in a new file);
 - a stable release finds text under `## [Unreleased]` in `CHANGELOG.md`;
 - a stable bump (`patch`, `minor` or `major`) is dispatched from a ref other than `main` (the gate step checks this before the tool runs);
+- the bump gives a higher major.minor than the version `main` carries while `main` holds that version's release commit (`release: bump to vX.Y.Z`, from a merged bot PR) and npm does not have it: a `major` or `minor` over an unpublished `3.0.0` would cut `4.0.0` or `3.1.0` past it. The `Refuse to bump past an unpublished release` step checks this on `main` before the gate (`node tools/release-state.js guard`), so its message, which names the resume path ([§ Finishing a cut whose bot PR merged](#finishing-a-cut-whose-bot-pr-merged)), comes first. `patch` and the prerelease choices stay allowed, `patch` as the ship-forward when that version cannot be published;
 - the release is a major and no fragment is `breaking`;
 - a stable release has no fragment;
 - a prerelease cannot reach the minimum (see the next section).
@@ -266,9 +268,9 @@ On a `main` dispatch, the release commit goes to the temp branch `release/bot/vX
 
 - an open bot PR is closed with a comment that links the run, and its branch is deleted;
 - the branch of a PR that is already closed, or of a run that stopped before it opened its PR, is deleted;
-- a merged bot PR and its branch are left alone: `main` then carries the release commit, and the [Rollback Playbook](#rollback-playbook) covers a run that stopped after the merge.
+- a merged bot PR and its branch are left alone: `main` then carries the release commit, and the step names the resume path that finishes the cut ([§ Finishing a cut whose bot PR merged](#finishing-a-cut-whose-bot-pr-merged)).
 
-A closed PR keeps the release commit reachable (`refs/pull/<n>/head`), so closing it loses nothing to inspect. To retry, use **Re-run failed jobs** on the run (a flaky check, an approval that timed out) or dispatch `release.yaml` again once the defect is fixed on `main`: either opens a new bot PR, and no second `release: bump to` PR sits next to the old one. If that step itself fails, its error names the command that finishes the job by hand (`gh pr close <n> --delete-branch` or `git push origin --delete <branch>`).
+A closed PR keeps the release commit reachable (`refs/pull/<n>/head`), so closing it loses nothing to inspect. To retry, use **Re-run failed jobs** on the run (a flaky check, an approval that timed out) or dispatch `release.yaml` again once the defect is fixed on `main`: either opens a new bot PR, and no second `release: bump to` PR sits next to the old one. Once the bot PR has merged, do neither: **Re-run failed jobs** would cut the version again from the dispatch commit and open a second bot PR against a `main` that already has it. If that step itself fails, its error names the command that finishes the job by hand (`gh pr close <n> --delete-branch` or `git push origin --delete <branch>`).
 
 Either way, check that nothing is left:
 
@@ -283,7 +285,34 @@ git merge-base --is-ancestor <temp-branch-sha> origin/main \
   && git push origin --delete release/bot/vX.Y.Z-<run_id>-<run_attempt>
 ```
 
-The tag anchors on the bot PR's merge commit on `main`, not on the temp branch (see the `Create and push tag` step's main-dispatch path), so deleting the branch after the merge orphans nothing. The exception is a pull request that merged into `main` while the release waited for checks and approval (`strict_required_status_checks_policy` is `false`, so the bot PR is not rebased first): the merge commit's tree then holds that pull request, which the published package does not, so the tag goes on the release commit itself, which `main` reaches through the merge commit. The next release then renders that pull request's fragment and checks its surfaces. If the bot PR was squash- or rebase-merged in that case, the release commit is not on `main`, and the run stops before tagging or publishing: re-dispatch as in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed), with no tag to delete. The reachability check is what distinguishes this from the tag-orphan case in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed); if the commit is _not_ reachable, the merge did not land: the branch belongs to a run still in progress, or to a failed run whose last step could not finish, and `gh pr list --head <branch> --state all` tells which.
+The tag anchors on the bot PR's merge commit on `main`, not on the temp branch (see the `Create and push tag` step's main-dispatch path), so deleting the branch after the merge orphans nothing. The exception is a pull request that merged into `main` while the release waited for checks and approval (`strict_required_status_checks_policy` is `false`, so the bot PR is not rebased first): the merge commit's tree then holds that pull request, which the published package does not, so the tag goes on the release commit itself, which `main` reaches through the merge commit. The next release then renders that pull request's fragment and checks its surfaces. If the bot PR was squash- or rebase-merged in that case, the release commit is not on `main`, and the run stops before tagging or publishing. The resume path refuses that case too: ship the version forward with `patch` as in [§ Scenario H](#scenario-h-bot-pr-merged-but-the-version-was-not-published), with no tag to delete. The reachability check is what distinguishes this from the tag-orphan case in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed); if the commit is _not_ reachable, the merge did not land: the branch belongs to a run still in progress, or to a failed run whose last step could not finish, and `gh pr list --head <branch> --state all` tells which.
+
+### Finishing a cut whose bot PR merged
+
+Once the bot PR merges, `main` carries the new version, and the tag, the npm publish and the GitHub Release still have to run. When the run stops in that window (the publish fails, a required check fails after an admin merge, the run is cancelled or the tag step fails), dispatch the resume path on `main`:
+
+```bash
+gh workflow run release.yaml --ref main -f version_bump=resume
+```
+
+It runs in the same `release` job and environment, so gate 1 applies and the npm Trusted Publisher accepts its publish; there is no bot PR and no gate 2. Its `Find what the cut on main still needs (resume)` step runs `node tools/release-state.js resume`, which reads the version `main` carries, the tag, npm, the GitHub Release and the merged bot PR titled `release: bump to vX.Y.Z`. The run then does only what is missing, in the order of a normal cut:
+
+- the tag, on the commit the `Create and push tag` step would use: the bot PR's merge commit, or the release commit (the PR's head) when another pull request merged into `main` while the release waited. A tag already there is kept;
+- the publish, unless npm has the version: from the release commit, checked out with its own `npm ci`, after the pre-publish dry-run, under the dist-tag the `Get new version and previous tag` step gives it;
+- the GitHub Release, unless it exists, with the notes rebuilt by `tools/changes.js release --notes-only`: `--base` is the stable tag before the version, and `--date` the date of its `CHANGELOG.md` heading (for a prerelease, which has none, the release commit's date);
+- for a stable version, the docs deploy.
+
+It skips the gate, the tests, the bump, the commit and the bot PR, and never bumps. When the tag, npm and the Release are all there, it exits without publishing, which also makes a dispatch while the current version is fully released a safe check of the path. Run by hand on an up-to-date `main` checkout, the same command only prints what a resume would do ([§ Scenario H](#scenario-h-bot-pr-merged-but-the-version-was-not-published)). It refuses before anything is written, and says why and, where there is one, what to do instead. The common cases (the header of `tools/release-state.js` lists them all):
+
+- it was dispatched from a ref other than `main`;
+- no merged bot PR carries the version `main` holds, or more than one does (a version set by hand, such as `3.0.0-rc.0`, is not a cut: dispatch its channel, which cuts the next one);
+- the tag points at another commit (the refusal says how to check it and, if it is wrong, how to delete it);
+- the release commit is not on `main`: the bot PR was squash- or rebase-merged while `main` moved;
+- npm does not have the version and a required check of the `Default` ruleset is not green on the release commit: its newest run counts, and only `success`, `skipped` and `neutral` are green, as in the `Wait for required status checks` step. A check with no run there never started on the release commit, and the refusal names the `gh workflow run quality.yaml --ref <branch>` that starts the checks on the bot PR's branch.
+
+A resumed run that stops after its resume step says what to do in its summary: dispatch `resume` again, which keeps what the run finished and does the rest. A pre-publish dry-run that rejects the release commit's package fails the same way on every dispatch, so ship forward with `patch` then.
+
+While `main` carries such a version, a `minor` or `major` dispatch is refused, and `patch` stays allowed as the ship-forward (see [§ The release gate](#the-release-gate)). [§ Scenario H](#scenario-h-bot-pr-merged-but-the-version-was-not-published) is the recovery as a whole, the ship-forward with `patch` included.
 
 <!-- Rollback Playbook — added in Story 4.1 -->
 
@@ -291,7 +320,7 @@ The tag anchors on the bot PR's merge commit on `main`, not on the temp branch (
 
 > **NEVER `npm unpublish` v1.0.0.** Once `bmad-module-skill-forge` is published under `--tag latest` at v1.0.0, the version is immutable by policy (NFR6). The default rollback is `npm deprecate` + ship forward. See Scenario C for the narrow 72h / zero-dependents exception — which applies to **pre-v1.0.0 versions only**.
 
-Scenarios A–F are recovery paths for a bad publish; Scenario G is a meta-recovery path for the release workflow itself. Each scenario follows a five-element shape: **Trigger** → **CLI** → **Expected outcome** → **Constraints** → **Verification**. A compact [cross-reference matrix](#cross-reference-matrix) sits at the end of this section for under-pressure triage. All `gh api` examples in this section use name-based lookups (ruleset by `name=="Default"`, environment by literal `release`) so they survive ruleset or environment re-creation.
+Scenarios A–F are recovery paths for a bad publish; Scenario G is a meta-recovery path for the release workflow itself; Scenario H finishes a cut that stopped after its bot PR merged. Each scenario follows a five-element shape: **Trigger** → **CLI** → **Expected outcome** → **Constraints** → **Verification**. A compact [cross-reference matrix](#cross-reference-matrix) sits at the end of this section for under-pressure triage. All `gh api` examples in this section use name-based lookups (ruleset by `name=="Default"`, environment by literal `release`) so they survive ruleset or environment re-creation.
 
 Placeholder substitutions used throughout:
 
@@ -388,66 +417,70 @@ Placeholder substitutions used throughout:
 
 ### Scenario D — "Tag exists but npm publish failed"
 
-- **Trigger.** `release.yaml` pushed the `v*` tag (tag-creation step runs before the npm publish step) and then the publish step failed — OIDC 404, tarball validation error, network drop. `npm view bmad-module-skill-forge@<version>` returns 404; `git tag -l v<version>` shows the tag locally and on origin.
-- **CLI.**
+- **Trigger.** `release.yaml` pushed the `v<version>` tag (the `Create and push tag` step runs before the npm publish step) and then the publish step failed: OIDC 404, tarball validation error, network drop. `npm view bmad-module-skill-forge@<version>` returns 404; `git ls-remote --tags origin v<version>` shows the tag.
+- **A cut from `main`.** Its bot PR merged before the tag step ran, so `main` carries `<version>`: follow [§ Scenario H](#scenario-h-bot-pr-merged-but-the-version-was-not-published), whose resume path keeps the tag, publishes `<version>` and creates the GitHub Release. Do not delete the tag and dispatch the same `version_bump` again: that bumps past `<version>`, and a `major` over an unpublished `3.0.0` would cut `4.0.0` (the release workflow refuses `minor` and `major` while `main` carries an unpublished version).
+- **CLI (a prerelease cut from a feature branch).** Such a cut has no bot PR and never moves its branch's `package.json`, so a new cut from that branch gives `<version>` again, which npm accepts: it never received it.
 
   ```bash
-  # VERIFY FIRST that npm did NOT publish — a tag-delete after a successful
+  # VERIFY FIRST that npm did NOT publish: a tag-delete after a successful
   # publish would orphan the npm artifact. If this returns a manifest, STOP
   # and go to Scenario E.
   npm view bmad-module-skill-forge@<version> 2>&1
 
-  # Tag-only recovery: clear the tag locally and on origin, then re-dispatch.
+  # Clear the tag locally and on origin, then cut <version> again from the
+  # branch, with its prerelease id.
   git tag -d v<version>
   git push --delete origin v<version>
-
-  # Re-dispatch with the same bump input — release.yaml will produce a fresh
-  # clean tag and successful publish.
-  gh workflow run release.yaml -f version_bump=<same-input-as-before>
+  gh workflow run release.yaml --ref <branch> -f version_bump=<alpha|beta|rc>
   ```
 
-- **Expected outcome.** Tag cleared from origin; re-run produces a fresh clean tag plus a successful publish under the next version number.
-- **Constraints.** Only safe if publish failed. If npm _did_ publish, use Scenario E — tag-deletion after a successful publish leaves the npm artifact without a matching git ref.
-- **Do-NOT clause.** Never re-use the burned `<version>` number. `release.yaml` will produce the next version on redispatch (for example, re-running an `alpha` bump over `0.10.1-alpha.0` produces `0.10.1-alpha.1`, not `0.10.1-alpha.0` again). Forcing the original version back via `npm version <exact> --no-git-tag-version` is out of scope for rollback.
-- **Re-dispatching a stable cut.** The gate, the notes and their compare link all start at the last stable tag, and fragments stay in `changes/` after a release, so once the tag of a failed stable cut is deleted, a `patch` re-dispatch is enough even for a major: a burned `3.0.0` gives `3.0.1` with the same notes, and the gate still counts it a major step from `v2.2.0`. If the bot PR had merged, `CHANGELOG.md` then holds both the unshipped `3.0.0` block and the `3.0.1` one; delete the unshipped block by pull request.
-- **Story 3.2 load-bearing context.** The current `release.yaml` pushes the git tag **before** the npm publish step (see the `Create and push tag` job step vs. the `Publish to npm via OIDC trusted publishing` step). This ordering is pre-existing from Story 3.1 and tracked in `_bmad-output/implementation-artifacts/deferred-work.md` under `§ 3-1/3-2 code review "Create and push tag pushes the git tag BEFORE Publish to npm"` as a post-v1.0.0 hardening candidate. Until that lands, Scenario D's tag-delete path **is** the recovery.
+- **Expected outcome.** From `main`, as in Scenario H. From a feature branch, the tag is cleared from origin, and the new run pushes it again and publishes `<version>`.
+- **Constraints.** Only safe if publish failed. If npm _did_ publish, use Scenario E: tag-deletion after a successful publish leaves the npm artifact without a matching git ref.
+- **A version npm never received is not burned.** npm refuses only a version it once had, an unpublished one included (Scenario C). The version of a failed publish is still free, so the recovery publishes that same version instead of skipping to the next one.
+- **Why the tag goes before the publish.** The `Create and push tag` step runs before the publish on purpose ([#566](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/566)). A failed publish then leaves a tag on the tree it was packing, and the resume path keeps that tag and picks up there, so it is not an orphan to delete. What stops a `minor` or `major` from cutting past the unpublished version is the `Refuse to bump past an unpublished release` step, not the tag.
 - **Verification.**
 
   ```bash
-  # Tag gone on origin.
-  gh api repos/armelhbobdad/bmad-module-skill-forge/git/refs/tags/v<version> 2>&1
-  # expected: 404 Not Found
+  # The tag is on origin and npm has the version.
+  git ls-remote --tags origin v<version>
+  npm view bmad-module-skill-forge@<version> version
+  # expected: <version>
   ```
 
 ### Scenario E — "npm publish succeeded but GitHub Release / tag push failed"
 
-- **Trigger.** Publish succeeded (`npm view bmad-module-skill-forge@<version>` returns a manifest) but **one of**: tag-push to origin failed (network drop, branch-protection edge case); the `Create GitHub Release` softprops step failed (API rate limit, auth expiry); the `Push commit to main` step was (correctly) skipped but the release artifact diverged from `main`.
-- **Premise inversion note.** In the research doc's scenario ordering, publish was assumed to happen before tag push — so publish failure was the likely branch. In the live `release.yaml` the ordering is reversed: the tag push runs **before** the npm publish. That means a publish-succeeded-but-tag-missing window is small, but real — the `Create GitHub Release` and `Push commit to main` steps still run after publish and either can fail independently. This scenario covers the post-publish-tag-or-release-missing recovery path.
-- **CLI — tag recovery.**
+- **Trigger.** Publish succeeded (`npm view bmad-module-skill-forge@<version>` returns a manifest) but the GitHub Release or the tag is missing: the `Create GitHub Release` softprops step failed (API rate limit, auth expiry), the run was cancelled after the publish, or someone deleted the tag afterwards. The tag step runs before the publish, so a run that published had pushed its tag.
+- **A cut from `main`.** Dispatch the resume path ([§ Scenario H](#scenario-h-bot-pr-merged-but-the-version-was-not-published)). It skips the publish, puts a missing tag where the `Create and push tag` step does, creates a missing GitHub Release with the notes rebuilt from the change fragments, and deploys the docs site for a stable version. The CLI blocks below do the same by hand.
+- **CLI: tag recovery.** Tag the commit the `Create and push tag` step uses, found from the merged bot PR, not the run's `head_sha`: that is the commit the release was dispatched from, before the version bump. `tools/release-state.js` applies the tag step's rule, and outside Actions it only prints.
 
   ```bash
-  # Obtain the commit-sha the workflow used as its HEAD during the publish run
-  # (returns the SHA directly; do not grep the run log — the bump-commit echo
-  # line does not contain the SHA, only the post-commit confirmation does).
-  COMMIT_SHA=$(gh api \
-    repos/armelhbobdad/bmad-module-skill-forge/actions/runs/<run-id> \
-    --jq .head_sha)
+  git checkout main && git pull --tags && npm ci
+  # Prints "Tag v<version>: missing; resume tags the <kind> <commit>." (the
+  # merge commit, or the release commit when main moved while the release
+  # waited) and, for a missing GitHub Release, the --base and --date of its
+  # notes; or why a resume would refuse.
+  node tools/release-state.js resume --ref refs/heads/main \
+    --repo armelhbobdad/bmad-module-skill-forge
 
-  # Recreate the annotated tag and push.
-  git tag -a v<version> "$COMMIT_SHA" -m "Release v<version>"
+  git tag -a v<version> <commit> -m "Release v<version>"
   git push origin v<version>
+  git show v<version>:package.json | jq -r .version
+  # expected: <version>
   ```
+
+  A prerelease cut from a feature branch has no bot PR: its tag marks the release commit the runner built, which no branch holds, so keep that tag.
 
 - **CLI: GitHub Release recovery.** The workflow's `Write release notes and CHANGELOG.md` step writes `release_notes.md` inside the runner; that file is **not** uploaded as an artifact, so it does not exist outside the run. Rebuild the same text from the change fragments on the release commit, or let GitHub regenerate notes from commit subjects.
 
   ```bash
-  # Option A: rebuild the notes from the change fragments (after npm ci).
-  # --base is the stable tag before <version>: the new tag now exists, so it
-  # is no longer the last one. --date is the date in the CHANGELOG.md heading.
+  # Option A: rebuild the notes from the change fragments, with the <base>
+  # and <date> the resume command above printed ("with the notes from <base>
+  # dated <date>"): the stable tag before <version>, no longer the last one
+  # once the new tag exists, and the date of its CHANGELOG.md heading.
   # --notes-only leaves CHANGELOG.md alone.
   git checkout v<version>
-  node tools/changes.js release --base v<previous_stable> --version <version> \
-    --date <YYYY-MM-DD> --notes-only --notes release_notes.md
+  node tools/changes.js release --base <base> --version <version> \
+    --date <date> --notes-only --notes release_notes.md
   gh release create v<version> \
     --notes-file release_notes.md \
     --title "Skill Forge (SKF) v<version>"
@@ -459,10 +492,12 @@ Placeholder substitutions used throughout:
     --title "Skill Forge (SKF) v<version>"
   ```
 
-- **CLI: docs site recovery (stable `<version>` only).** The `Deploy the docs site at the new tag` step runs after `Create GitHub Release`, so it did not run either. Once the tag is on origin, deploy the site as in [§ The docs site](#the-docs-site): `gh workflow run docs.yaml -f ref=v<version>`. Check the tag first: the site's version badge is read from `package.json` at build time, and the tag recovery above points the tag at the run's `head_sha`, the commit the release was dispatched from, which is before the version bump. `git show v<version>:package.json` must show `<version>`; if it does not, recreate the tag on the commit on `main` that bumped `package.json` to `<version>`, then deploy.
+  A prerelease cut from a feature branch is not one the tool reads (it reads the version `main` carries): its `--base` is `git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' v<version>`, and its `--date` the day of the cut (`git log -1 --format=%cs v<version>`).
+
+- **CLI: docs site recovery (stable `<version>` only).** The `Deploy the docs site at the new tag` step runs after `Create GitHub Release`, so it did not run either. Once the tag is on origin, deploy the site as in [§ The docs site](#the-docs-site): `gh workflow run docs.yaml -f ref=v<version>`. The site's version badge is read from `package.json` at build time, so check first that `git show v<version>:package.json` shows `<version>`.
 - **Expected outcome.** Tag landed on origin pointing at the correct commit; GitHub Release page reflects the published npm artifact; npm + GitHub + git state are now consistent.
 - **Constraints.** **npm state is immutable.** Do NOT try to "clean up" the npm artifact so the release can be re-run from scratch. The npm artifact plus the orphaned post-recovery git state **is** the canonical record — NFR5 (audit-trail completeness) is satisfied by the successful npm publish plus the recovered tag and GitHub Release, not by a clean rerun.
-- **Orphaned-commit caveat (Story 3.2 context).** If the run was dispatched from a feature branch and `Push commit to main` was correctly skipped, the `release: bump to v<version>` commit lives only in the workflow run log until the recovered tag above anchors it. This is NFR12-compliant and expected pre-v1.0.0 behavior; the tag is the authoritative pointer. This is exactly the pattern observed in the Story 3.2 alpha cut (`bmad-module-skill-forge@0.10.1-alpha.0`, run `24714953668`, tag `v0.10.1-alpha.0`, orphaned commit `2a57dcbd`).
+- **Orphaned-commit caveat (Story 3.2 context).** A cut dispatched from a feature branch leaves the `release: bump to v<version>` commit on no branch: the tag it pushed is that commit's only pointer on origin. This is NFR12-compliant and expected pre-v1.0.0 behavior; the tag is the authoritative pointer. This is exactly the pattern observed in the Story 3.2 alpha cut (`bmad-module-skill-forge@0.10.1-alpha.0`, run `24714953668`, tag `v0.10.1-alpha.0`, orphaned commit `2a57dcbd`).
 - **Verification.**
 
   ```bash
@@ -590,17 +625,66 @@ Placeholder substitutions used throughout:
 
 - **Constraints.** Branch protection on `main` blocks direct pushes — recovery goes through a PR in every case. Do not attempt to sidestep branch protection to "fix" `release.yaml` faster; the cost of a bad release (NFR5 audit-trail breakage, NFR10 commit-trail breakage) far exceeds the cost of a normal-review PR.
 
+### Scenario H: "Bot PR merged, but the version was not published"
+
+- **Trigger.** A cut dispatched from `main` stopped after its bot PR merged and before it finished: `main`'s `package.json` holds `<version>`, and npm does not have it, or the tag or the GitHub Release is missing. Three ways to get there:
+  - the publish failed (an OIDC 404, a registry error) after `Create and push tag` pushed the tag ([§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed));
+  - a maintainer admin-merged the bot PR before the required checks finished and one of them then failed: the `Wait for required status checks` step names the resume path, and the tag, publish and Release steps never run;
+  - the run was cancelled, or the tag step failed, between the merge and the publish.
+
+  The run's last step, `Close the bot PR and delete its branch after a failed run`, leaves the merged PR alone and names the resume path in a warning and in the run summary.
+
+- **CLI.**
+
+  ```bash
+  # What main carries and what its cut still needs: the bot PR, where the
+  # tag goes, whether npm and the GitHub Release have the version and, when
+  # npm does not, whether every required check on the release commit is
+  # green; or why a resume would refuse. Outside Actions it only prints.
+  git checkout main && git pull --tags && npm ci
+  node tools/release-state.js resume --ref refs/heads/main \
+    --repo armelhbobdad/bmad-module-skill-forge
+
+  # A required check that failed after the merge: re-run it from the run page
+  # the refusal links, until every required check is green. A check with no
+  # run never started on the release commit: run the gh workflow run
+  # quality.yaml --ref <branch> the refusal names. Then:
+  gh workflow run release.yaml --ref main -f version_bump=resume
+  RUN_ID=$(gh run list --workflow=release.yaml --limit 1 \
+    --json databaseId --jq '.[0].databaseId')
+  gh run watch "$RUN_ID"
+  ```
+
+  Approve the `release` environment gate as for any cut. Do not use **Re-run failed jobs** on the stopped run: it cuts the version again from the dispatch commit and opens a second bot PR against a `main` that already has it. If the resumed run stops after its resume step, dispatch `resume` again: it keeps what that run finished. A pre-publish dry-run that rejects the release commit's package fails the same way on every dispatch: ship forward with `patch`, below.
+
+- **Expected outcome.** The same `<version>` is out: tagged, published to npm with provenance under the dist-tag of a normal cut, released on GitHub and, for a stable version, deployed to the docs site, with nothing bumped or committed ([§ Finishing a cut whose bot PR merged](#finishing-a-cut-whose-bot-pr-merged)). The run summary lists what the run did and what was already there.
+- **Constraints.** Resume finishes only the version `main` carries, from its merged bot PR, and refuses the cases listed in [§ Finishing a cut whose bot PR merged](#finishing-a-cut-whose-bot-pr-merged). While `main` carries the unpublished version, a `minor` or `major` dispatch is refused: it would cut past it.
+- **Fallback: ship forward with `patch`.** When `<version>` cannot be published (a defect in the release commit, a bot PR squash- or rebase-merged while `main` moved), fix `main` by pull request and cut the next patch. The gate, the notes and their compare link all start at the last stable tag, and fragments stay in `changes/` after a release, so a `patch` is enough even for a major: an unpublished `3.0.0` gives `3.0.1` with the same notes, and the gate still counts it a major step from `v2.2.0`. Delete the unpublished version's tag first if the run pushed one (after `npm view` confirms npm does not have it): with the tag kept, the gate measures from it and finds no fragment. `CHANGELOG.md` then holds both the unshipped `3.0.0` block and the `3.0.1` one; delete the unshipped block by pull request.
+- **Verification.**
+
+  ```bash
+  npm view bmad-module-skill-forge@<version> version
+  # expected: <version>
+  git fetch origin --tags
+  git show v<version>:package.json | jq -r .version
+  # expected: <version>
+  gh release view v<version> --json tagName,isPrerelease
+  npm view bmad-module-skill-forge@<version> --json | jq '.dist.attestations'
+  # expected: a non-null object
+  ```
+
 ### Cross-reference matrix
 
-| Scenario | Trigger class                   | Primary CLI verb                 | NFR linkage       |
-| -------- | ------------------------------- | -------------------------------- | ----------------- |
-| A        | Fresh bad latest                | `dist-tag` + `deprecate`         | NFR3              |
-| B        | Stale bad latest                | `deprecate` + ship forward       | NFR3, NFR6        |
-| C        | Eligible unpublish              | `unpublish`                      | (pre-v1.0.0 only) |
-| D        | Tag orphan (publish failed)     | `tag -d` + `push --delete`       | NFR12             |
-| E        | Post-publish state drift        | `tag -a` + `gh release create`   | NFR5              |
-| F        | OIDC compromise                 | revoke Trusted Publisher + audit | NFR7              |
-| G        | `release.yaml` disabled/missing | `workflow enable` / `pr revert`  | NFR5, NFR10       |
+| Scenario | Trigger class                   | Primary CLI verb                                             | NFR linkage       |
+| -------- | ------------------------------- | ------------------------------------------------------------ | ----------------- |
+| A        | Fresh bad latest                | `dist-tag` + `deprecate`                                     | NFR3              |
+| B        | Stale bad latest                | `deprecate` + ship forward                                   | NFR3, NFR6        |
+| C        | Eligible unpublish              | `unpublish`                                                  | (pre-v1.0.0 only) |
+| D        | Tag orphan (publish failed)     | `version_bump=resume` (main); `push --delete` (branch)       | NFR12             |
+| E        | Post-publish state drift        | `version_bump=resume` (main); `tag -a` + `gh release create` | NFR5              |
+| F        | OIDC compromise                 | revoke Trusted Publisher + audit                             | NFR7              |
+| G        | `release.yaml` disabled/missing | `workflow enable` / `pr revert`                              | NFR5, NFR10       |
+| H        | Bot PR merged, not published    | `version_bump=resume`; else ship forward with `patch`        | NFR5              |
 
 ### Baseline snapshots
 
