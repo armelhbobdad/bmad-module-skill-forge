@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-skill
 summary: |
   An authoritative file, such as `llms.txt` or `AGENTS.md`, that an earlier headless run skipped no longer counts as a person's decline. A headless run records that skip in the brief's `scope.amendments` with `action: "skipped"` and `reason: "headless: no user to prompt"`, and the next interactive `skf-create-skill` run used to leave the file out without asking. It now asks about the file, as it does for one no run has decided. A skip a person chose still holds, and briefs need no change.
+prs: [616]
 issues: [593]
