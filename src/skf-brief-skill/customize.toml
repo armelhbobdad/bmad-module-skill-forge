@@ -45,13 +45,18 @@ description_voice_examples_path = ""
 scope_templates_path = ""
 brief_schema_path = ""
 
-# Pipeline-integration hook invoked once the brief is written and the result
-# contract is finalized (write-brief.md, step 5), before the workflow chains to
-# the terminal health-check step. The command is called as:
+# Pipeline-integration hook invoked once the brief is written (and, in a
+# headless or [auto] run, the result envelope is printed), before the workflow
+# chains to the terminal health-check step. Every successful run calls it
+# once: write-brief.md §6b on the interactive, headless and ratify paths (an
+# [auto] brief sent back with [R]eject included), and step-auto-validate.md §4
+# on the [auto] approve paths ([A]pprove, or [E]dit then [A]pprove), right
+# after its envelope. The command is called as:
 #   <on_complete> --result-path=<absolute_path_to_skill-brief.yaml>
 # Useful for chaining into create-skill, Slack notifications, dashboard ingest,
-# or CI hooks. Override wins. Failures are logged to workflow_warnings[] but
-# never fail the workflow.
+# or CI hooks. Override wins. A failure never fails the workflow: the run
+# displays one line, "on_complete hook failed (exit <code>): <stderr>", which
+# the result envelope, printed before the hook runs, does not carry.
 #
 # Empty string = no-op (default).
 

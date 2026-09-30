@@ -40,7 +40,7 @@ Subcommands:
                 the same `name` is replaced, otherwise appended). All
                 other forge-tier state (tools / tier / ccc_index /
                 ccc_index_registry / other qmd_collections entries) is
-                preserved verbatim. Used by skf-brief-skill step 5 §5
+                preserved verbatim. Used by skf-brief-skill step 5 §3b
                 and skf-create-skill to register Deep-tier QMD
                 collections without re-rendering the whole file in
                 prose.

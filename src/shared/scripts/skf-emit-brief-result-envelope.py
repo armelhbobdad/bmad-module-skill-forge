@@ -6,9 +6,9 @@
 
 An alias of `skf-emit-result-envelope.py ... --workflow skf-brief-skill`,
 kept so the brief step files that call it keep working. The envelope
-contract (SKF_BRIEF_RESULT_JSON) is documented in src/skf-brief-skill/SKILL.md
-Result Contract section; its schema,
-`schemas/skf-brief-result-envelope.v1.json`, holds the whole contract,
+contract (SKF_BRIEF_RESULT_JSON) is documented in the Result Contract
+section of src/skf-brief-skill/references/invocation-contract.md; its
+schema, `schemas/skf-brief-result-envelope.v1.json`, holds the whole contract,
 including the halt_reason to exit_code mapping, and the shared emitter
 enforces it. Nothing here restates it.
 
@@ -126,7 +126,7 @@ def main() -> int:
         "--target",
         choices=["stdout", "stderr"],
         default="stdout",
-        help="Output stream for the prefixed envelope line. step 5 §4b uses stdout on success and stderr on HARD HALT.",
+        help="Output stream for the prefixed envelope line: stdout for a run's success line, stderr for a HARD HALT's.",
     )
 
     sub.add_parser("validate", help="Read envelope JSON on stdin, exit 0 if schema-valid")

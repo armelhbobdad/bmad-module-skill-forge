@@ -30,10 +30,13 @@ joined, and a call ends at the first shell operator (`|`, `&&`, `;`, `>`,
 How a placeholder maps to a script. The file's own frontmatter binds it: a
 `<stem>ProbeOrder` list binds `{<stem>Helper}` and `{<stem>}` to the script
 its src/ entry names, and a `<name>: 'scripts/<x>.py'` scalar binds `{<name>}`
-to that script in the skill's folder. A reference file that binds nothing (a
-protocol a step loads) uses the one binding the other files agree on; a
-`{...Helper}` in a call that no file binds, or that files bind to two
-scripts, fails the test.
+to that script in the skill's folder. A SKILL.md that resolves a helper once
+for every stage binds it in its body: a line that names `{<name>}`, then
+`←`, then the helper's `{project-root}/src/...` path binds `{<name>}` to that
+script. A reference file that binds nothing (a protocol a step loads, or a
+stage of a skill whose SKILL.md resolves the helper) uses the one binding
+the other files agree on; a `{...Helper}` in a call that no file binds, or
+that files bind to two scripts, fails the test.
 
 How the arguments are read. `{...}` and `<...>` placeholders become opaque
 values that satisfy any type or choices, except that a `{a|b}` placeholder
@@ -79,6 +82,8 @@ PLACEHOLDER_RE = re.compile(r"\{([A-Za-z][A-Za-z0-9]*)\}")
 PROBE_KEY_RE = re.compile(r"^([A-Za-z]+)ProbeOrder:\s*$")
 PROBE_ITEM_RE = re.compile(r"^\s+-\s*'([^']+)'\s*$")
 SCRIPT_SCALAR_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*):\s*'(scripts/[^']+\.py)'\s*$", re.M)
+ACTIVATION_BIND_RE = re.compile(r"`\{([A-Za-z][A-Za-z0-9]*)\}` ←([^\n]*)")
+SRC_SCRIPT_RE = re.compile(r"`\{project-root\}/(src/[^`\s]+\.py)`")
 OPAQUE_RE = re.compile(r"\{[^{}\n]*\}|<[A-Za-z][^<>\n]*>")
 ALTERNATIVES_RE = re.compile(r"[\w.-]+(?:\|[\w.-]+)+")
 REDIRECT_FD_RE = re.compile(r"(?<!\S)\d+(?=[<>])")
@@ -141,6 +146,16 @@ def _bindings(rel: str, frontmatter: str) -> dict[str, Path]:
     return out
 
 
+def _activation_bindings(body: str) -> dict[str, Path]:
+    """Placeholder name -> script, from the SKILL.md lines that resolve a helper for every stage."""
+    out: dict[str, Path] = {}
+    for name, rest in ACTIVATION_BIND_RE.findall(body):
+        src = SRC_SCRIPT_RE.search(rest)
+        if src:
+            out[name] = REPO / src.group(1)
+    return out
+
+
 def _code(body: str, first_line: int):
     """Yield (line, text) for each fenced logical line and inline code span."""
     fence = None
@@ -171,6 +186,8 @@ def _collect() -> tuple[list[Call], list[str]]:
         rel = md.relative_to(REPO).as_posix()
         frontmatter, body, first = _split_frontmatter(md.read_text(encoding="utf-8"))
         local[rel] = _bindings(rel, frontmatter)
+        if md.name == "SKILL.md":
+            local[rel].update(_activation_bindings(body))
         for line, text in _code(body, first):
             for m in PLACEHOLDER_RE.finditer(text):
                 rest = text[m.end():]
@@ -388,8 +405,9 @@ def test_helper_calls_fit_the_helper_cli(rel):
 
 # One known call per extraction path (fenced, backslash-joined, inline,
 # heredoc, a reference file without frontmatter, a shared protocol whose
-# helper only its callers bind, the hand-parsed helper), so a change to the
-# extractor cannot silently check nothing.
+# helper only its callers bind, a helper a SKILL.md resolves for its stages,
+# the hand-parsed helper), so a change to the extractor cannot silently check
+# nothing.
 MUST_FIND = [
     ("src/skf-rename-skill/references/execute.md", "skf-atomic-write.py", "flip-link"),
     ("src/skf-rename-skill/references/execute.md", "skf-atomic-write.py", "write"),
@@ -405,6 +423,9 @@ MUST_FIND = [
     ("src/skf-update-skill/references/write.md", "skf-update-active-symlink.py", "verify"),
     ("src/skf-drop-skill/references/execute.md", "skf-update-active-symlink.py", "update"),
     ("src/skf-drop-skill/references/report.md", "skf-manifest-ops.py", "affected-versions"),
+    # A helper the SKILL.md resolves at activation, and a stage that calls it.
+    ("src/skf-brief-skill/SKILL.md", "skf-emit-brief-result-envelope.py", "emit"),
+    ("src/skf-brief-skill/references/write-brief.md", "skf-emit-brief-result-envelope.py", "emit"),
 ]
 
 
@@ -418,6 +439,14 @@ def _command_word(call: Call) -> str | None:
 def test_the_extractor_finds_known_calls(rel, script, command):
     found = [_command_word(c) for c in CALLS if c.rel == rel and c.script.name == script]
     assert command in found, f"{rel}: the {script} calls found start with {found}"
+
+
+def test_a_skill_md_binds_the_helper_it_resolves_for_every_stage():
+    """skf-brief-skill's stages call {emitBriefEnvelopeHelper}, which only its SKILL.md resolves."""
+    _, body, _ = _split_frontmatter((SRC / "skf-brief-skill" / "SKILL.md").read_text(encoding="utf-8"))
+    assert _activation_bindings(body)["emitBriefEnvelopeHelper"] == _script("skf-emit-brief-result-envelope.py")
+    # A line that resolves a setting, not a script, binds nothing.
+    assert _activation_bindings("`{onCompleteCommand}` ← `workflow.on_complete` if non-empty") == {}
 
 
 # Every step that runs a flag-only helper on a provenance map, so a call

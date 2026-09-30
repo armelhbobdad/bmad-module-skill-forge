@@ -33,6 +33,19 @@ These rules apply to every step in this workflow:
 - **Lazy-load references and assets:** `references/*.md` and `assets/*.md` files are loaded inside the section that needs them, not at step entry. If a section is skipped (e.g. `version-resolution.md` when `{extractPublicApiHelper}` already returned a version, `scope-templates.md` for the `docs-only` branch that bypasses §2c), do not load that file. Each unnecessary load costs context (~5-10 KB per reference) and biases the LLM toward consulting material the current path does not need.
 - Always communicate in `{communication_language}` (the language for user-facing prose). Written artifact text — the `description`, `notes`, and other free-form fields persisted into `skill-brief.yaml` — is in `{document_output_language}`; per-step rules call this out where it applies (see step 5). The two values may be the same.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
+- Keep one list of the run's warnings, `workflow_warnings[]`, in the order they are raised: each `warn:` line a step logs, each entry of a helper's `warnings[]` that a step surfaces, and each degraded signal the run goes on past (a truncated tree listing, a failed doc detection or QMD step), one line of text each. A helper warning that is an object, such as the `{field, message}` entries skf-validate-brief-inputs.py and skf-validate-brief-schema.py return, goes in as one line, `<field>: <message>`: the emitter takes only strings, and one object in `warnings` makes it exit non-zero and print no line. The run's `SKF_BRIEF_RESULT_JSON` envelope carries the list as `warnings`, at the end of a successful run and at a halt
+
+## Halt Contract
+
+Every HALT that names a `halt_reason`, in any step file, emits the `SKF_BRIEF_RESULT_JSON` error envelope before it stops when `{headless_mode}` or `{auto_mode}` is true, through the emitter On Activation step 4 resolves:
+
+```bash
+uv run {emitBriefEnvelopeHelper} emit --target stderr <<'SKF_BRIEF_HALT'
+{"status":"error","skill_name":"<skill name>","halt_reason":"<halt_reason>","mode":<"auto" or null>,"warnings":[<workflow_warnings[] as JSON strings>]}
+SKF_BRIEF_HALT
+```
+
+Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skill_name` is the resolved skill name, or `unknown` while step 1 has not resolved one; `mode` is `"auto"` while `{auto_mode}` is true, else `null`; `warnings` holds `workflow_warnings[]` (`[]` when it is empty). The quoted heredoc hands the payload to the helper as written, so a quote inside a warning needs no shell escaping. Display the line the helper prints verbatim, then HALT. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, display the halt message alone: a pipeline that sees no envelope line treats the run as not completed cleanly. An interactive run outside `[auto]` mode displays the halt message and emits nothing.
 
 ## On Activation
 
@@ -40,6 +53,8 @@ These rules apply to every step in this workflow:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `forge_data_folder`, `sidecar_path`
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
+
+   **Resolve `{auto_mode}`**: true when the invocation carries the `[auto]` flag (a pipeline's `BS[auto]`, which step 1 §1b routes to the auto stages), else false. Step 1b's `[R]eject` sets it back to false when it hands the brief to the interactive review.
 
 3. **Resolve workflow customization.** Run:
 
@@ -61,13 +76,15 @@ These rules apply to every step in this workflow:
    - `{descriptionVoiceExamplesPath}` ← `workflow.description_voice_examples_path` if non-empty, else `assets/description-voice-examples.md`
    - `{scopeTemplatesPath}` ← `workflow.scope_templates_path` if non-empty, else `assets/scope-templates.md`
    - `{briefSchemaPath}` ← `workflow.brief_schema_path` if non-empty, else `assets/skill-brief-schema.md`
-   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — write-brief.md skips the hook invocation entirely)
+   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op: write-brief.md §6b and step-auto-validate.md §4, the two places the hook runs, skip it)
 
    Stash all four as workflow-context variables. Stage files reference `{descriptionVoiceExamplesPath}` / `{scopeTemplatesPath}` / `{briefSchemaPath}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies (or wire in a pipeline hook) without forking the skill.
 
-   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts — the bundled default loads any `project-context.md` under `{project-root}`); then, after activation completes and before step 4 loads the first stage, execute each entry in `workflow.activation_steps_append` in order.
+   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts; the bundled default loads any `project-context.md` under `{project-root}`); then, after activation completes and before step 5 loads the first stage, execute each entry in `workflow.activation_steps_append` in order.
 
-4. Load, read the full file, and execute `references/gather-intent.md`.
+4. **Resolve the envelope emitter** before any stage can halt: `{emitBriefEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py`, the first that exists (no path when neither does). It prints every `SKF_BRIEF_RESULT_JSON` line of the run: a halt's through the Halt Contract above, the success line in write-brief.md §4b or step-auto-validate.md §4. `references/invocation-contract.md` defines the envelope.
+
+5. Load, read the full file, and execute `references/gather-intent.md`.
 
 ## Stages
 
