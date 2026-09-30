@@ -1201,8 +1201,10 @@ def test_result_dir_for_a_workflow_without_result_files_is_ignored(tmp_path, arg
 @pytest.mark.parametrize("seconds", [0, 951782400, 951868799, 1709164800, 1790000000, 4102444800,
                                      253402300799])
 def test_utc_parts_match_the_calendar(seconds):
-    from datetime import datetime, timezone
-    expected = datetime.fromtimestamp(seconds, tz=timezone.utc)
+    from datetime import datetime, timedelta, timezone
+    # Epoch arithmetic, not datetime.fromtimestamp: Windows' C runtime
+    # rejects timestamps this far out (OSError, errno 22).
+    expected = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)
     assert mod._utc_parts(seconds) == (expected.year, expected.month, expected.day,
                                        expected.hour, expected.minute, expected.second)
     iso, stamp = mod._stamps(seconds)
