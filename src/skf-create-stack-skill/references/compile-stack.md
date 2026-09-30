@@ -120,7 +120,7 @@ The Reference column follows the §4 link rule: `[ref](references/{name}.md)` wh
 - **Libraries:** {count}
 - **Integration pairs:** {count}
 - **Cross-cutting patterns:** {count}
-- **Confidence:** T1: {count}, T1-low: {count}, T2: {count}
+- **Confidence (libraries per tier, `per_library_extractions[].confidence`):** T1: {count}, T1-low: {count}, T2: {count}, T3: {count}
 
 **Please review the integration layer and per-library sections.**
 - Does the integration layer capture how your libraries connect?
@@ -140,6 +140,6 @@ Display: **Select:** [C] Continue to Output Generation | [X] Cancel and exit
 #### Menu Handling Logic:
 
 - IF C: Store skill_content, then load, read entire file, then execute {nextStepFile}
-- IF X: Invoke the rollback contract (purge any `{forge_data_folder}/{project_name}-stack/{version}/*-tmp` and `*.skf-tmp` staging artifacts under the forge workspace, leave any existing committed stack package untouched), emit the `SKF_STACK_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `exit_code: 6`, and exit with code 6
+- IF X: Invoke the rollback contract (purge any `{forge_data_folder}/{project_name}-stack/{version}/*-tmp` and `*.skf-tmp` staging artifacts under the forge workspace and the step 4 labels file `{forge_data_folder}/{project_name}-stack.skf-labels.json`, leave any existing committed stack package untouched), emit the `SKF_STACK_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `exit_code: 6`, and exit with code 6
 - IF Any other: Process as feedback, adjust compilation, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 

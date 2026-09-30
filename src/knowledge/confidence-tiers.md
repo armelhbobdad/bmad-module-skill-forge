@@ -150,6 +150,8 @@ Every generated skill includes a confidence distribution in `metadata.json`:
 
 The distribution counts each provenance entry once, by its `signature_source`, so it reports how each signature was obtained. It does not feed test-skill scoring: `compute-score.py` does not read these counts, and for library skills coverage-check §4b checks only that the bins sum to the documented-export count.
 
+A stack skill is the exception to that unit: its `confidence_distribution` counts each library once, in the bin of the tier create-stack-skill's extraction step sets for it (`per_library_extractions[].confidence`: in code mode `T1` only when it recorded exports and an ast-grep rule matched each one, in compose mode the constituent's own tier), so the four bins sum to `library_count`. Its evidence report bins the provenance entries.
+
 ## Anti-Patterns
 
 - Omitting the confidence tier from a citation — every citation must declare its level

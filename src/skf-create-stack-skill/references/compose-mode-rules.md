@@ -33,14 +33,9 @@ Prose co-mention detection is heuristic — it can only provide `Plausible`-clas
 
 ## Confidence Tier Inheritance
 
-- All compose-mode evidence inherits confidence tiers from the source individual skills
-- If both skills in a pair are T1, the integration is T1
-- If either skill is T1-low, the integration is T1-low
-- If either skill is T2, the structural confidence still inherits the lower of T1/T1-low from the pair — the T2 temporal annotations from that skill are carried as an additive enrichment marker, not a tier upgrade
-- T1 + T2 pair: inherits `T1 [composed, +T2 annotations]` — the T1 skill provides full structural confidence
-- T1-low + T2 pair: inherits `T1-low [composed, +T2 annotations]` — T1-low structural confidence with T2 temporal annotations noted
-- If both skills are T2 (no T1/T1-low base available): the integration confidence is `T1-low [composed, +T2 annotations from both]` — T2 temporal enrichment depends on structural extraction, so the most conservative structural tier is assumed
-- Compose-mode integrations add suffix: `[composed]` — e.g., `T1 [composed]`, `T1-low [composed, +T2 annotations]`
+- All compose-mode evidence inherits confidence tiers from the source individual skills. Each constituent's tier is its `per_library_extractions[].confidence`, which step 4 §0 takes from the constituent's `evidence_tier`.
+- An integration takes the weaker of its two constituents' tiers, the one rule step 5 §3 applies in both modes (`T1-low` is weaker than `T1`, `T2` than `T1-low`, `T3` than `T2`). If both skills in a pair are T1, the integration is T1; a T1 + T1-low pair is T1-low; a T1 + T2 or T1-low + T2 pair is T2; a pair with a T3 member is T3. A T2 member lowers the tier like any other; its temporal annotations never keep a stronger tier.
+- Compose-mode integrations add suffix: `[composed]`, e.g. `T1 [composed]` or `T2 [composed]`
 
 ## Integration Evidence Format
 
@@ -75,4 +70,4 @@ When no architecture document is available:
 - Mark all inferred integrations: `[inferred from shared domain]`
 - Inferred integrations default to lowest confidence of the pair with `[inferred from shared domain]` suffix (use this instead of `[composed]` for inferred integrations)
 
-**Constituent-documented contracts (distinct from shared-domain inference):** When a constituent skill's own integration docs cite a verifiable cross-library contract (e.g. a grep-verified upstream seam) that the architecture document does not co-mention, record it with `detection_method: constituent_documented_contract` (see `{provenanceMapSchemaPath}`) — NOT `inferred_from_shared_domain`. It is a cited contract, not a synthesized guess. Its confidence still inherits the weaker tier of the pair per the matrix above — detection method is orthogonal to tier and never forces a fixed band.
+**Constituent-documented contracts (distinct from shared-domain inference):** When a constituent skill's own integration docs cite a verifiable cross-library contract (e.g. a grep-verified upstream seam) that the architecture document does not co-mention, record it with `detection_method: constituent_documented_contract` (see `{provenanceMapSchemaPath}`), NOT `inferred_from_shared_domain`. It is a cited contract, not a synthesized guess. Its confidence still inherits the weaker tier of the pair per the rule above: detection method is orthogonal to tier and never forces a fixed band.

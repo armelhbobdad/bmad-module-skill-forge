@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-stack-skill
+summary: |
+  Stack Skill in compose mode takes each constituent's tier from the evidence the constituent recorded, the largest bin of its `confidence_distribution` (`T3` included, a tie going to the weaker tier), instead of from where its export list came from, which read `T1` for every skill whose `metadata.json` lists exports. Each provenance entry cited from a constituent carries that tier. Every integration then takes the weaker of its two constituents' tiers, a pair with a `T2` member included: a `T1` and `T2` pair is `T2 [composed]`, not `T1 [composed, +T2 annotations]`. Compose-mode integration tiers and the stack's `confidence_tier` can drop, for example for a docs-only constituent whose evidence is all `T3`.
+issues: [534]
