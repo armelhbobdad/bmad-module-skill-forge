@@ -17,6 +17,9 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+// The one heading-to-id implementation, shared with the source pass of
+// validate-docs-links.js so the two checkers never disagree on an id.
+const { extractAnchors } = require('./validate-docs-links.js');
 
 const DOCS_ROOT = path.resolve(__dirname, '../docs');
 const DRY_RUN = !process.argv.includes('--write');
@@ -26,9 +29,6 @@ const LINK_REGEX = /\[([^\]]*)\]\((\/[^)]+)\)/g;
 
 // File extensions that are static assets, not markdown docs
 const STATIC_ASSET_EXTENSIONS = ['.zip', '.txt', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico'];
-
-// Regex to extract headings for anchor validation
-const HEADING_PATTERN = /^#{1,6}\s+(.+)$/gm;
 
 /**
  * Get all markdown files in docs directory, excluding _* directories/files
@@ -63,61 +63,6 @@ function getMarkdownFiles(dir) {
  */
 function stripCodeBlocks(content) {
   return content.replaceAll(/```[\s\S]*?```/g, '');
-}
-
-/**
- * Convert a heading to its anchor slug.
- *
- * Must match `github-slugger`, which is what both GitHub and Starlight use to
- * generate heading ids. The distinction that matters: it replaces each space
- * INDIVIDUALLY and never collapses runs, so punctuation between words leaves a
- * doubled hyphen. `## Scenario A: Greenfield + BMM Integration` becomes
- * `scenario-a-greenfield--bmm-integration`, with two hyphens where the `+`
- * was. Collapsing them here produced a slug no page ever has, so a correct
- * anchor was reported broken. Verified against the ids in the built site.
- *
- * github-slugger itself is ESM-only and this tool is CommonJS in a synchronous
- * flow, hence the faithful reimplementation rather than a dependency.
- */
-function headingToAnchor(heading) {
-  return heading
-    .toLowerCase()
-    .replaceAll(/[\u{1F300}-\u{1F9FF}]/gu, '')
-    .replaceAll(/[^\w\s-]/g, '')
-    .replaceAll(/\s/g, '-');
-}
-
-/**
- * Extract anchor slugs from a markdown file.
- *
- * Repeated headings are disambiguated exactly as github-slugger does: the
- * first occurrence keeps the bare slug and each later one gets `-N` appended,
- * counting from 1. `docs/examples.md` has five `— clear session —` headings,
- * whose real ids are `-clear-session-`, `-clear-session--1`, and so on, so a
- * stateless slug function would collect only the first and report a link to
- * any of the others as broken.
- */
-function extractAnchors(content) {
-  const anchors = new Set();
-  const seen = new Map();
-  let match;
-
-  HEADING_PATTERN.lastIndex = 0;
-  while ((match = HEADING_PATTERN.exec(content)) !== null) {
-    const headingText = match[1]
-      .trim()
-      .replaceAll(/`([^`]+)`/g, '$1')
-      .replaceAll(/\*\*([^*]+)\*\*/g, '$1')
-      .replaceAll(/\*([^*]+)\*/g, '$1')
-      .replaceAll(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .trim();
-    const base = headingToAnchor(headingText);
-    const count = seen.get(base) ?? 0;
-    seen.set(base, count + 1);
-    anchors.add(count === 0 ? base : `${base}-${count}`);
-  }
-
-  return anchors;
 }
 
 /**

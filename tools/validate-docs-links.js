@@ -19,11 +19,18 @@
  *
  * So there are two passes:
  *
- *   1. SOURCE  (docs/ *.md) - a relative `.md` target must exist on disk.
- *              Cheap, and catches a typo before a build is needed.
+ *   1. SOURCE  (docs/ *.md, including docs/_internal/, plus CONTRIBUTING.md,
+ *              README.md and changes/README.md) - every relative target must
+ *              exist on disk, and every `#anchor`, same-file or on a `.md`
+ *              target, must match a heading id in that file. Cheap, and
+ *              catches a typo or a renamed heading before a build is needed.
  *   2. BUILT   (build/site/ *.html) - every internal href must resolve to a
- *              real file. This is the pass that catches plugin bugs, base-path
- *              bugs, and anything else that only manifests as a route.
+ *              real file, and its `#fragment` to an id on that page. This is
+ *              the pass that catches plugin bugs, base-path bugs, and anything
+ *              else that only manifests as a route.
+ *
+ * The heading-to-id rules live here, in `extractAnchors`, and
+ * `validate-doc-links.js` requires them, so both checkers agree on every id.
  *
  * The built pass is skipped with a warning when no build is present, so the
  * tool stays usable locally without a build step. CI builds the site, so the
@@ -114,6 +121,36 @@ function pathPortion(href) {
   return first === Infinity ? href : href.slice(0, first);
 }
 
+/**
+ * The decoded fragment of an href, or '' when it has none.
+ *
+ * Browsers match the percent-decoded fragment against ids, so `#caf%C3%A9`
+ * and `#café` name the same heading. A malformed escape is kept as written,
+ * which then matches nothing and is reported.
+ */
+function fragmentOf(href) {
+  const at = href.indexOf('#');
+  if (at === -1) {
+    return '';
+  }
+  const raw = href.slice(at + 1);
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Whether a fragment resolves on a page with these ids.
+ *
+ * An empty fragment and `#top` (any case) scroll to the top of the page by
+ * the HTML standard, whether or not an element carries that id.
+ */
+function fragmentResolves(fragment, ids) {
+  return fragment === '' || fragment.toLowerCase() === 'top' || ids.has(fragment);
+}
+
 // ---------------------------------------------------------------------------
 // Pass 1: source
 // ---------------------------------------------------------------------------
@@ -122,25 +159,17 @@ function pathPortion(href) {
 const MD_LINK = /\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
 /**
- * Blank out code so a link that is merely *shown* is not read as a real one.
- *
- * `MD_LINK` is a regex over raw text, so it cannot tell a link from a picture
- * of a link. Without this, documenting the link convention itself, e.g. a
- * ```markdown block containing [label](./example.md), fails the build as a
- * broken link, and the only way to appease it is to create the placeholder
- * file. (`tools/validate-file-refs.js` does NOT do this, so it carries the
- * same latent false positive; worth fixing there too if it ever fires.)
+ * Blank out fenced code blocks, keeping every other line as it is.
  *
  * Fences are tracked line by line rather than matched as a pair, so an
  * unterminated fence blanks to end of file instead of silently reverting to
- * prose scanning. Inline spans are only stripped outside a fence, so a stray
- * backtick inside a block cannot pair with one outside it. Line count is
- * preserved, which keeps byte offsets usable if this ever reports positions.
+ * prose scanning. Line count is preserved, which keeps byte offsets usable if
+ * this ever reports positions.
  *
  * @param {string} text - Raw Markdown
- * @returns {string} The same text with fenced blocks and code spans blanked
+ * @returns {string} The same text with fenced blocks blanked
  */
-function blankCode(text) {
+function blankFences(text) {
   let fence = null;
 
   return text
@@ -159,22 +188,233 @@ function blankCode(text) {
         fence = marker[1];
         return '';
       }
-
-      // Inline spans: a run of N backticks closes on a run of N.
-      return line.replaceAll(/(`+)[^`]*\1/g, ' ');
+      return line;
     })
     .join('\n');
 }
 
 /**
- * Check that every relative `.md` target in docs/ exists on disk.
+ * Blank out code so a link that is merely *shown* is not read as a real one.
+ *
+ * `MD_LINK` is a regex over raw text, so it cannot tell a link from a picture
+ * of a link. Without this, documenting the link convention itself, e.g. a
+ * ```markdown block containing [label](./example.md), fails the build as a
+ * broken link, and the only way to appease it is to create the placeholder
+ * file. (`tools/validate-file-refs.js` does NOT do this, so it carries the
+ * same latent false positive; worth fixing there too if it ever fires.)
+ *
+ * Inline spans are only stripped outside a fence, so a stray backtick inside
+ * a block cannot pair with one outside it.
+ *
+ * @param {string} text - Raw Markdown
+ * @returns {string} The same text with fenced blocks and code spans blanked
+ */
+function blankCode(text) {
+  return (
+    blankFences(text)
+      .split('\n')
+      // Inline spans: a run of N backticks closes on a run of N.
+      .map((line) => line.replaceAll(/(`+)[^`]*\1/g, ' '))
+      .join('\n')
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Heading ids
+// ---------------------------------------------------------------------------
+
+/**
+ * Characters `github-slugger` deletes from a heading: everything except
+ * alphabetic characters (letters, letter numbers, and symbols Unicode counts
+ * as alphabetic, such as circled letters), marks, decimal digits, connector
+ * punctuation (`_`), the ASCII space and the hyphen-minus. Other punctuation
+ * (the em dash included), other symbols and emoji, other spaces and control
+ * characters all go.
+ */
+const SLUG_STRIP = /[^\p{Alphabetic}\p{M}\p{Nd}\p{Pc} -]/gu;
+
+/**
+ * Convert heading text to the id GitHub gives it, and the site too except
+ * for the two cases below.
+ *
+ * Must match `github-slugger`, which is what both GitHub and Starlight use to
+ * generate heading ids. The distinction that matters: it replaces each space
+ * INDIVIDUALLY and never collapses runs, so punctuation between words leaves a
+ * doubled hyphen. `## Scenario A: Greenfield + BMM Integration` becomes
+ * `scenario-a-greenfield--bmm-integration`, with two hyphens where the `+`
+ * was. Collapsing them here produced a slug no page ever has, so a correct
+ * anchor was reported broken.
+ *
+ * github-slugger itself is ESM-only and this tool is CommonJS in a synchronous
+ * flow, hence the faithful reimplementation rather than a dependency. Its
+ * table dates from Unicode 13, so a letter Unicode assigned later is dropped
+ * there and kept here; for every other character the two agree.
+ *
+ * The site's Markdown pipeline (Astro, under Starlight) differs in two ways:
+ * it trims one trailing hyphen off the id, and its SmartyPants step turns a
+ * `--` outside code into a dash the slug then drops. So a heading that ends
+ * in punctuation, or holds a `--`, gets different ids on GitHub and on the
+ * site. The source pass checks GitHub's; the built pass reads the ids the
+ * site actually carries.
+ *
+ * @param {string} text - Heading text as rendered, without Markdown syntax
+ * @returns {string} The id, before any `-N` suffix for a repeat
+ */
+function headingToAnchor(text) {
+  return text.toLowerCase().replaceAll(SLUG_STRIP, '').replaceAll(' ', '-');
+}
+
+/**
+ * An ATX heading line: up to three spaces, one to six `#`, then a space or
+ * the end of the line. `#tag` is a paragraph, not a heading. The `\r` of a
+ * CRLF line ending is trailing space like any other.
+ */
+const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+(.*?))?[ \t\r]*$/;
+
+/** Named entities a heading is likely to carry; numeric ones are decoded too. */
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00A0' };
+
+/**
+ * Reduce the Markdown of a heading to the text a renderer slugs.
+ *
+ * Only what changes the id is handled. Characters the slugger deletes anyway
+ * (`*`, `~`, brackets) need no care, but the ones it keeps do: a link's URL,
+ * an image's alt text (a renderer drops it), an entity's name, and the `_`
+ * of emphasis, which survives slugging where `*` does not. Code spans and
+ * backslash escapes are literal text, so they are set aside first, behind
+ * private-use placeholders that no heading carries.
+ *
+ * @param {string} raw - Heading content after the `#` markers
+ * @returns {string} Plain text
+ */
+function headingText(raw) {
+  const literals = [];
+  const keep = (literal) => {
+    literals.push(literal);
+    return `\uE000${literals.length - 1}\uE001`;
+  };
+  const text = raw
+    // A closing sequence of `#` is syntax when a space precedes it.
+    .replace(/(?:^|[ \t]+)#+[ \t]*$/, '')
+    // One space is stripped from each side of a code span when both have one.
+    .replaceAll(/(`+)(.+?)\1(?!`)/g, (_, _ticks, body) =>
+      keep(body.startsWith(' ') && body.endsWith(' ') && body.trim() ? body.slice(1, -1) : body),
+    )
+    // A backslash-escaped character is literal, never syntax.
+    .replaceAll(/\\([!-/:-@[-`{-~])/g, (_, char) => keep(char))
+    .replaceAll(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replaceAll(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replaceAll(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
+    .replaceAll(/<((?:https?|mailto):[^>\s]*)>/gi, '$1')
+    .replaceAll(/<\/?[a-z][^>]*>/gi, '')
+    .replaceAll(/(^|[^\p{L}\p{N}_])(__?)(?=\S)(.*?\S)\2(?![\p{L}\p{N}_])/gu, '$1$3')
+    .replaceAll(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (entity, name) => {
+      if (name[0] === '#') {
+        const code = /x/i.test(name[1]) ? Number.parseInt(name.slice(2), 16) : Number(name.slice(1));
+        return code > 0 && code <= 0x10_ff_ff ? String.fromCodePoint(code) : '\uFFFD';
+      }
+      return ENTITIES[name.toLowerCase()] ?? entity;
+    });
+
+  // No trim: the heading line was trimmed already, and space left beside a
+  // dropped image or tag is still in the rendered text, so it is in the id.
+  return text.replaceAll(/\uE000(\d+)\uE001/g, (_, index) => literals[Number(index)]);
+}
+
+/**
+ * Blank out a leading YAML front matter block, keeping the line count.
+ *
+ * Its `# ` lines are YAML comments, not headings.
+ */
+function blankFrontMatter(text) {
+  const lines = text.split('\n');
+  if (lines[0].trimEnd() !== '---') {
+    return text;
+  }
+  const end = lines.findIndex((line, index) => index > 0 && /^(?:---|\.\.\.)\s*$/.test(line));
+  if (end === -1) {
+    return text;
+  }
+  return lines.map((line, index) => (index <= end ? '' : line)).join('\n');
+}
+
+/**
+ * Collect the id of every heading in a Markdown file.
+ *
+ * Repeated headings are disambiguated exactly as github-slugger does: the
+ * first occurrence keeps the bare slug and each later one gets `-N` appended,
+ * counting from 1, skipping any id an earlier heading already took. A
+ * stateless slug function would collect only the first of several same-named
+ * headings and report a link to any later one as broken.
+ *
+ * Fenced code is skipped. A shell comment in a ```bash block starts with `# `
+ * like a heading, and reading the raw file counted every one of them, so a
+ * link to a comment passed as a link to a section. Front matter is skipped
+ * for the same reason. Only ATX headings are read: a setext heading (text
+ * underlined with `===` or `---`) gets no id here.
+ *
+ * @param {string} content - Raw Markdown
+ * @returns {Set<string>} Every heading id in the file
+ */
+function extractAnchors(content) {
+  const anchors = new Set();
+  const occurrences = new Map();
+
+  for (const line of blankFences(blankFrontMatter(content)).split('\n')) {
+    const match = line.match(ATX_HEADING);
+    if (!match) {
+      continue;
+    }
+    const base = headingToAnchor(headingText(match[1] ?? ''));
+    let id = base;
+    while (occurrences.has(id)) {
+      const count = occurrences.get(base) + 1;
+      occurrences.set(base, count);
+      id = `${base}-${count}`;
+    }
+    occurrences.set(id, 0);
+    anchors.add(id);
+  }
+
+  return anchors;
+}
+
+/**
+ * Markdown files outside docs/ that the source pass reads too, relative to
+ * the project root, each read when present.
+ *
+ * GitHub is the only place they render, so no build resolves their links: a
+ * moved file or a renamed heading leaves them dead with every other check
+ * green. Their relative targets resolve from their own folder, as on GitHub.
+ */
+const ROOT_DOCS = ['CONTRIBUTING.md', 'README.md', 'changes/README.md'];
+
+/**
+ * Check every relative link in the Markdown sources: the target must exist
+ * on disk, and a `#anchor` must match a heading id in its file.
+ *
+ * Any target counts, not only `.md`: a workflow file, a folder or LICENSE is
+ * as dead on GitHub when it moves. Anchors are checked on the same file and
+ * on `.md` targets; GitHub gives other files line anchors, not heading ids.
  *
  * Deliberately does NOT enforce a `./` prefix. The plugin accepts bare links,
  * and GitHub renders them correctly, so requiring the prefix would be style,
  * not correctness. What matters is that the target exists.
  */
 function checkSource({ projectRoot, docsDir }, report) {
-  const files = walk(docsDir, new Set(['.md']));
+  const files = [
+    ...new Set([
+      ...walk(docsDir, new Set(['.md'])),
+      ...ROOT_DOCS.map((rel) => path.join(projectRoot, rel)).filter((file) => fs.existsSync(file)),
+    ]),
+  ];
+  const anchorsByFile = new Map();
+  const anchorsOf = (file) => {
+    if (!anchorsByFile.has(file)) {
+      anchorsByFile.set(file, extractAnchors(fs.readFileSync(file, 'utf8')));
+    }
+    return anchorsByFile.get(file);
+  };
 
   for (const file of files) {
     const rel = path.relative(projectRoot, file);
@@ -182,12 +422,17 @@ function checkSource({ projectRoot, docsDir }, report) {
     const text = blankCode(fs.readFileSync(file, 'utf8'));
 
     for (const match of text.matchAll(MD_LINK)) {
-      const target = pathPortion(match[1]);
+      const href = match[1];
+      const target = pathPortion(href);
+      const anchor = fragmentOf(href);
 
-      if (!target || target.startsWith('#') || EXTERNAL.test(target)) {
+      if (EXTERNAL.test(href)) {
         continue;
       }
-      if (!target.endsWith('.md')) {
+      if (!target) {
+        if (!fragmentResolves(anchor, anchorsOf(file))) {
+          report(rel, `anchor matches no heading in this file: ${href}`);
+        }
         continue;
       }
       // Root-absolute targets mean different things on the two surfaces, and
@@ -208,9 +453,13 @@ function checkSource({ projectRoot, docsDir }, report) {
         report(
           rel,
           target.startsWith('/')
-            ? `root-absolute link target does not exist at the repository root, so it is dead on GitHub: ${match[1]}`
-            : `link target does not exist: ${match[1]}`,
+            ? `root-absolute link target does not exist at the repository root, so it is dead on GitHub: ${href}`
+            : `link target does not exist: ${href}`,
         );
+        continue;
+      }
+      if (target.endsWith('.md') && fs.statSync(resolved).isFile() && !fragmentResolves(anchor, anchorsOf(resolved))) {
+        report(rel, `anchor matches no heading in ${path.relative(projectRoot, resolved)}: ${href}`);
       }
     }
   }
@@ -317,11 +566,24 @@ function assetUrls(html) {
  * which is precisely how a browser resolves them, and precisely the step that
  * the earlier page-relative bug failed.
  *
+ * An href's `#fragment` must match an id on the page it lands on, the same
+ * page for a bare `#anchor`. These are the ids the site really carries, which
+ * are not always GitHub's (see `headingToAnchor`), so a link that the source
+ * pass accepts for GitHub and that misses on the site fails here.
+ *
  * @param {string} base - Deployment base path
  * @returns {number} Number of HTML pages checked
  */
 function checkBuilt({ projectRoot, buildDir }, base, report) {
   const pages = walk(buildDir, new Set(['.html']));
+  const idsByPage = new Map();
+  const idsOf = (page) => {
+    if (!idsByPage.has(page)) {
+      const html = fs.readFileSync(page, 'utf8');
+      idsByPage.set(page, new Set(Array.from(html.matchAll(/\sid="([^"]*)"/g), (match) => match[1])));
+    }
+    return idsByPage.get(page);
+  };
 
   for (const page of pages) {
     const rel = path.relative(projectRoot, page);
@@ -333,13 +595,16 @@ function checkBuilt({ projectRoot, buildDir }, base, report) {
     const seen = new Set();
 
     for (const { attr, url: href } of assetUrls(html)) {
-      if (!href || href.startsWith('#') || EXTERNAL.test(href) || seen.has(href)) {
+      if (!href || EXTERNAL.test(href) || seen.has(href)) {
         continue;
       }
       seen.add(href);
 
       const target = pathPortion(href);
       if (!target) {
+        if (attr === 'href' && !fragmentResolves(fragmentOf(href), idsOf(page))) {
+          report(rel, `href matches no id on this page: ${href}`);
+        }
         continue;
       }
 
@@ -368,6 +633,10 @@ function checkBuilt({ projectRoot, buildDir }, base, report) {
 
       if (!fs.existsSync(candidate)) {
         report(rel, `${attr} resolves to nothing: ${href} (looked for ${path.relative(buildDir, candidate)})`);
+        continue;
+      }
+      if (attr === 'href' && candidate.endsWith('.html') && !fragmentResolves(fragmentOf(href), idsOf(candidate))) {
+        report(rel, `href matches no id on ${path.relative(buildDir, candidate)}: ${href}`);
       }
     }
   }
@@ -530,7 +799,7 @@ async function run(cfg, log = console.log) {
   }
 
   const sourceCount = checkSource(cfg, report);
-  log(`Source pass:  ${sourceCount} markdown file(s) in docs/`);
+  log(`Source pass:  ${sourceCount} markdown file(s) in docs/, plus ${ROOT_DOCS.join(', ')} where present`);
 
   let builtCount = 0;
   const haveBuild = fs.existsSync(cfg.buildDir);
@@ -642,6 +911,9 @@ module.exports = {
   checkBuilt,
   resolveBase,
   blankCode,
+  blankFences,
+  headingToAnchor,
+  extractAnchors,
   assetUrls,
   walk,
   buildInputsStatus,
