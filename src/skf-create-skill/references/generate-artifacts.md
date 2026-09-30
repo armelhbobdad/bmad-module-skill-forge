@@ -124,6 +124,7 @@ Write these 3 files from the compiled content:
 
 **File 6:** `{forge_version}/evidence-report.md`
 - Build artifact with extraction summary, validation results, warnings
+- Its `## Remaining Warnings` also lists, once each, the notices earlier steps kept for it: `{temporal_feeder_notice}` when step 5c set it (the Deep-tier temporal feeder held no files), and the skipped authoritative-files scan when step 3 §2a recorded `authoritative_files_scan.not_scanned` (a remote source that was never cloned; the `skipped` count of candidates the user skipped is not a warning)
 
 **File 7:** `{forge_version}/extraction-rules.yaml`
 - Language and ast-grep schema used for this extraction (for reproducibility)

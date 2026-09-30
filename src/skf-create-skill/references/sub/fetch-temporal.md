@@ -14,26 +14,26 @@ atomicWriteProbeOrder:
 
 ## STEP GOAL:
 
-To fetch temporal context (issues, PRs, changelogs, release notes) from the source repository and index it into a QMD collection for Deep tier enrichment. This ensures step 4 has historical data to search when annotating extracted functions with T2 provenance.
+To fetch temporal context (issues, PRs, changelogs, release notes) from the source repository, keep the fetched files as the skill's temporal feeder, and index them into a QMD collection for Deep tier enrichment. This ensures step 4 has historical data to search when annotating extracted functions with T2 provenance, and that step 5c's doc-rot scan can read the same files.
 
 ## Rules
 
 - Deep tier only — Quick, Forge, and Forge+ tiers skip this step entirely and silently
 - GitHub repositories only — other source types degrade gracefully
 - Do not halt the workflow if fetching or indexing fails
-- Do not modify extraction data from step 3 — this step only creates QMD collections
+- Do not modify extraction data from step 3: this step only writes the temporal feeder folder, the fetch folder that replaces it, and the QMD collection indexed from it
 
 ## MANDATORY SEQUENCE
 
 ### 1. Check Eligibility
 
-Evaluate the following conditions sequentially. **If ANY condition fails, skip silently to section 5 (auto-proceed) with no output:**
+Set `{temporal_feeder}` to null first, so that in a `--batch` run one brief's feeder never carries into the next. Then evaluate the following conditions sequentially. **If ANY condition fails, leave `{temporal_feeder}` null and skip silently to section 5 (auto-proceed) with no output:**
 
 1. **Tier is Deep:** If tier is Quick, Forge, or Forge+, skip silently.
 2. **Source is GitHub:** Verify `source_repo` is a GitHub URL (`https://github.com/...`) or `owner/repo` format. If the source is a local path, a non-GitHub URL, or any other format, attempt GitHub remote detection (section 1b) before skipping.
 3. **`gh` CLI is available:** Run `timeout 10s gh auth status` to verify the CLI is installed and authenticated (the short timeout protects against a misconfigured network or hung auth helper blocking the workflow). If it fails or times out, skip silently.
 
-All three conditions must pass to proceed to section 2.
+All three conditions must pass to proceed to section 2. Then bind `{temporal_feeder}` ← `{forge_data_folder}/{skill-name}/.skf-temporal`: the folder where this step keeps what it fetched (sections 3 and 4). Step 5c's doc-rot scan reads the files in it, and a null `{temporal_feeder}` tells step 5c that no temporal feeder was expected.
 
 ### 1b. GitHub Remote Detection for Local Sources
 
@@ -55,6 +55,7 @@ Local repositories that are clones of GitHub repos contain temporal context (iss
 Read `forge-tier.yaml` from the sidecar path.
 
 - Look for a `qmd_collections` entry where `skill_name` matches the current brief AND `type` is `"temporal"`.
+- If `{temporal_feeder}` holds no `.md` file, continue to section 3 even when that entry is fresh: a cache hit must leave step 5c files to read, and an earlier SKF release deleted the folder once it was indexed.
 - If found AND `created_at` is within the last **7 days** (rationale: temporal context — issues, PRs, changelogs — rarely changes meaningfully on shorter horizons; a 7-day window balances freshness against re-fetch cost and GitHub rate limits): the temporal collection is fresh. Display:
 
 "**Temporal context: cached.** Collection `{skill-name}-temporal` is fresh ({days} days old). Skipping re-fetch."
@@ -65,59 +66,61 @@ Skip to section 5 (auto-proceed).
 
 ### 3. Fetch Temporal Context
 
-Create a staging directory: `_bmad-output/{skill-name}-temporal/`
+Fetch into a fresh folder beside the feeder: bind `{temporal_fetch}` ← `{forge_data_folder}/{skill-name}/.skf-temporal.new`. It replaces `{temporal_feeder}` only once it holds a fetched file (the end of this section), so a refresh that fails outright (network down, rate limit) leaves step 5c the files of the last good fetch, and a file this fetch does not write (a changelog removed upstream, a targeted search for an export the skill no longer has) is never read as current. The fetch folder starts with a `.gitignore` holding `*`, which moves with it, so the feeder keeps itself out of git. The rest of the temporal cache (the QMD collection and its `forge-tier.yaml` registry entry in the sidecar) stays on this machine, and a committed copy would only add upstream issue and PR text to the project's history. The commands that delete the fetch folder or the feeder spell out their `.skf-temporal` path instead of a variable, so a wrongly bound variable can never make them delete more.
 
 Resolve the `owner` and `repo` from `source_repo` (e.g., `acme/toolkit` from `https://github.com/acme/toolkit`).
 
 Execute the four fetches below **in parallel** — they are independent and the network round-trips dominate wall-clock. Background each, then `wait` for the batch. **If any individual fetch fails, log a warning and continue with the others.** The 4-concurrent fan-out is well under GitHub's authenticated REST rate limit (5000/hr); no bounded-concurrency guard is needed for this set.
 
 ```bash
-mkdir -p {staging}
+rm -rf "{forge_data_folder}/{skill-name}/.skf-temporal.new"  # left by an interrupted fetch
+mkdir -p "{temporal_fetch}"
+printf '*\n' > "{temporal_fetch}/.gitignore"
 # 1. Issues (last 100)
 ( gh issue list -R {owner}/{repo} --state all --limit 100 \
     --json number,title,state,labels,createdAt,closedAt,body \
-    | jq -r '...' > {staging}/issues.md ) &
+    | jq -r '...' > "{temporal_fetch}/issues.md" ) &
 # 2. Merged PRs (last 100)
 ( gh pr list -R {owner}/{repo} --state merged --limit 100 \
     --json number,title,mergedAt,labels,body \
-    | jq -r '...' > {staging}/prs.md ) &
+    | jq -r '...' > "{temporal_fetch}/prs.md" ) &
 # 3. Release tags only (the per-tag fetch loop runs sequentially below to
 #    preserve append-immediately crash-resume semantics for releases.md)
 ( gh release list -R {owner}/{repo} --limit 10 \
-    --json tagName,name,publishedAt > {staging}/.release-tags.json ) &
+    --json tagName,name,publishedAt > "{temporal_fetch}/.release-tags.json" ) &
 # 4. Changelog (404 is silent skip — note `set +e` so the subshell doesn't
 #    propagate `gh api`'s non-zero exit on missing file)
 ( set +e
   gh api repos/{owner}/{repo}/contents/CHANGELOG.md --jq '.content' \
-    | base64 -d > {staging}/changelog.md 2>/dev/null
-  [ -s {staging}/changelog.md ] || rm -f {staging}/changelog.md ) &
+    | base64 -d > "{temporal_fetch}/changelog.md" 2>/dev/null
+  [ -s "{temporal_fetch}/changelog.md" ] || rm -f "{temporal_fetch}/changelog.md" ) &
 wait
 ```
 
 Per-call rationale:
 
-1. **Issues (last 100):** 100 is `gh issue list`'s default max-per-page; one paginated call captures recent activity without extra round trips or rate-limit pressure. Output → `{staging}/issues.md` formatted as a markdown document with one section per issue.
+1. **Issues (last 100):** 100 is `gh issue list`'s default max-per-page; one paginated call captures recent activity without extra round trips or rate-limit pressure. Output → `{temporal_fetch}/issues.md` formatted as a markdown document with one section per issue.
 
-2. **Merged PRs (last 100):** Same 100-per-page convention as issues — captures the most recent merges in one API call. Output → `{staging}/prs.md`.
+2. **Merged PRs (last 100):** Same 100-per-page convention as issues: one API call captures the most recent merges. Output → `{temporal_fetch}/prs.md`.
 
 3. **Release tags + per-release fetches (last 10):** Release notes accumulate slowly relative to issues/PRs; the most recent 10 tags cover roughly the last 6-18 months of changelog-relevant history for typical OSS projects, which is enough context for T2-past annotations without fanning out to dozens of `gh release view` calls.
 
    **Note:** `gh release list --json` does **not** support the `body` field. The parallel block above fetches tags only (Step 1). After `wait`, run **Step 2 sequentially** to preserve the append-immediately crash-resume contract:
 
-   If `{staging}/.release-tags.json` is empty (no releases), skip Step 2 and omit the releases section entirely. Otherwise:
+   If `{temporal_fetch}/.release-tags.json` is empty (no releases), skip Step 2 and omit the releases section entirely. Otherwise:
 
    ```bash
    # Sequential per-tag loop. Iterate the JSON tag array verbatim so a
    # crash mid-loop leaves a partial-but-well-formed releases.md on disk.
-   echo "# Releases (partial if interrupted)" > {staging}/releases.md
-   ERR_FILE="{staging}/.gh-release-err"  # per-run stderr capture inside staging
-   jq -r '.[].tagName' {staging}/.release-tags.json | while IFS= read -r tag; do
+   echo "# Releases (partial if interrupted)" > "{temporal_fetch}/releases.md"
+   ERR_FILE="{temporal_fetch}/.gh-release-err"  # per-run stderr capture inside the fetch folder
+   jq -r '.[].tagName' "{temporal_fetch}/.release-tags.json" | while IFS= read -r tag; do
      if gh release view "$tag" -R {owner}/{repo} \
           --json tagName,name,publishedAt,body 2>"$ERR_FILE"; then
-       jq -r '...' >> {staging}/releases.md  # one ## {tag} block per release
+       jq -r '...' >> "{temporal_fetch}/releases.md"  # one ## {tag} block per release
      else
-       echo "## $tag — fetch failed: $(cat "$ERR_FILE")" \
-         >> {staging}/releases.md
+       echo "## $tag (fetch failed: $(cat "$ERR_FILE"))" \
+         >> "{temporal_fetch}/releases.md"
      fi
    done
    rm -f "$ERR_FILE"
@@ -127,7 +130,7 @@ Per-call rationale:
 
    **Why sequential here when the rest is parallel:** the append-per-release pattern guarantees that a mid-loop abort (rate limit, network drop, user interrupt) leaves a partial but well-formed `releases.md` with every release fetched so far. Parallel writers appending to the same file would need file locking and per-writer ordering — the simpler sequential loop is robust for free, and 10 release fetches contribute only ~5-10s of the total wall-clock.
 
-4. **Changelog:** `CHANGELOG.md` or `RELEASES.md` at the repository root. The parallel block above writes to `{staging}/changelog.md` only when the file exists; non-existence (404 from `gh api`) leaves no file behind.
+4. **Changelog:** `CHANGELOG.md` or `RELEASES.md` at the repository root. The parallel block above writes to `{temporal_fetch}/changelog.md` only when the file exists; non-existence (404 from `gh api`) leaves no file behind.
 
 #### 3b. Targeted Function Searches (Uses Extraction Inventory)
 
@@ -149,44 +152,53 @@ jq -r '.top_exports[]' {extraction_inventory.json} \
   | python3 -c 'import sys,re
 for line in sys.stdin:
   s = re.sub(r"[^A-Za-z0-9_]", "", line.strip())
-  if s: print(s)' > {staging}/.safe-names.txt
+  if s: print(s)' > "{temporal_fetch}/.safe-names.txt"
 
 # 2. Fan out to gh search, 5 in flight. Each writer emits a self-contained
 #    section to its own per-name file; we concatenate after the wait.
 # --limit 5: top-5 issues per function keeps signal-to-noise high and caps
 #    total response size across 10 fan-outs at 50 issues.
-mkdir -p {staging}/targeted
-cat {staging}/.safe-names.txt | xargs -P 5 -I {} bash -c '
+mkdir -p "{temporal_fetch}/targeted"
+cat "{temporal_fetch}/.safe-names.txt" | xargs -P 5 -I {} bash -c '
   gh search issues --repo {owner}/{repo} "{}" --limit 5 \
       --json number,title,state,body 2>/dev/null \
-    | jq -r ". | \"## {}\\n\" + (...)" > {staging}/targeted/{}.md \
-  || echo "## {} — fetch failed" > {staging}/targeted/{}.md
+    | jq -r ". | \"## {}\\n\" + (...)" > "{temporal_fetch}/targeted/{}.md" \
+  || echo "## {} (fetch failed)" > "{temporal_fetch}/targeted/{}.md"
 '
 
 # 3. Concatenate in stable order (alpha by safe_name) into the single
-#    aggregated file the rest of the workflow expects.
-sort {staging}/.safe-names.txt | while IFS= read -r name; do
-  cat "{staging}/targeted/$name.md"
-done > {staging}/targeted-issues.md
+#    aggregated file the rest of the workflow expects, then delete the
+#    per-name files: the feeder keeps only the aggregate.
+sort "{temporal_fetch}/.safe-names.txt" | while IFS= read -r name; do
+  cat "{temporal_fetch}/targeted/$name.md"
+done > "{temporal_fetch}/targeted-issues.md"
+rm -rf "{temporal_fetch}/targeted" "{temporal_fetch}/.safe-names.txt"
 ```
 
-Aggregate all targeted search results into a single file: `{staging}/targeted-issues.md`. The per-name temp directory `{staging}/targeted/` can be removed after concat — it exists only to give each parallel writer an isolated output stream.
+Aggregate all targeted search results into a single file: `{temporal_fetch}/targeted-issues.md`. The per-name folder `targeted/` and `.safe-names.txt` exist only to give each parallel writer its own output file, so the snippet deletes them after the concat: `{temporal_fetch}` keeps only the feeder files.
 
 **If `gh search` is unavailable** (older `gh` CLI versions): skip targeted searches silently. The generic fetches from section 3 still provide baseline temporal context.
 
 **If rate limiting occurs** (HTTP 429 or similar): stop targeted searches immediately, keep results collected so far. Log: "Targeted search stopped at function {N}/{total} due to rate limiting."
 
-**After all fetching,** verify at least one file was written to the staging directory. If the staging directory is empty (all fetches failed), log a warning and skip to section 5.
+**After all fetching,** delete `{temporal_fetch}/.release-tags.json` and check that at least one `.md` file was written to `{temporal_fetch}`. If one was, replace the feeder with the fetch folder:
+
+```bash
+rm -rf "{forge_data_folder}/{skill-name}/.skf-temporal"
+mv "{forge_data_folder}/{skill-name}/.skf-temporal.new" "{forge_data_folder}/{skill-name}/.skf-temporal"
+```
+
+If none was (all fetches failed), delete the fetch folder (`rm -rf "{forge_data_folder}/{skill-name}/.skf-temporal.new"`), log a warning, and skip to section 5. `{temporal_feeder}` stays bound and keeps what the last good fetch left in it: step 5c scans those files, or reports the missing feeder in the evidence report when there are none.
 
 ### 4. Index Into QMD & Register
 
-**Index the staging directory:**
+**Index `{temporal_feeder}`:**
 
 If a `{skill-name}-temporal` collection already exists, remove and recreate for atomic replace. **Wrap the remove + add pair with rollback on `add` failure** — a `remove` that succeeds followed by an `add` that fails must not leave the registry claiming a collection that no longer exists in QMD:
 
 ```bash
 qmd collection remove {skill-name}-temporal
-if ! qmd collection add {project-root}/_bmad-output/{skill-name}-temporal/ --name {skill-name}-temporal --mask "*.md"; then
+if ! qmd collection add "{temporal_feeder}" --name {skill-name}-temporal --mask "*.md"; then
   # add failed after remove succeeded — the collection is gone from QMD. Clean the registry too.
   # Remove any {skill-name}-temporal entry from forge-tier.yaml qmd_collections[].
   # Warn the user, do not fail the workflow (temporal enrichment degrades gracefully).
@@ -223,17 +235,12 @@ If an entry with `name: "{skill-name}-temporal"` already exists in `qmd_collecti
     created_at: "{current ISO date}"
 ```
 
-**Clean up** the staging directory after successful indexing:
-
-```bash
-rm -rf {project-root}/_bmad-output/{skill-name}-temporal/
-```
+**Keep `{temporal_feeder}`.** It is the source path of the `{skill-name}-temporal` collection and the temporal feeder step 5c's doc-rot scan reads, on this run and on every cache hit until a later fetch replaces it (section 3), so this step never deletes it. Its `.skf-` name, like the fetch folder's, marks it as SKF output to SKF's ownership checks, so it stays with the skill's forge folder: a purge of the whole skill deletes it and a rename moves it.
 
 **Error handling:**
 
-- If QMD indexing fails: log the error, note that temporal enrichment will be unavailable. Do not fail the workflow.
+- If QMD indexing fails: log the error, note that temporal enrichment will be unavailable. Do not fail the workflow. The files stay in `{temporal_feeder}` for step 5c.
 - If registry update fails: log the error, continue. The collection may exist in QMD even if the registry entry failed.
-- If cleanup fails: log a warning and continue.
 
 Display brief confirmation:
 
