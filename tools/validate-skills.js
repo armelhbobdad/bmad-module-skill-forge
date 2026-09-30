@@ -10,7 +10,8 @@
  * - SKILL-03: SKILL.md frontmatter has description
  * - SKILL-04: name format (lowercase, hyphens, no forbidden substrings)
  * - SKILL-05: name matches directory basename
- * - SKILL-06: description quality (length, "Use when"/"Use if")
+ * - SKILL-06: description at most 1024 characters, with a "Use when" or
+ *   "Use if" clause anywhere in it (any letter case)
  * - SKILL-07: SKILL.md has body content after frontmatter
  * - WF-01: non-SKILL.md file frontmatter has no name
  * - WF-02: non-SKILL.md file frontmatter has no description
@@ -342,6 +343,10 @@ function validateSkill(skillDir) {
   }
 
   // --- SKILL-06: description quality ---
+  // docs/_internal/STABILITY.md (Skill Manifest & Frontmatter Contract) states
+  // the SKILL.md description rule as this check: at most 1024 characters, and
+  // a "Use when" or "Use if" clause anywhere in the text, in any letter case.
+  // Change the two together.
   if (description) {
     if (description.length > 1024) {
       findings.push({
@@ -354,14 +359,14 @@ function validateSkill(skillDir) {
       });
     }
 
-    if (!/use\s+when\b/i.test(description) && !/use\s+if\b/i.test(description)) {
+    if (!/\buse\s+(?:when|if)\b/i.test(description)) {
       findings.push({
         rule: 'SKILL-06',
         title: 'description Quality',
         severity: 'MEDIUM',
         file: 'SKILL.md',
-        detail: 'description does not contain "Use when" or "Use if" trigger phrase.',
-        fix: 'Append a "Use when..." clause to explain when to invoke this skill.',
+        detail: 'description has no "Use when" or "Use if" trigger clause (looked for anywhere in it, in any letter case).',
+        fix: 'Add a "Use when ..." or "Use if ..." clause that says when to invoke this skill; it can sit anywhere in the description.',
       });
     }
   }

@@ -1,6 +1,12 @@
+# What ships is decided by this blocklist: package.json has no `files`
+# allowlist. test/test-pack-contents.js (npm run test:install) packs the
+# package and fails on any file outside the list the package may ship, so a
+# new maintainer-only file needs a rule here.
+
 # Git
 .git
 .gitignore
+.gitattributes
 .github
 
 # Documentation (root-level .md files except README)
@@ -32,6 +38,7 @@ prettier.config.mjs
 .prettierrc.*
 .husky/
 .npmrc
+.nvmrc
 
 # Quality reports and build output
 skills/
@@ -51,8 +58,8 @@ tools/*.js
 # release time, not read at runtime.
 changes/
 
-# Maintainer-only release material. STABILITY.md is deliberately NOT excluded:
-# it is the public API contract a consumer pinning ^2.0.0 may want to read from
+# Maintainer-only release material. STABILITY.md ships on purpose: it is the
+# public API contract, which a consumer pinning ^3.0.0 may want to read from
 # the installed package.
 release-audits/
 docs/_internal/RELEASING.md
