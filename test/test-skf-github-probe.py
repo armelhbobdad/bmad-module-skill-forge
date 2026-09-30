@@ -130,9 +130,22 @@ class TestParseRepo:
         "git@github.com:acme/lib.git",
         "ssh://git@github.com/acme/lib.git",
         "git://github.com/acme/lib",
+        # skf-resolve-package.py's grammar, which the probe reads --repo with.
+        "github:acme/lib",
+        "git+https://github.com/acme/lib.git",
+        "git+ssh://git@github.com:acme/lib.git",
+        "ssh://git@github.com:acme/lib.git",
+        "ssh://git@github.com:22/acme/lib.git",
     ])
     def test_github_forms(self, value):
         assert _mod().parse_repo(value) == ("acme", "lib")
+
+    def test_one_grammar_with_the_resolver(self):
+        resolver = _mod()._load("skf-resolve-package.py")
+        assert Path(resolver.__file__).resolve() == (SCRIPTS / "skf-resolve-package.py").resolve()
+        for value in ("vercel/next.js", "https://github.com/org/repo/tree/main/pkg", "git@github.com:a/b.git"):
+            loc = resolver.github_target(value)
+            assert _mod().parse_repo(value) == (loc["owner"], loc["repo"])
 
     def test_names_with_dots_dashes_and_underscores(self):
         assert _mod().parse_repo("my-org/next.js") == ("my-org", "next.js")
@@ -300,6 +313,52 @@ class TestTags:
         assert _mod().probe_tags("acme", "lib", [], 2)["tags"] == ["v1.29.0", "v1.28.0"]
         full = _mod().probe_tags("acme", "lib", [], 0)
         assert len(full["tags"]) == full["count"] == 30
+
+    # withastro/astro's changesets tags (trimmed): one tag per package and version.
+    ASTRO = [("astro@4.16.2", SHA_A), ("astro@4.16.1", SHA_A), ("astro@4.16.0", SHA_B), ("astro@4.15.11", SHA_A),
+             ("@astrojs/cloudflare@14.3.3", SHA_C), ("@astrojs/react@4.16.0", SHA_C), ("latest", SHA_A)]
+
+    def test_a_version_matches_a_monorepo_package_tag(self, script):
+        script.gh[TAGS] = ("ok", _gh_tags(self.ASTRO))
+        out = _mod().probe_tags("acme", "lib", [], 5, "4.16.0", "astro")
+        assert (out["status"], out["match"], out["found"], out["missing"]) == ("ok", "astro@4.16.0", {}, [])
+
+    @pytest.mark.parametrize("gh", ["missing", "timeout"])
+    def test_the_git_listing_matches_by_name_too(self, script, gh):
+        # The git listing's loop must not clobber --name: its last line here is `latest`.
+        script.gh[TAGS] = (gh,)
+        script.git["tags"] = ("ok", "".join(f"{SHA_A}\trefs/tags/{name}\n" for name, _sha in self.ASTRO))
+        out = _mod().probe_tags("acme", "lib", [], 5, "4.16.0", "astro")
+        assert (out["via"], out["match"]) == ("git", "astro@4.16.0")
+
+    def test_a_scoped_package_tag_matches_by_name(self, script):
+        script.gh[TAGS] = ("ok", _gh_tags(self.ASTRO))
+        assert _mod().probe_tags("acme", "lib", [], 5, "14.3.3", "cloudflare")["match"] == \
+            "@astrojs/cloudflare@14.3.3"
+        assert _mod().probe_tags("acme", "lib", [], 5, "14.3.3", "@astrojs/cloudflare")["match"] == \
+            "@astrojs/cloudflare@14.3.3"
+
+    def test_without_a_name_only_the_bare_and_v_forms_match(self, script):
+        script.gh[TAGS] = ("ok", _gh_tags(self.ASTRO + [("v2.0.0", SHA_A)]))
+        assert _mod().probe_tags("acme", "lib", [], 5, "4.16.0")["match"] is None
+        assert _mod().probe_tags("acme", "lib", [], 5, "2.0.0")["match"] == "v2.0.0"
+        assert _mod().probe_tags("acme", "lib", [], 5, "v2.0.0", "astro")["match"] == "v2.0.0"
+
+    def test_a_missing_version_lists_the_nearest_tags(self, script):
+        script.gh[TAGS] = ("ok", _gh_tags(self.ASTRO))
+        out = _mod().probe_tags("acme", "lib", [], 5, "4.16.5", "astro")
+        assert out["match"] is None
+        assert out["nearest"] == _mod()._sibling().nearest_tags([name for name, _sha in self.ASTRO], "4.16.5")
+        assert out["nearest"] and all(_mod()._sibling().split_version(t) for t in out["nearest"])
+
+    def test_a_wanted_tag_comes_before_the_version(self, script):
+        script.gh[TAGS] = ("ok", _gh_tags(self.ASTRO))
+        out = _mod().probe_tags("acme", "lib", ["latest"], 5, "4.16.0", "astro")
+        assert (out["match"], out["found"]) == ("latest", {"latest": SHA_A})
+
+    def test_no_version_no_nearest(self, script):
+        script.gh[TAGS] = ("ok", _gh_tags(self.ASTRO))
+        assert _mod().probe_tags("acme", "lib", [], 5)["nearest"] == []
 
     def test_sorted_tags(self):
         names = ["v1.2.0", "latest", "v1.10.0", "v1.2.0-rc.1", "nightly", "pkg@3.0.0", "v1.9.0"]
@@ -697,7 +756,7 @@ class TestCli:
 
     @pytest.mark.parametrize("argv, extra", [
         (["repo"], {"private", "default_branch"}),
-        (["tags", "--want", "v1"], {"tags", "count", "match", "found", "missing"}),
+        (["tags", "--want", "v1"], {"tags", "count", "match", "found", "missing", "nearest"}),
         (["tree", "--ref", "v1"], {"ref", "tree", "count", "truncated"}),
     ])
     def test_invalid_repo(self, argv, extra):
@@ -725,12 +784,18 @@ class TestCli:
                           TAGS: ("ok", _gh_tags([("v1", SHA_A)])), _tree_path(): ("ok", _tree_json())})
         mod = _mod()
         for argv, extra in (("repo", {"private", "default_branch"}),
-                            ("tags", {"tags", "count", "match", "found", "missing"}),
+                            ("tags", {"tags", "count", "match", "found", "missing", "nearest"}),
                             ("tree", {"ref", "tree", "count", "truncated"})):
             assert mod.main([argv, "--repo", "acme/lib"]) == 0
             line = capsys.readouterr().out
             assert line.count("\n") == 1
             assert set(json.loads(line)) == self.COMMON | extra
+
+    def test_tags_takes_a_version_and_a_name(self, script, capsys):
+        script.gh[TAGS] = ("ok", _gh_tags([("pkg@1.2.0", SHA_A), ("pkg@1.1.0", SHA_B)]))
+        assert _mod().main(["tags", "--repo", "acme/lib", "--version", "1.2.0", "--name", "pkg", "--limit", "5"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert (out["match"], out["nearest"]) == ("pkg@1.2.0", ["pkg@1.2.0", "pkg@1.1.0"])
 
     def test_unavailable_exits_3(self, script, capsys):
         script.gh[REPO] = ("forbidden",)
@@ -782,6 +847,15 @@ class TestScript:
                               capture_output=True, text=True, check=False)
         assert proc.returncode == 1 and proc.stdout == ""
         assert json.loads(proc.stderr)["status"] == "error"
+
+    def test_without_the_resolver_beside_it_a_probe_is_an_error(self, tmp_path):
+        """--repo is read with skf-resolve-package.py's grammar, so the probe needs it too."""
+        for script in (HELPER, SOURCE_TREE):
+            (tmp_path / script.name).write_bytes(script.read_bytes())
+        proc = subprocess.run([sys.executable, str(tmp_path / HELPER.name), "repo", "--repo", "acme/lib",
+                               "--timeout", "5"], capture_output=True, text=True, check=False)
+        assert proc.returncode == 1 and proc.stdout == ""
+        assert "skf-resolve-package.py" in json.loads(proc.stderr)["message"]
 
     def test_script_header(self):
         head = HELPER.read_text(encoding="utf-8").splitlines()[:4]

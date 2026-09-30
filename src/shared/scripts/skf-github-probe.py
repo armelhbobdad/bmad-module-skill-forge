@@ -15,13 +15,17 @@ repository, and otherwise names the cause.
 CLI:
   uv run skf-github-probe.py repo --repo <repo> [--timeout <seconds>]
   uv run skf-github-probe.py tags --repo <repo> [--want <tag>]... \\
-      [--limit <n>] [--timeout <seconds>]
+      [--version <version> [--name <name>]] [--limit <n>] \\
+      [--timeout <seconds>]
   uv run skf-github-probe.py tree --repo <repo> [--ref <ref>] \\
       [--timeout <seconds>]
 
---repo takes `owner/repo`, `github.com/owner/repo`, an https, ssh or
-`git@github.com:` URL, with or without `.git` and a `/tree/<ref>/...`
-tail. Only github.com repositories are probed.
+--repo takes a github.com repository as skf-resolve-package.py (the
+sibling in this folder, which must sit beside this script) reads one:
+`owner/repo`, `github.com/owner/repo`, `github:owner/repo`, an https,
+http, git, ssh or git+ URL or `git@github.com:owner/repo`, with or
+without `.git`, a query, a fragment and a `/tree/<ref>/...` tail. Only
+github.com repositories are probed.
 
 Probes, in order:
   repo  `gh api repos/{owner}/{repo}`; the unauthenticated REST API
@@ -63,11 +67,19 @@ Output (one ASCII JSON line; every key of the command is always present):
   repo:  private (true | false | null), default_branch (name or null)
   tags:  tags (names, newest version first, then the others by name, at
          most --limit, 20 by default, 0 for all), count (every tag),
-         match (the first --want tag that exists, else null), found
-         ({tag: commit} for the --want tags that exist), missing (the
-         --want tags the listing lacks). When the listing could not be
-         read, found and missing are empty: only a listing says a tag is
-         absent.
+         match (the first --want tag that exists, else the first tag
+         that names --version, else null), found ({tag: commit} for the
+         --want tags that exist), missing (the --want tags the listing
+         lacks), nearest (with --version, up to five tags that sort next
+         to it by version, newest first, else empty). When the listing
+         could not be read, found, missing and nearest are empty: only a
+         listing says a tag is absent.
+         A tag names --version in the forms skf-source-tree.py's
+         match_tags tries, in its order: the version as given,
+         `v<version>` and, with --name, `<name>@<v>`,
+         `@<scope>/<name>@<v>` (any scope), `<name>/v<v>`, `<name>/<v>`
+         and `<name>-v<v>`, where <v> drops a leading `v` of the version.
+         A monorepo's package tags (`astro@4.16.0`) match through --name.
   tree:  ref (as given; "HEAD", the default branch, for an empty, `null`,
          `none` or `head` --ref in any letter case), tree (file paths:
          `echo` the JSON into skf-detect-language.py as it is), count,
@@ -134,31 +146,32 @@ USER_AGENT = "skf-github-probe/1.0 (+https://github.com/armelhbobdad/bmad-module
 DEFAULT_TIMEOUT_SEC = 60.0
 PROBE_TIMEOUT_SEC = 20.0
 DEFAULT_TAG_LIMIT = 20
-# A GitHub owner or repository name: letters, digits, `-`, `_` and `.`.
-_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
-_URL_RE = re.compile(r"^(?:(?:https?|ssh|git)://(?:[^@/]+@)?|git@)?(?:www\.)?github\.com[:/](?P<path>.+)$",
-                     re.IGNORECASE)
 _HTTP_CODE_RE = re.compile(r"\(HTTP (\d{3})\)")
 
-_SOURCE_TREE = None
+_SIBLINGS: dict[str, object] = {}
+
+
+def _load(filename: str):
+    """A script of this folder, loaded once."""
+    if filename not in _SIBLINGS:
+        path = Path(__file__).resolve().parent / filename
+        spec = importlib.util.spec_from_file_location(filename[:-3].replace("-", "_"), path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _SIBLINGS[filename] = module
+    return _SIBLINGS[filename]
 
 
 def _sibling():
     """skf-source-tree.py from this folder, loaded once: gh and git run
     through its runner (_run stops a call and all it started at the time
     limit; _resolve_outside_cwd never takes a gh or git planted in the
-    current folder), tags sort with its split_version and refs are checked
+    current folder), tags sort with its split_version, a version's tags
+    are found with its match_tags and nearest_tags, and refs are checked
     with its REF_RE."""
-    global _SOURCE_TREE
-    if _SOURCE_TREE is None:
-        path = Path(__file__).resolve().parent / "skf-source-tree.py"
-        spec = importlib.util.spec_from_file_location("skf_source_tree", path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"cannot load {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        _SOURCE_TREE = module
-    return _SOURCE_TREE
+    return _load("skf-source-tree.py")
 
 
 # --------------------------------------------------------------------------
@@ -167,24 +180,11 @@ def _sibling():
 
 
 def parse_repo(value: str | None) -> tuple[str, str] | None:
-    """(owner, repo) of a github.com repository, else None."""
-    text = (value or "").strip()
-    m = _URL_RE.match(text)
-    if m:
-        path = re.split(r"[?#]", m.group("path"), maxsplit=1)[0]
-    elif "://" in text or "@" in text or ":" in text:
-        return None
-    else:
-        path = text
-    parts = [part for part in path.split("/") if part]
-    if len(parts) < 2 or (not m and len(parts) != 2):
-        return None
-    owner, repo = parts[0], parts[1]
-    if repo.lower().endswith(".git"):
-        repo = repo[: -len(".git")]
-    if not all(_NAME_RE.match(part) and part.strip(".") for part in (owner, repo)) or owner.startswith("-"):
-        return None
-    return owner, repo
+    """(owner, repo) of a github.com repository, else None: read by
+    skf-resolve-package.py's github_target, the one GitHub URL grammar
+    quick-skill parses targets and registry answers with."""
+    loc = _load("skf-resolve-package.py").github_target((value or "").strip())
+    return (loc["owner"], loc["repo"]) if loc else None
 
 
 # --------------------------------------------------------------------------
@@ -449,7 +449,7 @@ class Probe:
 # found and missing stay empty then, since no listing says a tag is absent.
 _EMPTY = {
     "repo": {"private": None, "default_branch": None},
-    "tags": {"tags": [], "count": 0, "match": None, "found": {}, "missing": []},
+    "tags": {"tags": [], "count": 0, "match": None, "found": {}, "missing": [], "nearest": []},
     "tree": {"ref": "HEAD", "tree": [], "count": 0, "truncated": False},
 }
 
@@ -497,7 +497,8 @@ def _sorted_tags(names) -> list[str]:
     return [name for _key, name in versioned] + sorted(name for _key, name in other)
 
 
-def probe_tags(owner: str, repo: str, wants: list[str], limit: int) -> dict:
+def probe_tags(owner: str, repo: str, wants: list[str], limit: int, version: str | None = None,
+               package: str | None = None) -> dict:
     p = Probe(owner, repo)
     tags: dict[str, str | None] | None = None
     via = None
@@ -534,10 +535,12 @@ def probe_tags(owner: str, repo: str, wants: list[str], limit: int) -> dict:
         return p.unavailable(**_EMPTY["tags"])
     ordered = _sorted_tags(tags)
     wanted = list(dict.fromkeys(wants))
-    found = {name: tags[name] for name in wanted if name in tags}
+    found = {tag: tags[tag] for tag in wanted if tag in tags}
+    named = _sibling().match_tags(tags, version, package or None) if version else []
     return p.output("ok", via, tags=ordered[:limit] if limit > 0 else ordered, count=len(ordered),
-                    match=next((name for name in wanted if name in tags), None), found=found,
-                    missing=[name for name in wanted if name not in tags])
+                    match=next((tag for tag in (*wanted, *named) if tag in tags), None), found=found,
+                    missing=[tag for tag in wanted if tag not in tags],
+                    nearest=_sibling().nearest_tags(tags, version) if version else [])
 
 
 def _tree_ref(value: str | None) -> str:
@@ -610,6 +613,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tags = sub.add_parser("tags", help="list the repository's tags")
     common(p_tags)
     p_tags.add_argument("--want", action="append", default=[], help="a tag to look for (repeatable)")
+    p_tags.add_argument("--version", help="a version whose tag to look for, in every form a tag writes it in")
+    p_tags.add_argument("--name", help="with --version: the package name a monorepo's tags carry")
     p_tags.add_argument("--limit", type=int, default=DEFAULT_TAG_LIMIT,
                         help="tags to list, newest first (default 20; 0 for all)")
     p_tree = sub.add_parser("tree", help="list the repository's files at a ref")
@@ -633,7 +638,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "repo":
             out = probe_repo(*parsed)
         elif args.cmd == "tags":
-            out = probe_tags(*parsed, args.want, args.limit)
+            out = probe_tags(*parsed, args.want, args.limit, args.version, args.name)
         else:
             out = probe_tree(*parsed, args.ref)
     except Exception as e:  # noqa: BLE001 - one JSON error line, never a traceback

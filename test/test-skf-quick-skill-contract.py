@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Quick Skill contract: the skills-module shape (#527), and the batch
-override rule and review preview (#609).
+"""Quick Skill contract: the skills-module shape (#527), the batch override
+rule and review preview (#609), and how resolve-target reads a target (#582,
+#588).
 
 quick-extract.md gives the agent two commands for a skills module: a filtered
 tree listing (`gh api --jq`) and a loop that prints each skill's SKILL.md
@@ -12,10 +13,19 @@ code and run over the listing of real repository layouts: each layout states
 the skills root the rule gives it, and a library that ships a skill stays a
 library. The batch rule, the halt contract entry and the preview are pinned
 where each file states them.
+
+resolve-target.md hands every target to skf-resolve-package.py parse-target
+through a quoted heredoc, which runs here through bash with a target that
+holds quotes, backticks and `$`. Every example the step and the registry data
+list goes through the parser, every kind and status the script returns has a
+branch, each route names the skill after the script's skill_name, and the
+ambiguous-name gate, the language hint and the tag check through
+skf-github-probe.py are pinned where the step states them.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -35,6 +45,10 @@ TEMPLATE = QS / "assets" / "skill-template.md"
 SKILL = QS / "SKILL.md"
 BATCH_MODE = QS / "references" / "batch-mode.md"
 HALT_CONTRACT = QS / "references" / "halt-contract.md"
+RESOLVE_TARGET = QS / "references" / "resolve-target.md"
+REGISTRY_RESOLUTION = QS / "references" / "registry-resolution.md"
+RESOLVER = REPO / "src" / "shared" / "scripts" / "skf-resolve-package.py"
+GITHUB_PROBE = REPO / "src" / "shared" / "scripts" / "skf-github-probe.py"
 
 
 def _read(path: Path) -> str:
@@ -518,3 +532,189 @@ def test_the_preview_shows_one_metadata_line():
     for field in ("version {metadata.version}", "confidence tier {metadata.confidence_tier}",
                   "{metadata.stats.exports_documented} exports documented"):
         assert field in line, field
+
+
+# --------------------------------------------------------------------------
+# #582 and #588: resolve-target reads the target through the resolver, gates
+# an ambiguous package name and checks a pinned tag through the probe
+# --------------------------------------------------------------------------
+
+
+def _load(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _resolver():
+    return _load(RESOLVER, "skf_resolve_package_for_quick_contract")
+
+
+def _step(start: str, end: str) -> str:
+    return _section(_read(RESOLVE_TARGET), start, end)
+
+
+def test_every_example_the_prompt_lists_is_a_target_the_parser_reads():
+    prompt = _step("### 1. Accept User Input", "### 1b. ")
+    [line] = [line for line in prompt.splitlines() if line.startswith("Examples: ")]
+    examples = re.findall(r"`([^`]+)`", line)
+    assert "cognee@0.5.0" in examples and "requests==2.31.0" in examples
+    parse = _resolver().parse_target
+    for example in examples:
+        assert parse(example)["kind"] in ("github", "package"), example
+    assert parse("cognee@0.5.0")["target_version"] == "0.5.0"
+    pin = parse("requests==2.31.0")
+    assert (pin["package_name"], pin["registry"], pin["target_version"]) == ("requests", "pypi", "2.31.0")
+
+
+def test_the_redirect_examples_parse_as_their_kind():
+    route = _step("### 2. Route by Kind", "### 3. ")
+    unparsed = route[route.index("- **`unparsed`**"):]
+    parse = _resolver().parse_target
+    prose = re.findall(r'"((?:I want|build me) [^"]+)"', unparsed)
+    assert len(prose) == 2
+    for sentence in prose:
+        assert parse(sentence)["kind"] == "unparsed", sentence
+    wanted = unparsed[unparsed.index("Quick Skill needs a package name"):]
+    wanted = wanted[:wanted.index("\n")]
+    for example in re.findall(r"`([^`]+)`", wanted):
+        assert parse(example)["kind"] in ("github", "package"), example
+
+
+def test_the_registry_data_shapes_match_the_parser():
+    shapes = _section(_read(REGISTRY_RESOLUTION), "### Detection: Target Shapes", "### Resolution Fallback Chain")
+    parse = _resolver().parse_target
+    for example, kind in (("vercel/next.js", "github"), ("lodash", "package"), ("@scope/name", "package"),
+                          ("zope.interface", "package")):
+        assert f"`{example}`" in shapes, example
+        assert parse(example)["kind"] == kind, example
+    pages = re.findall(r"`(https://[^`]+)`", shapes)
+    assert len(pages) == 3
+    for page in pages:
+        assert parse(page.replace("<name>", "lodash"))["kind"] == "registry-page", page
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's heredoc through a POSIX shell")
+@pytest.mark.parametrize("target", [
+    "requests==2.31",
+    "@vercel/og",
+    "I'd like a `$HOME` skill, \"please\"",
+    "https://github.com/vercel/next.js/tree/canary/packages/next",
+], ids=["pypi-pin", "scoped", "quotes-backticks-dollar", "tree-url"])
+def test_the_parse_call_hands_the_target_over_unchanged(target):
+    bash = _tool("bash")
+    block = _bash_block(_step("### 1b. Parse the Target", "### 2. "), "parse-target")
+    assert block.startswith("uv run {packageResolver} parse-target <<'SKF_TARGET'\n{target}\nSKF_TARGET\n")
+    script = block.replace("uv run {packageResolver}", f'"{sys.executable}" "{RESOLVER}"')
+    script = script.replace("{target}", target)
+    result = subprocess.run([bash, "-c", script], capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out == _resolver().parse_target(target)
+    assert out["input"] == target
+
+
+def test_every_kind_the_parser_returns_has_a_route():
+    route = _step("### 2. Route by Kind", "### 3. ")
+    kinds = _resolver().KINDS
+    assert set(re.findall(r"\*\*`([a-z-]+)`\*\*", route)) == set(kinds)
+    for kind in ("other-host", "local-path", "unparsed"):
+        assert f"  - **`{kind}`**" in route, kind
+    [gate] = [line for line in route.splitlines() if line.startswith("**GATE [default: HALT]**")]
+    assert "exit code 3 (resolution-failure)" in gate and '`error.details: {kind: "<kind>"}`' in gate
+
+
+def test_every_status_the_resolver_returns_has_a_branch():
+    registry = _step("### 3. Registry Resolution", "### 3a. ")
+    for status in _resolver().STATUSES:
+        assert f'- **On `status: "{status}"`**' in registry, status
+    block = _bash_block(registry, " resolve ")
+    assert block == ("uv run {packageResolver} resolve {package_name} --timeout 10 [--registry {registry}] "
+                     "[--language \"{language_hint}\"]\n")
+    assert "Pass `--registry` when §2 set `registry`, and `--language` when a language hint was given" in registry
+
+
+def test_a_registry_folder_or_a_tree_url_folder_is_the_default_scope():
+    route = _step("### 2. Route by Kind", "### 3. ")
+    assert "set `source_ref` ← `ref`, and `scope_hint` ← `subdir` when no scope hint was given" in route
+    registry = _step("### 3. Registry Resolution", "### 3a. ")
+    assert "when `source_subdir` is set and no scope hint was given, set `scope_hint` ← `source_subdir`" in registry
+
+
+def test_every_route_names_the_skill_after_the_scripts_skill_name():
+    """Step 5 writes the skill folder under `{repo_name}` and validates frontmatter `name`
+    against it, so both routes bind it to the script's kebab-case skill_name, while `repo`
+    keeps the repository name every `{owner}/{repo}` API path needs."""
+    route = _step("### 2. Route by Kind", "### 3. ")
+    [github] = [line for line in route.splitlines() if line.startswith("- **`github`**")]
+    assert "`repo` ← `repo` and `repo_name` ← `skill_name`" in github
+    registry = _step("### 3. Registry Resolution", "### 3a. ")
+    [ok] = [line for line in registry.splitlines() if line.startswith('- **On `status: "ok"`**')]
+    assert "`repo` ← `repo_name`, `repo_name` ← `skill_name`" in ok
+    resolver = _resolver()
+    assert resolver.parse_target("https://github.com/vercel/next.js")["skill_name"] == "next-js"
+    assert "skill_name" in resolver.__doc__[resolver.__doc__.index("resolve output"):]
+    write = _read(QS / "references" / "write-and-validate.md")
+    assert "{skills_output_folder}/{repo_name}/{version}/{repo_name}/" in write
+    assert "--skill-dir-name {repo_name}" in write
+
+
+def test_a_found_url_and_a_dist_tag_go_through_the_parser():
+    registry = _step("### 3. Registry Resolution", "### 3a. ")
+    [fallthrough] = [line for line in registry.splitlines() if line.startswith('- **On `status: "fallthrough"`**')]
+    assert "If found, take that URL as the target and go back to §1b." in fallthrough
+    parse = _step("### 1b. Parse the Target", "### 2. ")
+    assert "A `dist_tag` (an npm dist-tag such as `latest` or `canary`) pins no version" in parse
+    assert "or a call to it prints no JSON on stdout" in parse
+    resolver = _resolver()
+    assert (resolver.parse_target("next@canary")["dist_tag"], resolver.parse_target("next@canary")["target_version"]) \
+        == ("canary", None)
+
+
+def test_an_ambiguous_name_asks_interactively_and_halts_headless_runs_with_exit_3():
+    registry = _step("### 3. Registry Resolution", "### 3a. ")
+    gate = registry[registry.index("**Ambiguous-name gate**"):registry.index("**If all methods fail")]
+    assert "Select: [C] Continue with {resolved_url} · [U] Use another GitHub URL · [X] Cancel and exit" in gate
+    for option, needle in (("C", 'continue as on `status: "ok"`'), ("U", "go back to §1b"),
+                           ("X", "exit code 6 (user-cancelled)")):
+        [line] = [line for line in gate.splitlines() if line.startswith(f"- **IF {option}**")]
+        assert needle in line, option
+    [headless] = [line for line in gate.splitlines() if line.startswith("- **GATE [default: HALT]**")]
+    for needle in ("exit code 3 (resolution-failure)", "Pass the GitHub URL of the project you mean",
+                   '`error.code: "resolution-failure"`', 'status: "ambiguous"', "name_found_in",
+                   "registry_outcomes", "`skill_package: null`"):
+        assert needle in headless, needle
+
+
+def test_the_tag_check_reads_the_github_probe_listing():
+    text = _read(RESOLVE_TARGET)
+    frontmatter = text.split("---\n", 2)[1]
+    assert ("githubProbeProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-github-probe.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-github-probe.py'\n") in frontmatter
+    check = _step("### 3a. Verify Target Version Tag", "### 4. ")
+    assert "gh api" not in check
+    block = _bash_block(check, " tags ")
+    assert block == ("uv run {githubProbe} tags --repo {owner}/{repo} --version {target_version} "
+                     "--name {package_name or repo_name} --limit 5\n")
+    probe = _load(GITHUB_PROBE, "skf_github_probe_for_quick_contract")
+    for field in ("match", "tags", "nearest"):
+        assert field in probe._EMPTY["tags"], field
+    assert '- **`status: "ok"` with `match` set**: set `source_ref` ← `match`' in check
+    assert '- **`status: "ok"` with `match` null**: the listing lacks the tag.' in check
+    assert "{the probe's `nearest`, else its `tags`" in check
+    [unavailable] = [line for line in check.splitlines() if line.startswith('- **`status: "unavailable"`')]
+    for needle in ("any other exit", "Do not report it missing.", "the probe's `message`",
+                   "exit code 3 (resolution-failure)", "probe-error", "`{project-root}/_bmad/skf/shared/scripts/`"):
+        assert needle in unavailable, needle
+
+
+def test_the_contract_lists_the_new_step_1_halts():
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
+    for needle in ("an ambiguous package name in headless mode §3", "version tag missing or not checkable §3a"):
+        assert needle in row3, needle
+    [row6] = [line for line in codes.splitlines() if line.startswith("| 6 ")]
+    assert "§3 ([X] at the ambiguous-name gate)" in row6
+    [gates] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |")]
+    assert "ambiguous package name [C/U/X]" in gates
