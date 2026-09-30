@@ -4,6 +4,7 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 outputFormatsFile: '{outputFormatsPath}'
 scoringRulesFile: '{scoringRulesPath}'
 coherenceAggregationScript: 'scripts/aggregate-coherence.py'
+locateExportSegmentsScript: 'scripts/locate-export-segments.py'
 migrationSectionRules: 'references/migration-section-rules.md'
 scanSkillMdStructureProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-skill-md-structure.py'
@@ -29,7 +30,7 @@ Read `testMode` from `{outputFile}` frontmatter.
 
 Perform the following explicit checks (no hand-waving — most use a single deterministic script; severity assignments are binding; do not relax them).
 
-**Resolve `{scanSkillMdStructureHelper}`** from `{scanSkillMdStructureProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{scanSkillMdStructureHelper}`** from `{scanSkillMdStructureProbeOrder}`; first existing path wins. If no candidate exists, release the run lock (SKILL.md Workflow Rules), then HALT.
 
 **2.0 Run the structural scan.** Invoke `{scanSkillMdStructureHelper}` twice and parse the JSON outputs. These results back §§2.1, 2.2, 2.3, and 2.6 — do not re-implement those checks with grep/sed/awk loops.
 
@@ -44,29 +45,43 @@ The first call returns `{ description: {satisfied, matched_synonym, tried[]}, us
 
 - `satisfied: true` → no finding.
 - `satisfied: false` AND family is `description` AND the SKILL.md frontmatter has a non-empty `description` field → no finding (the frontmatter alternative satisfies the family per the original rule).
-- Otherwise → **High severity** finding: `naive-coherence — missing required section: {family}` (the `tried[]` list from the JSON identifies which synonyms were checked: `Description`/`Overview`/`Purpose`/`Summary` for description; `Usage`/`Usage Patterns`/`Examples`/`How to use`/`Quickstart`/`Quick Start`/`Getting Started`/`Common Workflows`/`Adoption Steps` for usage; `API`/`API Surface`/`Exports`/`Key Exports`/`Public API`/`Interface`/`Reference`/`Key API Summary`/`Pattern Surface` for api_surface).
+- Otherwise → **High severity** finding: `naive-coherence: missing required section: {family}` (the `tried[]` list from the JSON identifies which synonyms were checked: `Description`/`Overview`/`Purpose`/`Summary` for description; `Usage`/`Usage Patterns`/`Examples`/`How to use`/`Quickstart`/`Quick Start`/`Getting Started`/`Common Workflows`/`Adoption Steps` for usage; `API`/`API Surface`/`Exports`/`Key Exports`/`Public API`/`Interface`/`Reference`/`Key API Summary`/`Pattern Surface` for api_surface).
 
 The script matches case-insensitively and tolerates `##`/`###` heading levels. SKF-template skills' headings are first-class synonyms baked into the script — the Deep/create-skill `## Quick Start`, `## Common Workflows`, and `## Key API Summary`, the quick-skill `## Usage Patterns` and `## Key Exports`, and the reference-app overrides `## Adoption Steps` (usage) and `## Pattern Surface` (api_surface) — so they all surface with `satisfied: true` and the corresponding `matched_synonym` field.
 
-**2.2 Code fence balance.** Read `unbalanced_fences` from the second JSON blob. **`true` → High severity** finding: `naive-coherence — unbalanced code fence (unclosed block)` (the JSON's `fence_count` may be cited in the detail).
+**2.2 Code fence balance.** Read `unbalanced_fences` from the second JSON blob. **`true` → High severity** finding: `naive-coherence: unbalanced code fence (unclosed block)` (the JSON's `fence_count` may be cited in the detail).
 
-**2.3 Language tags on opening fences.** Read `bare_opening_fences[]` from the second JSON blob. The script already runs the stateful open/close scan — closing fences are never reported. For each entry, emit a **Medium severity** finding: `naive-coherence — opening code fence at line {entry.line} missing language tag`.
+**2.3 Language tags on opening fences.** Read `bare_opening_fences[]` from the second JSON blob. The script already runs the stateful open/close scan, so closing fences are never reported. For each entry, emit a **Medium severity** finding: `naive-coherence: opening code fence at line {entry.line} missing language tag`.
 
 **2.4 Exports cross-used in a usage-family section.** For each function name reported in the step 3 subagent inventory (`exports[].name` where `kind == "function"` or `kind == "method"`):
 - Determine the usage-family search scope:
   - **Single-body skill** (no `references/` directory, or `## Full*` sections carry real content): the span from §2.1's `matched_synonym` anchor to the next `^## ` anchor.
   - **Split-body skill** (a `references/` directory exists alongside SKILL.md AND the SKILL.md `## Full*` sections are stubs/pointers): the union of EVERY usage-family heading present in SKILL.md (`Usage`/`Usage Patterns`/`Examples`/`How to use`/`Quickstart`/`Quick Start`/`Getting Started`/`Common Workflows`/`Adoption Steps`/`Key API Summary`/`Pattern Surface`/`Key Exports`), each from its anchor to the next `^## ` anchor, PLUS the full text of every file under `references/`.
 - `grep -c "{export.name}"` across that scope and sum the counts.
-- **Zero occurrences across the entire scope → High severity** finding: `naive-coherence — exported {kind} \`{name}\` is not referenced in any usage-family section or reference file`. This catches the "documented but unused" failure mode that trivially fails discovery testing. A method referenced in any usage-family section OR any `references/` file satisfies the check.
+- **Zero occurrences across the entire scope → High severity** finding: `naive-coherence: exported {kind} \`{name}\` is not referenced in any usage-family section or reference file`. This catches the "documented but unused" failure mode that trivially fails discovery testing. A method referenced in any usage-family section OR any `references/` file satisfies the check.
 
-**2.5 Async/sync consistency.** For every export with `async` in its description prose (grep for `\basync\b` in the description segment), check the corresponding code example segment for `await` / `async` keywords:
-- Description says async + example shows no `await` → **High severity** finding: `naive-coherence — \`{name}\` described as async but example lacks \`await\``
-- Description says sync + example uses `await {name}` → **High severity** finding: `naive-coherence — \`{name}\` described as sync but example awaits it`
+**2.5 Async/sync consistency.** `{locateExportSegmentsScript}` reports the facts: for each export the step 3 inventory lists with `kind` `function` or `method`, where the skill describes it (`descriptions[]`: the heading sections, table rows, list items and paragraphs that name it in code, and the signature lines that declare it) and each call to it in fenced code, with whether the call awaits it. Skip this check when the inventory has no such export; otherwise run the script (it resolves relative to the skill root):
 
-**2.6 Table syntax.** Read `table_drift[]` from the second JSON blob (§2.0). The script normalizes escaped pipes (`\|`, used inside TypeScript union types such as `string \| undefined`) before splitting and compares each row against its header's column count, so a plain `split on |` false-positive cannot occur here. For each entry, emit a **Medium severity** finding: `naive-coherence — table row at line {entry.line} has {entry.actual_cols} columns; header has {entry.expected_cols}` (the `entry.section` and `entry.row` fields populate the detail when present).
+```bash
+echo '{"names": [<each exports[].name whose kind is function or method>], "skillPackagePath": "{resolved_skill_package}"}' | uv run {locateExportSegmentsScript} --stdin
+```
+
+The script judges no meaning. For each `exports[]` entry, read its `descriptions[]` and decide what they assert about **this** export. The word `async` in a description decides nothing:
+
+- **async**: the caller must await what it returns (a promise, a coroutine or a future), as its signature or its description says. A Kotlin `suspend` function needs no `await`, so it makes no async claim here.
+- **sync**: it returns its result directly, for example as the blocking counterpart of an async export.
+- **no claim**: nothing says how it returns. A description that names a paired sync or async variant (`readFileSync` as "the sync counterpart of the async `readFile`"), or says async about another API, asserts nothing about this export.
+
+Then, for each export:
+
+- **async**, no call is awaited (`awaitedCount` is 0) and no unawaited call hands its result on → **High severity** finding: `naive-coherence: \`{name}\` described as async but example lacks \`await\`` (cite the first call's `file` and `line`). A call hands its result on when its `chainedMember` waits for it (`then`, `catch`, `join`, `get`), the example returns it (`return fetchData(x)` in an async function) or stores it and awaits it later: read the call lines before raising the finding.
+- **sync** and `awaitedCount` is above 0 → **High severity** finding: `naive-coherence: \`{name}\` described as sync but example awaits it` (cite the first awaited call).
+- Otherwise no finding. The names in `notCalled[]` appear in no example, so they raise none.
+
+**2.6 Table syntax.** Read `table_drift[]` from the second JSON blob (§2.0). The script normalizes escaped pipes (`\|`, used inside TypeScript union types such as `string \| undefined`) before splitting and compares each row against its header's column count, so a plain `split on |` false-positive cannot occur here. For each entry, emit a **Medium severity** finding: `naive-coherence: table row at line {entry.line} has {entry.actual_cols} columns; header has {entry.expected_cols}` (the `entry.section` and `entry.row` fields populate the detail when present).
 
 **2.7 Scripts & Assets section.** If `{skillDir}/scripts/` or `{skillDir}/assets/` exists, `grep -n '^## Scripts' SKILL.md`:
-- Directory exists AND no `## Scripts` section → **Medium severity** finding: `naive-coherence — scripts/assets directory exists but Scripts & Assets section missing` (per `{scoringRulesFile}`)
+- Directory exists AND no `## Scripts` section → **Medium severity** finding: `naive-coherence: scripts/assets directory exists but Scripts & Assets section missing` (per `{scoringRulesFile}`)
 
 **Hard rule:** 0 findings across §§2.1–2.7 = naive coherence PASS. ≥1 finding = rerank per the severity rubric above; the count and severity list are appended to the Coherence Analysis output in §6.
 

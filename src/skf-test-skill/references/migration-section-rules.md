@@ -11,11 +11,10 @@
 Execute this check only when both conditions are met:
 
 1. Forge tier is **Deep** (tool-gated)
-2. The evidence report exists (data-gated): `{forge_version}/evidence-report.md`,
-   where SKF writes it, or, only when that file does not exist, the flat-layout
-   `{forge_data_folder}/{skill_name}/evidence-report.md`, where an older skill
-   may still keep it. Bind `{forge_evidence_report}` to the first of the two
-   that exists; the detection contract below reads it.
+2. The evidence report exists (data-gated): init.md §2 bound
+   `{forge_evidence_report}` (the skill version folder's evidence report, or
+   the flat copy an older skill may still keep); the detection contract below
+   reads it.
 
 If either condition fails, skip silently and proceed to the next section.
 

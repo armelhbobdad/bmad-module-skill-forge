@@ -6,6 +6,7 @@ sourceAccessProtocol: 'references/source-access-protocol.md'
 reconcileScript: 'scripts/reconcile-coverage.py'
 coherenceScript: 'scripts/check-metadata-coherence.py'
 numeratorVerifyScript: 'scripts/verify-declared-numerator.py'
+stageHelperPayloadScript: 'scripts/stage-helper-payload.py'
 # Resolve `{verifyProvenanceCompletenessHelper}` by probing
 # `{verifyProvenanceCompletenessProbeOrder}` in order (installed SKF module
 # path first, src/ dev-checkout fallback); first existing path wins. §4c runs
@@ -14,6 +15,17 @@ numeratorVerifyScript: 'scripts/verify-declared-numerator.py'
 verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
+# Resolve `{extractPublicApiHelper}` to the first existing path. At Quick
+# tier, §2 parses a skill quick-skill built with its `--mode quick` parser,
+# the parser that built the skill's export list.
+extractPublicApiProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+# Resolve `{detectWorkspacesHelper}` to the first existing path. §0b runs it
+# to tell whether a local source is a monorepo.
+detectWorkspacesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-workspaces.py'
+  - '{project-root}/src/shared/scripts/skf-detect-workspaces.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -23,6 +35,8 @@ verifyProvenanceCompletenessProbeOrder:
 ## STEP GOAL:
 
 Compare the exports, functions, classes, types, and interfaces documented in SKILL.md against the actual source code API surface. Identify missing documentation, undocumented exports, and signature mismatches. Analysis depth scales with forge tier.
+
+Every HALT in this step releases the run lock first (SKILL.md Workflow Rules).
 
 ### 0. Check for Docs-Only Mode
 
@@ -41,6 +55,14 @@ Set `docs_only_mode: true` in context for step 5 scoring. Coverage scoring adapt
 Load `{sourceAccessProtocol}` and follow both sections:
 1. **Source API Surface Definition** — determines what counts as the public API for coverage denominator
 2. **Source Access Resolution** — 5-state waterfall to determine how source files will be read and sets `analysis_confidence`
+
+**Workspace layout.** Whether the source is a monorepo decides which Source API Surface Definition clause applies, and `{detectWorkspacesHelper}` decides it, not a check of folder and manifest names by eye. When Source Access Resolution reached State 1 (local source), resolve `{detectWorkspacesHelper}` ← first existing path in `{detectWorkspacesProbeOrder}` and, from `{project-root}`, run the command below. `{stageHelperPayloadScript}` (it resolves relative to the skill root) reads the source tree and the root manifests from disk and pipes them to the helper, so no file text is copied by hand:
+
+```bash
+uv run {stageHelperPayloadScript} detect-workspaces --source-root "{source_path}" | uv run {detectWorkspacesHelper}
+```
+
+Bind `{source_is_monorepo}` ← `is_monorepo` and `{source_workspace_kind}` ← `manifest_kind`; the Source API Surface Definition's monorepo tests read `{source_is_monorepo}`. At States 2 to 5 there is no tree to read, and a helper that does not resolve or a command that exits non-zero leaves the layout unknown: bind `{source_is_monorepo}` ← false in both cases. §5 records the layout.
 
 ### 1. Extract Documented Exports from SKILL.md
 
@@ -144,11 +166,17 @@ Flag each mismatch as **High severity** — signature inconsistency between SKIL
 
 Start from the package entry point (see 0b) and identify the public API surface. Then analyze those exports at the appropriate tier depth.
 
-**Quick Tier (no tools):**
-- Read the entry point file(s) directly
-- Identify public exports by scanning for `export` keywords, `module.exports`, `__init__.py` imports, or language-specific export patterns
-- Compare against documented inventory by name matching
-- Cannot verify signatures — note as "unverified" in report
+**Quick Tier (no AST tools):**
+- **A skill quick-skill built** (`metadata.json` `generated_by` is `quick-skill`), **from local source** (State 1): quick-skill built its export list with `{extractPublicApiHelper}` `--mode quick`, so parse the entry points with the same parser and both sides count one surface. Resolve it ← first existing path in `{extractPublicApiProbeOrder}` and, from `{project-root}`, run once per package in scope, with its manifest and one `--entry` for each entry-point file the Source API Surface Definition (§0b) makes its surface, each path relative to `{source_path}`:
+
+  ```bash
+  uv run {stageHelperPayloadScript} extract-public-api --source-root "{source_path}" --language <language> --manifest <manifest path> --entry <entry path> | uv run {extractPublicApiHelper} --mode quick
+  ```
+
+  Give §2c one per-file result per entry file, `{"file": "<entry path>", "exports_found": [<the name of each returned export whose source_file is that file>]}`; §2c's script works out which names are documented, missing and stale.
+- The parser skips some export forms without a warning, among them re-exports (a Python `from ... import` in `__init__.py`, a Rust `pub use`, a JS/TS `export *`), `async` declarations (`export async function`, `async def`, `pub async fn`) and CommonJS `module.exports`. Read each entry file for names the Source API Surface Definition counts that the parser did not return, add them to that file's `exports_found`, and list them in the Coverage Analysis section as read by eye.
+- **Any other skill** (create-skill's Quick tier reads the entry points as source text), a source that is not local, or a helper that does not resolve or exits non-zero (it exits 1 on a language it does not parse): identify the exports by reading the entry points per the Source API Surface Definition, and note in the Coverage Analysis section that the Quick-tier scan read them by eye.
+- Signatures cannot be verified at this tier: note them as "unverified" in the report.
 
 **Forge Tier (ast-grep available):**
 
@@ -190,7 +218,7 @@ After the source-code analysis (§2) completes, compute `total_exports` — the 
 
 **Stack-skill branch (`metadata.json.skill_type == "stack"`):** A stack skill's own barrel is empty by design — it composes constituent skills rather than exporting a proprietary surface — so `total_exports` derived from its own barrel is `0` for a *correctly* built stack, and its `[from skill: …]` citations never trip §0's `[EXT:…]`-only docs-only trigger. The zero-exports HALT below targets individual source-based skills and must not fire for stacks. Derive the stack's coverage denominator (`stack_denominator`) from its composition surface, in priority order, and use it as `total_exports` for the rest of coverage scoring:
 
-1. Provenance-map cited-contract count, when the provenance map exists (`{forge_version}/provenance-map.json`, or, only when that file does not exist, the flat-layout `{forge_data_folder}/{skill_name}/provenance-map.json`, where an older skill may still keep it) **and its `entries[]` is non-empty**: count the named cited contracts, **excluding entries whose `export_name` contains `::`** (impl-block methods roll up under an already-counted type). Use the same exclusion as §4b's named-export rule so the §2b and §4b stack denominators agree.
+1. Provenance-map cited-contract count, when init.md §2 bound `{forge_provenance_map}` **and its `entries[]` is non-empty**: count the named cited contracts, **excluding entries whose `export_name` contains `::`** (impl-block methods roll up under an already-counted type). Use the same exclusion as §4b's named-export rule so the §2b and §4b stack denominators agree.
 2. Otherwise the composition surface from `metadata.json`: `len(libraries) + len(integration_pairs)`.
 
 **If `stack_denominator == 0`** (no provenance-map or empty `entries[]`, AND `libraries` and `integration_pairs` are both empty): HALT with `Error: stack composition surface empty — {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
@@ -331,7 +359,7 @@ After the denominator has been resolved (standard, stratified, or State 2), cros
 **Cluster B — documented surface** (what was extracted and documented, including methods and submodule members):
 
 3. `metadata.json.stats.exports_documented` — the declared documented count
-4. Provenance-map **named-export count**, if the provenance map exists (`{forge_version}/provenance-map.json`, or, only when that file does not exist, the flat-layout `{forge_data_folder}/{skill_name}/provenance-map.json`, where an older skill may still keep it): pass the raw `export_name` values as `provenanceExportNames`; the script counts top-level named exports, **excluding entries whose `export_name` contains `::`** (impl-block methods like `Type::method`, which roll up under an already-counted type and are not separate barrel exports). Comparing the raw entry count instead false-positives on any method-enumerating provenance map (common for Rust/TS type-heavy skills): e.g. a map with 88 named exports + 48 `Type::method` entries reports 136 against `exports_documented` ≈ 92 → a spurious ~32% Cluster-B drift, while the comparable named-export count (88) agrees within ~4%.
+4. Provenance-map **named-export count**, when init.md §2 bound `{forge_provenance_map}`: pass the raw `export_name` values as `provenanceExportNames`; the script counts top-level named exports, **excluding entries whose `export_name` contains `::`** (impl-block methods like `Type::method`, which roll up under an already-counted type and are not separate barrel exports). Comparing the raw entry count instead false-positives on any method-enumerating provenance map (common for Rust/TS type-heavy skills): e.g. a map with 88 named exports + 48 `Type::method` entries reports 136 against `exports_documented` ≈ 92 → a spurious ~32% Cluster-B drift, while the comparable named-export count (88) agrees within ~4%.
 5. `confidence_distribution` (`t1`, `t1_low`, `t2`, `t3`, when present in `metadata.json.stats`) — pass the tiers as `confidenceDistribution`; the script sums them. Every extracted/documented export is binned into exactly one confidence tier, so the distribution must sum to the documented-surface total; a divergence (e.g., distribution sums to 91 while `exports_documented` is 85) is an internal-consistency defect even when the two clusters look fine
 
 Cluster assignment is canonical: `skf-create-skill` step 5 derives `exports_public_api` from entry-point validation and writes the `exports[]` array from the same barrel surface (see `skf-create-skill/references/compile.md:105`), while `exports_documented` tracks the broader documented surface that the provenance-map also enumerates.
@@ -412,6 +440,7 @@ Append the **Coverage Analysis** section to `{outputFile}`:
 **Tier:** {forge_tier}
 **Source Access:** {analysis_confidence} (full | provenance-map | metadata-only | remote-only | docs-only)
 **Source Path:** {source_path}
+**Workspace Layout:** {source_workspace_kind | single package | unknown (no local source, or the §0b helper failed)}
 **Files Analyzed:** {count}
 **Denominator:** {barrel | stratified ({effective_denominator | scope.include union}, {N} files matched)}
 
