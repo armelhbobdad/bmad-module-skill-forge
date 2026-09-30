@@ -2,4 +2,5 @@ type: changed
 scope: requirements
 summary: |
   The prerequisites table in Getting Started now lists every tool SKF uses, with `git`, `tessl` and `skill-check` added, and gains a Minimum and a Tested on column: the oldest version SKF supports and the versions SKF's own runs use, such as Node.js 22 (tested on 22 and 24), Python 3.11 (tested on 3.11 and 3.12), git 2.15 and ast-grep 0.45.3. A tool with no minimum yet reads `none`. The table is generated from `src/shared/tool-requirements.yaml`, the one list of tool versions, which the installer copies to `_bmad/skf/shared/` with the rest of the shared files.
+prs: [615]
 issues: [576]
