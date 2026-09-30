@@ -2,4 +2,5 @@ type: changed
 scope: skf-test-skill
 summary: |
   Test Skill now asks SKF's shared workspace detector whether a skill's local source is a monorepo, instead of judging it by eye from folder and manifest names, and the Coverage Analysis section records the layout it found. The answer picks the coverage denominator rule for a monorepo, so Export Coverage can shift for a repository the two judge differently: two or more packages under `apps/`, `libs/` or `code/` now make a monorepo, and a `packages/` folder that holds fewer than two packages no longer does.
+prs: [624]
 issues: [584]

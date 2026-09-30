@@ -2,4 +2,5 @@ type: fixed
 scope: skf-brief-skill
 summary: |
   When you ratify an existing brief, `[R] Revise Scope` at the review step now analyzes the brief's repository at the brief's ref before scope definition, so the scope-type recommendation reads the real file list, module count and export count instead of an empty analysis; the brief's name, version and language stay as they were. Brief Skill now honors `headless_mode: true` in the forger preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`), which it looked for in a file that does not exist, so a project that sets it now runs Brief Skill headless. It also writes the brief's description in `document_output_language`, which it never loaded. The GitHub URL check at the first prompt now accepts a private repository that `gh` can read instead of asking for the URL again; when the repository cannot be read, it names the cause (no such repository, no access, `gh` missing or not logged in) and offers `[K] Keep anyway`.
+prs: [624]
 issues: [603, 588]
