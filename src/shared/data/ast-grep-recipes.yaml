@@ -1,0 +1,608 @@
+# The ast-grep recipes that find the exports create-skill extracts. Each
+# item of `recipes` is one recipe: the same rule as its copy in create-skill's
+# references/extraction-patterns.md, which holds each recipe's notes and the
+# forms it does not cover (test/test-skf-create-skill-recipes.py keeps the
+# two copies identical). skf-extract-public-api.py --mode full runs these,
+# and skf-verify-provenance-completeness.py kind-at reads them as well as the
+# markdown copies.
+#
+# A recipe is an ast-grep rule (id, language, rule, constraints) with a
+# `metadata` block, which ast-grep accepts and does not use:
+#   languages    the languages this form runs in: its own `language`, then
+#                each language it also runs in unchanged, with `language`
+#                rewritten (the language selection note in
+#                extraction-patterns.md)
+#   sets         the recipe sets that run it: `standard` (every scope type
+#                but component-library) and `component-library` (the
+#                recipes component-extraction.md names)
+#   export_type  what an export it matches is: function, class, const,
+#                interface, type, enum or re-export; a list means the
+#                declaration keyword before the name picks one. It is the
+#                form of the declaration, not its role: a component is a
+#                function when declared as one or bound to an arrow
+#                function, and a const when bound to a call (memo,
+#                forwardRef, lazy), as js-exported-constants records it.
+#                An item of a local `export { ... }` list takes the type
+#                of the binding it names in its file (re-export for an
+#                import), and this one when the runner finds none
+#   prefer_over  when this recipe and one it lists match one name on one
+#                line, the export records this recipe
+
+recipes:
+  - id: python-public-functions
+    language: python
+    metadata:
+      languages: [python]
+      sets: [standard]
+      export_type: function
+    rule:
+      pattern: "def $NAME"
+      kind: function_definition
+      inside:
+        kind: module
+        stopBy:
+          any:
+            - kind: function_definition
+            - kind: class_definition
+      not:
+        inside:
+          kind: block
+          stopBy: end
+          inside:
+            kind: if_statement
+            has:
+              field: condition
+              regex: '^\(?\s*(__name__\s*==\s*[''"]__main__[''"]|[''"]__main__[''"]\s*==\s*__name__)\s*\)?$'
+    constraints:
+      NAME:
+        regex: "^[^_]"
+  - id: python-public-classes
+    language: python
+    metadata:
+      languages: [python]
+      sets: [standard]
+      export_type: class
+    rule:
+      pattern: "class $NAME"
+      kind: class_definition
+      inside:
+        kind: module
+        stopBy:
+          any:
+            - kind: function_definition
+            - kind: class_definition
+      not:
+        inside:
+          kind: block
+          stopBy: end
+          inside:
+            kind: if_statement
+            has:
+              field: condition
+              regex: '^\(?\s*(__name__\s*==\s*[''"]__main__[''"]|[''"]__main__[''"]\s*==\s*__name__)\s*\)?$'
+    constraints:
+      NAME:
+        regex: "^[^_]"
+  - id: js-exported-functions
+    language: typescript
+    metadata:
+      languages: [typescript, tsx]
+      sets: [standard]
+      export_type: function
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      any:
+        - has:
+            field: declaration
+            any:
+              - kind: function_declaration
+              - kind: generator_function_declaration
+              - kind: function_signature
+            has:
+              field: name
+              pattern: $NAME
+        - has:
+            field: declaration
+            kind: ambient_declaration
+            has:
+              kind: function_signature
+              has:
+                field: name
+                pattern: $NAME
+      not:
+        has:
+          field: declaration
+          any:
+            - kind: function_declaration
+            - kind: generator_function_declaration
+        follows:
+          stopBy:
+            not:
+              kind: comment
+          kind: export_statement
+          has:
+            field: declaration
+            kind: function_signature
+  - id: js-exported-functions
+    language: javascript
+    metadata:
+      languages: [javascript]
+      sets: [standard]
+      export_type: function
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      has:
+        field: declaration
+        any:
+          - kind: function_declaration
+          - kind: generator_function_declaration
+        has:
+          field: name
+          pattern: $NAME
+  - id: js-exported-constants
+    language: typescript
+    metadata:
+      languages: [typescript, tsx, javascript]
+      sets: [standard]
+      export_type: const
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      has:
+        field: declaration
+        kind: lexical_declaration
+        all:
+          - has:
+              field: kind
+              regex: "^const$"
+          - has:
+              kind: variable_declarator
+              all:
+                - has:
+                    field: name
+                    kind: identifier
+                    pattern: $NAME
+                - has:
+                    field: value
+                    pattern: $VALUE
+  - id: js-exported-arrow-functions
+    language: typescript
+    metadata:
+      languages: [typescript, tsx, javascript]
+      sets: [standard]
+      export_type: function
+      prefer_over: [js-exported-constants]
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      has:
+        field: declaration
+        kind: lexical_declaration
+        all:
+          - has:
+              field: kind
+              regex: "^const$"
+          - has:
+              kind: variable_declarator
+              all:
+                - has:
+                    field: name
+                    kind: identifier
+                    pattern: $NAME
+                - has:
+                    field: value
+                    kind: arrow_function
+                    pattern: $VALUE
+  - id: js-exported-classes
+    language: typescript
+    metadata:
+      languages: [typescript, tsx, javascript]
+      sets: [standard]
+      export_type: class
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      not:
+        has:
+          regex: "^default$"
+      has:
+        field: declaration
+        all:
+          - has:
+              field: name
+              pattern: $NAME
+          - has:
+              field: body
+              kind: class_body
+  - id: ts-exported-types
+    language: typescript
+    metadata:
+      languages: [typescript, tsx]
+      sets: [standard, component-library]
+      export_type: [interface, type, enum]
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      not:
+        has:
+          regex: "^default$"
+      has:
+        field: declaration
+        any:
+          - any:
+              - kind: interface_declaration
+              - kind: type_alias_declaration
+              - kind: enum_declaration
+            has:
+              field: name
+              pattern: $NAME
+          - kind: ambient_declaration
+            has:
+              any:
+                - kind: interface_declaration
+                - kind: type_alias_declaration
+                - kind: enum_declaration
+              has:
+                field: name
+                pattern: $NAME
+  - id: js-reexports
+    language: typescript
+    metadata:
+      languages: [typescript, tsx, javascript]
+      sets: [standard]
+      export_type: re-export
+    rule:
+      kind: export_specifier
+      inside:
+        kind: export_clause
+        inside:
+          kind: export_statement
+          inside:
+            kind: program
+          has:
+            field: source
+            has:
+              kind: string_fragment
+              pattern: $SOURCE
+      any:
+        - has:
+            field: alias
+            any:
+              - has:
+                  kind: string_fragment
+                  pattern: $NAME
+              - not:
+                  kind: string
+                pattern: $NAME
+        - all:
+            - not:
+                has:
+                  field: alias
+                  regex: "."
+            - has:
+                field: name
+                any:
+                  - has:
+                      kind: string_fragment
+                      pattern: $NAME
+                  - not:
+                      kind: string
+                    pattern: $NAME
+  - id: js-namespace-reexports
+    language: typescript
+    metadata:
+      languages: [typescript, tsx, javascript]
+      sets: [standard]
+      export_type: re-export
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      all:
+        - has:
+            field: source
+            has:
+              kind: string_fragment
+              pattern: $SOURCE
+        - has:
+            kind: namespace_export
+            any:
+              - has:
+                  kind: identifier
+                  pattern: $NAME
+              - has:
+                  kind: string
+                  has:
+                    kind: string_fragment
+                    pattern: $NAME
+  - id: js-local-exports
+    language: typescript
+    metadata:
+      languages: [typescript, tsx, javascript]
+      sets: [standard, component-library]
+      export_type: const
+    rule:
+      kind: export_specifier
+      inside:
+        kind: export_clause
+        inside:
+          kind: export_statement
+          inside:
+            kind: program
+          not:
+            has:
+              field: source
+              kind: string
+      any:
+        - has:
+            field: alias
+            any:
+              - has:
+                  kind: string_fragment
+                  pattern: $NAME
+              - not:
+                  kind: string
+                pattern: $NAME
+        - all:
+            - not:
+                has:
+                  field: alias
+                  regex: "."
+            - has:
+                field: name
+                pattern: $NAME
+  - id: rust-public-functions
+    language: rust
+    metadata:
+      languages: [rust]
+      sets: [standard]
+      export_type: function
+    rule:
+      kind: function_item
+      has:
+        field: name
+        pattern: $NAME
+      all:
+        - has:
+            kind: visibility_modifier
+            regex: "^pub$"
+        - inside:
+            any:
+              - kind: source_file
+              - kind: declaration_list
+                inside:
+                  kind: mod_item
+        - not:
+            inside:
+              kind: mod_item
+              stopBy: end
+              not:
+                has:
+                  kind: visibility_modifier
+                  regex: "^pub$"
+        - not:
+            inside:
+              kind: block
+              stopBy: end
+  - id: go-exported-functions
+    language: go
+    metadata:
+      languages: [go]
+      sets: [standard]
+      export_type: function
+    rule:
+      kind: function_declaration
+      has:
+        field: name
+        pattern: $NAME
+      not:
+        has:
+          field: receiver
+          kind: parameter_list
+    constraints:
+      NAME:
+        regex: "^\\p{Lu}"
+  - id: react-props-interfaces
+    language: typescript
+    metadata:
+      languages: [typescript, tsx]
+      sets: [component-library]
+      export_type: interface
+      prefer_over: [ts-exported-types]
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      not:
+        has:
+          regex: "^default$"
+      has:
+        field: declaration
+        kind: interface_declaration
+        has:
+          field: name
+          pattern: $NAME
+    constraints:
+      NAME:
+        regex: ".*Props$"
+  - id: react-component-functions
+    language: tsx
+    metadata:
+      languages: [tsx, typescript]
+      sets: [component-library]
+      export_type: function
+      prefer_over: [js-exported-functions]
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      any:
+        - has:
+            field: declaration
+            any:
+              - kind: function_declaration
+              - kind: function_signature
+            has:
+              field: name
+              pattern: $NAME
+        - has:
+            field: declaration
+            kind: ambient_declaration
+            has:
+              kind: function_signature
+              has:
+                field: name
+                pattern: $NAME
+      not:
+        has:
+          field: declaration
+          kind: function_declaration
+        follows:
+          stopBy:
+            not:
+              kind: comment
+          kind: export_statement
+          has:
+            field: declaration
+            kind: function_signature
+    constraints:
+      NAME:
+        regex: "^\\p{Lu}"
+  - id: react-component-functions
+    language: javascript
+    metadata:
+      languages: [javascript]
+      sets: [component-library]
+      export_type: function
+      prefer_over: [js-exported-functions]
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      has:
+        field: declaration
+        kind: function_declaration
+        has:
+          field: name
+          pattern: $NAME
+    constraints:
+      NAME:
+        regex: "^\\p{Lu}"
+  - id: react-component-arrow-functions
+    language: typescript
+    metadata:
+      languages: [typescript, tsx, javascript]
+      sets: [component-library]
+      export_type: function
+      prefer_over: [js-exported-arrow-functions, js-exported-constants]
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      has:
+        field: declaration
+        kind: lexical_declaration
+        all:
+          - has:
+              field: kind
+              regex: "^const$"
+          - has:
+              kind: variable_declarator
+              all:
+                - has:
+                    field: name
+                    kind: identifier
+                    regex: "^\\p{Lu}"
+                    pattern: $NAME
+                - has:
+                    field: value
+                    kind: arrow_function
+                    pattern: $VALUE
+    constraints:
+      NAME:
+        regex: "^\\p{Lu}"
+  - id: react-wrapped-components
+    language: tsx
+    metadata:
+      languages: [tsx, typescript, javascript]
+      sets: [component-library]
+      export_type: const
+      prefer_over: [js-exported-constants]
+    rule:
+      kind: export_statement
+      inside:
+        kind: program
+      has:
+        field: declaration
+        kind: lexical_declaration
+        all:
+          - has:
+              field: kind
+              regex: "^const$"
+          - has:
+              kind: variable_declarator
+              all:
+                - has:
+                    field: name
+                    kind: identifier
+                    regex: "^\\p{Lu}"
+                    pattern: $NAME
+                - has:
+                    field: value
+                    kind: call_expression
+                    has:
+                      field: function
+                      regex: '^(React\.)?(memo|forwardRef|lazy)$'
+    constraints:
+      NAME:
+        regex: "^\\p{Lu}"
+  - id: vue-define-props
+    language: typescript
+    metadata:
+      languages: [typescript]
+      sets: [standard, component-library]
+      export_type: type
+    rule:
+      pattern: "defineProps<$NAME>()"
+      kind: call_expression
+      not:
+        inside:
+          stopBy: end
+          any:
+            - kind: statement_block
+            - kind: arrow_function
+            - kind: class_body
+            - kind: if_statement
+            - kind: for_statement
+            - kind: for_in_statement
+            - kind: while_statement
+            - kind: switch_case
+  - id: vue-define-props-tsx
+    language: tsx
+    metadata:
+      languages: [tsx]
+      sets: [standard, component-library]
+      export_type: type
+    rule:
+      pattern: "defineProps<$NAME>()"
+      kind: call_expression
+      not:
+        inside:
+          stopBy: end
+          any:
+            - kind: statement_block
+            - kind: arrow_function
+            - kind: class_body
+            - kind: if_statement
+            - kind: for_statement
+            - kind: for_in_statement
+            - kind: while_statement
+            - kind: switch_case

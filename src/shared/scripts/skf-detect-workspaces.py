@@ -16,9 +16,12 @@ Detection runs in priority order; the first matching detector wins:
   1. npm-workspaces       package.json has `workspaces: [...]` or `{packages: [...]}`
   2. pnpm-workspaces      pnpm-workspace.yaml exists with a `packages:` list
   3. lerna                lerna.json exists (`packages` field optional, defaults to `packages/*`)
-  4. cargo-workspace      Cargo.toml has `[workspace]` with `members = [...]`
-  5. python-multi-package multiple pyproject.toml under packages/* or apps/*
-  6. generic-folders      apps/, packages/, libs/, or code/ each with subdirs
+  4. rush                 rush.json lists `projects[]` (JSON with comments; its
+                          content must be supplied under `manifests`)
+  5. nx                   nx.json at the root, and folders holding a project.json
+  6. cargo-workspace      Cargo.toml has `[workspace]` with `members = [...]`
+  7. python-multi-package multiple pyproject.toml under packages/* or apps/*
+  8. generic-folders      apps/, packages/, libs/, or code/ each with subdirs
                           containing a recognisable manifest
 
 Glob members (`packages/*`, `apps/*`, etc.) are resolved against the supplied
@@ -35,7 +38,9 @@ Input JSON shape (stdin):
       "package.json":        "<raw text>",
       "Cargo.toml":          "<raw text>",
       "pnpm-workspace.yaml": "<raw text>",
-      "lerna.json":          "<raw text>"
+      "lerna.json":          "<raw text>",
+      "rush.json":           "<raw text>",
+      "nx.json":             "<raw text>"
     }
   }
 
@@ -43,17 +48,19 @@ Input JSON shape (stdin):
     Per-workspace child manifests (e.g. `packages/foo/package.json`) MUST appear
     here for glob resolution; their contents are optional.
   - `manifests` is a dict keyed by repository-relative path; only root-level
-    manifests must be supplied. Per-workspace manifest contents may be
-    included to populate the workspace `name` field, but absence is fine
-    (the path basename is used as a fallback).
+    manifests must be supplied (nx.json may be left out when the tree lists
+    it). Per-workspace manifest contents may be included to populate the
+    workspace `name` field, but absence is fine (the path basename is used
+    as a fallback); for Nx that is each project.json, for Rush the
+    `packageName` in rush.json names each project.
 
 Output JSON shape (stdout):
 
   {
     "is_monorepo":   true | false,
     "manifest_kind": "npm-workspaces" | "pnpm-workspaces" | "lerna"
-                   | "cargo-workspace" | "python-multi-package"
-                   | "generic-folders" | null,
+                   | "rush" | "nx" | "cargo-workspace"
+                   | "python-multi-package" | "generic-folders" | null,
     "workspaces":    [
       {"name": "foo", "path": "packages/foo", "manifest": "packages/foo/package.json"},
       ...
@@ -286,6 +293,121 @@ def detect_lerna(
     return _build_workspaces(dirs, tree, manifests)
 
 
+def _strip_json_comments(content: str) -> str:
+    """JSON with `//` and `/* */` comments and trailing commas (rush.json is
+    JSONC) made plain JSON; string contents are left alone."""
+    n = len(content)
+
+    def comment_end(i: int) -> Optional[int]:
+        """The index just past the comment that starts at `i`, or None."""
+        if content.startswith("//", i):
+            end = content.find("\n", i)
+            return n if end < 0 else end
+        if content.startswith("/*", i):
+            end = content.find("*/", i + 2)
+            return n if end < 0 else end + 2
+        return None
+
+    def next_token(i: int) -> str:
+        """The first character at or after `i` outside blanks and comments."""
+        while i < n:
+            end = comment_end(i)
+            if end is not None:
+                i = end
+            elif content[i].isspace():
+                i += 1
+            else:
+                return content[i]
+        return ""
+
+    out: list[str] = []
+    i = 0
+    while i < n:
+        ch = content[i]
+        end = comment_end(i)
+        if ch == '"':
+            j = i + 1
+            while j < n and content[j] != '"':
+                j += 2 if content[j] == "\\" else 1
+            out.append(content[i : j + 1])
+            i = j + 1
+        elif end is not None:
+            i = end
+        else:
+            # a comma before the closing bracket of its list or object goes
+            if not (ch == "," and next_token(i + 1) in ("}", "]")):
+                out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def detect_rush(
+    tree: set[str], manifests: dict[str, str], warnings: list[str]
+) -> Optional[list[dict]]:
+    """Rush: rush.json's `projects[]`, each a `projectFolder` with a
+    package.json in the tree, named by its `packageName`."""
+    content = manifests.get("rush.json")
+    if content is None:
+        if "rush.json" in tree:
+            warnings.append(
+                "rush.json is in the tree but its content was not supplied: "
+                "pass it under manifests to resolve the Rush projects"
+            )
+        return None
+    try:
+        data = json.loads(_strip_json_comments(content))
+    except json.JSONDecodeError as e:
+        warnings.append(f"rush.json JSON parse error: {e}")
+        return None
+    projects = data.get("projects") if isinstance(data, dict) else None
+    if not isinstance(projects, list):
+        return None
+    out: list[dict] = []
+    seen: set[str] = set()
+    for project in projects:
+        if not isinstance(project, dict) or not isinstance(project.get("projectFolder"), str):
+            continue
+        folder = _normalise_path(project["projectFolder"].strip())
+        manifest = f"{folder}/package.json"
+        if not folder or folder in seen or manifest not in tree:
+            continue
+        seen.add(folder)
+        name = project.get("packageName")
+        if not isinstance(name, str) or not name:
+            name = _read_workspace_name(manifest, manifests, folder.rsplit("/", 1)[-1])
+        out.append({"name": name, "path": folder, "manifest": manifest})
+    return sorted(out, key=lambda ws: ws["path"])
+
+
+def detect_nx(
+    tree: set[str], manifests: dict[str, str], warnings: list[str]
+) -> Optional[list[dict]]:
+    """Nx: with nx.json at the root, each folder below it holding a
+    project.json is a project, named by that file's `name` when its
+    content is supplied. An Nx repository that declares its projects
+    through package.json workspaces is found by the npm or pnpm detector."""
+    if "nx.json" not in tree and "nx.json" not in manifests:
+        return None
+    out: list[dict] = []
+    for path in sorted(tree):
+        if not path.endswith("/project.json"):
+            continue
+        folder = path[: -len("/project.json")]
+        if "node_modules" in folder.split("/"):
+            continue
+        name = folder.rsplit("/", 1)[-1]
+        content = manifests.get(path)
+        if content is not None:
+            try:
+                declared = json.loads(content).get("name")
+            except (json.JSONDecodeError, AttributeError):
+                declared = None
+            if isinstance(declared, str) and declared:
+                name = declared
+        out.append({"name": name, "path": folder, "manifest": path})
+    return out
+
+
 def detect_cargo_workspace(
     tree: set[str], manifests: dict[str, str], warnings: list[str]
 ) -> Optional[list[dict]]:
@@ -356,6 +478,8 @@ DETECTORS: list[tuple[str, callable]] = [
     ("npm-workspaces",       detect_npm_workspaces),
     ("pnpm-workspaces",      detect_pnpm_workspaces),
     ("lerna",                detect_lerna),
+    ("rush",                 detect_rush),
+    ("nx",                   detect_nx),
     ("cargo-workspace",      detect_cargo_workspace),
     ("python-multi-package", detect_python_multi_package),
     ("generic-folders",      detect_generic_folders),
@@ -369,6 +493,8 @@ ECOSYSTEM_OF_KIND = {
     "npm-workspaces":       "js",
     "pnpm-workspaces":      "js",
     "lerna":                "js",
+    "rush":                 "js",
+    "nx":                   "js",
     "cargo-workspace":      "rust",
     "python-multi-package": "python",
 }
@@ -377,6 +503,8 @@ ROOT_MANIFEST_OF_KIND = {
     "npm-workspaces":       "package.json",
     "pnpm-workspaces":      "pnpm-workspace.yaml",
     "lerna":                "lerna.json",
+    "rush":                 "rush.json",
+    "nx":                   "nx.json",
     "cargo-workspace":      "Cargo.toml",
     "python-multi-package": None,  # discovered from the tree; no single root manifest
 }

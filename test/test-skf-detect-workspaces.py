@@ -50,6 +50,8 @@ def assert_envelope_shape(out: dict) -> None:
         "npm-workspaces",
         "pnpm-workspaces",
         "lerna",
+        "rush",
+        "nx",
         "cargo-workspace",
         "python-multi-package",
         "generic-folders",
@@ -360,6 +362,135 @@ class TestLerna:
         # Only one packages/* child means generic-folders also falls through; result is single-package
         assert out["is_monorepo"] is False
         assert out["manifest_kind"] is None
+
+
+# --------------------------------------------------------------------------
+# Rush
+# --------------------------------------------------------------------------
+
+
+RUSH_JSON = """{
+  // Rush reads JSON with comments
+  "rushVersion": "5.120.0",
+  /* each project: its package name and folder */
+  "projects": [
+    { "packageName": "@acme/core", "projectFolder": "libs/core" },
+    { "packageName": "@acme/web", "projectFolder": "./apps/web/", },
+    { "packageName": "@acme/gone", "projectFolder": "libs/gone" },
+    { "packageName": "@acme/url", "projectFolder": "libs/url-//-kept" }
+  ],
+}
+"""
+
+
+class TestRush:
+    def test_projects_from_rush_json(self):
+        out = mod.detect(
+            {
+                "tree": [
+                    "rush.json",
+                    "libs/core/package.json",
+                    "apps/web/package.json",
+                    "libs/url-//-kept/package.json",
+                ],
+                "manifests": {"rush.json": RUSH_JSON},
+            }
+        )
+        assert out["is_monorepo"] is True
+        assert out["manifest_kind"] == "rush"
+        # a project folder with no package.json in the tree is dropped
+        assert out["workspaces"] == [
+            {"name": "@acme/web", "path": "apps/web", "manifest": "apps/web/package.json"},
+            {"name": "@acme/core", "path": "libs/core", "manifest": "libs/core/package.json"},
+            {"name": "@acme/url", "path": "libs/url-//-kept", "manifest": "libs/url-//-kept/package.json"},
+        ]
+        assert_envelope_shape(out)
+
+    def test_json_with_comments_keeps_its_strings(self):
+        text = '{"a": "x,]y,}", // c\n "b": [1, /* c */ ], "c": "// no", "d": {"e": 1, // last\n },\n}'
+        assert json.loads(mod._strip_json_comments(text)) == {"a": "x,]y,}", "b": [1], "c": "// no", "d": {"e": 1}}
+
+    def test_rush_json_content_is_needed(self):
+        out = mod.detect({"tree": ["rush.json", "libs/core/package.json"], "manifests": {}})
+        assert out["is_monorepo"] is False
+        assert any("rush.json" in w and "manifests" in w for w in out["warnings"])
+
+    def test_malformed_rush_json_warns_and_falls_through(self):
+        out = mod.detect({"tree": ["rush.json"], "manifests": {"rush.json": "{ projects: ["}})
+        assert out["is_monorepo"] is False
+        assert any("rush.json" in w for w in out["warnings"])
+
+    def test_npm_workspaces_take_priority_over_rush(self):
+        out = mod.detect(
+            {
+                "tree": ["package.json", "rush.json", "packages/a/package.json", "libs/core/package.json"],
+                "manifests": {
+                    "package.json": json.dumps({"workspaces": ["packages/*"]}),
+                    "rush.json": RUSH_JSON,
+                },
+            }
+        )
+        assert out["manifest_kind"] == "npm-workspaces"
+        assert not any("cross-ecosystem" in w for w in out["warnings"])
+
+
+# --------------------------------------------------------------------------
+# Nx
+# --------------------------------------------------------------------------
+
+
+class TestNx:
+    def test_projects_are_folders_with_project_json(self):
+        out = mod.detect(
+            {
+                "tree": [
+                    "nx.json",
+                    "package.json",
+                    "apps/shop/project.json",
+                    "libs/ui/project.json",
+                    "libs/ui/src/index.ts",
+                    "node_modules/pkg/project.json",
+                ],
+                "manifests": {
+                    "package.json": json.dumps({"name": "root"}),
+                    "libs/ui/project.json": json.dumps({"name": "shared-ui"}),
+                },
+            }
+        )
+        assert out["is_monorepo"] is True
+        assert out["manifest_kind"] == "nx"
+        assert out["workspaces"] == [
+            {"name": "shop", "path": "apps/shop", "manifest": "apps/shop/project.json"},
+            {"name": "shared-ui", "path": "libs/ui", "manifest": "libs/ui/project.json"},
+        ]
+        assert_envelope_shape(out)
+
+    def test_nx_without_project_json_falls_through(self):
+        # an Nx repository that declares its projects as package.json
+        # workspaces is found by the npm detector; with neither, no monorepo
+        out = mod.detect({"tree": ["nx.json", "package.json"], "manifests": {}})
+        assert out["is_monorepo"] is False
+        out = mod.detect(
+            {
+                "tree": ["nx.json", "package.json", "packages/a/package.json"],
+                "manifests": {"package.json": json.dumps({"workspaces": ["packages/*"]})},
+            }
+        )
+        assert out["manifest_kind"] == "npm-workspaces"
+
+    def test_a_project_json_without_nx_json_is_not_nx(self):
+        out = mod.detect({"tree": ["apps/shop/project.json"], "manifests": {}})
+        assert out["is_monorepo"] is False
+
+    def test_nx_wins_over_a_cargo_workspace_and_flags_it(self):
+        out = mod.detect(
+            {
+                "tree": ["nx.json", "apps/shop/project.json", "Cargo.toml", "crates/a/Cargo.toml"],
+                "manifests": {"Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n'},
+            }
+        )
+        assert out["manifest_kind"] == "nx"
+        assert any("cargo-workspace" in w for w in out["warnings"])
 
 
 # --------------------------------------------------------------------------
@@ -799,3 +930,9 @@ class TestSchemaArtifact:
         assert schema["title"]
         # Required result envelope properties
         assert set(schema["required"]) == {"is_monorepo", "manifest_kind", "workspaces", "warnings"}
+
+    def test_schema_lists_every_detector_kind(self):
+        with SCHEMA_PATH.open("r", encoding="utf-8") as fh:
+            schema = json.load(fh)
+        (kinds,) = [option["enum"] for option in schema["properties"]["manifest_kind"]["oneOf"] if "enum" in option]
+        assert kinds == [kind for kind, _ in mod.DETECTORS]

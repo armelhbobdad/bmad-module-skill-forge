@@ -19,8 +19,9 @@ Detection rules (apply in order, first match wins):
        "python-multi-package"  → python (high)
        A non-JS workspace root's language wins over a nested package.json +
        tsconfig.json (e.g. a docs/ or website/ site that is not a workspace
-       member). JS-family workspaces (npm/pnpm/lerna) carry no entry here and
-       fall through to rule 1, whose root package.json correctly resolves js/ts.
+       member). JS-family workspaces (npm/pnpm/lerna/rush/nx) carry no entry
+       here and fall through to rule 1, whose package.json files correctly
+       resolve js/ts.
   1. package.json (with optional tsconfig.json companion):
        tsconfig.json present → typescript (high)
        tsconfig.json absent  → javascript (high)
@@ -85,9 +86,9 @@ from typing import Any
 # Workspace manifest_kind → root language (rule 0). Only non-JS workspace kinds
 # appear here: a Cargo/Python workspace root is unambiguously rust/python, and a
 # nested package.json+tsconfig (a docs or website subproject) must not win. JS
-# workspace kinds (npm-workspaces/pnpm-workspaces/lerna) are intentionally
-# absent — their root manifest IS package.json, so rule 1 resolves js/ts
-# correctly. generic-folders / null carry no language signal.
+# workspace kinds (npm-workspaces/pnpm-workspaces/lerna/rush/nx) are
+# intentionally absent: their repositories hold package.json files, so rule 1
+# resolves js/ts correctly. generic-folders / null carry no language signal.
 _WORKSPACE_SIGNAL_LANGUAGE: dict[str, str] = {
     "cargo-workspace": "rust",
     "python-multi-package": "python",

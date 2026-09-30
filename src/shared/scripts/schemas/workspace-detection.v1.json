@@ -16,7 +16,7 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": ["npm-workspaces", "pnpm-workspaces", "lerna", "cargo-workspace", "python-multi-package", "generic-folders"]
+          "enum": ["npm-workspaces", "pnpm-workspaces", "lerna", "rush", "nx", "cargo-workspace", "python-multi-package", "generic-folders"]
         },
         { "type": "null" }
       ]

@@ -31,11 +31,11 @@ Before extraction, identify and exclude demo/example files to avoid inflating ex
 
 **Otherwise, auto-detect:**
 
-1. Scan the filtered file list for directories matching: `demo/`, `demos/`, `stories/`, `examples/`, `__stories__/`, `storybook/`
+1. Scan the filtered file list for directories matching: `demo/`, `demos/`, `stories/`, `__stories__/`, `storybook/`, `examples/`, `example/`
 2. Scan for file patterns matching: `*.stories.*`, `*.story.*`, `*.example.*`, `*.demo.*`
 3. Count matches per pattern category
 
-**User confirmation required:**
+**User confirmation required**, since some `examples/` directories hold API-level code:
 
 "**Auto-detected {N} demo/example files** in {M} directories matching these patterns:
 {list detected patterns with counts}
@@ -124,85 +124,19 @@ Extract props interfaces as the primary API contracts, then link to components.
 
 **Step 1 — Extract Props interfaces:**
 
-Load `{extractionPatternsData}` and use the component-library-specific patterns.
+Load `{extractionPatternsData}`: it holds every recipe this phase names, with the languages each runs in (its language notes) and the forms each does not cover (Known Limitation #11). At Forge, Forge+ and Deep tiers run each recipe this phase names as the AST Extraction Protocol there says; at Quick tier read the same shapes from source, as T1-low.
 
-Using AST tools (Forge/Deep) or source reading (Quick):
+Run `react-props-interfaces` (`typescript` for `.ts` files, `tsx` for `.tsx` files). In a Vue component library, also run `vue-define-props` on the `.vue` files (`vue-define-props-tsx` for a `<script setup lang="tsx">` block) through the CLI with the scratch `sgconfig.yml` its Vue note describes: each match's `$NAME` is the props type of the component its `.vue` file defines.
 
-```yaml
-# React/TypeScript props interfaces
-id: react-props-interfaces
-language: typescript  # Use 'tsx' for .tsx files
-rule:
-  kind: export_statement
-  inside:
-    kind: program
-  not:
-    has:
-      regex: '^default$'
-  has:
-    field: declaration
-    kind: interface_declaration
-    has:
-      field: name
-      pattern: $NAME
-constraints:
-  NAME:
-    regex: '.*Props$'
-```
-
-Use `language: typescript` for `.ts` files and `language: tsx` for `.tsx` files: a rule scans only the files of its own language, so run the recipe once per language, changing only `language`, and merge the results (see the language selection note in `{extractionPatternsData}`).
-
-For each `*Props` interface found:
-- Extract all fields with types, optionality, and default values
+For each Props contract found (a `*Props` interface, or a Vue props type):
+- Extract all fields with types, optionality, and default values (for a Vue props type, from the interface or type literal it names)
 - Extract JSDoc descriptions per field (if present)
 - Record: interface name, fields[], source file, line number
 - Provenance: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
 
 **Step 2 — Extract component exports:**
 
-```yaml
-# React component exports (PascalCase)
-id: react-component-exports
-language: tsx  # Use 'tsx' for .tsx files, 'typescript' for .ts files
-rule:
-  kind: export_statement
-  inside:
-    kind: program
-  any:
-    - has:
-        field: declaration
-        any:
-          - kind: function_declaration
-          - kind: function_signature
-        has:
-          field: name
-          pattern: $NAME
-    - has:
-        field: declaration
-        kind: ambient_declaration
-        has:
-          kind: function_signature
-          has:
-            field: name
-            pattern: $NAME
-  not:
-    has:
-      field: declaration
-      kind: function_declaration
-    follows:
-      stopBy:
-        not:
-          kind: comment
-      kind: export_statement
-      has:
-        field: declaration
-        kind: function_signature
-constraints:
-  NAME:
-    regex: '^\p{Lu}'
-```
-
-This is the `react-component-functions` recipe of `{extractionPatternsData}` under another `id`: see its language note (run it once per language, `tsx` for `.tsx` files and `typescript` for `.ts` files, and merge the results; its `javascript` form covers `.js` and `.jsx`) and Known Limitation #11 there for the forms it does not match. Also run that file's `react-component-arrow-functions` recipe for arrow function components.
+Run `react-component-functions` (its `javascript` form for `.js` and `.jsx` files), `react-component-arrow-functions`, `react-wrapped-components` for `memo`, `forwardRef` and `lazy` components, and `js-local-exports` for a local list such as the `export { Button, buttonVariants }` that ends a shadcn/ui component file. Sort a local list's items by what they name. A type-only item (one in an `export type { ... }` list, or a `type X` specifier) is a type: one whose name ends in `Props` is a Props contract for Steps 1 and 3 (read its fields from the interface or type the list names), and any other is a shared type for Step 4. A PascalCase value item is a component, and any other value item (such as `buttonVariants`) is a shared export: record it with the shared types of Step 4.
 
 For each component export: record name, source file, line number. Do not document the function signature in detail (it's always `(props: XProps) => JSX.Element`).
 
@@ -214,14 +148,11 @@ Use a 3-level fallback chain:
 2. **File co-location (fallback):** If naming doesn't match, check if a Props interface and a component are defined in the same file
 3. **Generic parameter (deep fallback):** Look for `ComponentProps<typeof Foo>` or similar generic patterns that reference the component
 
-For each linked pair, record the association. For unlinked Props interfaces, include them as standalone type exports.
+For each linked pair, record the association. For unlinked Props interfaces, include them as standalone type exports. Include an unlinked component export with a note that no Props interface was found (signature-only, T1-low confidence for API contract).
 
 **Step 4 — Extract shared types:**
 
-Extract non-Props type exports using standard AST patterns (same as Forge tier):
-- `export type $NAME = $VALUE`
-- `export enum $NAME { $$$ }`
-- `export interface $NAME { $$$ }` (excluding `*Props` already captured)
+Run `ts-exported-types` for the exported interfaces, type aliases and enums, generic, `extends` and `export declare` forms included, skipping the `*Props` interfaces Step 1 captured. It returns top-level exports only: a member of an `export namespace` block is not a module export.
 
 ### Phase 5: Variant Consolidation
 
@@ -269,7 +200,7 @@ Compile all extracted data into the format expected by step 3 section 5:
 - Linked Props interface (if found)
 - Source file and line number
 - Provenance citation
-- Confidence tier, `extraction_method`, `ast_node_type` and `ast_recipe`, labeled by the tool that produced the entry as for Props interfaces above
+- Confidence tier, `extraction_method`, `ast_node_type` and `ast_recipe`, labeled by the tool that produced the entry as for Props interfaces above (a component `js-local-exports` found records `export_specifier`, the kind that recipe declares)
 
 **Per-export entry (for shared types):**
 

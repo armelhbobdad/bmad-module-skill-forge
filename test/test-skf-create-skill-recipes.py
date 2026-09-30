@@ -8,8 +8,12 @@ recipe declares (#530). This test:
   - parses every recipe (a ```yaml block holding a mapping with `id`,
     `language` and `rule`) in src/skf-create-skill/references/**/*.md, and
     the inline `find_code_by_rule` example, and checks that each `rule`
-    names its kind and captures the export's name as `$NAME`, and that the
-    copies of one recipe are the same rule;
+    names its kind and captures the export's name as `$NAME`;
+  - checks that src/shared/data/ast-grep-recipes.yaml, the recipe file
+    skf-extract-public-api.py --mode full runs, holds the same rules as
+    extraction-patterns.md (#584), with metadata the prose agrees with: the
+    languages the language notes run each recipe in, and the recipe sets
+    (component-extraction.md names its recipes by id and holds no copy);
   - with the ast-grep version package.json's `test:python` pins on PATH
     (`uv run --with ast-grep-cli==0.45.3`), runs each recipe over fixtures
     holding the forms it must find and the forms it must skip (taken from
@@ -21,8 +25,9 @@ recipe declares (#530). This test:
     recipe's kind at each line, and that the recipe finds nothing once its
     declared kind is swapped for a neighbouring one. Every run has matches
     to find. It also runs the CLI streaming template's Python over a recipe's
-    output. With no ast-grep binary, or another version, those runs are
-    skipped.
+    output, and the recipe runner over the fixtures, whose exports must be
+    exactly the (file, first line, name, kind) the recipes' matches give.
+    With no ast-grep binary, or another version, those runs are skipped.
 """
 
 from __future__ import annotations
@@ -41,6 +46,9 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 REFS = REPO / "src" / "skf-create-skill" / "references"
 PATTERNS = REFS / "extraction-patterns.md"
+COMPONENT_EXTRACTION = REFS / "component-extraction.md"
+DATA_FILE = REPO / "src" / "shared" / "data" / "ast-grep-recipes.yaml"
+RUNNER = REPO / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
 
 
 def _pinned_version() -> str:
@@ -69,14 +77,16 @@ KINDS = {
     "js-exported-constants": "export_statement",
     "js-exported-arrow-functions": "export_statement",
     "js-exported-classes": "export_statement",
+    "ts-exported-types": "export_statement",
     "js-reexports": "export_specifier",
     "js-namespace-reexports": "export_statement",
+    "js-local-exports": "export_specifier",
     "rust-public-functions": "function_item",
     "go-exported-functions": "function_declaration",
     "react-props-interfaces": "export_statement",
     "react-component-functions": "export_statement",
-    "react-component-exports": "export_statement",
     "react-component-arrow-functions": "export_statement",
+    "react-wrapped-components": "export_statement",
     "vue-define-props": "call_expression",
     "vue-define-props-tsx": "call_expression",
 }
@@ -89,20 +99,20 @@ VARIANTS = {
     ("js-exported-constants", "typescript"): ("tsx", "javascript"),
     ("js-exported-arrow-functions", "typescript"): ("tsx", "javascript"),
     ("js-exported-classes", "typescript"): ("tsx", "javascript"),
+    ("ts-exported-types", "typescript"): ("tsx",),
     ("js-reexports", "typescript"): ("tsx", "javascript"),
     ("js-namespace-reexports", "typescript"): ("tsx", "javascript"),
+    ("js-local-exports", "typescript"): ("tsx", "javascript"),
     ("react-props-interfaces", "typescript"): ("tsx",),
     ("react-component-functions", "tsx"): ("typescript",),
-    ("react-component-exports", "tsx"): ("typescript",),
     ("react-component-arrow-functions", "typescript"): ("tsx", "javascript"),
+    ("react-wrapped-components", "tsx"): ("typescript", "javascript"),
 }
 
-# Recipes whose copies must be the same rule: component-extraction.md's copy,
-# or its twin under another id.
-SAME_RULE = (
-    (("extraction-patterns.md", "react-props-interfaces"), ("component-extraction.md", "react-props-interfaces")),
-    (("extraction-patterns.md", "react-component-functions"), ("component-extraction.md", "react-component-exports")),
-)
+# The Vue recipes run in both recipe sets: the AST Extraction Protocol runs
+# them on .vue files at any scope, and they are component-library recipes.
+VUE_RECIPES = {"vue-define-props", "vue-define-props-tsx"}
+EXPORT_TYPES = {"function", "class", "const", "interface", "type", "enum", "re-export"}
 
 # A kind next to each declared one (the declaration inside an export, the
 # statement around a call, a bodyless fn): swapped in, it matches nothing.
@@ -1044,6 +1054,148 @@ function render() { return defineProps<InRender>(); }
 const qualified = defineProps<Types.TsxProps>();
 </script>
 """,
+    # #559's fixtures: shadcn/ui shapes (a local export list, a wrapped
+    # component), wrapped components, and the types component-extraction.md
+    # Phase 4 Step 4 extracts (namespace members are not module exports).
+    "button.tsx": """\
+import * as React from "react"
+import { cva } from "class-variance-authority"
+
+const buttonVariants = cva("inline-flex", { variants: {} })
+
+const Button = React.forwardRef<HTMLButtonElement, React.ComponentProps<"button">>(
+  (props, ref) => <button ref={ref} {...props} />
+)
+
+export { Button, buttonVariants }
+""",
+    "card.tsx": """\
+function Card(props: React.ComponentProps<"div">) {
+  return <div {...props} />
+}
+
+function CardHeader(props: React.ComponentProps<"div">) {
+  return <div {...props} />
+}
+
+export { Card, CardHeader }
+""",
+    "wrapped.tsx": """\
+export const Memoed = React.memo(function Memoed() { return <div /> })
+export const Forwarded = React.forwardRef<HTMLDivElement, {}>((props, ref) => <div ref={ref} />)
+export const Lazy = React.lazy(() => import("./card"))
+""",
+    "types.ts": """\
+export interface Plain { a: string }
+export interface Ext extends Plain { b: number }
+export interface Gen<T> { value: T }
+export type Alias = string | number
+export type GenericAlias<T> = { value: T }
+export enum Color { Red, Green }
+export const enum Flag { On, Off }
+export declare enum Declared { A, B }
+export namespace NS {
+  export interface Inner { x: number }
+  export type InnerT = string
+  export enum InnerE { X }
+}
+""",
+    "locals.ts": """\
+// negatives: a from list, lists inside blocks, an import attribute, no names
+export { a } from './a';
+declare module "m" {
+  export { q };
+}
+namespace N { const k = 1; export { k }; }
+export { im } from './json' with { type: 'json' };
+export {};
+const x = 1, y = 2, z = 3;
+type T = string;
+export { x as default };
+export type { T };
+export { type T as TT, y };
+export {
+  // comment a as b
+  z,
+};
+export { x as "str-out" };
+export { z as zed, };
+""",
+    "locals.js": """\
+const x = 1, y = 2;
+export { x as default };
+export { y };
+export { x as "str-out" };
+export { y as why };
+""",
+    "types_adv.ts": """\
+export default interface DefaultI { a: string }
+export declare interface DeclI { a: string }
+export declare type DeclT = string;
+export declare namespace DNS { interface Hidden {} }
+declare module "pkg" {
+  export interface Aug {}
+}
+declare global {
+  export enum GEnum { A }
+}
+export type { Plain } from './types';
+export interface
+  Split
+  extends Base {}
+export interface Defaults<T = {}> extends Base<T> { v: T }
+export type Fn = (a: string) => void;
+export type Mapped<K extends string> = { [P in K]: number };
+export /* c */ interface Commented {}
+interface Local {}
+type LocalT = string;
+export { Local };
+export declare const enum DCE { A }
+""",
+    "wrapped_adv.tsx": """\
+export const A = memo(Inner);
+export const B = React.memo<Props>(Inner);
+export const C = forwardRef<HTMLDivElement, P>((p, r) => <div ref={r} />);
+export const D = lazy(() => import('./d'));
+export const lower = memo(Inner);
+export let E = memo(Inner);
+export const F = observer(Inner);
+export const G = React.memo(Inner) as FC;
+export const H = (memo)(Inner);
+export default memo(function I() { return null; });
+export const J = React.lazy(() => import('./j')), k = 1;
+export const l = 1, M = memo(Inner);
+export const N = styled.div``;
+export const O = Foo.memo(Inner);
+export namespace NS { export const P = memo(Inner); }
+const Q = memo(Inner);
+export const R = memo(forwardRef((p, r) => null));
+""",
+    "wrapped.jsx": """\
+export const A = memo(Inner);
+export const B = React.forwardRef((p, r) => <div ref={r} />);
+export const c = memo(Inner);
+""",
+    # A Radix primitive's shape (radix-ui/primitives dialog.tsx): its Props
+    # interfaces are declared unexported and listed by `export type { ... }`.
+    "dialog.tsx": """\
+import * as React from "react"
+
+interface DialogProps {
+  open?: boolean
+}
+
+const Dialog: React.FC<DialogProps> = (props) => null
+
+interface DialogTriggerProps {
+  asChild?: boolean
+}
+
+const DialogTrigger = React.forwardRef<HTMLButtonElement, DialogTriggerProps>((props, ref) => null)
+
+export { Dialog, DialogTrigger }
+export type { DialogProps, DialogTriggerProps }
+""",
 }
 
 # (id, language) -> sorted (file, 1-based line, captured NAME) the recipe matches
@@ -1111,9 +1263,16 @@ EXPECTED: dict[tuple[str, str], list[tuple[str, int, str]]] = {
         ("components.tsx", 43, "Panel"), ("components.tsx", 44, "Memo"), ("decls.tsx", 1, "Panel"),
         ("decls.tsx", 2, "Generic"), ("decls.tsx", 3, "Typed"), ("decls.tsx", 4, "AsyncCard"),
         ("decls.tsx", 5, "helper"), ("decls.tsx", 8, "Memo"), ("tricky.tsx", 15, "Wrapped"),
+        ("wrapped.tsx", 1, "Memoed"), ("wrapped.tsx", 2, "Forwarded"), ("wrapped.tsx", 3, "Lazy"),
+        ("wrapped_adv.tsx", 1, "A"), ("wrapped_adv.tsx", 2, "B"), ("wrapped_adv.tsx", 3, "C"),
+        ("wrapped_adv.tsx", 4, "D"), ("wrapped_adv.tsx", 5, "lower"), ("wrapped_adv.tsx", 7, "F"),
+        ("wrapped_adv.tsx", 8, "G"), ("wrapped_adv.tsx", 9, "H"), ("wrapped_adv.tsx", 11, "J"),
+        ("wrapped_adv.tsx", 12, "l"), ("wrapped_adv.tsx", 13, "N"), ("wrapped_adv.tsx", 14, "O"),
+        ("wrapped_adv.tsx", 17, "R"),
     ],
     ("js-exported-constants", "javascript"): [
         ("adv.js", 1, "A"), ("adv.js", 2, "b"), ("adv.js", 8, "J"), ("plain.js", 6, "arrow"),
+        ("wrapped.jsx", 1, "A"), ("wrapped.jsx", 2, "B"), ("wrapped.jsx", 3, "c"),
     ],
     ("js-exported-arrow-functions", "typescript"): [
         ("adv.ts", 10, "B2"), ("adv.ts", 11, "lower"), ("decls.ts", 9, "handler"),
@@ -1143,11 +1302,27 @@ EXPECTED: dict[tuple[str, str], list[tuple[str, int, str]]] = {
     ("js-exported-classes", "javascript"): [
         ("adv.js", 3, "B"), ("adv.js", 7, "H"),
     ],
+    ("ts-exported-types", "typescript"): [
+        ("adv.ts", 16, "Dir"), ("adv.ts", 39, "DeclaredProps"), ("decls.ts", 35, "ButtonProps"),
+        ("decls.ts", 38, "IconProps"), ("decls.ts", 41, "ListProps"), ("decls.ts", 42, "Other"),
+        ("decls.ts", 44, "AliasProps"), ("functions.ts", 45, "Api"), ("props.ts", 1, "ButtonProps"),
+        ("types.ts", 1, "Plain"), ("types.ts", 2, "Ext"), ("types.ts", 3, "Gen"),
+        ("types.ts", 4, "Alias"), ("types.ts", 5, "GenericAlias"), ("types.ts", 6, "Color"),
+        ("types.ts", 7, "Flag"), ("types.ts", 8, "Declared"), ("types_adv.ts", 2, "DeclI"),
+        ("types_adv.ts", 3, "DeclT"), ("types_adv.ts", 13, "Split"),
+        ("types_adv.ts", 15, "Defaults"), ("types_adv.ts", 16, "Fn"),
+        ("types_adv.ts", 17, "Mapped"), ("types_adv.ts", 18, "Commented"),
+        ("types_adv.ts", 22, "DCE"),
+    ],
+    ("ts-exported-types", "tsx"): [
+        ("adv.tsx", 20, "MultiLineProps"), ("components.tsx", 52, "CardProps"),
+        ("decls.tsx", 9, "CardProps"),
+    ],
     ("js-reexports", "typescript"): [
         ("adv.ts", 49, "one"), ("adv.ts", 50, "three"), ("adv.ts", 51, "strAlias"),
         ("adv.ts", 52, "quoted-out"), ("decls.ts", 45, "a"), ("decls.ts", 45, "c"),
         ("decls.ts", 46, "Widget"), ("decls.ts", 46, "WidgetProps"), ("decls.ts", 47, "ThemeProps"),
-        ("decls.ts", 48, "default"),
+        ("decls.ts", 48, "default"), ("locals.ts", 2, "a"), ("types_adv.ts", 11, "Plain"),
     ],
     ("js-reexports", "tsx"): [
         ("adv.tsx", 17, "CardProps"), ("adv.tsx", 17, "default"), ("adv.tsx", 18, "Btn"),
@@ -1164,6 +1339,22 @@ EXPECTED: dict[tuple[str, str], list[tuple[str, int, str]]] = {
     ],
     ("js-namespace-reexports", "javascript"): [
         ("adv.js", 6, "h"),
+    ],
+    ("js-local-exports", "typescript"): [
+        ("adv.ts", 58, "X"), ("decls.ts", 51, "MAX"), ("decls.ts", 51, "Shop"),
+        ("functions.ts", 51, "internal"), ("locals.ts", 11, "default"), ("locals.ts", 12, "T"),
+        ("locals.ts", 13, "TT"), ("locals.ts", 13, "y"), ("locals.ts", 16, "z"),
+        ("locals.ts", 18, "str-out"), ("locals.ts", 19, "zed"), ("tricky.ts", 48, "aliased"),
+        ("types_adv.ts", 21, "Local"),
+    ],
+    ("js-local-exports", "tsx"): [
+        ("button.tsx", 10, "Button"), ("button.tsx", 10, "buttonVariants"), ("card.tsx", 9, "Card"),
+        ("card.tsx", 9, "CardHeader"), ("dialog.tsx", 15, "Dialog"), ("dialog.tsx", 15, "DialogTrigger"),
+        ("dialog.tsx", 16, "DialogProps"), ("dialog.tsx", 16, "DialogTriggerProps"), ("tricky.tsx", 37, "Renamed"),
+    ],
+    ("js-local-exports", "javascript"): [
+        ("locals.js", 3, "y"), ("locals.js", 4, "str-out"), ("locals.js", 5, "why"),
+        ("plain.js", 5, "hidden"),
     ],
     ("rust-public-functions", "rust"): [
         ("adv.rs", 6, "split_lines"), ("adv.rs", 9, "commented_vis"), ("adv.rs", 11, "r#match"),
@@ -1224,6 +1415,19 @@ EXPECTED: dict[tuple[str, str], list[tuple[str, int, str]]] = {
     ("react-component-arrow-functions", "javascript"): [
         ("adv.js", 1, "A"), ("adv.js", 2, "C"), ("adv.js", 8, "J"),
     ],
+    ("react-wrapped-components", "tsx"): [
+        ("adv.tsx", 4, "Fwd"), ("adv.tsx", 22, "Lazy"), ("decls.tsx", 8, "Memo"),
+        ("tricky.tsx", 15, "Wrapped"), ("wrapped.tsx", 1, "Memoed"),
+        ("wrapped.tsx", 2, "Forwarded"), ("wrapped.tsx", 3, "Lazy"), ("wrapped_adv.tsx", 1, "A"),
+        ("wrapped_adv.tsx", 2, "B"), ("wrapped_adv.tsx", 3, "C"), ("wrapped_adv.tsx", 4, "D"),
+        ("wrapped_adv.tsx", 11, "J"), ("wrapped_adv.tsx", 12, "M"), ("wrapped_adv.tsx", 17, "R"),
+    ],
+    ("react-wrapped-components", "typescript"): [
+        ("decls.ts", 19, "Wrapped"),
+    ],
+    ("react-wrapped-components", "javascript"): [
+        ("wrapped.jsx", 1, "A"), ("wrapped.jsx", 2, "B"),
+    ],
     ("vue-define-props", "typescript"): [
         ("A.vue", 2, "SingleQuoted"), ("B.vue", 7, "SecondBlock"),
         ("Button.vue", 3, "VueButtonProps"), ("D.vue", 3, "GenericComp<T>"),
@@ -1243,20 +1447,6 @@ EXPECTED: dict[tuple[str, str], list[tuple[str, int, str]]] = {
     ],
     ("vue-define-props-tsx", "tsx"): [
         ("C.vue", 2, "TsxLang"), ("K.vue", 2, "{ size: number }"), ("K.vue", 4, "Types.TsxProps"),
-    ],
-    ("react-component-exports", "tsx"): [
-        ("adv.tsx", 5, "Page"), ("components.tsx", 2, "Card"), ("components.tsx", 6, "Typed"),
-        ("components.tsx", 10, "ServerList"), ("components.tsx", 14, "List"),
-        ("components.tsx", 18, "Select"), ("components.tsx", 22, "App"),
-        ("components.tsx", 27, "Poly"), ("components.tsx", 28, "Poly"), ("gen.tsx", 4, "Real"),
-        ("tricky.tsx", 3, "Generic"), ("tricky.tsx", 7, "DefaultSplit"), ("tricky.tsx", 8, "GET"),
-        ("tricky.tsx", 9, "URLBar"), ("tricky.tsx", 11, "Outer"), ("tricky.tsx", 16, "Over"),
-        ("tricky.tsx", 17, "Over"), ("tricky.tsx", 21, "AfterOver"),
-        ("tricky.tsx", 22, "DeclaredComp"), ("tricky.tsx", 28, "AfterDecorator"),
-        ("tricky.tsx", 31, "Ünicode"), ("tricky.tsx", 33, "Multi"),
-    ],
-    ("react-component-exports", "typescript"): [
-        ("functions.ts", 23, "Main"),
     ],
 }
 
@@ -1301,6 +1491,10 @@ def _runs() -> list[tuple[str, str, dict, str]]:
 
 RUNS = _runs()
 
+# The recipe file the runner reads: a mapping whose `recipes` list holds them,
+# one YAML document, as lint:instructions (lintlang) parses every YAML file.
+DATA_RECIPES = yaml.safe_load(DATA_FILE.read_text(encoding="utf-8"))["recipes"]
+
 
 def _recipe_id(item: tuple[str, str, dict]) -> str:
     return f"{item[0]}:{item[2]['id']}:{item[2]['language']}"
@@ -1325,10 +1519,11 @@ def _binds_name(node: object) -> bool:
 
 def test_every_recipe_is_known() -> None:
     ids = [doc["id"] for _, _, doc in RECIPES]
-    # 17 in extraction-patterns.md (js-exported-functions and
+    # 20 in extraction-patterns.md (js-exported-functions and
     # react-component-functions twice: their typescript/tsx and javascript
-    # forms), 2 in component-extraction.md
-    assert len(ids) == 19
+    # forms); component-extraction.md names its recipes and holds no copy
+    assert len(ids) == 20
+    assert {md for md, _, _ in RECIPES} == {"extraction-patterns.md"}
     assert set(ids) == set(KINDS), f"a recipe without a verified kind: {sorted(set(ids) ^ set(KINDS))}"
     assert set(VARIANTS) <= {(doc["id"], doc["language"]) for _, _, doc in RECIPES}
     assert {(doc["id"], language) for _, _, doc, language in RUNS} == set(EXPECTED)
@@ -1342,16 +1537,164 @@ def test_recipe_rule_names_its_kind(item: tuple[str, str, dict]) -> None:
     assert _binds_name(doc["rule"]), "no pattern outside `not:` captures $NAME"
 
 
-@pytest.mark.parametrize("pair", SAME_RULE, ids=lambda pair: f"{pair[0][1]}={pair[1][1]}")
-def test_copies_of_a_recipe_are_the_same_rule(pair: tuple[tuple[str, str], tuple[str, str]]) -> None:
-    docs = []
-    for md, recipe_id in pair:
-        (doc,) = [d for f, _, d in RECIPES if f == md and d["id"] == recipe_id and d["language"] != "javascript"]
-        docs.append(doc)
-    first, second = docs
-    assert first["language"] == second["language"]
-    assert first["rule"] == second["rule"]
-    assert first.get("constraints") == second.get("constraints")
+def test_data_file_holds_the_markdown_recipes() -> None:
+    """The runner's recipe file and extraction-patterns.md hold the same
+    rules, form for form; the file adds only each recipe's metadata."""
+    markdown = {(doc["id"], doc["language"]): doc for _, _, doc in RECIPES}
+    data = {(doc["id"], doc["language"]): doc for doc in DATA_RECIPES}
+    assert len(data) == len(DATA_RECIPES), "a recipe form twice in the data file"
+    assert set(data) == set(markdown)
+    for key, doc in data.items():
+        assert set(doc) <= {"id", "language", "metadata", "rule", "constraints"}, key
+        assert doc["rule"] == markdown[key]["rule"], key
+        assert doc.get("constraints") == markdown[key].get("constraints"), key
+
+
+def _slice(text: str, start: str, end: str) -> str:
+    assert text.count(start) == 1, start
+    head = text.index(start)
+    tail = text.index(end, head)
+    return text[head:tail]
+
+
+def _fenced_ids(text: str) -> set[str]:
+    return {yaml.safe_load(block)["id"] for block in FENCE_RE.findall(text) if block.startswith("id:")}
+
+
+def _named_ids(text: str) -> set[str]:
+    """The recipe ids a passage names in backticks."""
+    return {name for name in re.findall(r"`([a-z][a-z-]+)`", text) if name in KINDS}
+
+
+def _component_steps() -> dict[int, str]:
+    """component-extraction.md's Phase 4 steps, by number."""
+    phase = _slice(COMPONENT_EXTRACTION.read_text(encoding="utf-8"), "### Phase 4: Props-First Extraction",
+                   "### Phase 5")
+    marks = [phase.index(f"**Step {n} ") for n in (1, 2, 3, 4)] + [len(phase)]
+    return {n: phase[marks[n - 1]:marks[n]] for n in (1, 2, 3, 4)}
+
+
+def test_data_file_metadata_matches_the_prose() -> None:
+    """Each recipe runs in the languages the fixture runs cover (VARIANTS),
+    belongs to the sets the prose runs it in (the standard flow runs the
+    by-language recipes, component-extraction.md Phase 4 the ones it names,
+    every Component Library recipe among them), and names an export type the
+    runner knows; prefer_over names recipes that share a language with it."""
+    patterns = PATTERNS.read_text(encoding="utf-8")
+    by_language = _fenced_ids(_slice(patterns, "### YAML Rule Recipes by Language",
+                                     "### Component Library YAML Rule Recipes"))
+    components = _fenced_ids(_slice(patterns, "### Component Library YAML Rule Recipes",
+                                    "### Known ast-grep Limitations"))
+    named = set().union(*(_named_ids(step) for step in _component_steps().values()))
+    languages: dict[str, set[str]] = {}
+    for doc in DATA_RECIPES:
+        meta = doc["metadata"]
+        assert meta["languages"] == [doc["language"], *VARIANTS.get((doc["id"], doc["language"]), ())], doc["id"]
+        languages.setdefault(doc["id"], set()).update(meta["languages"])
+        types = meta["export_type"] if isinstance(meta["export_type"], list) else [meta["export_type"]]
+        assert set(types) <= EXPORT_TYPES, doc["id"]
+    for doc in DATA_RECIPES:
+        for loser in doc["metadata"].get("prefer_over", []):
+            assert loser in languages and languages[loser] & languages[doc["id"]], (doc["id"], loser)
+    standard = {doc["id"] for doc in DATA_RECIPES if "standard" in doc["metadata"]["sets"]}
+    component = {doc["id"] for doc in DATA_RECIPES if "component-library" in doc["metadata"]["sets"]}
+    assert standard == by_language | VUE_RECIPES
+    assert component == named and components <= named
+
+
+def test_runner_rules_match_the_prose() -> None:
+    """The runner restates three rules of extraction-patterns.md: the head
+    cap selection (HEAD_CAPS), the dedupe priority (prefer_over) and the
+    language selection note (metadata.languages). Each copy agrees with the
+    prose it restates."""
+    runner = _runner()
+    text = PATTERNS.read_text(encoding="utf-8")
+    flat = " ".join(text.split())
+    default = re.search(r"\*\*Default \(Quick/Forge, any scope\):\*\* `N = (\d+)`", flat)
+    assert default is not None and int(default.group(1)) == runner.DEFAULT_HEAD_CAP
+    caps = {(tier, scope): int(cap) for tiers, scope, cap in re.findall(
+        r"\*\*(Forge\+/Deep) with `scope\.type: \"([a-z-]+)\"`:\*\* `N = (\d+)`", flat) for tier in tiers.split("/")}
+    assert caps == runner.HEAD_CAPS
+
+    prefer: dict[str, set[str]] = {}
+    languages: dict[str, set[str]] = {}
+    forms: dict[str, set[str]] = {}
+    for doc in DATA_RECIPES:
+        prefer.setdefault(doc["id"], set()).update(doc["metadata"].get("prefer_over", []))
+        languages.setdefault(doc["id"], set()).update(doc["metadata"]["languages"])
+        forms.setdefault(doc["id"], set()).add(doc["language"])
+    words = {"arrow function match": "js-exported-arrow-functions",
+             "function declaration match": "js-exported-functions", "constant match": "js-exported-constants"}
+    priority = re.search(r"Priority when deduplicating: ([^.]+)\.", flat)
+    assert priority is not None
+    ranked = [words[part.strip()] for part in priority.group(1).split(">")]
+    for i, winner in enumerate(ranked):
+        assert not any(winner in prefer[loser] for loser in ranked[i + 1:]), winner
+    # the two of them that match one name on one line: `export const f = () => ...`
+    assert "js-exported-constants" in prefer["js-exported-arrow-functions"]
+
+    note = re.search(r"> \*\*Language selection:\*\*(.*?)\n\n", text, re.S)
+    assert note is not None
+    unchanged = _named_ids(_slice(note.group(1), "`language: javascript`:", "run unchanged"))
+    js_forms = _named_ids(_slice(note.group(1), "run unchanged", "have `javascript` forms"))
+    ts_only = _named_ids(_slice(note.group(1), "have `javascript` forms", "are TypeScript only"))
+    assert unchanged | js_forms | ts_only == {rid for rid in languages if rid not in VUE_RECIPES
+                                               and languages[rid] & {"typescript", "tsx", "javascript"}}
+    js_ts = {"typescript", "tsx", "javascript"}
+    assert all(languages[rid] == js_ts and len(forms[rid]) == 1 for rid in unchanged), unchanged
+    assert all(languages[rid] == js_ts and "javascript" in forms[rid] for rid in js_forms), js_forms
+    assert all(languages[rid] == {"typescript", "tsx"} for rid in ts_only), ts_only
+
+
+def test_component_extraction_names_its_recipes() -> None:
+    """Phase 4 names its recipes by id and holds no copy of one; the retired
+    `react-component-exports` alias is gone (#559)."""
+    text = COMPONENT_EXTRACTION.read_text(encoding="utf-8")
+    assert not [block for block in FENCE_RE.findall(text) if block.lstrip().startswith(("id:", "#"))]
+    steps = _component_steps()
+    assert _named_ids(steps[1]) == {"react-props-interfaces", "vue-define-props", "vue-define-props-tsx"}
+    assert _named_ids(steps[2]) == {"react-component-functions", "react-component-arrow-functions",
+                                    "react-wrapped-components", "js-local-exports"}
+    assert _named_ids(steps[4]) == {"ts-exported-types"}
+    assert "$NAME" not in steps[4], "Step 4 runs a recipe, not bare patterns"
+    for md in (REPO / "src").rglob("*.md"):
+        assert "react-component-exports" not in md.read_text(encoding="utf-8"), md
+
+
+def _found(recipe_ids: set[str], files: set[str]) -> set[str]:
+    return {name for (recipe_id, _), matches in EXPECTED.items() if recipe_id in recipe_ids
+            for file, _, name in matches if file in files}
+
+
+def test_component_extraction_step_2_finds_the_issue_components() -> None:
+    """#559's shadcn/ui shapes: the recipes Step 2 names find every
+    component and shared export of button.tsx, card.tsx and wrapped.tsx."""
+    found = _found(_named_ids(_component_steps()[2]), {"button.tsx", "card.tsx", "wrapped.tsx"})
+    assert found == {"Button", "buttonVariants", "Card", "CardHeader", "Memoed", "Forwarded", "Lazy"}
+
+
+def test_component_extraction_step_2_sorts_a_radix_list() -> None:
+    """A Radix primitive declares its Props interfaces unexported and lists
+    them in `export type { ... }`: Step 1's recipes find none of them, Step
+    2's find them all, and Step 2 sorts a type-only item ending in Props
+    into the Props contracts, not the components."""
+    steps = _component_steps()
+    assert _found(_named_ids(steps[1]), {"dialog.tsx"}) == set()
+    assert _found(_named_ids(steps[2]), {"dialog.tsx"}) == {"Dialog", "DialogTrigger", "DialogProps",
+                                                            "DialogTriggerProps"}
+    step_2 = " ".join(steps[2].split())
+    assert ("A type-only item (one in an `export type { ... }` list, or a `type X` specifier) is a type: "
+            "one whose name ends in `Props` is a Props contract for Steps 1 and 3") in step_2
+    assert "A PascalCase value item is a component" in step_2
+
+
+def test_component_extraction_step_4_finds_the_types() -> None:
+    """Step 4's recipe finds the generic, `extends` and `declare` forms the
+    bare patterns missed, and no namespace member (#559)."""
+    found = _found(_named_ids(_component_steps()[4]), {"types.ts"})
+    assert {"Ext", "Gen", "GenericAlias", "Declared"} <= found
+    assert found.isdisjoint({"Inner", "InnerT", "InnerE"})
+    assert found == {"Plain", "Ext", "Gen", "Alias", "GenericAlias", "Color", "Flag", "Declared"}
 
 
 def test_inline_find_code_by_rule_example_matches_the_python_recipe() -> None:
@@ -1483,13 +1826,14 @@ def test_expected_lines_are_definition_lines(fixture_dir: Path) -> None:
 
 
 @needs_ast_grep
-def test_kind_at_gives_each_recipe_kind(fixture_dir: Path) -> None:
-    """The provenance verifier's kind-at, reading extraction-patterns.md,
-    gives the kind the matching recipe declares at every Python / TS / JS /
-    Rust / Go line EXPECTED cites (a Vue recipe's $NAME is a type, so its
-    lines are looked up by line alone)."""
+@pytest.mark.parametrize("source", [PATTERNS, DATA_FILE], ids=["markdown", "data-file"])
+def test_kind_at_gives_each_recipe_kind(source: Path, fixture_dir: Path) -> None:
+    """The provenance verifier's kind-at, reading extraction-patterns.md or
+    the runner's recipe file, gives the kind the matching recipe declares at
+    every Python / TS / JS / Rust / Go line EXPECTED cites (a Vue recipe's
+    $NAME is a type, so its lines are looked up by line alone)."""
     verifier = _verifier()
-    recipes = verifier.load_recipes(PATTERNS)
+    recipes = verifier.load_recipes(source)
     wanted: dict[str, dict[tuple[int, str | None], set[str]]] = {}
     for (recipe_id, _), matches in EXPECTED.items():
         for file, line, name in matches:
@@ -1527,3 +1871,70 @@ def test_cli_template_cites_the_name_line(recipe_id: str, wanted: str, fixture_d
     out = subprocess.run([sys.executable, "-c", code], input=stream, capture_output=True,
                          text=True, encoding="utf-8", check=True).stdout
     assert any(line.startswith("[AST:") and line.endswith(wanted) for line in out.splitlines()), out
+
+
+# --------------------------------------------------------------------------
+# The recipe runner over the fixtures
+# --------------------------------------------------------------------------
+
+
+def _runner():
+    """src/shared/scripts/skf-extract-public-api.py, loaded as a module."""
+    spec = importlib.util.spec_from_file_location("skf_extract_public_api_recipes", RUNNER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _expected_exports(recipe_set: str) -> list[tuple[str, int, str, str]]:
+    """The exports the recipes of `recipe_set` give the fixtures: each name
+    of each file once, at its first line, with the kind the recipes that
+    match that line declare (a name starting with `_` is never an export)."""
+    ids = {doc["id"] for doc in DATA_RECIPES if recipe_set in doc["metadata"]["sets"]}
+    lines: dict[tuple[str, str], dict[int, set[str]]] = {}
+    for (recipe_id, _), matches in EXPECTED.items():
+        if recipe_id not in ids:
+            continue
+        for file, line, name in matches:
+            if not name.startswith("_"):
+                lines.setdefault((file, name), {}).setdefault(line, set()).add(KINDS[recipe_id])
+    expected = []
+    for (file, name), kinds_by_line in lines.items():
+        first = min(kinds_by_line)
+        (kind,) = kinds_by_line[first]
+        expected.append((file, first, name, kind))
+    return sorted(expected)
+
+
+@needs_ast_grep
+@pytest.mark.parametrize("recipe_set", ["standard", "component-library"])
+def test_runner_output_on_fixtures(recipe_set: str, fixture_dir: Path, capsys: pytest.CaptureFixture) -> None:
+    """skf-extract-public-api.py --mode full gives exactly the (file, line,
+    name, kind) the recipes' matches give, and counts each recipe's matches
+    (#584)."""
+    runner = _runner()
+    code = runner.main(["--mode", "full", "--source-root", str(fixture_dir), "--recipe-set", recipe_set,
+                        "--head-cap", "0"])
+    out = json.loads(capsys.readouterr().out)
+    assert (code, out["status"], out["errors"]) == (0, "ok", [])
+    got = sorted((e["source_file"], e["source_line"], e["export_name"], e["ast_node_type"]) for e in out["exports"])
+    assert got == _expected_exports(recipe_set)
+    counts = {r["id"]: r["matches"] for r in out["recipes"]}
+    for recipe_id, count in counts.items():
+        assert count == sum(1 for (i, _), matches in EXPECTED.items() if i == recipe_id
+                            for _, _, name in matches if not name.startswith("_")), recipe_id
+    assert out["files_in_scope"] == len(FIXTURES)
+    recipes = {(e["source_file"], e["export_name"]): e["ast_recipe"] for e in out["exports"]}
+    if recipe_set == "standard":
+        # an arrow function wins over the constant it also is
+        assert recipes[("decls.ts", "handler")] == "js-exported-arrow-functions"
+        assert recipes[("decls.ts", "LIMIT")] == "js-exported-constants"
+    else:
+        # a Props interface wins over the type it also is
+        assert recipes[("decls.ts", "ButtonProps")] == "react-props-interfaces"
+        assert recipes[("decls.ts", "Other")] == "ts-exported-types"
+        assert recipes[("button.tsx", "Button")] == "js-local-exports"
+        # a local list's item takes the type of what it names
+        types = {(e["source_file"], e["export_name"]): e["export_type"] for e in out["exports"]}
+        assert [types[("dialog.tsx", name)] for name in ("Dialog", "DialogTrigger", "DialogProps")] == [
+            "function", "const", "interface"]
