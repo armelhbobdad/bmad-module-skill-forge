@@ -15,7 +15,9 @@ name: Quality & Validation
 # - Knowledge base tests
 # - Skill structure validation
 # - File reference validation
-# - Python script tests (pytest via uv)
+# - Tool versions (src/shared/tool-requirements.yaml against the prerequisites
+#   table and every copy of those versions)
+# - Python script tests (pytest via uv, on the minimum Python)
 
 "on":
   pull_request:
@@ -237,6 +239,16 @@ jobs:
       - name: Test the file reference validator
         run: npm run test:file-refs-tool
 
+      # src/shared/tool-requirements.yaml is the one list of tool versions:
+      # the check compares the prerequisites table it generates and every
+      # copy (docs, engines.node, .nvmrc, the workflows' Node and Python
+      # versions, the ast-grep-cli pin) with it. No network, so it runs here.
+      - name: Test the tool versions check
+        run: npm run test:tool-requirements-tool
+
+      - name: Check tool versions against src/shared/tool-requirements.yaml
+        run: npm run validate:tool-requirements
+
   # Builds the real site and resolves every emitted href, src, and srcset
   # against the file tree. `docs/` is read both on GitHub and as the published
   # site, and a link can be valid in one and dead in the other while every
@@ -280,6 +292,10 @@ jobs:
           SITE_URL: ${{ vars.SITE_URL }}
         run: node tools/validate-docs-links.js --strict --require-build
 
+  # Runs the Python tests on SKF's minimum Python (src/shared/tool-requirements.yaml),
+  # so the minimum has a run behind it; the release workflow runs them on a
+  # newer one. tools/tool-requirements.js fails when no workflow runs the
+  # minimum or a python-version is not one of Python's tested versions.
   python:
     strategy:
       fail-fast: false
@@ -293,7 +309,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Setup Node
         uses: actions/setup-node@v6

@@ -15,7 +15,17 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { resolveConfig, run, blankCode, assetUrls, buildInputsStatus, checkLlmsIndex } = require('../tools/validate-docs-links.js');
+const {
+  resolveConfig,
+  run,
+  blankCode,
+  assetUrls,
+  buildInputsStatus,
+  checkLlmsIndex,
+  checkBuilt,
+  headingToAnchor,
+  extractAnchors,
+} = require('../tools/validate-docs-links.js');
 
 let passed = 0;
 let failed = 0;
@@ -106,11 +116,296 @@ async function main() {
     assert.match(r.issues[0].detail, /repository root, so it is dead on GitHub/);
   });
 
-  await testAsync('external, anchor-only, and non-.md targets are ignored', async () => {
+  await testAsync('external targets are ignored', async () => {
     const { cfg } = fixture({
-      docs: { 'a.md': '[a](https://x.test/y.md) [b](#frag) [c](./img.png) [d](mailto:a@b.c)' },
+      docs: { 'a.md': '[a](https://x.test/y.md#nope) [d](mailto:a@b.c) [e](//cdn.test/x.png)' },
     });
     assert.deepStrictEqual((await runQuiet(cfg)).issues, []);
+  });
+
+  await testAsync('a non-.md target is checked for existence too', async () => {
+    const good = fixture({ docs: { 'a.md': '[c](./img.png) [d](./sub/)', 'img.png': 'png', 'sub/x.md': 'x' } });
+    assert.deepStrictEqual((await runQuiet(good.cfg)).issues, []);
+
+    const bad = fixture({ docs: { 'a.md': '[c](./img.png)' } });
+    const r = await runQuiet(bad.cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.match(r.issues[0].detail, /link target does not exist: \.\/img\.png/);
+  });
+
+  // --- anchors ------------------------------------------------------------
+
+  await testAsync('a same-file anchor that matches a heading is clean', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': '# Title\n\nSee [b](#title) and [top](#top) and [c](#).\n' } });
+    assert.deepStrictEqual((await runQuiet(cfg)).issues, []);
+  });
+
+  await testAsync('a broken same-file anchor in a published page is reported', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': '# Title\n\nSee [b](#titel).\n' } });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.strictEqual(r.issues[0].file, path.join('docs', 'a.md'));
+    assert.match(r.issues[0].detail, /anchor matches no heading in this file: #titel/);
+  });
+
+  await testAsync('a broken same-file anchor in docs/_internal/ is reported', async () => {
+    const { cfg } = fixture({ docs: { '_internal/RELEASING.md': '## Rollback playbook\n\n[r](#rollback)\n' } });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.strictEqual(r.issues[0].file, path.join('docs', '_internal', 'RELEASING.md'));
+  });
+
+  await testAsync('a broken cross-file anchor from CONTRIBUTING.md is reported', async () => {
+    const release = '## Rollback playbook\n';
+    const good = fixture({
+      root: { 'CONTRIBUTING.md': '[r](docs/_internal/RELEASING.md#rollback-playbook)\n' },
+      docs: { '_internal/RELEASING.md': release },
+    });
+    assert.deepStrictEqual((await runQuiet(good.cfg)).issues, []);
+
+    const bad = fixture(
+      {
+        root: { 'CONTRIBUTING.md': '[r](docs/_internal/RELEASING.md#rollback)\n' },
+        docs: { '_internal/RELEASING.md': release },
+      },
+      ['--strict'],
+    );
+    const r = await runQuiet(bad.cfg);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.strictEqual(r.issues[0].file, 'CONTRIBUTING.md');
+    assert.match(r.issues[0].detail, /anchor matches no heading in docs[/\\]_internal[/\\]RELEASING\.md/);
+  });
+
+  await testAsync('a broken same-file anchor in CONTRIBUTING.md is reported', async () => {
+    const { cfg } = fixture({
+      root: { 'CONTRIBUTING.md': '## The pull request check\n\n[a](#the-pull-request-check) [b](#the-pr-check)\n' },
+      docs: { 'a.md': 'x' },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.match(r.issues[0].detail, /#the-pr-check/);
+  });
+
+  await testAsync('a missing file target in CONTRIBUTING.md is reported, a folder or LICENSE is not', async () => {
+    const { cfg } = fixture({
+      root: {
+        'CONTRIBUTING.md': '[l](LICENSE) [g](.github/) [w](.github/workflows/quality.yaml) [k](src/knowledge/overview.md)\n',
+        LICENSE: 'MIT',
+        '.github/workflows/other.yaml': 'on: push',
+      },
+      docs: { 'a.md': 'x' },
+    });
+    const r = await runQuiet(cfg);
+    assert.deepStrictEqual(
+      r.issues.map((i) => i.detail),
+      ['link target does not exist: .github/workflows/quality.yaml', 'link target does not exist: src/knowledge/overview.md'],
+    );
+  });
+
+  await testAsync('README.md and changes/README.md are read, resolving from their own folder', async () => {
+    const { cfg } = fixture({
+      root: {
+        'README.md': '## Verifying a skill\n\n[v](#verifying-a-skill) [x](#nope)\n',
+        'changes/README.md': '[c](../CONTRIBUTING.md#the-pull-request-check) [w](#which-type)\n\n## Which type\n',
+        'CONTRIBUTING.md': '## The check\n',
+      },
+      docs: { 'a.md': 'x' },
+    });
+    const r = await runQuiet(cfg);
+    assert.deepStrictEqual(
+      r.issues.map((i) => `${i.file}: ${i.detail}`),
+      [
+        'README.md: anchor matches no heading in this file: #nope',
+        `${path.join('changes', 'README.md')}: anchor matches no heading in CONTRIBUTING.md: ../CONTRIBUTING.md#the-pull-request-check`,
+      ],
+    );
+  });
+
+  await testAsync('a root-absolute .md target has its anchor checked', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': '[w](/docs/b.md#pipeline-mode) [x](/docs/b.md#pipeline)', 'b.md': '## Pipeline mode\n' },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.match(r.issues[0].detail, /\/docs\/b\.md#pipeline$/);
+  });
+
+  await testAsync('a doubled hyphen and a repeated heading resolve', async () => {
+    const { cfg } = fixture({
+      docs: {
+        'a.md': [
+          '## Scenario D \u2014 Tag exists but npm publish failed',
+          '## Internal \u2014 not covered by semver',
+          '## Cutting v1.0.0 under `--tag latest`',
+          '## Step',
+          '## Step',
+          '',
+          '[a](#scenario-d--tag-exists-but-npm-publish-failed) [b](#internal--not-covered-by-semver)',
+          '[c](#cutting-v100-under---tag-latest) [d](#step) [e](#step-1) [f](#step-2)',
+        ].join('\n'),
+      },
+    });
+    const r = await runQuiet(cfg);
+    assert.deepStrictEqual(
+      r.issues.map((i) => i.detail),
+      ['anchor matches no heading in this file: #step-2'],
+    );
+  });
+
+  await testAsync('an anchor that matches only a # comment in a fenced block is reported', async () => {
+    const { cfg } = fixture({
+      docs: {
+        'a.md': '## Rollback\n\n```bash\n# Flip latest back\nnpm dist-tag add x latest\n```\n\n[f](#flip-latest-back) [r](#rollback)\n',
+      },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.match(r.issues[0].detail, /#flip-latest-back/);
+  });
+
+  await testAsync('an anchor shown inside inline code is not checked', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': 'Write `[x](#anything)` to link a heading.\n' } });
+    assert.deepStrictEqual((await runQuiet(cfg)).issues, []);
+  });
+
+  await testAsync('a percent-encoded anchor is decoded before matching', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': '## Café\n\n[c](#caf%C3%A9) [d](#café)\n' } });
+    assert.deepStrictEqual((await runQuiet(cfg)).issues, []);
+  });
+
+  // --- heading ids --------------------------------------------------------
+
+  test('headingToAnchor keeps each space as a hyphen and drops punctuation', () => {
+    assert.strictEqual(headingToAnchor('Scenario A: Greenfield + BMM Integration'), 'scenario-a-greenfield--bmm-integration');
+    assert.strictEqual(headingToAnchor("Who's this for?"), 'whos-this-for');
+    assert.strictEqual(headingToAnchor('Tips & Tricks'), 'tips--tricks');
+    assert.strictEqual(headingToAnchor('tier_override: auto'), 'tier_override-auto');
+    assert.strictEqual(headingToAnchor('Élan 🚀 résumé'), 'élan--résumé');
+  });
+
+  test('repeated headings take -1, -2 and skip an id an earlier heading took', () => {
+    // github-slugger: Foo -> foo, Foo -> foo-1, "Foo 1" -> foo-1 is taken -> foo-1-1.
+    const ids = [...extractAnchors('# Foo\n# Foo\n# Foo 1\n# Foo\n')];
+    assert.deepStrictEqual(ids, ['foo', 'foo-1', 'foo-1-1', 'foo-2']);
+  });
+
+  test('extractAnchors skips fences, front matter and non-headings', () => {
+    const ids = extractAnchors(
+      [
+        '---',
+        '# a yaml comment',
+        'title: Page',
+        '---',
+        '# Real',
+        '#hashtag is a paragraph',
+        '    # indented four spaces is code',
+        '~~~',
+        '# tilde fenced',
+        '~~~',
+        '   ### Three spaces is still a heading ###',
+        '#',
+      ].join('\n'),
+    );
+    assert.deepStrictEqual([...ids], ['real', 'three-spaces-is-still-a-heading', '']);
+  });
+
+  test('extractAnchors reads heading text the way a renderer does', () => {
+    const ids = extractAnchors(
+      [
+        '## Run `_private_` and `a  b`',
+        '## _Emphasis_ and __strong__ but snake_case stays',
+        '## See [the guide](./guide.md#x) and ![logo](logo.png)',
+        '## <span>Tagged</span> R&amp;D &#169;',
+        '## Closing hashes ##',
+        '## C# stays',
+        '## An \\_escaped\\_ underscore and ` spaced `',
+        '## CRLF line\r',
+      ].join('\n'),
+    );
+    assert.deepStrictEqual(
+      [...ids],
+      [
+        'run-_private_-and-a--b',
+        'emphasis-and-strong-but-snake_case-stays',
+        'see-the-guide-and-',
+        'tagged-rd-',
+        'closing-hashes',
+        'c-stays',
+        'an-_escaped_-underscore-and-spaced',
+        'crlf-line',
+      ],
+    );
+  });
+
+  // github-slugger is what GitHub and Starlight run; compare against it when
+  // it is installed (Astro brings it in as a dev dependency). The name sits in
+  // a variable because this file is shared with a repository that does not
+  // install it, and a literal specifier fails that repository's import lint.
+  const SLUGGER_PACKAGE = 'github-slugger';
+  let slugger = null;
+  try {
+    slugger = await import(SLUGGER_PACKAGE);
+  } catch {
+    console.log('- skipped: github-slugger parity (github-slugger is not installed)');
+  }
+  if (slugger) {
+    test('headingToAnchor matches github-slugger on every character', () => {
+      // Ranges where both use the same Unicode tables: Latin through Arabic,
+      // punctuation, symbols and arrows, CJK punctuation and kana, and emoji.
+      const exact = [
+        [0x00_00, 0x08_6f],
+        [0x20_00, 0x2b_ff],
+        [0x30_00, 0x30_ff],
+        [0x1_f0_00, 0x1_fa_ff],
+      ];
+      for (let cp = 0; cp <= 0x10_ff_ff; cp += 1) {
+        if (cp >= 0xd8_00 && cp <= 0xdf_ff) {
+          continue;
+        }
+        const char = String.fromCodePoint(cp);
+        const ours = headingToAnchor(char);
+        const theirs = slugger.slug(char);
+        if (ours === theirs) {
+          continue;
+        }
+        // Outside those ranges only a letter assigned after Unicode 13 may
+        // differ: github-slugger drops it, this Node's tables keep it.
+        const inExact = exact.some(([lo, hi]) => cp >= lo && cp <= hi);
+        assert.ok(
+          !inExact && theirs === '',
+          `U+${cp.toString(16)}: ours ${JSON.stringify(ours)}, github-slugger ${JSON.stringify(theirs)}`,
+        );
+      }
+    });
+
+    test('extractAnchors matches github-slugger on repeated and mixed headings', () => {
+      const headings = [
+        'Scenario D \u2014 Tag exists',
+        'Foo',
+        'Foo',
+        'Foo 1',
+        'Tips & Tricks',
+        'Headless / Automation',
+        '\u2014 clear session \u2014',
+      ];
+      const expected = new slugger.default();
+      assert.deepStrictEqual(
+        [...extractAnchors(headings.map((h) => `## ${h}`).join('\n'))],
+        headings.map((h) => expected.slug(h)),
+      );
+    });
+  }
+
+  test('validate-doc-links.js slugs headings with this module, not its own copy', () => {
+    // Not every repository carrying this tool has the other checker.
+    const checker = path.join(__dirname, '..', 'tools', 'validate-doc-links.js');
+    if (!fs.existsSync(checker)) {
+      return;
+    }
+    const source = fs.readFileSync(checker, 'utf8');
+    assert.match(source, /\{ extractAnchors \} = require\('\.\/validate-docs-links\.js'\)/);
+    assert.doesNotMatch(source, /function (headingToAnchor|extractAnchors)\b/);
   });
 
   // --- fenced / inline code --------------------------------------------
@@ -217,6 +512,42 @@ async function main() {
     const r = await runQuiet(cfg);
     assert.strictEqual(r.issues.length, 1);
     assert.match(r.issues[0].detail, /missing the base path/);
+  });
+
+  await testAsync('a same-page #fragment must match an id on the page', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': 'x' },
+      build: {
+        'index.html': page(
+          '<h1 id="_top">T</h1><h2 id="ok">Ok</h2><a href="#_top">t</a><a href="#ok">o</a><a href="#top">T</a><a href="#">e</a><a href="#gone">g</a>',
+        ),
+      },
+    });
+    const r = await runQuiet(cfg);
+    assert.deepStrictEqual(
+      r.issues.map((i) => i.detail),
+      ['href matches no id on this page: #gone'],
+    );
+  });
+
+  await testAsync('a #fragment on another page must match an id on that page', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': 'x' },
+      build: {
+        'index.html': page('<a href="/base/ok/#sec">s</a><a href="/base/ok/#nope">n</a><a href="./ok/#sec">r</a>'),
+        'ok/index.html': page('<h2 id="sec">Sec</h2>'),
+      },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.match(r.issues[0].detail, /href matches no id on ok[/\\]index\.html: \/base\/ok\/#nope/);
+  });
+
+  test('an id attribute is read only as a whole attribute, not a suffix', () => {
+    const { cfg } = fixture({ build: { 'index.html': page('<div data-id="x"></div><a href="#x">x</a>') } });
+    const issues = [];
+    checkBuilt(cfg, '/base/', (file, detail) => issues.push(detail));
+    assert.deepStrictEqual(issues, ['href matches no id on this page: #x']);
   });
 
   await testAsync('an href escaping the site root is reported, not resolved', async () => {

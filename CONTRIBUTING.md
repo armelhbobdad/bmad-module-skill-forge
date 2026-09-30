@@ -20,12 +20,12 @@ If you're not sure where a change belongs, open an issue and ask before writing 
 
 **Platforms:** Linux, Windows, and macOS. Linux and Windows are exercised in CI on every PR (`ubuntu-latest` + `windows-latest` matrix); macOS works in practice (POSIX-equivalent to Linux) but isn't CI-gated. On Windows, SKF transparently falls back to NTFS junctions when symlink privilege isn't held — no Developer Mode or admin rights required. Git Bash (bundled with [Git for Windows](https://git-scm.com/download/win)), PowerShell, and WSL2 all work.
 
-**Prerequisites:**
+**Prerequisites** (the [prerequisites table](docs/getting-started.md#prerequisites-full-reference) lists every tool with its minimum and tested versions):
 
-- [Node.js](https://nodejs.org/) >= 22 — the supported floor (`engines.node`); development and CI run Node 24 (see `.nvmrc`)
-- [Python](https://www.python.org/) >= 3.11
-- [uv](https://docs.astral.sh/uv/) — runs the Python test suite
-- `git`, `gh` — used by several workflows and by the health-check loop
+- [Node.js](https://nodejs.org/) >= 22, the supported floor (`engines.node`); development and CI run the version in `.nvmrc`
+- [Python](https://www.python.org/) >= 3.11, the version CI runs the Python tests on (`UV_PYTHON=3.11 npm run test:python` does the same locally, where a plain `npm run test:python` uses uv's default Python)
+- [uv](https://docs.astral.sh/uv/), which runs the Python test suite
+- `git` and `gh`, used by several workflows and by the health-check loop
 
 ```bash
 git clone https://github.com/armelhbobdad/bmad-module-skill-forge.git
@@ -37,13 +37,23 @@ npm run quality       # run the full local pre-flight
 The `npm run quality` script is your contract with CI. It runs:
 
 - `format:check` (Prettier), `lint` (ESLint), `lint:md` (markdownlint), `lint:instructions` (LintLang on the agent instructions under `src/`)
-- `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:rehype`, `test:docs-links-tool`, `test:em-dash-tool`, `test:file-refs-tool`, `test:changes-tool`, `test:knowledge`
-- `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`, `validate:em-dash`, `validate:changes` (the change fragments in `changes/`, see [Change Fragments](#change-fragments))
+- `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:rehype`, `test:docs-links-tool`, `test:em-dash-tool`, `test:file-refs-tool`, `test:changes-tool`, `test:tool-requirements-tool`, `test:knowledge`
+- `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`, `validate:em-dash`, `validate:changes` (the change fragments in `changes/`, see [Change Fragments](#change-fragments)), `validate:tool-requirements` (the tool versions, see [Tool Versions](#tool-versions))
 - `docs:validate-drift` — SKF docs vs. the canonical [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills) output
+
+`test:python` runs every `test/test-*.py` file with pytest under `uv`, so a new Python test file runs as soon as it exists: there is no list to add it to.
 
 If `npm run quality` passes locally, CI should too. The same steps run in [`.github/workflows/quality.yaml`](.github/workflows/quality.yaml) on every pull request. A pull request also runs `npm run changes:pr`, which compares your branch with its base branch and so is not part of `npm run quality`: see [The pull request check](#the-pull-request-check).
 
 Write no em dashes (U+2014) in anything you add, including commit messages: use a colon, a comma, parentheses or a new sentence. `validate:em-dash` fails on any em dash in the published docs (`README.md`, `docs/` outside `docs/_internal/`, `website/`) and on any em dash in the lines or commit messages your branch adds. The one exception is the context-snippet lines SKF generates (`|IMPORTANT:`, `|key-types:` and the like, a pipe followed directly by a key and a colon), which docs may quote as they are.
+
+### Tool Versions
+
+[`src/shared/tool-requirements.yaml`](src/shared/tool-requirements.yaml) is the one list of the tools SKF uses (Node.js, Python, uv, git, gh, ast-grep, ccc, qmd, tessl, skill-check), with each tool's minimum and tested versions. Its header says how those numbers are set: `tested` names versions a run actually used, and a minimum starts at a tested version and comes down only after a run on an older one passes. The prerequisites table in `docs/getting-started.md` is generated from it, so to change a version:
+
+1. Edit `src/shared/tool-requirements.yaml`, not the table.
+2. Run `node tools/tool-requirements.js --write` to regenerate the table.
+3. Run `npm run validate:tool-requirements` (`node tools/tool-requirements.js --check`). It names the file and line of every copy that no longer agrees with the list: the Node.js and Python minimums in `README.md` (its install line and Python badge), `docs/` and this file, `engines.node` in `package.json`, `.nvmrc`, the `node-version` and `python-version` values in `.github/workflows/`, the `ast-grep-cli==` pin in `test:python`, and the README Acknowledgements rows. Fix those copies by hand.
 
 ## Workflow for Changes
 
@@ -143,10 +153,10 @@ The released-fragment rule takes the last stable tag reachable from the base, as
 `npm run quality` must pass before you push. If it fails:
 
 - **Fix the root cause.** Do not `git commit --no-verify`. Do not disable a rule to make the linter shut up. If a hook is wrong, fix the hook in a separate PR.
-- **If a Python test fails on your machine but not in CI,** check your `uv` version and re-run `npm run test:python` from a clean shell.
+- **If a Python test gives a different result on your machine than in CI,** run the tests on the Python CI uses (see [Local Setup](#local-setup)), check your `uv` version, and re-run `npm run test:python` from a clean shell.
 - **If `docs:validate-drift` fails,** you either touched a pinned version/commit SHA that no longer resolves in [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills), or you added a library reference the whitelist doesn't cover. Fix the reference; don't relax the validator unless the fix is clearly out of scope.
 
-CI re-runs everything on the PR. A green local run and a red CI run means (a) you have uncommitted files, (b) your Node/uv versions drift from `.nvmrc` / `test:python`, or (c) the pull request check failed: `npm run changes:pr` is not part of `npm run quality`, so run it after committing. Check all three before filing a CI bug.
+CI re-runs everything on the PR. A green local run and a red CI run means (a) you have uncommitted files, (b) your Node/uv/Python versions drift from `.nvmrc` / `test:python` / the Python minimum, or (c) the pull request check failed: `npm run changes:pr` is not part of `npm run quality`, so run it after committing. Check all three before filing a CI bug.
 
 ## Releasing
 

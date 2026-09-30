@@ -889,7 +889,7 @@ function runRelease(root, argv, env) {
 // checked: a change a user notices there still takes a fragment.
 const SHIPPED_PATHS = [/^src\//, /^tools\/cli\//, /^tools\/skf-npx-wrapper\.js$/, /^\.npmignore$/];
 const SHIPPED_PATHSPECS = ['src', 'tools/cli', 'tools/skf-npx-wrapper.js', '.npmignore'];
-// release.yaml pushes its release commit to release/bot/vX.Y.Z-<run id>.
+// release.yaml pushes its release commit to release/bot/vX.Y.Z-<run id>-<run attempt>.
 const BOT_BRANCH = /^release\/bot\//;
 const TRAILER_LINE = /^changelog\s*:(.*)$/i;
 const TRAILER_NONE = /^none\s*\((.*)\)$/i;

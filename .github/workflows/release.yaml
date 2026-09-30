@@ -18,8 +18,10 @@ name: Release
 # 3. From main, the release commit goes to a temp branch and a bot PR, because
 #    the Default ruleset refuses a direct push to main. The run dispatches the
 #    required checks on that branch, waits for them, then waits for a
-#    maintainer to approve or admin-merge the PR (gate 2). From any other ref
-#    (a prerelease), the tag goes on the CI commit and main does not move.
+#    maintainer to approve or admin-merge the PR (gate 2). A run that fails
+#    or is cancelled before the PR merges closes it and deletes the temp
+#    branch in its last step. From any other ref (a prerelease), the tag
+#    goes on the CI commit and main does not move.
 # 4. The tag is pushed, npm publishes through OIDC trusted publishing with
 #    provenance under the alpha, beta, rc or latest dist-tag, and the GitHub
 #    Release is created.
@@ -300,11 +302,15 @@ jobs:
         # commit onto a throwaway branch whose name includes `github.run_id` so
         # a retry after a mid-flow failure on the same version string cannot
         # collide with a prior branch (concurrency group serializes dispatches
-        # but same-version re-dispatch after cleanup is a real scenario).
+        # but same-version re-dispatch after cleanup is a real scenario). The
+        # name also carries `github.run_attempt`: "Re-run failed jobs" keeps
+        # the run id and rebuilds the release commit with a new SHA, so a
+        # branch named after the run id alone refused the re-run's push as a
+        # non-fast-forward (issue #563).
         env:
           NEW_VERSION: ${{ steps.version.outputs.new_version }}
         run: |
-          TEMP_BRANCH="release/bot/v$NEW_VERSION-$GITHUB_RUN_ID"
+          TEMP_BRANCH="release/bot/v$NEW_VERSION-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           git push origin "HEAD:refs/heads/$TEMP_BRANCH"
           echo "temp_branch=$TEMP_BRANCH" >> "$GITHUB_OUTPUT"
           echo "::notice::Pushed release commit to temp branch $TEMP_BRANCH"
@@ -408,12 +414,48 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)
+          # A failed gh call is retried: one API error would otherwise end
+          # the release here.
+          HEAD_SHA=""
+          for TRY in 1 2 3 4 5 6; do
+            HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid 2>/dev/null || true)
+            if [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then break; fi
+            HEAD_SHA=""
+            if [ "$TRY" -lt 6 ]; then
+              echo "Reading the head commit of PR #$PR_NUMBER failed (try $TRY of 6); retrying"
+              sleep 10
+            fi
+          done
+          if [ -z "$HEAD_SHA" ]; then
+            echo "::error::Could not read the head commit of PR #$PR_NUMBER in 6 tries. The last step of this run closes the bot PR and deletes its branch. To retry, use Re-run failed jobs on this run or dispatch release.yaml again."
+            exit 1
+          fi
           # Give GitHub a moment to attach the pull_request runs (they may
           # still be firing after PR-open / force-trigger dispatch).
           sleep 10
-          STUCK=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&per_page=100" \
-            --paginate --jq '[.workflow_runs[] | select(.conclusion == "action_required") | .id]')
+          # One list over every page: `gh api --paginate --jq` runs the filter
+          # once per page and prints one array per page, which `jq 'length'`
+          # below would read as several counts. --slurp gathers the pages
+          # into one array first (gh does not take --jq with --slurp). A
+          # failed call still prints an array, `[]` when no page arrived or
+          # the pages read before the failure, so gh's exit status decides,
+          # and a failed call is retried. An error body, which has no
+          # workflow_runs, prints nothing.
+          STUCK=""
+          for TRY in 1 2 3 4 5 6; do
+            if RUNS=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&per_page=100" --paginate --slurp 2>/dev/null); then
+              STUCK=$(echo "$RUNS" | jq -c 'if type=="array" and all(.[]; type=="object" and has("workflow_runs")) then [.[].workflow_runs[] | select(.conclusion == "action_required") | .id] else empty end' 2>/dev/null || true)
+            fi
+            if [ -n "$STUCK" ]; then break; fi
+            if [ "$TRY" -lt 6 ]; then
+              echo "Listing the workflow runs on $HEAD_SHA failed (try $TRY of 6); retrying"
+              sleep 10
+            fi
+          done
+          if [ -z "$STUCK" ]; then
+            echo "::error::Could not list the workflow runs on $HEAD_SHA in 6 tries. The last step of this run closes the bot PR and deletes its branch. To retry, use Re-run failed jobs on this run or dispatch release.yaml again."
+            exit 1
+          fi
           COUNT=$(echo "$STUCK" | jq 'length')
           if [ "$COUNT" -eq 0 ]; then
             echo "::notice::No action_required runs on $HEAD_SHA; nothing to cancel."
@@ -445,8 +487,39 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)
+          # A failed gh call is retried, here and in the wait loop below, as
+          # the approval and merge waits do: the default `bash -e` shell ends
+          # the step when a command substitution in an assignment fails.
+          HEAD_SHA=""
+          for TRY in 1 2 3 4 5 6; do
+            HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid 2>/dev/null || true)
+            if [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then break; fi
+            HEAD_SHA=""
+            if [ "$TRY" -lt 6 ]; then
+              echo "Reading the head commit of PR #$PR_NUMBER failed (try $TRY of 6); retrying"
+              sleep 10
+            fi
+          done
+          if [ -z "$HEAD_SHA" ]; then
+            echo "::error::Could not read the head commit of PR #$PR_NUMBER in 6 tries. The last step of this run closes the bot PR and deletes its branch. To retry, use Re-run failed jobs on this run or dispatch release.yaml again."
+            exit 1
+          fi
           echo "Polling check-runs on $HEAD_SHA (PR #$PR_NUMBER)"
+
+          # Every check-run on the commit, as one list. `gh api --paginate
+          # --jq` runs the filter once per page and prints one result per
+          # page, so past the first page a context resolved to one line per
+          # page and never read as completed (issue #563). --slurp gathers the
+          # pages into one array first; gh does not take --jq with --slurp,
+          # hence the jq pipe. A failed call still prints an array, `[]` when
+          # no page arrived or the pages read before the failure, so gh's
+          # exit status decides: prints nothing when the call fails or
+          # returns an error body, which has no check_runs.
+          check_runs() {
+            local PAGES
+            PAGES=$(gh api "/repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" --paginate --slurp 2>/dev/null) || return 0
+            echo "$PAGES" | jq -c 'if type=="array" and all(.[]; type=="object" and has("check_runs")) then [.[].check_runs[] | {name, status, conclusion, started_at, html_url}] else empty end' 2>/dev/null || true
+          }
 
           # AC #2: required contexts fetched from the ruleset (not hard-coded)
           # so the Wait step can never drift from branch protection. Issue #486:
@@ -483,7 +556,8 @@ jobs:
           POLL=0
           REGISTERED=0
           while [ $POLL -lt 24 ]; do
-            REGISTERED=$(gh api "/repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" --paginate --jq '.check_runs | length' 2>/dev/null || echo 0)
+            CHECKS=$(check_runs)
+            REGISTERED=$(echo "${CHECKS:-[]}" | jq 'length')
             if [ "${REGISTERED:-0}" -ge 1 ]; then
               echo "::notice::$REGISTERED check-run(s) registered on $HEAD_SHA; entering main wait loop"
               break
@@ -498,11 +572,19 @@ jobs:
 
           # AC #4: main wait loop — most-recent-wins per context, fail-fast on
           # any concluded failure state, 20m hard cap via step-level timeout.
+          # A read that fails is a pending tick, so only the timeout ends the
+          # wait.
           ELAPSED=0
           TIMEOUT=1200
+          PENDING=()
           while [ $ELAPSED -lt $TIMEOUT ]; do
-            CHECKS=$(gh api "/repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
-              --paginate --jq '[.check_runs[] | {name, status, conclusion, started_at, html_url}]')
+            CHECKS=$(check_runs)
+            if [ -z "$CHECKS" ]; then
+              echo "Reading the check-runs on $HEAD_SHA failed (elapsed ${ELAPSED}s of ${TIMEOUT}s); retrying"
+              sleep 20
+              ELAPSED=$((ELAPSED + 20))
+              continue
+            fi
             ALL_GREEN=true
             PENDING=()
             FAILED=()
@@ -540,7 +622,7 @@ jobs:
               esac
             done < <(echo "$REQUIRED_JSON" | jq -r '.[]')
             if [ ${#FAILED[@]} -gt 0 ]; then
-              echo "::error::Required context(s) failed: ${FAILED[*]}. PR left open for manual inspection. Re-run release.yaml after the underlying defect is fixed on main."
+              echo "::error::Required context(s) failed: ${FAILED[*]}. The last step of this run closes the bot PR, unless it has merged, and deletes its branch. For a flaky check, use Re-run failed jobs on this run; for a defect, fix it on main by pull request, then dispatch release.yaml again."
               exit 1
             fi
             if [ "$ALL_GREEN" = "true" ]; then
@@ -551,7 +633,7 @@ jobs:
             sleep 20
             ELAPSED=$((ELAPSED + 20))
           done
-          echo "::error::Required status checks did not all succeed within ${TIMEOUT}s on $HEAD_SHA. Pending: ${PENDING[*]}. PR left open for manual inspection."
+          echo "::error::Required status checks did not all succeed within ${TIMEOUT}s on $HEAD_SHA. Pending: ${PENDING[*]:-unknown, the check-runs could not be read}. The last step of this run closes the bot PR, unless it has merged, and deletes its branch. To retry, use Re-run failed jobs on this run or dispatch release.yaml again."
           exit 1
 
       - name: Wait for PR approval or admin-bypass merge
@@ -622,7 +704,7 @@ jobs:
             # P7: reviewer actively rejected — fail fast, don't burn the 30m budget
             # polling for an APPROVED that won't arrive until the comments are addressed.
             if [ "$DECISION" = "CHANGES_REQUESTED" ]; then
-              echo "::error::PR #$PR_NUMBER has CHANGES_REQUESTED; a reviewer actively rejected the PR. Address the review comments and re-dispatch release.yaml."
+              echo "::error::PR #$PR_NUMBER has CHANGES_REQUESTED; a reviewer actively rejected the PR. The last step of this run closes it, where the review stays readable, and deletes its branch. Address the review comments on main by pull request, then dispatch release.yaml again."
               exit 1
             fi
             if [ "$DECISION" = "APPROVED" ]; then
@@ -642,7 +724,7 @@ jobs:
             sleep $POLL_INTERVAL
             ELAPSED=$((ELAPSED + POLL_INTERVAL))
           done
-          echo "::error::PR #$PR_NUMBER was neither approved nor admin-bypass-merged within 30m. PR left open. Re-run release.yaml after approving or merging."
+          echo "::error::PR #$PR_NUMBER was neither approved nor admin-bypass-merged within 30m. The last step of this run closes it, unless it merges first, and deletes its branch. To retry, use Re-run failed jobs on this run or dispatch release.yaml again, then approve or merge the new bot PR within 30m."
           exit 1
 
       - name: Auto-merge bot PR
@@ -656,8 +738,10 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          # P2: --delete-branch cleans up release/bot/vX.Y.Z-<run_id> after merge
-          # so the ref namespace doesn't accumulate one branch per release forever.
+          # P2: --delete-branch deletes release/bot/vX.Y.Z-<run_id>-<run_attempt>
+          # when gh merges the PR at once. A queued auto-merge skips the delete
+          # (delete_branch_on_merge is off) and leaves the branch, as an
+          # admin-bypass merge does; RELEASING.md's ls-remote check finds it.
           if ! gh pr merge "$PR_NUMBER" --auto --merge --delete-branch; then
             echo "::error::Auto-merge failed for PR #$PR_NUMBER. If the error was 'auto merge is not allowed for this repository', run: gh api --method PATCH /repos/$GITHUB_REPOSITORY -f allow_auto_merge=true  (see Story 3.4 AC #6 / Task 2)."
             exit 1
@@ -697,7 +781,7 @@ jobs:
             # closed it, GitHub blocked it, mergeable state went bad). Fail fast
             # instead of hanging until the 5m timeout with no actionable diagnostic.
             if [ "$STATE" = "CLOSED" ]; then
-              echo "::error::PR #$PR_NUMBER was closed without being merged. Investigate: operator close, mergeable state regression, ruleset reject. PR left in closed state."
+              echo "::error::PR #$PR_NUMBER was closed without being merged. Investigate: operator close, mergeable state regression, ruleset reject. The last step of this run deletes its branch if it is still there. Dispatch release.yaml again once the cause is fixed."
               exit 1
             fi
             if [ "$STATE" = "MERGED" ]; then
@@ -909,4 +993,108 @@ jobs:
               echo "- Dispatch ref: \`$GITHUB_REF\` (non-main; tag-only path per AC #9)"
               echo "- Tag anchored on the $ANCHOR_KIND \`$TAG_ANCHOR\`"
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # A main dispatch that fails or is cancelled before its bot PR merges
+      # left the PR open and its temp branch on origin, and the next dispatch
+      # opened a second `release: bump to vX.Y.Z` PR next to it (issue #563).
+      # This last step runs once the temp branch was pushed (a run that
+      # stopped earlier pushed nothing). It closes an open bot PR, which also
+      # deletes the branch, then comments on it with a link to the run, and
+      # deletes the branch of a PR that is already closed or was never
+      # opened. A merged PR and its branch are left alone: main then carries
+      # the release commit. A closed PR keeps the commit reachable
+      # (refs/pull/<n>/head), so closing it loses nothing to inspect. The PR
+      # is found by its head branch, whose name is unique to this run
+      # attempt, so a failure inside Open bot PR after the PR was created is
+      # covered too.
+      - name: Close the bot PR and delete its branch after a failed run
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main' && steps.temp_push.outputs.temp_branch != ''
+        timeout-minutes: 5
+        env:
+          TEMP_BRANCH: ${{ steps.temp_push.outputs.temp_branch }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          RETRY="To retry, use Re-run failed jobs on the run or dispatch release.yaml again: either opens a new bot PR."
+          COMMENT="Closed by the release run $RUN_URL (attempt $GITHUB_RUN_ATTEMPT), which stopped before this PR merged (job status: $JOB_STATUS). The run also deletes its branch \`$TEMP_BRANCH\`; the release commit stays reachable from this PR. $RETRY"
+          PR_NUMBER=""
+          STATE=""
+          CLOSE_TRIED=""
+          # A failed gh call is retried, and a failed close reads the state
+          # again first: the PR may have merged in between, or gh may have
+          # closed it and failed after that, so a PR this run tried to close
+          # that now reads as closed counts as closed by the run.
+          for TRY in 1 2 3 4 5 6; do
+            PRS=$(gh pr list --head "$TEMP_BRANCH" --state all --json number,state,isCrossRepository 2>/dev/null || true)
+            if echo "$PRS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+              PR_NUMBER=$(echo "$PRS" | jq -r '[.[] | select(.isCrossRepository | not)] | .[0].number // empty')
+              STATE=$(echo "$PRS" | jq -r '[.[] | select(.isCrossRepository | not)] | .[0].state // "NONE"')
+              if [ "$STATE" = "CLOSED" ] && [ -n "$CLOSE_TRIED" ]; then
+                STATE="CLOSED_BY_RUN"
+              fi
+              if [ "$STATE" != "OPEN" ]; then
+                break
+              fi
+              # No --comment: gh posts it before it closes, so each retry
+              # would post it again, and a PR that merged in between would
+              # keep it. The comment goes on below, once the PR is closed.
+              CLOSE_TRIED=true
+              if gh pr close "$PR_NUMBER" --delete-branch; then
+                STATE="CLOSED_BY_RUN"
+                break
+              fi
+              WHAT_FAILED="Closing bot PR #$PR_NUMBER failed"
+            else
+              WHAT_FAILED="Reading the bot PR of $TEMP_BRANCH failed"
+            fi
+            if [ "$TRY" -lt 6 ]; then
+              echo "$WHAT_FAILED (try $TRY of 6); retrying"
+              sleep 10
+            fi
+          done
+          case "$STATE" in
+            MERGED)
+              echo "::warning::Bot PR #$PR_NUMBER merged before this run stopped, so it and $TEMP_BRANCH are left alone: main carries the release commit. See the Rollback Playbook in docs/_internal/RELEASING.md."
+              exit 0
+              ;;
+            OPEN)
+              echo "::error::Could not close bot PR #$PR_NUMBER in 6 tries. Close it by hand: gh pr close $PR_NUMBER --delete-branch"
+              exit 1
+              ;;
+            "")
+              echo "::error::Could not read the bot PR of $TEMP_BRANCH in 6 tries, so nothing was closed or deleted. Check by hand: gh pr list --head $TEMP_BRANCH --state all"
+              exit 1
+              ;;
+          esac
+          COMMENTED=""
+          if [ "$STATE" = "CLOSED_BY_RUN" ]; then
+            if gh pr comment "$PR_NUMBER" --body "$COMMENT"; then
+              COMMENTED=" with a comment linking this run"
+            else
+              echo "::warning::Bot PR #$PR_NUMBER is closed, but the comment linking this run could not be posted."
+            fi
+          fi
+
+          # Closing with --delete-branch deleted the branch already; this
+          # covers a PR that was closed before, a run that stopped before the
+          # PR was opened and a branch delete that failed.
+          if ! REMOTE=$(git ls-remote --heads origin "refs/heads/$TEMP_BRANCH"); then
+            echo "::error::Could not look up $TEMP_BRANCH on origin. Check by hand: git ls-remote --heads origin 'release/bot/*'"
+            exit 1
+          fi
+          if [ -n "$REMOTE" ] && ! git push origin --delete "$TEMP_BRANCH"; then
+            echo "::error::Could not delete $TEMP_BRANCH. Delete it by hand: git push origin --delete $TEMP_BRANCH"
+            exit 1
+          fi
+          case "$STATE" in
+            CLOSED_BY_RUN) DONE="Closed bot PR #$PR_NUMBER$COMMENTED and deleted $TEMP_BRANCH." ;;
+            CLOSED) DONE="Bot PR #$PR_NUMBER is closed and $TEMP_BRANCH is deleted." ;;
+            *) DONE="No bot PR was open for $TEMP_BRANCH; the branch is deleted." ;;
+          esac
+          echo "::notice::$DONE"
+          {
+            echo "## Release stopped before the bot PR merged"
+            echo
+            echo "$DONE $RETRY"
           } >> "$GITHUB_STEP_SUMMARY"

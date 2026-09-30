@@ -254,21 +254,34 @@ With `ref` empty, `docs.yaml` builds the latest stable tag reachable from `main`
 
 **An urgent docs fix** normally ships as a patch release: merge the fix with a `docs` fragment (see [`changes/README.md`](../../changes/README.md)), preview with `npm run changes:preview -- --bump patch`, then dispatch `version_bump=patch`. The release deploys the site at the new tag.
 
-### Post-publish — delete the bot temp branch after an admin-bypass merge
+### The bot temp branch after a merge or a failed run
 
-`Auto-merge bot PR` runs `gh pr merge --auto --merge --delete-branch`, so on the auto-merge path the temp branch `release/bot/vX.Y.Z-<run_id>` is removed when the queued merge fires. Clearing gate 2 with the PR merge button instead — admin bypass, the observed pattern for most cuts — merges the PR directly, and the queued `--delete-branch` never runs. The branch stays on origin.
+On a `main` dispatch, the release commit goes to the temp branch `release/bot/vX.Y.Z-<run_id>-<run_attempt>` and a bot PR from it. The name carries the run attempt because **Re-run failed jobs** keeps the run id and builds the release commit again with a new SHA: a branch named after the run id alone refused the re-run's push as a non-fast-forward.
+
+**After a merge.** `Auto-merge bot PR` runs `gh pr merge --auto --merge --delete-branch`. When the PR can merge at once, gh merges it and deletes the temp branch. When it cannot merge yet, gh queues an auto-merge and skips the delete, and `delete_branch_on_merge` is off on this repository, so the branch stays on origin after the queued merge. Clearing gate 2 with the PR merge button instead (admin bypass, the observed pattern for most cuts) merges the PR before that step, which is then skipped, and the branch stays on origin too.
+
+**After a failed run.** A run that fails or is cancelled once its temp branch is pushed ends with the step `Close the bot PR and delete its branch after a failed run`:
+
+- an open bot PR is closed with a comment that links the run, and its branch is deleted;
+- the branch of a PR that is already closed, or of a run that stopped before it opened its PR, is deleted;
+- a merged bot PR and its branch are left alone: `main` then carries the release commit, and the [Rollback Playbook](#rollback-playbook) covers a run that stopped after the merge.
+
+A closed PR keeps the release commit reachable (`refs/pull/<n>/head`), so closing it loses nothing to inspect. To retry, use **Re-run failed jobs** on the run (a flaky check, an approval that timed out) or dispatch `release.yaml` again once the defect is fixed on `main`: either opens a new bot PR, and no second `release: bump to` PR sits next to the old one. If that step itself fails, its error names the command that finishes the job by hand (`gh pr close <n> --delete-branch` or `git push origin --delete <branch>`).
+
+Either way, check that nothing is left:
 
 ```bash
-# Expect zero once a cut is fully closed out.
+# Expect zero once a cut is fully closed out, published or failed.
 git ls-remote --heads origin 'release/bot/*'
+gh pr list --state open --search '"release: bump to" in:title'
 
 # Delete a leftover only after confirming its commit is reachable from main.
 git fetch origin --quiet
 git merge-base --is-ancestor <temp-branch-sha> origin/main \
-  && git push origin --delete release/bot/vX.Y.Z-<run_id>
+  && git push origin --delete release/bot/vX.Y.Z-<run_id>-<run_attempt>
 ```
 
-The tag anchors on the bot PR's merge commit on `main`, not on the temp branch (see the `Create and push tag` step's main-dispatch path), so deleting the branch after the merge orphans nothing. The exception is a pull request that merged into `main` while the release waited for checks and approval (`strict_required_status_checks_policy` is `false`, so the bot PR is not rebased first): the merge commit's tree then holds that pull request, which the published package does not, so the tag goes on the release commit itself, which `main` reaches through the merge commit. The next release then renders that pull request's fragment and checks its surfaces. If the bot PR was squash- or rebase-merged in that case, the release commit is not on `main`, and the run stops before tagging or publishing: re-dispatch as in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed), with no tag to delete. The reachability check is what distinguishes this from the tag-orphan case in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed); if the commit is _not_ reachable, the merge did not land and the branch is still load-bearing.
+The tag anchors on the bot PR's merge commit on `main`, not on the temp branch (see the `Create and push tag` step's main-dispatch path), so deleting the branch after the merge orphans nothing. The exception is a pull request that merged into `main` while the release waited for checks and approval (`strict_required_status_checks_policy` is `false`, so the bot PR is not rebased first): the merge commit's tree then holds that pull request, which the published package does not, so the tag goes on the release commit itself, which `main` reaches through the merge commit. The next release then renders that pull request's fragment and checks its surfaces. If the bot PR was squash- or rebase-merged in that case, the release commit is not on `main`, and the run stops before tagging or publishing: re-dispatch as in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed), with no tag to delete. The reachability check is what distinguishes this from the tag-orphan case in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed); if the commit is _not_ reachable, the merge did not land: the branch belongs to a run still in progress, or to a failed run whose last step could not finish, and `gh pr list --head <branch> --state all` tells which.
 
 <!-- Rollback Playbook — added in Story 4.1 -->
 
@@ -672,7 +685,7 @@ For the `release` environment, a deletion+restore similarly uses the two-call pa
 
   Expected wall-clock: ~5–8 minutes end-to-end when both gates are approved promptly.
 
-- **Expected outcome.** `main` tip advances by 2 commits (the `release: bump to v1.0.0` commit on the bot temp branch `release/bot/v1.0.0-<run_id>`, plus the merge commit from the auto-merged or admin-bypass-merged bot PR); `jq -r .version package.json` → `1.0.0`; `jq -r '.plugins[0].version' .claude-plugin/marketplace.json` → `1.0.0`; `npm view bmad-module-skill-forge dist-tags.latest` → `1.0.0` (flipped from the prior stable, e.g. `0.10.0`); `rc` dist-tag UNCHANGED at the prior RC; SLSA L2 provenance attached (NFR4); GitHub Release `v1.0.0` with `prerelease: false` (NFR6 threshold — `1.0.0` contains no `alpha|beta|rc` substring); tag `v1.0.0` anchors on the bot PR's merge commit per Story 3.4 P9 (the tag is annotated, so `git rev-parse 'v1.0.0^{}'` gives the commit SHA to compare against `main` tip).
+- **Expected outcome.** `main` tip advances by 2 commits (the `release: bump to v1.0.0` commit on the bot temp branch `release/bot/v1.0.0-<run_id>-<run_attempt>`, plus the merge commit from the auto-merged or admin-bypass-merged bot PR); `jq -r .version package.json` → `1.0.0`; `jq -r '.plugins[0].version' .claude-plugin/marketplace.json` → `1.0.0`; `npm view bmad-module-skill-forge dist-tags.latest` → `1.0.0` (flipped from the prior stable, e.g. `0.10.0`); `rc` dist-tag UNCHANGED at the prior RC; SLSA L2 provenance attached (NFR4); GitHub Release `v1.0.0` with `prerelease: false` (NFR6 threshold: `1.0.0` contains no `alpha|beta|rc` substring); tag `v1.0.0` anchors on the bot PR's merge commit per Story 3.4 P9 (the tag is annotated, so `git rev-parse 'v1.0.0^{}'` gives the commit SHA to compare against `main` tip).
 
 - **Constraints.**
   - Execute ONLY after the RC audit `§ Sign-off` is populated AND the smoke-test `Decision` is `PASS`.
@@ -716,7 +729,7 @@ For the `release` environment, a deletion+restore similarly uses the two-call pa
 
   **NFR6 immutability activation** is the `npm publish --tag latest` success timestamp for `1.0.0`, recorded verbatim in `release-audits/v1.0.0-launch-audit.md § Story 5.3 v1.0.0 Final Cut § NFR6 v1.0.0 immutability activation`. For Story 5.3's dispatch, that instant was **2026-04-23T18:56:39Z**. From that moment, `v1.0.0` is forever-burned — `npm deprecate` + ship-forward is the only rollback path.
 
-  The `release` environment + bot PR approval-or-admin-bypass-merge pattern is the canonical flow for all main-dispatched cuts since Story 3.4 ([GitHub issue #198](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/198), [PR #199](https://github.com/armelhbobdad/bmad-module-skill-forge/pull/199)): the release commit is pushed to a temp branch `release/bot/vX.Y.Z-<run_id>`, a bot PR is opened against `main`, the required status checks are force-triggered against the temp branch via `workflow_dispatch`, and the merge is gated behind maintainer approval at both the `release` environment gate and the PR review-decision gate. Non-main dispatches (feature-branch alpha cuts) skip the PR dance entirely and keep the legacy tag-only behavior.
+  The `release` environment + bot PR approval-or-admin-bypass-merge pattern is the canonical flow for all main-dispatched cuts since Story 3.4 ([GitHub issue #198](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/198), [PR #199](https://github.com/armelhbobdad/bmad-module-skill-forge/pull/199)): the release commit is pushed to a temp branch `release/bot/vX.Y.Z-<run_id>-<run_attempt>`, a bot PR is opened against `main`, the required status checks are force-triggered against the temp branch via `workflow_dispatch`, and the merge is gated behind maintainer approval at both the `release` environment gate and the PR review-decision gate. A run that stops before the merge closes its bot PR and deletes the branch (see [§ The bot temp branch after a merge or a failed run](#the-bot-temp-branch-after-a-merge-or-a-failed-run)). Non-main dispatches (feature-branch alpha cuts) skip the PR dance entirely and keep the legacy tag-only behavior.
 
 #### Post-publish verification (NFR9)
 

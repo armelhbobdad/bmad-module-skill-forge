@@ -2,11 +2,11 @@
 """Tests for test/conftest.py, the suite-wide git environment scrub, and
 for the matching `unset` line in .husky/pre-commit.
 
-- pytest loads test/conftest.py for an explicit file argument, the way
-  package.json test:python runs the suite, and drops every listed variable
-  before a test starts: checked in a child pytest whose environment carries
-  what a git hook exports (CI never sets these, so an in-process check
-  alone would prove nothing).
+- pytest loads test/conftest.py for an explicit file argument, as when one
+  test file is run on its own (package.json test:python collects the whole
+  folder), and drops every listed variable before a test starts: checked in
+  a child pytest whose environment carries what a git hook exports (CI never
+  sets these, so an in-process check alone would prove nothing).
 - git children see no system config, and a global config whose ignore and
   attributes files are empty, whatever ~/.config/git holds.
 - git discovery stops at pytest's base temp folder: a repository a test
