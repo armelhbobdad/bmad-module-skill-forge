@@ -4,6 +4,9 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 scoringRulesFile: '{scoringRulesPath}'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 scoringScript: 'scripts/compute-score.py'
+# §4b.1 reads the run's gaps from the gap ledger the stages recorded them in.
+ledgerFile: '{forge_version}/test-findings-{run_id}.json'
+gapLedgerScript: 'scripts/gap-ledger.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -170,7 +173,13 @@ The cap↔fallback interaction (a cap forcing FAIL that the fallback then re-fli
 
 Write the evidence report to `{forge_version}/evidence-report-fallback.md`. The report documents the quality compromise for audit purposes.
 
-**Read gap entries:** extract findings from the Coverage Analysis and Coherence Analysis sections in `{outputFile}` — list each gap with severity (Critical through Low).
+**Read the gaps from the gap ledger**, not from the report's sections: the stages recorded every gap they found in `{ledgerFile}`, and the hard gate passed, so none is Critical or High. The script orders and counts them (`{gapLedgerScript}` resolves relative to the skill root):
+
+```bash
+uv run {gapLedgerScript} render --ledger "{ledgerFile}"
+```
+
+Exit 0: write its output unchanged under **Findings Preventing Higher Threshold**: the totals, the Remediation Summary and one entry per gap, by severity. A render that exits 1 prints its error on stderr: write that line there instead and continue, since the evidence report does not decide the verdict.
 
 **Check for prior remediation:** glob `{forge_version}/test-report-{skill_name}-*.md` for a prior test report. If found, note the path — this implies remediation was attempted between runs. If not found, note "first test run — no prior remediation cycle".
 
@@ -196,10 +205,7 @@ Write the evidence report to `{forge_version}/evidence-report-fallback.md`. The 
 
 ## Findings Preventing Higher Threshold
 
-{For each gap entry from Coverage Analysis and Coherence Analysis:}
-- **{GAP-NNN}: {title}** — Severity: {severity}, Category: {category}
-
-{Count: N critical, M high, P medium, Q low, R info findings}
+{the output of the render command above, unchanged}
 
 ## Remediation Context
 
@@ -214,7 +220,7 @@ No prior test report found for this skill version — this is the first test run
 
 ## Conclusion
 
-Skill accepted at 80% floor (original target: {original_threshold}%). The {N} findings above prevented meeting the higher threshold. Review and address findings before the next pipeline run to achieve the {original_threshold}% target.
+Skill accepted at 80% floor (original target: {original_threshold}%). The findings above prevented meeting the higher threshold. Review and address findings before the next pipeline run to achieve the {original_threshold}% target.
 ```
 
 Record `evidence_report_path: '{forge_version}/evidence-report-fallback.md'` in workflow context for use by §6/§7/§8 and by report.md.
@@ -245,9 +251,9 @@ Based on the **settled verdict** (§4 — `effectiveResult` when the override gr
 **IF INCONCLUSIVE:**
 - `nextWorkflow: 'manual-review'` — evidence base is insufficient to grade the skill automatically. The test report records `inconclusiveReasons` from the scoring script. Surface to the user — do not auto-recommend export or update.
 
-### 6. Append Completeness Score to Output
+### 6. Write the Completeness Score Section
 
-Append the **Completeness Score** section to `{outputFile}`:
+Write the **Completeness Score** section in place of the template's `## Completeness Score` heading and the placeholder comment under it, in `{outputFile}`:
 
 ```markdown
 ## Completeness Score
@@ -281,7 +287,7 @@ Append the **Completeness Score** section to `{outputFile}`:
 **Analysis Confidence:** {full | provenance-map | metadata-only | remote-only | docs-only}
 ```
 
-If `analysis_confidence` is not `full`, append a degradation notice. **The notice must be confidence-aware** — see the degradation notice rules in `{sourceAccessProtocol}`:
+If `analysis_confidence` is not `full`, add a degradation notice at the end of the Completeness Score section. **The notice must be confidence-aware** (see the degradation notice rules in `{sourceAccessProtocol}`):
 
 ```markdown
 ### Access Degradation Notice
@@ -311,5 +317,5 @@ Report the completeness score to the user: the total percentage and PASS/FAIL ve
 
 Then proceed to the gap report.
 
-Update stepsCompleted, then load and execute {nextStepFile}.
+`stepsCompleted` now ends with `'score'` (§7 appended it), so load and execute {nextStepFile}.
 

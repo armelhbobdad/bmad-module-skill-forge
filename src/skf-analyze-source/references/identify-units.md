@@ -5,6 +5,9 @@ heuristicsFile: '{unitDetectionHeuristicsPath}'
 disqualifyCandidatesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-disqualify-candidates.py'
   - '{project-root}/src/shared/scripts/skf-disqualify-candidates.py'
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 detectLanguageProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
   - '{project-root}/src/shared/scripts/skf-detect-language.py'
@@ -37,26 +40,18 @@ Load {heuristicsFile} for classification rules.
 
 ### 2. Apply Detection Heuristics
 
-**Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}` and **`{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT with exit code 3 (`resolution-failure`) and the error envelope on stderr (shape in `references/headless-contract.md`).
 
 For each detected boundary from the scan, apply the classification rules from {heuristicsFile} (loaded in §1):
 
-**Step A — Count detection signals:** tally the Strong / Moderate / Weak signals per its Detection Signals tables.
-
-**Step B — Classify boundary type** per its Boundary Classification section. (Composite is detected separately in §3b below — not during this initial per-boundary pass.)
-
-**Step C — Assign scope type** from that same section for the boundary's type.
-
-**Step D — Run deterministic disqualification filter (script):**
-
-Run the shared disqualification helper to apply the deterministic subset of the rules from {heuristicsFile} (file-count, LoC, generated-code paths, auto-generated header sentinels). The script collapses what was prose-orchestrated counting + path-substring + header scanning into one deterministic call.
+**Step A: Run the disqualification helper (script).** In one call it applies the deterministic subset of the rules from {heuristicsFile} (file count, LoC, generated files) and looks up the signal files and the boundary's own manifest: work with one right answer per file list. Its output is evidence that Step B judges, not a verdict.
 
 1. **Build the boundaries JSON** from the detected boundaries (one entry per candidate boundary). Use forward-slash paths throughout. Shape:
    ```json
    [
      {"name": "<unit-name>",
       "path": "<rel-from-analyzed-source-root (project_paths[0])>",
-      "files": ["<rel-path>", ...]},
+      "files": ["<rel-from-analyzed-source-root>", ...]},
      ...
    ]
    ```
@@ -64,60 +59,64 @@ Run the shared disqualification helper to apply the deterministic subset of the 
    ```bash
    uv run {disqualifyCandidatesHelper} filter --boundaries - --source-root {project_paths[0]}
    ```
-   piping the boundaries JSON on stdin. `--source-root` is the analyzed-source root (`project_paths[0]`) — the directory the boundaries/manifest scan ran against — not `{project-root}` (the forge workspace), which differs whenever the analyzed target lives outside the forge workspace. The script emits:
+   piping the boundaries JSON on stdin. `--source-root` is the analyzed-source root (`project_paths[0]`), the directory the boundaries/manifest scan ran against, not `{project-root}` (the forge workspace), which differs whenever the analyzed target lives outside the forge workspace. The script emits one record per boundary:
    ```json
    {
-     "kept":    [{"name": "...", "path": "...", "files_count": N, "loc_total": L}, ...],
-     "dropped": [{"name": "...", "reason": "<too-few-files|too-low-loc|generated-code|auto-generated-tag>", "context": {...}}, ...],
-     "stats":   {"kept": N, "dropped": N, "by_reason": {"<reason>": N, ...}}
+     "kept":    [{"name": "...", "path": "...", "files_count": N, "loc_total": L, "non_source_count": K,
+                  "generated_files": [{"path": "...", "reason": "generated-code|auto-generated-tag", "match": "..."}],
+                  "generated_ratio": R, "passes_with_generated": true,
+                  "manifest": {"path": "...", "ecosystem": "npm", "name": "@acme/auth", "private": false},
+                  "signals": {...}}, ...],
+     "dropped": [{"name": "...", "reason": "<too-few-files|too-low-loc|generated-code|auto-generated-tag>", "context": {...}, ...}, ...],
+     "stats":   {"kept": N, "dropped": N, "mixed": N, "by_reason": {"<reason>": N, ...}}
    }
    ```
-3. **Parse the JSON result** and stash `kept[]` and `dropped[]` in workflow state for §3 (classification table) and §5 (recommendation summary). The `kept` set is the candidate pool for the boundary-type + scope-type classification that follows; the `dropped` set drives the Disqualification table.
+   A `dropped[]` record carries every `kept[]` field plus `reason` and `context`. Read `files_count` and `loc_total` (the boundary's own source files, counted as {heuristicsFile}'s Disqualification Rules say), `generated_files` and `generated_ratio` (the files Step B weighs), `passes_with_generated` (whether the size rules pass with those files counted too), `manifest` (the boundary's own manifest, null without one) and `signals` (Step D).
+3. **Parse the JSON result** and stash `kept[]` and `dropped[]` in workflow state for §3 (classification table) and §5 (recommendation summary). The `kept` set is the candidate pool for the classification that follows; the `dropped` set drives the Disqualification table.
 
-**LLM-judged disqualifications (not in script — apply on top of `kept[]`):**
-- **Pure configuration** — only config files (e.g., `.json`/`.yaml`) with no executable logic
-- **Test-only** — test utilities with no production code
-- **Already skilled** — exists in `existing_skills` list (recommend `update-skill` instead)
+**Step B: Judge what the script cannot.**
 
-Remove any boundary that fails one of these LLM-judged rules from the working `kept` set and append it to `dropped[]` with the appropriate reason. Reasons recorded by the script (`too-few-files`, `too-low-loc`, `generated-code`, `auto-generated-tag`) are authoritative — do not re-evaluate those rules manually.
+- **Mixed cases** (`stats.mixed` counts them): a kept boundary whose `generated_files` is not empty. Read the flagged paths and their `match`. Build output or a vendored copy beside the unit's own code leaves the unit standing, and its counts already leave those files out. Drop a mixed boundary only when its own code is no more than glue around the generated files, with reason `generated-code` and one line on why.
+- **A drop the flagged files caused:** a boundary dropped as `generated-code`, `auto-generated-tag`, `too-few-files` or `too-low-loc` whose `generated_files` you judge to be its own code (a source folder named `build/` or `dist/`, a header its own tooling writes into code it maintains) goes back into `kept[]` when its `passes_with_generated` is true, with those files named in the notes. When it is false, the boundary stays dropped: even with those files it is too small.
+- **LLM-judged disqualifications** (not in the script; apply on top of `kept[]`), removing a boundary that fails one from the working `kept` set and appending it to `dropped[]` with the reason:
+  - **Pure configuration**: only config files (e.g., `.json`/`.yaml`) with no executable logic
+  - **Test-only**: test utilities with no production code
 
-**Qualification check:** Visually skim the script's `kept`/`dropped` decisions for sanity (e.g., a boundary you expected to qualify that landed in `dropped` — surface the script's `reason` and `context.first_match` to the user in §5 so they can override if the heuristic was wrong for this project).
+Show every drop and every restore in §5 with its reason and evidence (the record's `context`, `generated_ratio` and first `generated_files` path), so the user can override it; a headless run keeps the judgment made here.
+
+**Step C: Name each unit (script), then check it is not already skilled.** The helper that names every brief names the units too, so a unit's name here is the name its brief gets.
+
+1. Name every unit in one call, by {heuristicsFile}'s Unit Names, one entry per kept boundary straight from its record: `target` is its `path` (`{project_paths[0]}` for a boundary at the root), and `manifest_name` and `private` are its `manifest.name` and `manifest.private` (null when `manifest` is null):
+   ```bash
+   uv run {skillInventoryHelper} derive-name --from - <<'SKF_UNIT_NAMES'
+   [{"target": "<boundary path>", "manifest_name": <manifest.name>, "private": <manifest.private>}, ...]
+   SKF_UNIT_NAMES
+   ```
+   Each `names[].name` is that unit's name from here on. Boundaries whose names would clash are already told apart by their parent folders (`clash` keeps the name they shared); give the entries `unnamed` and `duplicates` list a name of your own, from their folder.
+2. **Already skilled:** a unit whose name is in `existing_skills` fails the last LLM-judged rule: remove it from the working `kept` set and append it to `dropped[]` with reason `already-skilled` (recommend `update-skill` instead).
+
+**Step D: Tally detection signals** per the Detection Signals tables in {heuristicsFile}: cite the file each record's `signals` entry names (and `large_directory`), and judge the signals the helper does not report, as that file says.
+
+**Step E: Classify boundary type** per its Boundary Classification section, and **assign the scope type** from that same section for the boundary's type. This pass classifies each boundary on its own: composite merges are proposed in map-and-detect, once the import graph exists.
 
 ### 3. Build Unit Classification Table
 
 For each candidate that passes disqualification:
 
-| # | Unit Name | Path | Boundary Type | Scope Type | Signals | Confidence | Status |
-|---|-----------|------|---------------|------------|---------|------------|--------|
-| 1 | {name} | {path} | {type} | {scope} | {signal count: strong/moderate/weak} | {high/medium/low} | {new/already-skilled} |
+| # | Unit Name | Path | Boundary Type | Scope Type | Files | Own Manifest | Signals | Confidence | Status |
+|---|-----------|------|---------------|------------|-------|--------------|---------|------------|--------|
+| 1 | {name} | {path} | {type} | {scope} | {files_count} | {manifest path, name and ecosystem, or --} | {signal count: strong/moderate/weak} | {high/medium/low} | {new/already-skilled} |
 
-For disqualified candidates, note reason:
+For disqualified candidates, note reason and evidence:
 
 **Disqualified:**
-| Path | Reason |
-|------|--------|
-| {path} | {disqualification reason} |
-
-### 3b. Detect Composite Unit Merges
-
-After building the classification table, apply the Composite Boundary detection heuristic from {heuristicsFile} against the qualifying units:
-
-1. **Scan for merge candidates:** Among the qualifying units (from `kept[]`), find groups of ≥2 Package or Module boundaries that meet either Composite trigger — **Mutual hard dependency** or **Shared integration surface** — as defined in {heuristicsFile}'s Composite Boundary heuristic.
-
-2. **If candidate groups are found**, propose each merge:
-   - Derive a composite name from the common namespace prefix or repo name
-   - List the constituents (boundary names and paths being merged)
-   - State the triggering heuristic and evidence
-
-3. **If no candidate groups are found**, skip to §4.
-
-**Merge does not fire for:** Units already flagged as Stack Skill Candidates in step 4 (map-and-detect §5) — those are multi-unit groupings that deliver value *separately* but are *also* useful together. Composite merges are for units that are *only* useful together (the key distinction). If a group of units is independently useful but commonly combined, it remains as separate units and is flagged as a stack skill candidate later.
-
-**This step is a recommendation — not automatic.** Merges are presented to the user in §5 for confirmation (see "Composite Merge Proposals" below). If the user rejects a merge, the constituents remain as separate units in the classification table.
+| Path | Reason | Evidence |
+|------|--------|----------|
+| {path} | {disqualification reason} | {the record's `context`, or `generated_ratio` and the first `generated_files` path} |
 
 ### 4. Detect Primary Language Per Unit
 
-For each qualifying unit (including any approved composites from §3b), detect the primary language deterministically via the shared helper — the single source of truth for the manifest→language rule table (no in-prose restatement, which drifts from the script's tsconfig JS-vs-TS and `build.gradle` Java-vs-Kotlin disambiguation).
+For each qualifying unit, detect the primary language deterministically via the shared helper, the single source of truth for the manifest→language rule table.
 
 **Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins.
 
@@ -137,40 +136,30 @@ Read `.language` and `.confidence` for the unit. When confidence is low (the ext
 
 {Classification table}
 
+**Mixed Cases:** {count}
+{For each qualifying unit with generated files: its name, `generated_ratio`, the flagged folders or headers, and why it stays; and each boundary §2 Step B restored, with the files that restored it}
+
 **Disqualified Candidates:** {count}
 {Disqualification table}
 
 **Already-Skilled Units:** {count from existing_skills match}
 {List with recommendation to run update-skill if source has changed}
 
-{IF composite merge proposals exist from §3b:}
-
-**Composite Merge Proposals:** {count}
-
-| # | Composite Name | Constituents | Heuristic | Evidence |
-|---|----------------|--------------|-----------|----------|
-| 1 | {name} | {list of constituent unit names} | {mutual hard dependency / shared integration surface} | {brief evidence} |
-
-If approved, each composite replaces its constituents in the classification table as a single Composite Boundary unit. The constituents are recorded in the composite's metadata for downstream workflows (create-skill reads constituents to scope extraction across all member paths).
-
-{END IF}
-
 **Notes:**
 - {Any observations about project structure patterns}
 - {Any ambiguous boundaries that need user clarification}
 
-Do these classifications look correct? Should any units be added, removed, or reclassified?
-{IF composites proposed:} Are the composite merge proposals correct? (Accept/reject each individually.)"
+Do these classifications look correct? Should any units be added, removed, or reclassified?"
 
-Wait for user feedback. Adjust classifications based on user input. For approved composites: remove the constituent rows from the qualifying units table and add a single composite row with `Boundary Type: Composite`, scope type inherited from the dominant constituent, and confidence reflecting the merge heuristic strength.
+Wait for user feedback. Adjust classifications based on user input.
 
 ### 6. Append to Report
 
 Append the complete "## Identified Units" section to {outputFile}:
 
 Replace the placeholder `[Appended by identify-units]` with:
-- Classification table (qualifying units, including approved composites)
-- Composite merge details (if any): composite name, constituents list, heuristic, evidence
+- Classification table (qualifying units, under their §2 Step C names, with their file counts and own manifests)
+- Mixed cases and restored boundaries, with their evidence
 - Disqualification table
 - Already-skilled units list
 - Language detection results
@@ -180,10 +169,7 @@ Update {outputFile} frontmatter:
 ```yaml
 stepsCompleted: [append 'identify-units' to existing array]
 lastStep: 'identify-units'
-confirmed_composites: [{list of approved composite merge objects: {name, constituents[], heuristic}}]
 ```
-
-(`confirmed_composites` is an empty array when no composites were proposed or all were rejected.)
 
 ### 7. Present MENU OPTIONS
 

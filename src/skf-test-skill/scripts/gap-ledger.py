@@ -72,6 +72,11 @@ Subcommands:
                "counts": {severity: n}, "blocking", "non_blocking",
                "by_category": {category: n}}
 
+A Critical or High record blocks only when a stage before the hard gate
+appended it. The report stage appends after the gate (the discovery test),
+so render and summary count its Critical and High records as non-blocking:
+render lists them on a line of their own, after the hard gate.
+
   categories
       Output the category vocabulary and the severities:
       {"status": "ok", "severities": [...],
@@ -119,6 +124,9 @@ _LOCK_POLL_SECONDS = 0.02
 SEVERITIES = ("Critical", "High", "Medium", "Low", "Info")
 BLOCKING = frozenset({"Critical", "High"})
 _SEVERITY_BY_LOWER = {s.lower(): s for s in SEVERITIES}
+# Stages that append after the hard gate decided (report.md records the
+# discovery test there): a Critical or High gap they record blocked nothing.
+POST_GATE_STAGES = frozenset({"report"})
 
 # Category slug -> (group, what the category covers). update-skill routes a
 # gap on its category, not its severity, so the slugs are a closed set: a typo
@@ -165,8 +173,7 @@ REQUIRED_FIELDS = ("severity", "category", "title", "source", "remediation")
 OPTIONAL_FIELDS = ("issue", "export")
 ASSIGNED_FIELDS = ("id", "group", "stage")
 
-# Estimated effort per severity (output-section-formats.md, Effort Estimation
-# Guidelines).
+# The Remediation Summary's Estimated Effort column, per severity.
 EFFORT = {
     "Critical": "Read the source code and write or correct the documentation",
     "High": "Read the source code and write or correct the documentation",
@@ -279,6 +286,17 @@ def count_by_severity(records: list[dict]) -> dict[str, int]:
     for record in records:
         counts[record["severity"]] += 1
     return counts
+
+
+def is_blocking(record: dict) -> bool:
+    """A Critical or High gap that a stage before the hard gate recorded.
+
+    >>> is_blocking({"severity": "High", "stage": "coherence-check"})
+    True
+    >>> is_blocking({"severity": "High", "stage": "report"})
+    False
+    """
+    return record["severity"] in BLOCKING and record.get("stage") not in POST_GATE_STAGES
 
 
 # --------------------------------------------------------------------------
@@ -492,19 +510,22 @@ def parse_input(text: str) -> list:
 
 
 def render_gap_report(ledger: dict, heading: bool = False) -> str:
-    """The Gap Report section body (output-section-formats.md), from the ledger."""
+    """The Gap Report section body, from the ledger (report.md §4c writes it)."""
     records = ordered(ledger["records"])
     counts = count_by_severity(records)
-    blocking = counts["Critical"] + counts["High"]
+    blocking = sum(1 for r in records if is_blocking(r))
+    after_gate = counts["Critical"] + counts["High"] - blocking
     lines: list[str] = []
     if heading:
         lines += ["## Gap Report", ""]
     lines += [
         f"**Total Gaps:** {len(records)}",
         f"**Blocking (Critical + High):** {blocking}",
-        f"**Non-blocking (Medium + Low + Info):** {len(records) - blocking}",
-        "",
+        f"**Non-blocking (Medium + Low + Info):** {len(records) - blocking - after_gate}",
     ]
+    if after_gate:
+        lines.append(f"**Found after the hard gate (Critical + High, non-blocking):** {after_gate}")
+    lines.append("")
     if not records:
         lines += ["No gaps found.", ""]
         return "\n".join(lines)
@@ -543,7 +564,7 @@ def summarize(path: Path, ledger: dict) -> dict:
     by_category: dict[str, int] = {}
     for record in records:
         by_category[record["category"]] = by_category.get(record["category"], 0) + 1
-    blocking = counts["Critical"] + counts["High"]
+    blocking = sum(1 for r in records if is_blocking(r))
     return {
         "status": "ok",
         "ledger": str(path),

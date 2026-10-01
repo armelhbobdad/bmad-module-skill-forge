@@ -286,6 +286,7 @@ skillDir: '{resolved_skill_package}'
 runId: '{run_id}'
 testMode: ''
 forgeTier: '{detected_tier}'
+hardGate: ''
 testResult: ''
 score: ''
 threshold: ''
@@ -302,5 +303,5 @@ nextWorkflow: ''
 
 Report initialization to the user: the resolved skill name, path, type, forge tier, and source path. Then proceed to mode detection.
 
-Update stepsCompleted, then load and execute {nextStepFile}.
+`stepsCompleted` already holds `'init'` (§6c created the report with it), so load and execute {nextStepFile}.
 

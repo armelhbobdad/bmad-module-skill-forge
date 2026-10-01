@@ -43,15 +43,17 @@ To automatically scope a repo using shape detection and export surface analysis,
 
 Read the target URL or path from the pipeline context (`{project_path}` or the first entry in `project_paths[]`).
 
-Apply the following heuristic to classify the input:
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT with exit code 3 (`resolution-failure`) and the error envelope on stderr (shape in `references/headless-contract.md`). The helper that names every brief classifies the target:
 
-| Input Pattern | Classification | Route |
-|---------------|---------------|-------|
-| `github.com/{owner}/{repo}` (with or without `.git` suffix, with or without scheme prefix) | GitHub repo | §1 (standard auto-scope) |
-| `gitlab.com/...`, `bitbucket.org/...` | Git hosting | §1 (standard auto-scope) |
+```bash
+uv run {skillInventoryHelper} derive-name --target "{project_path}"
+```
+
+| Input | Classification | Route |
+|-------|----------------|-------|
+| `basis` is `docs-host` | Documentation URL | `references/auto-docs-only.md` (docs-only, via §0c) |
 | Starts with `/`, `./`, `~/`, or `~` | Local filesystem path | §1 (standard auto-scope) |
-| Any other `https://` or `http://` URL | Documentation URL | `references/auto-docs-only.md` (docs-only, via §0c) |
-| Anything else (SSH URLs, `git://`, bare hostnames, etc.) | Unclassified | §1 (standard auto-scope) |
+| Anything else (a git host URL, an SSH URL, `git://`, a bare hostname) | Repo URL | §1 (standard auto-scope) |
 
 Store the classification result (documentation URL vs. repo/local/other). For all input types, continue to §0b (Pin Resolution).
 
@@ -97,19 +99,17 @@ This section checks for existing skills matching the target before proceeding. I
 
 **1. Load skill inventory:**
 
-**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins; HALT if neither resolves.
-
-Pass the target (`{project_path}`) so the helper computes the coexistence match set for you — do not re-match by hand:
+Pass the target (`{project_path}`) to `{skillInventoryHelper}`, resolved in §0, so the helper computes the coexistence match set for you; do not re-match by hand:
 
 ```bash
-uv run {skillInventoryHelper} {skills_output_folder} --match-target {project_path}
+uv run {skillInventoryHelper} "{skills_output_folder}" --match-target "{project_path}"
 ```
 
 Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and continue: load, read fully, then execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types.
 
 **2. Read the match set:**
 
-The helper already performed the match deterministically — scheme / trailing-`.git` / trailing-slash normalization, kebab expected-name derivation (§6 repo/package name, doc hostname per `references/auto-docs-only.md`), and case-insensitive comparison of both the normalized `source_repo` (URL match) and the derived name (name match). Read the top-level **`matches[]`** array from the JSON; do not normalize, derive, or compare anything in the prompt. Each entry is:
+Read the top-level **`matches[]`** array; the helper has already matched, so do not re-match. Each entry is:
 
 ```json
 { "name": "...", "active_version": "...", "source_repo": "...", "active_path": "...", "match_reason": "url" | "name" | "both", "skf_skill": true | false }
@@ -198,6 +198,7 @@ From the envelope, record:
 
 1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Package.swift`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner may discover ecosystems shape detection does not yet classify; those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
 2. **`monorepo` flag** and the count of discovered supported packages — carried forward as a signal for the decomposition decision in §3a.
+3. **The names and flags §3b, §4a and §6 read:** the scan-root manifest's `name` and `private` (the `manifests[]` entry whose `path` has no folder), each member manifest's `name`, `private` and `internal_deps`, and `umbrella_candidates[]`. Read them from the envelope; never open a member manifest for them.
 
 **Harvest tree-level language signals.** A whole-language repo may declare no parser-generator dependency (a hand-written compiler such as rustc, TypeScript, or the Go toolchain) or carry no supported manifest at all (CPython, Ruby). From the **same** fetched tree — no second clone and no blobs, since tree objects are already present in the blobless clone — collect two signals for shape detection. These are pure path listings (`git ls-tree` reads tree objects; no checkout, no blob download):
 
@@ -263,17 +264,10 @@ Apply the **Decomposition Thresholds** ladder from `step-shape-detect.md` (loade
 
 ### 3b. Cohesion Check — Merge to One Skill vs Split into N
 
-Reached only when §3a flagged a decomposition candidate. Most published monorepos are **cohesive** and produce a better single skill than a pile of fragments — empirically, 5/5 real monorepos (animato 15 crates, trpc, react 38 packages, aws-sdk-js-v3 442 packages, plus zod) were best served as one cohesive skill or a curated few, not one-skill-per-package. Decide deliberately:
+Reached only when §3a flagged a decomposition candidate. Most published monorepos are **cohesive** and produce a better single skill than a pile of fragments. Load `{unitDetectionHeuristicsPath}` and apply its **Cohesion Triggers**, the one statement of when members belong in one skill, reading their evidence from the §2 envelope (`umbrella_candidates[]`, and each member's `name`, `private` and `internal_deps`) and never from the member manifests themselves. Decide deliberately:
 
-**Merge into ONE cohesive skill** (override the threshold → continue to §4 single-scope) when **any** of these hold:
-
-- **Umbrella facade** — one package re-exports the members: a root or named package whose dependencies include the other workspace members, or which `pub use` / `export *`s them. The facade *is* the public surface (e.g. animato's `crates/animato` re-exporting its 15 sub-crates).
-- **Shared runtime contract** — the members are consumed together through one entry point, and teaching the shared invariant covers them (e.g. tRPC's adapters around `@trpc/server`; aws-sdk's `new XClient(...) → client.send(new YCommand(...))` shared by every `@aws-sdk/client-*`).
-- **Internal building blocks** — the members are private/internal pieces of one product, not independently meaningful to a consumer.
-
-**Split into N skills** (→ §4a) when:
-
-- The members are **independently published with distinct public surfaces serving different concerns**, **and no umbrella re-exports them** — e.g. `react-dom` and `react-server-dom-*` are separate installs with separate jobs, or a federated SDK where a consumer only ever wants one service. Each genuinely-distinct facet earns its own skill.
+- **Merge into ONE cohesive skill** (override the threshold → continue to §4 single-scope) when **any** cohesion trigger holds.
+- **Split into N skills** (→ §4a) when the members meet its split condition instead.
 
 If genuinely unsure, **prefer merge** — a too-broad single skill is recoverable with `US`; N fragmented skills are not.
 
@@ -323,7 +317,17 @@ scope:
   notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence}).{corpus_caveat}'
 ```
 
-Determine the skill name from the project name or package name (kebab-case, lowercase). Use the manifest `name` field if available, otherwise derive from the project directory name. If `{coexistence_suffix}` is non-empty, append it to the skill name.
+Name the skill with the helper that names every brief, by `{unitDetectionHeuristicsPath}`'s Unit Names, so the name the brief gets is the name the coexistence check looks up:
+
+```bash
+uv run {skillInventoryHelper} derive-name --from - --skills-folder "{skills_output_folder}" <<'SKF_SKILL_NAME'
+[{"target": "{project_path}", "manifest_name": <name>, "private": <private>, "members": [<member names>]}]
+SKF_SKILL_NAME
+```
+
+`manifest_name` is the umbrella candidate's `name` when §3b merged on the umbrella facade trigger, else the §2 scan-root manifest's `name` (null without one), and `private` that manifest's `private`. `members` lists the `name` of every §2 member manifest whose `private` is not `true` (`[]` for a single package): a merged monorepo whose root names no published package takes the name they share (`aws-sdk` for the `@aws-sdk/*` packages), else the repository's. `{skill_name}` ← `names[0].name`; when it is null (a target with no folder name), name the skill after the analyzed folder yourself.
+
+When `names[0].existing` is not null and names a skill §0c did not present (a skill from another source that already has the name this brief gets), present the §0c step 4 prompt with it as the one `matches[]` entry before §7 writes anything: [M]erge and [S]kip run as in §0c step 5 and stop there; [A]longside, the headless choice, sets `{coexistence_suffix}` to `-wiki` and continues here. Then, if `{coexistence_suffix}` is non-empty, append it to the skill name.
 
 For the brief's `language` field, **reuse `{detected_language}` from §5** — do not re-detect (the §5 helper already resolved js-vs-ts from `tsconfig.json` and Java-vs-Kotlin from the tree).
 
@@ -358,7 +362,15 @@ A whole-language skill's value is in the language's **prose** — the guide/Book
 
 This section is reached only from §3b when the cohesion check decided to **split** a monorepo (members are independently published with distinct surfaces and no umbrella re-exports them). It replaces §4→§5→§6 for repos that will produce N > 1 skills.
 
-**Decompose by workspace package:** Use workspace package discovery from §2 manifest scan results. Each workspace package with its own manifest becomes a separate skill boundary. Name each skill as `{project_name}-{package_name}` (kebab-case); if `{coexistence_suffix}` is non-empty, append it. Trivial workspace members (no source files, no exports) are excluded.
+**Decompose by workspace package:** Use workspace package discovery from §2 manifest scan results. Each workspace package with its own manifest becomes a separate skill boundary; trivial workspace members (no source files, no exports) are excluded. Name the boundaries in one call to the helper that names every brief, one entry per boundary with its manifest `name` and `private` from §2:
+
+```bash
+uv run {skillInventoryHelper} derive-name --from - --skills-folder "{skills_output_folder}" <<'SKF_BOUNDARY_NAMES'
+[{"target": "<boundary path>", "manifest_name": "<its manifest name>", "private": <its private flag>}, ...]
+SKF_BOUNDARY_NAMES
+```
+
+Each boundary's skill name is its `names[].name`: boundaries whose names would clash are already told apart by their parent folders, and the entries `unnamed` and `duplicates` list take a name you give them from their folder. A name whose `existing` is not null belongs to a skill from another source (§0c already offered the ones from this repository): give that boundary the `-wiki` suffix, as [A]longside does, and log `"coexistence: {name} exists, forging {name}-wiki alongside"`. Then append `{coexistence_suffix}` to every name that does not already end with it, when it is non-empty.
 
 **Per-boundary shape→scope mapping:**
 
@@ -374,7 +386,7 @@ For each boundary, build a scope object following the same structure as §6.
 
 Include decomposition metadata in `scope.notes`: "Decomposed from {project_name} — boundary {i}/{N} ({reason})"
 
-Determine each boundary's skill name from the boundary-derived name (kebab-case, lowercase). If `{coexistence_suffix}` is non-empty, append it to each skill name. Detect the primary language from each boundary's manifest ecosystem (same rules as §6).
+Each boundary's skill name is the one §4a gave it, suffix included. Detect the primary language from each boundary's manifest ecosystem (same rules as §6).
 
 **Pin data (from §0b):** All N decomposed briefs share the same pin — the pin targets a repo-level ref, not a package-level version. Apply the same `target_version`/`target_ref` values from §0b to all N boundaries at brief write time (§8).
 
@@ -498,7 +510,7 @@ These are the brief's *existing* `doc_urls`; brief-skill's README detection then
 **When decomposition is active (N > 1 units):**
 
 Loop over all N boundaries. For each boundary:
-- `name` is the boundary-derived skill name (e.g., `my-monorepo-core`)
+- `name` is the boundary's §4a skill name (e.g., `trpc-server` for `@trpc/server`)
 - `include`/`exclude` patterns are boundary-scoped (from §5a)
 - `scope.notes` includes decomposition context: "Decomposed from {project_name} ({N} skills) — boundary {i}/{N}: {boundary_description}"
 - `description` references the parent project and boundary role (e.g., "Core library package of the my-monorepo project, providing...")

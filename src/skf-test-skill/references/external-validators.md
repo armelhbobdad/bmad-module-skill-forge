@@ -2,6 +2,12 @@
 nextStepFile: 'step-hard-gate.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 externalScoreScript: 'scripts/combine-external-scores.py'
+outputFormatsFile: '{outputFormatsPath}'
+scoringRulesFile: '{scoringRulesPath}'
+# §5b records the validators' findings in the run's gap ledger, which the
+# hard gate (step 4c) reads and the Gap Report is rendered from.
+ledgerFile: '{forge_version}/test-findings-{run_id}.json'
+gapLedgerScript: 'scripts/gap-ledger.py'
 # Resolve `{tesslReviewHelper}` by probing `{tesslReviewProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. If neither path exists, §3 records that Tessl Review did not run
@@ -24,7 +30,9 @@ preferencesFile: '{sidecar_path}/preferences.yaml'
 
 ## STEP GOAL:
 
-Run the external validators — `skill-check` whenever it is installed, and Tessl Review when the user opted in — against the skill directory, capture their scores and findings, and append results to the test report. These tools catch complementary issues that internal coverage and coherence checks miss: `skill-check` validates spec compliance, while Tessl Review's AI judges score the description and the content of the whole skill folder.
+Run the external validators (`skill-check` whenever it is installed, and Tessl Review when the user opted in) against the skill directory, capture their scores and findings, and write their results into the test report. These tools catch complementary issues that internal coverage and coherence checks miss: `skill-check` validates spec compliance, while Tessl Review's AI judges score the description and the content of the whole skill folder.
+
+Every HALT in this step releases the run lock first (SKILL.md Workflow Rules).
 
 ### 1. Resolve Skill Directory
 
@@ -134,9 +142,9 @@ echo '{"skillCheckScore": <score or null>, "tesslReviewScore": <score or null>}'
 
 Read the result — do not re-average by hand. Bind `{external_score}` ← `externalScore` (the mean when both tools produced a score, the single score when one did, or `null` when neither did: the scoring step then redistributes the external-validation weight) and `{external_tools_used}` ← `toolsUsed` (`skill-check`, and `tessl` for Tessl Review). Record `external_score: N/A` when `{external_score}` is null.
 
-### 5. Append External Validation to Output
+### 5. Write the External Validation Section
 
-Append to `{outputFile}`:
+Write this section in place of the template's `## External Validation` heading and the placeholder comment under it, in `{outputFile}`:
 
 ```markdown
 ## External Validation
@@ -165,9 +173,32 @@ Append to `{outputFile}`:
 
 When `{tessl_status}` is not `reviewed`, the Tessl Review block holds only its Result line and, when `{tessl_run_id}` is set, its Run line, so the report names the run of a review that may still finish.
 
+### 5b. Record the External Validation Gaps
+
+Record the validators' findings in the gap ledger `{ledgerFile}`, so the Gap Report lists them beside the coverage and coherence gaps. Each is one record in the Ledger Record Format of `{outputFormatsFile}`, with the severity and category the Gap Severity table (`{scoringRulesFile}`) gives it:
+
+- each entry of `skill_check_diagnostics`, or each remaining issue §1b reused from the evidence report: a Low `external-validator` gap, with the file and line it names as its Source (else `SKILL.md`) and its message as the Issue;
+- each `{tessl_validation}` finding: a Low `external-validator` gap, titled `Tessl Review: {name}`, with `SKILL.md` as its Source and its message as the Issue;
+- each of `{tessl_description_suggestions}`: a Low `description` gap titled with the suggestion, with the SKILL.md frontmatter `description` as its Source;
+- each of `{tessl_content_suggestions}` not marked `(not applicable: <rule-id>)`: an Info `external-validator` gap titled with the suggestion, with `SKILL.md` as its Source.
+
+Write the records as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`), as it is when neither validator ran: the hard gate refuses to decide until every stage before it has recorded, with gaps or without (`{gapLedgerScript}` resolves relative to the skill root).
+
+```bash
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage external-validators <<'SKF_GAPS'
+<the records, one JSON array>
+SKF_GAPS
+```
+
+Rely on its JSON:
+
+- Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
+- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0) and run the command again.
+- Exit 1: HALT with the script's `error`.
+
 ### 6. Report Results
 
-Report the external validation result to the user: skill-check's score out of 100 (or `skipped`), the line `Tessl Review: {tessl_summary}`, the combined external score, and each entry of `{tessl_warnings}` as a warning. Then proceed to scoring.
+Report the external validation result to the user: skill-check's score out of 100 (or `skipped`), the line `Tessl Review: {tessl_summary}`, the combined external score, and each entry of `{tessl_warnings}` as a warning. Then proceed to the hard gate.
 
-Update stepsCompleted, then load and execute {nextStepFile}.
+Append `'external-validators'` to `stepsCompleted` in the `{outputFile}` frontmatter, then load and execute {nextStepFile}.
 

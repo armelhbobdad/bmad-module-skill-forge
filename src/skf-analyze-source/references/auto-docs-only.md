@@ -4,6 +4,9 @@ outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -25,7 +28,15 @@ curl -sI --max-time 5 {url}
 
 ### 2. Derive skill name from URL domain
 
-Extract the hostname from the URL (e.g., `docs.example.com` from `https://docs.example.com/guide/intro`), convert to kebab-case (replace `.` with `-`), yielding e.g. `docs-example-com`. If `{coexistence_suffix}` is non-empty, append it to the skill name (e.g., `docs-example-com-wiki`).
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT with exit code 3 (`resolution-failure`) and the error envelope on stderr (shape in `references/headless-contract.md`), with `source_type: "docs-only"`.
+
+Name the skill with the helper that names every brief. It names a documentation URL after its host (`https://docs.example.com/guide/intro` gives `docs-example-com`), the name §0c's coexistence check compared:
+
+```bash
+uv run {skillInventoryHelper} derive-name --target "{url}"
+```
+
+`{skill_name}` ← `.name`. If `{coexistence_suffix}` is non-empty, append it to the skill name (e.g., `docs-example-com-wiki`).
 
 ### 3. Write analysis report
 

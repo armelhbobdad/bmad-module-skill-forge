@@ -162,13 +162,13 @@ class TestScoreSection6Fallback:
         return _read(SCORE_FILE)
 
     def test_threshold_fallback_line_in_section_6(self, text: str) -> None:
-        score_section = text[text.find("### 6. Append Completeness Score"):]
+        score_section = text[text.find("### 6. Write the Completeness Score Section"):]
         assert "**Threshold Fallback:**" in score_section, (
             "§6 must include a **Threshold Fallback:** line when fallback is active"
         )
 
     def test_fallback_line_after_threshold_source(self, text: str) -> None:
-        score_section = text[text.find("### 6. Append Completeness Score"):]
+        score_section = text[text.find("### 6. Write the Completeness Score Section"):]
         ts_idx = score_section.find("**Threshold Source:**")
         fb_idx = score_section.find("**Threshold Fallback:**")
         assert ts_idx != -1 and fb_idx != -1 and ts_idx < fb_idx, (

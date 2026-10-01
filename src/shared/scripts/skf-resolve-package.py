@@ -5,18 +5,21 @@
 """SKF Resolve Package: read a quick-skill target, and resolve a package
 name to its GitHub repository.
 
-`parse-target` splits what the user typed into its parts. `resolve` walks
-the canonical fallback chain documented in
-`src/skf-quick-skill/references/registry-resolution.md`:
+`parse-target` splits what the user typed into its parts. `resolve` asks
+every registry of the canonical chain documented in
+`src/skf-quick-skill/references/registry-resolution.md`, in this order:
 
   1. npm registry        (JavaScript/TypeScript)
   2. PyPI registry       (Python)
   3. crates.io registry  (Rust)
 
-Per-call timeout (default 10s); a timeout is treated as a soft failure
-and the resolver falls through to the next entry. Web-search fallback
-is intentionally NOT in this helper: registries are deterministic;
-web search is judgment, and stays in the LLM step.
+The first registry in that order that gives a GitHub repository is the
+pick; every other registry that holds the name is listed beside it, so a
+bare name such as `numpy`, which npm and PyPI both hold, never resolves to
+one project without the other being named. Per-call timeout (default
+10s); a timeout is treated as a soft failure, like a 404. Web-search
+fallback is intentionally NOT in this helper: registries are
+deterministic; web search is judgment, and stays in the LLM step.
 
 CLI:
 
@@ -100,17 +103,26 @@ resolve output (stdout JSON):
   source_subdir:     the package's folder in the repository, else null
                      (ok, ambiguous): npm's repository.directory, or the
                      folder of a `/tree/<ref>/<folder>` repository URL
+  also_found_in:     every other registry that answered for the name, in
+                     chain order (ok, ambiguous; empty for ok): {registry,
+                     outcome, resolved_url, repo_owner, repo_name,
+                     source_subdir}, the repository fields null unless its
+                     outcome is ok
+  warning:           the one-line warning a run that keeps the pick of an
+                     ambiguous name records, `also_found_in: ...` (null
+                     unless ambiguous)
   name_found_in:     the registries that answered for the name with
                      anything other than a 404 or a timeout (outcome ok,
                      no-github-link or error), in chain order
   registries_tried:  ["npm", ...]
   registry_outcomes: {"npm": "ok|404|timeout|error|no-github-link", ...}
 
-  ok:           the first registry that answered for the name resolved it.
-  ambiguous:    a registry resolved the name after an earlier one in the
-                chain answered for it (name_found_in holds both), so the
-                name may belong to two projects. The fields name the later
-                registry's repository; the caller decides.
+  ok:           one registry answered for the name, and it resolved it.
+  ambiguous:    the pick resolved the name, and another registry of the
+                chain answered for it too (name_found_in holds both, and
+                also_found_in the others), so the name may belong to two
+                projects. The fields name the pick's repository; the
+                caller decides.
   fallthrough:  no registry gave a GitHub URL; the LLM step falls back to
                 web search.
 
@@ -118,8 +130,8 @@ resolve output (stdout JSON):
   404, a refused connection, an unreadable answer) counts as an answer,
   since that registry may still hold the name: while npm cannot be read,
   a name PyPI resolves is ambiguous. A timeout does not count (#582's
-  rule, accepted): when an earlier registry times out, a later one's
-  resolution is ok, and registry_outcomes shows the timeout.
+  rule, accepted): a registry that times out is left out of
+  name_found_in, and registry_outcomes shows the timeout.
 
   --registry queries that registry alone. --language picks the registry
   of a language hint (LANGUAGE_REGISTRIES, any letter case: javascript,
@@ -532,15 +544,24 @@ _RESOLVER_NAMES: tuple[tuple[str, str], ...] = (
 )
 
 
+# How the also_found_in warning names a registry that gave no repository.
+_NO_REPOSITORY = {"no-github-link": "no GitHub repository", "error": "could not be read"}
+
+
+def _also_found_warning(package_name: str, registry_used: str, url: str, also: list[dict]) -> str:
+    """The one line a run that keeps the pick of an ambiguous name records as a warning."""
+    others = ", ".join(f"{entry['registry']} ({entry['resolved_url'] or _NO_REPOSITORY[entry['outcome']]})"
+                       for entry in also)
+    return f"also_found_in: {package_name} resolved on {registry_used} ({url}); also on {others}"
+
+
 def resolve_package(package_name: str, timeout: float = REGISTRY_TIMEOUT_SECONDS,
                     registry: Optional[str] = None, language: Optional[str] = None) -> dict:
-    """Walk the registry chain, or only `registry` or the language's registry (see the module docstring)."""
+    """Ask every registry of the chain, or only `registry` or the language's (see the module docstring)."""
     registry = registry or LANGUAGE_REGISTRIES.get((language or "").strip().lower())
     registries_tried: list[str] = []
     outcomes: dict[str, str] = {}
-
-    def found_in() -> list[str]:
-        return [n for n in registries_tried if outcomes[n] not in ("404", "timeout")]
+    found: dict[str, tuple[str, str, str, Optional[str]]] = {}
 
     # Dynamic lookup so test code can monkeypatch try_npm / try_pypi / try_crates
     # without re-binding entries in a module-level tuple of function refs.
@@ -548,29 +569,38 @@ def resolve_package(package_name: str, timeout: float = REGISTRY_TIMEOUT_SECONDS
         if registry is not None and name != registry:
             continue
         registries_tried.append(name)
-        fn = globals()[fn_name]
-        result, outcome = fn(package_name, timeout)
-        outcomes[name] = outcome
+        result, outcomes[name] = globals()[fn_name](package_name, timeout)
         if result is not None:
-            url, owner, repo, subdir = result
-            return {
-                "status": "ambiguous" if len(found_in()) > 1 else "ok",
-                "package_name": package_name,
-                "resolved_url": url,
-                "repo_owner": owner,
-                "repo_name": repo,
-                "skill_name": _kebab(package_name),
-                "registry_used": name,
-                "source_subdir": subdir,
-                "name_found_in": found_in(),
-                "registries_tried": registries_tried,
-                "registry_outcomes": outcomes,
-            }
-
+            found[name] = result
+    name_found_in = [n for n in registries_tried if outcomes[n] not in ("404", "timeout")]
+    picked = next((n for n in registries_tried if n in found), None)
+    if picked is None:
+        return {
+            "status": "fallthrough",
+            "package_name": package_name,
+            "name_found_in": name_found_in,
+            "registries_tried": registries_tried,
+            "registry_outcomes": outcomes,
+        }
+    url, owner, repo, subdir = found[picked]
+    also = []
+    for name in name_found_in:
+        if name != picked:
+            other = found.get(name) or (None, None, None, None)
+            also.append({"registry": name, "outcome": outcomes[name], "resolved_url": other[0],
+                         "repo_owner": other[1], "repo_name": other[2], "source_subdir": other[3]})
     return {
-        "status": "fallthrough",
+        "status": "ambiguous" if also else "ok",
         "package_name": package_name,
-        "name_found_in": found_in(),
+        "resolved_url": url,
+        "repo_owner": owner,
+        "repo_name": repo,
+        "skill_name": _kebab(package_name),
+        "registry_used": picked,
+        "source_subdir": subdir,
+        "also_found_in": also,
+        "warning": _also_found_warning(package_name, picked, url, also) if also else None,
+        "name_found_in": name_found_in,
         "registries_tried": registries_tried,
         "registry_outcomes": outcomes,
     }

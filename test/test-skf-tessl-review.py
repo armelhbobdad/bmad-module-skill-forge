@@ -950,7 +950,7 @@ class TestWorkflowWiring:
         assert "Pass `skill_check_score` as `skillCheckScore` and `{tessl_review_score}` as `tesslReviewScore`" in section
         assert "Bind `{external_score}` ← `externalScore`" in section
         assert "`{external_tools_used}` ← `toolsUsed`" in section
-        append = _section(_read(EXTERNAL), "### 5. Append External Validation to Output", "### 6. Report Results")
+        append = _section(_read(EXTERNAL), "### 5. Write the External Validation Section", "### 6. Report Results")
         assert "### Tessl Review\n- **Result:** {tessl_summary}\n" in append
         assert "- **Tools used:** {external_tools_used}" in append
         score = _read(TS / "references" / "score.md")

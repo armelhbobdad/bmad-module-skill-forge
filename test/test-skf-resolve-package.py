@@ -15,6 +15,11 @@ review found: crates.io's /versions tab read as a version, npm dist-tags
 read as versions, lower-case PyPI project_urls labels, and skill names
 that the frontmatter validator refuses (next.js) or that two packages
 share (@babel/core and @babel/parser both live in babel/babel).
+
+resolve asks every registry of the chain (the maintainer's decision of
+2026-09-30): a name npm and PyPI both hold is ambiguous, with npm's
+repository as the pick and PyPI's in also_found_in; a name one registry
+holds is ok; a language hint asks its registry alone.
 """
 
 from __future__ import annotations
@@ -489,22 +494,26 @@ def _registries(monkeypatch, answers=REGISTRY_ANSWERS, seen=None):
 class TestReproducedCases:
     """#582's reproduced resolutions, end to end through the registry parsers."""
 
-    @pytest.mark.parametrize("name, url, skill", [
-        ("next", "https://github.com/vercel/next.js", "next"),
-        ("three", "https://github.com/mrdoob/three.js", "three"),
-        ("socket.io", "https://github.com/socketio/socket.io", "socket-io"),
+    @pytest.mark.parametrize("name, url, skill, also", [
+        # PyPI holds an unrelated `next` and `three`: npm's is the pick, PyPI's is named beside it.
+        ("next", "https://github.com/vercel/next.js", "next", "https://github.com/dheerajmpai/saenews"),
+        ("three", "https://github.com/mrdoob/three.js", "three", "https://github.com/codeforamerica/three"),
+        ("socket.io", "https://github.com/socketio/socket.io", "socket-io", None),
     ])
-    def test_dotted_repositories_resolve_on_npm(self, monkeypatch, name, url, skill):
+    def test_dotted_repositories_resolve_on_npm(self, monkeypatch, name, url, skill, also):
         seen: list[str] = []
         _registries(monkeypatch, seen=seen)
         result = mod.resolve_package(name)
-        assert result["status"] == "ok"
+        assert result["status"] == ("ambiguous" if also else "ok")
         assert result["registry_used"] == "npm"
         assert result["resolved_url"] == url
         assert result["repo_name"] == url.rsplit("/", 1)[1]
         assert result["skill_name"] == skill
         assert result["source_subdir"] is None  # none of the three declares a folder
-        assert seen == [f"https://registry.npmjs.org/{name}"]
+        assert [entry["resolved_url"] for entry in result["also_found_in"]] == ([also] if also else [])
+        encoded = name.replace("/", "%2F")
+        assert seen == [f"https://registry.npmjs.org/{name}", f"https://pypi.org/pypi/{encoded}/json",
+                        f"https://crates.io/api/v1/crates/{encoded}"]
 
     def test_the_pre_fix_next_resolution_is_ambiguous(self, monkeypatch):
         # npm's answer without a GitHub link (what the old regex saw) no
@@ -516,7 +525,11 @@ class TestReproducedCases:
         assert result["resolved_url"] == "https://github.com/dheerajmpai/saenews"
         assert result["registry_used"] == "pypi"
         assert result["name_found_in"] == ["npm", "pypi"]
-        assert result["registry_outcomes"] == {"npm": "no-github-link", "pypi": "ok"}
+        assert result["registry_outcomes"] == {"npm": "no-github-link", "pypi": "ok", "crates": "404"}
+        assert result["also_found_in"] == [{"registry": "npm", "outcome": "no-github-link", "resolved_url": None,
+                                            "repo_owner": None, "repo_name": None, "source_subdir": None}]
+        assert result["warning"] == ("also_found_in: next resolved on pypi (https://github.com/dheerajmpai/saenews); "
+                                     "also on npm (no GitHub repository)")
 
     def test_a_pypi_pin_resolves_on_pypi_only(self, monkeypatch):
         parsed = mod.parse_target("requests==2.31")
@@ -539,33 +552,55 @@ class TestReproducedCases:
 
 
 class TestResolvePackage:
-    def test_first_registry_wins(self, monkeypatch):
-        def fake_npm(name, t):
-            return ("https://github.com/lodash/lodash", "lodash", "lodash", None), "ok"
-
-        def fake_pypi(name, t):
-            raise AssertionError("pypi must not be called once npm resolved")
-
-        monkeypatch.setattr(mod, "try_npm", fake_npm)
-        monkeypatch.setattr(mod, "try_pypi", fake_pypi)
+    def test_a_name_on_one_registry_is_ok(self, monkeypatch):
+        # Every registry is asked; the two that do not hold the name answer 404.
+        monkeypatch.setattr(mod, "try_npm",
+                            lambda n, t: (("https://github.com/lodash/lodash", "lodash", "lodash", None), "ok"))
+        monkeypatch.setattr(mod, "try_pypi", lambda n, t: (None, "404"))
+        monkeypatch.setattr(mod, "try_crates", lambda n, t: (None, "404"))
         result = mod.resolve_package("lodash")
         assert result["status"] == "ok"
         assert result["registry_used"] == "npm"
-        assert result["registries_tried"] == ["npm"]
-        assert result["registry_outcomes"] == {"npm": "ok"}
+        assert result["registries_tried"] == ["npm", "pypi", "crates"]
+        assert result["registry_outcomes"] == {"npm": "ok", "pypi": "404", "crates": "404"}
         assert result["name_found_in"] == ["npm"]
         assert result["source_subdir"] is None
+        assert (result["also_found_in"], result["warning"]) == ([], None)
+
+    def test_a_name_on_npm_and_pypi_keeps_npm_and_names_pypi(self, monkeypatch):
+        # The maintainer's case: a bare `numpy` resolves on npm to an unrelated project.
+        monkeypatch.setattr(mod, "try_npm",
+                            lambda n, t: (("https://github.com/tensjs/numpy", "tensjs", "numpy", None), "ok"))
+        monkeypatch.setattr(mod, "try_pypi",
+                            lambda n, t: (("https://github.com/numpy/numpy", "numpy", "numpy", "numpy"), "ok"))
+        monkeypatch.setattr(mod, "try_crates", lambda n, t: (None, "404"))
+        result = mod.resolve_package("numpy")
+        assert result["status"] == "ambiguous"
+        assert (result["registry_used"], result["resolved_url"]) == ("npm", "https://github.com/tensjs/numpy")
+        assert result["name_found_in"] == ["npm", "pypi"]
+        assert result["also_found_in"] == [{"registry": "pypi", "outcome": "ok",
+                                            "resolved_url": "https://github.com/numpy/numpy",
+                                            "repo_owner": "numpy", "repo_name": "numpy", "source_subdir": "numpy"}]
+        assert result["warning"] == ("also_found_in: numpy resolved on npm (https://github.com/tensjs/numpy); "
+                                     "also on pypi (https://github.com/numpy/numpy)")
+
+    def test_a_hinted_name_asks_its_registry_alone(self, monkeypatch):
+        called = self._each_registry_knows_it(monkeypatch)
+        result = mod.resolve_package("numpy", language="python")
+        assert called == ["pypi"]
+        assert (result["status"], result["registry_used"], result["also_found_in"]) == ("ok", "pypi", [])
 
     def test_falls_through_to_pypi(self, monkeypatch):
         monkeypatch.setattr(mod, "try_npm", lambda n, t: (None, "404"))
         monkeypatch.setattr(
             mod, "try_pypi", lambda n, t: (("https://github.com/psf/requests", "psf", "requests", None), "ok")
         )
+        monkeypatch.setattr(mod, "try_crates", lambda n, t: (None, "404"))
         result = mod.resolve_package("requests")
         assert result["status"] == "ok"
         assert result["registry_used"] == "pypi"
-        assert result["registries_tried"] == ["npm", "pypi"]
-        assert result["registry_outcomes"] == {"npm": "404", "pypi": "ok"}
+        assert result["registries_tried"] == ["npm", "pypi", "crates"]
+        assert result["registry_outcomes"] == {"npm": "404", "pypi": "ok", "crates": "404"}
         assert result["name_found_in"] == ["pypi"]
 
     def test_falls_through_all_registries(self, monkeypatch):
@@ -604,12 +639,20 @@ class TestResolvePackage:
         assert result["registry_used"] == "crates"
         assert result["name_found_in"] == ["pypi", "crates"]
         assert result["registry_outcomes"] == {"npm": "timeout", "pypi": earlier, "crates": "ok"}
+        assert [(e["registry"], e["outcome"], e["resolved_url"]) for e in result["also_found_in"]] == [
+            ("pypi", earlier, None)]
 
-    def test_a_later_answer_is_never_asked(self, monkeypatch):
-        # The chain stops at the first resolution: npm first is never ambiguous.
+    @pytest.mark.parametrize("later", ["ok", "no-github-link", "error"])
+    def test_a_later_answer_makes_it_ambiguous_and_keeps_the_first_pick(self, monkeypatch, later):
         monkeypatch.setattr(mod, "try_npm", lambda n, t: (("https://github.com/o/r", "o", "r", None), "ok"))
-        monkeypatch.setattr(mod, "try_pypi", lambda n, t: pytest.fail("pypi must not be called"))
-        assert mod.resolve_package("r")["status"] == "ok"
+        monkeypatch.setattr(mod, "try_pypi", lambda n, t: (
+            (("https://github.com/p/r", "p", "r", None), "ok") if later == "ok" else (None, later)))
+        monkeypatch.setattr(mod, "try_crates", lambda n, t: (None, "timeout"))
+        result = mod.resolve_package("r")
+        assert (result["status"], result["registry_used"], result["resolved_url"]) == (
+            "ambiguous", "npm", "https://github.com/o/r")
+        assert [e["registry"] for e in result["also_found_in"]] == ["pypi"]
+        assert result["warning"].startswith("also_found_in: r resolved on npm (https://github.com/o/r); also on pypi")
 
     @pytest.mark.parametrize("registry", ["npm", "pypi", "crates"])
     def test_one_registry_only(self, monkeypatch, registry):
@@ -647,10 +690,12 @@ class TestResolvePackage:
         assert (result["status"], result["registry_used"], result["name_found_in"]) == ("ok", registry, [registry])
 
     @pytest.mark.parametrize("language", ["go", "Java", "", None])
-    def test_any_other_language_walks_the_chain(self, monkeypatch, language):
+    def test_any_other_language_asks_the_whole_chain(self, monkeypatch, language):
         called = self._each_registry_knows_it(monkeypatch)
-        assert mod.resolve_package("cobra", language=language)["registry_used"] == "npm"
-        assert called == ["npm"]
+        result = mod.resolve_package("cobra", language=language)
+        assert (result["status"], result["registry_used"]) == ("ambiguous", "npm")
+        assert [e["registry"] for e in result["also_found_in"]] == ["pypi", "crates"]
+        assert called == ["npm", "pypi", "crates"]
 
     def test_the_registry_wins_over_the_language(self, monkeypatch):
         called = self._each_registry_knows_it(monkeypatch)

@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill now counts its discovery test in the Gap Report. A skipped discovery test (`--no-discovery`, a skills folder with fewer than two skills, or no subagents to route the prompts) is a numbered Info gap, and a discovery test that misroutes one of its three prompts is a Medium gap, two or three a High one. Each is counted in the Gap Report's totals and in the gap counts the final summary shows. Discovery still runs after the hard gate, so a discovery gap never blocks a run: the Gap Report counts a High one on a line of its own, outside the blocking total.
+prs: [627]
+issues: [543]

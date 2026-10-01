@@ -6,6 +6,8 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -198,6 +200,110 @@ class TestDeriveName:
 
     def test_empty(self):
         assert derive_name("") == ""
+        assert derive_name(None, "") == ""
+
+    def test_dotted_repo_name(self):
+        assert derive_name("https://github.com/vercel/next.js") == "next-js"
+        assert derive_name("git@github.com:mrdoob/three.js.git") == "three-js"
+
+    def test_doc_url_is_named_after_its_host(self):
+        # the name auto-docs-only.md writes the brief under
+        assert derive_name("https://docs.example.com/guide/intro") == "docs-example-com"
+        assert derive_name("http://www.example.org/api/") == "www-example-org"
+        assert mod.derive_name_with_basis("https://docs.example.com/x") == ("docs-example-com", "docs-host")
+
+    @pytest.mark.parametrize("url", [
+        "https://github.com/foo/bar", "https://www.github.com/foo/bar",
+        "https://gitlab.com/group/sub/bar", "https://bitbucket.org/team/bar.git",
+    ])
+    def test_git_hosts_are_named_after_the_repository(self, url):
+        assert mod.derive_name_with_basis(url) == ("bar", "target")
+
+    @pytest.mark.parametrize("manifest_name,expected", [
+        ("next", "next"),
+        ("@trpc/server", "trpc-server"),
+        ("@aws-sdk/client-s3", "aws-sdk-client-s3"),
+        ("PyYAML", "pyyaml"),
+        ("zope.interface", "zope-interface"),
+        ("serde_json", "serde-json"),
+        ("github.com/spf13/cobra", "cobra"),
+        ("github.com/go-yaml/yaml/v3", "yaml"),
+        ("example.com/tool", "tool"),
+        ("com.google.guava:guava", "guava"),
+        ("org.apache.commons:commons-lang3", "commons-lang3"),
+        ("symfony/console", "symfony-console"),
+        ("MyLibrary", "mylibrary"),
+    ])
+    def test_manifest_name_wins_over_the_target(self, manifest_name, expected):
+        assert mod.derive_name_with_basis("https://github.com/org/repo", manifest_name) == (expected, "manifest")
+
+    @pytest.mark.parametrize("manifest_name", [None, "", "   ", "@@"])
+    def test_empty_manifest_name_falls_back_to_the_target(self, manifest_name):
+        assert mod.derive_name_with_basis("packages/auth", manifest_name) == ("auth", "target")
+
+    def test_no_name(self):
+        assert mod.derive_name_with_basis("", None) == ("", None)
+        assert mod.derive_name_with_basis("///", "") == ("", None)
+
+    @pytest.mark.parametrize("target", [".", "./", ".\\"])
+    def test_current_folder_is_named_after_itself(self, target, tmp_path, monkeypatch):
+        """`--project-path .` on a repo whose root manifest is private."""
+        (tmp_path / "mono").mkdir()
+        monkeypatch.chdir(tmp_path / "mono")
+        assert mod.derive_name_with_basis(target) == ("mono", "target")
+        assert derive_name("..") == derive_name("../") == mod._kebab(tmp_path.name)
+
+    def test_home_paths(self, tmp_path, monkeypatch):
+        home = tmp_path / "Me_Home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        assert derive_name("~") == derive_name("~/") == "me-home"
+        assert derive_name("~/x") == "x"
+
+    @pytest.mark.parametrize("target", [
+        "C:\\Users\\me\\code\\mono", "C:/Users/me/code/mono/", "D:\\mono.git",
+        "\\\\server\\share\\mono",
+    ])
+    def test_windows_paths_split_on_backslashes(self, target):
+        assert mod.derive_name_with_basis(target) == ("mono", "target")
+
+    def test_private_manifest_names_nothing(self):
+        """A private root (a workspace manifest) is named after the target."""
+        assert mod.derive_name_with_basis("apps/web", "@acme/web", private=True) == (
+            "web", "target")
+        assert mod.derive_name_with_basis("apps/web", "@acme/web", private=False) == (
+            "acme-web", "manifest")
+
+    @pytest.mark.parametrize("members,expected", [
+        (["@trpc/server", "@trpc/client"], "trpc"),
+        (["@aws-sdk/client-s3", "@aws-sdk/core", "@aws-sdk/lib-storage"], "aws-sdk"),
+        (["serde", "serde_json", "serde_derive"], "serde"),
+        (["next", "@next/font"], "next"),
+        (["acme/auth", "acme/core"], "acme"),
+        (["com.acme:core", "com.acme:api"], "acme"),
+        (["github.com/x/repo/a", "github.com/x/repo/b"], "repo"),
+        (["github.com/x/repo/v2/a", "github.com/x/repo/v2/b"], "repo"),
+    ], ids=["npm-scope", "aws-sdk", "crates", "unscoped-and-scoped", "composer",
+            "maven-group", "go-paths", "go-major-version"])
+    def test_members_name_a_merged_unit(self, members, expected):
+        assert mod.derive_name_with_basis("org/repo", None, False, members) == (
+            expected, "members")
+
+    @pytest.mark.parametrize("members", [
+        [], ["@trpc/server"], ["react", "scheduler"], ["com.a:x", "com.b:y"],
+        ["github.com/a/x", "gitlab.com/a/x"],
+    ], ids=["none", "one", "no-shared-word", "two-groups", "two-domains"])
+    def test_members_without_a_shared_name(self, members):
+        assert mod.derive_name_with_basis("org/repo", None, False, members) == (
+            "repo", "target")
+
+    def test_manifest_name_wins_over_the_members(self):
+        """The facade's name, when the umbrella facade trigger merged the unit."""
+        result = mod.derive_name_with_basis("org/repo", "animato", False, ["animato-core", "animato-x"])
+        assert result == ("animato", "manifest")
+        result = mod.derive_name_with_basis("org/repo", "root", True, ["@a/x", "@a/y"])
+        assert result == ("a", "members")
 
 
 class TestCoexistenceMatch:
@@ -247,8 +353,8 @@ class TestCoexistenceMatch:
         result = scan_inventory(str(skills_dir), match_target="github.com/vuejs/core")
         assert result["matches"] == []
 
-    def test_doc_url_matches_by_source_repo(self, skills_dir):
-        """A docs-only skill (source_repo = full doc URL) is caught by URL match."""
+    def test_doc_url_matches_by_source_repo_and_name(self, skills_dir):
+        """A docs-only skill is caught by URL, and by the host name its brief got."""
         make_skill(
             skills_dir, "docs-example-com", "1.0.0",
             source_repo="https://docs.example.com/guide/intro",
@@ -256,8 +362,23 @@ class TestCoexistenceMatch:
         result = scan_inventory(
             str(skills_dir), match_target="https://docs.example.com/guide/intro"
         )
+        assert result["match_name"] == "docs-example-com"
         assert len(result["matches"]) == 1
-        assert result["matches"][0]["match_reason"] == "url"
+        assert result["matches"][0]["match_reason"] == "both"
+
+    def test_doc_skill_from_another_page_matches_by_name(self, skills_dir):
+        make_skill(skills_dir, "docs-example-com", "1.0.0",
+                   source_repo="https://docs.example.com/other")
+        result = scan_inventory(str(skills_dir), match_target="https://docs.example.com/guide/intro")
+        assert [m["match_reason"] for m in result["matches"]] == ["name"]
+
+    def test_match_name_is_the_name_derive_name_gives(self, skills_dir):
+        result = scan_inventory(str(skills_dir), match_target="https://github.com/vercel/next.js")
+        assert (result["match_name"], result["matches"]) == ("next-js", [])
+        assert result["match_name"] == derive_name("https://github.com/vercel/next.js")
+
+    def test_match_name_absent_without_match_target(self, skills_dir):
+        assert "match_name" not in scan_inventory(str(skills_dir))
 
     def test_skill_without_metadata_only_name_matches(self, skills_dir):
         """No metadata -> no source_repo -> URL match cannot fire, name match still can."""
@@ -963,7 +1084,7 @@ FORGE_FILES = (
     "notes/skill-brief.yaml", "notes/NOTES.md", "notes/my-source-snapshots/src.tar",
     "vnotes/skill-brief.yaml", "vnotes/1.0.0/provenance-map.json", "vnotes/1.0.0/NOTES.md",
     "legacybrief/skill-brief.yaml", "legacybrief/provenance-map.json",
-    "legacybrief/test-report-legacybrief-1.md",
+    "legacybrief/test-report-legacybrief-1.md", "legacybrief/test-findings-r1.json",
     "legacy/provenance-map.json",
     "other/config.toml", "other/data/x.csv",
     "deep/a/b/c/foo-result.json",
@@ -972,7 +1093,7 @@ FORGE_FILES = (
     "tmpfile/cache/build-tmp",
     "tslock/1.0.0/.test-skill.lock",
     "tsdone/1.0.0/.test-skill.lock", "tsdone/1.0.0/test-report-tsdone-r1.md",
-    "tsdone/1.0.0/skf-test-skill-result-latest.json",
+    "tsdone/1.0.0/skf-test-skill-result-latest.json", "tsdone/1.0.0/test-findings-r1.json",
     "renamedrep/1.0.0/test-report-oldname-r1.md",
     "renamedrep/1.0.0/skf-test-skill-result-latest.json",
     "resnotes/1.0.0/skf-test-skill-result-latest.json", "resnotes/1.0.0/NOTES.md",
@@ -2050,8 +2171,9 @@ def _purge_fixture(tmp_path: Path, links: bool) -> tuple[Path, Path]:
         _make_version(skills, name, "1.0.0", MARKED)
         _link_active(skills / name / "active", "1.0.0")
     _make_version(skills, "clean", "0.9.0", MARKED)
+    # test-skill leaves its gap ledger in each version folder it tested.
     for rel in ("clean/skill-brief.yaml", "clean/1.0.0/provenance-map.json",
-                "clean/0.9.0/provenance-map.json"):
+                "clean/1.0.0/test-findings-r1.json", "clean/0.9.0/provenance-map.json"):
         _write(forge / rel)
     _make_version(skills, "rc", "1.0.0-rc")  # no marker: a foreign `1.0.0-rc/`
     _write(skills / "vnotes" / "1.0.0" / "NOTES.md")  # a foreign `1.0.0/NOTES.md`
@@ -2211,6 +2333,7 @@ def _rename_fixture(tmp_path: Path, links: bool) -> tuple[Path, Path]:
     _make_flat(skills, "module", extra=("references/guide.md",))
     _write(skills / "afile")
     for rel in ("clean/skill-brief.yaml", "clean/1.0.0/provenance-map.json",
+                "clean/1.0.0/test-findings-r1.json",
                 "forgemixed/skill-brief.yaml", "forgemixed/NOTES.md",
                 "forgeforeign/config.toml", "improvement-queue/q.json"):
         _write(forge / rel)
@@ -2454,3 +2577,217 @@ def test_cli_purge_rename_and_guarded_delete(tmp_path):
     code, out, _ = _run_inventory(str(tmp_path / "afile"), "--skill", "a", "--purge-check",
                                   "--forge-data-folder", str(forge))
     assert (code, out["code"]) == (1, "DIR_NOT_FOUND")
+
+
+# ---------------------------------------------------------------------------
+# derive-name: the one skill-name rule (#582)
+# ---------------------------------------------------------------------------
+
+REPO = Path(__file__).resolve().parent.parent
+ANALYZE_REFS = REPO / "src" / "skf-analyze-source" / "references"
+
+
+def test_cli_derive_name(tmp_path):
+    code, out, _ = _run_inventory("derive-name", "--target", "https://github.com/vercel/next.js")
+    assert (code, out) == (0, {"status": "ok", "command": "derive-name", "name": "next-js", "basis": "target"})
+    code, out, _ = _run_inventory("derive-name", "--target", "https://github.com/vercel/next.js",
+                                  "--manifest-name", "next")
+    assert (code, out["name"], out["basis"]) == (0, "next", "manifest")
+    code, out, _ = _run_inventory("derive-name", "--target", "libs/x", "--manifest-name", "")
+    assert (code, out["name"], out["basis"]) == (0, "x", "target")
+    code, out, _ = _run_inventory("derive-name", "--manifest-name", "@trpc/server")
+    assert (code, out["name"]) == (0, "trpc-server")
+    names = tmp_path / "names.json"
+    names.write_bytes(json.dumps([
+        {"target": "packages/server", "manifest_name": "@trpc/server"},
+        {"target": "libs/util"},
+        {"target": "https://docs.example.com/a", "manifest_name": None},
+    ]).encode("utf-8"))
+    code, out, _ = _run_inventory("derive-name", "--from", str(names))
+    assert (code, out["status"], out["command"]) == (0, "ok", "derive-name")
+    assert [(n["name"], n["basis"]) for n in out["names"]] == [
+        ("trpc-server", "manifest"), ("util", "target"), ("docs-example-com", "docs-host")]
+    assert out["names"][1] == {"target": "libs/util", "manifest_name": None, "name": "util", "basis": "target"}
+    assert (out["unnamed"], out["duplicates"]) == ([], [])
+
+
+def test_cli_derive_name_batch_private_and_members(tmp_path):
+    """identify-units passes the disqualify record's manifest; a merged unit its members."""
+    names = tmp_path / "names.json"
+    names.write_bytes(json.dumps([
+        {"target": "apps/web", "manifest_name": "@acme/web", "private": True},
+        {"target": "packages/core", "manifest_name": "@acme/core", "private": False},
+        {"target": "/src/aws-sdk-js-v3", "manifest_name": "aws-sdk-js-v3", "private": True,
+         "members": ["@aws-sdk/client-s3", "@aws-sdk/core"]},
+        {"target": "libs/x", "manifest_name": None, "private": None, "members": None},
+    ]).encode("utf-8"))
+    code, out, _ = _run_inventory("derive-name", "--from", str(names))
+    assert code == 0
+    assert [(n["name"], n["basis"]) for n in out["names"]] == [
+        ("web", "target"), ("acme-core", "manifest"), ("aws-sdk", "members"), ("x", "target")]
+
+
+def test_cli_derive_name_tells_clashing_names_apart(tmp_path):
+    """Two folders named api would make skf-count-imports.py refuse the units."""
+    names = tmp_path / "names.json"
+    names.write_bytes(json.dumps([
+        {"target": "src/server/api"},
+        {"target": "src/client/api"},
+        {"target": "a/core", "manifest_name": "com.a:core"},
+        {"target": "b/core", "manifest_name": "com.b:core"},
+        {"target": "web"},
+        {"target": "same"},
+        {"target": "same"},
+        {"target": "///"},
+    ]).encode("utf-8"))
+    code, out, _ = _run_inventory("derive-name", "--from", str(names))
+    assert (code, out["status"]) == (0, "ok")
+    assert [n["name"] for n in out["names"]] == [
+        "server-api", "client-api", "a-core", "b-core", "web", "same", "same", None]
+    assert [n.get("clash") for n in out["names"][:5]] == ["api", "api", "core", "core", None]
+    assert (out["unnamed"], out["duplicates"]) == ([7], [[5, 6]])
+
+
+def test_cli_derive_name_from_stdin():
+    proc = subprocess.run([sys.executable, str(INVENTORY_PY), "derive-name", "--from", "-"],
+                          input=b'[{"target": "a/b"}, {"target": "", "manifest_name": "PyYAML"}]',
+                          capture_output=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    names = json.loads(proc.stdout.decode("utf-8"))["names"]
+    assert [n["name"] for n in names] == ["b", "pyyaml"]
+
+
+def test_cli_derive_name_errors(tmp_path):
+    code, out, _ = _run_inventory("derive-name", "--target", "")
+    assert (code, out["status"], out["code"]) == (1, "error", "NO_NAME")
+    bad = tmp_path / "bad.json"
+    for content in (
+        b'{"target": "x"}',
+        b"[1]",
+        b'[{"target": 3}]',
+        b"not json",
+        b'[{"target": "x", "private": "yes"}]',
+        b'[{"target": "x", "members": "@a/b"}]',
+        b'[{"target": "x", "members": [1]}]',
+    ):
+        bad.write_bytes(content)
+        code, out, _ = _run_inventory("derive-name", "--from", str(bad))
+        assert (code, out["code"]) == (1, "BAD_INPUT"), content
+    # A batch names what it can: a nameless entry does not fail the others.
+    bad.write_bytes(b'[{"target": "ok"}, {"target": ""}]')
+    code, out, _ = _run_inventory("derive-name", "--from", str(bad))
+    assert (code, [n["name"] for n in out["names"]], out["unnamed"]) == (0, ["ok", None], [1])
+    code, out, _ = _run_inventory("derive-name", "--from", str(tmp_path / "missing.json"))
+    assert (code, out["code"]) == (1, "BAD_INPUT")
+    for argv in (
+        ["derive-name"],
+        ["derive-name", "--target"],
+        ["derive-name", "--target", "x", "--bogus", "y"],
+        ["derive-name", "--from", str(bad), "--target", "x"],
+        ["derive-name", "--manifest-name", "--target", "x"],
+        ["derive-name", "--target", "x", "--skills-folder"],
+    ):
+        code, out, err = _run_inventory(*argv)
+        assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv
+        assert "Usage:" in err, argv
+
+
+def test_cli_derive_name_reports_the_existing_skill(tmp_path):
+    """#582: the brief takes the manifest's name, so that is the name to look up."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    make_skill(skills, "next", "15.0.0", source_repo="https://nextjs.org/docs")
+    code, out, _ = _run_inventory(str(skills), "--match-target", "https://github.com/vercel/next.js")
+    assert (code, out["match_name"], out["matches"]) == (0, "next-js", [])
+    code, out, _ = _run_inventory("derive-name", "--target", "https://github.com/vercel/next.js",
+                                  "--manifest-name", "next", "--skills-folder", str(skills))
+    assert (code, out["name"]) == (0, "next")
+    assert out["existing"] == {
+        "name": "next", "active_version": "15.0.0", "source_repo": "https://nextjs.org/docs",
+        "active_path": out["existing"]["active_path"], "match_reason": "name", "skf_skill": True,
+    }
+    assert out["existing"]["active_path"]
+    names = tmp_path / "names.json"
+    names.write_bytes(json.dumps([
+        {"target": "packages/next", "manifest_name": "next"},
+        {"target": "packages/font", "manifest_name": "@next/font"},
+    ]).encode("utf-8"))
+    code, out, _ = _run_inventory("derive-name", "--from", str(names), "--skills-folder", str(skills))
+    assert code == 0
+    assert [(n["name"], (n["existing"] or {}).get("name")) for n in out["names"]] == [
+        ("next", "next"), ("next-font", None)]
+    # Without --skills-folder there is no `existing` key; a missing folder holds no skill.
+    code, out, _ = _run_inventory("derive-name", "--target", "x")
+    assert "existing" not in out
+    code, out, _ = _run_inventory("derive-name", "--target", "x", "--skills-folder", str(tmp_path / "none"))
+    assert (code, out["existing"]) == (0, None)
+
+
+_PLACEHOLDER = re.compile(r"\{[^{}\n]*\}")
+_DERIVE_CALL = re.compile(r"\{skillInventoryHelper\} derive-name\b([^`\n]*)")
+
+
+def _derive_name_calls() -> list[tuple[str, str]]:
+    calls = []
+    for md in sorted((REPO / "src").rglob("*.md")):
+        for m in _DERIVE_CALL.finditer(md.read_text(encoding="utf-8")):
+            calls.append((md.relative_to(REPO).as_posix(), m.group(1)))
+    return calls
+
+
+def _call_words(rest: str) -> list[str]:
+    lex = shlex.shlex(_PLACEHOLDER.sub("X", rest), posix=True, punctuation_chars="|&;<>()")
+    lex.whitespace_split = True
+    words = []
+    for word in lex:
+        if set(word) <= set("|&;<>()"):
+            break
+        words.append(word)
+    return words
+
+
+def test_prose_derive_name_calls_fit_the_cli(capsys):
+    """A derive-name call in a step file must parse (the helper reads argv by hand)."""
+    calls = _derive_name_calls()
+    assert {rel for rel, _ in calls} >= {
+        "src/skf-analyze-source/references/step-auto-scope.md",
+        "src/skf-analyze-source/references/auto-docs-only.md",
+        "src/skf-analyze-source/references/identify-units.md",
+        "src/skf-analyze-source/references/map-and-detect.md",
+    }
+    for rel, rest in calls:
+        mod._main_derive_name(_call_words(rest))
+        out = json.loads(capsys.readouterr().out)
+        assert out.get("code") != "USAGE", (rel, rest, out)
+
+
+def test_analyze_source_names_through_the_helper():
+    auto = (ANALYZE_REFS / "step-auto-scope.md").read_text(encoding="utf-8")
+    docs = (ANALYZE_REFS / "auto-docs-only.md").read_text(encoding="utf-8")
+    assert "Use the manifest `name` field if available" not in auto
+    assert "{project_name}-{package_name}" not in auto
+    assert "replace `.` with `-`" not in docs, "the host rule lives in derive_name"
+    # The name the brief gets is the name the coexistence check looks up.
+    assert '--skills-folder "{skills_output_folder}"' in auto
+    # One classification of the target, in the script: section 0 routes on its basis.
+    assert "`basis` is `docs-host`" in auto
+    for row in ("| GitHub repo |", "| Git hosting |", "Any other `https://` or `http://` URL"):
+        assert row not in auto, row
+
+
+def test_one_name_rule_on_both_paths():
+    """identify-units, map-and-detect and auto section 6 pass the same inputs."""
+    auto = (ANALYZE_REFS / "step-auto-scope.md").read_text(encoding="utf-8")
+    identify = (ANALYZE_REFS / "identify-units.md").read_text(encoding="utf-8")
+    mapping = (ANALYZE_REFS / "map-and-detect.md").read_text(encoding="utf-8")
+    heuristics = (ANALYZE_REFS / "unit-detection-heuristics.md").read_text(encoding="utf-8")
+    assert "## Unit Names" in heuristics
+    for text in (auto, identify, mapping):
+        assert "Unit Names" in text
+    assert '"private": <manifest.private>' in identify
+    assert '"private": <private>, "members": [<member names>]' in auto
+    assert '"members": ["<constituent manifest name>", ...]' in mapping
+    for text in (auto, identify, mapping):
+        assert "`unnamed`" in text and "`duplicates`" in text
+    # Section 6 takes the coexistence decision itself: [A] does not restart at section 1.
+    assert "sets `{coexistence_suffix}` to `-wiki` and continues here" in auto

@@ -28,6 +28,7 @@ To generate a valid skill-brief.yaml file for each confirmed unit using the sche
 
 Read {outputFile} completely to obtain:
 - `confirmed_units` from frontmatter (names of units approved in step 05)
+- `confirmed_composites` from frontmatter (composites approved in step 04, each with its constituents' names and paths)
 - `project_paths`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
 - Recommendation cards from "## Recommendations" section (proposed brief fields per unit)
 - Export map and integration data from prior sections
@@ -51,7 +52,7 @@ For each unit in `confirmed_units`, construct a skill-brief.yaml using:
 | source_repo | `{project_paths[0]}` from frontmatter (or per-unit path if multi-repo) |
 | language | Language the skill **documents** (primary language detected in step 03). For a language / spec reference this is the *documented* language, which may differ from the source language it is extracted from — e.g. a SurrealQL reference extracted from a Rust engine records `surrealql`, not `rust` (see {schemaFile} "Documented vs source language") |
 | scope.type | Scope type from step 05 recommendation card |
-| scope.include | Include patterns from step 05 recommendation card |
+| scope.include | Include patterns from step 05 recommendation card, plus, for a composite (`Boundary: Composite` on its card), `<path>/**` for every constituent path of its `confirmed_composites` entry (such as `crates/animato-core/**`), so the brief spans every constituent. Find the entry by those paths, which the card's Path lists, not by name: step 05 may rename the unit |
 | scope.exclude | Inferred from heuristics (test files, generated code) |
 | scope.tier_a_include | Optional — narrower tier-A surface for stratified-scope monorepos and `reference-app` pattern surfaces; usually left to skf-brief-skill to refine |
 | scope.notes | Rationale from step 05 recommendation card |

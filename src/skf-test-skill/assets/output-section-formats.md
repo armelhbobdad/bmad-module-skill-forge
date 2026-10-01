@@ -10,8 +10,8 @@
 
 ### Structural Findings
 
-| # | Type | Detail | Line |
-|---|------|--------|------|
+| # | Type | Severity | Detail | Line |
+|---|------|----------|--------|------|
 | {per-issue rows} |
 
 **Structural Issues:** {count}
@@ -44,8 +44,8 @@ Only rendered when `references/` directory exists alongside SKILL.md.
 
 ### Reference Validation
 
-| Reference | Type | Line | Target Exists | Accurate | Issues |
-|-----------|------|------|--------------|----------|--------|
+| Reference | Type | Line | Target Exists | Accurate | Severity | Issues |
+|-----------|------|------|--------------|----------|----------|--------|
 | {per-reference rows} |
 
 ### Integration Pattern Completeness
@@ -61,39 +61,45 @@ Only rendered when `references/` directory exists alongside SKILL.md.
 - **Combined Coherence:** {percentage}%
 ```
 
-## Gap Report Section
+## Ledger Record Format
 
-```markdown
-## Gap Report
+Every gap a stage finds is one JSON record in the run's gap ledger, `{forge_version}/test-findings-{run_id}.json`, appended through `scripts/gap-ledger.py append`; no stage writes gap entries into the report by hand:
 
-**Total Gaps:** {N}
-**Blocking (Critical + High):** {N}
-**Non-blocking (Medium + Low + Info):** {N}
-
-### Remediation Summary
-
-| Severity | Count | Estimated Effort |
-|----------|-------|-----------------|
-| Critical | {N} | {description} |
-| High | {N} | {description} |
-| Medium | {N} | {description} |
-| Low | {N} | {description} |
-| Info | {N} | {description} |
-| **Total** | **{N}** | |
+```json
+{
+  "severity": "Critical | High | Medium | Low | Info",
+  "category": "the category of its Gap Severity table row, such as missing-export",
+  "title": "one line",
+  "source": "file:line, or a section reference when no line applies",
+  "remediation": "the exact action that fixes the gap",
+  "issue": "what is wrong (optional)",
+  "export": "the export the gap is about (optional; set it whenever the gap is about one export)"
+}
 ```
 
-## Gap Entry Format
+- `severity` and `category` come from one row of the Gap Severity table in `references/scoring-rules.md`. The script refuses a category outside its vocabulary, which `uv run scripts/gap-ledger.py categories` lists.
+- `source` is a `file:line` pair whenever a line applies, with nothing after it: update-skill reads the pair as the gap's citation. A gap inside the skill package cites `SKILL.md:{line}` or `references/{file}.md:{line}`.
+- `remediation` follows the Remediation Quality Rules below and names each file it touches.
+- Leave out `id`, `group` and `stage`: the script assigns them (`GAP-{NNN}` in the order the gaps were recorded, the group from the category, the stage from `--stage`).
+
+## Gap Report
+
+`uv run scripts/gap-ledger.py render --ledger <ledger> --heading` prints the Gap Report, its effort column included, and report.md §4c writes it unchanged: it is never written by hand.
+
+## Discovery Quality Subsection
+
+Written under the Gap Report by report.md §4c:
 
 ```markdown
-### GAP-{NNN}: {Brief title}
+### Discovery Quality
 
-**Severity:** {Critical|High|Medium|Low|Info}
-**Category:** {Coverage|Coherence|Structural}
-**Source:** {file:line or section reference}
+**Discovery Test:** {PASS (3/3) | WARN (2/3) | FAIL ({N}/3 misrouted) | skipped: {reason} | not run: the hard gate blocked the run}
 
-**Issue:** {Precise description of what is wrong or missing}
+| # | Prompt | Selected Skill | Result |
+|---|--------|----------------|--------|
+| {per-prompt rows, when the test ran} |
 
-**Remediation:** {Exact action to fix this gap}
+{description optimization hints from report.md §4b.4, when any}
 ```
 
 ## Remediation Quality Rules
@@ -102,10 +108,3 @@ Only rendered when `references/` directory exists alongside SKILL.md.
 - **Bad:** "Document the missing function."
 - **Good:** "Update signature in SKILL.md line 78 from `(date: Date) => string` to `(date: Date, format?: string) => string` to match source at `src/utils.ts:42`."
 - **Bad:** "Fix the signature mismatch."
-
-## Effort Estimation Guidelines
-
-- Critical/High gaps: typically require reading source code and writing documentation
-- Medium gaps: typically require adding type definitions or interface docs
-- Low gaps: typically require adding examples or metadata
-- Info: optional improvements, no action required

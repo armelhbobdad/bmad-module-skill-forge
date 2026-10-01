@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-quick-skill-result-envelope.v1.json",
+  "title": "SKF_QUICK_SKILL_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-quick-skill prints, prefixed with the literal 'SKF_QUICK_SKILL_RESULT_JSON: ': on stdout when a run finishes (step 6, finalize), and on stderr at every HARD HALT. The shared emitter (skf-emit-result-envelope.py) builds both from a staged payload, so pipelines branch on status, exit_code and halt_reason without parsing the human-readable output. A --batch run prints one per target.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-quick-skill",
+        "prefix": "SKF_QUICK_SKILL_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-invalid": 2,
+          "resolution-failure": 3,
+          "write-failure": 4,
+          "overwrite-cancelled": 5,
+          "user-cancelled": 6,
+          "finalize-blocked": 7,
+          "ecosystem-redirect": 8,
+          "not-skf-output": 9,
+          "flat-layout": 9
+        },
+        "success_exit_code": 0,
+        "result_file": "quick-skill-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "exit_code",
+    "phase",
+    "halt_reason",
+    "error",
+    "outputs",
+    "summary",
+    "skill_package",
+    "timestamp",
+    "run_id",
+    "result_path",
+    "headless_decisions",
+    "warnings"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error"],
+      "description": "'success' when step 6 finished the run, 'error' at every HARD HALT."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6, 7, 8, 9],
+      "description": "The exit code of the halt-contract.md table, derived from halt_reason: null gives 0, input-invalid 2, resolution-failure 3, write-failure 4, overwrite-cancelled 5, user-cancelled 6, finalize-blocked 7, ecosystem-redirect 8, not-skf-output and flat-layout 9."
+    },
+    "phase": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The step slug where the HARD HALT fired (resolve-target, ecosystem-check, quick-extract, compile, write-and-validate or finalize), on-activation for a halt before the run starts (SKILL.md On Activation, or batch mode's refusal of --description and --exports), or batch-mode for a batch that cannot start (batch mode section 1). Null on success."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "input-invalid",
+        "resolution-failure",
+        "write-failure",
+        "overwrite-cancelled",
+        "user-cancelled",
+        "finalize-blocked",
+        "ecosystem-redirect",
+        "not-skf-output",
+        "flat-layout"
+      ],
+      "description": "Null on success. The failure class of a HARD HALT, the same value as error.code: pipelines branch on it without grepping the message."
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "input-invalid",
+                "resolution-failure",
+                "write-failure",
+                "overwrite-cancelled",
+                "user-cancelled",
+                "finalize-blocked",
+                "ecosystem-redirect",
+                "not-skf-output",
+                "flat-layout"
+              ],
+              "description": "The halt_reason."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The halt's reason, the one-line form of the message the step displayed."
+            },
+            "details": {
+              "description": "Optional phase-specific context, for example the folder the ownership halt refused (details.folder) or the file a failed write named (details.failed_path)."
+            }
+          }
+        }
+      ],
+      "description": "Null on success. The failure of a HARD HALT."
+    },
+    "outputs": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "properties": {
+        "skill_md": { "type": "string", "minLength": 1, "description": "Path of {skill_package}/SKILL.md." },
+        "context_snippet": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path of {skill_package}/context-snippet.md; absent under --skip-snippet."
+        },
+        "metadata": { "type": "string", "minLength": 1, "description": "Path of {skill_package}/metadata.json." },
+        "active_pointer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path of the {skill_group}/active pointer the run flipped; absent when it was skipped."
+        }
+      },
+      "description": "The files the run wrote, by kind. Empty at a HARD HALT before step 5 writes; a later halt lists what was already on disk."
+    },
+    "summary": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "properties": {
+        "skill_name": { "type": "string", "minLength": 1, "description": "The name the skill was written under ({repo_name})." },
+        "version": { "type": "string", "minLength": 1, "description": "The version folder the run wrote." },
+        "language": { "type": "string", "minLength": 1, "description": "The primary language the run compiled." },
+        "exports_documented": { "type": "integer", "minimum": 0, "description": "The exports the compiled SKILL.md documents." },
+        "quality_score": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "skill-check's quality score (0 to 100) of the written package, from step 5. Null when skill-check did not run. It is the score every workflow's skill-check pass computes, not a test-skill score."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "The extraction confidence step 3 recorded."
+        },
+        "repo_shape": {
+          "type": ["string", "null"],
+          "enum": [null, "library", "skills-module", "awesome-list", "docs-site", "examples-only"],
+          "description": "The repository shape step 3 recorded, null when it recorded none (a plain library)."
+        },
+        "language_resolution": {
+          "type": ["string", "null"],
+          "enum": [null, "hint", "detected", "auto-picked-first", "user-confirmed"],
+          "description": "How step 1 chose the language: from a language hint, detected with no competing manifest, the first of several manifests picked by a headless run, or confirmed by the user at the multi-language gate."
+        },
+        "detected_languages": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Every manifest language step 1 detected, in priority order."
+        },
+        "zero_exports_rescue": {
+          "type": ["string", "null"],
+          "enum": [null, "user-accepted", "auto-proceeded"],
+          "description": "Set when step 3 found no export and no README description and the run went on anyway: a user choice or a headless default."
+        },
+        "active_pointer": {
+          "type": "string",
+          "enum": ["symlink", "junction", "skipped-no-active-pointer", "skipped-helper-missing"],
+          "description": "The kind of {skill_group}/active pointer step 6 flipped, or why it flipped none."
+        },
+        "validation_issues": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["skill_md", "context_snippet", "metadata", "security"],
+          "properties": {
+            "skill_md": { "type": "integer", "minimum": 0 },
+            "context_snippet": { "type": "integer", "minimum": 0 },
+            "metadata": { "type": "integer", "minimum": 0 },
+            "security": { "type": "integer", "minimum": 0 }
+          },
+          "description": "The advisory issues step 5's validators returned for each heading of its validation report: skill_md (skill-check's diagnostics, or the frontmatter validator's issues without it, plus the body checks), context_snippet, metadata and security (skill-check's security findings). Auto-fixed issues count nothing, and a check that did not run counts 0."
+        }
+      },
+      "description": "Empty at a HARD HALT. On success, the run's facts a pipeline branches on."
+    },
+    "skill_package": {
+      "type": ["string", "null"],
+      "description": "Absolute path of {skill_package} once step 5 computed it; null before, and at the step 5 ownership halt (the refused folder is in error.details.folder)."
+    },
+    "timestamp": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO-8601 UTC time the emitter stamped from the clock."
+    },
+    "run_id": {
+      "type": ["string", "null"],
+      "description": "The run folder's id, stamped by the emitter; a --batch target's is the batch run's id and the target's number."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "description": "The per-run result file this envelope's call wrote under {skill_package}, or null when it wrote none (every halt before metadata.json exists)."
+    },
+    "headless_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "default_action", "taken_action", "reason"],
+        "properties": {
+          "gate": {
+            "type": "string",
+            "enum": [
+              "resolve-target.ambiguous-package",
+              "resolve-target.multi-language",
+              "ecosystem-check.ecosystem-match",
+              "quick-extract.repo-shape",
+              "quick-extract.zero-exports",
+              "compile.review",
+              "write-and-validate.overwrite"
+            ],
+            "description": "The gate that resolved without a person, named after its step and the gate the step file labels."
+          },
+          "default_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The gate's documented default (for example 'C' or 'Y')."
+          },
+          "taken_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action the run took."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why, for example 'headless: no user to prompt'."
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional gate-specific data, such as the detected languages or the package that was overwritten."
+          }
+        }
+      },
+      "description": "One entry per gate that resolved on its own during this run, recorded in the run folder's sink the moment it decided. Empty for an interactive run."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Non-fatal anomalies, one string each, such as also_found_in (a package name another registry also holds, kept at the first registry's pick) or customization_resolver_unavailable. Empty when none."
+    }
+  }
+}

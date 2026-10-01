@@ -28,7 +28,7 @@ What each mode actually checks and how category weights are distributed is owned
 Update `{outputFile}` frontmatter:
 - Set `testMode: '{naive|contextual}'`
 
-Append the **Test Summary** section to `{outputFile}`:
+Write the **Test Summary** section in place of the template's `## Test Summary` heading and the placeholder comment under it, in `{outputFile}`:
 
 ```markdown
 ## Test Summary
@@ -48,5 +48,5 @@ Append the **Test Summary** section to `{outputFile}`:
 
 Report the detected mode ({naive|contextual}) and why it was selected (individual skill → naive, stack → contextual), then proceed to the coverage check.
 
-Update stepsCompleted, then load and execute {nextStepFile}.
+Append `'detect-mode'` to `stepsCompleted` in the `{outputFile}` frontmatter, then load and execute {nextStepFile}.
 
