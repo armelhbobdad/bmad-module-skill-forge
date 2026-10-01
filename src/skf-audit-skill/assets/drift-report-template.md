@@ -25,6 +25,9 @@ audit_commit: ''
 latest_tag: ''
 remote_head: ''
 upstream_fetch: ''
+upstream_moved: ''
+upstream_ref: ''
+source_tree: ''
 ast_fallback_files: []
 applied_transforms: []
 drift_score: ''
@@ -82,6 +85,7 @@ previousWorkflow: 'create-skill'
 ## Remediation Suggestions
 
 <!-- Appended by report -->
+<!-- Out-of-Scope New Public API: one row per file outside the skill's scope whose public API a package entry point exports (the snapshot's outside_scope), which update-skill's scope reconciliation reads; left out when there is none -->
 
 ---
 

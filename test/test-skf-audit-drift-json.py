@@ -14,7 +14,7 @@ path. These tests keep the prose on that contract and run the prose's own
 commands against the real helpers:
 - 40 line-only changes score MINOR, and 15 added exports grade HIGH and
   route to update-skill however step 3 rolls them up;
-- a relocation appended to the snapshot turns a CRITICAL removal into a
+- a relocation the snapshot helper adds turns a CRITICAL removal into a
   MEDIUM move on the second diff;
 - a signature's quotes reach the classification intact through the findings
   file;
@@ -62,6 +62,7 @@ SRC = REPO_ROOT / "src"
 AUDIT = SRC / "skf-audit-skill"
 REFS = AUDIT / "references"
 SKILL = AUDIT / "SKILL.md"
+HEADLESS = REFS / "headless-contract.md"
 INIT = REFS / "init.md"
 COMPOSE = REFS / "constituent-freshness.md"
 RE_INDEX = REFS / "re-index.md"
@@ -76,8 +77,10 @@ DIFF = SCRIPTS / "skf-structural-diff.py"
 CLASSIFY = SCRIPTS / "skf-severity-classify.py"
 HASH_CONTENT = SCRIPTS / "skf-hash-content.py"
 LOAD_PROVENANCE = SCRIPTS / "skf-load-provenance.py"
+SNAPSHOT = SCRIPTS / "skf-extraction-snapshot.py"
 # The script each prose placeholder names, for running a prose command.
 PROSE_SCRIPTS = {
+    "{extractionSnapshotHelper}": SNAPSHOT,
     "{structuralDiffHelper}": DIFF,
     "{severityClassifyHelper}": CLASSIFY,
     "{compareConstituentHashesHelper}": HASH_CONTENT,
@@ -112,7 +115,7 @@ RUN_CONTEXT = {
     INIT: ("confidence_mode", "audited_version", "audited_version_reason", "manifest_version",
            "provenance_map", "provenance_generated_at", "provenance_age_days", "baseline_ref",
            "baseline_commit", "audit_ref", "audit_ref_source", "audit_commit", "latest_tag",
-           "remote_head", "upstream_fetch"),
+           "remote_head", "upstream_fetch", "upstream_moved", "upstream_ref", "source_tree"),
     RE_INDEX: ("ast_fallback_files",),
     STRUCTURAL: ("applied_transforms",),
 }
@@ -121,7 +124,7 @@ RUN_CONTEXT_IDS = ["init", "re-index", "structural-diff"]
 PROVENANCE_ROWS = {
     "Audit Date": ("date",),
     "Forge Tier": ("forge_tier",),
-    "Source Path": ("source_path",),
+    "Source Path": ("source_path", "source_tree"),
     "Skill Path": ("skill_path",),
     "Audited Version": ("audited_version", "audited_version_reason", "manifest_version"),
     "Provenance Map": ("provenance_map",),
@@ -132,6 +135,7 @@ PROVENANCE_ROWS = {
     "Baseline Ref / Commit": ("baseline_ref", "baseline_commit"),
     "Audit Ref / Commit": ("audit_ref", "audit_commit", "audit_ref_source"),
     "Upstream Latest": ("latest_tag", "remote_head", "upstream_fetch"),
+    "Upstream Moved": ("upstream_moved", "upstream_ref"),
 }
 
 spec = importlib.util.spec_from_file_location("skf_severity_for_audit", CLASSIFY)
@@ -296,22 +300,23 @@ def test_structural_diff_saves_the_diff():
 def test_a_diff_that_saved_nothing_halts_inside_the_contract():
     """Each exit-2 cause has its handling: the snapshot is fixed and the diff
     run again, a failed write is exit 4, and a map step 1 could read but the
-    diff cannot halts as step 1 §4 does."""
+    diff cannot halts as provenance-invalid (exit 3), as step 1 §4 does."""
     flow = _flow(_slice(_read(STRUCTURAL), "### 1. Run the Deterministic Export Diff", "### 1b."))
     assert "Exit `2` saved nothing; act on its `error`:" in flow
     assert ("It names `{extractionSnapshot}` (unreadable, not JSON, or, with `--group-by`, no export with a "
             "`source_library`): step 2 wrote that file, so fix it as re-index §3 describes and run the command "
             "again.") in flow
     assert 'It starts `Cannot write output`: HALT with **exit 4**, `halt_reason: "write-failed"`' in flow
-    assert "Otherwise it names `{provenanceMap}`, which step 1 §4 read: HALT as step 1 §4 does" in flow
+    assert ('Otherwise it names `{provenanceMap}`, which step 1 §4 read: HALT with **exit 3**, '
+            '`halt_reason: "provenance-invalid"`') in flow
     assert "Exit `2` is an error that saved nothing" not in flow
     rerun = _flow(_slice(_read(STRUCTURAL), "### 1b.", "### 2."))
     assert "acting on its exit code as §1 does" in rerun
     severity = _flow(_slice(_read(SEVERITY), "### 2. Classify, Score, and Count", "The saved result"))
     assert ('An `error` that starts `Cannot write output` (here or in §1) is a failed write: HALT with '
             '**exit 4**, `halt_reason: "write-failed"`') in severity
-    rows = [line for line in _read(SKILL).splitlines() if re.match(r"\| 4 +\| write-failure ", line)]
-    assert len(rows) == 1 and "step 1c, step 3 §1 and step 5 §2" in rows[0], rows
+    rows = [line for line in _read(HEADLESS).splitlines() if re.match(r"\| 4 +\| write-failure ", line)]
+    assert len(rows) == 1 and "step 1c, step 2 §2 and §3, step 3 §1 and step 5 §2" in rows[0], rows
 
 
 def test_the_helpers_report_what_the_branches_read(tmp_path):
@@ -504,15 +509,22 @@ def test_fifteen_added_exports_grade_high_however_they_render(tmp_path):
 
 
 def test_a_relocated_export_becomes_a_move(tmp_path):
-    """§1b: a verified relocation appended to the snapshot, then the same diff again."""
+    """§1b: the runner's find over the candidates, added to the snapshot by
+    the prose's relocate command, then the same diff again."""
     audit = Audit(tmp_path, [_entry("keep", "pkg/a.py", 1), _entry("parse", "pkg/a.py", 9)],
                   [_export("keep", "pkg/a.py", 1)])
     first = audit.diff()
     assert [r["name"] for r in first["removed"]] == ["parse"]
     assert audit.classify(audit.project())["drift_score"] == "CRITICAL"
-    snapshot = _load(audit.snapshot)
-    snapshot["exports"].append(_export("parse", "pkg/util/parsing.py", 3))
-    _write_json(audit.snapshot, snapshot)
+    _write_json(audit.data / "relocations.json", {"status": "ok", "exports": [
+        {"export_name": "parse", "source_file": "pkg/util/parsing.py", "source_line": 3, "export_type": "function",
+         "signature": "def parse(text)", "confidence": "T1", "extraction_method": "ast-grep"},
+        {"export_name": "unrelated", "source_file": "pkg/util/parsing.py", "source_line": 9}]})
+    section = _slice(_read(STRUCTURAL), "### 1b.", "### 2.")
+    (relocate,) = [line.strip() for line in section.splitlines() if line.strip().startswith(
+        "uv run {extractionSnapshotHelper} relocate ")]
+    result = _run_prose(relocate, audit.values)
+    assert (result.returncode, json.loads(result.stdout)["added"]) == (0, 1), result.stdout + result.stderr
     second = audit.diff()
     assert second["removed"] == [] and [m["name"] for m in second["moved"]] == ["parse"]
     result = audit.classify(audit.project())
@@ -585,8 +597,9 @@ def test_a_stack_snapshot_without_its_library_is_sent_back_to_step_2(tmp_path):
     assert str(audit.snapshot) in error and "source_library" in error
     assert not (audit.data / "structural-diff.json").exists()
     worker = _flow(_slice(_read(RE_INDEX), "### 3. Extract Current Exports", "### 4."))
-    assert "and, for a stack, its file's `source_library`" in worker
-    assert "looked up once per file in the provenance map's `entries[]`" in worker
+    assert ("the snapshot helper gives each one its file's `source_library` from the provenance map (the map "
+            "`normalize` returns as `source_library_by_file`)") in worker
+    assert "looked up once per file in the provenance map's `entries[]`" not in worker
 
 
 # --------------------------------------------------------------------------
@@ -657,9 +670,9 @@ def test_init_sends_a_compose_stack_around_the_source_tree():
     source = _flow(_slice(init, "### 5. Resolve Source Path", "### 5b."))
     assert ("**A compose-mode stack** (`{compose_mode_stack}`) has no source tree to resolve: skip this "
             "section, and §5b skips too.") in source
-    upstream = _slice(init, "### 5b. Detect Upstream Drift", "**Otherwise:**")
-    assert "- The skill is a compose-mode stack (`{compose_mode_stack}`): it has no source tree" in upstream
-    assert '`upstream_fetch = "skipped: {reason}"`' in upstream
+    upstream = _flow(_slice(init, "### 5b. Detect Upstream Drift", "**Otherwise**"))
+    assert ('**A compose-mode stack** (`{compose_mode_stack}`) has no source tree: skip this section with '
+            '`upstream_fetch = "skipped: compose-mode stack"`') in upstream
     confirm = _flow(_slice(init, "### 7. Present Baseline Summary", "**GATE"))
     assert "execute `{nextStepFile}`, or `{composeStepFile}` when `{compose_mode_stack}` is true" in confirm
     stages = _slice(_read(SKILL), "## Stages", "## Invocation Contract")
@@ -983,10 +996,15 @@ def test_the_version_note_names_only_bound_values():
 
 
 def test_init_records_the_fetch_outcome():
+    """Every outcome of the one upstream call (#588) records its fetch value,
+    and whether upstream moved, for the report and the envelope."""
     upstream = _flow(_slice(_read(INIT), "### 5b. Detect Upstream Drift", "### 6. Create Drift Report"))
-    for outcome in ('`upstream_fetch = "skipped: {reason}"`', '`upstream_fetch = "ok"`',
-                    '`upstream_fetch: "failed:{reason}"`'):
+    for outcome in ('`upstream_fetch = "skipped: compose-mode stack"`', '`upstream_fetch = "ok"`',
+                    '`upstream_fetch = "skipped: {skip_reason}"`', '`upstream_fetch = "failed:{fetch_error}"`',
+                    '`upstream_fetch = "failed:helper-unavailable"`'):
         assert outcome in upstream, outcome
+    for moved in ("`upstream_moved = true`", "`upstream_moved = false`", "`upstream_moved = null`"):
+        assert moved in upstream, moved
 
 
 # --------------------------------------------------------------------------

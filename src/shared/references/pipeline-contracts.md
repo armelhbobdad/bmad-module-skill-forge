@@ -57,7 +57,7 @@ How outputs from one workflow become inputs to the next:
 | TS | EX | skill name + settled verdict | EX runs only when TS settled PASS (`next_workflow` is `export-skill`); FAIL, INCONCLUSIVE and pass-with-drift halt the pipeline before EX, with the verdict as the halt reason |
 | QS | TS | skill name (from `repo_name`) | Forger passes the quick-skill's output name to TS |
 | QS | EX | skill name | Same |
-| AS | US | skill name + drift severity | The forger's gate reads the drift severity from the envelope AS printed (`drift_score`); CLEAN skips US |
+| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`, which US takes as `--target-ref`, so the update reads the ref the audit found |
 | US | TS | skill name | Forger passes the `skill_name` US updated to TS: the skill `maintain` names, or the one a repair updates |
 | VS | RA | architecture doc path | Already known from VS invocation |
 
@@ -70,7 +70,7 @@ Circuit breakers halt the pipeline when a workflow's output doesn't meet a quali
 | AN | recommended units count (`unit_counts.confirmed`) | min: 1 | Fewer units than the minimum (by default, zero skillable units found) |
 | CS | compilation success | must complete | Hard error during compilation |
 | TS | settled verdict (`verdict` / `summary.result`, with `next_workflow`) | TS's own: `TS[min:N]` reaches TS as `--threshold=N`, else the per-pipeline defaults apply (see init.md §1b) | Any verdict but PASS, reported as the halt reason: FAIL (including a FAIL that a post-score cap forced although the score clears the threshold), INCONCLUSIVE or pass-with-drift. TS owns its score, caps and 80% floor: a score between 80% and a higher threshold that TS settles as a fallback PASS with an evidence report continues |
-| AS | drift severity (`drift_score` / `summary.severity`) | not CRITICAL | CRITICAL drift found (CLEAN skips a US that comes next) |
+| AS | drift severity (`drift_score` / `summary.severity`) with the route (`next_workflow` / `summary.next_workflow`) | not CRITICAL | CRITICAL drift found (CLEAN skips a US that comes next, unless `next_workflow` is `update-skill`: upstream moved, so the update still runs) |
 | VS | coverage (`coverage_percentage` / `summary.coveragePercentage`) with the overall verdict (`overall_verdict` / `summary.overallVerdict`) | coverage above 0% | Zero coverage (`zero-coverage`): VS verified none of the architecture's technologies. Every verdict with coverage continues, NOT_FEASIBLE included, since RA takes each Blocked integration as a critical issue |
 
 Override syntax: `TS[min:80]` sets the test-skill threshold to 80 for this pipeline run (the forger passes it to TS as `--threshold=80`), and `AN[min:2]` asks AN for at least two units.

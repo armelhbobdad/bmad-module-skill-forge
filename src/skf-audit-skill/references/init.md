@@ -15,13 +15,18 @@ loadProvenanceProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
-# index folders and SKF's workspace lock out of git, and undoes the
-# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
-# exists, skip the call and continue: it never gates the workflow.
-cccGitHygieneProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
-  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
+# Resolve `{checkWorkspaceDriftHelper}` to the first existing path: §5b asks
+# its `upstream` command, in one call, whether the remote moved past the
+# skill's commit.
+checkWorkspaceDriftProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
+  - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
+# Resolve `{sourceTreeHelper}` to the first existing path: §5b's [C] reads the
+# upstream ref into a private tree with `resolve`, and every later HALT and
+# step 6 remove that tree with `close`.
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -41,7 +46,15 @@ Load the existing skill artifacts, provenance map, and forge tier configuration 
 
 ## MANDATORY SEQUENCE
 
-**Initialize workflow context defaults.** Before entering §1, set `confidence_mode = "normal"` as the default. §4 may upgrade this to `"degraded — all findings T1-low"` if the operator opts into degraded mode. Downstream steps (report.md, drift-report-template.md) consume this variable directly — no conditional at the usage site.
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (§5b's [C]), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, adding `"skill_name"` once §1 named the skill, `"report_path": "{outputFile}"` once §6 wrote the report, and `"path"` when the halt names one, then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+The emitter sets `status: "error"`, derives `exit_code` from `halt_reason`, stamps `run_id` and folds in the decisions the gates recorded. Display the line it prints, then stop with the halt's exit code. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
+**Initialize workflow context defaults.** Before entering §1, set `confidence_mode = "normal"` as the default. §4 may upgrade this to `"degraded: all findings T1-low"` if the operator opts into degraded mode. Downstream steps (report.md, drift-report-template.md) consume this variable directly, with no conditional at the usage site.
 
 ### 1. Get Skill Path
 
@@ -73,11 +86,11 @@ Log each entry of `resolve.errors` (a broken `active` link, for example), and `r
 
    - **[N] Audit the link's version ({symlink_target})**: recommended. The drift report describes the version the skill resolves to now.
    - **[M] Audit the manifest's version ({active_version})**: only useful when investigating the older version specifically.
-   - **[X] Abort**: halt without producing a report (exit 6, `halt_reason: "user-cancelled"`). Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
+   - **[X] Abort**: halt without producing a report (exit 6, `halt_reason: "user-cancelled"`, phase `init:manifest-gate`). Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
 
    When `paths.provenance_map.path` is null but `candidates.manifest.provenance_map` is set (the link's version has no provenance map and the manifest's has one), the gate adds: "`{symlink_target}` has no provenance map, so **[N]** audits it in degraded mode (text diff, T1-low findings); **[M]** audits `{active_version}` against its map." The headless log adds: `"{symlink_target} has no provenance map: pass degraded=true, or set skill_path to the {active_version} package to audit that version against its map."`
 
-   **[N]**, the default, binds the helper's values. **[M]** runs the command above again with `--version {active_version}` and binds that run's values (its `reason` is `requested`). Headless mode auto-selects **[N]** and logs: `"headless: the manifest names {active_version} but the active link names {symlink_target}; auditing the link's version. Run export-skill to reconcile."`
+   **[N]**, the default, binds the helper's values. **[M]** runs the command above again with `--version {active_version}` and binds that run's values (its `reason` is `requested`). Headless mode auto-selects **[N]**, logs `"headless: the manifest names {active_version} but the active link names {symlink_target}; auditing the link's version. Run export-skill to reconcile."` and records the decision in the run sink: stage `{run_dir}/decision.json` as `{"gate": "init.manifest-lags-link", "default_action": "N", "taken_action": "N", "reason": "<the log line>", "evidence": {"manifest_version": "{active_version}", "link_version": "{symlink_target}"}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-audit-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 3. If neither: fall back to the flat path `{skills_output_folder}/{skill_name}/` (`reason` is `flat-layout`: `SKILL.md` sits at the skill folder root, with no version folder yet). Check that SKF generated it before anything moves:
    - Run `uv run {skillInventoryHelper} "{skills_output_folder}" --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
    - **`{group_flat_skf}` is true:** auto-migrate per `knowledge/version-paths.md` migration rules, then run the `resolve` command above again and bind its values anew: they now name the version folder.
@@ -105,8 +118,8 @@ If no helper candidate resolves, SKF can neither choose the version nor check a 
 - If missing → "Skill not found at `{resolved_skill_package}`. Check the path and try again."
 - If found → Continue
 
-**Headless default** (when `{headless_mode}`): the interactive prompt and its "check the path and try again" re-prompt cannot be answered under automation, so §1 halts deterministically instead of looping. This is the origin site for the exit-2 / exit-3 rows the Exit Codes table attributes to step 1 §1 — emit the `SKF_AUDIT_RESULT_JSON` error envelope on **stderr** (shape per SKILL.md → Result Contract; `status: "error"`, `drift_score: null`, `report_path: null`, `next_workflow: null`, `audit_ref: null`) at each halt:
-- **No `skill_name` supplied** (neither name nor path given): HALT with **exit 2**, `halt_reason: "input-missing"`, `skill_name: null`. Log: `"headless: no skill_name supplied; cannot resolve interactively. Re-run with skill_name set."`
+**Headless default** (when `{headless_mode}`): the interactive prompt and its "check the path and try again" re-prompt cannot be answered under automation, so §1 halts deterministically instead of looping. This is the origin site for the exit-2 / exit-3 rows the Exit Codes table attributes to step 1 §1: each halt below prints its envelope through the halt envelope above, at phase `init:skill-path`:
+- **No `skill_name` supplied** (neither name nor path given): HALT with **exit 2**, `halt_reason: "input-missing"`, no `skill_name` in the payload. Log: `"headless: no skill_name supplied; cannot resolve interactively. Re-run with skill_name set."`
 - **No version to audit, or `SKILL.md` missing at `{resolved_skill_package}`** (items 4 to 6 above, a missing helper, or a full path with no usable `metadata.json`): HALT with **exit 3**, `halt_reason: "skill-not-found"`, `skill_name: {skill_name}`. Log: `"headless: skill not found at {resolved_skill_package}; no interactive retry. Check the exported skill name/path."`
 - **Flat `SKILL.md` that SKF did not generate** (item 3's ownership gate): HALT with **exit 3**, `halt_reason: "not-skf-output"`, `skill_name: {skill_name}`. Log: `"headless: {skill_name} is not SKF output; nothing was moved. SKF leaves the skills it did not generate alone, so manage it yourself; relocate skills_output_folder only if it holds a module's own source."`
 
@@ -116,13 +129,13 @@ Load `{sidecar_path}/forge-tier.yaml` to detect available tools.
 
 **If file missing:**
 - "Setup-forge has not been run. Cannot determine tool availability. Run `[SF] Setup Forge` first."
-- HALT with **exit 3**, `halt_reason: "forge-tier-missing"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract) and log: `"headless: forge-tier.yaml missing at {sidecar_path}; run setup-forge. Aborting."`
+- HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`. When `{headless_mode}`, log: `"headless: forge-tier.yaml missing at {sidecar_path}; run setup-forge. Aborting."`
 
 **If found:**
 - Extract tier level: Quick / Forge / Forge+ / Deep
 - Extract available tools: gh_bridge, ast_bridge, qmd_bridge — see `knowledge/tool-resolution.md` for concrete tool resolution per IDE
 
-**Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
+**Apply tier override:** the invocation's `tier_override` input wins, then `tier_override` in `{sidecar_path}/preferences.yaml`, then the detected tier: use the first that is a valid tier value (Quick, Forge, Forge+ or Deep), and log which one set the tier.
 
 ### 3. Load Skill Artifacts
 
@@ -135,12 +148,13 @@ Load the following from the skill directory:
 **Extract from metadata.json:**
 - `name`, `version`, `generation_date`, `confidence_tier` used during creation
 - `source_root` — Resolved source code path used during extraction
+- `source_repo`: the repository the skill was built from, which §5b's [C] reads a newer ref of (`{source_repo}`, an empty string when the field is null or missing)
 
 ### 4. Load Provenance Map
 
 Load the provenance map at `{provenanceMap}`, the path §1 bound: the audited version's map, or the flat copy an older skill may still keep.
 
-**Resolve `{loadProvenanceHelper}`** from `{loadProvenanceProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{loadProvenanceHelper}`** from `{loadProvenanceProbeOrder}`; first existing path wins. If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `init:provenance`: "`skf-load-provenance.py` is not installed. Re-install SKF."
 
 **If `{provenanceMap}` is set:**
 - Normalize the map's deterministic projections in one subprocess call:
@@ -155,16 +169,16 @@ Load the provenance map at `{provenanceMap}`, the path §1 bound: the audited ve
   - `{source_root}`, `{baseline_commit}`, `{baseline_ref}` — used by §5 Resolve Source Path and §5b Detect Upstream Drift.
   - `{export_count}` ← `export_count`, `{provenance_generated_at}` ← `generated_at` and `{provenance_age_days}` ← `age_days`: the baseline facts §7 shows and §6 records. `age_days` counts from the map's `generated_at`, or from the file's modification time when the map has none.
 
-  If the script exits non-zero, surface the stderr as a hard halt — the map is structurally invalid and downstream steps cannot proceed.
+  If the script exits non-zero, HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase `init:provenance`, `"path": "{provenanceMap}"`, showing its stderr: the map is structurally invalid and downstream steps cannot proceed.
 
 **If `{provenanceMap}` is null** (no map in the version folder, nor a flat copy):
 - "No provenance map found for `{skill_name}`. This skill may not have been created by create-skill."
 - "**Degraded mode available:** I can perform text-based comparison without provenance data. Findings will have T1-low confidence."
 - "**[D]egraded mode** — proceed with text-diff only"
 - "**[X]** — abort audit"
-- Wait for user selection. If D, set `degraded_mode: true` and `confidence_mode = "degraded — all findings T1-low"`, then skip the normalize call above (no map to normalize). If X, halt workflow (exit 6, `halt_reason: "user-cancelled"`).
+- Wait for user selection. If D, set `degraded_mode: true` and `confidence_mode = "degraded: all findings T1-low"`, then skip the normalize call above (no map to normalize). If X, HALT (exit 6, `halt_reason: "user-cancelled"`, phase `init:degraded-mode`).
 
-**Headless default** (when `{headless_mode}`): consume the pre-supplied `degraded` input from the Invocation Contract. If `degraded=true`, auto-select **[D]** (set `degraded_mode: true`, `confidence_mode = "degraded — all findings T1-low"`, skip the normalize call) and log: `"headless: no provenance map for {skill_name}; proceeding in degraded mode (text-diff, T1-low) per pre-supplied degraded=true."` If `degraded` is unset or false, auto-select **[X] abort** (exit 6, `halt_reason: "user-cancelled"`) and log: `"headless: no provenance map for {skill_name} and degraded not pre-supplied; aborting. Re-run with degraded=true for text-diff."` Never silently emit a low-confidence report under automation without explicit opt-in — same stance as the [A]-abort default at §5b's dirty-worktree sub-gate.
+**Headless default** (when `{headless_mode}`): consume the pre-supplied `degraded` input from the Invocation Contract. If `degraded=true`, auto-select **[D]** (set `degraded_mode: true`, `confidence_mode = "degraded: all findings T1-low"`, skip the normalize call) and log: `"headless: no provenance map for {skill_name}; proceeding in degraded mode (text-diff, T1-low) per pre-supplied degraded=true."` If `degraded` is unset or false, auto-select **[X] abort** (exit 6, `halt_reason: "user-cancelled"`, phase `init:degraded-mode`) and log: `"headless: no provenance map for {skill_name} and degraded not pre-supplied; aborting. Re-run with degraded=true for text-diff."` Either way, record the decision in the run sink before going on or halting: stage `{run_dir}/decision.json` as `{"gate": "init.degraded-mode", "default_action": "X", "taken_action": "<D or X>", "reason": "<the log line>"}` and run `uv run {emitEnvelopeHelper} record --workflow skf-audit-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`. Never silently emit a low-confidence report under automation without explicit opt-in.
 
 ### Stack Skill Detection
 
@@ -187,109 +201,73 @@ If `{legacy_stack_provenance}` is true: log a note that this stack uses v1 prove
 - Ask user: "Please provide the path to the current source code."
 - `baseline_commit` and `baseline_ref` are unavailable — §5b will short-circuit
 
-**Validate:** Confirm the source directory exists and is accessible. If it is missing or unreadable → HALT with **exit 3**, `halt_reason: "source-dir-missing"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract) and log: `"headless: source directory {source_root} from the provenance map no longer exists; aborting."`
+**Validate:** Confirm the source directory exists and is accessible. If it is missing or unreadable → HALT with **exit 3**, `halt_reason: "source-dir-missing"`, phase `init:source-dir`, `"path": "{source_root}"`. When `{headless_mode}`, log: `"headless: source directory {source_root} from the provenance map no longer exists; aborting."`
 
 ### 5b. Detect Upstream Drift
 
 Upstream drift detection is the primary use case of this workflow. If the local clone is still pinned to the baseline commit while upstream has shipped newer tags, auditing against the unchanged tree will misleadingly report CLEAN even after a major release.
 
-**Skip this section** if any of the following hold:
-- `baseline_ref` is `"local"`, `null`, or unset (non-git source)
-- `{source_root}` is not a git worktree (`git -C {source_root} rev-parse --git-dir` fails)
-- `baseline_commit` is unavailable
-- Degraded mode is active (no provenance map)
-- The skill is a compose-mode stack (`{compose_mode_stack}`): it has no source tree
+**A compose-mode stack** (`{compose_mode_stack}`) has no source tree: skip this section with `upstream_fetch = "skipped: compose-mode stack"`, `audit_ref` and `audit_commit` `"(unknown)"`, `audit_ref_source = "unavailable"` and the upstream values null, and continue to §6.
 
-When skipping, log the reason, then set the audit-ref context variables to baseline values so step 6 renders a coherent Provenance row: `audit_ref = baseline_ref or "(unknown)"`, `audit_ref_source = "baseline"` (or `"unavailable"` if both `baseline_ref` and `baseline_commit` are unset), `audit_commit = baseline_commit or "(unknown)"`, `latest_tag = null`, `remote_head = null`, and `upstream_fetch = "skipped: {reason}"`. Continue to §6.
+**Otherwise**, ask the remote once, whatever the baseline: the helper decides itself when there is nothing to ask (a `baseline_ref` that is `local`, null or unset, no `baseline_commit`, degraded mode), and still returns the audit-ref values step 6 renders. Resolve `{checkWorkspaceDriftHelper}` ← first existing path in `{checkWorkspaceDriftProbeOrder}` and, from `{project-root}`, run (a null baseline value passes as an empty string):
 
-**Otherwise:**
+```bash
+uv run {checkWorkspaceDriftHelper} upstream --source-root "{source_root}" --baseline-commit "{baseline_commit}" --baseline-ref "{baseline_ref}"
+```
 
-1. **Fetch upstream refs** (read-only, no working-tree mutation):
+It reads the remote's default branch and tags with one `git ls-remote`, fetches nothing and changes nothing in the clone, and compares commits, not tag names: a `--depth 1 --branch <tag>` clone, which has no `origin/HEAD`, reads like any other. The script's docstring (its `upstream` section) gives the rules for each kind of baseline ref (a tag of a version family, another tag, a branch, `HEAD` or a commit). Never compare refs by hand. Bind from its JSON `latest_tag` ← `latest_tag`, `remote_head` ← `remote_head`, `{baseline_commit_short}` ← `baseline_commit_short`, `{remote_head_short}` ← `remote_head_short`, `{upstream_commit}` ← `upstream_commit` and `{upstream_commit_short}` ← `upstream_commit_short`, then act on its `status`:
 
-   ```bash
-   git -C {source_root} fetch --tags --quiet origin
-   ```
+- **`unchanged`**: set `upstream_fetch = "ok"`, `upstream_moved = false`, `upstream_ref = null`, and `audit_ref`, `audit_ref_source` and `audit_commit` to the JSON's values of those names (the baseline). Continue to §6.
+- **`skipped`** (`skip_reason` says why: no baseline ref or commit, not a git tree, git unavailable, a baseline ref the remote no longer has, and the like): set `upstream_fetch = "skipped: {skip_reason}"`, `upstream_moved = null`, `upstream_ref = null`, and the audit-ref values from the JSON. Continue to §6.
+- **`fetch-failed`** (no network, no remote, a remote that did not answer in time): log `fetch_error`, set `upstream_fetch = "failed:{fetch_error}"`, `upstream_moved = null`, `upstream_ref = null`, and the audit-ref values from the JSON. Continue to §6 without gating.
+- **`moved`**: set `upstream_fetch = "ok"`, `upstream_moved = true` and `upstream_ref` ← `upstream_ref`, the ref to read instead (the newer tag, the moved tag or branch, or `HEAD`), and present the gate below.
+- **No candidate resolves, or the command exits non-zero or prints no JSON:** set `upstream_fetch = "failed:helper-unavailable"`, `upstream_moved = null`, `upstream_ref = null`, `audit_ref` and `audit_commit` to `baseline_ref` and `baseline_commit` (`"(unknown)"` when unset) and `audit_ref_source = "baseline"`. Continue to §6 without gating.
 
-   When the fetch succeeds, set `upstream_fetch = "ok"`. If fetch fails (no network, no remote, detached clone), log the reason, record `upstream_fetch: "failed:{reason}"` in context, set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`, `latest_tag = null`, `remote_head = null`, and continue to §6 without gating.
+**User gate: upstream moved.**
 
-2. **Find latest remote ref:**
-   - Remote default-branch HEAD: `git -C {source_root} rev-parse origin/HEAD` (fall back to `origin/main` or `origin/master` if the symbolic ref is unavailable) — record as `remote_head`.
-   - Newest semver tag: `git -C {source_root} for-each-ref --sort=-v:refname --format='%(refname:short)' 'refs/tags/v*' | head -1` — record as `latest_tag`.
+"**Upstream has moved since this skill was created.**
 
-3. **Compare to baseline:**
-   - If `baseline_commit` equals the commit that `remote_head` resolves to AND (`latest_tag` is empty OR semver-equals `baseline_ref` OR is older than `baseline_ref`), upstream has not moved. Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`. Continue to §6.
-   - Otherwise upstream has moved — proceed to the gate.
+| | Baseline | Upstream |
+|---|---|---|
+| Ref | `{baseline_ref}` | `{upstream_ref}` |
+| Commit | `{baseline_commit_short}` | `{upstream_commit_short}` |
 
-4. **User gate — Upstream drift detected:**
+The remote's default branch is at `{remote_head_short}`. Auditing the baseline tree reports little or no structural drift even when the upstream API changed. Options:
 
-   "**Upstream has moved since this skill was created.**
+- **[C] Audit `{upstream_ref}`** (default): read `{upstream_ref}` into a private source tree of this run's own and audit against it. Nothing on disk changes: SKF's clone at `{source_root}` stays at the commit it holds.
+- **[S] Stay on the baseline**: audit the unchanged tree at `{baseline_ref}`. The report says upstream moved and recommends `[US] Update Skill` with `--target-ref {upstream_ref}`.
+- **[X] Abort**: halt the workflow without producing a report.
 
-   | | Baseline | Upstream |
-   |---|---|---|
-   | Ref | `{baseline_ref}` | `{latest_tag}` (newest tag) / `{remote_head}` (default HEAD) |
-   | Commit | `{baseline_commit_short}` | `{latest_tag_commit_short}` / `{remote_head_short}` |
+**Select:** [C] / [S] / [X]"
 
-   Auditing against the baseline clone will report little-to-no structural drift even if the upstream API has changed. Options:
+**Gate handling:**
+- **[C]:** Resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`; it stays bound for the rest of the run (step 6 and every HALT use it). Bind `{tree_timeout}` to the seconds the helper may take: `100` when your shell tool stops a command after two minutes or you do not know its limit, otherwise a little under that limit, such as `540` under a 10-minute limit. The helper stops itself within `--timeout` seconds and still prints its result, so give the command a shell timeout longer than `{tree_timeout}`. From `{project-root}`, run:
 
-   - **[C] Checkout-and-audit-against-latest** — checkout `{latest_tag}` (or `{remote_head}` if no newer tag) in `{source_root}` and audit against that. Re-extraction will reflect the current upstream surface.
-   - **[S] Stay-on-baseline** — keep `{source_root}` at `{baseline_ref}` and audit structural drift against the unchanged tree. The report will note `audit_ref = baseline`.
-   - **[X] Abort** — halt the workflow without producing a report.
+  ```bash
+  uv run {sourceTreeHelper} resolve --source-repo "{source_repo}" --source-root "{source_root}" --target-ref "{upstream_ref}" --timeout "{tree_timeout}"
+  ```
 
-   **Select:** [C] / [S] / [X]"
+  It reads `{upstream_ref}` into a private tree, from SKF's clone when the clone holds the commit and from the remote otherwise, and never writes to the clone (the call passes no `--update-clone`), so this run holds no lock and leaves the clone's checkout as it found it. Display each entry of its `warnings`, then:
+  - **`status` is `ready` and `tag_resolution.status` is `target-ref`:** bind `{source_tree}` ← `tree` and `{source_root}` ← `{source_tree}`: every later step reads the source in this tree. Set `audit_ref = {upstream_ref}`, `audit_ref_source = "checkout-latest"` and `audit_commit` ← `source_commit`.
+  - **Anything else** (`skipped`, because `{source_repo}` is no remote repository; `unavailable`, with its `reason` and `message`; a `ready` tree read at another ref, whose `tree` you first remove with `uv run {sourceTreeHelper} close --tree "<tree>"`; no candidate; a command that fails or prints no JSON): this run cannot read `{upstream_ref}` without changing a folder it does not own. Display "Could not read `{upstream_ref}` into a private tree ({the message or reason}); auditing the baseline instead. Run `[US] Update Skill` with `--target-ref {upstream_ref}` to update the skill to it.", record the warning by its code alone, which holds no quote: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "upstream_tree_unavailable: <code>"`, the code being `skipped`, the `reason` of an `unavailable` result, `other-ref` or `helper-unavailable`. Then continue as **[S]**.
+- **[S]:** Keep the baseline: set `audit_ref`, `audit_ref_source` and `audit_commit` to the upstream JSON's values of those names.
+- **[X]:** HALT (exit 6, `halt_reason: "user-cancelled"`, phase `init:upstream-drift`): do not create a drift report.
+- **Other input:** help user, redisplay gate.
 
-   **Gate handling:**
-   - **[C]:** Acquire an exclusive lock on `{source_root}/.skf-workspace.lock` (`flock -x` or `fcntl.flock(LOCK_EX)`) before mutating the working tree — matches the concurrency discipline in `src/skf-create-skill/references/source-resolution-protocols.md` and avoids racing with a concurrent create-skill / test-skill run against the same workspace clone. If `flock` is unavailable, emit a warning and proceed.
+**Headless default** (when `{headless_mode}`): consume the pre-supplied `upstream_drift_choice` from the Invocation Contract. Unset or `C` runs **[C]**, the default: it reads a private tree and changes nothing on disk, so it needs no consent. `S` runs **[S]**, and `X` halts as **[X]** does. Log `"headless: upstream moved ({baseline_ref} -> {upstream_ref}); <auditing {upstream_ref} | staying on the baseline | aborting> per upstream_drift_choice=<value or 'default C'>."` and record the decision in the run sink once the choice has run, and before an [X] halt: stage `{run_dir}/decision.json` as `{"gate": "init.upstream-drift", "default_action": "C", "taken_action": "<C, S or X>", "reason": "<the log line>", "evidence": {"baseline_ref": "{baseline_ref}", "upstream_ref": "{upstream_ref}"}}`, with `taken_action` `S` and `"fallback": "<code>"` in the evidence when [C] could not read the tree and the run stayed on the baseline, and run `uv run {emitEnvelopeHelper} record --workflow skf-audit-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 
-     **Clear what SKF and ccc left in the clone before probing.** While holding the lock, run `uv run {cccGitHygieneHelper} workspace --repo "{source_root}"` from `{project-root}` (resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}`). In an SKF workspace clone it lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's `.git/info/exclude`, so neither ccc's index folder nor the lock file just taken shows in `git status` or goes into a `git stash --include-untracked`, and it restores a `.gitignore` whose only change is the `# CocoIndex Code (ccc)` / `/.cocoindex_code/` pair an earlier create-skill `ccc init` appended (or deletes a `.gitignore` holding only that pair). It changes nothing else, and nothing outside SKF's workspace. Read nothing from its output; if the helper does not resolve or fails, run the probe below as it stands.
-
-     **Dirty-worktree probe (mandatory before checkout).** Run `git -C {source_root} status --porcelain` after the clean-up above and before the checkout. If the output is non-empty, the working tree has uncommitted changes — `git checkout {chosen_ref}` will abort with `error: Your local changes to the following files would be overwritten by checkout`, halting the workflow mid-step. The clean-up above already cleared the `.gitignore` edit `ccc init` leaves in a workspace clone and SKF's lock file, so what remains is most likely the operator's in-progress work or another tool's output. Surface a sub-gate before mutating:
-
-     "**Working tree has uncommitted changes.** `git status --porcelain` returned:
-
-     ```
-     {first 20 lines of porcelain output, ellipsis if more}
-     ```
-
-     A `git checkout` would abort. Options:
-     - **[T] Transient stash** — `git stash push -m 'skf-audit-skill: pre-checkout {chosen_ref}' --include-untracked`, then perform the checkout. The stash stays in `{source_root}` until the operator restores it with `git -C {source_root} stash pop`.
-     - **[A] Abort** — halt the workflow and let the operator commit, stash, or discard manually before retrying.
-     - **[F] Force checkout** — `git checkout --force` discards uncommitted changes irrecoverably. Only choose this after confirming the changes are safe to lose."
-
-     **Gate handling:**
-     - **[T]:** Run `git -C {source_root} stash push -m 'skf-audit-skill: pre-checkout {chosen_ref}' --include-untracked`. Capture the stash ref from the command output (e.g. `stash@{0}`) and store as `pre_checkout_stash_ref` in workflow context for step 6 Provenance to surface. Proceed to the checkout. (After audit completes, the operator restores the stash with `git stash pop` — step 6 puts the literal command in the report as a workflow-level convention rather than per-author ad-hoc prose.)
-     - **[A]:** HALT the workflow. Do not write a drift report — the audit was never started.
-     - **[F]:** Run `git -C {source_root} checkout --force {chosen_ref}` instead of the plain checkout. Record `pre_checkout_force_discard: true` in workflow context for step 6 to surface as a loud warning. Skip the stash path.
-     - **Other input:** help user, redisplay the sub-gate.
-
-     **Headless default** (when `{headless_mode}`): consume the pre-supplied `dirty_worktree_choice` from the Invocation Contract — the operator's explicit answer is the consent that a silent working-tree mutation would otherwise lack.
-     - **`dirty_worktree_choice=T`**: run the `[T]` transient-stash path. Log: `"headless: dirty worktree at {source_root}; stashing before checkout per pre-supplied dirty_worktree_choice=T."`
-     - **`dirty_worktree_choice=F` with `force=true`**: run the `[F]` force-checkout path — `force=true` is the required consent to discard uncommitted changes irrecoverably. Log: `"headless: dirty worktree at {source_root}; force-discarding uncommitted changes per pre-supplied dirty_worktree_choice=F force=true."`
-     - **`dirty_worktree_choice=A`, unset, or `=F` without `force=true`**: auto-select **[A] Abort** (exit 6, `halt_reason: "user-cancelled"`). Abort is the safe default, and a force-discard without `force=true` consent is refused rather than executed. Log: `"headless: dirty worktree detected at {source_root}; refusing to checkout {chosen_ref} (dirty_worktree_choice={value or 'unset'}). Pass dirty_worktree_choice=T, or =F with force=true, to proceed non-interactively."` Stashing that is never popped could lose work; force-checkout without consent could destroy uncommitted work outright — so both require an explicit pre-supplied choice.
-
-     If `git status --porcelain` is empty, skip the sub-gate and proceed directly to the checkout.
-
-     Then `git -C {source_root} checkout {chosen_ref}` (prefer `latest_tag` when present, else `remote_head`). Set `audit_ref = {chosen_ref}`, `audit_ref_source = "checkout-latest"`, `audit_commit = git rev-parse HEAD`. Hold the lock through step 2 re-extraction and release only after the extraction snapshot is complete.
-   - **[S]:** Keep baseline. Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`.
-   - **[X]:** HALT workflow — do not create drift report.
-   - **Other input:** help user, redisplay gate.
-
-   **Headless default** (when `{headless_mode}`): consume the pre-supplied `upstream_drift_choice` from the Invocation Contract.
-   - **`upstream_drift_choice=S`, or unset**: auto-select **[S] Stay-on-baseline** (default). Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`. Log: `"headless: upstream drift detected ({baseline_ref} → {latest_tag or remote_head}); staying on baseline per upstream_drift_choice={value or 'default S'}. Pass upstream_drift_choice=C to audit against latest."` Defaulting to a checkout would mutate the working tree without consent, so `[S]` remains the default when no choice is supplied.
-   - **`upstream_drift_choice=C`**: run the `[C] Checkout-and-audit-against-latest` path above — the operator's pre-supplied choice is the explicit consent that a silent ref change would otherwise lack. The dirty-worktree sub-gate still applies and consults its own pre-supplied `dirty_worktree_choice`. Log: `"headless: upstream drift detected; checking out {latest_tag or remote_head} per pre-supplied upstream_drift_choice=C."`
-   - **`upstream_drift_choice=X`**: HALT the workflow (exit 6, `halt_reason: "user-cancelled"`) — do not create a drift report. Log: `"headless: upstream drift detected; aborting per pre-supplied upstream_drift_choice=X."`
-
-5. **Record for report:** keep `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, `upstream_fetch`, `baseline_ref` and `baseline_commit`: §6 writes them into the drift report's frontmatter, and step 6 builds its Provenance section from there, so readers can tell which comparison actually ran.
+**Record for report:** keep `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, `upstream_fetch`, `upstream_moved`, `upstream_ref`, `{source_tree}`, `baseline_ref` and `baseline_commit`: §6 writes them into the drift report's frontmatter, step 6 builds its Provenance section and its workflow recommendation from there, and the result envelope carries `upstream_moved` and `upstream_ref`, so readers and pipelines can tell which comparison actually ran and whether the skill's ref is behind upstream.
 
 ### 6. Create Drift Report
 
 Create `{outputFile}` from `{templateFile}`:
 
 - Populate frontmatter: skill_name, skill_path, source_path, forge_tier, date, user_name
-- Record the run context in the frontmatter, so later steps read it from the file rather than from a session that may have been compacted: `confidence_mode`; `audited_version`, `audited_version_reason` and `manifest_version` (§1); `provenance_map` (`{provenanceMap}`), `provenance_generated_at` and `provenance_age_days` (§4); `baseline_ref`, `baseline_commit`, `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head` and `upstream_fetch` (§5b). Write null for a value the run does not have.
+- Record the run context in the frontmatter, so later steps read it from the file rather than from a session that may have been compacted: `confidence_mode`; `audited_version`, `audited_version_reason` and `manifest_version` (§1); `provenance_map` (`{provenanceMap}`), `provenance_generated_at` and `provenance_age_days` (§4); `baseline_ref`, `baseline_commit`, `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, `upstream_fetch`, `upstream_moved`, `upstream_ref` and `source_tree` (`{source_tree}`, the private tree every later step reads the source in) (§5b). Write null for a value the run does not have. `source_path` keeps the source root the provenance map records.
 - Set `stepsCompleted: ['init']`
 - Fill Audit Summary skeleton with loaded baseline data
 
-If the write fails (read-only mount, disk full, permissions denied) → HALT with **exit 4**, `halt_reason: "write-failed"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract).
+If the write fails (read-only mount, disk full, permissions denied) → HALT with **exit 4**, `halt_reason: "write-failed"`, phase `init:write-report`, `"path": "{outputFile}"`, and no `report_path` in the payload.
 
 ### 7. Present Baseline Summary and Confirm (User Gate)
 

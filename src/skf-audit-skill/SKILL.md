@@ -7,7 +7,7 @@ description: Drift detection between skill and current source code. Use when the
 
 ## Overview
 
-Detects drift between an existing skill and its current source code, producing a severity-graded drift report with AST-backed findings and actionable remediation suggestions. Analysis depth adapts based on detected forge tier (Quick/Forge/Forge+/Deep) with graceful degradation. Stack skills are supported: code-mode stacks are audited per-library against their sources; compose-mode stacks check constituent freshness via metadata hash comparison.
+Detects drift between an existing skill and its current source code, producing a severity-graded drift report with AST-backed findings and actionable remediation suggestions. Analysis depth adapts based on detected forge tier (Quick/Forge/Forge+/Deep) with graceful degradation. Stack skills: a compose-mode stack checks its constituents' freshness by metadata hash; a code-mode stack's provenance map records no single source root, so its audit stops at step 1 §5.
 
 ## Conventions
 
@@ -17,7 +17,7 @@ Detects drift between an existing skill and its current source code, producing a
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Cross-skill data coupling:** `re-index.md` loads `extraction-patterns.md` and `tier-degradation-rules.md` from `skf-create-skill/references/`, and `structural-diff.md` loads `extraction-patterns.md` to verify a relocated export (their `extractionPatternsData` and `tierDegradationRulesData` paths name the sibling skill, so they resolve from the SKF module root, not this skill root) to keep the ast-grep recipes, the fallback and the labels aligned with create-skill and update-skill. Audit-skill assumes these files are present at install time and that their semantics are stable across the two skills' versions.
+- **Cross-skill data coupling:** `re-index.md` loads `extraction-patterns.md` and `tier-degradation-rules.md` from `skf-create-skill/references/` (their `extractionPatternsData` and `tierDegradationRulesData` paths name the sibling skill, so they resolve from the SKF module root, not this skill root) to keep the ast-grep recipes, the fallback and the labels aligned with create-skill and update-skill. Audit-skill assumes these files are present at install time and that their semantics are stable across the two skills' versions.
 
 ## Role
 
@@ -31,7 +31,10 @@ These rules apply to every step in this workflow:
 - Only load one step file at a time — never preload future steps
 - Update `stepsCompleted` in output file frontmatter before loading next step
 - Always communicate in `{communication_language}`
-- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
+- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; step 1's choice gates (manifest-vs-link, degraded-mode, upstream-drift) also record theirs in the run sink as they decide
+- Every HARD HALT names its exit code, `halt_reason` and phase; in headless mode it prints its envelope through the shared emitter, as each stage's **Halt envelope** paragraph shows
+- Once step 1 §5b has bound `{source_tree}` (the private tree its [C] choice read the upstream ref into), every step reads the source there, never at the recorded `source_path`, and every HALT after it first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and goes on whatever it prints. Step 6 removes the tree on a finished run; a later SKF run removes one a stopped run left, once it is seven days old
+- Run state (the gates' decisions, the warnings, the emitter's payloads) lives in `{run_dir}`: step 6 deletes it, a HALT keeps it
 
 ## Stages
 
@@ -53,33 +56,11 @@ Stage 1c is conditional: it replaces stages 2 to 4 for a compose-mode stack, whi
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | `skill_name` [required], `skill_path` [optional override — full path to skill directory; bypasses manifest/symlink resolution], `tier_override` [optional: Quick / Forge / Forge+ / Deep — overrides detected tier], `degraded` [optional bool — pre-confirm degraded-mode opt-in when no provenance map exists], `upstream_drift_choice` [optional: C / S / X — pre-supplied answer for the upstream-drift gate at init.md §5b], `dirty_worktree_choice` [optional: T / A / F — pre-supplied answer for the dirty-worktree sub-gate at init.md §5b], `force` [optional bool — when paired with `dirty_worktree_choice=F` or used for any future destructive-action gate, signals consent to skip the confirmation] |
-| **Gates** | step 1: Manifest-vs-Symlink Gate [N] · Upstream-Drift Gate [C/S/X] · Dirty-Worktree Sub-Gate [T/A/F] · Degraded-Mode Gate [D/X] · Baseline Confirm Gate [C] |
-| **Outputs** | `drift-report-{timestamp}.md` at `{forge_version}/` (the audited version's folder) with the run context, `drift_score` and `nextWorkflow` in its frontmatter; the JSON it was built from (the structural diff or the constituents' freshness, the findings and their classification) in `{forge_version}/.skf-audit/{timestamp}/`; per-run result contract at `{forge_version}/audit-skill-result-{timestamp}.json` plus `-latest.json` copy; final `SKF_AUDIT_RESULT_JSON` line on stdout when `{headless_mode}` is true |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true; pre-supplied inputs (`upstream_drift_choice`, `dirty_worktree_choice`, `degraded`, `tier_override`) consumed at the gates that would otherwise prompt |
-| **Exit codes** | See "Exit Codes" below |
-
-## Exit Codes
-
-Every hard halt in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
-
-| Code | Meaning              | Raised by                                                                                                          |
-| ---- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 0    | success              | step 7 (terminal health-check)                                                                                     |
-| 2    | input-missing        | step 1 §1 — no `skill_name` supplied in headless mode (interactive prompt cannot resolve)                          |
-| 3    | resolution-failure   | step 1 §1 (skill not found at resolved path: missing `SKILL.md`; or a flat `SKILL.md` with no SKF marker in its `metadata.json` → `not-skf-output`); step 1 §2 (`forge-tier.yaml` missing — setup-forge not run); step 1 §5 (source directory from provenance map no longer exists / inaccessible) |
-| 4    | write-failure        | step 1 §6 / step 6 §3 (drift report write failed: read-only mount, disk full, permissions denied); step 1c, step 3 §1 and step 5 §2 (a file in the stage data folder cannot be written) |
-| 6    | user-cancelled       | step 1 §1 manifest-vs-symlink gate `[X]` · step 1 §4 degraded-mode gate `[X]` · step 1 §5b upstream-drift gate `[X]` · step 1 §5b dirty-worktree sub-gate `[A]` (and `[A]` headless default) |
-
-## Result Contract (Headless)
-
-When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every hard halt emits the same envelope shape on **stderr** with `status: "error"`:
-
-```
-SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score":"CLEAN|MINOR|SIGNIFICANT|CRITICAL|null","report_path":"…|null","next_workflow":"update-skill|null","audit_ref":"…|null","exit_code":0,"halt_reason":null}
-```
-
-`status` is `"success"` on the terminal happy path, `"error"` on any halt. `drift_score` is `null` when the workflow halted before severity classification ran. `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist, otherwise `null`. `halt_reason` is one of: `null` (success), `"input-missing"`, `"skill-not-found"`, `"not-skf-output"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+| **Inputs** | `skill_name` [required], `skill_path` [optional override: full path to skill directory; bypasses manifest/symlink resolution], `tier_override` [optional: Quick / Forge / Forge+ / Deep; overrides detected tier], `degraded` [optional bool: pre-confirm degraded-mode opt-in when no provenance map exists], `upstream_drift_choice` [optional: C / S / X; pre-supplied answer for the upstream-drift gate at init.md §5b; C, auditing the upstream ref from a private tree, when unset] |
+| **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] · Upstream-Drift Gate [C/S/X] · Degraded-Mode Gate [D/X] · Baseline Confirm Gate [C] |
+| **Outputs** | `drift-report-{timestamp}.md` at `{forge_version}/` (the audited version's folder) with the run context, `drift_score` and `nextWorkflow` in its frontmatter; the JSON it was built from in `{forge_version}/.skf-audit/{timestamp}/`; the result contract `audit-skill-result-{YYYYMMDD-HHmmss}.json` and its `-latest.json` copy in `{forge_version}/`, written by the shared emitter. The shared clone at the recorded source path never changes: an audit of a newer upstream ref reads it from a private tree |
+| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true; the pre-supplied `upstream_drift_choice` and `degraded` answer the gates that would otherwise prompt, and `tier_override` sets the tier (step 1 §2); each choice gate's decision lands in the envelope's `headless_decisions` |
+| **Exit codes** | `references/headless-contract.md`: each halt class's exit code and `halt_reason`, and the `SKF_AUDIT_RESULT_JSON` envelope |
 
 ## On Activation
 
@@ -87,6 +68,7 @@ SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
    - Generate and store `timestamp` as `YYYYMMDD-HHmmss` format. This value is fixed for the entire workflow run.
+   - `run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-audit-skill-{timestamp}`, the run folder step 4 below creates
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
@@ -103,7 +85,7 @@ SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score
    - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
    - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
 
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly (the bundled defaults are an empty string for each path scalar) and keep the reason as `{customization_resolver_unavailable}`, which step 6 hands to the emitter as a warning.
 
    Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the scalars, if the merged value is empty or absent, use the bundled default:
 
@@ -115,4 +97,18 @@ SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score
 
    Also apply the array surfaces (not silent no-ops): run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts — the bundled default globs any `project-context.md`), then run `workflow.activation_steps_append` after activation.
 
-4. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+4. **Pre-flight: the emitter and the run folder.** Before the first prompt, resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. If neither exists, HALT (exit code 3, `halt_reason: "helper-missing"`) and display only: "Audit Skill cannot run without `skf-emit-result-envelope.py`, which is not installed. Re-install SKF." Then create the run folder:
+
+   ```bash
+   mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"
+   ```
+
+   If the command fails, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation:run-folder`: "Cannot create the run folder `{run_dir}`: {the first stderr line}." With no folder to stage in, a headless run passes the payload to the emitter directly:
+
+   ```bash
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --target stderr <<'SKF_AS_HALT'
+   {"phase": "on-activation:run-folder", "reason": "<the halt message>", "halt_reason": "write-failed"}
+   SKF_AS_HALT
+   ```
+
+5. Load, read the full file, and then execute `references/init.md` to begin the workflow.

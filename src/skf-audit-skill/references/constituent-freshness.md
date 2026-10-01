@@ -23,6 +23,14 @@ Audit a compose-mode stack in place of steps 2 to 4: check whether each constitu
 
 ## MANDATORY SEQUENCE
 
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, then stop with the halt's exit code. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Compare the Constituents' Hashes
 
 Each constituent's `metadata_hash` is the sha256 of its raw `metadata.json` bytes when the stack was composed, which the model cannot compute itself: run the helper.
@@ -52,7 +60,7 @@ The saved JSON, which step 5 builds its findings from:
 
 **If `uv` or the helper cannot execute** (e.g. claude.ai web), or the command exits non-zero: hash by hand instead. For each constituent, read its `metadata.json` at `{constituent.skill_path}/active/{constituent.skill_name}/metadata.json` (resolve `skill_path` against `{project-root}` when relative, and use it as-is when absolute), compute the SHA-256 of its raw bytes with a shell tool (for example `sha256sum`), and compare against `constituent.metadata_hash` (a stored bare-hex form still matches after stripping any `sha256:` prefix from both sides). Sort the constituents into the same four buckets and write them over `{auditDataFolder}/constituent-freshness.json` in the helper's shape, so step 5 reads them as it would the helper's.
 
-If the stage data folder or the file cannot be written, HALT with **exit 4**, `halt_reason: "write-failed"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract).
+If the stage data folder or the file cannot be written, HALT with **exit 4**, `halt_reason: "write-failed"`, phase `constituent-freshness:save`, `"path": "{auditDataFolder}/constituent-freshness.json"`.
 
 ### 2. Compile the Structural Drift Section
 

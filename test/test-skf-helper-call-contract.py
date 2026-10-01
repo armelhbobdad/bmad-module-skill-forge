@@ -12,12 +12,16 @@ helper itself:
   not know (spelled in full: abbreviations fail), a missing required flag or
   a stray argument fails the test.
 - A flag-only helper listed in FLAG_ONLY (argparse, no subcommands, such as
-  skf-render-metadata-stats.py and skf-names-present.py): the same check,
+  skf-render-metadata-stats.py, skf-names-present.py and the recipe runner
+  skf-extract-public-api.py): the same check,
   so a missing positional or required flag, an unknown flag or a value
   outside a flag's choices fails the test.
 - skf-manifest-ops.py reads sys.argv by hand, the skills folder first: the
   call must name, second, a command its main() dispatches, with at least as
   many arguments as main() requires for it.
+- skf-check-workspace-drift.py dispatches a first argument `upstream` before
+  argparse: an `upstream` call runs through the parser that command builds
+  (`_build_upstream_parser()`), audit-skill's upstream-drift check included.
 
 What counts as a call. Inside fenced code or an inline code span, in the
 body of a src/**/*.md file (never the YAML frontmatter, whose comments use
@@ -41,8 +45,9 @@ that files bind to two scripts, fails the test.
 How the arguments are read. `{...}` and `<...>` placeholders become opaque
 values that satisfy any type or choices, except that a `{a|b}` placeholder
 given to an option with choices must list only real choices. A `[--flag
-...]` synopsis group is checked twice: dropped (the required arguments must
-still be there) and kept (every flag inside must exist).
+...]` synopsis group, or a repeatable `[--flag ...]...` one, is checked
+twice: dropped (the required arguments must still be there) and kept once
+(every flag inside must exist).
 """
 
 from __future__ import annotations
@@ -66,6 +71,9 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
 MANIFEST_OPS = SRC / "shared" / "scripts" / "skf-manifest-ops.py"
+# Dispatches `upstream` before argparse, so only those calls are checked,
+# against the parser the command builds.
+WORKSPACE_DRIFT = SRC / "shared" / "scripts" / "skf-check-workspace-drift.py"
 # Helpers without subcommands whose calls are checked all the same. A helper
 # joins only when every prose call to it fits: a flag-only helper that reads
 # sys.argv by hand (skf-detect-docs.py, skf-rebuild-managed-sections.py)
@@ -73,6 +81,7 @@ MANIFEST_OPS = SRC / "shared" / "scripts" / "skf-manifest-ops.py"
 FLAG_ONLY = frozenset({
     SRC / "shared" / "scripts" / "skf-render-metadata-stats.py",
     SRC / "shared" / "scripts" / "skf-names-present.py",
+    SRC / "shared" / "scripts" / "skf-extract-public-api.py",
 })
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
@@ -87,7 +96,7 @@ SRC_SCRIPT_RE = re.compile(r"`\{project-root\}/(src/[^`\s]+\.py)`")
 OPAQUE_RE = re.compile(r"\{[^{}\n]*\}|<[A-Za-z][^<>\n]*>")
 ALTERNATIVES_RE = re.compile(r"[\w.-]+(?:\|[\w.-]+)+")
 REDIRECT_FD_RE = re.compile(r"(?<!\S)\d+(?=[<>])")
-SYNOPSIS_RE = re.compile(r"(?<!\S)\[(--?[A-Za-z][^\[\]]*)\](?!\S)")
+SYNOPSIS_RE = re.compile(r"(?<!\S)\[(--?[A-Za-z][^\[\]]*)\](?:\.\.\.)?(?!\S)")
 SHELL_OPERATORS = frozenset("|&;<>()")
 OPAQUE = "\ue000"  # brackets a word that stands for a placeholder value
 ALT = "\ue001"  # the | of a {a|b} placeholder
@@ -107,6 +116,11 @@ def _uses_subcommands(script: Path) -> bool:
 
 def _checked(script: Path) -> bool:
     return script == MANIFEST_OPS or script in FLAG_ONLY or _uses_subcommands(script)
+
+
+def _upstream_call(script: Path, rest: str) -> bool:
+    """A skf-check-workspace-drift.py call of its `upstream` command."""
+    return script == WORKSPACE_DRIFT and rest.split()[:1] == ["upstream"]
 
 
 # --------------------------------------------------------------------------
@@ -208,7 +222,7 @@ def _collect() -> tuple[list[Call], list[str]]:
                 unbound.append(f"{rel}:{line} {{{name}}} -> {sorted(p.name for p in choices)}")
                 continue
             script = next(iter(choices))
-        if script.suffix == ".py" and _checked(script):
+        if script.suffix == ".py" and (_checked(script) or _upstream_call(script, rest)):
             calls.append(Call(rel, line, name, script, rest))
     return calls, unbound
 
@@ -229,6 +243,15 @@ class _Captured(Exception):
 
 def _capture(self, *args, **kwargs):
     raise _Captured(self)
+
+
+@functools.lru_cache(maxsize=None)
+def _upstream_parser() -> argparse.ArgumentParser:
+    """skf-check-workspace-drift.py's `upstream` parser, relaxed for placeholders."""
+    spec = importlib.util.spec_from_file_location("skf_call_contract_workspace_drift", WORKSPACE_DRIFT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return _relaxed(module._build_upstream_parser())
 
 
 @functools.lru_cache(maxsize=None)
@@ -368,6 +391,14 @@ def call_error(script: Path, rest: str) -> str | None:
             if len(words) < commands[words[1]]:
                 return f"`{words[1]}` takes at least {commands[words[1]]} arguments"
         return None
+    if script == WORKSPACE_DRIFT:
+        for words in variants:
+            if words[:1] != ["upstream"]:
+                return "only the `upstream` command is checked"
+            error = _parse_error(_upstream_parser(), words[1:])
+            if error:
+                return error.replace(OPAQUE + OPAQUE, "{…}").replace(OPAQUE, "")
+        return None
     parser = _parser(script)
     for words in variants:
         error = _parse_error(parser, words)
@@ -426,6 +457,16 @@ MUST_FIND = [
     # A helper the SKILL.md resolves at activation, and a stage that calls it.
     ("src/skf-brief-skill/SKILL.md", "skf-emit-brief-result-envelope.py", "emit"),
     ("src/skf-brief-skill/references/write-brief.md", "skf-emit-brief-result-envelope.py", "emit"),
+    # audit-skill (#588, #593): the upstream check, dispatched before argparse;
+    # the private tree; the snapshot; the emitter its SKILL.md resolves.
+    ("src/skf-audit-skill/references/init.md", "skf-check-workspace-drift.py", "upstream"),
+    ("src/skf-audit-skill/references/init.md", "skf-source-tree.py", "resolve"),
+    ("src/skf-audit-skill/references/init.md", "skf-emit-result-envelope.py", "emit-halt"),
+    ("src/skf-audit-skill/references/re-index.md", "skf-extraction-snapshot.py", "scan-list"),
+    ("src/skf-audit-skill/references/re-index.md", "skf-extraction-snapshot.py", "build"),
+    ("src/skf-audit-skill/references/structural-diff.md", "skf-extraction-snapshot.py", "relocate"),
+    ("src/skf-audit-skill/references/report.md", "skf-emit-result-envelope.py", "emit"),
+    ("src/skf-audit-skill/references/report.md", "skf-source-tree.py", "close"),
 ]
 
 
@@ -461,6 +502,9 @@ FLAG_ONLY_MUST_FIND = [
      ("--shape", "stack")),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-names-present.py",
      ("--provenance", "--skill-dir")),
+    # audit-skill's re-index runs the recipe runner over its scan list (#589).
+    ("src/skf-audit-skill/references/re-index.md", "skf-extract-public-api.py",
+     ("--files-from", "--head-cap")),
 ]
 
 
@@ -472,6 +516,19 @@ def test_the_extractor_finds_flag_only_calls(rel, script, flags):
     assert runs, f"{rel}: no {script} call on a provenance map found"
     assert any(all(flag in words for flag in flags) for words in runs), (
         f"{rel}: no {script} call passes {flags}: {runs}")
+
+
+def test_the_audit_upstream_call_runs_through_the_upstream_parser():
+    """skf-check-workspace-drift.py reads `upstream` before argparse, so the
+    generic check skips it: audit-skill's call is checked against
+    _build_upstream_parser() with the flags the prose passes."""
+    (call,) = [c for c in CALLS if c.rel == "src/skf-audit-skill/references/init.md"
+               and c.script == WORKSPACE_DRIFT]
+    words = _words(call.rest)
+    assert words[0] == "upstream"
+    args = _upstream_parser().parse_args(words[1:])
+    assert {args.source_root, args.baseline_commit, args.baseline_ref} == {OPAQUE + OPAQUE}
+    assert call_error(WORKSPACE_DRIFT, call.rest) is None
 
 
 def test_the_extractor_sees_many_calls():
@@ -499,9 +556,11 @@ def test_manifest_ops_commands_are_read_from_its_main():
     ("skf-atomic-write.py", " write --targ {x}"),
     ("skf-atomic-write.py", " write --tagret {x}"),
     ("skf-atomic-write.py", " write --target {x} {y}"),
-    # A synopsis group that holds a misspelled flag, or the only required flag.
+    # A synopsis group that holds a misspelled flag, or the only required flag,
+    # repeatable or not.
     ("skf-forge-tier-rw.py", ' clean-stale --target "{t}" [--qmd-live-name "{n}"]'),
     ("skf-forge-tier-rw.py", " clean-stale [--target {t}]"),
+    ("skf-extraction-snapshot.py", ' build --source-root "{r}" --tier "{t}" --date "{d}" [--detail "{f}"]... -o "{o}"'),
     # A choice the option does not offer, spelled out or inside a {a|b} placeholder.
     ("skf-emit-brief-result-envelope.py", " emit --target stdlog"),
     ("skf-emit-brief-result-envelope.py", " emit --target {stdout|stdlog}"),
@@ -521,6 +580,11 @@ def test_manifest_ops_commands_are_read_from_its_main():
     ("skf-names-present.py", " --provenance {forge_version}/provenance-map.json"),
     ("skf-names-present.py", " {forge_version}/provenance-map.json --skill-dir {skill_staging}"),
     ("skf-names-present.py", " --provenance {p}/provenance-map.json --skill-dir {s} --drop"),
+    # The upstream check: a required flag left out, an unknown flag, the
+    # check that runs without `upstream`.
+    ("skf-check-workspace-drift.py", ' upstream --source-root "{r}" --baseline-commit "{c}"'),
+    ("skf-check-workspace-drift.py", ' upstream --source-root "{r}" --baseline-commit "{c}" --baseline-ref "{b}" --fetch'),
+    ("skf-check-workspace-drift.py", ' "{r}" --pinned-commit "{c}"'),
 ])
 def test_the_checker_rejects_broken_calls(script, rest):
     assert call_error(_script(script), rest), f"{script}{rest} must not fit the CLI"
@@ -543,6 +607,13 @@ def test_the_checker_rejects_broken_calls(script, rest):
     ("skf-render-metadata-stats.py", " --help"),
     ("skf-names-present.py", " --provenance {forge_version}/provenance-map.json --skill-dir {skill_staging}"),
     ("skf-names-present.py", " --provenance {p}/provenance-map.json --skill-dir {s} --drop-absent"),
+    ("skf-check-workspace-drift.py",
+     ' upstream --source-root "{r}" --baseline-commit "{c}" --baseline-ref "{b}" [--timeout "{t}"]'),
+    # A repeatable synopsis group: quick-skill's entry files, audit-skill's by-eye details.
+    ("skf-extract-public-api.py",
+     " --mode quick --language {l} --source-root {r} --entry-file {e} [--entry-file {e}]..."),
+    ("skf-extraction-snapshot.py",
+     ' build --source-root "{r}" --tier "{t}" --date "{d}" [--details "{f}"]... -o "{o}"'),
 ])
 def test_the_checker_accepts_valid_calls(script, rest):
     assert call_error(_script(script), rest) is None

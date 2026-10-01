@@ -98,7 +98,9 @@ The inner `{skill-name}/` directory IS the agentskills.io-compliant skill packag
       extraction-snapshot.json
       .test-skill.lock
       test-report-{skill-name}-{run_id}.md
+      test-findings-{run_id}.json
       drift-report-{timestamp}.md
+      .skf-audit/{timestamp}/
       {workflow}-result-{timestamp}.json
       {workflow}-result-latest.json
   _campaign/
@@ -106,6 +108,8 @@ The inner `{skill-name}/` directory IS the agentskills.io-compliant skill packag
 ```
 
 `skill-brief.yaml` stays at `{forge_group}` level — the brief is a workflow input that defines extraction scope, not a versioned output.
+
+`test-findings-{run_id}.json` is test-skill's gap ledger, beside the test report of the same run. `.skf-audit/{timestamp}/` holds audit-skill's stage data for the drift report of the same timestamp: the scan list, the recipe runner's extraction and the exports read by eye (`scan-files.json`, `extraction.json`, one `export-details-{n}.json` per worker), `structural-diff.json`, the relocation check's candidates and finds (`relocation-candidates.json`, `relocations.json`), `file-drift.json`, `semantic-findings.json` or, for a compose-mode stack, `constituent-freshness.json`, then `findings.json` and `severity.json`.
 
 The brief's `.bak` copy and `.brief-draft.json` sit beside it, and a stack group also holds `create-stack-skill-result-latest.json`. Names holding `.skf-` (locks such as `.skf-update.lock`, update-skill's `.skf-update-manual-inventory.json` beside it, and staging) and a stack's `*-tmp` staging folders are SKF's too; while a rename runs, its lock is `{forge_data_folder}/.skf-rename-{skill-name}.lock`. `_campaign/` and `improvement-queue/` are SKF's own folders, never a skill's. Older skills may still hold the provenance map, evidence report, extraction rules and test reports directly in `{skill-name}/` (the flat layout — see Migration), and a `.manual-inventory.json` in a version folder, where update-skill once kept the [MANUAL] inventory it now keeps beside its lock.
 
@@ -137,7 +141,9 @@ When reading artifacts, resolve the skill path using the export manifest:
 6. If manifest does not contain the skill: check for `active` symlink at `{skill_group}/active`
 7. If neither manifest nor symlink: fall back to flat-path resolution, only behind the ownership gate (see Ownership and Migration below)
 
-**Stack rosters (VS, RA, SS compose-mode)** read through `skf-enumerate-stack-skills.py` instead: for each skill folder it takes the version the `active` link names, else the highest version, else a flat root `SKILL.md` — only a package whose `metadata.json` carries an SKF marker counts (see Ownership) — and it never reads the export manifest.
+**The resolve command.** A workflow never applies these steps by hand: `uv run skf-skill-inventory.py resolve {skills_output_folder} --skill {skill-name} --forge-data-folder {forge_data_folder}` applies them in one call (audit-skill, test-skill and export-skill choose their version with it, and drop-skill and rename-skill read their version lists from it). It returns the manifest's `active_version`, the `active` link's target (`symlink_target`), the `chosen_version` and its `reason` (`manifest-and-link`, `manifest`, `link`, `manifest-lags-link` for the guard in step 4, `flat-layout` for step 7, `newest-on-disk`, which a reading workflow does not audit or test, or `missing`), the `candidates` it compared (each version's package and provenance map, with the map's `generated_at`), `forge_version`, the `metadata.json`, `provenance-map.json` and `evidence-report.md` paths (`paths`, each the versioned file when it exists, else the flat one, else null), and every version newest first with its manifest status (`versions`, `counts`, `newest_non_deprecated`). `--version <version>` names the version instead, for an operator's choice (its `reason` is `requested`). It reads and never writes, and does not decide ownership (see Ownership).
+
+**Stack rosters (VS, RA, SS compose-mode)** read through `skf-enumerate-stack-skills.py` instead: for each skill folder it takes the version the `active` link names, else the highest version, else a flat root `SKILL.md`. Only a package whose `metadata.json` carries an SKF marker counts (see Ownership). Its `enumerate` command never reads the export manifest; `candidates`, which picks create-stack-skill's compose-mode constituents, reads the manifest only to pick them, and the package of each one it keeps still comes from the roster.
 
 ### Manifest-Driven Snippet Scanning (EX Step-04)
 
@@ -278,6 +284,18 @@ Directory names use the semver version with `+{build}` metadata stripped:
 | `2.0.0+20260404` | `2.0.0` | Build metadata stripped |
 
 Build metadata does not affect version precedence per the semver specification and is stripped to avoid filesystem issues with the `+` character.
+
+### Version Commands
+
+Comparing, bumping and naming versions has one answer, so no workflow does it by eye: `skf-skill-inventory.py version` does.
+
+| Command | Answer | Used by |
+|---------|--------|---------|
+| `version normalize <version>` | the folder name of a version or a range by the rules above (`^18.2.0` gives `18.2.0`, build metadata stripped) | the other commands, on what they return; call it alone for a version string from elsewhere |
+| `version order <a> <b>` | which of two versions is higher (`1.10.0` above `1.9.0`) | update-skill, whether the source's version is above the skill's |
+| `version next-patch <version>` | the next patch version (a pre-release gives its release) | update-skill's new version folder |
+| `version bump --prior <v> --prior-libraries <a,b> --libraries <a,c>` | a compose-mode stack's next version: major when a library was removed, else minor, refused (`NOT_INCREASING`) when not above the prior one | create-stack-skill |
+| `version primary <candidates.json or ->` | a code-mode stack's primary library and the version it gives, ties broken by a fixed rule | create-stack-skill |
 
 ## Migration: Flat to Versioned
 

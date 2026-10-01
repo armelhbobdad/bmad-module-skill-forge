@@ -1478,6 +1478,24 @@ class TestFileSelection:
                                       {"file": "notes.md", "issue": "no-recipes"}]
 
     @pytest.mark.parametrize(
+        ("text", "issues"),
+        [("[slug]/page.tsx\nb.ts\n", []),
+         ('["a.ts", 1]\n', [{"file": '["a.ts", 1]', "issue": "missing"}]),
+         ('["[slug]/page.tsx", "b.ts"]', [])],
+        ids=["bracket-path-first", "json-of-non-paths", "json-list"],
+    )
+    def test_a_list_is_json_only_when_the_whole_file_is_a_list_of_paths(self, text, issues, tmp_path, capsys,
+                                                                           no_ast_grep) -> None:
+        """A Next.js route folder such as `[slug]/` opens a line with `[`: the
+        file is read one path per line unless all of it parses as a JSON
+        list of strings, so the list never stops the run (exit 2)."""
+        root = _tree(tmp_path / "root", {"[slug]/page.tsx": "", "b.ts": "", "a.ts": ""})
+        list_file = _tree(tmp_path, {"list.txt": text}) / "list.txt"
+        code, out = _full(capsys, root, "--files-from", str(list_file))
+        assert code == 3 and out["file_issues"] == issues
+        assert out["files_in_scope"] == (0 if issues else 2)
+
+    @pytest.mark.parametrize(
         ("language", "count"),
         [("typescript", 4), ("js", 4), ("python", 1), ("rust", 1), ("go", 1)],
     )
@@ -1562,7 +1580,8 @@ class TestMerge:
     def _match(rule: str, file: str, line: int, name: str, language: str = "typescript",
                text: str | None = None) -> dict:
         return {"rule": rule, "language": language, "file": file, "line": line, "start_line": line,
-                "name": name, "source": None, "signature_line": text or name, "text": text or name}
+                "name": name, "source": None, "signature_line": text or name, "signature": text or name,
+                "text": text or name}
 
     def test_first_line_then_the_preferred_recipe(self) -> None:
         m = self._match
@@ -1611,6 +1630,42 @@ class TestMerge:
                 "language": "Tsx", "range": {"start": {"line": 9}},
                 "metaVariables": {"single": {"NAME": {"text": "Button", "range": {"start": {"line": 9}}}}}}
         assert mod._parse_match(item)["signature_line"] == "export { Button,"
+
+    @pytest.mark.parametrize(
+        ("lines", "language", "signature"),
+        [
+            ("@dec\ndef f(\n    a: int,  # the (\n    b: str = \"(\",\n) -> dict[str, int]:\n    return {}",
+             "Python", 'def f(a: int, b: str = "(") -> dict[str, int]:'),
+            ("export function g(\n  a: string,\n  b?: Opts,\n): Promise<void> {\n}", "TypeScript",
+             "export function g(a: string, b?: Opts): Promise<void> {"),
+            ("pub fn h<'a>(\n    x: &'a str,\n) -> u32 {\n    1\n}", "Rust", "pub fn h<'a>(x: &'a str) -> u32 {"),
+            ("func New(\n\to int,\n) (int, error) {\n}", "Go", "func New(o int) (int, error) {"),
+            ("class A(Base):  # one line\n    pass", "Python", "class A(Base):"),
+            ("export const C = ({\n  a,\n  b,\n}: Props) => {\n  return a;\n};", "TypeScript",
+             "export const C = ({ a, b }: Props) => {"),
+            ("export function useThing<\n  T extends Base,\n  U,\n>(a: T): U {\n}", "TypeScript",
+             "export function useThing<T extends Base, U>(a: T): U {"),
+            ("export interface Opts {  // the options\n  a: string;\n}", "TypeScript", "export interface Opts {"),
+        ],
+        ids=["python-split", "typescript-split", "rust-lifetime", "go-split", "one-line", "destructured",
+             "split-generic", "interface-body"],
+    )
+    def test_the_signature_joins_a_split_declaration(self, lines, language, signature) -> None:
+        """A formatter that puts one parameter per line leaves `signature_line`
+        holding only the opening line; `signature` is the declaration on one
+        line, the form the provenance map records, so a diff never reads it
+        as truncated."""
+        start = 1 if lines.startswith("@") else 0
+        raw = {"text": lines, "lines": lines, "file": "m", "ruleId": "r", "language": language,
+               "range": {"start": {"line": 0}},
+               "metaVariables": {"single": {"NAME": {"text": "f", "range": {"start": {"line": start}}}}}}
+        match = mod._parse_match(raw)
+        assert match["signature"] == signature
+        assert match["signature_line"] == lines.split("\n")[start].strip()
+
+    def test_an_unclosed_bracket_stops_at_the_line_cap(self) -> None:
+        rows = ["def f("] + ["    a,"] * (mod.SIGNATURE_MAX_LINES + 5)
+        assert mod._declaration_signature(rows, 0, "python") == "def f(" + ", ".join(["a"] * (mod.SIGNATURE_MAX_LINES - 1)) + ","
 
 
 # --------------------------------------------------------------------------
@@ -1823,6 +1878,22 @@ class TestFullRuns:
         # H2, format and parseValue are defined under src/utils/
         assert narrowed["counts"]["effective_denominator"] == 3
         assert narrowed["counts"]["effective_denominator_basis"] == "tier_a_include"
+
+    def test_a_split_signature_is_joined(self, tmp_path, capsys) -> None:
+        """ast-grep's `lines` hold the whole declaration, so `signature` gives
+        a formatter-split one on one line while `signature_line` keeps the
+        line that names it."""
+        root = _tree(tmp_path, {
+            "pkg/api.py": "def fetch(\n    url: str,\n    *,\n    retries: int = 3,\n) -> bytes:\n    return b''\n",
+            "src/client.ts": "export function connect(\n  host: string,\n  port: number,\n): Client {\n  return x;\n}\n",
+        })
+        list_file = _tree(tmp_path / "lists", {"files.json": json.dumps(["pkg/api.py", "src/client.ts"])})
+        code, out = _full(capsys, root, "--files-from", str(list_file / "files.json"), "--head-cap", "0")
+        assert (code, out["status"]) == (0, "ok")
+        by_name = {e["export_name"]: e for e in out["exports"]}
+        assert by_name["fetch"]["signature"] == "def fetch(url: str, *, retries: int = 3) -> bytes:"
+        assert by_name["fetch"]["signature_line"] == "def fetch("
+        assert by_name["connect"]["signature"] == "export function connect(host: string, port: number): Client {"
 
     def test_python_rust_and_go(self, tmp_path, capsys) -> None:
         root = _tree(tmp_path, POLYGLOT)
@@ -2091,6 +2162,68 @@ class TestFullCli:
         assert [e["export_name"] for e in out["exports"]] == ["a"]
         assert [(e["reason"], e["files"], e["detail"]) for e in out["errors"]] == [
             ("ast-grep-error", 2, "exit 101: thread 'main' panicked")]
+
+    def test_the_time_limit_still_writes_the_json(self, tmp_path, capsys, monkeypatch) -> None:
+        """--timeout stops the ast-grep runs, not the run: the JSON is
+        written, incomplete, and one `time-limit` item names every file
+        left unread."""
+        monkeypatch.setattr(mod, "_ast_grep", lambda: ("ast-grep", "0.45.3", None))
+        monkeypatch.setattr(mod, "ARGV_BUDGET", 10)  # one file per ast-grep call
+        ticks = iter([0.0, 5.0])  # the clock starts, the first call starts; then it has run out
+        monkeypatch.setattr(mod.time, "monotonic", lambda: next(ticks, 50.0))
+        calls: list = []
+
+        def scan(cmd, **kwargs):
+            calls.append((cmd[-1], kwargs["timeout"]))
+            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+        monkeypatch.setattr(mod.subprocess, "run", scan)
+        root = _tree(tmp_path / "root", {"a.py": "", "b.py": "", "c.py": ""})
+        target = tmp_path / "out.json"
+        code = mod.main(["--mode", "full", "--source-root", str(root), "--timeout", "20", "-o", str(target)])
+        out = json.loads(target.read_text(encoding="utf-8"))
+        assert (code, out["status"]) == (1, "incomplete")
+        assert calls == [("a.py", 15.0)]
+        (item,) = [e for e in out["errors"] if e["unread"] == ["b.py", "c.py"]]
+        assert (item["reason"], item["files"], item["first_file"]) == ("time-limit", 2, "b.py")
+        assert "--timeout of 20s" in item["detail"]
+
+    def test_a_call_the_time_limit_stops_is_time_limit(self, tmp_path, capsys, monkeypatch) -> None:
+        monkeypatch.setattr(mod, "_ast_grep", lambda: ("ast-grep", "0.45.3", None))
+        ticks = iter([0.0, 5.0])  # the clock starts, the call starts with 25s left; it then runs out
+        monkeypatch.setattr(mod.time, "monotonic", lambda: next(ticks, 40.0))
+
+        def slow(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+        monkeypatch.setattr(mod.subprocess, "run", slow)
+        root = _tree(tmp_path, {"a.py": "def f(): pass\n"})
+        code, out = _full(capsys, root, "--timeout", "30")
+        assert (code, out["status"]) == (1, "incomplete")
+        assert [(e["reason"], e["unread"]) for e in out["errors"]] == [("time-limit", ["a.py"])]
+
+    @pytest.mark.parametrize("value", ["0", "-5"])
+    def test_a_timeout_not_above_zero_is_an_input_error(self, value, tmp_path, capsys) -> None:
+        assert mod.main(["--mode", "full", "--source-root", str(tmp_path), "--timeout", value]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and "--timeout" in captured.err
+
+    def test_quick_mode_refuses_the_timeout(self, capsys) -> None:
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--timeout", "5"])
+        assert exc.value.code == 2 and "full mode only" in capsys.readouterr().err
+
+    def test_an_unforeseen_failure_exits_2_with_one_line(self, tmp_path, capsys, monkeypatch) -> None:
+        """A crash would exit 1, which callers read as `incomplete` and run
+        again; it exits 2, an input error, with one stderr line instead."""
+        def boom(root):
+            raise KeyError("tree")
+
+        monkeypatch.setattr(mod, "list_tree", boom)
+        assert mod.main(["--mode", "full", "--source-root", str(tmp_path)]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err.splitlines() == ["error: the run failed: KeyError: 'tree'"]
 
     def test_an_npm_cmd_shim_is_never_run(self, tmp_path, capsys, monkeypatch) -> None:
         """On Windows an npm .cmd shim runs through cmd.exe, which reads a
