@@ -4,4 +4,5 @@ summary: |
   A headless Update Skill run given no skill name or folder path now stops before it reads anything, with status `blocked` (`error.phase` `init:skill-name`, `error.reason` starting `input-missing`), where before it had no rule for the missing answer and could wait for one or guess. A skill name passed with the invocation now answers the first question in an interactive run too, which no longer asks it again, and an interactive run given no name offers the skills SKF generated to pick from.
 migration: |
   Pass the skill's name, or the path to its folder, with every headless run, for example `@Ferris US <skill> --headless`.
+prs: [633]
 issues: [594]

@@ -2,4 +2,5 @@ type: changed
 scope: skf-create-skill, skf-update-skill, skf-audit-skill
 summary: |
   The shared recipe runner, `skf-extract-public-api.py --mode full`, now stops its ast-grep runs after 540 seconds by default (`--timeout` sets another limit) and still writes its result, marked `incomplete`, with the files it left unread, so a long extraction no longer runs past an agent's shell time limit with nothing written. It also reads a `--files-from` list whose first path starts with `[` (a `[slug]/page.tsx` route folder) as one path per line, exits `2` with one line on stderr instead of crashing on an unforeseen error, and records each export's declaration on one line as `signature`, so a parameter list, a destructured parameter or a generic a formatter split over several lines is no longer cut at its first line.
+prs: [633]
 issues: [584]
