@@ -14,11 +14,11 @@ enumerateStackSkillsProbeOrder:
 
 ## STEP GOAL:
 
-Scan the project root for dependency manifest files, parse each to extract dependency names and versions, and produce a raw dependency list for ranking.
+Take the dependency manifests of `{scan_root}` (the folder step 1 chose) from the manifest scanner and produce a raw dependency list for ranking; in compose mode, pick the constituent skills instead.
 
 ## Rules
 
-- Focus only on finding and parsing manifest files
+- Render the scanner's and the candidates helper's JSON; never parse a manifest or join candidates by hand
 - Do not count imports or rank dependencies (Step 03) or extract documentation (Step 04)
 - If explicit dependency list was provided in step 01, use it and skip detection
 
@@ -28,48 +28,36 @@ Scan the project root for dependency manifest files, parse each to extract depen
 
 **If `compose_mode` is true:**
 
-Discover the skills SKF generated in `{skills_output_folder}`. **Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. HALT if no candidate exists. Run it once, first:
+Pick the constituent skills with the shared helper, which keeps only the skills SKF generated (a `metadata.json` SKF marker: see `knowledge/version-paths.md` Ownership) and gates every candidate in one call. When step 1 kept `{skill_candidates}`, use that result: it ran this same call. Otherwise resolve `{enumerateStackSkillsHelper}` from `{enumerateStackSkillsProbeOrder}` (first existing path wins; HALT if no candidate exists) and run it, passing `--explicit` with the `explicit_deps` entries as given, comma-separated, when step 1 bound them (the helper reduces a package path to its skill folder):
 
 ```bash
-uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder}
+uv run {enumerateStackSkillsHelper} candidates {skills_output_folder} [--explicit "<names>"]
 ```
 
-Bind `{stack_roster}` ← `skills`, `{not_skf_output}` ← `not_skf_output` and `{roster_warnings}` ← `warnings`. The helper keeps only packages whose `metadata.json` carries an SKF marker (`generated_by`, `tool_versions.skf`, or `skill_type` `single`, `individual` or `stack` with `forge_tier` or `confidence_tier` — see `knowledge/version-paths.md` Ownership): the version `active` names, else the highest marked version, else a marked flat root. Each entry's `name` is the top-level folder (`skill_dir`) and `path` its package relative to `{skills_output_folder}`. When `{not_skf_output}` is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}".
+Render its JSON as it stands, never re-joining candidates by hand. An exit `1` (no skills folder) counts as an empty `kept[]`:
 
-**Candidates:** when `explicit_deps` was provided in step 01, each name in it is a candidate (its `skill_dir`) and rules 1 and 2 are skipped. Otherwise:
-
-1. **Primary: Export manifest** — each key in `{skills_output_folder}/.export-manifest.json` `exports` is a candidate. This decides only which skills are candidates; the package each one is read from comes from `{stack_roster}` (see "For each kept skill" below).
-
-   **Manifest JSON parse guard (B3):** Wrap the `.export-manifest.json` parse in try/except. If JSON parsing fails for any reason, log a warning and use rule 2 instead.
-
-2. **Fallback: `active` symlinks** — when the manifest does not exist, is empty or fails to parse, each top-level folder matching `{skills_output_folder}/*/active/*/SKILL.md` is a candidate.
-
-**Skill gate (S1):** keep a candidate only when `{stack_roster}` has an entry whose `name` is its `skill_dir` and that package's `metadata.json` has `skill_type` `single` or `individual`, or no `skill_type` (an early Quick Skill package). Exclude every other candidate with one log line:
-
-- in `{not_skf_output}`: `"{skill_dir}: not SKF output — excluding"`;
-- named in a `{roster_warnings}` entry (each starts with `<skill_dir>: `): that warning;
-- no folder at `{skills_output_folder}/{skill_dir}`: a name from `explicit_deps` is excluded with `"{skill_dir}: no such skill folder — excluding"`; for a manifest key (**stale manifest, H6**: its skill is gone), HALT with a manifest-corruption diagnostic naming it and pointing the user at `[SKF-update-skill]` to repair, emit the result envelope on stderr per the Result Contract in SKILL.md, then STOP:
+- `manifest_parse_error` is not null: log `"{manifest_parse_error}: using the active links instead"` (B3).
+- `not_skf_output` is not empty: display it once, "Skipped (not SKF output): {not_skf_output}".
+- Each `excluded[]` entry: log its `message` as given, one line each.
+- `stale_manifest_keys` is not empty (**stale manifest, H6**: the export manifest names a skill whose folder is gone): HALT with a manifest-corruption diagnostic naming each key and pointing the user at `[SKF-update-skill]` to repair, emit the result envelope on stderr per the Result Contract in SKILL.md, then STOP:
 
   ```
-  SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
+  SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":[],"mode":"compose","quality_score":null,"exit_code":3,"halt_reason":"resolution-failure"}
   ```
 
-- another `skill_type` value: `"{skill_dir}: not a skill (skill_type {value}) — excluding"`;
-- otherwise: `"{skill_dir}: no SKF skill package — excluding"`.
+- `kept[]` is empty: HALT with "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (stack skills are never constituents). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]." Then emit the result envelope on stderr per the Result Contract in SKILL.md, and STOP:
 
-**Filter & cycle guard (B4):** Skip a kept skill whose name is `{project_name}-stack` or whose `metadata.json` has `"skill_type": "stack"`. Maintain a **visited set keyed by `skill_dir`** (the top-level dir under `{skills_output_folder}`) while resolving. If a skill would be revisited via a circular reference (e.g., a constituent that claims another stack as dependency), skip the duplicate and log a warning `"cycle detected at {skill_dir} — skipping"`. Stack skills must not be loaded as source dependencies to avoid self-referencing loops.
+  ```
+  SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":[],"mode":"compose","quality_score":null,"exit_code":3,"halt_reason":"resolution-failure"}
+  ```
 
-**If zero skills remain after the gate and the filter:** HALT with: "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (after filtering stack skills). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]." Then emit the result envelope on stderr per the Result Contract in SKILL.md, and STOP:
+A composes cycle is not an exclusion: step 4 §0 halts on one that involves a confirmed skill.
 
-```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
-```
-
-For each kept skill:
-1. Store the top-level folder name as `skill_dir` (distinct from the metadata `name`).
-2. `skill_package_path` ← `{skills_output_folder}/{path}` from its `{stack_roster}` entry — the package whose exports and `metadata_hash` the helper reported, so path and hash come from one resolution (the helper follows `active`, as the manifest-lag guard in `knowledge/version-paths.md` does).
-3. Read `metadata.json` from `skill_package_path` and extract: name, language, confidence_tier, source_repo, source_authority, exports count, version.
-4. **Record the constituent metadata_hash (S13):** take its `metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`) from the same `{stack_roster}` entry and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash — never hand-compute — so the step-4 drift check compares script-hash to script-hash. Step-07 uses this stored hash for `constituents[].metadata_hash` in `provenance-map.json`, so drift between step 2 read and step 7 write is captured.
+For each `kept[]` entry:
+1. Store its `name`, the top-level folder, as `skill_dir` (distinct from the metadata `name`).
+2. `skill_package_path` ← `{skills_output_folder}/{path}` from that entry: the package whose exports and `metadata_hash` the helper reported, so path and hash come from one resolution (the helper follows `active`, as the manifest-lag guard in `knowledge/version-paths.md` does).
+3. Read `metadata.json` from `skill_package_path` for the fields the entry lacks: name, version and source_authority. The entry gives language, confidence_tier, source_repo and the export count (`exports`).
+4. **Record the constituent metadata_hash (S13):** take its `metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`) from the same `kept[]` entry and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash (never hand-compute it), so the step-4 drift check compares script-hash to script-hash. Step-07 uses this stored hash for `constituents[].metadata_hash` in `provenance-map.json`, so drift between step 2 read and step 7 write is captured.
 5. Store as `raw_dependencies` with source: "existing_skill" (`"explicit"` for a name from `explicit_deps`)
 
 Report the `{N}` loaded skills — for each: name, language, confidence tier, export count, and source.
@@ -92,27 +80,27 @@ Store the explicit list as `raw_dependencies` and skip to [Display Detection Sum
 
 ### 2. Scan and Parse Manifests
 
-Invoke the deterministic manifest scanner — it walks the project root, parses every recognised manifest, dedupes the production dep set, and flags monorepo layout:
-
-**Resolve `{scanManifestsHelper}`** from `{scanManifestsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+Step 1 §3 ran the deterministic manifest scanner on `{scan_root}` and kept its JSON as `{manifest_scan}`: use it. Run the scanner again only on a folder the user names below. **Resolve `{scanManifestsHelper}`** from `{scanManifestsProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 ```bash
-uv run {scanManifestsHelper} scan {scan_root}
+uv run {scanManifestsHelper} scan {scan_root} --include-dev
 ```
 
-Where `{scan_root}` is the project root path. Load `{manifestPatternsPath}` for the ecosystem reference table that documents supported filenames, dependency keys, and normalisation rules; the script implements exactly that table (npm/pnpm/yarn, python pip/poetry/pdm, rust cargo, go modules, java/kotlin maven + gradle, ruby bundler, composer, swift package manager). Exclusion patterns (`node_modules/`, `.venv/`, `vendor/`, `dist/`, `build/`, `target/`, `.git/`, hidden dirs) are applied internally.
-
-Parse the JSON output — shape:
+`references/manifest-patterns.md` documents the manifest files and dependency sections the scanner reads and the folders it skips; the script implements exactly that table. The JSON it emits (its docstring has every field):
 
 ```
 {
   "manifests": [
-    {"path": "<rel-from-root>", "ecosystem": "<name>", "deps": [{"name": "...", "version": "..."}]},
+    {"path": "<rel-from-scan-root>", "ecosystem": "<name>", "name": "<package name>" | null,
+     "deps": [{"name": "...", "version": "...", "scope": "dev"}]},   // `scope` only on a dev dependency
     ...
   ],
-  "total_unique": N,
+  "total_unique": N,                            // unique runtime dependency names
+  "total_unique_dev": N,                        // unique names that are dev dependencies only
   "monorepo": <bool>,
-  "warnings": ["..."]   // optional, only if any parse warning fired
+  "folders": [{"path": "<folder>", "names": ["..."]}, ...],  // each manifest folder ("." for {scan_root})
+  "searched_filenames": ["package.json", ...],  // every manifest name looked for
+  "warnings": ["..."]                           // only when a manifest did not parse
 }
 ```
 
@@ -121,29 +109,29 @@ If `manifests` is empty:
 **Headless auto-cancel (S2):** If `{headless_mode}` is true, do NOT wait for user input. Emit the result envelope on stderr per the Result Contract in SKILL.md and exit `2`. Headless mode cannot proceed without an explicit dependency list.
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"code","exit_code":2,"halt_reason":"no-manifests"}
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":[],"mode":"code","quality_score":null,"exit_code":2,"halt_reason":"no-manifests"}
 ```
 
 **Interactive mode:**
 
-"**No dependency manifests detected** in the project root.
+"**No dependency manifests detected** in `{scan_root}`.
 
-Searched for: package.json, requirements.txt, Cargo.toml, go.mod, pom.xml, build.gradle, Gemfile, composer.json, *.csproj
+Searched for: {the `searched_filenames`, comma-separated}
 
 **Options:**
 1. Provide an explicit dependency list
-2. Specify a different project root path
+2. Scan a different folder
 3. Cancel workflow
 
-**Halting — please provide input.**"
+**Halting: please provide input.**"
 
-STOP — wait for user response.
+STOP and wait for the user's response. Option 2 sets `{scan_root}` to the folder the user names (a relative path resolves from `project_root`) and runs the scan call above again, replacing `{manifest_scan}`.
 
-Otherwise, store the parsed `manifests[]` and `total_unique` as `raw_dependencies` (dedup is already applied by the scanner), surface any `warnings[]` to the user as parse-quality notes, and inspect the `monorepo` flag: if `true`, mention the monorepo layout in the detection summary so the user can decide whether to scope the ranking to a specific package or proceed across all manifests.
+Otherwise, `raw_dependencies` is `{manifest_scan}` as it stands (the scanner already deduplicates, and step 3 pipes it to the import counter). Surface any `warnings[]` to the user as parse-quality notes. When `folders[]` lists more than one folder, the detection summary says so and names `{scan_root}`, the folder step 1 §3 chose (the whole project unless `project_path` or the user's answer named one package): to stack one package, re-run with `project_path` set to its folder.
 
 ### 3. Display Detection Summary
 
-Report the detected manifests (for each: path, ecosystem, dependency count) and the total unique dependency count split into runtime vs dev-only.
+Report `{scan_root}`, the detected manifests (for each: path, ecosystem, dependency count), and the unique dependency count split by each dependency's `scope`: runtime (`total_unique`) and dev only (`total_unique_dev`). With `explicit_deps`, report its library count instead.
 
 ### 4. Auto-Proceed to Next Step
 

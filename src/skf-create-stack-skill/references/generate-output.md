@@ -61,18 +61,18 @@ Write all deliverable and workspace artifact files to their target directories.
 Resolve `{version}` per S11 below. The final artifact paths are:
 
 ```
-{skill_group}                          # {skills_output_folder}/{project_name}-stack/
-{skill_package}                        # {skills_output_folder}/{project_name}-stack/{version}/{project_name}-stack/
+{skill_group}                          # {skills_output_folder}/{stack_name}/
+{skill_package}                        # {skills_output_folder}/{stack_name}/{version}/{stack_name}/
 ├── references/
 │   └── integrations/
-{forge_version}                        # {forge_data_folder}/{project_name}-stack/{version}/
+{forge_version}                        # {forge_data_folder}/{stack_name}/{version}/
 ```
 
-Where the skill name is `{project_name}-stack` and `{version}` is the semver version (with build metadata stripped per `knowledge/version-paths.md`).
+Where the skill name is `{stack_name}` (step 1 §0) and `{version}` is the semver version (with build metadata stripped per `knowledge/version-paths.md`).
 
 **Stack version (S11).** `{skillInventoryHelper}` (the pre-flight below resolves it) computes `{version}` once phase 1 has read any prior stack; never reduce, compare or bump a version by hand:
 
-- **Code mode:** pipe `[{"name": "<library>", "import_count": <its step 3 count>, "version": "<its manifest version, or null>"}, ...]`, one entry per stack library, to the call below and bind `{version}` ← `version`, the most imported library's version as one folder name (`^18.2.0` gives `18.2.0`; the helper names its pick in `reason`).
+- **Code mode:** pipe `[{"name": "<library>", "import_count": <its step 3 file_count>, "version": "<its manifest version, or null>"}, ...]`, one entry per stack library, to the call below and bind `{version}` ← `version`, the most imported library's version as one folder name (`^18.2.0` gives `18.2.0`; the helper names its pick in `reason`).
 
   ```bash
   uv run {skillInventoryHelper} version primary -
@@ -87,7 +87,7 @@ Where the skill name is `{project_name}-stack` and `{version}` is the semver ver
 
 Narrate the version and the helper's `reason` or `bump`. On `BAD_INPUT` or `USAGE` the call is malformed (the candidates piped, or an unquoted list the shell split): fix it and run it again. Start a new release line at `1.0.0` only when no candidate resolves, the call prints no JSON (`uv` cannot run it), or the prior stack records no `version` or one that names none (`NOT_A_VERSION`), and append a `workflow_warnings[]` entry (`step: "step-07"`, `severity: "warn"`, `code: "stack-version-default"`, `message`: the helper's `error`, or why it did not run).
 
-**Pre-flight: ownership, phase 1 (S3).** `{stack_name}` is `{project_name}-stack`. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run, before any prior metadata is read:
+**Pre-flight: ownership, phase 1 (S3).** `{stack_name}` is the stack name step 1 §0 bound. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run, before any prior metadata is read:
 
 ```bash
 uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --forge-data-folder {forge_data_folder}
@@ -97,12 +97,12 @@ Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_ch
 
 When `{prior_active_version}` is not null, read `{skills_output_folder}/{stack_name}/{prior_active_version}/{stack_name}/metadata.json`. If its `skill_type` is not `"stack"`, HALT with:
 
-"**Cannot proceed.** `{skills_output_folder}/{project_name}-stack/` exists but is not a stack skill (`skill_type={found_type}`). Rename the existing directory or choose a different `project_name` to avoid collision."
+"**Cannot proceed.** `{skills_output_folder}/{stack_name}/` exists but is not a stack skill (`skill_type={found_type}`). Rename the existing directory or pass another `stack_name` to avoid collision."
 
 Do NOT proceed to staging or commit. Emit the result envelope on stderr per the Result Contract in SKILL.md and exit `4` (`stack_libraries` carries the confirmed library names; nothing was committed, so `skill_package` is `null`):
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":4,"halt_reason":"write-failure"}
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","quality_score":null,"exit_code":4,"halt_reason":"write-failure"}
 ```
 
 Otherwise this run is a **re-composition**: capture its `version` as `{prior_stack_version}` and its `libraries` array as `{prior_libraries}` for the S11 re-composition rule above. When `{prior_active_version}` is null — the group is absent, holds only what an interrupted run leaves, or its `active` link names no version SKF generated — treat this as a new stack and leave `{prior_stack_version}` unset: prior metadata is read only from a version SKF generated.
@@ -118,14 +118,14 @@ and apply the same bindings and refusals.
 **Ownership refusals (both phases).** Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`. Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
 
 - `{write_verdict}` is `"flat-layout"` → `halt_reason: "flat-layout"`: "**`{stack_name}` still uses the flat layout — nothing was written.** A version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {stack_name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
-- `{write_verdict}` is `"not-skf-output"` → `halt_reason: "not-skf-output"`: "**`{stack_name}` is not SKF output — nothing was written.** `{write_folder}` {write_detail}, so SKF will not write a version there. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{stack_name}` yourself, and choose a different `project_name` to create this stack beside it. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder with no `metadata.json` can also be one that an interrupted create-stack-skill run left behind; delete it yourself in that case."
+- `{write_verdict}` is `"not-skf-output"` → `halt_reason: "not-skf-output"`: "**`{stack_name}` is not SKF output: nothing was written.** `{write_folder}` {write_detail}, so SKF will not write a version there. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{stack_name}` yourself, and pass another `stack_name` to create this stack beside it. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder with no `metadata.json` can also be one that an interrupted create-stack-skill run left behind; delete it yourself in that case."
 - The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
 - When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}". Here `{skill_group}` is `{skills_output_folder}/{stack_name}`.
 
 Each refusal is a HARD HALT: do NOT proceed to staging; emit the result envelope on stderr and exit `5`:
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":5,"halt_reason":"not-skf-output"}
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","quality_score":null,"exit_code":5,"halt_reason":"not-skf-output"}
 ```
 
 (`"halt_reason":"flat-layout"` for the flat-layout refusal.)
@@ -159,7 +159,7 @@ python3 {atomicWriteHelper} commit-dir --rollback --target {skill_package}
 Then abort (see B7): purge any `{forge_version}/*-tmp` staging artifacts, emit the result envelope on stderr per the Result Contract in SKILL.md, and halt the workflow. This is the single rollback exit shared by §7 and §8b (workspace-write failures) and §9 (commit-dir failure):
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":4,"halt_reason":"write-failure"}
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","quality_score":null,"exit_code":4,"halt_reason":"write-failure"}
 ```
 
 ### 2. Stage SKILL.md
@@ -199,8 +199,8 @@ Write `{skill_staging}/context-snippet.md`:
 Use the Vercel-aligned indexed format targeting **~80-120 tokens** (M2), measured as below.
 
 ```
-[{project_name}-stack v{version — resolved in §1}]|root: skills/{project_name}-stack/
-|IMPORTANT: {project_name}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
+[{stack_name} v{version, resolved in §1}]|root: skills/{stack_name}/
+|IMPORTANT: {stack_name} — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
 |integrations: {pattern-1}, {pattern-2}
 |gotchas: {1-2 most critical integration pitfalls}
@@ -256,13 +256,13 @@ Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canon
 
 Populate compose-mode `constituents[].metadata_hash` from the value stored in workflow state at step 2 (S13), not a fresh re-hash at step-7 time — `{provenanceMapSchemaPath}` carries the rationale for why the manifest-detection-time hash is the correct provenance anchor.
 
-**Source lines (code mode only).** The provenance verifier checks that each entry's `source_line` is the line that defines its export (a `def` recorded on its decorator line is not). Resolve `{verifyProvenanceCompletenessHelper}` from `{verifyProvenanceCompletenessProbeOrder}` and run `verify`, then `fix`, which moves each `source_line` to its export's definition line when the file has exactly one, then `verify` once more. `{scan_root}` is the project root, `project_root` from step 1, which each `source_file` is relative to:
+**Source lines (code mode only).** The provenance verifier checks that each entry's `source_line` is the line that defines its export (a `def` recorded on its decorator line is not). Resolve `{verifyProvenanceCompletenessHelper}` from `{verifyProvenanceCompletenessProbeOrder}` and run `verify`, then `fix`, which moves each `source_line` to its export's definition line when the file has exactly one, then `verify` once more. `{project_root}` is the project root, `project_root` from step 1, which each `source_file` is relative to (never `{scan_root}`):
 
 ```bash
 uv run {verifyProvenanceCompletenessHelper} verify \
     --metadata {skill_staging}/metadata.json \
     --provenance {forge_version}/provenance-map.json \
-    --source-root {scan_root} \
+    --source-root {project_root} \
     -o {forge_version}/provenance-verify.skf-tmp
 uv run {verifyProvenanceCompletenessHelper} fix \
     --verify {forge_version}/provenance-verify.skf-tmp \
@@ -277,7 +277,7 @@ Rely on each call's JSON, not its exit code (`1` means findings, or items `fix` 
 Step 8 validates only after commit-dir and flip-link have published the package, so catch here, while it is staged, the `skill-check` rejects `--fix` cannot correct: a `description` over 1024 characters and a body over `body.max_lines` (500). Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` and run it on the **staged** `SKILL.md`, with the real skill name so the `.skf-tmp` suffix does not fail the directory-match check:
 
 ```bash
-uv run {frontmatterValidator} {skill_staging}/SKILL.md --skill-dir-name {project_name}-stack --max-body-lines 500 --max-body-tokens 5000
+uv run {frontmatterValidator} {skill_staging}/SKILL.md --skill-dir-name {stack_name} --max-body-lines 500 --max-body-tokens 5000
 ```
 
 Act on the `issues[]` severities in its JSON, not on the exit code (an over-long `description` is `medium` and exits `0`):
@@ -338,7 +338,7 @@ ONLY AFTER `commit-dir` succeeds, flip the `{skill_group}/active` symlink to poi
 python3 {atomicWriteHelper} flip-link --link {skill_group}/active --target {version}
 ```
 
-The helper holds an flock on `{skill_group}/active.skf-lock` and refuses to replace a non-symlink at `{skill_group}/active` — this guards against accidentally overwriting a real directory (ECH BLOCKER 6/B6). After the flip, `{skill_group}/active/{project_name}-stack/` resolves to the just-committed skill package.
+The helper holds an flock on `{skill_group}/active.skf-lock` and refuses to replace a non-symlink at `{skill_group}/active`: this guards against accidentally overwriting a real directory (ECH BLOCKER 6/B6). After the flip, `{skill_group}/active/{stack_name}/` resolves to the just-committed skill package.
 
 If `flip-link` fails, append a `workflow_warnings[]` entry (`step: "step-07"`, `severity: "warn"`, `code: "flip-link-failed"`, `message`: the helper's error) and continue. The committed package is still valid, and step 9 lists the warning, since §8b has already written the evidence report.
 

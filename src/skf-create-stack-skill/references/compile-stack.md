@@ -28,7 +28,7 @@ The SKILL.md MUST begin with YAML frontmatter (agentskills.io compliance):
 
 ```yaml
 ---
-name: {project_name}-stack
+name: {stack_name}
 description: >
   Stack skill for {project_name} — {lib_count} libraries with
   {integration_count} integration patterns. Use when working with
@@ -39,7 +39,7 @@ description: >
 
 **Frontmatter rules:**
 
-- `name`: lowercase alphanumeric + hyphens only, must match skill output directory name. **Stack skills MUST end in `-stack`** (e.g., `{project_name}-stack`) — this is how consumers (skf-verify-stack, skf-test-skill) detect stack vs individual skills.
+- `name`: lowercase alphanumeric + hyphens only, must match skill output directory name. **Stack skills MUST end in `-stack`** (`{stack_name}`, which step 1 §0 bound with that suffix): this is how consumers (skf-verify-stack, skf-test-skill) detect stack vs individual skills.
 - `description`: non-empty, max 1024 chars, trigger-optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can..."). **Do NOT enumerate every library by name** — a 12+ library stack overruns 1024 chars. Keep the generic "{lib_count} libraries with {integration_count} integration patterns" form; if a per-library parenthetical is used, cap it to the top libraries by import/export count with a `+{N} more` suffix (full list lives in `metadata.json` `libraries[]`). See "Sizing Guidance for Large Stacks" in `{stackSkillTemplatePath}`.
 - No other frontmatter fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec
 
@@ -140,6 +140,6 @@ Display: **Select:** [C] Continue to Output Generation | [X] Cancel and exit
 #### Menu Handling Logic:
 
 - IF C: Store skill_content, then load, read entire file, then execute {nextStepFile}
-- IF X: Invoke the rollback contract (purge any `{forge_data_folder}/{project_name}-stack/{version}/*-tmp` and `*.skf-tmp` staging artifacts under the forge workspace and the step 4 labels file `{forge_data_folder}/{project_name}-stack.skf-labels.json`, leave any existing committed stack package untouched), emit the `SKF_STACK_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `exit_code: 6`, and exit with code 6
+- IF X: Invoke the rollback contract (purge any `{forge_data_folder}/{stack_name}/{version}/*-tmp` and `*.skf-tmp` staging artifacts under the forge workspace and the step 4 labels file `{forge_data_folder}/{stack_name}.skf-labels.json`, leave any existing committed stack package untouched), emit the `SKF_STACK_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `exit_code: 6`, and exit with code 6
 - IF Any other: Process as feedback, adjust compilation, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 

@@ -15,12 +15,12 @@ Both variants share the top-level `provenance_version`, `skill_name`, `skill_typ
 
 ## Code-mode variant
 
-Used when the workflow ran in code-mode against an actual codebase. `source_repo` and `source_commit` capture the upstream anchor(s); `entries[].extraction_method` names the tool that read the export (`ast_bridge` or `source_reading`): step 4 §1 gives the labels each method pairs with, and §3a checks them with `skf-render-metadata-stats.py`. `entries[].source_file` is relative to `{scan_root}`, the project root (`project_root` from step 1), and `source_line` is the line that defines the export. `integrations[].detection_method` is `"co-import grep"` because integration pairs are confirmed by co-import file evidence.
+Used when the workflow ran in code-mode against an actual codebase. `source_repo` and `source_commit` capture the upstream anchor(s); `entries[].extraction_method` names the tool that read the export (`ast_bridge` or `source_reading`): step 4 §1 gives the labels each method pairs with, and §3a checks them with `skf-render-metadata-stats.py`. `entries[].source_file` is relative to `{project_root}`, the project root (`project_root` from step 1), whatever folder `{scan_root}` narrowed the scan to, and `source_line` is the line that defines the export. `integrations[].co_import_files[].file` is relative to `{project_root}` too, because step 3 counts imports with `--relative-to {project_root}`. `integrations[].detection_method` is `"co-import grep"` because integration pairs are confirmed by co-import file evidence.
 
 ```json
 {
   "provenance_version": "2.0",
-  "skill_name": "{project_name}-stack",
+  "skill_name": "{stack_name}",
   "skill_type": "stack",
   "source_repo": ["{repo_url_1}", "{repo_url_2}"],
   "source_commit": {"{repo_1}": "{hash_1}", "{repo_2}": "{hash_2}"},
@@ -58,7 +58,7 @@ Used when the workflow ran in compose-mode against pre-generated constituent ski
 ```json
 {
   "provenance_version": "2.0",
-  "skill_name": "{project_name}-stack",
+  "skill_name": "{stack_name}",
   "skill_type": "stack",
   "source_repo": null,
   "source_commit": null,

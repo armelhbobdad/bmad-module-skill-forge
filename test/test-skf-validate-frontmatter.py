@@ -479,3 +479,46 @@ class TestForbidAngleBrackets:
                                  capture_output=True, text=True, encoding="utf-8")
         assert plain.returncode == 0 and json.loads(plain.stdout)["description_angle_brackets"] is None
         assert flagged.returncode == 1 and json.loads(flagged.stdout)["description_angle_brackets"] == 6
+
+
+class TestCheckName:
+    """--check-name: one name against the name rule, before any SKILL.md exists."""
+
+    SCRIPT = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-validate-frontmatter.py"
+
+    def _run(self, *args):
+        import subprocess
+        import sys
+        return subprocess.run([sys.executable, str(self.SCRIPT), *args],
+                              capture_output=True, text=True, encoding="utf-8")
+
+    @pytest.mark.parametrize(("name", "message"), [
+        ("a" * 59 + "-stack", "name exceeds 64 chars (65 chars)"),
+        ("acme--web-stack", "name cannot contain consecutive hyphens"),
+        ("Acme-stack", "must be lowercase"),
+        ("-acme-stack", "name cannot start or end with a hyphen"),
+        ("acme_web-stack", "contains invalid characters"),
+        ("", "name field missing or empty"),
+    ])
+    def test_a_name_the_rule_refuses_fails(self, name, message):
+        result = mod.check_name(name)
+        assert result["status"] == "fail" and result["name"] == name
+        assert any(message in issue["message"] for issue in result["issues"]), result["issues"]
+        assert all(issue["field"] == "name" for issue in result["issues"])
+
+    def test_a_skill_name_passes(self):
+        assert mod.check_name("a" * 58 + "-stack") == {
+            "status": "pass", "name": "a" * 58 + "-stack", "issues": [],
+            "summary": {"total": 0, "high": 0, "medium": 0, "low": 0}}
+
+    def test_cli_exit_codes(self):
+        import json
+        good, bad = self._run("--check-name", "acme-web-stack"), self._run("--check-name", "acme--web-stack")
+        assert good.returncode == 0 and json.loads(good.stdout)["status"] == "pass"
+        assert bad.returncode == 1 and json.loads(bad.stdout)["summary"]["high"] == 1
+
+    def test_cli_takes_a_name_or_a_skill_md(self, tmp_path):
+        both = self._run(str(tmp_path / "SKILL.md"), "--check-name", "x")
+        assert both.returncode == 2 and "--check-name takes no SKILL.md path" in both.stderr
+        neither = self._run()
+        assert neither.returncode == 2 and "SKILL.md path is required" in neither.stderr

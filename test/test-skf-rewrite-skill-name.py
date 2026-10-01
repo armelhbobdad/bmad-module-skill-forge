@@ -336,7 +336,7 @@ TEMPLATE_SITES = {
 class Template(NamedTuple):
     rel: str
     line: int
-    name_expr: str  # `{skill-name}` or `{project}-stack`
+    name_expr: str  # `{skill-name}` or `{stack_name}`
     text: str
 
 
@@ -388,9 +388,14 @@ def _render(template: Template, name: str) -> str:
     return re.sub(r"\{[^{}\n]*\}", "details", out)
 
 
+def _is_stack(template: Template) -> bool:
+    """A stack template: the name it renders always ends in `-stack`."""
+    return template.name_expr.endswith("-stack") or template.name_expr == "{stack_name}"
+
+
 def _name_pairs(template: Template):
     """(old, new) pairs: a name inside the new one, and the new one inside the old."""
-    if template.name_expr.endswith("-stack"):
+    if _is_stack(template):
         return [("acme-stack", "acme-web-stack"), ("web-acme-stack", "acme-stack")]
     return [(OLD, NEW), ("oms-cognee", "cognee")]
 
@@ -427,8 +432,11 @@ class TestSnippetTemplates:
         code, verdict = _rename_and_verify(tmp_path, old, new, _render(template, old))
         assert code == 0 and verdict["clean"] is True, verdict["hard_matches"]
 
-    @pytest.mark.parametrize("template", [t for t in SNIPPET_TEMPLATES if t.name_expr.endswith("}")],
-                             ids=_template_id)
+    # A stack's name ends in -stack, which no template word does, so the stack
+    # templates have no such name.
+    @pytest.mark.parametrize(
+        "template", [t for t in SNIPPET_TEMPLATES if t.name_expr.endswith("}") and not _is_stack(t)],
+        ids=_template_id)
     def test_a_name_that_is_a_word_of_the_template_changes_only_the_name(self, template):
         """A skill called `api`, `root`, `data`, `md` ...: the template's own words stay.
 

@@ -215,7 +215,11 @@ Candidates:
 
   candidate_source
       Where the candidates came from. "explicit": the --explicit names
-      (trimmed, duplicates dropped). "manifest": each key of
+      (trimmed, duplicates dropped). An --explicit entry that holds `/` or
+      `\\` is a package path instead, absolute or relative to the current
+      folder: it names the first folder of its path under <skills-root>
+      (`<skills-root>/react/1.2.0/react` and `<skills-root>/react/active/react`
+      both name `react`). "manifest": each key of
       `<skills-root>/.export-manifest.json` `exports`. "active-links": when
       there is no --explicit list and the manifest is absent, lists
       nothing or cannot be read, each top-level folder holding
@@ -236,6 +240,8 @@ Candidates:
         no-such-folder  an --explicit name with no folder at
                         <skills-root>/<name>
         no-skf-package  anything else (a folder holding no SKF package)
+      and an --explicit package path that is not inside <skills-root> is
+      excluded as given, with the reason `outside-skills-root`.
   stale_manifest_keys
       The manifest keys with no folder at <skills-root>/<key>, sorted: the
       manifest names a skill that is gone, which the caller halts on. A
@@ -354,6 +360,7 @@ REASON_NOT_SKF_OUTPUT = "not-skf-output"
 REASON_ROSTER_WARNING = "roster-warning"
 REASON_NO_SUCH_FOLDER = "no-such-folder"
 REASON_NO_SKF_PACKAGE = "no-skf-package"
+REASON_OUTSIDE_SKILLS_ROOT = "outside-skills-root"
 
 # Section headings recognised in the references/ cascade and the SKILL.md
 # cascade. Case-sensitive — these are the canonical SKF heading forms
@@ -1273,6 +1280,30 @@ def _active_link_candidates(skills_root: Path) -> list[str]:
     return found
 
 
+def explicit_skill_dir(skills_root: Path, entry: str) -> str | None:
+    """The skill folder an --explicit entry names; None for a path outside `skills_root`.
+
+    An entry with no `/` or `\\` is the folder name itself. Any other entry is
+    a package path, absolute or relative to the current folder, that names
+    the first folder of its path under `skills_root`: compared as written
+    first (so `active/<name>` counts as written), then with links resolved.
+    """
+    if "/" not in entry and "\\" not in entry:
+        return entry
+    path = Path(entry.replace("\\", "/"))
+    for resolve in (False, True):
+        try:
+            if resolve:
+                parts = path.resolve().relative_to(skills_root.resolve()).parts
+            else:
+                parts = Path(os.path.abspath(path)).relative_to(os.path.abspath(skills_root)).parts
+        except (ValueError, OSError, RuntimeError):  # outside, or a path SKF cannot resolve
+            continue
+        if parts:
+            return parts[0]
+    return None
+
+
 def _excluded(skill_dir: str, reason: str, message: str) -> dict:
     return {"skill_dir": skill_dir, "reason": reason, "message": message}
 
@@ -1289,8 +1320,15 @@ def compute_candidates(skills_root: Path, explicit: list[str] | None = None) -> 
     """
     roster = enumerate_stack_skills(skills_root)
     manifest_parse_error = None
+    outside: list[str] = []
     if explicit is not None:
-        source, names = CANDIDATES_EXPLICIT, list(explicit)
+        source, names = CANDIDATES_EXPLICIT, []
+        for entry in explicit:
+            skill_dir = explicit_skill_dir(skills_root, entry)
+            if skill_dir is None:
+                outside.append(entry)
+            else:
+                names.append(skill_dir)
     else:
         names, manifest_parse_error = _manifest_keys(skills_root)
         source = CANDIDATES_MANIFEST
@@ -1330,6 +1368,10 @@ def compute_candidates(skills_root: Path, explicit: list[str] | None = None) -> 
                     name, REASON_NO_SUCH_FOLDER, f"{name}: no such skill folder, excluding"))
             continue
         excluded.append(_excluded(name, REASON_NO_SKF_PACKAGE, f"{name}: no SKF skill package, excluding"))
+    for entry in sorted(set(outside)):
+        excluded.append(_excluded(
+            entry, REASON_OUTSIDE_SKILLS_ROOT, f"{entry}: not inside the skills folder, excluding"))
+    excluded.sort(key=lambda x: x["skill_dir"])
 
     return {
         "candidate_source": source,
@@ -1481,8 +1523,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--explicit",
         metavar="NAMES",
         help=(
-            "comma-separated skill folder names to gate, instead of the "
-            "export manifest keys or the folders holding an `active` package"
+            "comma-separated skill folder names or package paths to gate, "
+            "instead of the export manifest keys or the folders holding an "
+            "`active` package; a path names its first folder under skills-root"
         ),
     )
     p_cand.set_defaults(func=_cmd_candidates)

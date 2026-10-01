@@ -24,7 +24,7 @@ Analyze co-import patterns between confirmed libraries to identify integration p
 
 ## Rules
 
-- Focus on detecting cross-library patterns using subprocess Pattern 1 (grep/search)
+- Focus on detecting cross-library patterns from step 3's import counts and the pair helpers; never grep for imports by hand
 - Do not compile SKILL.md (Step 06)
 
 ## MANDATORY SEQUENCE
@@ -35,26 +35,15 @@ Analyze co-import patterns between confirmed libraries to identify integration p
 
 **If not compose_mode:**
 
-Of the N*(N-1)/2 pairs of `confirmed_dependencies`, only those whose per-library file lists overlap can integrate. This pass finds them for every N, and §2 greps each such pair's intersection files only.
+Of the N*(N-1)/2 pairs of `confirmed_dependencies`, only those whose per-library file lists overlap can integrate. This pass finds them for every N, and their shared files are §2's co-import evidence.
 
-**Compute the intersection deterministically via the shared script:**
+**Compute the intersection deterministically via the shared script.** Resolve `{pairIntersectHelper}` from `{pairIntersectProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-1. **Build the libraries JSON** from the per-library file enumeration recorded by step 3 import-count extraction. Skip libraries where step 04 reported extraction failure. Shape:
-   ```json
-   [
-     {"name": "<library-name>", "files": ["<rel-path-forward-slash>", ...]},
-     ...
-   ]
-   ```
-2. **Invoke the script** via stdin (or a temp file under `{forge_data_folder}/` if stdin piping is unavailable):
+```bash
+uv run {pairIntersectHelper} intersect --counts - --only "<names>"
+```
 
-   **Resolve `{pairIntersectHelper}`** from `{pairIntersectProbeOrder}`; first existing path wins. HALT if no candidate exists.
-
-   ```bash
-   uv run {pairIntersectHelper} intersect --libraries -
-   ```
-   piping the libraries JSON on stdin. It emits `pairs[]` (`a`, `b`, `intersection_count`, `files`), sorted by `intersection_count` and capped at the Top-K below, with `truncated` and `total_pairs`.
-3. **Use `pairs[]` as the qualifying-pair set** for §2 onward: each pair's `files[]` is its grep scope.
+Pipe `{import_counts}`, the step 3 import-count JSON, on stdin as it stands (or a temp file under `{forge_data_folder}/` if stdin piping is unavailable), with `--only` naming the confirmed libraries, comma-separated, less those step 4 reported an extraction failure for. It emits `pairs[]` (`a`, `b`, `intersection_count` and `files[]`, each `{path, line_a, line_b}`: a file that imports both libraries, with the first line that imports each), sorted by `intersection_count` and capped at the Top-K below, with `truncated` and `total_pairs`. Use `pairs[]` as the candidate-pair set for §2 onward.
 
 **Top-K cap (S7, 20):** When the script reports `truncated: true`, warn the user: `"non-empty-intersection pair count {total_pairs} exceeds cap: analyzing top 20 by intersection size; {total_pairs - 20} pairs skipped"`, and record the cap in the evidence report.
 
@@ -93,7 +82,7 @@ Act on the first of these that applies:
 - **`schemaVersionOk` is false:** never interpret the report. HALT with `"feasibility-report schemaVersion mismatch: expected '1.0', got '{schemaVersion}'; refusing to proceed"`, then emit the result envelope on stderr per the Result Contract in SKILL.md and exit `2`:
 
   ```
-  SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":2,"halt_reason":"schema-version-mismatch"}
+  SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":[],"mode":"compose","quality_score":null,"exit_code":2,"halt_reason":"schema-version-mismatch"}
   ```
 - **`unknownTokens` is not empty:** a verdict token outside the schema's set is a hard error, as the schema requires: HALT, naming each token with its line and pair, and never drop or map one.
 - **Any other exit `1`, or exit `2` with a JSON:** the report breaks the contract otherwise (a section missing or out of order, no verdict table or a second one) or could not be read. Read no verdict from it: compose without VS verdicts and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "vs-report-unusable"`, `message`: its `path` and each problem its JSON names, or its `error`).
@@ -115,31 +104,23 @@ Skip to section 3 (Classify Integration Types) with the compose-mode pairs.
 
 **If not compose_mode:**
 
-For each library pair (A, B) from §1:
+Each pair of §1's `pairs[]` already holds its co-import files: every `files[]` entry is a file that imports both libraries, as step 3's helper matched them, with `line_a` and `line_b`. For each pair, record `co_import_files` ← its `files[]` as they stand, and `count` ← its `intersection_count`.
 
-**Launch a subprocess** that greps the pair's §1 intersection files (never the whole source tree) for files importing BOTH library A and library B. Return only file paths and import line numbers.
-
-**Subprocess returns:** `{pair: [A, B], co_import_files: [{path, line_A, line_B}], count: N}`
-
-With no subprocess available, the intersection files are the evidence: count them against the threshold below.
-
-**Threshold:** A pair must have 2+ co-import files to qualify as an integration pattern (single file co-imports may be incidental).
+**Threshold:** A pair must have 2+ co-import files (`intersection_count` 2 or more) to qualify as an integration pattern (single file co-imports may be incidental).
 
 **CCC Semantic Augmentation (Forge+ and Deep with ccc):**
 
-If `tools.ccc` is true in forge-tier.yaml, augment co-import detection with semantic search (max 1 query per library pair), with one exception: when `ccc_index.status` is `"none"` or `"failed"`, setup built no project index and this step builds none, so skip augmentation. Every other status augments: `"fresh"`, `"created"`, `"skipped"` (setup's `--ccc-skip-index` lane still wrote `settings.yml` with the SKF exclusions, so the first refresh search builds the index safely), or a status this SKF does not know, such as a `"stale"` an older SKF recorded.
+If `tools.ccc` is true in forge-tier.yaml, augment each qualifying pair with one semantic search, with one exception: when `ccc_index.status` is `"none"` or `"failed"`, setup built no project index and this step builds none, so skip augmentation. Every other status augments: `"fresh"`, `"created"`, `"skipped"` (setup's `--ccc-skip-index` lane still wrote `settings.yml` with the SKF exclusions, so the first refresh search builds the index safely), or a status this SKF does not know, such as a `"stale"` an older SKF recorded.
 
-For each library pair with **0 or 1 co-import files** (below the 2-file threshold — S9, symmetric to give the 0-hit case the same chance as the 1-hit case), run `ccc_bridge.search("{libA} {libB}", source_root, top_k=10)` to find files where the two libraries interact semantically — even without explicit import co-location. If CCC returns additional files where both libraries appear, add them to the pair's co-import candidate list and re-evaluate against the 2-file threshold.
+For each pair with 2 or more co-import files, run `ccc_bridge.search("{libA} {libB}", project_root, top_k=10)` (`project_root` from step 1, where setup built the index) to rank the files where the two libraries interact. CCC never changes which pairs qualify: a file that imports both libraries is already in the pair's `files[]`, so a pair below the threshold, or one past the Top-K cap, gains nothing from a search.
 
-**CCC precision guard for 1-file pairs (H3):** When a CCC hit would elevate a 1-file pair to qualifying status, run a post-hoc verification on that file: re-grep the file and confirm it contains explicit import statements for **both** libraries (per the ecosystem import patterns from `{manifestPatternsPath}`). If either import is missing (e.g., one library is only name-dropped in a comment or string), drop the CCC-added file from the candidate list. Only pairs with ≥2 files that each contain explicit imports for both libraries qualify. Log rejected CCC candidates in workflow state for the evidence report.
+**CCC precision guard (H3):** keep a CCC-surfaced file only when the pair's `files[]` lists it (both paths are relative to `{project_root}`, so they compare as they stand), and use the files kept to pick the ones §3 cites. Drop every other CCC file (one library only name-dropped in a comment or a string, say), and log the dropped files in workflow state for the evidence report.
 
-**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc search --limit 10 "{libA} {libB}"` (CLI). `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`). See `knowledge/tool-resolution.md`.
+**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {project_root} && ccc search --limit 10 "{libA} {libB}"` (CLI). `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`). See `knowledge/tool-resolution.md`.
 
-**Refresh first:** run this step's first search as `cd {source_root} && ccc search --refresh --limit 10 "{libA} {libB}"`, with an extended timeout, because the refresh pass brings the index up to date before searching; later searches in this step can drop `--refresh`. The ccc MCP search tool refreshes by default: leave its `refresh_index` set to true. If the refresh search fails or times out, run the plain search once, with the same timeout, before treating it as a CCC failure.
+**Refresh first:** run this step's first search as `cd {project_root} && ccc search --refresh --limit 10 "{libA} {libB}"`, with an extended timeout, because the refresh pass brings the index up to date before searching; later searches in this step can drop `--refresh`. The ccc MCP search tool refreshes by default: leave its `refresh_index` set to true. If the refresh search fails or times out, run the plain search once, with the same timeout, before treating it as a CCC failure.
 
-For pairs that already qualify (2+ files), CCC is not needed for detection — but the CCC results may surface additional integration files for richer classification in section 3.
-
-CCC failures: skip augmentation silently, proceed with grep-only results.
+CCC failures: skip augmentation silently; §3 picks its files from the pair's `files[]` alone.
 
 ### 3. Classify Integration Types
 
@@ -150,7 +131,7 @@ For each qualifying pair, classify the integration type against those pattern ty
 **Pair tiers.** Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. It holds the one rule for an integration's tier in both modes, so no step works a tier out by hand. If no candidate exists, HALT with "**Cannot proceed.** `skf-render-stack-metadata.py` is missing, so no integration tier can be set. Re-install SKF, then re-run.", then emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3`:
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":3,"halt_reason":"resolution-failure"}
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","quality_score":null,"exit_code":3,"halt_reason":"resolution-failure"}
 ```
 
 When at least one pair qualifies, run it once on all of them:
@@ -162,15 +143,14 @@ uv run {renderStackMetadataHelper} pair-tiers --input -
 piping `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidence": "<its per_library_extractions[].confidence>"}, ...], "integrations": [{"a": "<library>", "b": "<library>"}, ...]}` on stdin, each qualifying pair once. Each entry of its `integrations[]` gives a pair's `tier`. On exit `2` its stderr names the input it refused, such as a pair naming a library the list lacks: fix the input and run it again.
 
 For each detected integration:
-- Identify the top 3 files demonstrating the pattern
+- Identify the top 3 files demonstrating the pattern (the CCC files §2 kept first, when there are any)
 - Extract a brief description of how the libraries connect
-- **Assign confidence (M1/M3): the pair's `tier` and a detection-method qualifier, never AST:** integration detection here is grep plus co-import (optionally CCC-augmented), or a compose-mode candidate §2 confirmed. Append the qualifier that says how the pair was found:
-  - `grep-co-import`: the pair qualified via direct co-import grep (the default).
-  - `ccc-augmented`: the pair qualified only after CCC semantic search elevated it (per §2 CCC augmentation), and the post-hoc import verification (H3) confirmed both imports.
+- **Assign confidence (M1/M3): the pair's `tier` and a detection-method qualifier, never AST:** integration detection here is co-import file evidence from step 3's import counts, or a compose-mode candidate §2 confirmed. Append the qualifier that says how the pair was found:
+  - `grep-co-import`: the pair qualified on the co-import files its two libraries' import counts share (the default).
   - `architecture-co-mention`: compose-mode pair the architecture document names together, confirmed from its excerpt in §2. Maps to `detection_method: architecture_co_mention` in `provenance-map.json`.
   - `constituent-documented-contract`: compose-mode pair with no architecture document whose contract a constituent's own docs state, a docs mention §2 confirmed. Maps to `detection_method: constituent_documented_contract` in `provenance-map.json`.
   - `inferred-shared-domain`: compose-mode pair with no architecture document, a shared-keywords candidate §2 kept (no cited contract, never a shared language alone). Maps to `detection_method: inferred_from_shared_domain` in `provenance-map.json`.
-  - Render as `{tier} ({qualifier})`, e.g. `T1-low (grep-co-import)`, `T1 (ccc-augmented)`, `T1-low (architecture-co-mention) [composed]`. The `[composed]`/`[inferred from shared domain]` suffix from `{composeModeRulesPath}` is appended after the qualifier in compose-mode.
+  - Render as `{tier} ({qualifier})`, e.g. `T1-low (grep-co-import)`, `T1 (grep-co-import)`, `T1-low (architecture-co-mention) [composed]`. The `[composed]`/`[inferred from shared domain]` suffix from `{composeModeRulesPath}` is appended after the qualifier in compose-mode.
 
   **Provenance ↔ SKILL.md tier parity:** write the pair's `tier` to both the SKILL.md integration label and `provenance-map.json` `integrations[].confidence`. The qualifier, and the `detection_method` it maps to, say how the edge was found and never change the tier.
 

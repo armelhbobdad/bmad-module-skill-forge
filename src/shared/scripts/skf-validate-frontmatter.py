@@ -23,6 +23,7 @@ system-wide:
   uv run skf-validate-frontmatter.py <skill-md-path> --max-body-lines 500
   uv run skf-validate-frontmatter.py <skill-md-path> --max-body-lines 500 --max-body-tokens 5000
   uv run skf-validate-frontmatter.py <skill-md-path> --forbid-angle-brackets
+  uv run skf-validate-frontmatter.py --check-name <name>
 
 Input:
   Path to a SKILL.md file.
@@ -43,6 +44,11 @@ Input:
   any. Opt-in — create-skill passes it; other callers keep today's verdict.
   The Claude platform does not accept a skill description that contains XML
   tags; the agentskills.io specification has no such rule.
+  --check-name NAME, in place of the SKILL.md path: check NAME alone
+  against the name rule below (at most 64 characters, lower case, letters,
+  digits and single hyphens, no hyphen at either end), before any SKILL.md
+  exists. create-stack-skill checks a requested stack name with it, so a
+  name the pre-commit check would refuse halts before the run starts.
 
 Output:
   JSON object:
@@ -54,6 +60,8 @@ Output:
                 or null unless --forbid-angle-brackets is set and the
                 description is a non-blank string
     summary:    { total, high, medium, low }
+  With --check-name: { status, name, issues, summary }, every issue on the
+  `name` field.
 
 Exit codes:
   0  — pass (no high-severity issues)
@@ -260,6 +268,27 @@ def _validate_name(name: str, skill_dir_name: str | None) -> list[dict]:
     return issues
 
 
+def _summary(issues: list[dict]) -> tuple[str, dict]:
+    """The status and the summary counts of a list of issues."""
+    severity_counts = {"high": 0, "medium": 0, "low": 0}
+    for issue in issues:
+        severity_counts[issue["severity"]] += 1
+    if severity_counts["high"] > 0:
+        status = "fail"
+    elif severity_counts["medium"] > 0 or severity_counts["low"] > 0:
+        status = "warn"
+    else:
+        status = "pass"
+    return status, {"total": len(issues), **severity_counts}
+
+
+def check_name(name: str) -> dict:
+    """Check a skill name alone against the name rule (no SKILL.md, no directory match)."""
+    issues = _validate_name(name, None)
+    status, summary = _summary(issues)
+    return {"status": status, "name": name, "issues": issues, "summary": summary}
+
+
 def validate_frontmatter(
     content: str,
     skill_dir_name: str | None = None,
@@ -359,18 +388,7 @@ def validate_frontmatter(
                     "message": f"Unknown frontmatter field: '{key}'",
                 })
 
-    # Build summary
-    severity_counts = {"high": 0, "medium": 0, "low": 0}
-    for issue in issues:
-        severity_counts[issue["severity"]] += 1
-
-    if severity_counts["high"] > 0:
-        status = "fail"
-    elif severity_counts["medium"] > 0 or severity_counts["low"] > 0:
-        status = "warn"
-    else:
-        status = "pass"
-
+    status, summary = _summary(issues)
     return {
         "status": status,
         "issues": issues,
@@ -378,10 +396,7 @@ def validate_frontmatter(
         "body_lines": body_lines,
         "body_tokens": body_tokens,
         "description_angle_brackets": angle_brackets,
-        "summary": {
-            "total": len(issues),
-            **severity_counts,
-        },
+        "summary": summary,
     }
 
 
@@ -404,7 +419,17 @@ def main() -> int:
     parser.add_argument(
         "skill_md",
         metavar="SKILL.md",
-        help="path to the SKILL.md file to validate",
+        nargs="?",
+        help="path to the SKILL.md file to validate (omitted with --check-name)",
+    )
+    parser.add_argument(
+        "--check-name",
+        metavar="NAME",
+        default=None,
+        help=(
+            "check NAME alone against the skill-name rule, in place of a "
+            "SKILL.md: exit 1 when a high-severity name issue is found"
+        ),
     )
     parser.add_argument(
         "--skill-dir-name",
@@ -451,9 +476,14 @@ def main() -> int:
     )
 
     args = parser.parse_args()
-    skill_md_path = Path(args.skill_md)
-
-    if not skill_md_path.exists():
+    if args.check_name is not None:
+        if args.skill_md is not None:
+            parser.error("--check-name takes no SKILL.md path")
+        result = check_name(args.check_name)
+    elif args.skill_md is None:
+        parser.error("the SKILL.md path is required (or pass --check-name NAME)")
+    elif not Path(args.skill_md).exists():
+        skill_md_path = Path(args.skill_md)
         result = {
             "status": "fail",
             "issues": [{"severity": "high", "field": "file", "message": f"File not found: {skill_md_path}"}],
@@ -463,6 +493,7 @@ def main() -> int:
             "summary": {"total": 1, "high": 1, "medium": 0, "low": 0},
         }
     else:
+        skill_md_path = Path(args.skill_md)
         content = skill_md_path.read_text(encoding="utf-8")
         skill_dir_name = args.skill_dir_name or skill_md_path.parent.name
         result = validate_frontmatter(

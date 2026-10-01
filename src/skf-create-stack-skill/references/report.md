@@ -30,7 +30,7 @@ Display the final summary of the forged stack skill with confidence distribution
 
 Surface the forge result to the console, leading with the win:
 
-- **Headline:** stack `{project_name}-stack` — `{lib_count}` libraries, `{integration_count}` integration patterns, forge tier `{tier}`.
+- **Headline:** stack `{stack_name}`: `{lib_count}` libraries, `{integration_count}` integration patterns, forge tier `{tier}`.
 - **Confidence (libraries per tier, from `metadata.json` `confidence_distribution`):** T1 {n}, T1-low {n}, T2 {n}, T3 {n}. In code mode, T1 = an ast-grep rule matched every export and T1-low = at least one export was read by eye, or none was recorded. **In compose-mode**, each library keeps its constituent's own tier (`evidence_tier`), which reflects how that skill was generated, not the current compose run.
 - **Output files:** the `{skill_package}` deliverables (SKILL.md, context-snippet.md with `{token_estimate}` tokens, metadata.json, `references/` per-library files, and `references/integrations/` pair files when integrations exist), the `{forge_version}` workspace (provenance-map.json, evidence-report.md), and the `{skill_group}/active -> {version}` symlink.
 - **Validation:** all checks passed, or `{warning_count}` finding(s) each with its description.
@@ -62,22 +62,22 @@ Write the result contract per `shared/references/output-contract-schema.md` usin
 
 ```bash
 <json-content> | python3 {atomicWriteHelper} write \
-  --target {forge_data_folder}/{project_name}-stack/create-stack-skill-result-latest.json
+  --target {forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json
 ```
 
-- Note the path: the `-latest.json` lives at `{forge_data_folder}/{project_name}-stack/` (the stack group root), NOT inside `{forge_version}/`. Pipeline consumers read this stable path without knowing the current version.
+- Note the path: the `-latest.json` lives at `{forge_data_folder}/{stack_name}/` (the stack group root), NOT inside `{forge_version}/`. Pipeline consumers read this stable path without knowing the current version.
 - Write the same JSON body as the timestamped record (this is a copy, not a symlink, so pipeline consumers never chase a link across version boundaries).
 
-Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs`; include `lib_count`, `integration_count`, `forge_tier`, `confidence_tier`, and confidence distribution in `summary`.
+Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs`; include `lib_count`, `integration_count`, `forge_tier`, `confidence_tier`, confidence distribution and `quality_score` in `summary`.
 
 If either atomic write fails, log the error, leave any prior `-latest.json` untouched, and continue — the report is advisory and should not block the health-check chain.
 
 **Missing atomic writer.** If no `{atomicWriteProbeOrder}` candidate exists, make neither write: append `{step: "step-09", severity: "warn", code: "result-contract-skipped", message: "result contract skipped: skf-atomic-write.py not found (re-install SKF)"}` to `workflow_warnings[]` and print its message, since §1 has already listed the warnings; leave any prior `-latest.json` untouched, and continue with the headless success envelope below. The result contract is advisory, so a missing writer never halts the report.
 
-**Headless success envelope.** When `{headless_mode}` is true, emit the single-line result envelope on **stdout** (the success counterpart to the error envelopes every HARD HALT emits on stderr) before chaining to step 10. `skill_package` is the absolute path to the committed package; `stack_libraries` is the included library names:
+**Headless success envelope.** When `{headless_mode}` is true, emit the single-line result envelope on **stdout** (the success counterpart to the error envelopes every HARD HALT emits on stderr) before chaining to step 10. `skill_package` is the absolute path to the committed package; `stack_libraries` is the included library names; `quality_score` is `{quality_score}`, the skill-check score step 8 §3 bound (`null` when skill-check did not run), never a test-skill score:
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"{skill_package}","skill_name":"{project_name}-stack","stack_libraries":["<lib>", "..."],"mode":"{code|compose}","exit_code":0,"halt_reason":null}
+SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"{skill_package}","skill_name":"{stack_name}","stack_libraries":["<lib>", "..."],"mode":"{code|compose}","quality_score":{quality_score},"exit_code":0,"halt_reason":null}
 ```
 
 ### 2c. Post-Completion Hook (optional)

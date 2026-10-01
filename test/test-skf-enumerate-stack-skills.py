@@ -1760,12 +1760,35 @@ class TestCandidates:
         assert _gate(result) == (["alpha"], [])
         assert result["stale_manifest_keys"] == ["", "../escape", "a/b", "file.txt", "gone"]
 
-    def test_an_explicit_name_that_is_a_path_is_no_such_folder(self, tmp_path: Path) -> None:
+    def test_an_explicit_path_outside_the_skills_folder_is_excluded(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         root = tmp_path / "skills"
         _make_skill(root, "alpha", metadata={"name": "alpha", "exports": ["a"]})
         _make_skill(tmp_path, "outside", metadata={"name": "outside", "exports": ["o"]})
-        result = mod.compute_candidates(root, ["../outside", "alpha/.."])
-        assert _gate(result) == ([], [("../outside", "no-such-folder"), ("alpha/..", "no-such-folder")])
+        monkeypatch.chdir(root)
+        result = mod.compute_candidates(root, ["../outside", "alpha/..", "..", "."])
+        assert _gate(result) == ([], [
+            (".", "no-such-folder"), ("..", "no-such-folder"),
+            ("../outside", "outside-skills-root"), ("alpha/..", "outside-skills-root")])
+        message = {x["skill_dir"]: x["message"] for x in result["excluded"]}["../outside"]
+        assert message == "../outside: not inside the skills folder, excluding"
+
+    def test_an_explicit_package_path_names_its_skill_folder(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        root = tmp_path / "skills"
+        alpha = _make_nested_skill(root, "alpha", "1.0.0", metadata={"name": "alpha", "exports": ["a"]})
+        _make_nested_skill(root, "beta", "2.0.0", metadata={"name": "beta", "exports": ["b"]}, active=False)
+        monkeypatch.chdir(tmp_path)
+        entries = [str(alpha), "skills/alpha/active/alpha", "skills\\beta\\2.0.0\\beta", "alpha"]
+        result = mod.compute_candidates(root, entries)
+        assert _gate(result) == (["alpha", "beta"], [])
+        assert [e["path"] for e in result["kept"]] == ["alpha/active/alpha", "beta/2.0.0/beta"]
+
+    def test_cli_explicit_package_paths(self, tmp_path: Path) -> None:
+        _stack_folder(tmp_path)
+        paths = f"{(tmp_path / 'beta' / '1.0.0' / 'beta').as_posix()},{tmp_path.parent.as_posix()}/elsewhere/x"
+        payload = json.loads(_run_cli("candidates", str(tmp_path), "--explicit", paths).stdout)
+        assert _gate(payload) == (["beta"], [(f"{tmp_path.parent.as_posix()}/elsewhere/x", "outside-skills-root")])
 
     def test_candidates_sort_by_name_on_every_platform(self, tmp_path: Path) -> None:
         # A Path sorts without case on Windows; the gate orders names as
