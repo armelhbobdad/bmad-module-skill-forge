@@ -7,11 +7,32 @@ This document records the configuration that gates releases of `bmad-module-skil
 
 For background on GitHub rulesets vs legacy branch protection, see the [GitHub ruleset docs](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets).
 
+## Preconditions
+
+Each part of this document needs some of the following. Check them before an incident, not in the middle of one.
+
+- **`gh`, signed in to an account with admin rights on the repository**: every `gh` command. The ruleset and environment writes, the baseline captures and the restore drill need the admin rights.
+- **`jq`**: every lookup, capture and restore.
+- **Node.js, with `npm ci` run on an up-to-date `main`**: the `node tools/...` commands.
+- **`npm`, signed in to an account with publish rights on the package**: `npm dist-tag` and `npm deprecate` in the [dist-tag policy](#dist-tag-policy) and the [rollback playbook](#rollback-playbook). Trusted publishing authenticates only `npm publish`, so these run from a maintainer's own login.
+- **npm 11.15.0 or later, and 2FA enabled on that npm account**: `npm trust list` and `npm trust revoke` ([§ npm Trusted Publisher](#npm-trusted-publisher)).
+
+```bash
+gh auth status
+gh api repos/armelhbobdad/bmad-module-skill-forge --jq .permissions.admin   # expect: true
+jq --version
+node --version
+npm whoami                                  # the npm account the npm steps use
+npm owner ls bmad-module-skill-forge        # expect that account in the list
+npm --version                               # expect 11.15.0 or later for npm trust
+npm profile get "two-factor auth"           # expect auth-and-writes or auth-only, not disabled
+```
+
 ## Branch Protection on `main`
 
 `main` is gated by a **GitHub repository ruleset** (not legacy branch protection). The legacy "Settings → Branches → Branch protection rules" surface returns 404 for this repo.
 
-**Ruleset:** `Default` — id `13855503` — applies to `~DEFAULT_BRANCH` (currently `main`) — enforcement `active`.
+**Ruleset:** `Default`, applied to `~DEFAULT_BRANCH` (currently `main`), enforcement `active`. Its id was `13855503` at the time of writing (2026-10-01). A ruleset deleted and created again gets a new id, so every command below looks it up by name ([§ Inspect current state](#inspect-current-state)).
 
 **Active rules (5):**
 
@@ -55,37 +76,53 @@ node tools/check-required-checks.js --ruleset --repo armelhbobdad/bmad-module-sk
 
 **CODEOWNERS note:** the `pull_request` rule has `require_code_owner_review: true`, but no `.github/CODEOWNERS` file exists in the repo today. GitHub treats the code-owner requirement as vacuously satisfied when the file is absent, so this setting is currently a no-op — the only active review gate is `required_approving_review_count: 1`. If a CODEOWNERS file is added later, make sure the listed owners can actually approve PRs from other authors. GitHub's universal rule is that a PR author cannot approve their own PR — so a CODEOWNERS file that lists only a solo maintainer would deadlock every PR that maintainer opens (they'd be the sole eligible code-owner reviewer but also the author).
 
-**Bypass actors:** `RepositoryRole` actor_id=5 (Admin), `bypass_mode: pull_request`. Admins can bypass the ruleset **only via a pull request**, never via direct push. This preserves `non_fast_forward` and the required-checks gate for the `github-actions[bot]` account that the future `release.yaml` workflow (Story 3.1) will use to push tags and commits to `main`. **Do not add a bot-specific bypass**; it would defeat the whole purpose of this ruleset.
+**Bypass actors:** `RepositoryRole` actor_id=5 (Admin), `bypass_mode: pull_request`. Admins can bypass the ruleset **only via a pull request**, never via direct push. This preserves `non_fast_forward` and the required-checks gate for the `github-actions[bot]` account, which `release.yaml` uses to push its tags and its release commit (to a temp branch that a pull request merges into `main`). **Do not add a bot-specific bypass**; it would defeat the whole purpose of this ruleset.
 
 ### Inspect current state
 
 ```bash
-gh api repos/armelhbobdad/bmad-module-skill-forge/rulesets/13855503
+REPO=armelhbobdad/bmad-module-skill-forge
+RULESET_ID=$(gh api "repos/$REPO/rulesets" 2>/dev/null \
+  | jq -r 'if type=="array" then (map(select(.name=="Default")) | .[0].id // empty) else empty end')
+if [ -z "$RULESET_ID" ]; then
+  echo "No ruleset named Default, or the lookup failed" >&2
+else
+  gh api "repos/$REPO/rulesets/$RULESET_ID"
+fi
 ```
+
+Every command that needs the ruleset id looks it up by name this way, as the `Wait for required status checks` step of `release.yaml` does, and runs only when the lookup found one. On an error response, `gh api --jq` does not run its filter: it prints the error body, so an id read that way can hold `{"message":"Not Found",...}`. Piped into `jq`, any answer but the list of rulesets gives an empty id instead.
 
 ### Restore from a saved baseline
 
-A JSON baseline captured before any change can be replayed via:
+The committed baseline is `release-audits/baselines/baseline-ruleset-Default.json` ([§ Baseline snapshots](#baseline-snapshots)). The restore filters that file with `release-audits/baselines/ruleset-put.jq` down to the fields a ruleset `PUT` takes (the filter's comments say which fields it drops and why), prints what the `PUT` would change, and sends the `PUT` only when you answer `y`:
 
 ```bash
-# Extract the full set of fields required by a ruleset PUT from a saved baseline.json.
-# PUT replaces the resource wholesale — omitting any of these fields either 422s or
-# silently resets them server-side. `bypass_actors` is optional (empty array is the
-# default) but is included here to preserve the admin-via-PR bypass.
-jq '{name, target, enforcement, conditions, rules, bypass_actors}' baseline.json > /tmp/restore.json
+REPO=armelhbobdad/bmad-module-skill-forge
+jq -f release-audits/baselines/ruleset-put.jq \
+  release-audits/baselines/baseline-ruleset-Default.json > /tmp/restore.json
 
-gh api --method PUT \
-  repos/armelhbobdad/bmad-module-skill-forge/rulesets/13855503 \
-  --input /tmp/restore.json
+RULESET_ID=$(gh api "repos/$REPO/rulesets" 2>/dev/null \
+  | jq -r 'if type=="array" then (map(select(.name=="Default")) | .[0].id // empty) else empty end')
+if [ -z "$RULESET_ID" ]; then
+  echo "No ruleset named Default, or the lookup failed: nothing restored" >&2
+else
+  # What the PUT changes; nothing printed means the live ruleset is the baseline.
+  gh api "repos/$REPO/rulesets/$RULESET_ID" \
+    | jq -f release-audits/baselines/ruleset-put.jq | diff - /tmp/restore.json
+  printf 'PUT /tmp/restore.json to ruleset %s? [y/N] ' "$RULESET_ID"
+  read -r ok
+  [ "$ok" = y ] && gh api --method PUT "repos/$REPO/rulesets/$RULESET_ID" --input /tmp/restore.json
+fi
 ```
 
-The GitHub ruleset API uses `PUT` (not `PATCH`) for updates, and the `rules` array is replaced wholesale — it is not merged server-side. Always fetch current state, modify the in-memory copy, and `PUT` the complete list.
+The GitHub ruleset API uses `PUT` (not `PATCH`) for updates, and the `rules` array is replaced wholesale: it is not merged server-side. To change a rule, apply the same filter to the live ruleset instead of the baseline, edit that copy and `PUT` the complete list. When the lookup finds no ruleset named `Default` because the ruleset was deleted, recreate it from the baseline with `POST` ([§ Baseline snapshots](#baseline-snapshots)).
 
 ## Release Environment
 
 The publish job is gated by a **GitHub [deployment environment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment) with a required-reviewer rule** (not by workflow logic). A job declaring `environment: release` pauses until a listed reviewer clicks "Approve and deploy" in the Actions UI.
 
-**Environment:** `release` — id `14347249917` — created 2026-04-20.
+**Environment:** `release`, created 2026-04-20. Its id was `14347249917` at the time of writing (2026-10-01); every command below uses the name, which an environment created again keeps.
 
 | Setting                    | Value                                                                                                                                                                                                                                                    |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -93,12 +130,13 @@ The publish job is gated by a **GitHub [deployment environment](https://docs.git
 | `prevent_self_review`      | `false` — see rationale below                                                                                                                                                                                                                            |
 | `reviewers`                | `armelhbobdad` (user id `132626034`), 1 approver                                                                                                                                                                                                         |
 | `deployment_branch_policy` | `custom_branch_policies: true`, list: `main` only                                                                                                                                                                                                        |
+| `can_admins_bypass`        | `true`: an admin can deploy without the approval. It is set on the environment's settings page; the `PUT` below does not take it                                                                                                                         |
 | Environment-scoped secrets | `0` (invariant — see "No secret is scoped to this environment" note below)                                                                                                                                                                               |
 | Cost                       | `$0` on public-repo tier (environments, required reviewers, and branch policies are [free for public repositories](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment#about-environments)) |
 
 **`prevent_self_review: false` — correctness constraint, not a loosened control.** Solo-maintainer setups cannot self-approve when this is `true`, so the gate would deadlock on any maintainer-triggered publish. The value flips to `true` the moment a second reviewer joins — do not leave it loose by inertia.
 
-**No secret is scoped to this environment.** The repo no longer carries an `NPM_TOKEN` secret at any scope (removed in Story 6.3 post-v1.0.0 once OIDC trusted publishing was operationally proven by the v1.0.0 launch). The invariant: the `release` env must have zero environment-scoped secrets, and the repo must have zero `NPM_TOKEN`-shaped secrets at any scope. If a future change scopes any secret to this environment, or if an `NPM_TOKEN` secret is ever re-added at repo scope, re-audit whether the OIDC trusted-publisher path is still in force — the OIDC path SHOULD be self-sufficient and a re-added token is a signal that something has regressed off the canonical path.
+**No secret is scoped to this environment.** The repo no longer carries an `NPM_TOKEN` secret at any scope (removed in April 2026, once the v1.0.0 launch had proved OIDC trusted publishing). The invariant: the `release` env must have zero environment-scoped secrets, and the repo must have zero `NPM_TOKEN`-shaped secrets at any scope. If a future change scopes any secret to this environment, or if an `NPM_TOKEN` secret is ever re-added at repo scope, re-audit whether the OIDC trusted-publisher path is still in force: the OIDC path SHOULD be self-sufficient, and a re-added token is a signal that something has regressed off the canonical path.
 
 **Audit command.** Both halves of the invariant are machine-checkable:
 
@@ -110,7 +148,7 @@ gh secret list --repo armelhbobdad/bmad-module-skill-forge | grep -ci npm_token
 gh api repos/armelhbobdad/bmad-module-skill-forge/environments/release/secrets
 ```
 
-**Coupling with npm trusted publishing (Story 1.3).** The npm trusted publisher binds on four fields — `organization=armelhbobdad`, `repository=bmad-module-skill-forge`, `workflow filename=release.yaml`, `environment=release`. The environment name above is load-bearing: any rename here must be accompanied by a matching npm-side update in the same change, or the next publish returns 404.
+**Coupling with npm trusted publishing.** The npm trusted publisher binds on four fields: `organization=armelhbobdad`, `repository=bmad-module-skill-forge`, `workflow filename=release.yaml`, `environment=release`. The environment name above is load-bearing: any rename here must be accompanied by a matching npm-side update in the same change, or the next publish returns 404.
 
 ### Inspect current state
 
@@ -154,7 +192,7 @@ JSON
 
 ### Temporarily allowing a feature branch
 
-A release workflow that declares `environment: release` will be rejected from any branch not on the allow-list. For legitimate validation cuts from a feature branch (Story 3.2's alpha cut is the canonical case), widen the allow-list for the duration of the test and tighten it back immediately:
+A release workflow that declares `environment: release` is rejected from any branch not on the allow-list. For legitimate validation cuts from a feature branch (the `0.10.1-alpha.0` cut, which first ran the OIDC chain, is the worked case), widen the allow-list for the duration of the test and tighten it back immediately:
 
 ```bash
 # Allow the feature branch and capture the returned policy id into a shell var.
@@ -182,7 +220,9 @@ Only `alpha`, `beta` and `rc` can be cut from a feature branch: the gate step re
 
 ## npm Trusted Publisher
 
-The future `release.yaml` workflow (Story 3.1) publishes to npm via **OIDC trusted publishing** — no `NPM_TOKEN` is consulted during the publish step, and every published version carries an auto-attached SLSA Build Level 2 provenance attestation. For this to work, the npm package `bmad-module-skill-forge` has a trusted-publisher entry on npmjs.com that binds on four fields exactly matching what the workflow asserts at run time. A mismatch on any field causes an opaque `404` at publish time — the error ("npm could not match your workflow run") surfaces the failure class but does not name which of the four fields is wrong.
+`release.yaml` publishes to npm through **OIDC trusted publishing**: no `NPM_TOKEN` is read during the publish step, and every published version carries an automatically attached SLSA Build Level 2 provenance attestation. For this to work, the npm package `bmad-module-skill-forge` has a trusted-publisher entry on npmjs.com that binds on four fields exactly matching what the workflow asserts at run time. A mismatch on any field causes an opaque `404` at publish time: the error ("npm could not match your workflow run") names the failure class, not which of the four fields is wrong.
+
+**Who approves a publish.** The chain proves where a publish came from: this repository, `release.yaml` and the `release` environment. It is not a review by a second person. While the project has one maintainer, the environment's only reviewer is the maintainer who dispatches the run (`prevent_self_review: false`, see [§ Release Environment](#release-environment)), so the environment approval (gate 1) is a self-approval, and gate 2, the bot PR, is usually cleared by an admin-bypass merge.
 
 **Registered:** 2026-04-20 by `armelhbobdad`.
 
@@ -194,21 +234,31 @@ The future `release.yaml` workflow (Story 3.1) publishes to npm via **OIDC trust
 | Workflow filename | `release.yaml`            |
 | Environment       | `release`                 |
 
-**Inspect current state:** visit the [npm package settings for `bmad-module-skill-forge`](https://www.npmjs.com/package/bmad-module-skill-forge) → **Settings** tab → **Trusted Publisher** section (npm UI as of 2026-04-20; if the tab is reorganised later, the section still lives on the package Settings page). Modification requires 2FA re-entry on the maintainer account. No CLI or public API for programmatic inspection of Trusted Publisher state exists as of 2026-04-20 — drift detection is UI-only until npm exposes one.
+**Last checked with `npm trust list`:** not run yet. Record the date and whether the four fields matched this table.
+
+**Inspect current state.** `npm trust list` reads the entry. It needs npm 11.15.0 or later and a maintainer signed in to npm, with 2FA enabled on the account and write access to the package ([§ Preconditions](#preconditions)):
+
+```bash
+npm trust list bmad-module-skill-forge --json
+# expected: one entry with "type": "github", "file": "release.yaml",
+# "repository": "armelhbobdad/bmad-module-skill-forge" and "environment": "release"
+```
+
+Compare those four fields with the Registered table: `type` is the publisher type, `repository` holds the organization/user and the repository, `file` the workflow filename and `environment` the environment. The entry's `id` is what `npm trust revoke --id` takes ([§ Scenario F](#scenario-f--suspected-oidc-compromise--unauthorized-publish)). Without the package name, `npm trust` reads it from the `package.json` in the current directory. The same entry shows on the [npm package settings](https://www.npmjs.com/package/bmad-module-skill-forge) page, **Settings** tab, **Trusted Publisher** section; changing it there needs 2FA re-entry on the maintainer account.
 
 **Case-sensitive.** All four fields above use the exact lowercase forms shown; npm's matcher is an exact-string comparison. Do not capitalize on re-registration even if GitHub's UI surfaces a display-form with capitals.
 
-**Rename coupling — the four fields are load-bearing.** Renaming OR deleting the `release` GitHub environment (see § Release Environment), renaming or moving `release.yaml` within `.github/workflows/`, or flipping the extension between `.yaml` and `.yml` each require matching updates in the same PR to: (a) the npm-side Trusted Publisher, (b) the Registered table above, and (c) the `## Release Process` enumeration in `README.md` (which names both `release` and the Trusted Publisher). Skipping any of these produces an opaque `404` on the next publish — the error names the failure class, not the specific field.
+**Rename coupling: the four fields are load-bearing.** Renaming OR deleting the `release` GitHub environment (see § Release Environment), renaming or moving `release.yaml` within `.github/workflows/`, or flipping the extension between `.yaml` and `.yml` each require matching updates in the same PR to: (a) the npm-side Trusted Publisher, (b) the Registered table above, and (c) the `## Releasing` section of `CONTRIBUTING.md` (which names both `release` and the Trusted Publisher). Skipping any of these produces an opaque `404` on the next publish: the error names the failure class, not the specific field.
 
-**Pre-registration inversion.** This entry was registered **before** `release.yaml` was authored (Story 3.1). The first live validator of the full OIDC chain is Story 3.2's alpha cut. If that cut's publish step 404s, open a **three-way comparison**: (1) the npm Settings tab, (2) the workflow YAML's `name` / `on` / `jobs.<id>.environment` lines, and (3) the Registered table above. The table is the ground truth because it captured the values at npm-save time — compare both the npm record and the workflow header against the table, never the workflow against itself (verifying the workflow against its own header will silently confirm a typo).
+**A publish that returns 404.** Open a **three-way comparison**: (1) the `npm trust list` output (or the npm Settings tab), (2) the workflow YAML's `name` / `on` / `jobs.<id>.environment` lines, and (3) the Registered table above. The table is the ground truth because it captured the values at npm-save time: compare both the npm record and the workflow header against the table, never the workflow against itself (verifying the workflow against its own header will silently confirm a typo).
 
-**`NPM_TOKEN` is gone — OIDC is the only publish credential surface.** The token was removed from repo-level secrets in Story 6.3 (post-v1.0.0, once OIDC trusted publishing was operationally proven by the v1.0.0 launch). SKF's npm publish credential surface is now OIDC-only. Future incidents requiring credential revocation involve npmjs.com's trusted-publisher config, not a repo secret. `release.yaml` authenticates via Trusted Publisher OIDC and continues to set `NPM_TOKEN: ""` explicitly in both the pre-publish dry-run step and the final publish step as defense-in-depth against a stale token being auto-picked-up by npm from the runner env — those literal empty-string assignments are not `secrets.*` reads and stay load-bearing regardless of the secret's presence or absence. Both sites carry a `# DO NOT REMOVE — FR4 defense-in-depth` inline comment so a future cleanup pass does not silently delete them; audit with `grep -c 'NPM_TOKEN: ""' .github/workflows/release.yaml` (expect `2`). If a future OIDC incident forces a last-resort token-based re-publish path, re-adding `NPM_TOKEN` at repo scope is the exception-path, not the default — document the flip in the commit body, file an issue for the OIDC incident class that required it, and remove the token again the moment OIDC is restored.
+**`NPM_TOKEN` is gone: OIDC is the only publish credential.** The token was removed from repo-level secrets in April 2026, once the v1.0.0 launch had proved OIDC trusted publishing, so an incident that needs a credential revoked involves npmjs.com's trusted-publisher config, not a repo secret. `release.yaml` still sets `NPM_TOKEN: ""` explicitly in both the pre-publish dry-run step and the final publish step, as defense-in-depth against a stale token being picked up by npm from the runner env: those literal empty-string assignments are not `secrets.*` reads and stay load-bearing whether or not the secret exists. Both sites carry a `# DO NOT REMOVE` comment so a cleanup pass does not silently delete them; audit with `grep -c 'NPM_TOKEN: ""' .github/workflows/release.yaml` (expect `2`). If an OIDC incident ever forces a last-resort token-based re-publish, re-adding `NPM_TOKEN` at repo scope is the exception path, not the default: document the flip in the commit body, file an issue for the OIDC incident class that required it, and remove the token again the moment OIDC is restored.
 
-**Fixing a bad registration.** The npm UI exposes both **Edit** and **Delete** on an existing Trusted Publisher entry (observed 2026-04-20). Prefer edit for a single-field typo; prefer delete-and-re-add if multiple fields are wrong or the edit form ever feels ambiguous. **Pre-Story 3.2**: there is no destructive side effect because no publish is attempted yet, and delete-and-re-add keeps the audit trail cleaner. **Post-Story 3.2**: a publish that fires during the delete-and-re-add window will 404 — gate any delete-and-re-add behind a manual publish freeze (pause any active `release.yaml` runs, confirm no tags are in-flight) before touching the entry.
+**Fixing a bad registration.** The npm UI exposes both **Edit** and **Delete** on an existing Trusted Publisher entry (observed 2026-04-20). Prefer edit for a single-field typo; prefer delete-and-re-add if multiple fields are wrong or the edit form ever feels ambiguous. A publish that runs between the delete and the re-add returns 404, so freeze publishing first: no `release.yaml` run in progress and no tag in flight. The registry holds one entry per package, so on the CLI a replacement is `npm trust revoke` and then a new registration.
 
 ## Cutting a Release
 
-The dispatch mechanics are worked end-to-end in [§ Cutting v1.0.0 under --tag latest](#cutting-v100-under---tag-latest). That section is a launch-specific record, but its dispatch command, two-gate sequence, and verification block are the same for every cut. The sections below are general and apply to every cut.
+The dispatch mechanics are worked end-to-end in [§ Cutting v1.0.0 under --tag latest](#cutting-v100-under---tag-latest). That section is a launch-specific record, but its dispatch command, two-gate sequence, and verification block are the same for every cut. The sections below are general and apply to every cut, the steps after the publish included ([§ After the publish](#after-the-publish)).
 
 ### Pre-dispatch: preview the notes and the version bump
 
@@ -255,6 +305,10 @@ A prerelease writes only `release_notes.md` and leaves `CHANGELOG.md` alone, so 
 `npm version prerelease` moves only the patch number of a stable version (`2.2.0` with `rc` gives `2.2.1-rc.0`), so a prerelease dispatched from a stable version cannot reach a minor or major minimum. The gate then refuses and names the version to set by hand, such as `3.0.0-rc.0`. Set it in `package.json`, `package-lock.json`, `.claude-plugin/marketplace.json` and `docs/_data/pinned.yaml` (its `skf_version` must match `package.json`) in a pull request, as the v1.0.0 RCs did (`3fc1f009`), then dispatch `rc`: the first RC published is `3.0.0-rc.1`. Dispatch `major` to go from the last RC to `3.0.0`. A release that needs no RC dispatches `major` or `minor` directly.
 
 The npm dist-tag comes from the version, in the `Get new version and previous tag` step of `release.yaml`: `latest` for a stable version, and `alpha`, `beta` or `rc` for a prerelease whose first identifier is that id (`3.0.0-rc.1` goes to `rc`). The dry-run, the publish, the GitHub Release's prerelease flag and the docs deploy all read that one `dist_tag`. The step stops the run, before `marketplace.json`, `pinned.yaml` or `CHANGELOG.md` is written, when the version is not a valid semantic version or is a prerelease with any other id, so a version the rule does not know is never published to `latest`. A new prerelease channel therefore takes an edit to that step as well as to the `version_bump` choices and `PREIDS` in `tools/changes.js`.
+
+### Dist-tag policy
+
+`latest` is the only permanent dist-tag. `alpha`, `beta` and `rc` exist only while a prerelease line is open: a line's first cut creates its tag, and the stable release that closes the line removes it in its post-publish steps ([§ After the publish](#after-the-publish)). An `npm install bmad-module-skill-forge@rc` then fails when no candidate is open, instead of installing a build older than `latest`. The release workflow cannot remove a tag: trusted publishing authenticates only `npm publish`, so `npm dist-tag rm` runs from a maintainer's npm login ([§ Preconditions](#preconditions)). On 2026-10-01 npm still carried `alpha` (`0.10.1-alpha.0`) and `rc` (`1.0.0-rc.3`), which predate this policy; the next stable release removes them in the same step.
 
 ### The docs site
 
@@ -330,13 +384,52 @@ A resumed run that stops after its resume step says what to do in its summary: d
 
 While `main` carries such a version, a `minor` or `major` dispatch is refused, and `patch` stays allowed as the ship-forward (see [§ The release gate](#the-release-gate)). [§ Scenario H](#scenario-h-bot-pr-merged-but-the-version-was-not-published) is the recovery as a whole, the ship-forward with `patch` included.
 
-<!-- Rollback Playbook — added in Story 4.1 -->
+### After the publish
+
+Two steps follow every publish (a resumed cut's included), within an hour of it.
+
+**1. The install smoke test.** Dispatch [`install-smoke.yaml`](/.github/workflows/install-smoke.yaml) with the exact version just published, not `latest`: right after a publish, `npm view` and `npx` can both still read the previous version from the registry, and a run for `latest` then passes on it.
+
+```bash
+gh workflow run install-smoke.yaml --ref main -f version=<version>
+# A new run takes a few seconds to be listed, so find it by its title, not
+# as the newest run, which can still be the previous one.
+RUN_ID=$(gh run list --workflow=install-smoke.yaml --event workflow_dispatch --limit 20 \
+  --json databaseId,displayTitle \
+  --jq '[.[] | select(.displayTitle=="Install smoke <version>")][0].databaseId // empty')
+if [ -z "$RUN_ID" ]; then
+  echo "The run is not listed yet: run the lookup again" >&2
+else
+  gh run watch "$RUN_ID" --exit-status
+fi
+```
+
+On `ubuntu-latest`, `windows-latest` and `macos-latest`, with Node's minimum, each leg runs `npx --yes bmad-module-skill-forge@<version> --version` and fails unless it prints the version `npm view` resolves the input to. A failing leg routes through [§ Scenario B](#scenario-b--bad-version-live-for-hoursdays-users-may-be-installing-it) (deprecate and ship forward). Two dispatches with the same input queue instead of running side by side; the queue is per input, so a `latest` dispatch and one for the version it points at do not queue against each other.
+
+**Where the record lives.** GitHub deletes a run's logs after 90 days, so the workflow's last job attaches `install-smoke.json` (per OS: Node, npm, the version expected and the one `--version` printed, and the result) to the GitHub Release `v<version>`, which does not expire. The run's title (`Install smoke <version>`) and its summary table name the version too. When there is no Release `v<version>` (see [§ Scenario E](#scenario-e--npm-publish-succeeded-but-github-release--tag-push-failed)) or the legs did not resolve the input to one version, that job fails and says so. Read the record without the logs:
+
+```bash
+gh release download v<version> --pattern install-smoke.json --output - | jq .
+```
+
+Launch cuts also transcribe the run into a per-launch audit under `release-audits/`; `v1.0.0-launch-audit.md § Story 5.4 Post-Publish Verification` is the worked example and remains the only one. Do not append routine releases to it: each audit file is a forensic record scoped to the launch that produced it.
+
+**2. Dist-tags.** A stable release that closes a prerelease line removes that line's tag ([§ Dist-tag policy](#dist-tag-policy)); after a stable release that closes none, check that no stale tag is left:
+
+```bash
+npm view bmad-module-skill-forge dist-tags --json
+npm dist-tag rm bmad-module-skill-forge rc    # the closed line's tag: alpha, beta or rc
+npm view bmad-module-skill-forge dist-tags --json
+# expected: {"latest":"<version>"}, plus the tag of a prerelease line still open
+```
+
+The registry's dist-tag view can lag by minutes after a change, so read it again before acting on an unexpected answer.
 
 ## Rollback Playbook
 
-> **NEVER `npm unpublish` v1.0.0.** Once `bmad-module-skill-forge` is published under `--tag latest` at v1.0.0, the version is immutable by policy (NFR6). The default rollback is `npm deprecate` + ship forward. See Scenario C for the narrow 72h / zero-dependents exception — which applies to **pre-v1.0.0 versions only**.
+> **NEVER `npm unpublish` a version from v1.0.0 on.** Every version published from v1.0.0 on is immutable by policy, whatever npm's unpublish window allows. The rollback is `npm deprecate` + ship forward.
 
-Scenarios A–F are recovery paths for a bad publish; Scenario G is a meta-recovery path for the release workflow itself; Scenario H finishes a cut that stopped after its bot PR merged. Each scenario follows a five-element shape: **Trigger** → **CLI** → **Expected outcome** → **Constraints** → **Verification**. A compact [cross-reference matrix](#cross-reference-matrix) sits at the end of this section for under-pressure triage. All `gh api` examples in this section use name-based lookups (ruleset by `name=="Default"`, environment by literal `release`) so they survive ruleset or environment re-creation.
+Scenarios A, B and D to F are recovery paths for a bad publish (Scenario C, the unpublish, is retired: see the note after Scenario B); Scenario G is a meta-recovery path for the release workflow itself; Scenario H finishes a cut that stopped after its bot PR merged. Each scenario follows a five-element shape: **Trigger** → **CLI** → **Expected outcome** → **Constraints** → **Verification**. A compact [cross-reference matrix](#cross-reference-matrix) sits at the end of this section for under-pressure triage. All `gh api` examples in this section use name-based lookups (ruleset by `name=="Default"`, environment by literal `release`) so they survive ruleset or environment re-creation.
 
 Placeholder substitutions used throughout:
 
@@ -376,7 +469,8 @@ Placeholder substitutions used throughout:
   ```bash
   npm view bmad-module-skill-forge dist-tags --json
   # expected: {"latest":"<previous_good>", ...}
-  # Other dist-tags (e.g. "alpha") may also appear depending on prior releases.
+  # A prerelease tag (alpha, beta or rc) shows too only while its line is
+  # open (see Dist-tag policy).
   ```
 
 ### Scenario B — "Bad version live for hours/days, users may be installing it"
@@ -395,7 +489,7 @@ Placeholder substitutions used throughout:
   ```
 
 - **Expected outcome.** `npm install bmad-module-skill-forge` starts emitting the deprecation warning; the new patch publishes cleanly; `latest` advances to `<next_version>`.
-- **Constraints.** **Do NOT** `npm dist-tag add @<previous_good> latest` in this scenario. For post-v1.0.0 releases that is an NFR6 violation (it re-exposes a deprecated version as `latest`); for pre-v1.0.0 it fragments user expectation and hides the fix. Ship forward via patch bump.
+- **Constraints.** **Do NOT** `npm dist-tag add @<previous_good> latest` in this scenario. Once users may have installed `<bad>`, moving `latest` back splits them across two versions and hides the fix. Ship forward via patch bump.
 - **Verification.**
 
   ```bash
@@ -405,31 +499,9 @@ Placeholder substitutions used throughout:
   # expected: the exact deprecation string set above ("Critical bug - use <next_version> instead")
   ```
 
-  NFR3 (rollback frequency <1/quarter post-v1.0.0) is evaluated against the frequency of Scenario B invocations — each trip through Scenario B is an NFR3 data point.
+  The project aims for fewer than one rollback a quarter, and each trip through Scenario B counts as one.
 
-### Scenario C — "Bad version within last 72h, zero downloads, zero dependents"
-
-- **Trigger.** A narrow eligibility window per the [npm unpublish policy](https://docs.npmjs.com/policies/unpublish/): less than 72 hours since publish **AND** zero downloads **AND** zero dependent packages registered on npmjs.com. All three conditions must be true. Compute the 72-hour boundary from the `time.modified` field of `npm view bmad-module-skill-forge@<bad> --json`, NOT from the responder's local clock — npm's policy engine uses its server timestamp and a drift of even a few minutes at the boundary will 422 the unpublish.
-
-  > **Caveat on the "zero downloads" criterion.** npm's downloads API is documented as eventually consistent with up to 24–48h lag post-publish. A version can show "0 downloads" while having been installed by hundreds of CI runs in that window. When in doubt in the first 24–48 hours, treat C as Scenario B.
-
-- **CLI.**
-
-  ```bash
-  npm unpublish bmad-module-skill-forge@<bad>
-  ```
-
-- **Expected outcome.** The version disappears from `npm view`. **But** the version _number_ is permanently burned — npm rejects any future publish of that same version string forever.
-
-  > **Permanent-burn warning.** The version number is burned. After `npm unpublish bmad-module-skill-forge@0.10.1`, the next `release.yaml` dispatch with `version_bump: patch` on `0.10.0` will produce `0.10.2`, **not** `0.10.1` again. Attempting `npm version 0.10.1 --no-git-tag-version` would drive the workflow's `npm publish` toward an npm-burned version and return `403`. Treat the unpublish as a one-way jump in the version number line, not a true undo.
-
-- **Constraints.** **This scenario does NOT apply to v1.0.0.** Per NFR6, v1.0.0 is never unpublished regardless of eligibility window — use Scenario B instead. Scenario C is a pre-v1.0.0-only path.
-- **Verification.**
-
-  ```bash
-  npm view bmad-module-skill-forge@<bad> 2>&1
-  # expected: npm error 404 No match found for version <bad>
-  ```
+**Scenario C (unpublish) is retired.** Versions from v1.0.0 on are never unpublished, and the pre-1.0.0 versions it covered are long past npm's 72-hour unpublish window: a bad version is deprecated and shipped forward (Scenarios A and B).
 
 ### Scenario D — "Tag exists but npm publish failed"
 
@@ -452,7 +524,7 @@ Placeholder substitutions used throughout:
 
 - **Expected outcome.** From `main`, as in Scenario H. From a feature branch, the tag is cleared from origin, and the new run pushes it again and publishes `<version>`.
 - **Constraints.** Only safe if publish failed. If npm _did_ publish, use Scenario E: tag-deletion after a successful publish leaves the npm artifact without a matching git ref.
-- **A version npm never received is not burned.** npm refuses only a version it once had, an unpublished one included (Scenario C). The version of a failed publish is still free, so the recovery publishes that same version instead of skipping to the next one.
+- **A version npm never received is not burned.** npm refuses only a version it once had, an unpublished one included. The version of a failed publish is still free, so the recovery publishes that same version instead of skipping to the next one.
 - **Why the tag goes before the publish.** The `Create and push tag` step runs before the publish on purpose ([#566](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/566)). A failed publish then leaves a tag on the tree it was packing, and the resume path keeps that tag and picks up there, so it is not an orphan to delete. What stops a `minor` or `major` from cutting past the unpublished version is the `Refuse to bump past an unpublished release` step, not the tag.
 - **Verification.**
 
@@ -512,8 +584,8 @@ Placeholder substitutions used throughout:
 
 - **CLI: docs site recovery (stable `<version>` only).** The `Deploy the docs site at the new tag` step runs after `Create GitHub Release`, so it did not run either. Once the tag is on origin, deploy the site as in [§ The docs site](#the-docs-site): `gh workflow run docs.yaml -f ref=v<version>`. The site's version badge is read from `package.json` at build time, so check first that `git show v<version>:package.json` shows `<version>`.
 - **Expected outcome.** Tag landed on origin pointing at the correct commit; GitHub Release page reflects the published npm artifact; npm + GitHub + git state are now consistent.
-- **Constraints.** **npm state is immutable.** Do NOT try to "clean up" the npm artifact so the release can be re-run from scratch. The npm artifact plus the orphaned post-recovery git state **is** the canonical record — NFR5 (audit-trail completeness) is satisfied by the successful npm publish plus the recovered tag and GitHub Release, not by a clean rerun.
-- **Orphaned-commit caveat (Story 3.2 context).** A cut dispatched from a feature branch leaves the `release: bump to v<version>` commit on no branch: the tag it pushed is that commit's only pointer on origin. This is NFR12-compliant and expected pre-v1.0.0 behavior; the tag is the authoritative pointer. This is exactly the pattern observed in the Story 3.2 alpha cut (`bmad-module-skill-forge@0.10.1-alpha.0`, run `24714953668`, tag `v0.10.1-alpha.0`, orphaned commit `2a57dcbd`).
+- **Constraints.** **npm state is immutable.** Do NOT try to "clean up" the npm artifact so the release can be re-run from scratch. The npm artifact plus the orphaned post-recovery git state **is** the canonical record: the audit trail is complete with the successful npm publish plus the recovered tag and GitHub Release, not with a clean rerun.
+- **Orphaned-commit caveat (a cut from a feature branch).** A cut dispatched from a feature branch leaves the `release: bump to v<version>` commit on no branch: the tag it pushed is that commit's only pointer on origin. This is expected: the tag is the authoritative pointer. The `0.10.1-alpha.0` cut shows the pattern (`bmad-module-skill-forge@0.10.1-alpha.0`, run `24714953668`, tag `v0.10.1-alpha.0`, orphaned commit `2a57dcbd`).
 - **Verification.**
 
   ```bash
@@ -534,9 +606,18 @@ Placeholder substitutions used throughout:
   - `npm audit signatures` on a published tarball reports attestation verification failure.
   - A GitHub Actions run shows reviewer approval that was not given.
   - npm support notifies of suspected compromise.
-- **Immediate CLI (within minutes of detection).** Revoke the OIDC trust surface before doing anything else:
-  - Visit `https://www.npmjs.com/package/bmad-module-skill-forge` → **Settings** tab → **Trusted Publisher** section → **Delete** the registration.
-  - This blocks _all_ future OIDC publishes until re-registered, stopping any further unauthorized use of the OIDC path mid-incident.
+- **Immediate CLI (within minutes of detection).** Revoke the OIDC trust surface before doing anything else. Both routes need a maintainer signed in to npm with 2FA enabled on the account and write access to the package; the CLI also needs npm 11.15.0 or later ([§ Preconditions](#preconditions)).
+  - CLI:
+
+    ```bash
+    npm trust list bmad-module-skill-forge                   # note the entry's id
+    npm trust revoke bmad-module-skill-forge --id=<id>
+    npm trust list bmad-module-skill-forge                   # expected: no trust configuration
+    ```
+
+  - Web: `https://www.npmjs.com/package/bmad-module-skill-forge` → **Settings** tab → **Trusted Publisher** section → **Delete** the registration.
+  - Either blocks _all_ OIDC publishes until re-registered, stopping any further unauthorized use of the OIDC path mid-incident.
+  - **No maintainer can sign in to npm** (account locked, 2FA lost): neither route works. Contact npm support at once, as under **Coordination CLI** below, and ask them to remove the trusted publisher. Meanwhile `gh workflow disable release.yaml` stops this repository from reaching the publish step ([§ Scenario G](#scenario-g--releaseyaml-disabled-reverted-or-missing-from-main) re-enables it).
 - **Audit CLI.**
 
   ```bash
@@ -583,13 +664,13 @@ Placeholder substitutions used throughout:
   ```
 
 - **Post-incident reactivation.** After audit completes and root cause is identified and patched, re-register the Trusted Publisher via the npm UI with the four fields matching the table in `## npm Trusted Publisher` above (`organization=armelhbobdad`, `repository=bmad-module-skill-forge`, `workflow filename=release.yaml`, `environment=release`). Re-verify via an alpha cut (dispatch `release.yaml` from a temporarily-allowed feature branch per the `## Release Environment § Temporarily allowing a feature branch` procedure) before any stable release.
-- **Pre-v1.0.0 context.** Trusted Publisher was pre-registered on 2026-04-20 (Story 1.3). A compromise discovered pre-v1.0.0 is recoverable via delete-and-re-register with no downstream-consumer blast radius (no stable release users yet). Post-v1.0.0, the incident has downstream blast radius and the `support@npmjs.com` coordination path is load-bearing.
+- **Blast radius.** Every stable release from v1.0.0 on has users, so a malicious publish reaches them: the `support@npmjs.com` coordination path is load-bearing, not optional.
 - **Do-NOT clause — `NPM_TOKEN` rotation is not OIDC incident response.** Do NOT rotate `NPM_TOKEN` as a first response. The token is not on the OIDC path; rotating it does nothing to stop an OIDC compromise.
-  - If an `NPM_TOKEN` exists at repo scope at the time of an incident (exception-path per § npm Trusted Publisher), revoke it at `https://www.npmjs.com` → **Access Tokens** AND remove it from the repo: `gh secret delete NPM_TOKEN --repo armelhbobdad/bmad-module-skill-forge`. A compromised `NPM_TOKEN` would be a **separate incident class** from OIDC compromise. **Expected outcomes of the delete command under incident pressure** — read the response before escalating: (a) `Secret deleted` = success, token revoked at repo-scope; (b) `could not find secret NPM_TOKEN` (exit 1, 404) = no-op SAFE, the token is already absent per the post-Story-6.3 default and this is the expected normal-operation state, not a broken scope or auth issue; (c) any `401` / `403` / scope-permission error = investigate before retrying, likely a `gh auth` or org-permissions issue unrelated to the token's presence. Story 6.3 removed the token in 2026-04 post-v1.0.0 so outcome (b) is the default; outcome (a) only applies during the exception-path window where a temporary token re-add has already happened. During a window where OIDC is revoked AND an exception-path token is also compromised, there is no valid publish path — the repo enters lockdown until Trusted Publisher is re-registered. Document the flip in the incident post-mortem; do not publish via any stale path.
+  - If an `NPM_TOKEN` exists at repo scope at the time of an incident (exception-path per § npm Trusted Publisher), revoke it at `https://www.npmjs.com` → **Access Tokens** AND remove it from the repo: `gh secret delete NPM_TOKEN --repo armelhbobdad/bmad-module-skill-forge`. A compromised `NPM_TOKEN` would be a **separate incident class** from OIDC compromise. **Expected outcomes of the delete command under incident pressure** (read the response before escalating): (a) `Secret deleted` = success, token revoked at repo-scope; (b) `could not find secret NPM_TOKEN` (exit 1, 404) = no-op SAFE, the token is already absent, which is the expected normal-operation state, not a broken scope or auth issue; (c) any `401` / `403` / scope-permission error = investigate before retrying, likely a `gh auth` or org-permissions issue unrelated to the token's presence. The token was removed in April 2026, after v1.0.0, so outcome (b) is the default; outcome (a) only applies during the exception-path window where a temporary token re-add has already happened. During a window where OIDC is revoked AND an exception-path token is also compromised, there is no valid publish path: the repo enters lockdown until Trusted Publisher is re-registered. Document the flip in the incident post-mortem; do not publish via any stale path.
 
 ### Scenario G — "release.yaml disabled, reverted, or missing from main"
 
-- **Trigger.** `release.yaml` is the single-rooted release workflow (Story 3.3 Patch A neutralized the legacy `publish.yaml` `v*` tag trigger). If `release.yaml` is reverted, renamed, moved, or disabled at the repo-settings level (`gh workflow disable release.yaml`) and someone tries to cut a release, **no workflow fires**. Silent no-op until a maintainer checks `npm view` or the Actions UI.
+- **Trigger.** `release.yaml` is the only release workflow: no other workflow publishes, and none runs on a `v*` tag push. If `release.yaml` is reverted, renamed, moved, or disabled at the repo-settings level (`gh workflow disable release.yaml`) and someone tries to cut a release, **no workflow fires**. Silent no-op until a maintainer checks `npm view` or the Actions UI.
 - **Detection.** After any PR that touches `.github/workflows/*` — and before any release attempt — run:
 
   ```bash
@@ -600,7 +681,7 @@ Placeholder substitutions used throughout:
 
   If `state` is not `active` (the GitHub Actions API reports `disabled_manually` when disabled via the UI or `gh workflow disable`), or no matching workflow is returned at all (file renamed, moved, or deleted), Scenario G applies.
 
-  **Known-benign row.** A full listing (without the `select(.name=="Release")` filter) also returns `.github/workflows/env-gate-test.yaml`, a Story 1.2 throwaway whose file exists on no branch and which has no commit in `git log --all`. It was registered through the API rather than a merged file, so deleting the file never pruned it. It read `active` until it was set to `disabled_manually` (issue #485); either way it cannot fire, because a workflow with no file on any ref has nothing to run. Ignore it — it is not a dispatch hole, and it is not evidence that Scenario G applies.
+  **Known-benign row.** A full listing (without the `select(.name=="Release")` filter) also returns `.github/workflows/env-gate-test.yaml`, a throwaway from the first environment-gate test, whose file exists on no branch and which has no commit in `git log --all`. It was registered through the API rather than a merged file, so deleting the file never pruned it. It read `active` until it was set to `disabled_manually` (issue #485); either way it cannot fire, because a workflow with no file on any ref has nothing to run. Ignore it: it is not a dispatch hole, and it is not evidence that Scenario G applies.
 
 - **Recovery CLI.**
 
@@ -637,9 +718,9 @@ Placeholder substitutions used throughout:
   # expected: zero matches.
   ```
 
-- **Escalation path — PR-revert only.** There is no out-of-band emergency hatch. Recovery flows exclusively through the Case 2 PR-revert path above: revert the offending workflow change via `gh pr revert`, merge through branch protection, then retry the release via `release.yaml`. Every release threads through branch protection + code review + OIDC Trusted Publisher, matching NFR2 and NFR3.
+- **Escalation path: PR-revert only.** There is no out-of-band emergency hatch. Recovery flows exclusively through the Case 2 PR-revert path above: revert the offending workflow change via `gh pr revert`, merge through branch protection, then retry the release via `release.yaml`. Every release threads through branch protection + code review + OIDC Trusted Publisher.
 
-- **Constraints.** Branch protection on `main` blocks direct pushes — recovery goes through a PR in every case. Do not attempt to sidestep branch protection to "fix" `release.yaml` faster; the cost of a bad release (NFR5 audit-trail breakage, NFR10 commit-trail breakage) far exceeds the cost of a normal-review PR.
+- **Constraints.** Branch protection on `main` blocks direct pushes: recovery goes through a PR in every case. Do not attempt to sidestep branch protection to "fix" `release.yaml` faster; the cost of a bad release (a broken audit trail, a commit history that no longer matches what was published) far exceeds the cost of a normal-review PR.
 
 ### Scenario H: "Bot PR merged, but the version was not published"
 
@@ -691,73 +772,75 @@ Placeholder substitutions used throughout:
 
 ### Cross-reference matrix
 
-| Scenario | Trigger class                   | Primary CLI verb                                             | NFR linkage       |
-| -------- | ------------------------------- | ------------------------------------------------------------ | ----------------- |
-| A        | Fresh bad latest                | `dist-tag` + `deprecate`                                     | NFR3              |
-| B        | Stale bad latest                | `deprecate` + ship forward                                   | NFR3, NFR6        |
-| C        | Eligible unpublish              | `unpublish`                                                  | (pre-v1.0.0 only) |
-| D        | Tag orphan (publish failed)     | `version_bump=resume` (main); `push --delete` (branch)       | NFR12             |
-| E        | Post-publish state drift        | `version_bump=resume` (main); `tag -a` + `gh release create` | NFR5              |
-| F        | OIDC compromise                 | revoke Trusted Publisher + audit                             | NFR7              |
-| G        | `release.yaml` disabled/missing | `workflow enable` / `pr revert`                              | NFR5, NFR10       |
-| H        | Bot PR merged, not published    | `version_bump=resume`; else ship forward with `patch`        | NFR5              |
+| Scenario | Trigger class                   | Primary CLI verb                                             |
+| -------- | ------------------------------- | ------------------------------------------------------------ |
+| A        | Fresh bad latest                | `dist-tag` + `deprecate`                                     |
+| B        | Stale bad latest                | `deprecate` + ship forward                                   |
+| D        | Tag orphan (publish failed)     | `version_bump=resume` (main); `push --delete` (branch)       |
+| E        | Post-publish state drift        | `version_bump=resume` (main); `tag -a` + `gh release create` |
+| F        | OIDC compromise                 | `npm trust revoke` (or the npm UI) + audit                   |
+| G        | `release.yaml` disabled/missing | `workflow enable` / `pr revert`                              |
+| H        | Bot PR merged, not published    | `version_bump=resume`; else ship forward with `patch`        |
 
 ### Baseline snapshots
 
-The ruleset-restore snippet at the top of this document (`## Branch Protection on main § Restore from a saved baseline`) uses `gh api --method PUT .../rulesets/<id>`. That call returns `404` if the `Default` ruleset has been deleted, not merely edited. Keeping a recent `baseline-ruleset-Default-YYYYMMDD.json` on disk lets the PUT-then-POST fallback below recover from either case.
+The `Default` ruleset and the `release` environment are saved as JSON in `release-audits/baselines/`, which git tracks and `.npmignore` keeps out of the package:
 
-**One-time capture pattern** — run after any maintainer-initiated change to the ruleset or to the `release` environment, **not on a schedule**:
+- `baseline-ruleset-Default.json`: the ruleset, as `GET .../rulesets/<id>` returns it.
+- `baseline-env-release.json`: the environment, as `GET .../environments/release` returns it.
+- `baseline-env-release-branch-policies.json`: its allowed deployment branches.
+- `ruleset-put.jq`: the filter that turns a ruleset, as a `GET` returns it, into the body of a ruleset `PUT` or `POST`. A capture leaves it alone.
+
+The restore in [§ Restore from a saved baseline](#restore-from-a-saved-baseline) reads the ruleset file through that filter. The files hold no secret or token: besides ids, they name the bypass actor (the Admin role) and the reviewer's public GitHub account.
+
+**Capture.** Run after any maintainer-initiated change to the ruleset or to the `release` environment, **not on a schedule**, and commit the files by pull request. Each capture overwrites the same three files, so git history dates them.
 
 ```bash
-# Capture the current Default ruleset as a disaster-recovery baseline.
-# Uses name-based lookup so the snippet survives ruleset re-creation (IDs change, names don't).
-RULESET_ID=$(gh api repos/armelhbobdad/bmad-module-skill-forge/rulesets \
-  --jq '.[] | select(.name=="Default") | .id')
-gh api "repos/armelhbobdad/bmad-module-skill-forge/rulesets/$RULESET_ID" \
-  > "_bmad-output/planning-artifacts/baseline-ruleset-Default-$(date +%Y%m%d).json"
-
-# Capture the release environment + its branch policy list (two separate resources).
-gh api repos/armelhbobdad/bmad-module-skill-forge/environments/release \
-  > "_bmad-output/planning-artifacts/baseline-env-release-$(date +%Y%m%d).json"
-gh api repos/armelhbobdad/bmad-module-skill-forge/environments/release/deployment-branch-policies \
-  > "_bmad-output/planning-artifacts/baseline-env-release-branch-policies-$(date +%Y%m%d).json"
+REPO=armelhbobdad/bmad-module-skill-forge
+DIR=release-audits/baselines
+# save <api path> <file>: write the file only when the GET succeeds, so a
+# failed call never leaves an empty or error-body baseline behind.
+save() {
+  local body
+  body=$(gh api "repos/$REPO/$1") && printf '%s\n' "$body" > "$DIR/$2"
+}
+RULESET_ID=$(gh api "repos/$REPO/rulesets" 2>/dev/null \
+  | jq -r 'if type=="array" then (map(select(.name=="Default")) | .[0].id // empty) else empty end')
+if [ -z "$RULESET_ID" ]; then
+  echo "No ruleset named Default, or the lookup failed: nothing captured" >&2
+else
+  save "rulesets/$RULESET_ID" baseline-ruleset-Default.json
+  save environments/release baseline-env-release.json
+  save environments/release/deployment-branch-policies baseline-env-release-branch-policies.json
+  npx prettier --write "$DIR"   # the JSON layout the format check expects
+  git diff --stat -- "$DIR"
+fi
 ```
 
-Baselines live in `_bmad-output/planning-artifacts/` (already git-tracked, not shipped with the npm package). The filename date stamp makes the freshness of the baseline obvious at a glance.
+**Ruleset deleted: POST.** When the ruleset was deleted, not merely edited, the lookup finds no `Default` and the restore stops. Check the ruleset list on the repository's **Settings** → **Rules** → **Rulesets** page first: a failed lookup looks the same. Then recreate it from the baseline, with the same filter:
 
-**Ruleset-deletion recovery path — PUT-then-POST.** The canonical restore flow is:
+```bash
+jq -f release-audits/baselines/ruleset-put.jq \
+  release-audits/baselines/baseline-ruleset-Default.json > /tmp/restore.json
+gh api --method POST repos/armelhbobdad/bmad-module-skill-forge/rulesets \
+  --input /tmp/restore.json
+```
 
-1. Try `PUT` first. If the ruleset exists but drifted, this reconciles it in place.
+The ruleset gets a new id; no command in this document names one, and `release.yaml` looks the ruleset up by name. Capture again afterwards.
 
-   ```bash
-   RULESET_ID=$(gh api repos/armelhbobdad/bmad-module-skill-forge/rulesets \
-     --jq '.[] | select(.name=="Default") | .id')
-   # Pick the most recent baseline file (the YYYYMMDD suffix is a real date
-   # written by the capture command above; the glob avoids hard-coding it).
-   BASELINE=$(ls -t _bmad-output/planning-artifacts/baseline-ruleset-Default-*.json \
-     | head -1)
-   jq '{name, target, enforcement, conditions, rules, bypass_actors}' "$BASELINE" \
-     > /tmp/restore.json
-   gh api --method PUT \
-     "repos/armelhbobdad/bmad-module-skill-forge/rulesets/$RULESET_ID" \
-     --input /tmp/restore.json
-   ```
+**The `release` environment** is restored with the two calls in [§ Restore / re-apply](#restore--re-apply). Its baseline is the `GET` shape, which those calls do not take. `test/test-releasing-runbook.py` checks on every pull request that the two calls' JSON matches the committed baselines, so a capture that changes the environment fails its pull request until those calls are updated.
 
-2. If the `PUT` returns `404` (ruleset was deleted, not edited), recreate via `POST`:
+**Restore drill.** A restore is trusted only once it has run. Right after a capture, run the snippet of [§ Restore from a saved baseline](#restore-from-a-saved-baseline) and answer `y` only when its `diff` printed nothing: the `PUT` then writes the ruleset's own state back, so a `200` that changes nothing shows that the API accepts the filtered baseline. Capture again afterwards: `git diff` on the ruleset file should show at most `updated_at`. If the API rejects a field, change `release-audits/baselines/ruleset-put.jq`, which every restore snippet reads, and record that here. The filter already drops the two keys of the `required_status_checks` rule that a `PUT` has refused (`do_not_enforce_on_create`, a null `integration_id`) and keeps every other rule parameter as the `GET` returns it, including two of the `pull_request` rule that this document does not otherwise name: `required_reviewers` and `require_extra_approval_for_unattributed_changes`.
 
-   ```bash
-   gh api --method POST \
-     repos/armelhbobdad/bmad-module-skill-forge/rulesets \
-     --input /tmp/restore.json
-   ```
+| Date | Target | Filter | Result |
+| ---- | ------ | ------ | ------ |
+| not run yet | `PUT` of the unchanged state to `Default` | `release-audits/baselines/ruleset-put.jq` | pending |
 
-The `POST` body needs the same `name`, `target`, `enforcement`, `conditions`, `rules`, and `bypass_actors` fields as the PUT — all captured by the baseline snapshot above. Try `PUT` first; on `404`, `POST` recreates with identical semantics. The ruleset gets a new id on re-creation (IDs are not stable across delete+create cycles); update any hard-coded id references in this document on the next planned edit pass.
-
-For the `release` environment, a deletion+restore similarly uses the two-call pattern already documented at `## Release Environment § Restore / re-apply` — feed the environment-level baseline JSON to the `PUT .../environments/release` call, then re-POST each entry from the branch-policies baseline to `.../environments/release/deployment-branch-policies`.
+Until the first drill, the only check of the filter is offline: on 2026-10-01 the filtered baseline validated against the request schemas of the ruleset `PUT` and `POST` in GitHub's published REST API description, which does not list `require_extra_approval_for_unattributed_changes` but does not forbid extra parameters either.
 
 ### Cutting v1.0.0 under --tag latest
 
-- **Trigger.** The passing RC has survived a clean-environment smoke test (`release-audits/v1.0.0-launch-audit.md § Story 5.2 RC Cut + Smoke Test § Decision: PASS — cleared for Story 5.3 promotion to v1.0.0 under --tag latest with manual approval`); `npm view bmad-module-skill-forge@rc version` returns the passing RC (at Story 5.3 dispatch time: `1.0.0-rc.3`); Story 5.3 is ready to promote to `latest` under manual approval.
+- **Trigger.** The passing RC has survived a clean-environment smoke test (`release-audits/v1.0.0-launch-audit.md § Story 5.2 RC Cut + Smoke Test § Decision: v1.0.0-rc.3 status`, which cleared it for promotion to v1.0.0 under `--tag latest` with manual approval); `npm view bmad-module-skill-forge@rc version` returns the passing RC (at the v1.0.0 dispatch: `1.0.0-rc.3`); the cut is ready to promote to `latest` under manual approval.
 - **CLI.**
 
   ```bash
@@ -788,11 +871,11 @@ For the `release` environment, a deletion+restore similarly uses the two-call pa
 
   Expected wall-clock: ~5–8 minutes end-to-end when both gates are approved promptly.
 
-- **Expected outcome.** `main` tip advances by 2 commits (the `release: bump to v1.0.0` commit on the bot temp branch `release/bot/v1.0.0-<run_id>-<run_attempt>`, plus the merge commit from the auto-merged or admin-bypass-merged bot PR); `jq -r .version package.json` → `1.0.0`; `jq -r '.plugins[0].version' .claude-plugin/marketplace.json` → `1.0.0`; `npm view bmad-module-skill-forge dist-tags.latest` → `1.0.0` (flipped from the prior stable, e.g. `0.10.0`); `rc` dist-tag UNCHANGED at the prior RC; SLSA L2 provenance attached (NFR4); GitHub Release `v1.0.0` with `prerelease: false` (NFR6 threshold: `1.0.0` contains no `alpha|beta|rc` substring); tag `v1.0.0` anchors on the bot PR's merge commit per Story 3.4 P9 (the tag is annotated, so `git rev-parse 'v1.0.0^{}'` gives the commit SHA to compare against `main` tip).
+- **Expected outcome.** `main` tip advances by 2 commits (the `release: bump to v1.0.0` commit on the bot temp branch `release/bot/v1.0.0-<run_id>-<run_attempt>`, plus the merge commit from the auto-merged or admin-bypass-merged bot PR); `jq -r .version package.json` → `1.0.0`; `jq -r '.plugins[0].version' .claude-plugin/marketplace.json` → `1.0.0`; `npm view bmad-module-skill-forge dist-tags.latest` → `1.0.0` (flipped from the prior stable, e.g. `0.10.0`); `rc` dist-tag UNCHANGED at the prior RC; SLSA L2 provenance attached; GitHub Release `v1.0.0` with `prerelease: false` (`1.0.0` has no prerelease id); tag `v1.0.0` anchors on the bot PR's merge commit (the tag is annotated, so `git rev-parse 'v1.0.0^{}'` gives the commit SHA to compare against `main` tip).
 
 - **Constraints.**
   - Execute ONLY after the RC audit `§ Sign-off` is populated AND the smoke-test `Decision` is `PASS`.
-  - The cut is IRREVERSIBLE — once `npm publish --tag latest` succeeds for `1.0.0`, NFR6 forbids unpublish regardless of eligibility window. Rollback is `npm deprecate` + ship-forward (Scenarios A / B).
+  - The cut is IRREVERSIBLE: once `npm publish --tag latest` succeeds for `1.0.0`, the version is never unpublished, whatever npm's unpublish window allows. Rollback is `npm deprecate` + ship-forward (Scenarios A / B).
   - `CHANGELOG.md` is written by the workflow from the change fragments (see [§ Pre-dispatch: preview the notes and the version bump](#pre-dispatch-preview-the-notes-and-the-version-bump)): do not hand-edit it before dispatch. At the v1.0.0 launch the block was generated from commit subjects instead, and the hand-written `## [1.0.0] - TBD` prose was merged into it by a sign-off commit on `feat/v1-final-signoff` after publish.
   - Do NOT pre-bump `package.json` or `.claude-plugin/marketplace.json` — the workflow's `Bump version` and `Update marketplace.json version` steps handle both atomically and own those files.
   - If `npm version major` unexpectedly emits `2.0.0` instead of `1.0.0` on `1.0.0-rc.N`, the node-semver engine behavior has regressed. Abort the dispatch and investigate before retry — a workflow override (`npm version 1.0.0 --no-git-tag-version`) would be required in `release.yaml`.
@@ -802,18 +885,20 @@ For the `release` environment, a deletion+restore similarly uses the two-call pa
   ```bash
   # Confirm the latest dist-tag flipped to 1.0.0.
   npm view bmad-module-skill-forge dist-tags --json
-  # expected: {"latest":"1.0.0","alpha":"...","rc":"1.0.0-rc.N"}
+  # expected: "latest" is "1.0.0". A prerelease tag shows too only while its
+  # line is open (see Dist-tag policy); the alpha and rc tags the v1.0.0 cut
+  # left in place are stale under it.
 
   npm view bmad-module-skill-forge@latest version
   # expected: 1.0.0
 
-  # Confirm SLSA L2 provenance (NFR4 CRITICAL). A null attestation is a
-  # blocker — emergency-deprecate + cut 1.0.1 with provenance per Scenario B.
+  # Confirm SLSA L2 provenance. A null attestation is a blocker:
+  # emergency-deprecate + cut 1.0.1 with provenance per Scenario B.
   npm view bmad-module-skill-forge@1.0.0 --json | jq '.dist.attestations'
   # expected: non-null object; .provenance.predicateType starts with
   #           "https://slsa.dev/provenance/"
 
-  # Confirm the GitHub Release exists and is NOT a prerelease (NFR6 threshold).
+  # Confirm the GitHub Release exists and is NOT a prerelease.
   gh release view v1.0.0 --json tagName,isPrerelease
   # expected: {"tagName":"v1.0.0","isPrerelease":false}
 
@@ -830,18 +915,8 @@ For the `release` environment, a deletion+restore similarly uses the two-call pa
   grep -cE '^## \[1\.0\.0\]\(https' CHANGELOG.md  # expected: 1 (compare-URL header survived)
   ```
 
-  **NFR6 immutability activation** is the `npm publish --tag latest` success timestamp for `1.0.0`, recorded verbatim in `release-audits/v1.0.0-launch-audit.md § Story 5.3 v1.0.0 Final Cut § NFR6 v1.0.0 immutability activation`. For Story 5.3's dispatch, that instant was **2026-04-23T18:56:39Z**. From that moment, `v1.0.0` is forever-burned — `npm deprecate` + ship-forward is the only rollback path.
+  **Immutability starts** at the `npm publish --tag latest` success timestamp for `1.0.0`, recorded verbatim in `release-audits/v1.0.0-launch-audit.md § Story 5.3 v1.0.0 Final Cut § NFR6 v1.0.0 immutability activation`: **2026-04-23T18:56:39Z**. From that moment, `v1.0.0` is never unpublished: `npm deprecate` + ship-forward is the only rollback path.
 
-  The `release` environment + bot PR approval-or-admin-bypass-merge pattern is the canonical flow for all main-dispatched cuts since Story 3.4 ([GitHub issue #198](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/198), [PR #199](https://github.com/armelhbobdad/bmad-module-skill-forge/pull/199)): the release commit is pushed to a temp branch `release/bot/vX.Y.Z-<run_id>-<run_attempt>`, a bot PR is opened against `main`, the required status checks are force-triggered against the temp branch via `workflow_dispatch`, and the merge is gated behind maintainer approval at both the `release` environment gate and the PR review-decision gate. A run that stops before the merge closes its bot PR and deletes the branch (see [§ The bot temp branch after a merge or a failed run](#the-bot-temp-branch-after-a-merge-or-a-failed-run)). Non-main dispatches (feature-branch alpha cuts) skip the PR dance entirely and keep the legacy tag-only behavior.
+  The `release` environment + bot PR approval-or-admin-bypass-merge pattern is the canonical flow for all main-dispatched cuts since [GitHub issue #198](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/198) ([PR #199](https://github.com/armelhbobdad/bmad-module-skill-forge/pull/199)): the release commit is pushed to a temp branch `release/bot/vX.Y.Z-<run_id>-<run_attempt>`, a bot PR is opened against `main`, the required status checks are force-triggered against the temp branch via `workflow_dispatch`, and the merge is gated behind maintainer approval at both the `release` environment gate and the PR review-decision gate. A run that stops before the merge closes its bot PR and deletes the branch (see [§ The bot temp branch after a merge or a failed run](#the-bot-temp-branch-after-a-merge-or-a-failed-run)). Non-main dispatches (feature-branch alpha cuts) skip the PR dance entirely and keep the legacy tag-only behavior.
 
-#### Post-publish verification (NFR9)
-
-Cross-platform install verification for any cut is performed by the [`install-smoke.yaml`](/.github/workflows/install-smoke.yaml) workflow, not by `release.yaml` itself. Dispatch it within 1 hour of publish per NFR9:
-
-```bash
-gh workflow run install-smoke.yaml -f version=latest --ref main
-```
-
-The workflow fans a `workflow_dispatch` input over `ubuntu-latest`, `windows-latest`, and `macos-latest`, running `npx --yes bmad-module-skill-forge@<version> --version` on each runner. A clean three-leg run is the canonical post-publish evidence. Any failing leg routes through the `Rollback Playbook § Scenario B` (deprecate + ship `vX.Y.Z+1`).
-
-**Where the evidence lives.** For a routine release the workflow run **is** the record — the dispatch satisfies NFR9 on its own and no audit artifact is written. Launch cuts additionally transcribe the run URL and matrix table into a per-launch audit artifact under `release-audits/`; `v1.0.0-launch-audit.md § Story 5.4 Post-Publish Verification` is the worked example and remains the only such artifact. Do not append routine releases to it — each audit file is a forensic record scoped to the launch that produced it.
+  The steps after the publish (the install smoke test and the dist-tags) are in [§ After the publish](#after-the-publish).

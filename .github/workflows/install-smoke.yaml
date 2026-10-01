@@ -1,16 +1,24 @@
-# Post-publish install smoke test (NFR9 cross-platform verification).
+# Post-publish install smoke test: a published `bmad-module-skill-forge`
+# version must install and run on Linux, Windows and macOS.
 #
-# Purpose: verify a published `bmad-module-skill-forge` version resolves and
-# executes cleanly on ubuntu-latest + windows-latest + macos-latest by running
-# `npx --yes bmad-module-skill-forge@<version> --version` on each runner.
+# Purpose: verify a published version resolves and executes cleanly on
+# ubuntu-latest + windows-latest + macos-latest by running
+# `npx --yes bmad-module-skill-forge@<version> --version` on each runner. A
+# leg fails unless that prints the version npm resolves the input to.
 #
-# Trigger: `workflow_dispatch` — run manually after a release (e.g. `latest`,
-# `rc`, `alpha`, or an explicit version like `1.0.0`). NOT coupled to
-# `release.yaml`; runs against the published npm tarball, not the repo source.
+# Trigger: `workflow_dispatch`, by hand within an hour of a publish, with the
+# exact version just published (`-f version=3.0.0`). `latest` works too, but
+# right after a publish `npm view` and `npx` can both still read the previous
+# version, and a run for `latest` then passes on it. A prerelease dist-tag
+# (alpha, beta, rc) exists only while its prerelease line is open. NOT
+# coupled to `release.yaml`; runs against the published npm tarball, not the
+# repo source.
 #
-# Expected use: the maintainer dispatches this workflow within 1 hour after a
-# cut per NFR9; results feed the matching release audit artifact's
-# `## Story <N> Post-Publish Verification § Matrix results` table.
+# The record: GitHub deletes run logs after 90 days, so the last job attaches
+# install-smoke.json (per OS: Node, npm, the version expected and the one
+# printed, the result) to the GitHub Release v<version>, which does not
+# expire. The run title and its summary table name the version too. See
+# docs/_internal/RELEASING.md § After the publish and § Dist-tag policy.
 #
 # Why `--version` and not `install` / `status`: the interactive `install`
 # subcommand multiselect prompt is not pipe-able from CI stdin (issue #211);
@@ -29,18 +37,26 @@
 # If `engines.node` raises its floor, update this workflow in lockstep.
 
 name: Install Smoke Test
+run-name: Install smoke ${{ inputs.version }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "npm dist-tag (latest / rc / alpha) or explicit version (e.g. 1.0.0)"
+        description: "The exact version to test (e.g. 3.0.0), or latest"
         required: true
         type: string
-        default: "latest"
 
 permissions:
   contents: read
+
+# Two dispatches with the same input queue instead of running side by side
+# and leaving two records that cannot be told apart. The queue is per input
+# string, not per resolved version: `latest` and the version it points at
+# can still run side by side, one more reason to dispatch the exact version.
+concurrency:
+  group: install-smoke-${{ inputs.version }}
+  cancel-in-progress: false
 
 jobs:
   smoke:
@@ -56,7 +72,15 @@ jobs:
         with:
           node-version: "22"
 
+      # The expected version is what npm resolves the input to: an exact
+      # version names itself, a dist-tag the version it points at, and
+      # anything that resolves to several versions fails. A string equal to
+      # a published version is valid SemVer by construction, so the leg needs
+      # no pattern check. Both values go to files the next step records; the
+      # expected one only once it is a single version, so the final job
+      # never takes several versions for the one it attaches the record to.
       - name: Run npx bmad-module-skill-forge --version
+        id: smoke
         shell: bash
         env:
           # Pass workflow_dispatch input via env (not `${{ inputs.version }}`
@@ -64,12 +88,136 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          OUTPUT="$(npx --yes "bmad-module-skill-forge@${VERSION}" --version)"
-          # Strip trailing CR that Windows Git Bash can leave on captured stdout
-          # so the semver assertion below is CR-insensitive.
-          OUTPUT="${OUTPUT//$'\r'/}"
-          echo "stdout: ${OUTPUT}"
-          if [[ ! "${OUTPUT}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::--version stdout '${OUTPUT}' is not a valid semver — smoke failed"
+          RESULT_DIR="${RUNNER_TEMP}/install-smoke"
+          mkdir -p "${RESULT_DIR}"
+          if ! EXPECTED="$(npm view "bmad-module-skill-forge@${VERSION}" version)"; then
+            echo "::error::npm has no bmad-module-skill-forge@${VERSION}: smoke failed"
             exit 1
           fi
+          EXPECTED="${EXPECTED//$'\r'/}"
+          if [[ -z "${EXPECTED}" || "${EXPECTED}" == *[[:space:]]* ]]; then
+            # One line, so the annotation is not split.
+            PRINTED="${EXPECTED//$'\n'/ }"
+            echo "::error::'${VERSION}' does not resolve to one published version (npm view printed '${PRINTED}'): dispatch with an exact version"
+            exit 1
+          fi
+          printf '%s' "${EXPECTED}" > "${RESULT_DIR}/expected"
+          OUTPUT="$(npx --yes "bmad-module-skill-forge@${VERSION}" --version)"
+          # Strip trailing CR that Windows Git Bash can leave on captured stdout
+          # so the comparison below is CR-insensitive.
+          OUTPUT="${OUTPUT//$'\r'/}"
+          printf '%s' "${OUTPUT}" > "${RESULT_DIR}/actual"
+          echo "expected: ${EXPECTED}"
+          echo "stdout: ${OUTPUT}"
+          if [[ "${OUTPUT}" != "${EXPECTED}" ]]; then
+            echo "::error::--version printed '${OUTPUT}', not ${EXPECTED} (what npm resolves '${VERSION}' to): smoke failed"
+            exit 1
+          fi
+
+      # Runs after a failure too, so every leg leaves its row: the OS, Node,
+      # npm, the version expected and the one printed, and the outcome.
+      - name: Record the result
+        if: always()
+        shell: bash
+        env:
+          LEG_OS: ${{ matrix.os }}
+          OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          set -euo pipefail
+          RESULT_DIR="${RUNNER_TEMP}/install-smoke"
+          mkdir -p "${RESULT_DIR}"
+          NPM_VERSION="$(npm --version)"
+          export NPM_VERSION="${NPM_VERSION//$'\r'/}"
+          node -e '
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const dir = process.argv[1];
+            const read = (name) => {
+              try {
+                return fs.readFileSync(path.join(dir, name), "utf8");
+              } catch {
+                return "";
+              }
+            };
+            const row = {
+              os: process.env.LEG_OS,
+              node: process.version,
+              npm: process.env.NPM_VERSION,
+              expected: read("expected"),
+              actual: read("actual"),
+              result: process.env.OUTCOME,
+            };
+            fs.writeFileSync(path.join(dir, "install-smoke-" + row.os + ".json"), JSON.stringify(row, null, 2) + "\n");
+          ' "${RESULT_DIR}"
+
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-smoke-${{ matrix.os }}
+          path: ${{ runner.temp }}/install-smoke/install-smoke-${{ matrix.os }}.json
+          if-no-files-found: error
+
+  # The lasting record. Only this job may write (contents: write, for
+  # `gh release upload`), and it runs no code from the package. It runs
+  # after a failed leg too: a failed result is a record as well. It does not
+  # run on a cancelled run, whose partial result would replace a complete
+  # record with --clobber. A Release made immutable takes no new asset, and
+  # this job then fails.
+  record:
+    name: Attach the result to the GitHub Release
+    needs: smoke
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download the results
+        uses: actions/download-artifact@v8
+        with:
+          pattern: install-smoke-*
+          merge-multiple: true
+          path: results
+
+      - name: Write install-smoke.json and attach it to the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          FILES=(results/install-smoke-*.json)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::No leg left a result, so there is nothing to record."
+            exit 1
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -s --arg requested "$VERSION" --arg result "$SMOKE_RESULT" --arg run "$RUN_URL" \
+            '{package: "bmad-module-skill-forge", requested: $requested, result: $result, run: $run, legs: sort_by(.os)}' \
+            "${FILES[@]}" > install-smoke.json
+          {
+            echo "## Install smoke \`${VERSION}\`"
+            echo
+            echo "| OS | Node | npm | Expected | \`--version\` printed | Result |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            jq -r '.legs[] | [.os, .node, .npm, .expected, .actual, .result] | map(tostring | gsub("[|\n]"; " ")) | "| " + join(" | ") + " |"' install-smoke.json
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The record belongs to the Release of the one version every leg
+          # resolved; a leg that resolved nothing, or several versions, does
+          # not count.
+          TESTED=$(jq -r '[.legs[].expected | select(. != "" and (test("\\s") | not))] | unique | if length == 1 then .[0] else empty end' install-smoke.json)
+          if [ -z "$TESTED" ]; then
+            echo "::error::The legs did not resolve '${VERSION}' to one version ($(jq -c '[.legs[].expected]' install-smoke.json)), so the record belongs to no Release. Dispatch again with an exact version."
+            exit 1
+          fi
+          if ! gh release view "v${TESTED}" --json tagName > /dev/null; then
+            echo "::error::Could not read the GitHub Release v${TESTED} to attach install-smoke.json to. If it is missing, create it (docs/_internal/RELEASING.md, Scenario E), then re-run this job."
+            echo "No GitHub Release \`v${TESTED}\` was found: the result is in this summary only." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          gh release upload "v${TESTED}" install-smoke.json --clobber
+          echo "Recorded as \`install-smoke.json\` on the GitHub Release \`v${TESTED}\`." >> "$GITHUB_STEP_SUMMARY"

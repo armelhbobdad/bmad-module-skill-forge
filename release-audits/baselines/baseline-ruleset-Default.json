@@ -1,0 +1,55 @@
+{
+  "id": 13855503,
+  "name": "Default",
+  "target": "branch",
+  "source_type": "Repository",
+  "source": "armelhbobdad/bmad-module-skill-forge",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "exclude": [], "include": ["~DEFAULT_BRANCH"] } },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": false,
+        "required_reviewers": [],
+        "require_code_owner_review": true,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": ["merge", "squash", "rebase"]
+      }
+    },
+    { "type": "code_quality", "parameters": { "severity": "errors" } },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "prettier" },
+          { "context": "eslint" },
+          { "context": "markdownlint" },
+          { "context": "lintlang" },
+          { "context": "em-dash" },
+          { "context": "validate (ubuntu-latest)" },
+          { "context": "validate (windows-latest)" },
+          { "context": "python (ubuntu-latest)" },
+          { "context": "python (windows-latest)" },
+          { "context": "docs-links" }
+        ]
+      }
+    }
+  ],
+  "node_id": "RRS_lACqUmVwb3NpdG9yec5E-jjWzgDTaw8",
+  "created_at": "2026-03-13T02:57:39.038+04:00",
+  "updated_at": "2026-09-28T15:41:21.771+04:00",
+  "bypass_actors": [{ "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }],
+  "current_user_can_bypass": "pull_requests_only",
+  "_links": {
+    "self": { "href": "https://api.github.com/repos/armelhbobdad/bmad-module-skill-forge/rulesets/13855503" },
+    "html": { "href": "https://github.com/armelhbobdad/bmad-module-skill-forge/rules/13855503" }
+  }
+}
