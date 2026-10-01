@@ -38,6 +38,16 @@ no provenance map.
 step writes, report.md builds its Provenance table from it, and every run
 creates a fresh report.
 
+#594 and #599 (audit part): the baseline a skill records decides its route.
+A skill with no provenance map stops at step 1 (`no-baseline`) and names
+Test Skill, since degraded mode had no baseline downstream; a docs-only
+skill goes from step 1 to step 5a, whose saved comparison step 5 grades, so
+a changed document makes it SIGNIFICANT and routes to update-skill, and a
+comparison that reached no document halts instead of scoring CLEAN; a
+code-mode stack is re-indexed from the project root and diffed by library
+(#589). No stage keeps a by-hand fallback for a helper: On Activation checks
+them, and the supplementary checks skip with a note.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -65,6 +75,7 @@ SKILL = AUDIT / "SKILL.md"
 HEADLESS = REFS / "headless-contract.md"
 INIT = REFS / "init.md"
 COMPOSE = REFS / "constituent-freshness.md"
+DOC_DRIFT = REFS / "step-doc-drift.md"
 RE_INDEX = REFS / "re-index.md"
 STRUCTURAL = REFS / "structural-diff.md"
 SEMANTIC = REFS / "semantic-diff.md"
@@ -78,6 +89,8 @@ CLASSIFY = SCRIPTS / "skf-severity-classify.py"
 HASH_CONTENT = SCRIPTS / "skf-hash-content.py"
 LOAD_PROVENANCE = SCRIPTS / "skf-load-provenance.py"
 SNAPSHOT = SCRIPTS / "skf-extraction-snapshot.py"
+DETECT_DOCS = SCRIPTS / "skf-detect-docs.py"
+EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 # The script each prose placeholder names, for running a prose command.
 PROSE_SCRIPTS = {
     "{extractionSnapshotHelper}": SNAPSHOT,
@@ -86,6 +99,8 @@ PROSE_SCRIPTS = {
     "{compareConstituentHashesHelper}": HASH_CONTENT,
     "{skillInventoryHelper}": INVENTORY,
     "{loadProvenanceHelper}": LOAD_PROVENANCE,
+    "{compareDocHashesHelper}": DETECT_DOCS,
+    "{emitEnvelopeHelper}": EMITTER,
 }
 
 STAGE_DATA = "{forge_version}/.skf-audit/{timestamp}"
@@ -106,13 +121,11 @@ NORMALIZE_CMD = "uv run {loadProvenanceHelper} normalize {provenanceMap}"
 RESOLVE_CMD = ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill_name} '
                '--forge-data-folder "{forge_data_folder}"')
 BINDING_RE = re.compile(r"`(\{[A-Za-z_]+\})` ← `([a-z_.]+)`")
-PAIR_RE = re.compile(r"`([a-z_]+)`/`([a-z_]+)`")
-LIST_PAIR_RE = re.compile(r"`([a-z_]+)`, `([a-z_]+)` or `([a-z_]+)` with category `([a-z_]+)`")
 SEMANTIC_RE = re.compile(r"(New Patterns|Changed Conventions|Dependency Shifts|Architectural Changes|"
                          r"Deprecated Patterns) `([a-z_]+)`")
 # The run context the drift report's frontmatter carries, by the step that writes it.
 RUN_CONTEXT = {
-    INIT: ("confidence_mode", "audited_version", "audited_version_reason", "manifest_version",
+    INIT: ("audited_version", "audited_version_reason", "manifest_version", "docs_only_skill",
            "provenance_map", "provenance_generated_at", "provenance_age_days", "baseline_ref",
            "baseline_commit", "audit_ref", "audit_ref_source", "audit_commit", "latest_tag",
            "remote_head", "upstream_fetch", "upstream_moved", "upstream_ref", "source_tree"),
@@ -129,7 +142,6 @@ PROVENANCE_ROWS = {
     "Audited Version": ("audited_version", "audited_version_reason", "manifest_version"),
     "Provenance Map": ("provenance_map",),
     "Provenance Age": ("provenance_age_days", "provenance_generated_at"),
-    "Mode": ("confidence_mode",),
     "AST fallback files": ("ast_fallback_files",),
     "Applied Transforms": ("applied_transforms",),
     "Baseline Ref / Commit": ("baseline_ref", "baseline_commit"),
@@ -292,9 +304,11 @@ def test_structural_diff_saves_the_diff():
     flow = _flow(section)
     assert 'mkdir -p "{auditDataFolder}"' in flow
     assert "add `--group-by source_library`" in flow
-    # The by-hand fallback keys an export as the helper does.
-    assert "Identify each export by its name and its file together" in flow
-    assert "Match by canonicalized export name" not in text
+    # No by-hand diff is left to fall back on (BMad Builder architecture-4).
+    assert "Never diff them by hand" in flow
+    for gone in ("Match by canonicalized export name", "Identify each export by its name and its file together",
+                 "Quote style on string defaults", "Hash-prefix normalization"):
+        assert gone not in text, gone
 
 
 def test_a_diff_that_saved_nothing_halts_inside_the_contract():
@@ -401,13 +415,9 @@ def test_severity_classify_projects_the_saved_files():
 
 
 def test_every_pair_the_prose_maps_is_graded():
-    """Each type/category pair the by-hand fallback assigns is one the helper
-    grades and one its projections emit, and each table of step 4 has a
-    semantic category the helper grades."""
-    fallback = _flow(_slice(_read(SEVERITY), "**If `uv`/the helper cannot execute**", "### 3."))
-    pairs = set(PAIR_RE.findall(fallback))
-    for *types, category in LIST_PAIR_RE.findall(fallback):
-        pairs |= {(f_type, category) for f_type in types}
+    """Each fixed type/category pair the helper's projections emit is one it
+    grades, and each table of step 4 has a semantic category the helper
+    grades. No stage maps a pair by hand any more."""
     fixed = {(f["type"], f["category"]) for f in
              classify_mod.project_diff({"added": [{"name": "a"}], "removed": [{"name": "r"}],
                                         "moved": [{"name": "m"}],
@@ -415,9 +425,9 @@ def test_every_pair_the_prose_maps_is_graded():
              + classify_mod.project_file_drift({"added": ["x"], "removed": ["y"],
                                                 "changed": [{"path": "z"}]})
              + classify_mod.project_constituents({"drifted": [{}], "missing": [{}]})
+             + classify_mod.project_doc_drift({"changed": [{"url": "u"}], "unchanged": [], "fetch_failed": []})
              if "category_choices" not in f}
-    assert fixed <= pairs, fixed - pairs
-    for pair in pairs:
+    for pair in fixed:
         assert pair in classify_mod.PAIRS, pair
     semantic_text = _flow(_slice(_read(SEMANTIC), "Save the same rows to", "### 5."))
     semantic = SEMANTIC_RE.findall(semantic_text)
@@ -466,16 +476,30 @@ def test_report_counts_come_from_the_saved_classification():
             "or `by_severity.HIGH` is above 0") in text
 
 
-def test_the_by_hand_fallbacks_save_what_the_helpers_would():
-    """Step 5 §3 and step 6 read severity.json, and step 5 reads
-    constituent-freshness.json, whichever way they were made."""
-    severity = _flow(_slice(_read(SEVERITY), "**If `uv`/the helper cannot execute**", "### 3."))
-    assert "save the result over `{auditDataFolder}/severity.json` in the helper's shape" in severity
-    for key in classify_mod.classify_all([]):
-        assert any(f"`{key}{end}" in severity for end in ("`", ": ", "[]`")), key
-    assert "each with its `severity` and `rule`" in severity
-    compose = _flow(_slice(_read(COMPOSE), "**If `uv` or the helper cannot execute**", "### 2."))
-    assert "write them over `{auditDataFolder}/constituent-freshness.json` in the helper's shape" in compose
+@pytest.mark.parametrize("path", sorted(REFS.glob("*.md")), ids=lambda p: p.name)
+def test_no_stage_keeps_a_by_hand_fallback(path):
+    """BMad Builder architecture-4 and enhancement-4: On Activation checks
+    uv and the shared helpers, so a fallback for a helper that cannot run is
+    unreachable, and a hand-made diff, grade or hash is the drift the
+    zero-hallucination contract forbids. Each stage halts in the contract or,
+    for a supplementary check, skips with a note."""
+    text = _read(path)
+    for gone in ("cannot execute", "claude.ai web", "hash by hand instead", "classify in the main thread",
+                 "fall back to comparing the two lists by hand", "{severityRulesFile}"):
+        assert gone not in text, (path.name, gone)
+
+
+def test_the_supplementary_checks_skip_and_the_rest_halt():
+    file_drift = _flow(_slice(_read(STRUCTURAL), "### 4b. Detect Script/Asset Drift", "### Stack-Specific"))
+    assert ("**When no candidate resolves, or the command exits non-zero** (delete the file then), skip the check "
+            "with a `### Script/Asset Drift: skipped ({the reason})` note") in file_drift
+    assert "HALT" not in file_drift
+    compose = _flow(_slice(_read(COMPOSE), "### 1. Compare the Constituents' Hashes", "### 2."))
+    assert ('If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase '
+            '`constituent-freshness:compare`') in compose
+    assert ('If the command exits non-zero, the map\'s constituents cannot be compared: HALT with **exit 3**, '
+            '`halt_reason: "provenance-invalid"`') in compose
+    assert "severityRulesFile" not in _frontmatter(SEVERITY)
 
 
 # --------------------------------------------------------------------------
@@ -688,7 +712,8 @@ def test_the_constituent_check_lives_in_the_compose_stage():
     assert "compare-constituent-hashes" not in structural and "### 4c." not in structural
     assert "compareConstituentHashesProbeOrder" not in _frontmatter(STRUCTURAL)
     assert "A compose-mode stack never reaches this step" in structural
-    assert "compose-mode" not in _slice(structural, "**Integration drift:**", "\n")
+    # Integration drift had no saved JSON and no classifier category: it is gone (#589).
+    assert "**Integration drift:**" not in structural
     compose = _read(COMPOSE)
     assert _fenced_line(compose, "compare-constituent-hashes") == CONSTITUENT_CMD
     assert 'mkdir -p "{auditDataFolder}"' in compose
@@ -846,6 +871,24 @@ def test_init_binds_the_audited_version_from_the_helper():
         assert hand_walk not in section, hand_walk
 
 
+def test_init_offers_the_skills_when_none_was_named():
+    """#594 (audit part): a name or path the invocation gave is used in both
+    modes; an interactive run without one offers the SKF skills, a headless
+    one halts input-missing."""
+    section = _flow(_init_1())
+    assert ("A `skill_name` or `skill_path` the invocation supplied answers the question above, and it is not "
+            "asked.") in section
+    assert ('run `uv run {skillInventoryHelper} "{skills_output_folder}"` and, above the question, list, numbered, '
+            'the `name` and `active_version` of each `skills[]` entry whose `skf_skill` is true') in section
+    assert ('**No `skill_name` supplied** (neither name nor path given): HALT with **exit 2**, '
+            '`halt_reason: "input-missing"`') in section
+    # A crashed or missing inventory helper is helper-missing, not a missing skill.
+    assert ('A command that prints no JSON crashed (On Activation already checked `uv`): HALT with **exit 3**, '
+            '`halt_reason: "helper-missing"`') in section
+    assert ('**`skf-skill-inventory.py` missing or crashed** (item 6\'s command with no JSON, or no candidate and '
+            'no flat `SKILL.md`): HALT with **exit 3**, `halt_reason: "helper-missing"`') in section
+
+
 def test_init_loads_the_bound_provenance_map():
     section = _slice(_read(INIT), "### 4. Load Provenance Map", "### Stack Skill Detection")
     assert "Load the provenance map at `{provenanceMap}`, the path §1 bound" in section
@@ -927,10 +970,13 @@ def test_the_gate_says_when_the_links_version_has_no_map(tmp_path):
     assert resolved["reason"] == "manifest-lags-link"
     assert resolved["paths"]["provenance_map"]["path"] is None
     assert resolved["candidates"]["manifest"]["provenance_map"] is not None
-    gate = _flow(_slice(_init_1(), "2. `manifest-lags-link`", "3. If neither"))
+    gate = _flow(_slice(_init_1(), "2. `manifest-lags-link`", "3. `flat-layout`"))
     assert ("When `paths.provenance_map.path` is null but `candidates.manifest.provenance_map` is set") in gate
-    assert "so **[N]** audits it in degraded mode" in gate and "**[M]** audits `{active_version}` against its map" in gate
-    assert "pass degraded=true, or set skill_path to the {active_version} package" in gate
+    assert "so **[N]** stops at §4 with no baseline to audit against" in gate
+    assert "**[M]** audits `{active_version}` against its map" in gate
+    assert ("so this run stops at step 1 (no-baseline): set skill_path to the {active_version} package to audit "
+            "that version against its map.") in gate
+    assert "degraded" not in gate
 
 
 # --------------------------------------------------------------------------
@@ -1020,3 +1066,197 @@ def test_a_missing_registry_writes_the_section_before_moving_on():
                  "auto-proceed to {nextStepFile}"):
         assert step in missing, step
     assert "| Architectural changes | {count} |" in _read(SEMANTIC)
+
+
+# --------------------------------------------------------------------------
+# #589 (BMad Builder architecture-2): a code-mode stack is audited from the
+# project root it was scanned from
+# --------------------------------------------------------------------------
+
+
+CODE_MODE_FILES = {"node_modules/lib-a/index.js": "lib-a", "node_modules/lib-b/retry.js": "lib-b"}
+
+
+def _code_mode_provenance() -> dict:
+    """create-stack-skill's code-mode variant: no top-level source_root, one
+    commit per repository, each source_file relative to the project root."""
+    return {"provenance_version": "2.0", "skill_name": "app-stack", "skill_type": "stack",
+            "source_repo": ["https://github.com/acme/lib-a", "https://github.com/acme/lib-b"],
+            "source_commit": {"acme/lib-a": "1" * 40, "acme/lib-b": "2" * 40},
+            "generated_at": "2026-01-01T00:00:00Z", "integrations": []}
+
+
+def test_a_code_mode_stack_reaches_step_2_with_its_source_root(tmp_path):
+    """normalize finds no single source root in a code-mode map, so step 1 §5
+    binds the project root, where every file of the map resolves; step 2 then
+    reads them there, and step 3 diffs them library by library."""
+    project = tmp_path / "project"
+    for rel in CODE_MODE_FILES:
+        (project / rel).parent.mkdir(parents=True, exist_ok=True)
+        (project / rel).write_bytes(b"export function f() {}\n")
+    entries = [_entry(f"f_{lib.replace('-', '_')}", rel, 1, source_library=lib) for rel, lib in CODE_MODE_FILES.items()]
+    audit = Audit(tmp_path, entries, None, **_code_mode_provenance())
+    normalized = _run_prose(NORMALIZE_CMD, audit.values)
+    assert normalized.returncode == 0, normalized.stderr
+    flags = json.loads(normalized.stdout)
+    assert (flags["is_stack_skill"], flags["compose_mode_stack"]) == (True, False)
+    assert (flags["source_root"], flags["baseline_commit"], flags["baseline_ref"]) == (None, None, None)
+    # Step 1 §5 binds the project root; §5b's helper then skips on the null baseline.
+    source = _flow(_slice(_read(INIT), "### 5. Resolve Source Path", "### 5b."))
+    assert ("**A code-mode stack** (`{is_stack_skill}` true, `{compose_mode_stack}` false) has no single "
+            "`source_root` in its map") in source
+    assert "Bind `{source_root}` ← `{project-root}`." in source
+    source_root = project
+    for rel in flags["bounded_scan_files"]:
+        assert (source_root / rel).is_file(), rel
+    # Step 2: the scan list and a snapshot read there, each export tagged with its library.
+    values = {**audit.values, "{project-root}": str(project)}
+    (scan_list,) = [line.strip() for line in _read(RE_INDEX).splitlines()
+                    if line.strip().startswith("uv run {extractionSnapshotHelper} scan-list ")]
+    scan = _run_prose(scan_list, values)
+    assert scan.returncode == 0, scan.stdout + scan.stderr
+    details = _write_json(audit.data / "export-details-1.json", {
+        "files": list(CODE_MODE_FILES),
+        "exports": [{"name": e["export_name"], "file": e["source_file"], "line": 1, "type": "function",
+                     "signature": "export function f() {}"} for e in entries]})
+    build = subprocess.run([sys.executable, str(SNAPSHOT), "build", "--source-root", str(source_root), "--tier",
+                            "Quick", "--date", TIMESTAMP, "--provenance-map", str(audit.provenance), "--details",
+                            str(details), "-o", str(audit.snapshot)],
+                           capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
+    line = json.loads(build.stdout)
+    assert (build.returncode, line["complete"]) == (0, True), build.stdout + build.stderr
+    snapshot = _load(audit.snapshot)
+    assert {f["file"]: f["status"] for f in snapshot["files"]} == {rel: "read-by-eye" for rel in CODE_MODE_FILES}
+    assert sorted(e["source_library"] for e in snapshot["exports"]) == ["lib-a", "lib-b"]
+    # Step 3: one diff per library, no drift.
+    diff = audit.diff(" --group-by source_library")
+    assert {g["source_library"] for g in diff["groups"]} == {"lib-a", "lib-b"}
+    assert diff["removed"] == [] and diff["added"] == []
+
+
+# --------------------------------------------------------------------------
+# #594 and BMad Builder enhancement-4/enhancement-5: the baseline each skill
+# records decides its route
+# --------------------------------------------------------------------------
+
+
+def test_a_skill_without_a_provenance_map_stops_and_names_test_skill():
+    """Degraded mode had no baseline downstream, so it is gone: the
+    `degraded` input, its gate, its decision and confidence_mode."""
+    section = _flow(_slice(_read(INIT), "### 4. Load Provenance Map", "### Stack Skill Detection"))
+    assert ('**If `{provenanceMap}` is null** (no map in the version folder, nor a flat copy): the skill records '
+            'no baseline') in section
+    assert ('HALT with **exit 3**, `halt_reason: "no-baseline"`, phase `init:provenance`, in either mode') in section
+    assert "`[TS] Test Skill`" in section and "`[CS] Create Skill`" in section
+    for path in [SKILL, *sorted(REFS.glob("*.md")), TEMPLATE]:
+        text = _read(path)
+        for gone in ("degraded", "Degraded", "confidence_mode", "[D]egraded", "init.degraded-mode"):
+            assert gone not in text, (path.name, gone)
+    inputs = _slice(_read(SKILL), "| **Inputs** |", "\n")
+    assert "`degraded`" not in inputs and "`tier_override`" in inputs
+
+
+def test_init_routes_a_docs_only_skill_to_its_document_hashes():
+    init = _read(INIT)
+    assert _frontmatter(INIT)["docsOnlyStepFile"] == DOC_DRIFT.name
+    assert _frontmatter(DOC_DRIFT)["classifyStepFile"] == SEVERITY.name
+    assert _frontmatter(SEVERITY)["reportStepFile"] == REPORT.name
+    artifacts = _flow(_slice(init, "### 3. Load Skill Artifacts", "### 4."))
+    assert ("**A docs-only skill** (its `scope_type`, or the `source_type` an older `metadata.json` records, is "
+            "`docs-only`)") in artifacts
+    assert ('When `doc_sources` is missing or empty, or no entry of it has a `content_hash` (create-skill records '
+            'null for a document it could not fetch), nothing records the documents\' state: HALT with **exit 3**, '
+            '`halt_reason: "no-baseline"`, phase `init:baseline`') in artifacts
+    assert "skip §4, Stack Skill Detection and §5, take §5b's docs-only skip, and continue at §6" in artifacts
+    upstream = _flow(_slice(init, "### 5b. Detect Upstream Drift", "**Otherwise**"))
+    assert 'A docs-only skill (§3) skips it the same way, with `upstream_fetch = "skipped: docs-only skill"`' in (
+        upstream)
+    confirm = _flow(_slice(init, "### 7. Present Baseline Summary", "**GATE"))
+    assert "or `{docsOnlyStepFile}` when `{docs_only_skill}` is true" in confirm
+    # Steps 5a and 5 pick their next step from the flag, so they read it from
+    # the report, where a compacted session cannot lose it.
+    for path in (DOC_DRIFT, SEVERITY):
+        assert ("`{docs_only_skill}` is the `docs_only_skill` value step 1 §6 wrote into {outputFile}'s "
+                "frontmatter: read it there, not from memory") in _flow(_read(path)), path.name
+    stages = _flow(_slice(_read(SKILL), "## Stages", "## Invocation Contract"))
+    assert ("A docs-only skill skips stages 2 to 4 too (step 1 §3): init.md → step-doc-drift.md → "
+            "severity-classify.md → report.md.") in stages
+    severity = _slice(_read(SEVERITY), "### 1. Build the Findings File", "### 2.")
+    assert _fenced_line(severity, "--doc-drift") == (
+        'uv run {severityClassifyHelper} --doc-drift "{auditDataFolder}/doc-drift.json" '
+        '-o "{auditDataFolder}/findings.json"')
+
+
+def _docs_only_skill(tmp_path: Path, names: tuple[str, ...], unhashed: tuple[str, ...] = ()) -> tuple[Path, Path]:
+    """A docs-only skill whose doc_sources hash local documents (file:// URLs,
+    which skf-detect-docs.py reads as it reads a fetched page); an `unhashed`
+    one records the null hash create-skill writes when a fetch failed."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    sources = []
+    for name in names:
+        (docs / name).write_bytes(f"# {name} v1\n".encode("utf-8"))
+        digest = "sha256:" + hashlib.sha256((docs / name).read_bytes()).hexdigest()
+        sources.append({"url": "file://" + (docs / name).as_posix(), "detected_via": "brief_doc_urls",
+                        "content_hash": None if name in unhashed else digest})
+    package = tmp_path / "skills" / "demo" / "1.0.0" / "demo"
+    _write_json(package / "metadata.json", {"name": "demo", "version": "1.0.0", "scope_type": "docs-only",
+                                            "source_root": None, "doc_sources": sources})
+    return docs, package
+
+
+# Step 5a §2's warning commands, with the stats count each one records.
+DOC_WARNING_RE = re.compile(r'`(uv run \{emitEnvelopeHelper\} record --run-dir "\{run_dir\}" '
+                            r'--warning "doc_[a-z_]+: \{([a-z_]+)\}")`')
+
+
+@pytest.mark.parametrize("changed,unreachable,unhashed,score,warnings", [
+    (("api.md",), (), (), "SIGNIFICANT", []),
+    ((), (), (), "CLEAN", []),
+    ((), ("guide.md",), (), "CLEAN", ["doc_fetch_failed: 1"]),
+    ((), (), ("guide.md",), "CLEAN", ["doc_not_hashed: 1"]),
+    ((), ("api.md",), ("guide.md",), None, []),
+], ids=["a-document-changed", "no-document-changed", "a-document-unreachable", "a-document-not-hashed",
+        "no-document-compared"])
+def test_a_docs_only_skill_is_graded_by_its_documents(tmp_path, changed, unreachable, unhashed, score, warnings):
+    """Step 5a's command saves the comparison, step 5 grades each changed
+    document HIGH, so a docs-only skill whose source changed is no longer
+    CLEAN and a maintain pipeline reaches update-skill. A comparison that
+    reached no document halts instead of vouching for documents nobody
+    read, and one that left some out records how many in the envelope."""
+    docs, package = _docs_only_skill(tmp_path, ("api.md", "guide.md"), unhashed)
+    for name in changed:
+        (docs / name).write_bytes(f"# {name} v2\n".encode("utf-8"))
+    for name in unreachable:
+        (docs / name).unlink()
+    audit = Audit(tmp_path, [], None)
+    audit.values["{resolved_skill_package}"] = str(package)
+    result = audit.run(DOC_DRIFT, "compare-hashes")
+    assert result.returncode == 0, result.stderr
+    stats = _load(audit.data / "doc-drift.json")["stats"]
+    assert (stats["total_tracked"], stats["changed"], stats["fetch_failed"], stats["skipped_null_hash"]) == (
+        2, len(changed), len(unreachable), len(unhashed))
+    rules = _flow(_slice(_read(DOC_DRIFT), "**Once the comparison is saved, a docs-only skill**", "### 3."))
+    if score is None:
+        assert stats["changed"] + stats["unchanged"] == 0
+        assert "**`stats.changed` + `stats.unchanged` is 0:** no document was compared" in rules
+        assert ('HALT with **exit 3**, `halt_reason: "source-unreadable"`, phase `doc-drift:compare`, '
+                '`"path": "{resolved_skill_package}/metadata.json"`') in rules
+        return
+    run_dir = tmp_path / "run"
+    audit.values.update({"{run_dir}": str(run_dir), **{f"{{{key}}}": str(n) for key, n in stats.items()}})
+    commands = DOC_WARNING_RE.findall(rules)
+    assert [count for _, count in commands] == ["fetch_failed", "skipped_null_hash"]
+    for command, count in commands:
+        if stats[count]:
+            recorded = _run_prose(command, audit.values)
+            assert recorded.returncode == 0, recorded.stderr
+    sink = run_dir / "warnings.jsonl"
+    lines = sink.read_text(encoding="utf-8").splitlines() if sink.exists() else []
+    assert [json.loads(line) for line in lines] == warnings
+    findings = audit.project("--doc-drift")
+    assert audit.sources == {"doc_drift": len(changed)}
+    assert [(f["type"], f["category"]) for f in findings] == [("changed", "doc_source")] * len(changed)
+    classified = audit.classify()
+    assert classified["drift_score"] == score
+    assert _next_workflow(classified) == ("update-skill" if changed else None)

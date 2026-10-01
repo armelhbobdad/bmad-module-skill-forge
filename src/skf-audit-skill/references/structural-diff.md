@@ -2,9 +2,7 @@
 nextStepFile: 'semantic-diff.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 # This run's stage data folder, beside its drift report: step 5 classifies the
-# JSON saved here. The `.skf-` name keeps the version folder SKF's own for
-# drop-skill and rename-skill, which read any other new name there as a file
-# SKF did not write.
+# JSON saved here. The `.skf-` name keeps the version folder SKF's own.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 # §1b: the recipe runner, and the snapshot helper that adds its finds.
 extractPublicApiProbeOrder:
@@ -31,13 +29,12 @@ structuralDiffProbeOrder:
 
 ## STEP GOAL:
 
-Compare the original provenance map extractions from create-skill against the current re-index snapshot from Step 02 to detect structural drift. Identify added, removed, moved and changed exports with file:line citations and confidence tier labels, then script and asset drift.
+Compare the provenance map create-skill wrote with step 2's re-index snapshot: added, removed, moved and changed exports with file:line citations and confidence labels, then script and asset drift.
 
 ## Rules
 
 - Focus only on structural comparison — added/removed/changed exports
 - Do not classify severity (Step 05) or suggest remediation (Step 06)
-- Use subprocess Pattern 4 (parallel) when available; if unavailable, compare sequentially
 - Save each helper's JSON in `{auditDataFolder}`: step 5 classifies those files, not the tables this step renders
 
 ## MANDATORY SEQUENCE
@@ -52,11 +49,11 @@ Display the line it prints, then stop with the halt's exit code. If the emitter 
 
 ### 1. Run the Deterministic Export Diff
 
-The export comparison — canonicalization, set arithmetic (added/removed/moved), and field-level change detection — is fully deterministic and runs in one subprocess. Do **not** diff the two export lists by hand: an LLM comparing dozens or hundreds of exports can silently drop or mis-match entries, which violates this skill's zero-hallucination contract.
+One helper call compares the two export lists. Never diff them by hand: a hand diff of hundreds of exports drops or mis-matches entries, which this skill's zero-hallucination contract forbids.
 
-**Resolve `{structuralDiffHelper}`** from `{structuralDiffProbeOrder}`; first existing path wins. If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `structural-diff:diff`.
+**Resolve `{structuralDiffHelper}`** from `{structuralDiffProbeOrder}`; first existing path wins (SKILL.md On Activation checked that one exists).
 
-Run one comparison over the baseline provenance map (`{provenanceMap}`, bound in step 1 §1) and the current extraction snapshot (`{extractionSnapshot}`, written to disk by step 2 §3), and save it in `{auditDataFolder}` (create the folder first: `mkdir -p "{auditDataFolder}"`):
+Compare the baseline provenance map (`{provenanceMap}`, step 1 §1) with the extraction snapshot (`{extractionSnapshot}`, step 2 §3), and save the diff in `{auditDataFolder}` (create the folder first: `mkdir -p "{auditDataFolder}"`):
 
 ```bash
 uv run {structuralDiffHelper} "{provenanceMap}" "{extractionSnapshot}" -o "{auditDataFolder}/structural-diff.json"
@@ -70,13 +67,7 @@ With `-o` the helper saves the diff to the file and prints one line, `{"status":
 - It starts `Cannot write output`: HALT with **exit 4**, `halt_reason: "write-failed"`, phase `structural-diff:diff`, `"path": "{auditDataFolder}/structural-diff.json"`.
 - Otherwise it names `{provenanceMap}`, which step 1 §4 read: HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase `structural-diff:diff`, `"path": "{provenanceMap}"`, showing the `error`.
 
-The helper reads both shapes directly — the provenance map's `entries[]` (with `export_name`/`export_type`/`source_file`/`source_line`) and the snapshot's `exports[]` — and aliases the field names, so no manual projection is needed.
-
-**Canonicalization is applied inside the helper, symmetrically to both sides**, before it matches each export by its name and its file together, so cosmetic extractor differences do not surface as false-positive "Changed"/"Removed"/"Added" entries:
-
-- **Quote style on string defaults**: `kind: str = "Hnsw"` ↔ `kind: str = 'Hnsw'`.
-- **Stdlib module qualification**: `typing.Optional[...]` → `Optional[...]`, `dataclasses.field(...)` → `field(...)` (user-defined namespaces are never collapsed).
-- **Public-API re-export resolution**: a renamed public re-export (`_Impl` → `Public`) matches the baseline entry instead of splitting into "Removed `_Impl`" + "Added `Public`". The re-export map is **auto-derived from the provenance map** (identical to the `reexport_map` that `skf-load-provenance.py normalize` returns in step 1 §4). Pass `--reexport-map {file}` only to override with a custom map.
+The helper canonicalizes both sides before it matches each export by its name and its file (the quote style of string defaults, stdlib module prefixes, and a renamed public re-export resolved through the re-export map it derives from the provenance map), so a cosmetic extractor difference never reads as drift. It records each transform it applied in `applied_transforms`, and takes `--reexport-map {file}` only to override the derived map.
 
 Read the saved diff from the file:
 
@@ -95,11 +86,9 @@ Read the saved diff from the file:
 }
 ```
 
-An `<entry>` in `added[]` or `removed[]` is the helper's normalized record, whichever input shape it came from: `name`, `type`, `signature`, `params`, `return_type`, `file`, `line`, `confidence` and `extraction_method`. With `--group-by`, every listed item also carries its `source_library`, and `groups[]` gives each library's `summary`.
+An `<entry>` in `added[]` or `removed[]` holds `name`, `type`, `signature`, `params`, `return_type`, `file`, `line`, `confidence` and `extraction_method`. With `--group-by`, every listed item also carries its `source_library`, and `groups[]` gives each library's `summary`.
 
-§6 records `applied_transforms` in the drift report's frontmatter for step 6's Provenance section, so a reviewer can tell which cosmetic differences the diff collapsed, and §5 renders `label_changes[]` as an informational table (§3b).
-
-**If `uv` / the helper cannot execute** (e.g. claude.ai web): fall back to comparing the two lists by hand. Identify each export by its name and its file together, the file compared with forward slashes and no leading `./` (apply the three transforms above to both sides first). Read off added (current-only), removed (baseline-only) and changed (matched, differing type, signature, params, return_type or line). Pair a leftover removed and added entry as moved only when its name occurs once on each side, and list any other name left on both sides as ambiguous. Compare a field only when it is present on both sides, and skip the line of a moved export. Compare the labels (`confidence`, `extraction_method`) separately: trim, and a blank label counts as absent; compare case-insensitively and only when both sides have a value, with `ast_bridge` counting as `ast-grep` and `source_reading` as `source-read`. A matched export whose labels differ goes to the label differences list (§3b), never to changed, and counts as unchanged when nothing else differs.
+§6 records `applied_transforms` in the drift report's frontmatter for step 6's Provenance table.
 
 ### 1b. Find Relocated Exports (Forge+ and Deep with ccc)
 
@@ -107,7 +96,7 @@ An `<entry>` in `added[]` or `removed[]` is the helper's normalized record, whic
 
 An export moved to a file outside the bounded scan list is missing from the snapshot, so the diff reports it as removed, which step 5 grades CRITICAL. Look for each `removed[]` entry of `{auditDataFolder}/structural-diff.json` elsewhere in the source:
 
-1. Search for its name: `cd {source_root} && ccc search --limit 5 "{name}"` (CLI), the `/ccc` skill (Claude Code) or the ccc MCP server (Cursor). `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`): see `knowledge/ccc-bridge.md`. When `{source_tree}` is set, `{source_root}` is step 1 §5b's private tree, which has no ccc index (and a search there could start indexing a folder this run deletes): list the files of the tree that hold the name as a word instead, with `git -C "{source_root}" grep -l -w -F -e "{name}"`, and take them as the candidates.
+1. Search for its name: `cd {source_root} && ccc search --limit 5 "{name}"` (CLI), the `/ccc` skill (Claude Code) or the ccc MCP server (Cursor). `ccc search` reads the index of the current working directory (`knowledge/ccc-bridge.md` gives its flags). When `{source_tree}` is set, `{source_root}` is step 1 §5b's private tree, which has no ccc index: list the files of the tree that hold the name as a word instead, with `git -C "{source_root}" grep -l -w -F -e "{name}"`, and take them as the candidates.
 2. Drop each candidate file on `{bounded_scan_files}`: step 2 extracted those files, so the diff already saw their exports.
 3. Write the remaining candidates of every name, relative to `{source_root}` with forward slashes, as one JSON list in `{auditDataFolder}/relocation-candidates.json`. Resolve `{extractPublicApiHelper}` and `{extractionSnapshotHelper}` from their probe orders, then, from `{project-root}`, run the recipes over the candidates and add what they find to the snapshot:
 
@@ -119,42 +108,40 @@ An export moved to a file outside the bounded scan list is missing from the snap
 
    `relocate` adds each export the runner found under a removed name in a file outside the bounded scan list (with the removed entry's `source_library` for a stack), recounts the snapshot and prints `added`: never edit the snapshot by hand.
 
-When `added` is above 0, run §1's command again with the same arguments and the same `-o`, acting on its exit code as §1 does. The helper pairs each relocation with its removed entry as a move (or, when the name occurs more than once, lists it under `ambiguous_names[]`), so `moved[]` comes from the script and never from an edit of the report. A removed export the runner finds nowhere else stays removed. When ccc cannot search (no index for `{source_root}`, or the command fails), the runner writes no JSON, or `relocate` prints an `error`, skip the rest of this section and note `ccc relocation check skipped: {reason}` on the **Method:** line (§5).
+When `added` is above 0, run §1's command again with the same arguments and the same `-o`, acting on its exit code as §1 does. The helper pairs each relocation with its removed entry as a move (or, when the name occurs more than once, lists it under `ambiguous_names[]`). A removed export the runner finds nowhere else stays removed. When ccc cannot search (no index for `{source_root}`, or the command fails), the runner writes no JSON, or `relocate` prints an `error`, skip the rest of this section and note `ccc relocation check skipped: {reason}` on the **Method:** line (§5).
 
 ### 2. Read Added / Removed / Moved from the Diff
 
-These sets come straight from the saved diff, with no further set arithmetic:
+These sets come straight from the saved diff, never from set arithmetic of your own:
 
 - **Added** (`added[]`): exports in the current snapshot but not the provenance map.
 - **Removed** (`removed[]`): exports in the provenance map but not the current snapshot.
 - **Moved** (`moved[]`): matched exports whose file path changed (`previous_file` → `current_file`). A move is **not** a removal.
-- **Ambiguous names** (`ambiguous_names[]`): a name left on both sides that occurs more than once on a side (a `GET` handler in several route files, for example), so the helper paired none of its entries. Its entries stay in `removed[]` and `added[]`, and the item lists the removed and the added `{file, line}` of each. §5 shows them in their own table, and step 5 judges whether a removed and an added entry of one name are one export that moved.
+- **Ambiguous names** (`ambiguous_names[]`): a name left on both sides that occurs more than once on a side (a `GET` handler in several route files, for example), so the helper paired none of its entries. They stay in `removed[]` and `added[]`, and the item lists the `{file, line}` of each. §5 shows them in their own table, and step 5 judges whether a removed and an added entry of one name are one export that moved.
 
-Confidence tier for each entry is the `confidence` field the extractor recorded, which names the tool that produced the export at any tier: T1 for an export an ast-grep rule matched (`extraction_method: ast-grep`), T1-low for an export read by eye (`extraction_method: source-read`).
+Each entry's confidence tier is the `confidence` the extractor recorded: T1 for an ast-grep match, T1-low for an export read by eye.
 
 ### 3. Read Changed Exports from the Diff
 
-`changed[]` lists per-field differences for exports present in BOTH sets. Each item names the export, the `field` that changed (type, signature, params, return_type or line), its `baseline_value` → `current_value`, and the export's current `file`, `line` and `confidence`. Group items by export name and file when compiling the report, and pair with the export's `moved[]` entry (if any) to describe location changes. The Confidence column of Changed Exports (§5) is the item's `confidence`.
+`changed[]` lists per-field differences for exports present in BOTH sets: the `field` that changed, its `baseline_value` → `current_value`, and the export's current `file`, `line` and `confidence`. Group items by export name and file when compiling the report, and pair with the export's `moved[]` entry (if any) to describe location changes. The Confidence column of Changed Exports (§5) is the item's `confidence`.
 
 `summary.signature_unverified` counts the matched exports whose signature the helper could not compare: one side holds it as `params` and `return_type`, the other as `signature` text, so a change there cannot be seen. They are not drift, and §5 states the count, so an empty Changed Exports table does not read as checked signatures.
 
 ### 3b. Read Provenance Label Differences from the Diff
 
-`label_changes[]` lists exports present in BOTH sets whose `confidence` or `extraction_method` differs between the provenance map and the snapshot, with each side's `{confidence, extraction_method}`. A label names the tool that extracted the export, not what the source says: an export read by eye when the skill was created (T1-low, `source-read`) and matched by ast-grep now (T1, `ast-grep`) is the same export, and so is an entry create-skill or update-skill relabeled to match the tool that read it. A label difference is therefore not drift: it never appears in Changed Exports, is not counted in Total Drift Items, and step 5 does not classify it. Take the count from `summary.label_changes`, no recount: for a stack diffed with `--group-by source_library`, the summary already sums the libraries, and each row carries its `source_library`.
+`label_changes[]` lists exports present in BOTH sets whose `confidence` or `extraction_method` differs between the provenance map and the snapshot, with each side's labels. A label names the tool that extracted the export, not what the source says, so a label difference is not drift: it never appears in Changed Exports, is not counted in Total Drift Items, and step 5 does not classify it. §5 renders it as an informational table. Take the count from `summary.label_changes`, no recount (for a stack it sums the libraries, and each row carries its `source_library`).
 
 ### 4b. Detect Script/Asset Drift
 
 **Only execute if provenance-map.json contains `file_entries`.**
 
-**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `structural-diff:file-drift`.
-
-Run one deterministic comparison subprocess — it walks tracked file_entries[] AND the inverse direction (source-tree → candidate set in standard script/asset/doc directories) so the LLM does not orchestrate per-file hashing:
+**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. Run one comparison: it hashes the tracked `file_entries[]` and, the other way round, the files of the standard script, asset and doc folders of the source tree:
 
 ```bash
 uv run {compareFileHashesHelper} compare "{provenanceMap}" "{source_root}" > "{auditDataFolder}/file-drift.json"
 ```
 
-The saved JSON (step 5 builds its Script/Asset findings from this file; if the command exits non-zero, delete the file and write the skipped note below):
+The saved JSON, which step 5 builds its Script/Asset findings from:
 
 ```
 {
@@ -165,31 +152,23 @@ The saved JSON (step 5 builds its Script/Asset findings from this file; if the c
 }
 ```
 
-Hash-prefix normalization (writer-vs-reader compatibility — `skf-create-skill` writes `content_hash` with a `"sha256:"` prefix, a bare-hex hash from `hashlib` would otherwise never match) is handled inside the script. Downstream consumers read `added`/`removed`/`changed` directly with no further normalization.
+Append the three lists into the Structural Drift section under a `### Script/Asset Drift (added {stats.added}, removed {stats.removed}, changed {stats.changed})` heading, each count straight from `stats`.
 
-Append the three lists into the Structural Drift section under a `### Script/Asset Drift (added {stats.added}, removed {stats.removed}, changed {stats.changed})` heading — take each count straight from `stats`, no recount.
-
-**If `uv`/the helper cannot execute** (e.g. claude.ai web): skip the script/asset drift check with a `### Script/Asset Drift — skipped (hashing helper unavailable)` note rather than blocking the audit. This check is supplementary to the export diff, which has its own by-hand fallback in §1.
+**When no candidate resolves, or the command exits non-zero** (delete the file then), skip the check with a `### Script/Asset Drift: skipped ({the reason})` note: it is supplementary to the export diff, so it never halts the audit.
 
 ### Stack-Specific Structural Diff
 
 If `{is_stack_skill}` is true:
 
-**For v2 provenance (per-export entries with `source_library`):**
-- §1 runs with `--group-by source_library`: the helper diffs each library on its own and tags every listed item with its `source_library`, which step 2 records on each snapshot export
+**A code-mode stack (v2 provenance, per-export entries with `source_library`):** step 2 re-indexed it from the project root step 1 §5 bound.
+- §1 runs with `--group-by source_library`: the helper diffs each library on its own and tags every listed item with its `source_library`
 - Report per-library diff results, taking each library's counts from `groups[]` (the top-level `summary` sums them)
-
-**For code-mode stacks:** none reaches this step yet: a code-mode stack's provenance map records no single source root, so step 1 §5 stops its audit (`source-dir-missing`).
-
-**For v1 legacy provenance:** Report library-level summary only (export counts, extraction methods). Note that per-export drift detection requires re-composition with v2 provenance.
-
-**Integration drift:** For each integration in `integrations[]`, verify that co-import files still contain the detected patterns.
 
 A compose-mode stack never reaches this step: step 1 sends it to step 1c (`constituent-freshness.md`), which checks its constituents' freshness instead.
 
 ### 5. Compile Structural Drift Section
 
-**Rollup for high-volume uniform findings.** When ≥ 10 findings in the same table share one root cause (deleted source file, renamed module, entire package tree removed), you may collapse them into one row per root cause. Rollup rows replace the per-symbol `Export`/`Signature` columns with `Count` and `Representative symbols` (up to 3 names, `…` if more). Rollup applies to the **Added Exports**, **Removed Exports** and **Script/Asset Drift** tables, **not** to Changed Exports, which are heterogeneous by construction (signature changes and cross-file changes are inspected per-finding). A rollup only changes how the table reads: step 5 classifies the saved diff, one finding per export, so a rollup changes no count and no grade.
+**Rollup for high-volume uniform findings.** When ≥ 10 findings in the same table share one root cause (deleted source file, renamed module, entire package tree removed), you may collapse them into one row per root cause. Rollup rows replace the per-symbol `Export`/`Signature` columns with `Count` and `Representative symbols` (up to 3 names, `…` if more). Rollup applies to the **Added Exports**, **Removed Exports** and **Script/Asset Drift** tables, never to Changed Exports, whose rows differ by construction. A rollup only changes how the table reads: step 5 classifies the saved diff, one finding per export, so a rollup changes no count and no grade.
 
 **Rollup row form (Added / Removed Exports):**
 
@@ -197,7 +176,7 @@ A compose-mode stack never reaches this step: step 1 sends it to step 1c (`const
 |------------|-------|------------------------|----------|------------|
 | {deleted/renamed path or similar} | {N} | `{sym1}`, `{sym2}`, `{sym3}`, … | {root-cause path} | {T1/T1-low} |
 
-**Rollup for the Provenance label differences table.** When ≥ 10 rows share one baseline label and one current label (grouped case-insensitively, as the helper compares them), you may collapse them into one row whose Export cell reads {count} exports (rep: `{sym1}`, `{sym2}`, `{sym3}`, …).
+**Rollup for the Provenance label differences table.** When ≥ 10 rows share one baseline label and one current label (case-insensitively), you may collapse them into one row whose Export cell reads {count} exports (rep: `{sym1}`, `{sym2}`, `{sym3}`, …).
 
 Append to {outputFile}, with the Script/Asset Drift subsection (§4b) after the Summary:
 

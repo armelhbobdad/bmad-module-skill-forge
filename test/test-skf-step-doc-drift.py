@@ -65,6 +65,15 @@ class TestPipelineChain:
     def test_step_doc_drift_points_to_report(self) -> None:
         assert _next_step_value(STEP_FILE) == "report.md"
 
+    def test_a_docs_only_skill_runs_step_5a_then_step_5(self) -> None:
+        """A docs-only skill's chain is init, step 5a, step 5, report: each
+        step names the file it loads in place of its usual next step."""
+        assert re.search(r"^classifyStepFile: 'severity-classify\.md'$", _frontmatter(STEP_FILE), re.M)
+        assert re.search(r"^reportStepFile: 'report\.md'$", _frontmatter(SEVERITY_CLASSIFY_FILE), re.M)
+        assert "or `{classifyStepFile}` for a docs-only skill (`{docs_only_skill}`)" in _read(STEP_FILE)
+        assert "or `{reportStepFile}` for a docs-only skill (`{docs_only_skill}`)" in _read(
+            SEVERITY_CLASSIFY_FILE)
+
     def test_report_file_exists(self) -> None:
         target = (STEP_FILE.parent / "report.md").resolve()
         assert target.exists(), "report.md must exist for the chain to complete"
@@ -300,10 +309,31 @@ class TestStepContentContract:
             "step must document handling for empty doc_sources array"
         )
 
-    def test_url_fetching_unavailable_fallback(self, text: str) -> None:
-        assert "fetching unavailable" in text.lower() or "fetching is unavailable" in text.lower(), (
-            "step must document fallback when URL fetching is unavailable"
-        )
+    def test_a_failed_comparison_skips_or_halts(self, text: str) -> None:
+        # SKILL.md On Activation checks uv and the helper, so the only skip
+        # left is a comparison that fails: a skill built from source notes it
+        # and goes on, a docs-only skill (whose whole audit this is) halts.
+        assert "Doc drift check skipped: the comparison failed ({the first stderr line})." in text
+        assert "fetching unavailable" not in text.lower()
+        flat = re.sub(r"\s+", " ", text)
+        assert ('this comparison is its whole audit, so HALT with **exit 3**, phase `doc-drift:compare`'
+                in flat)
+
+    def test_one_row_rule(self, text: str) -> None:
+        """One rule says which entries get a row (#600): it no longer says
+        both 'ALL entries' and 'only drifted entries'."""
+        assert "Include rows for ALL entries" not in text
+        assert "only drifted entries appear" not in text
+        flat = re.sub(r"\s+", " ", text)
+        assert ("Rows, in this order: each `changed` entry with its old and new hash; each `fetch_failed` "
+                "entry, with `_(fetch failed: {reason})_` as its New Hash; each `skipped_null_hash` entry, "
+                "with `_(not recorded)_` as its Old Hash and `n/a` in the last two columns. An unchanged "
+                "entry gets no row, and only the `changed` rows count as drift.") in flat
+
+    def test_the_comparison_is_saved_for_step_5(self, text: str) -> None:
+        assert ('uv run {compareDocHashesHelper} compare-hashes "{resolved_skill_package}/metadata.json" '
+                '> "{auditDataFolder}/doc-drift.json"') in text
+        assert "{skill_path}/metadata.json" not in text
 
     def test_steps_completed_contract(self, text: str) -> None:
         assert re.search(r"stepsCompleted.*doc-drift", text, re.DOTALL), (

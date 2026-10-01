@@ -13,7 +13,7 @@ CLI:
   python3 skf-severity-classify.py - < findings.json
   python3 skf-severity-classify.py --from-diff structural-diff.json [-o findings.json]
   python3 skf-severity-classify.py [--from-diff DIFF] [--file-drift FILE] [--constituents FILE]
-                                   [--semantic FILE] [-o findings.json]
+                                   [--semantic FILE] [--doc-drift FILE] [-o findings.json]
   python3 skf-severity-classify.py --rules [--format json|markdown]
 
 Classify (the default mode):
@@ -88,7 +88,7 @@ Classify (the default mode):
   label_changes[] and signature_unverified[] are never findings. Only the
   categories with category_choices need judgment; the rest are fixed.
 
---file-drift FILE, --constituents FILE, --semantic FILE:
+--file-drift FILE, --constituents FILE, --semantic FILE, --doc-drift FILE:
   Project the other drift sources into the same findings array, after the
   diff's findings and in this order. A hash comparison labels no export,
   so its findings carry a null line and confidence:
@@ -104,7 +104,12 @@ Classify (the default mode):
                     file; fresh[] and skipped_null_hash[] are no findings
     --semantic      the semantic diff's findings, an array of objects whose
                     type is semantic, kept as written
-  Each may be given with or without --from-diff. A FILE of these three
+    --doc-drift     a skf-detect-docs.py compare-hashes result, the whole
+                    drift of a docs-only skill: each changed[] entry is
+                    changed/doc_source (detail "content <old> -> <new>"),
+                    with its url as name and file; unchanged[],
+                    fetch_failed[] and skipped_null_hash[] are no findings
+  Each may be given with or without --from-diff. A FILE of these four
   that does not exist is skipped (the stage that saves it did not run),
   but at least one source file must exist. The summary line's sources
   gives the findings each flag added, or null for a skipped file.
@@ -148,6 +153,7 @@ LINE_ONLY_RULE = "Line-only changes (same export and file, only the line number 
 CONSTITUENT_CHANGED_RULE = "Constituent skills changed since the stack was composed (compose-mode stacks)"
 CONSTITUENT_MISSING_RULE = "Constituent skills that can no longer be found (compose-mode stacks)"
 SCRIPT_ASSET_RULE = "Added or changed script, asset or doc files (Script/Asset Drift)"
+DOC_SOURCE_RULE = "Changed documentation sources of a docs-only skill (doc drift)"
 
 
 def _rule(severity, rule, types, categories, above_threshold=None):
@@ -185,6 +191,7 @@ RULES = (
     _rule("HIGH", "Deprecated APIs still documented as current in skill",
           ("deprecated",), PUBLIC_EXPORTS),
     _rule("HIGH", CONSTITUENT_CHANGED_RULE, ("changed",), ("constituent",)),
+    _rule("HIGH", DOC_SOURCE_RULE, ("changed",), ("doc_source",)),
     _rule("MEDIUM", "Implementation changes behind a stable public API",
           ("changed",), ("implementation",)),
     _rule("MEDIUM", "Implementation changes behind a stable public API",
@@ -523,6 +530,23 @@ def project_semantic(data):
     return list(data)
 
 
+def project_doc_drift(data):
+    """The findings for a skf-detect-docs.py compare-hashes result (see
+    --doc-drift).
+
+    Raises ValueError when data is not one.
+    """
+    _lists(data, ("changed", "unchanged", "fetch_failed"),
+           "a doc drift result (the output of skf-detect-docs.py compare-hashes)")
+    findings = []
+    for rec in data["changed"]:
+        if isinstance(rec, dict):
+            url = rec.get("url")
+            detail = f"content {rec.get('old_hash')} -> {rec.get('new_hash')}"
+            findings.append(_finding("changed", "doc_source", {"name": url, "file": url}, detail))
+    return findings
+
+
 # Each projection source: its name in the summary line, its argparse dest,
 # its projection, and whether a file that does not exist is skipped.
 SOURCES = (
@@ -530,6 +554,7 @@ SOURCES = (
     ("file_drift", "file_drift", project_file_drift, True),
     ("constituents", "constituents", project_constituents, True),
     ("semantic", "semantic", project_semantic, True),
+    ("doc_drift", "doc_drift", project_doc_drift, True),
 )
 
 
@@ -652,6 +677,11 @@ def _build_parser():
         help="also add the semantic diff's findings array (skipped when FILE does not exist)",
     )
     parser.add_argument(
+        "--doc-drift",
+        metavar="FILE",
+        help="also project a skf-detect-docs.py compare-hashes result (skipped when FILE does not exist)",
+    )
+    parser.add_argument(
         "--rules",
         action="store_true",
         help="print the rule table: severities and the accepted type/category pairs",
@@ -692,7 +722,7 @@ def main(argv=None):
     modes = [args.findings is not None, projecting, args.rules]
     if sum(modes) != 1:
         parser.error("give exactly one of FINDINGS, the projection flags (--from-diff, --file-drift, "
-                     "--constituents, --semantic) or --rules")
+                     "--constituents, --semantic, --doc-drift) or --rules")
     if args.format and not args.rules:
         parser.error("--format applies to --rules only")
 

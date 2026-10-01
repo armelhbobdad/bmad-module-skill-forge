@@ -35,7 +35,7 @@ Display the line it prints, then stop with the halt's exit code. If the emitter 
 
 Each constituent's `metadata_hash` is the sha256 of its raw `metadata.json` bytes when the stack was composed, which the model cannot compute itself: run the helper.
 
-**Resolve `{compareConstituentHashesHelper}`** from `{compareConstituentHashesProbeOrder}`; first existing path wins. A relative constituent `skill_path` (e.g. `skills/{skill-dir}/`) is project-root-relative, so the helper resolves it against `{project-root}`. Create the stage data folder first (`mkdir -p "{auditDataFolder}"`), then save the comparison in it:
+**Resolve `{compareConstituentHashesHelper}`** from `{compareConstituentHashesProbeOrder}`; first existing path wins. If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `constituent-freshness:compare`: "`skf-hash-content.py` is not installed. Re-install SKF." A relative constituent `skill_path` (e.g. `skills/{skill-dir}/`) is project-root-relative, so the helper resolves it against `{project-root}`. Create the stage data folder first (`mkdir -p "{auditDataFolder}"`), then save the comparison in it:
 
 ```bash
 uv run {compareConstituentHashesHelper} compare-constituent-hashes "{provenanceMap}" --skills-root "{project-root}" > "{auditDataFolder}/constituent-freshness.json"
@@ -58,7 +58,7 @@ The saved JSON, which step 5 builds its findings from:
 - `skipped_null_hash[]`: no hash was recorded when the stack was composed (a references/ cascade), so there is nothing to compare. Never drift.
 - `fresh[]`: unchanged.
 
-**If `uv` or the helper cannot execute** (e.g. claude.ai web), or the command exits non-zero: hash by hand instead. For each constituent, read its `metadata.json` at `{constituent.skill_path}/active/{constituent.skill_name}/metadata.json` (resolve `skill_path` against `{project-root}` when relative, and use it as-is when absolute), compute the SHA-256 of its raw bytes with a shell tool (for example `sha256sum`), and compare against `constituent.metadata_hash` (a stored bare-hex form still matches after stripping any `sha256:` prefix from both sides). Sort the constituents into the same four buckets and write them over `{auditDataFolder}/constituent-freshness.json` in the helper's shape, so step 5 reads them as it would the helper's.
+If the command exits non-zero, the map's constituents cannot be compared: HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase `constituent-freshness:compare`, `"path": "{provenanceMap}"`, showing its stderr. Never hash by hand: a hash made up without the helper would be a finding with no source behind it.
 
 If the stage data folder or the file cannot be written, HALT with **exit 4**, `halt_reason: "write-failed"`, phase `constituent-freshness:save`, `"path": "{auditDataFolder}/constituent-freshness.json"`.
 

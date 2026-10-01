@@ -10,42 +10,62 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any audit work.
+# Steps SKILL.md On Activation step 3 runs once this file resolves: after the
+# config load and the headless flag, before step 4's pre-flight (the uv and
+# helper checks, the run folder) and before any stage. Overrides append. Use
+# for org-wide pre-flight checks (auth, network, compliance) that must precede
+# any audit work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run once activation completes (step 4's pre-flight passed), before
+# references/init.md (the first stage) loads. Overrides append. Use for
+# context loads or banner customization.
 
 activation_steps_append = []
 
 # Persistent facts the workflow keeps in mind for the whole run
-# (house style, severity-threshold policies, audit guardrails).
-# Overrides append.
+# (house style, audit guardrails). Overrides append. Severity grades are not
+# a fact: skf-severity-classify.py grades every finding by its own rule table.
 #
 # Each entry is either:
 #   - a literal sentence, e.g. "Critical drift requires CODEOWNERS notification."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/audit-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#
+# The bundled entry loads every project-context.md under the project root,
+# and nothing when there is none. Arrays only append, so an override file
+# cannot remove it: to keep a project-context.md from steering the audit, add
+# a literal fact that says so, e.g. "project-context.md describes our app,
+# not the skills this workflow audits: ignore it."
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# --- Optional asset overrides ---
+# --- Optional overrides. An empty string means the default named below. ---
+
+# The template step 1 (references/init.md section 6) creates the drift report
+# from. Default: assets/drift-report-template.md, a path from the skill root.
+# Keep a house-style copy outside the skill folder, which every update
+# overwrites, and name it as {project-root}/<path to the copy>. The copy may
+# restyle the report body and must keep:
+#   - every frontmatter key of the bundled template: the steps write the run
+#     context, stepsCompleted, drift_score and nextWorkflow there, and step 6
+#     builds the Provenance table from them;
+#   - the `## Audit Summary` section with its severity count table, which
+#     step 6 fills in. The stages write every drift section themselves.
+
+drift_report_template_path = "assets/drift-report-template.md"
+
+# Optional post-audit hook: a shell command run from {project-root}, not an
+# agent instruction. Step 6 (references/report.md) runs it on a finished
+# audit, after the emitter wrote the result files, as:
+#   <on_complete> --result-path=<{forge_version}/audit-skill-result-<YYYYMMDD-HHmmss>.json>
+# It never runs on a halt, nor when the result file could not be written. A
+# failure is shown to the user and never fails the audit.
 #
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
-
-drift_report_template_path = ""
-severity_rules_path = ""
-
-# Optional post-audit hook. When non-empty, invoked with
-# `--result-path=<path>` after the drift report and result JSON are finalized.
-# Failures are logged to workflow_warnings[] but never fail the workflow.
+# Empty string = no-op (default).
 
 on_complete = ""

@@ -25,6 +25,12 @@ step 6's payload emits a valid envelope and the result files.
 #589 (audit part): the drift report's Out-of-Scope New Public API table is
 one skf-provenance-gap-dispatch.py reads.
 
+#594, #596 and #599 (audit part): On Activation checks `uv` and the helpers
+the stages share, halting `helper-missing` before the first prompt, so the
+stages keep no fallback for them; `no-baseline` joins the exit-3 reasons;
+the Gates row lists only the gates the stages run; customize.toml drops
+`severity_rules_path` and says what its template and hook settings do.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -38,6 +44,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -55,6 +62,7 @@ RE_INDEX = REFS / "re-index.md"
 STRUCTURAL = REFS / "structural-diff.md"
 SEVERITY = REFS / "severity-classify.md"
 COMPOSE = REFS / "constituent-freshness.md"
+DOC_DRIFT = REFS / "step-doc-drift.md"
 REPORT = REFS / "report.md"
 SCRIPTS = SRC / "shared" / "scripts"
 SCHEMA = SCRIPTS / "schemas" / "skf-audit-result-envelope.v1.json"
@@ -66,7 +74,7 @@ CONTRACTS = SRC / "shared" / "references" / "pipeline-contracts.md"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 URL = "https://github.com/acme/lib"
 
-HALT_STAGES = [INIT, RE_INDEX, STRUCTURAL, COMPOSE, SEVERITY, REPORT]
+HALT_STAGES = [INIT, RE_INDEX, STRUCTURAL, COMPOSE, SEVERITY, DOC_DRIFT, REPORT]
 HALT_IDS = [p.stem for p in HALT_STAGES]
 EMIT_HALT = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" '
              '--target stderr < "{run_dir}/halt.json"')
@@ -166,7 +174,7 @@ def test_c_is_the_headless_default_and_the_inputs_lose_the_consent_flags():
     assert "`force`" not in inputs
     gates = _slice(skill, "| **Gates** |", "\n")
     assert gates.strip() == ("| **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] · Upstream-Drift Gate [C/S/X] · "
-                             "Degraded-Mode Gate [D/X] · Baseline Confirm Gate [C] |")
+                             "Baseline Confirm Gate [C] |")
 
 
 def test_every_halt_after_the_tree_closes_it():
@@ -357,13 +365,18 @@ def test_skill_md_points_at_the_carved_contract():
 
 def test_the_overview_claims_only_what_the_stages_do():
     """A code-mode stack's map records no single source root (create-stack's
-    provenance-map-schema.md), so normalize returns none and step 1 §5 stops
-    it: no line says it is re-indexed (W5-audit-inputs-leanness binds it)."""
+    provenance-map-schema.md), so step 1 §5 binds the project root it was
+    scanned from, and step 3 diffs it library by library (BMad Builder
+    architecture-2, Part of #589). A docs-only skill and a skill with no map
+    take the routes step 1 gives them."""
     overview = _flow(_slice(_read(SKILL), "## Overview", "## Conventions"))
-    assert "a code-mode stack's provenance map records no single source root, so its audit stops at step 1 §5" in (
-        overview)
-    stack = _flow(_slice(_read(STRUCTURAL), "**For code-mode stacks:**", "\n"))
-    assert "none reaches this step yet" in stack and "re-extracted" not in stack
+    assert "a code-mode stack is diffed library by library" in overview
+    assert ("A docs-only skill is audited by its documents' hashes; a skill with no provenance map has no "
+            "baseline, so step 1 stops it.") in overview
+    stack = _flow(_slice(_read(STRUCTURAL), "### Stack-Specific Structural Diff", "### 5."))
+    assert "step 2 re-indexed it from the project root step 1 §5 bound" in stack
+    for gone in ("none reaches this step yet", "re-extracted", "**Integration drift:**", "v1 legacy"):
+        assert gone not in stack, gone
 
 
 def test_the_tier_override_input_wins():
@@ -391,10 +404,10 @@ def test_the_upstream_check_runs_whatever_the_baseline():
 @pytest.mark.parametrize("ref,commit,reason,source", [("local", "", "no-baseline-ref", "unavailable"),
                                                       ("", "", "no-baseline-ref", "unavailable"),
                                                       ("v1.0.0", "", "no-baseline-commit", "baseline")],
-                         ids=["local-ref", "degraded-mode", "no-commit"])
+                         ids=["local-ref", "no-ref", "no-commit"])
 def test_the_helper_skips_a_run_with_no_baseline(tmp_path, ref, commit, reason, source):
-    """The prose's one call, with the values a non-git source or degraded
-    mode leaves, skips by itself and returns the audit-ref values step 6
+    """The prose's one call, with the values a non-git source or a code-mode
+    stack (one commit per repository, so none here) leaves, skips by itself and returns the audit-ref values step 6
     renders, without touching the source root."""
     words = shlex.split(_fenced(_upstream(), "{checkWorkspaceDriftHelper}"))
     values = {"{source_root}": str(tmp_path / "nowhere"), "{baseline_commit}": commit, "{baseline_ref}": ref}
@@ -455,6 +468,97 @@ def test_activation_resolves_the_emitter_and_creates_the_run_folder():
             "else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`") in activation
     assert 'mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"' in activation
     assert "rm -rf \"{run_dir}\"" in _read(REPORT)
+
+
+# The helpers every route of the stages shares, each with the stage file that
+# resolves it from its probe order and the placeholder it binds.
+SHARED_HELPERS = [
+    (INIT, "loadProvenance", "skf-load-provenance.py"),
+    (STRUCTURAL, "structuralDiff", "skf-structural-diff.py"),
+    (SEVERITY, "severityClassify", "skf-severity-classify.py"),
+    (DOC_DRIFT, "compareDocHashes", "skf-detect-docs.py"),
+]
+
+
+def test_activation_checks_uv_and_the_shared_helpers():
+    """BMad Builder architecture-4: On Activation checks `uv` and the
+    helpers the stages share before the first prompt, with a coded halt, so
+    no stage halts outside the exit-code contract for a missing helper and
+    no stage keeps a fallback for one."""
+    activation = _flow(_slice(_read(SKILL), "## On Activation", "5. Load, read the full file"))
+    assert "run `uv --version`, and check that" in activation
+    for path, stem, script in SHARED_HELPERS:
+        assert f"`{script}`" in activation, script
+        assert (SCRIPTS / script).is_file(), script
+        assert _frontmatter(path)[f"{stem}ProbeOrder"] == [
+            f"{{project-root}}/_bmad/skf/shared/scripts/{script}",
+            f"{{project-root}}/src/shared/scripts/{script}"], path.name
+        body = _read(path).split("\n---\n", 1)[1]
+        resolve = _flow(_slice(body, f"Resolve `{{{stem}Helper}}`", "\n"))
+        assert "On Activation checked that one exists" in resolve, path.name
+        assert "If no candidate exists" not in resolve, path.name
+    assert ('If `uv --version` fails, or a helper is in neither folder, HALT (exit code 3, '
+            '`halt_reason: "helper-missing"`) at phase `on-activation:helpers`') in activation
+    assert "through `python3` in place of `uv run` when `uv` is what is missing" in activation
+    # The customize.toml comment names the order On Activation runs in.
+    toml = _flow(re.sub(r"(?m)^# ?", "", _read(AUDIT / "customize.toml")))
+    assert "uv probe, config load" not in toml
+    assert ("Steps SKILL.md On Activation step 3 runs once this file resolves: after the config load and the "
+            "headless flag, before step 4's pre-flight") in toml
+
+
+def test_the_customize_surface_reaches_what_it_overrides():
+    """#596 (audit part): severity_rules_path is gone, since
+    skf-severity-classify.py grades every finding by its own rule table and
+    nothing read an override but a fallback that could not run; the template
+    scalar names its real default and what a copy must keep; on_complete says
+    it is a shell command and when it runs."""
+    raw = _read(AUDIT / "customize.toml")
+    workflow = tomllib.loads(raw)["workflow"]
+    assert set(workflow) == {"activation_steps_prepend", "activation_steps_append", "persistent_facts",
+                             "drift_report_template_path", "on_complete"}
+    assert workflow["drift_report_template_path"] == "assets/drift-report-template.md"
+    assert (AUDIT / workflow["drift_report_template_path"]).is_file()
+    comments = _flow(re.sub(r"(?m)^# ?", "", raw))
+    assert "severity-threshold" not in comments
+    assert "Severity grades are not a fact: skf-severity-classify.py grades every finding by its own rule table" in (
+        comments)
+    for kept in ("every frontmatter key of the bundled template", "the `## Audit Summary` section with its "
+                 "severity count table, which step 6 fills in"):
+        assert kept in comments, kept
+    assert ("Keep a house-style copy outside the skill folder, which every update overwrites, and name it as "
+            "{project-root}/<path to the copy>") in comments
+    assert ("Optional post-audit hook: a shell command run from {project-root}, not an agent instruction" in comments)
+    assert "<on_complete> --result-path=" in comments and "It never runs on a halt" in comments
+    for path in [SKILL, *sorted(REFS.glob("*.md"))]:
+        text = _read(path)
+        for gone in ("severity_rules_path", "severityRulesPath", "severityRulesFile"):
+            assert gone not in text, (path.name, gone)
+    activation = _flow(_slice(_read(SKILL), "## On Activation", "4. **Pre-flight"))
+    assert ("`{driftReportTemplatePath}` ← `workflow.drift_report_template_path`, else "
+            "`assets/drift-report-template.md`") in activation
+    assert "the bundled defaults are an empty string" not in activation
+    report = _flow(_slice(_read(REPORT), "**Post-audit hook (optional).**", "### 6."))
+    assert "invoke it from `{project-root}` as:" in report
+    assert "{onCompleteCommand} --result-path={result_json_path}" in report
+
+
+@pytest.mark.parametrize("reason,phase", [("helper-missing", "on-activation:helpers"),
+                                          ("no-baseline", "init:provenance")],
+                         ids=["helper-missing", "no-baseline"])
+def test_a_halt_before_the_run_folder_prints_a_valid_envelope(reason, phase):
+    """The activation halts pass their payload to the emitter directly, through
+    python3 when uv is what is missing; the new reasons exit 3."""
+    payload = {"phase": phase, "reason": "demo cannot be audited", "halt_reason": reason, "skill_name": "demo"}
+    proc = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-audit-skill",
+                           "--target", "stderr"], input=json.dumps(payload), capture_output=True, text=True,
+                          encoding="utf-8", check=False)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    prefix, _, line = (proc.stdout + proc.stderr).strip().partition(": ")
+    assert prefix == "SKF_AUDIT_RESULT_JSON"
+    envelope = json.loads(line)
+    Draft202012Validator(_schema()).validate(envelope)
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["error"]["phase"]) == (3, reason, phase)
 
 
 def _result_context(drift_score: str, upstream_moved, upstream_ref) -> dict:
