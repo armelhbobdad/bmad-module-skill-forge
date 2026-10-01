@@ -9,7 +9,9 @@ awaits it) and the model decides what a description asserts. These tests
 cover the script's facts: which calls are awaited, which lines declare
 rather than call, what comments, strings and data blocks hide, which prose
 describes an export, qualified names, line numbers, and the CLI contract.
-The last section pins the §2.5 prose that calls it.
+The --inventory input reads the validated inventory file coverage-check
+writes and keeps its function and method names. The last section pins the
+§2.5 prose that calls it.
 """
 
 from __future__ import annotations
@@ -517,10 +519,11 @@ def test_coherence_binds_the_script():
 
 
 def test_async_check_runs_the_script_on_function_and_method_names():
+    """The script reads the names from the validated inventory file: none is echoed by hand."""
     section = _section_25()
-    call = ('echo \'{"names": [<each exports[].name whose kind is function or method>], '
-            '"skillPackagePath": "{resolved_skill_package}"}\' | uv run {locateExportSegmentsScript} --stdin')
+    call = 'uv run {locateExportSegmentsScript} --inventory "{run_dir}/inventory.json" --skill-dir "{resolved_skill_package}"'
     assert call in section
+    assert "echo '" not in section
     for field in ("`descriptions[]`", "`awaitedCount`", "`chainedMember`", "`notCalled[]`"):
         assert field in section, field
 
@@ -554,3 +557,23 @@ def test_every_naive_finding_title_uses_one_separator():
     naive = text[text.index("### 2. Naive Mode"):text.index("### 2b.")]
     titles = re.findall(r"`naive-coherence(.)", naive)
     assert titles and set(titles) == {":"}, titles
+
+
+def test_cli_inventory_keeps_function_and_method_names(tmp_path):
+    skill = _skill(tmp_path, PAIRED)
+    inventory = tmp_path / "inventory.json"
+    inventory.write_bytes(json.dumps({"exports": [
+        {"name": "readFile", "kind": "function", "description": "It's async."},
+        {"name": "readFileSync", "kind": "method"},
+        {"name": "Options", "kind": "interface"},
+    ], "cross_check_mismatches": []}).encode("utf-8"))
+    by_inventory = _cli("--inventory", str(inventory), "--skill-dir", str(skill))
+    assert by_inventory.returncode == 0, by_inventory.stderr
+    by_json = _cli(json.dumps({"names": ["readFile", "readFileSync"], "skillPackagePath": str(skill)}))
+    assert json.loads(by_inventory.stdout) == json.loads(by_json.stdout)
+
+
+def test_cli_inventory_needs_a_skill_dir_and_a_readable_file(tmp_path):
+    assert _cli("--inventory", str(tmp_path / "inventory.json")).returncode == 2
+    missing = _cli("--inventory", str(tmp_path / "absent.json"), "--skill-dir", str(tmp_path))
+    assert missing.returncode == 1 and "cannot read --inventory" in missing.stderr

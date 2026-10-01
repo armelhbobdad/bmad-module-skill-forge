@@ -5,19 +5,18 @@
 # ///
 """Print the stdin payload of a shared SKF helper, read from the files on disk.
 
-coverage-check.md runs two shared helpers that take one JSON payload on
-stdin and read no file themselves: skf-detect-workspaces.py (§0b: is the
-local source a monorepo?) and skf-extract-public-api.py --mode quick (§2:
-the Quick-tier export scan). A payload the model writes by hand can cut a
-source file short or escape it wrongly, and the helper then fails or answers
-for the wrong text. This script reads the files and prints the payload, and
-the step pipes it into the helper:
+coverage-check.md §0b runs skf-detect-workspaces.py (is the local source a
+monorepo?), a shared helper that takes one JSON payload on stdin and reads
+no file itself. A payload the model writes by hand can cut a file short or
+escape it wrongly, and the helper then fails or answers for the wrong text.
+This script reads the files and prints the payload, and the step pipes it
+into the helper:
 
   uv run stage-helper-payload.py detect-workspaces --source-root <dir> \\
       | uv run skf-detect-workspaces.py
-  uv run stage-helper-payload.py extract-public-api --source-root <dir> \\
-      --language <language> [--manifest <path>] --entry <path> [--entry <path> ...] \\
-      | uv run skf-extract-public-api.py --mode quick
+
+(The Quick-tier export scan needs no payload: skf-extract-public-api.py
+--mode quick reads its files itself, with --manifest-file and --entry-file.)
 
 detect-workspaces prints {"tree": [...], "manifests": {...}}:
 
@@ -33,23 +32,14 @@ detect-workspaces prints {"tree": [...], "manifests": {...}}:
              and ignores the rest, so this script keeps no list of their
              names to fall out of step with the detector's.
 
-extract-public-api prints {"language": ..., "manifest": {"path", "content"},
-"entries": [{"path", "content"}, ...], "mode": "quick"}: each path as
-given, relative to --source-root and written with "/", and each content the
-file's text (UTF-8, a leading byte order mark dropped). An entry given twice
-is read once. Without --manifest, the manifest is {"path": "", "content": ""}
-and the helper reports no package metadata. --language is passed through
-unchecked: the helper exits 1 on a language it does not parse.
-
 The payload is one line of ASCII JSON on stdout, so a pipe carries the same
 bytes on every platform.
 
 Exit codes:
   0  the payload is printed
-  1  --source-root is not a folder, or a --manifest or --entry path is
-     absolute, leads outside --source-root, or names no file; one JSON line
-     {"status": "error", "error": ...} goes to stderr and nothing to stdout,
-     so the helper the payload was piped into reads no input and fails too
+  1  --source-root is not a folder; one JSON line {"status": "error",
+     "error": ...} goes to stderr and nothing to stdout, so the helper the
+     payload was piped into reads no input and fails too
   2  bad arguments (argparse: a missing or unknown argument, usage on stderr)
 """
 
@@ -78,10 +68,6 @@ def _source_root(value: str) -> Path:
     if not root.is_dir():
         raise StageError(f"--source-root is not a folder: {value}")
     return root
-
-
-def _read_text(path: Path) -> str:
-    return path.read_bytes().decode("utf-8-sig", errors="replace")
 
 
 # --------------------------------------------------------------------------
@@ -125,49 +111,12 @@ def workspaces_payload(source_root: str) -> dict:
 
 
 # --------------------------------------------------------------------------
-# extract-public-api
-# --------------------------------------------------------------------------
-
-
-def _member(root: Path, value: str, flag: str) -> tuple[str, Path]:
-    """The POSIX path as given and the file it names, which must lie inside `root`."""
-    if Path(value).is_absolute():
-        raise StageError(f"{flag} must be relative to --source-root: {value}")
-    path = root / value
-    if not path.resolve().is_relative_to(root.resolve()):
-        raise StageError(f"{flag} leads outside --source-root: {value}")
-    if not path.is_file():
-        raise StageError(f"{flag} names no file under --source-root: {value}")
-    return Path(value).as_posix(), path
-
-
-def public_api_payload(source_root: str, language: str, manifest: str | None, entries: list[str]) -> dict:
-    root = _source_root(source_root)
-    out = {"language": language, "manifest": {"path": "", "content": ""}, "entries": [], "mode": "quick"}
-    if manifest is not None:
-        rel, path = _member(root, manifest, "--manifest")
-        out["manifest"] = {"path": rel, "content": _read_text(path)}
-    seen = set()
-    for value in entries:
-        rel, path = _member(root, value, "--entry")
-        if rel in seen:
-            continue
-        seen.add(rel)
-        out["entries"].append({"path": rel, "content": _read_text(path)})
-    return out
-
-
-# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
 
 def _cmd_detect_workspaces(args: argparse.Namespace) -> dict:
     return workspaces_payload(args.source_root)
-
-
-def _cmd_extract_public_api(args: argparse.Namespace) -> dict:
-    return public_api_payload(args.source_root, args.language, args.manifest, args.entry)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -180,15 +129,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("detect-workspaces", help="the tree and root files for skf-detect-workspaces.py")
     p.add_argument("--source-root", required=True, help="the local source folder")
     p.set_defaults(func=_cmd_detect_workspaces)
-
-    p = sub.add_parser("extract-public-api",
-                       help="the manifest and entry files for skf-extract-public-api.py --mode quick")
-    p.add_argument("--source-root", required=True, help="the local source folder")
-    p.add_argument("--language", required=True, help="passed through to the helper")
-    p.add_argument("--manifest", help="the package manifest, relative to --source-root")
-    p.add_argument("--entry", action="append", required=True,
-                   help="an entry-point file, relative to --source-root (repeatable)")
-    p.set_defaults(func=_cmd_extract_public_api)
 
     return parser
 

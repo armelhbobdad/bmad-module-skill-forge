@@ -22,6 +22,8 @@ Covers:
     skf-find-cycles.py and skf-pair-intersect.py
   - input shapes and errors; CLI exit codes; skf-scan-manifests.py output
     piped in as it is
+  - --relative-to: the files of one package written relative to the project
+    that holds it
 """
 
 from __future__ import annotations
@@ -1155,3 +1157,59 @@ class TestCli:
 
     def test_subcommand_required(self) -> None:
         assert _run_cli().returncode != 0
+
+
+# --------------------------------------------------------------------------
+# --relative-to: one package scanned, project-relative paths written
+# --------------------------------------------------------------------------
+
+
+class TestRelativeTo:
+    def _project(self, tmp_path: Path) -> Path:
+        _write(tmp_path / "apps" / "web" / "src" / "a.tsx", "import React from 'react';\n")
+        _write(tmp_path / "apps" / "web" / "src" / "b.tsx", "import 'react';\nimport './a';\n")
+        return tmp_path
+
+    def test_package_files_carry_the_project_path(self, tmp_path: Path) -> None:
+        project = self._project(tmp_path)
+        web = project / "apps" / "web"
+        units = json.dumps([{"name": "web", "path": "src"}])
+        proc = _run_cli("count", str(web), "--deps", "-", "--units", str(_write(tmp_path / "u.json", units)),
+                        "--relative-to", str(project), stdin=json.dumps([{"name": "react", "ecosystem": "npm"}]))
+        assert proc.returncode == 0, proc.stderr
+        result = json.loads(proc.stdout)
+        assert _paths(_dep(result, "react")) == ["apps/web/src/a.tsx", "apps/web/src/b.tsx"]
+        (unit,) = result["units"]
+        assert unit["path"] == "src", "a unit's path stays relative to the root"
+        libraries = _run_cli("count", str(web), "--deps", "-", "--format", "libraries",
+                             "--relative-to", str(project), stdin='["react"]')
+        assert json.loads(libraries.stdout) == [
+            {"name": "react", "files": ["apps/web/src/a.tsx", "apps/web/src/b.tsx"]}]
+
+    def test_the_same_folder_changes_nothing(self, tmp_path: Path) -> None:
+        project = self._project(tmp_path)
+        same = _run_cli("count", str(project), "--deps", "-", "--relative-to", str(project), stdin='["react"]')
+        plain = _run_cli("count", str(project), "--deps", "-", stdin='["react"]')
+        assert same.returncode == 0, same.stderr
+        assert same.stdout == plain.stdout
+
+    @pytest.mark.parametrize(
+        ("base", "message"),
+        [("apps/web/src", "is not inside --relative-to"), ("missing", "--relative-to not a directory")],
+    )
+    def test_a_folder_that_does_not_hold_the_root_exits_1(self, tmp_path: Path, base: str, message: str) -> None:
+        project = self._project(tmp_path)
+        proc = _run_cli("count", str(project / "apps" / "web"), "--deps", "-",
+                        "--relative-to", str(project / base), stdin='["react"]')
+        assert proc.returncode == 1
+        assert message in proc.stderr
+
+    def test_edge_files_move_too(self, tmp_path: Path) -> None:
+        web = tmp_path / "apps" / "web"
+        _write(web / "core" / "x.ts", "export const x = 1;\n")
+        _write(web / "ui" / "y.ts", "import { x } from '../core/x';\n")
+        units = [{"name": "core", "path": "core"}, {"name": "ui", "path": "ui"}]
+        result = mod.prefix_paths(_count(web, [], units), "apps/web")
+        assert result["edge_files"] == [
+            {"from": "ui", "to": "core", "files": [{"path": "apps/web/ui/y.ts", "line": 1}]}]
+        assert [_paths(u) for u in result["units"]] == [["apps/web/ui/y.ts"], []]

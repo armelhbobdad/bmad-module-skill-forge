@@ -144,5 +144,22 @@ def test_cli_malformed_json_exit_1():
     assert res.returncode == 1
 
 
+def test_cli_output_writes_the_score_file(tmp_path):
+    """external-validators §4 writes `{run_dir}/external.json`, which compute-score.py --external reads,
+    also when neither tool scored (externalScore null)."""
+    out_path = tmp_path / "run" / "external.json"
+    res = _run_cli(["--stdin", "--output", str(out_path)], stdin=json.dumps({}))
+    assert res.returncode == 0
+    written = json.loads(out_path.read_text(encoding="utf-8"))
+    assert written == json.loads(res.stdout) and written["externalScore"] is None
+
+
+def test_cli_refused_input_removes_a_stale_score_file(tmp_path):
+    out_path = tmp_path / "external.json"
+    out_path.write_bytes(b'{"externalScore": 100}')
+    res = _run_cli(["--stdin", "--output", str(out_path)], stdin=json.dumps({"skillCheckScore": 200}))
+    assert res.returncode == 2 and not out_path.exists()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

@@ -10,15 +10,18 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (config load, customization
-# resolve). Overrides append. Use for org-wide pre-flight checks (auth,
-# network, compliance) that must precede any orchestration work.
+# Steps to run right after the customization resolve (On Activation step 3).
+# Config and preferences are already loaded by then, so a step here can read
+# them but cannot run before them. Overrides append. Use for org-wide
+# pre-flight checks (auth, network, compliance) that must precede any
+# orchestration work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run once activation is complete, the CLI overrides included (so
+# headless mode already reflects --brief and --manifest), just before the
+# first stage executes. Overrides append. Use for context loads or banner
+# customization.
 
 activation_steps_append = []
 
@@ -32,6 +35,14 @@ activation_steps_append = []
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/skill-style.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#
+# The kickoff script expands each `file:` entry when it renders a Tier A
+# kickoff (a `**` glob recursively, so the default below takes every
+# project-context.md under {project-root}) and inlines each matching file in
+# full into every kickoff. Overrides append, so they cannot remove the
+# default: to keep these files out of the kickoffs, set kickoff_template_path
+# to a copy of templates/kickoff-template.md without its `## Campaign Facts`
+# section.
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
@@ -49,14 +60,25 @@ campaign_workspace_path = ""
 
 # --- Quality gate ---
 #
-# Campaign-wide quality bar applied to every skill. Scalars override the
-# bundled defaults; the per-campaign brief and any directive `## Quality
-# Overrides` still take precedence at runtime. Override here to change the
-# org-wide default without forking the skill.
+# Campaign-wide quality bar, enforced on every skill. Precedence, highest
+# first: the directive's `## Quality Overrides` (while the campaign runs),
+# then the `quality_gate` of the campaign-brief.yaml Setup reads (from
+# --brief or its opening question, field by field), then these values.
+# Override here to change the org-wide default without forking the skill.
 #
-# `zero-critical-high` passes a skill only when its test-skill run finds no
-# Critical or High gap. A missing export is a Medium gap: it lowers the
+# quality_gate_hard: `zero-critical-high` is the only accepted value (Setup
+# halts on any other). It passes a skill only when its test-skill run finds
+# no Critical or High gap. A missing export is a Medium gap: it lowers the
 # coverage score and no longer counts against this gate.
+#
+# quality_gate_soft_target: every Tier A test run gets it as `--threshold`,
+# and a completed skill scoring at or above it exports as `pass`.
+# quality_gate_soft_fallback: a completed skill scoring below the target but
+# at or above this exports as `fallback`; one below it, or with no score, is
+# listed at Export and not exported. test-skill fails a Tier A skill below
+# its threshold unless it scores at least 80 (its threshold fallback), so a
+# soft_fallback below 80 only matters for Tier B skills, checked by their
+# quick-skill (skill-check) score, or for a soft_target below 80.
 
 quality_gate_hard = "zero-critical-high"
 quality_gate_soft_target = 90

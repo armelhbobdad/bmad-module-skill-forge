@@ -6,13 +6,25 @@
 """Deterministic Completeness Score Calculator.
 
 Pure-function scoring script for the SKF test-skill workflow (step-05).
-Implements the weight tables, skip conditions, and proportional redistribution
-defined in scoring-rules.md.
+It is the one home of the scoring rules: the weight tables, the skip
+conditions and the proportional redistribution, the State 2 deduction, the
+minimum-evidence floor, both caps and the threshold fallback. scoring-rules.md
+points here and keeps only the Gap Severity table.
 
 CLI usage:
+  uv run compute-score.py --json-input '<JSON>' [score files]   # explicit flag form
   uv run compute-score.py '<JSON>'                  # JSON literal as positional arg
-  uv run compute-score.py --json-input '<JSON>'     # explicit flag form
   cat input.json | uv run compute-score.py --stdin  # piped input
+
+Score files. The category scores come from the scripts that computed them,
+read from the run folder by path, so no score is copied out of the report:
+  --coverage    reconcile-coverage.py --output: exportCoverage
+  --signatures  score-signatures.py score --output: signatureAccuracy, typeCoverage
+  --coherence   aggregate-coherence.py --output: combinedCoherence -> coherence
+  --external    combine-external-scores.py --output: externalScore -> externalValidation
+  --surface     load-coverage-inputs.py surface --output: its `state2` counts
+Each file sets its fields and wins over the same field in the JSON; a file
+that holds an error envelope or lacks its field is refused (exit 2).
 
 Input schema (one object):
   {
@@ -27,11 +39,30 @@ Input schema (one object):
     },
     "threshold": <0-100, optional, default 80>,
     "evidenceCount": <int, optional, used for INCONCLUSIVE floor>,
-    "analysisConfidence": "<optional string; 'degraded' fires the tooling cap>",
-    "toolingStatus": "<optional string; a '*-missing' marker fires the tooling cap>"
+    "analysisConfidence": "<optional: the source access, one of ANALYSIS_CONFIDENCE;
+                            metadata-only and remote-only skip Signature Accuracy
+                            and Type Coverage, as Quick tier does>",
+    "toolingStatus": "<optional: 'ok', or the tooling problem, e.g. 'frontmatter-validator-timeout'>",
+    "state2Counts": {"provenance": N, "metadata": N, "union": N}   # optional, State 2
   }
 
-Verdict override (post-score caps + threshold fallback — see compute_score):
+Verdict order (each step reads the one before it):
+  1. Score: redistribute the weights, weigh the scores, total them. On a
+     State 2 run of a skill that is not a stack, with state2Counts, the
+     State 2 undercount deduction comes first: when the provenance and
+     metadata union exceeds either source by more than STATE2_DIVERGENCE_PCT
+     percent, Export Coverage loses STATE2_DEDUCTION points (never below 0),
+     and `state2Deduction` and `scoringNotes` say so.
+  2. Minimum-evidence floor: too few active categories make the result
+     INCONCLUSIVE, which nothing below overrides.
+  3. PASS or FAIL: totalScore against the threshold (`result`).
+  4. Caps: Cap 1 (any toolingStatus other than "ok") and Cap 2 (docs-only
+     with no external validation score) turn a PASS into FAIL.
+  5. Threshold fallback: an uncapped FAIL whose totalScore is 80 or more,
+     against a threshold above 80, passes at the 80 floor. A run a cap
+     turned to FAIL stays FAIL, whatever the threshold.
+
+Verdict override (post-score caps and threshold fallback, steps 4 and 5):
   When a cap or the threshold fallback engages, the output additionally carries
   `effectiveResult` (the final verdict after caps/fallback), `capReason`
   (string or null), `thresholdFallback` (bool), and `originalThreshold` (the
@@ -40,16 +71,16 @@ Verdict override (post-score caps + threshold fallback — see compute_score):
   always the pre-cap/pre-fallback score-vs-threshold (or evidence-floor) verdict.
 
 Exit codes (same convention as reconcile-coverage.py):
-  0  — a score was computed; the verdict may be PASS/FAIL/INCONCLUSIVE
-  1  — input could not be parsed at all (no input provided, or malformed JSON)
-  2  — input parsed but schema/semantics invalid
+  0  a score was computed; the verdict may be PASS/FAIL/INCONCLUSIVE
+  1  input could not be parsed at all (no input provided, or malformed JSON)
+  2  input parsed but schema/semantics invalid, or a score file refused
 
 Both 1 and 2 emit an {"error": ..., "code": "INVALID_INPUT"} envelope on stdout,
 so the presence of that envelope — not the specific code — is what tells a caller
 the input was refused. A refused input is distinct from an unavailable script:
 the numbers handed in are wrong and must be fixed, NOT hand-computed into a total
-from the values this script declined to score. score.md §3c keys its
-manual-redistribution fallback on that distinction (no envelope at all).
+from the values this script declined to score. score.md §3c keys on that
+distinction: a refused input is corrected, a script that does not run halts.
 """
 
 from __future__ import annotations
@@ -58,8 +89,9 @@ import argparse
 import json
 import math
 import sys
+from pathlib import Path
 
-# --- Weight Tables (from scoring-rules.md) ---
+# --- Weight Tables ---
 
 CONTEXTUAL_WEIGHTS = {
     "exportCoverage": 36,
@@ -86,6 +118,21 @@ CATEGORIES = [
 ]
 
 DEFAULT_THRESHOLD = 80
+# The threshold fallback's floor: an uncapped FAIL scoring this much passes
+# when the threshold is above it.
+FALLBACK_FLOOR = 80
+
+# The source access levels a run reports (source-access-protocol.md). Tooling
+# health is not one of them: it is toolingStatus.
+ANALYSIS_CONFIDENCE = ("full", "provenance-map", "metadata-only", "remote-only", "docs-only")
+# States 3 and 4: no local source, so no signature or type to compare.
+NO_LOCAL_SOURCE = ("metadata-only", "remote-only")
+TOOLING_OK = "ok"
+
+# State 2 undercount risk: the provenance map is a frozen snapshot, so when it
+# and metadata.json disagree by more than this, Export Coverage is reduced.
+STATE2_DIVERGENCE_PCT = 5
+STATE2_DEDUCTION = 10
 
 
 # --- Redistribution equivalence classes (moved here from scoring-rules.md) ---
@@ -94,8 +141,9 @@ DEFAULT_THRESHOLD = 80
 # `weights` / `activeCategories` / `skippedCategories` output depends ONLY on
 # three things: the base table (contextual vs naive), whether Signature Accuracy
 # + Type Coverage are skipped (Quick tier OR docsOnly OR state2 OR stackSkill OR
-# referenceApp), and whether External Validation is skipped (externalValidation
-# is null). Every (mode × tier × docsOnly × state2 × stackSkill × referenceApp)
+# referenceApp OR State 3/4), and whether External Validation is skipped
+# (externalValidation is null). Every (mode × tier × docsOnly × state2 ×
+# stackSkill × referenceApp × analysisConfidence)
 # cell with an identical skip set + base table therefore reduces to the same
 # equivalence class below and emits identical final weights for identical input
 # scores — only the `skipReasons` string differs. The prompt (score.md) never
@@ -133,12 +181,14 @@ DEFAULT_THRESHOLD = 80
 # | 25 | naive      | Quick  | F        | T      | naive      | Quick + State 2        | if null  | D     | (equiv.)                         |
 # | 26 | naive      | *      | T        | T      | naive      | docs-only + State 2    | if null  | D     | (equiv.)                         |
 #
-# Stack skills (stackSkill) and reference-app skills (referenceApp) share the
-# skip set of the docsOnly/state2 rows: contextual → class B, naive → class D;
-# only skipReasons differs (fixtures suite_u_stack_skill_deep,
-# suite_v_reference_app_deep). Quick-tier rows (4, 8, 12, 17, 21, 25) then feed
-# the minimum-evidence floor in the result block below (§7 of compute_score),
-# which can force INCONCLUSIVE after this pre-floor redistribution.
+# Stack skills (stackSkill), reference-app skills (referenceApp) and State 3/4
+# runs (analysisConfidence metadata-only or remote-only) share the skip set of
+# the docsOnly/state2 rows: contextual → class B, naive → class D; only
+# skipReasons differs (fixtures suite_u_stack_skill_deep,
+# suite_v_reference_app_deep, suite_ab_naive_forge_metadata_only). Quick-tier
+# rows (4, 8, 12, 17, 21, 25) then feed the minimum-evidence floor in the
+# result block below (§7 of compute_score), which can force INCONCLUSIVE after
+# this pre-floor redistribution.
 
 
 # --- Helpers ---
@@ -205,6 +255,22 @@ def validate_input(inp):
         if val is not None and not isinstance(val, str):
             return f"{str_field} must be a string or null, got: {type(val).__name__}"
 
+    confidence = inp.get("analysisConfidence")
+    if confidence == "degraded":
+        return ("analysisConfidence no longer takes 'degraded': it names the source access only. "
+                "Pass the tooling problem as toolingStatus (for example 'frontmatter-validator-timeout').")
+    if confidence is not None and confidence not in ANALYSIS_CONFIDENCE:
+        return f"analysisConfidence must be one of: {', '.join(ANALYSIS_CONFIDENCE)}"
+
+    counts = inp.get("state2Counts")
+    if counts is not None:
+        if not isinstance(counts, dict):
+            return "state2Counts must be an object {provenance, metadata, union}"
+        for key in ("provenance", "metadata", "union"):
+            val = counts.get(key)
+            if isinstance(val, bool) or not isinstance(val, int) or val < 0:
+                return f"state2Counts.{key} must be an integer >= 0"
+
     for cat in CATEGORIES:
         score = inp["scores"].get(cat)
         if score is not None:
@@ -231,6 +297,7 @@ def compute_score(inp):
     state2 = inp.get("state2") is True
     stack_skill = inp.get("stackSkill") is True
     reference_app = inp.get("referenceApp") is True
+    no_local_source = inp.get("analysisConfidence") in NO_LOCAL_SOURCE
     threshold = inp.get("threshold") if inp.get("threshold") is not None else DEFAULT_THRESHOLD
     scores = inp["scores"]
 
@@ -239,7 +306,7 @@ def compute_score(inp):
 
     # 3. Determine skip set
     skip_reasons = {}
-    skip_sig_type = tier == "Quick" or docs_only or state2 or stack_skill or reference_app
+    skip_sig_type = tier == "Quick" or docs_only or state2 or stack_skill or reference_app or no_local_source
 
     if skip_sig_type:
         reasons = []
@@ -253,6 +320,8 @@ def compute_score(inp):
             reasons.append("stack skill (external type surface)")
         if reference_app:
             reasons.append("reference-app (no library export signatures)")
+        if no_local_source:
+            reasons.append("no local source (State 3/4)")
         reason = " + ".join(reasons)
         skip_reasons["signatureAccuracy"] = reason
         skip_reasons["typeCoverage"] = reason
@@ -293,13 +362,41 @@ def compute_score(inp):
         else:
             final_weights[cat] = round2((adjusted_weights[cat] / sum_active_weights) * 100)
 
+    # 4b. State 2 undercount deduction: a frozen provenance map that disagrees
+    # with its own metadata may hide source exports, so prefer understating.
+    effective_scores = dict(scores)
+    scoring_notes = []
+    state2_deduction = None
+    counts = inp.get("state2Counts")
+    if state2 and not stack_skill and counts is not None:
+        sources = [counts["provenance"], counts["metadata"]]
+        divergence = 0.0
+        if all(sources):
+            divergence = round2(max((counts["union"] - n) / n * 100 for n in sources))
+        applied = divergence > STATE2_DIVERGENCE_PCT
+        raw = scores["exportCoverage"]
+        adjusted = max(0, raw - STATE2_DEDUCTION) if applied else raw
+        effective_scores["exportCoverage"] = adjusted
+        state2_deduction = {
+            "divergencePct": divergence,
+            "applied": applied,
+            "rawExportCoverage": raw,
+            "exportCoverage": adjusted,
+        }
+        if applied:
+            scoring_notes.append(
+                f"State 2 undercount risk acknowledged: {STATE2_DEDUCTION}-point deduction applied to "
+                f"Export Coverage (raw: {raw}%, adjusted: {adjusted}%; provenance and metadata "
+                f"diverge by {divergence}%)"
+            )
+
     # 5. Compute weighted scores
     weighted_scores = {}
     for cat in CATEGORIES:
         if final_weights[cat] == 0:
             weighted_scores[cat] = 0
         else:
-            weighted_scores[cat] = round2((final_weights[cat] / 100) * scores[cat])
+            weighted_scores[cat] = round2((final_weights[cat] / 100) * effective_scores[cat])
 
     # 6. Compute total
     total_score = round2(sum(weighted_scores[cat] for cat in CATEGORIES))
@@ -310,7 +407,7 @@ def compute_score(inp):
     # 7. Determine result — MINIMUM-EVIDENCE FLOOR first, then PASS/FAIL.
     # skf-test-skill grades other skills; a false PASS is catastrophic.
     # If the evidence base is too thin to cross-validate itself, force
-    # INCONCLUSIVE (a gate, not a pass/fail). See scoring-rules.md.
+    # INCONCLUSIVE (a gate, not a pass/fail).
     active_categories = [cat for cat in CATEGORIES if final_weights[cat] > 0]
     skipped_categories = [
         cat for cat in CATEGORIES if cat in skipped_set or base_weights[cat] == 0
@@ -352,12 +449,10 @@ def compute_score(inp):
     else:
         result = "PASS" if total_score >= threshold else "FAIL"
 
-    # 7b. Post-score caps + threshold fallback — deterministic verdict override.
-    # Lifted from score.md §3d/§4b so the cap<->fallback interaction is centralized
-    # and unit-tested here rather than re-derived in the prompt. The minimum-
+    # 7b. Post-score caps, then the threshold fallback: the deterministic verdict
+    # override, kept here so the prompt never re-derives it. The minimum-
     # evidence floor (INCONCLUSIVE) is a gate that NO cap or fallback may override,
     # so all of this is skipped when result == "INCONCLUSIVE".
-    analysis_confidence = inp.get("analysisConfidence")
     tooling_status = inp.get("toolingStatus")
 
     effective_result = result
@@ -368,15 +463,13 @@ def compute_score(inp):
 
     if result != "INCONCLUSIVE":
         cap_reasons = []
-        # Cap 1 — tooling degraded: analysis confidence is "degraded", or a
-        # missing-helper marker (e.g. python3-missing, frontmatter-validator-missing).
-        tooling_degraded = analysis_confidence == "degraded" or (
-            isinstance(tooling_status, str) and "missing" in tooling_status
-        )
-        if tooling_degraded:
+        # Cap 1: tooling degraded, any toolingStatus other than "ok" (a missing
+        # helper, or a validator that timed out). Absent means not reported.
+        if tooling_status is not None and tooling_status != TOOLING_OK:
             cap_fired = True
             cap_reasons.append(
-                "tooling degraded — capped below threshold until helper restored"
+                f"tooling degraded (toolingStatus: {tooling_status}): capped below threshold "
+                "until the tooling is restored"
             )
         # Cap 2 — docs-only mode with no external validators available.
         if docs_only and scores.get("externalValidation") is None:
@@ -390,14 +483,12 @@ def compute_score(inp):
             if result == "PASS":
                 effective_result = "FAIL"
 
-        # Threshold fallback — convert a FAIL into PASS at the 80 floor when the
-        # RAW totalScore clears 80 and the effective threshold was above 80. The
-        # fallback reads the raw totalScore (matching score.md §4b's documented
-        # `totalScore >= 80`), not the capped value; because it also requires
-        # threshold > 80 (so threshold - 1 >= 80), min(totalScore, threshold - 1)
-        # is itself >= 80 whenever totalScore >= 80, so raw-vs-capped is the same
-        # decision — raw is used for spec fidelity and testability.
-        if effective_result == "FAIL" and total_score >= 80 and threshold > 80:
+        # Threshold fallback: an uncapped FAIL passes at the 80 floor when
+        # totalScore clears 80 and the threshold was above 80. A cap means the
+        # evidence cannot be trusted at any threshold, so a capped run stays
+        # FAIL: a threshold above 80 is a target, never a way past a cap.
+        if (effective_result == "FAIL" and not cap_fired and total_score >= FALLBACK_FLOOR
+                and threshold > FALLBACK_FLOOR):
             threshold_fallback = True
             original_threshold = threshold
             effective_result = "PASS"
@@ -438,6 +529,12 @@ def compute_score(inp):
         output["capReason"] = cap_reason
         output["thresholdFallback"] = threshold_fallback
         output["originalThreshold"] = original_threshold
+
+    if state2_deduction is not None:
+        output["state2Deduction"] = state2_deduction
+
+    if scoring_notes:
+        output["scoringNotes"] = scoring_notes
 
     if warnings:
         output["warnings"] = warnings
@@ -484,7 +581,65 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Read the JSON object from stdin.",
     )
+    files = parser.add_argument_group("score files (each wins over the same JSON field)")
+    files.add_argument("--coverage", metavar="PATH", help="reconcile-coverage.py output: exportCoverage")
+    files.add_argument("--signatures", metavar="PATH",
+                       help="score-signatures.py score output: signatureAccuracy and typeCoverage")
+    files.add_argument("--coherence", metavar="PATH", help="aggregate-coherence.py output: combinedCoherence")
+    files.add_argument("--external", metavar="PATH", help="combine-external-scores.py output: externalScore")
+    files.add_argument("--surface", metavar="PATH", help="load-coverage-inputs.py surface output: state2")
     return parser
+
+
+# (flag, [(field in the file, category it fills)]); a null field leaves the category null.
+SCORE_FILES = (
+    ("coverage", [("exportCoverage", "exportCoverage")]),
+    ("signatures", [("signatureAccuracy", "signatureAccuracy"), ("typeCoverage", "typeCoverage")]),
+    ("coherence", [("combinedCoherence", "coherence")]),
+    ("external", [("externalScore", "externalValidation")]),
+)
+
+
+class ScoreFileError(Exception):
+    """A score file that cannot be read or does not hold its score."""
+
+
+def _read_score_file(path, flag):
+    try:
+        data = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ScoreFileError(f"cannot read --{flag} {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ScoreFileError(f"--{flag} {path} is not JSON: {exc.msg}") from exc
+    if not isinstance(data, dict):
+        raise ScoreFileError(f"--{flag} {path} is not a JSON object")
+    if "error" in data or data.get("valid") is False:
+        raise ScoreFileError(f"--{flag} {path} holds a refused result, not a score")
+    return data
+
+
+def apply_score_files(inp, args):
+    """Fill `scores` and `state2Counts` from the score files the flags name."""
+    for flag, fields in SCORE_FILES:
+        path = getattr(args, flag)
+        if path is None:
+            continue
+        data = _read_score_file(path, flag)
+        scores = inp.setdefault("scores", {})
+        if not isinstance(scores, dict):
+            raise ScoreFileError("scores must be an object")
+        for field, category in fields:
+            if field not in data:
+                raise ScoreFileError(f"--{flag} {path} has no `{field}`")
+            scores[category] = data[field]
+    if args.surface is not None:
+        data = _read_score_file(args.surface, "surface")
+        state2 = data.get("state2")
+        if isinstance(state2, dict):
+            inp["state2Counts"] = {"provenance": state2.get("provenanceCount"),
+                                   "metadata": state2.get("metadataCount"),
+                                   "union": state2.get("unionCount")}
+    return inp
 
 
 def _resolve_input(args: argparse.Namespace) -> str:
@@ -512,17 +667,40 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(make_error(f"Invalid JSON: {exc.msg}"), indent=2))
         return 1
 
+    if isinstance(data, dict):
+        try:
+            data = apply_score_files(data, args)
+        except ScoreFileError as exc:
+            print(json.dumps(make_error(str(exc)), indent=2))
+            return 2
+
     result = compute_score(data)
     print(json.dumps(result, indent=2))
     # A rejected input exits 2, matching reconcile-coverage.py. Exiting 0 here
     # made a malformed scoring input indistinguishable from a scored run, so the
     # error envelope could be skimmed past and the score hand-computed from the
-    # very numbers the script refused. score.md §3c keys the manual-redistribution
-    # fallback on this distinction.
+    # very numbers the script refused. score.md §3c keys on this distinction: a
+    # refused input is corrected, a script that does not run halts.
     if isinstance(result, dict) and result.get("code") == "INVALID_INPUT":
         return 2
     return 0
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdout and stderr to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which cannot print every character
+    of the --help text, so --help would stop with UnicodeEncodeError.
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdout, sys.stderr)
     raise SystemExit(main())

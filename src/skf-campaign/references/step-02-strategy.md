@@ -46,14 +46,15 @@ Run the deterministic topological sort — do not hand-compute it:
 uv run {depsScript} --compute --state-file {stateFile}
 ```
 
-Parse the JSON output: `execution_order` (the ordered skill names — Kahn's sort with Tier A placed before Tier B within a dependency level), `circular_deps_detected` (bool), `cycle_participants` (the unplaced skills when a cycle exists, else null), and `tier_counts` (`{"A": n, "B": m}`, for the §7 strategy view). Script exit 1 signals an unorderable graph — a cycle or a dangling `depends_on` reference — handled at §5. Script exit 2 signals the helper could not read/parse the state file; HALT (exit code 2, `invalid-input`) surfacing its error.
+Parse the JSON output: `execution_order` (the ordered skill names: Kahn's sort with Tier A placed before Tier B within a dependency level), `circular_deps_detected` (bool), `cycle_participants` (the unplaced skills when a cycle exists, else null), `tier_counts` (`{"A": n, "B": m}`, for the §7 strategy view) and `tier_inversions` (each Tier A `skill` that `depends_on` a Tier B skill). Script exit 1 signals a plan the stages cannot follow (a cycle, a dangling `depends_on` reference or a tier inversion), handled at §5 before the §7 view shows any order. Script exit 2 signals the helper could not read/parse the state file; HALT (exit code 2, `invalid-input`) surfacing its error.
 
 ### §5 — Handle Unorderable Graph
 
-If the graph cannot be ordered (script exit 1), HALT (exit code 4, `circular-deps`) — the execution order is impossible, so do not proceed. Two cases:
+If the graph cannot be followed (script exit 1), HALT (exit code 4, `circular-deps`): the execution order is impossible, so do not proceed. Three cases:
 
 - **Cycle** (`circular_deps_detected: true`): list `cycle_participants` and their mutual `depends_on` edges.
 - **Dangling reference** (a `DANGLING_DEPENDENCY` error with no `execution_order`): name the skill and the unknown dependency it references.
+- **Tier A on Tier B** (`tier_inversions` non-empty, a `TIER_INVERSION` error): name each `skill` and the Tier B skill it `depends_on`. Tier B skills are built in the batch stage, after the skill loop, so the Tier A skill could never pass its dependency gate. Guidance: make the dependency Tier A, or drop the dependency, then re-run `campaign` and choose overwrite.
 
 ### §6 — Write State
 

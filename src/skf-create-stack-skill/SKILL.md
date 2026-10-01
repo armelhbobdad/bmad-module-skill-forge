@@ -59,8 +59,8 @@ Every step that emits a warning appends a structured entry to a single in-memory
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | project_path [required], mode (code/compose) [auto-detected] |
-| **Gates** | step 3: Confirm Gate [C] | step 6: Review Gate [C] |
+| **Inputs** | All optional; step 1 binds and checks each one, and halts with `input-invalid` on a value it cannot use. `project_path`: the folder code mode scans (default: the project root; an interactive run asks once when the manifests sit in several folders). `skills`: the libraries to rank, or the constituent skills in compose mode. `stack_name`: the stack's skill name (default `{project_name}-stack`). `scope_overrides`: step 3 scope overrides. `architecture_doc_path`: the document compose mode reads. `mode`: `code` or `compose` (default: step 1 detects it) |
+| **Gates** | step 1: compose suggestion and scan scope (interactive only); step 3: Confirm Gate [C]; step 6: Review Gate [C] |
 | **Outputs** | SKILL.md (stack), context-snippet.md, metadata.json |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | See "Exit Codes" below |
@@ -72,8 +72,8 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | Code | Meaning              | Raised by (halt_reason)                                                                     |
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success              | step 10 (terminal handoff to shared health-check)                                          |
-| 2    | input / precondition invalid | step 1 §0 `config.yaml` missing/malformed (`config-missing`); step 2 §2 headless with no manifests (`no-manifests`, S2); step 4 §3 all extractions failed (`all-extractions-failed`, B7); step 5 §2 feasibility-report `schemaVersion` mismatch (`schema-version-mismatch`) |
-| 3    | resolution-failure   | step 1 §1 `forge-tier.yaml` missing (`forge-tier-missing`); step 2 §0 compose-mode stale manifest (a manifest key whose skill folder is gone); step 2 §0 compose-mode zero qualifying skills (S1/B4); step 4 §0 compose-cycle among confirmed skills, or a confirmed skill no longer an SKF package; step 5 §3 or step 7 §6 `skf-render-stack-metadata.py` missing: all `resolution-failure` |
+| 2    | input / precondition invalid | step 1 §0 `config.yaml` missing/malformed (`config-missing`); step 1 §0 or §3 an input it cannot use (`input-invalid`); step 2 §2 headless with no manifests (`no-manifests`, S2); step 4 §3 all extractions failed (`all-extractions-failed`, B7); step 5 §2 feasibility-report `schemaVersion` mismatch (`schema-version-mismatch`) |
+| 3    | resolution-failure   | step 1 §1 `forge-tier.yaml` missing (`forge-tier-missing`); step 1 §0 or §3, or step 3 §1, a helper missing (`resolution-failure`); step 2 §0 compose-mode stale manifest (a manifest key whose skill folder is gone); step 2 §0 compose-mode zero qualifying skills (S1/B4); step 4 §0 compose-cycle among confirmed skills, or a confirmed skill no longer an SKF package; step 5 §3 or step 7 §6 `skf-render-stack-metadata.py` missing: all `resolution-failure` |
 | 4    | write-failure        | step 7 §1 stage-dir / commit-dir failure; step 7 §1 group-dir collision when an existing non-stack skill occupies the target path — both `write-failure` |
 | 5    | state-conflict       | step 7 §1 ownership check (S3, both phases): the stack's folder in skills_output_folder, or the version folder this run writes, is not SKF output or SKF cannot check it (`not-skf-output`); an SKF stack still in the flat layout (`flat-layout`) |
 | 6    | user-cancelled       | any interactive menu in step 3 / step 6 when the user selects `[X]` Cancel and exit (`user-cancelled`) |
@@ -83,10 +83,10 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 When `{headless_mode}` is true, step 9 emits a single-line JSON envelope on **stdout** before chaining to step 10, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"success|error","skill_package":"…|null","skill_name":"…","stack_libraries":["…"],"mode":"code|compose","exit_code":0,"halt_reason":null}
+SKF_STACK_RESULT_JSON: {"status":"success|error","skill_package":"…|null","skill_name":"…","stack_libraries":["…"],"mode":"code|compose","quality_score":null,"exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `skill_package` is the absolute path to the committed stack-skill directory (or `null` on error before commit). `skill_name` is the stack skill's published name (e.g. `{project_name}-stack`). `stack_libraries` is the array of library names included in the stack (constituent skill names in compose-mode, dependency names in code-mode). `mode` is `"code"` or `"compose"` per the run's resolved mode (`null` if the run halts before mode resolution). `halt_reason` is one of: `null` (success), `"config-missing"`, `"forge-tier-missing"`, `"no-manifests"`, `"all-extractions-failed"`, `"schema-version-mismatch"`, `"resolution-failure"`, `"write-failure"`, `"not-skf-output"`, `"flat-layout"`, `"user-cancelled"`. `exit_code` matches the table above. Fields unknown at the halt point are `null` (`skill_name`) or `[]` (`stack_libraries`) — e.g. a `config-missing` halt precedes `project_name` resolution.
+`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `skill_package` is the absolute path to the committed stack-skill directory (or `null` on error before commit). `skill_name` is the stack skill's published name, `{stack_name}` (step 1 §0 binds it). `stack_libraries` is the array of library names included in the stack (constituent skill names in compose-mode, dependency names in code-mode). `mode` is `"code"` or `"compose"` per the run's resolved mode (`null` if the run halts before mode resolution). `quality_score` is the skill-check score step 8 §3 records for the committed package, `null` when skill-check did not run and on every error; it is not a test-skill score ([TS] grades the stack). `halt_reason` is one of: `null` (success), `"config-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"no-manifests"`, `"all-extractions-failed"`, `"schema-version-mismatch"`, `"resolution-failure"`, `"write-failure"`, `"not-skf-output"`, `"flat-layout"`, `"user-cancelled"`. `exit_code` matches the table above. Fields unknown at the halt point are `null` (`skill_name`, `quality_score`) or `[]` (`stack_libraries`): a `config-missing` halt, for one, precedes `project_name` resolution.
 
 ## On Activation
 

@@ -26,6 +26,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "src" / "skf-campaign" / "scripts" / "campaign-render-kickoff.py"
 TEMPLATE = REPO_ROOT / "src" / "skf-campaign" / "templates" / "kickoff-template.md"
 STEP_05 = REPO_ROOT / "src" / "skf-campaign" / "references" / "step-05-skill-loop.md"
+GATE_SCRIPT = REPO_ROOT / "src" / "skf-campaign" / "scripts" / "campaign-quality-gate.py"
 
 
 def _load():
@@ -97,7 +98,12 @@ class TestRenderKickoff:
         assert "v1.2.3" in out
         assert "abc123" in out
         assert "https://github.com/o/auth" in out
-        assert "Hard: zero-critical-high | Soft: 90 (fallback: 80)" in out
+        # The shipped template shows no campaign-wide gate: step-05 resolves each skill's own
+        # threshold. A custom template that keeps the slot still gets it filled.
+        assert "Soft: 90" not in out
+        assert "Hard: zero-critical-high | Soft: 90 (fallback: 80)" in mod.render_kickoff(
+            STATE, BRIEF, "auth", "Gate: {{quality_gate_summary}}"
+        )
         # dependency status table for core (completed)
         assert "| core | completed |" in out
         # workaround list
@@ -570,10 +576,12 @@ class TestStep05Call:
         assert "Correct a call once only: when the corrected call fails too, HALT (exit code 2, `invalid-input`)." in text
 
     def test_routed_codes_are_the_scripts(self):
+        # step-05 routes the kickoff script's codes and the gate script's resolve codes.
         routed = set(re.findall(r"`([A-Z]+(?:_[A-Z]+)+)`", STEP_05.read_text(encoding="utf-8")))
-        assert routed == {"BAD_WORKAROUNDS", "BAD_FACTS", "BRIEF_NOT_FOUND", "BRIEF_UNREADABLE"}
+        assert routed == {"BAD_WORKAROUNDS", "BAD_FACTS", "BRIEF_NOT_FOUND", "BRIEF_UNREADABLE", "TARGET_NOT_FOUND"}
+        gate_doc = GATE_SCRIPT.read_text(encoding="utf-8").split('"""', 2)[1]
         for code in routed:
-            assert code in mod.__doc__
+            assert code in mod.__doc__ or code in gate_doc, code
 
     def test_step_fills_nothing_by_hand(self):
         text = STEP_05.read_text(encoding="utf-8")

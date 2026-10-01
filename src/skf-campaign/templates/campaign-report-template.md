@@ -21,6 +21,10 @@
 |------|------|--------|---------------|-----|-------------|
 {{skills_table}}
 
+## Export Gate
+
+{{export_gate_section}}
+
 ## Quality Scores
 
 | Metric | Value |

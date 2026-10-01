@@ -163,9 +163,11 @@ timeout 30s uv run {frontmatterScript} {resolved_skill_package}/SKILL.md --skill
 ```
 
 If the command trips the 30s wall-clock (exit code `124`), set
-`analysis_confidence: degraded` and `toolingStatus: frontmatter-validator-timeout`
-in workflow context, apply the step 5 tooling-degraded cap (score capped at
-`threshold - 1` → auto-FAIL), and record the reason in evidence-report.
+`tooling_status: frontmatter-validator-timeout` in workflow context; otherwise
+set `tooling_status: ok`. Tooling health lives only there: `analysis_confidence`
+names the source access coverage-check resolves, so neither overwrites the
+other. Step 5 passes `tooling_status` to its scoring script, whose Cap 1 fails
+any run whose tooling status is not `ok`, at every threshold.
 
 Parse the JSON output. Treat each `status` value explicitly:
 
@@ -267,7 +269,13 @@ The owner names no run id, so the helper adds one. Bind `{run_id}` ← `run_id` 
 
 **6b. Act on the result:**
 
-- `acquired` is true: the lock is this run's. When `stale_replaced` is not null, a run that ended without releasing its lock left it: log `run lock: replaced the stale lock of {stale_replaced.held_by} (held since {stale_replaced.held_since})` and continue.
+- `acquired` is true: the lock is this run's. When `stale_replaced` is not null, a run that ended without releasing its lock left it: log `run lock: replaced the stale lock of {stale_replaced.held_by} (held since {stale_replaced.held_since})` and continue. Then create the run folder, where the later steps keep the files their scripts hand each other, and bind `{run_dir}` ← `{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}`:
+
+  ```bash
+  mkdir -p "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"
+  ```
+
+  If it cannot be created, release the run lock (SKILL.md Workflow Rules), then HALT with the first stderr line. report.md §7 removes the folder when the run ends; a HALT leaves it for inspection.
 - `acquired` is false (exit 3): another run holds a lock that has not gone stale. HALT with "**Another test-skill run is active for {skill_name}.** {message}": the helper's `message` names that run, the lock file to delete when no run is active, and the time the lock goes stale. **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
 
 ```
@@ -290,14 +298,16 @@ hardGate: ''
 testResult: ''
 score: ''
 threshold: ''
-analysisConfidence: '{full|degraded}'
-toolingStatus: '{ok|python3-missing|uv-missing|frontmatter-validator-missing|frontmatter-validator-timeout}'
+analysisConfidence: ''
+toolingStatus: '{ok|frontmatter-validator-timeout}'
 workspaceDrift: '{not-checked|ok|overridden}'
 testDate: '{run_id timestamp ISO-8601 UTC}'
 stepsCompleted: ['init']
 nextWorkflow: ''
 ---
 ```
+
+`toolingStatus` is the `tooling_status` §3b set. `analysisConfidence` stays empty until score.md §7 writes the source access coverage-check resolved: `full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`.
 
 ### 7. Report Initialization Status
 

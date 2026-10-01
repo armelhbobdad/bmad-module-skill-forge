@@ -2,8 +2,8 @@
 nextStepFile: 'step-hard-gate.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 externalScoreScript: 'scripts/combine-external-scores.py'
-outputFormatsFile: '{outputFormatsPath}'
-scoringRulesFile: '{scoringRulesPath}'
+outputFormatsFile: 'assets/output-section-formats.md'
+scoringRulesFile: 'references/scoring-rules.md'
 # §5b records the validators' findings in the run's gap ledger, which the
 # hard gate (step 4c) reads and the Gap Report is rendered from.
 ledgerFile: '{forge_version}/test-findings-{run_id}.json'
@@ -137,10 +137,10 @@ Every key is always present: the scores and `{tessl_validation}` are null and th
 The combined external score feeds `externalValidation` into the scoring script (step 5), so its mean is computed by a script, not in-prompt. Both scores are on the same 0-100 scale (skill-check's quality score; the Tessl Review score). Pass `skill_check_score` as `skillCheckScore` and `{tessl_review_score}` as `tesslReviewScore`, each `null` when its tool produced no score (`{externalScoreScript}` resolves relative to the skill root):
 
 ```bash
-echo '{"skillCheckScore": <score or null>, "tesslReviewScore": <score or null>}' | uv run {externalScoreScript} --stdin
+echo '{"skillCheckScore": <score or null>, "tesslReviewScore": <score or null>}' | uv run {externalScoreScript} --stdin --output "{run_dir}/external.json"
 ```
 
-Read the result — do not re-average by hand. Bind `{external_score}` ← `externalScore` (the mean when both tools produced a score, the single score when one did, or `null` when neither did: the scoring step then redistributes the external-validation weight) and `{external_tools_used}` ← `toolsUsed` (`skill-check`, and `tessl` for Tessl Review). Record `external_score: N/A` when `{external_score}` is null.
+`--output` also writes the result to the run folder, where step 5 hands it to the scoring script; run the command even when neither tool produced a score. Read the result: do not re-average by hand. Bind `{external_score}` ← `externalScore` (the mean when both tools produced a score, the single score when one did, or `null` when neither did: the scoring step then redistributes the external-validation weight) and `{external_tools_used}` ← `toolsUsed` (`skill-check`, and `tessl` for Tessl Review). Record `external_score: N/A` when `{external_score}` is null.
 
 ### 5. Write the External Validation Section
 

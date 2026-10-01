@@ -42,7 +42,7 @@ uv run {reportScript} \
     --output-file {reportFile}
 ```
 
-Capture the JSON result from stdout — it carries `skills_completed`, `skills_failed`, `quality_scores`, and `duration` already computed. Do not recompute these by hand in §3.
+Capture the JSON result from stdout: it carries `skills_completed`, `skills_failed`, `quality_scores`, `export_verdicts` (each completed skill's quality-gate verdict at Export), `skills_excluded` (the completed skills the gate kept from export) and `duration`, already computed. Do not recompute these by hand in §3.
 
 **On success** (exit code 0): log the report path and summary stats from the result JSON.
 
@@ -54,14 +54,14 @@ Display: "**Campaign report generated:** `{reportFile}`" (or, on degrade, "**Cam
 
 ### §3 — Emit Headless Envelope
 
-When `{headless_mode}` is true, emit the campaign result envelope on stdout, copying the counts, `quality_scores`, and `duration` straight from the §2 report-script result (do not recompute):
+When `{headless_mode}` is true, emit the campaign result envelope on stdout, copying the counts, `quality_scores`, `export_verdicts`, `skills_excluded` and `duration` straight from the §2 report-script result (do not recompute):
 
 ```
-SKF_CAMPAIGN_RESULT_JSON: {"status":"success","skills_completed":N,"skills_failed":N,"quality_scores":{...},"campaign_report_path":"{reportFile}","decision_log":"{campaignWorkspacePath}/_campaign-decision-log.md","duration":"..."}
+SKF_CAMPAIGN_RESULT_JSON: {"status":"success","skills_completed":N,"skills_failed":N,"quality_scores":{...},"export_verdicts":{...},"skills_excluded":[...],"campaign_report_path":"{reportFile}","decision_log":"{campaignWorkspacePath}/_campaign-decision-log.md","duration":"..."}
 ```
 
 - `status`: "success" if the campaign completed normally (HARD HALTs emit the error variant per the "Result Contract on HARD HALT" in `references/campaign-contracts.md`)
-- `skills_completed` / `skills_failed` / `quality_scores` / `duration`: from the §2 report-script result JSON
+- `skills_completed` / `skills_failed` / `quality_scores` / `export_verdicts` / `skills_excluded` / `duration`: from the §2 report-script result JSON
 - `campaign_report_path`: `{reportFile}`
 - `decision_log`: path to the append-only decision log
 

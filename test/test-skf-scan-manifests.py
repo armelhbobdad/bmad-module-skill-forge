@@ -13,6 +13,7 @@ Covers:
   - package identity: each manifest's own name and private flag
   - internal_deps and umbrella_candidates across workspace members
   - --include-dev: development dependencies tagged scope: dev
+  - folders: each manifest folder with the package names it holds
   - searched_filenames, and manifest-patterns.md in skf-create-stack-skill
     kept equal to MANIFEST_ECOSYSTEMS and EXCLUDED_DIRS
 """
@@ -475,6 +476,7 @@ dependencies = ["requests>=2.0", "click==8.0"]
             "manifests": [],
             "total_unique": 0,
             "monorepo": False,
+            "folders": [],
             "umbrella_candidates": [],
             "searched_filenames": list(mod.MANIFEST_ECOSYSTEMS),
         }
@@ -508,6 +510,20 @@ dependencies = ["requests>=2.0", "click==8.0"]
         result = mod.scan(tmp_path)
         # react appears in both manifests but counts once
         assert result["total_unique"] == 2
+
+    def test_folders_list_each_manifest_folder_with_its_names(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", json.dumps({"name": "root"}))
+        _write(tmp_path / "apps" / "web" / "package.json", json.dumps({"name": "web"}))
+        _write(tmp_path / "apps" / "web" / "requirements.txt", "requests\n")
+        _write(tmp_path / "apps" / "api" / "pyproject.toml", '[project]\nname = "api"\n')
+        _write(tmp_path / "apps" / "api" / "requirements.txt", "flask\n")
+        result = mod.scan(tmp_path)
+        assert result["folders"] == [
+            {"path": ".", "names": ["root"]},
+            {"path": "apps/api", "names": ["api"]},
+            {"path": "apps/web", "names": ["web"]},
+        ]
+        assert mod.scan(tmp_path / "apps" / "web")["folders"] == [{"path": ".", "names": ["web"]}]
 
     def test_paths_use_forward_slashes(self, tmp_path: Path) -> None:
         _write(
@@ -555,6 +571,7 @@ class TestCli:
             "manifests": [],
             "total_unique": 0,
             "monorepo": False,
+            "folders": [],
             "umbrella_candidates": [],
             "searched_filenames": list(mod.MANIFEST_ECOSYSTEMS),
         }

@@ -132,3 +132,24 @@ def test_cli_unparseable_json_exits_1():
     proc = _run_agg_cli("{not json")
     assert proc.returncode == 1
     assert json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+
+
+def test_cli_output_writes_the_score_file(tmp_path):
+    """coherence-check §5c writes `{run_dir}/coherence.json`, which compute-score.py --coherence reads."""
+    out_path = tmp_path / "run" / "coherence.json"
+    proc = subprocess.run(
+        [sys.executable, str(AGG_SCRIPT_PATH), "--stdin", "--output", str(out_path)],
+        input=json.dumps({"valid_references": 6, "total_references": 7, "patterns_documented": 5,
+                          "patterns_complete": 4}),
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(proc.stdout)
+
+
+def test_cli_refused_input_removes_a_stale_score_file(tmp_path):
+    out_path = tmp_path / "coherence.json"
+    out_path.write_bytes(b'{"combinedCoherence": 100}')
+    proc = subprocess.run([sys.executable, str(AGG_SCRIPT_PATH), "--stdin", "--output", str(out_path)],
+                          input=json.dumps({"unexpected": "payload"}), capture_output=True, text=True)
+    assert proc.returncode == 2 and not out_path.exists()

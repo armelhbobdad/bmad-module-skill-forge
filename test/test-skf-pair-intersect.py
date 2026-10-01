@@ -8,6 +8,8 @@ Covers:
   - validate_libraries: structural errors (not-array, missing name, missing
     files, non-string entries)
   - CLI: file input, stdin (-) piping, --top-k override, exit codes
+  - --counts: the skf-count-imports.py envelope as input, each pair's files
+    with the line each library is imported on, and --only
 """
 
 from __future__ import annotations
@@ -386,3 +388,85 @@ class TestCli:
         r2 = _run_cli("intersect", "--libraries", str(libs_path))
         assert r1.returncode == 0 and r2.returncode == 0
         assert r1.stdout == r2.stdout
+
+
+# --------------------------------------------------------------------------
+# --counts: the skf-count-imports.py envelope, piped as it is
+# --------------------------------------------------------------------------
+
+
+def _counted(name: str, files: dict[str, int]) -> dict:
+    return {"name": name, "ecosystem": "npm", "import_names": [name], "resolution": "exact",
+            "files": [{"path": path, "line": line} for path, line in files.items()],
+            "file_count": len(files), "above_threshold": len(files) >= 2}
+
+
+COUNTS = {
+    "threshold": 2,
+    "files_scanned": 4,
+    "dependencies": [
+        _counted("zustand", {"src/main.tsx": 3, "src/store.tsx": 1, "src/util.ts": 1}),
+        _counted("react-dom", {"src/main.tsx": 2, "src/store.tsx": 2}),
+        _counted("react", {"src/main.tsx": 1}),
+    ],
+    "unresolved": [],
+}
+
+
+class TestCounts:
+    def test_pairs_carry_both_import_lines(self) -> None:
+        result = _run_cli("intersect", "--counts", "-", stdin_text=json.dumps(COUNTS))
+        assert result.returncode == 0, result.stderr
+        pairs = json.loads(result.stdout)["pairs"]
+        assert pairs[0] == {
+            "a": "react-dom", "b": "zustand", "intersection_count": 2,
+            "files": [{"path": "src/main.tsx", "line_a": 2, "line_b": 3},
+                      {"path": "src/store.tsx", "line_a": 2, "line_b": 1}],
+        }
+        assert [(p["a"], p["b"]) for p in pairs] == [
+            ("react-dom", "zustand"), ("react", "react-dom"), ("react", "zustand")]
+
+    def test_only_keeps_the_named_libraries(self, tmp_path: Path) -> None:
+        counts = tmp_path / "counts.json"
+        counts.write_text(json.dumps(COUNTS), encoding="utf-8")
+        result = _run_cli("intersect", "--counts", str(counts), "--only", " zustand, react-dom ,gone,")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert [(p["a"], p["b"]) for p in payload["pairs"]] == [("react-dom", "zustand")]
+        assert payload["total_pairs"] == 1
+
+    def test_units_pair_and_same_names_merge(self) -> None:
+        counts = {
+            "dependencies": [_counted("yaml", {"a.py": 4}), _counted("yaml", {"a.py": 2, "b.py": 1})],
+            "units": [{"name": "core", "path": "core", "files": [{"path": "a.py", "line": 1}]}],
+        }
+        pairs = mod.compute_pairs(mod.libraries_from_counts(counts))
+        assert pairs == [{"a": "core", "b": "yaml", "intersection_count": 1,
+                          "files": [{"path": "a.py", "line_a": 1, "line_b": 2}]}]
+
+    def test_windows_separators_become_forward_slashes(self) -> None:
+        counts = {"dependencies": [_counted("a", {"src\\x.ts": 1}), _counted("b", {"src/x.ts": 5})]}
+        (pair,) = mod.compute_pairs(mod.libraries_from_counts(counts))
+        assert pair["files"] == [{"path": "src/x.ts", "line_a": 1, "line_b": 5}]
+
+    def test_only_filters_a_libraries_input_too(self) -> None:
+        libs = [_lib("a", ["f1"]), _lib("b", ["f1"]), _lib("c", ["f1"])]
+        assert [(p["a"], p["b"]) for p in mod.compute_pairs(mod.only(libs, ["a", "c"]))] == [("a", "c")]
+
+    def test_a_list_is_not_a_count_envelope(self) -> None:
+        result = _run_cli("intersect", "--counts", "-", stdin_text="[]")
+        assert result.returncode == 1
+        assert "count envelope" in result.stderr
+
+    def test_a_file_entry_needs_a_line(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match=r"not a \{path, line\} object"):
+            mod.libraries_from_counts({"dependencies": [{"name": "a", "files": ["x.ts"]}]})
+        with pytest.raises(ValueError, match=r"not a \{path, line\} object"):
+            mod.libraries_from_counts({"dependencies": [{"name": "a", "files": [{"path": "x", "line": True}]}]})
+
+    def test_libraries_and_counts_are_exclusive(self) -> None:
+        result = _run_cli("intersect", "--libraries", "-", "--counts", "-", stdin_text="[]")
+        assert result.returncode == 2
+        assert "not allowed with" in result.stderr

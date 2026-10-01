@@ -58,6 +58,20 @@ compose branch of the sections they govern.
 - Step 7 §1 takes the stack version from skf-skill-inventory.py `version`
   (#597), and §5 measures the snippet with skf-count-tokens.py, the count
   the validator takes (#591).
+- Step 1 binds every input the Invocation Contract declares and halts with
+  `input-invalid` on one it cannot use (#594); `stack_name` names every path
+  and envelope, and every envelope carries the skill-check `quality_score`
+  (#586). `{scan_root}` comes from `project_path` or one question, and the
+  step 2 scan, the step 3 import counts and the step 5 co-import pairs stay
+  inside it (#606 item 5). Step 1 checks a requested stack name with the
+  validator step 7 runs, after `-stack` is appended.
+- Step 1 and step 2 pick compose-mode skills with the enumerate helper's
+  candidates mode, never by hand (#606 item 4); step 3 counts imports with
+  skf-count-imports.py, step 2 shows what the scanner searched and splits
+  runtime from dev by `scope`, and step 5 pipes step 3's counts to the pair
+  helper, whose pairs carry their co-import files and lines, instead of
+  grepping again (#598). Every path the run records is relative to the
+  project root.
 
 The step calls run as written, on small fixtures.
 
@@ -109,6 +123,12 @@ INVENTORY = SCRIPTS / "skf-skill-inventory.py"
 VALIDATOR = SCRIPTS / "skf-validate-output.py"
 COUNT_TOKENS = SCRIPTS / "skf-count-tokens.py"
 INTEGRATION_PATTERNS = REFS / "integration-patterns.md"
+INIT = REFS / "init.md"
+RANK = REFS / "rank-and-confirm.md"
+SCAN_MANIFESTS = SCRIPTS / "skf-scan-manifests.py"
+COUNT_IMPORTS = SCRIPTS / "skf-count-imports.py"
+PAIR_INTERSECT = SCRIPTS / "skf-pair-intersect.py"
+FRONTMATTER = SCRIPTS / "skf-validate-frontmatter.py"
 RECONCILE = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "reconcile-coverage.py"
 NUMERATOR = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "verify-declared-numerator.py"
 
@@ -561,15 +581,16 @@ def test_the_worker_returns_one_labeled_record_per_export():
     for field in ("export_name", "source_file", "source_line", "extraction_method", "confidence",
                   "signature_source"):
         assert re.search(rf"^\s+{field}:", records, re.MULTILINE), field
-    assert "{scan_root}" in records, "source_file is not relative to the scanned root"
+    assert "{project_root}" in records, "source_file is not relative to step 1's project root"
     library_level = shape.replace(records, "")
     assert not re.search(r"^\s+confidence:", library_level, re.MULTILINE), (
         "the worker still returns a library tier; §3a sets it from the checked records")
 
 
-def test_scan_root_is_the_project_root_from_step_1():
-    # The explicit-dependency path skips step 2's manifest scan, so every
-    # step that names {scan_root} binds it to step 1's project_root.
+def test_source_files_are_relative_to_step_1s_project_root():
+    # {scan_root} may narrow the scan to one package, but a library's source
+    # can sit outside it (a dependency hoisted to the root node_modules), so
+    # every step that anchors source_file names step 1's project_root.
     assert "`project_root`" in _sections(_read(REFS / "init.md"))["1"]
     places = {
         "step 4 §2": _sections(_body(_read(EXTRACT)))["2"],
@@ -577,8 +598,8 @@ def test_scan_root_is_the_project_root_from_step_1():
         "the schema": _h2_section(_read(SCHEMA), "## Code-mode variant").split("```")[0],
     }
     for where, text in places.items():
-        binding = [s for s in re.split(r"(?<=[.:]) ", text) if "{scan_root}" in s and "`project_root`" in s]
-        assert binding and "step 1" in binding[0], f"{where} does not bind {{scan_root}} to step 1's project_root"
+        binding = [s for s in re.split(r"(?<=[.:]) ", text) if "{project_root}" in s and "`project_root`" in s]
+        assert binding and "step 1" in binding[0], f"{where} does not bind {{project_root}} to step 1's project_root"
         assert "step 2 scanned" not in text, where
 
 
@@ -612,7 +633,7 @@ def test_the_label_check_call_runs_as_written(tmp_path, monkeypatch, capsys):
     check = _sections(_body(_read(EXTRACT)))["3a"]
     call = _call(check, "renderMetadataStatsHelper")
     payload = re.search(r"echo '(.*?)' \|", call).group(1)
-    argv = _argv(call, "renderMetadataStatsHelper", {"{forge_data_folder}": str(tmp_path), "{project_name}": "demo"})
+    argv = _argv(call, "renderMetadataStatsHelper", {"{forge_data_folder}": str(tmp_path), "{stack_name}": "demo-stack"})
     labels = Path(argv[0])
     stats = _load(STATS_HELPER, "skf_render_metadata_stats_stack_rules")
 
@@ -664,7 +685,7 @@ def test_step_7_runs_the_verifier_on_the_code_mode_map():
     assert _probe_script(text, "verifyProvenanceCompleteness") == VERIFIER
     check = _from(_sections(_body(text))["7"], "**Source lines (code mode only).**")
     verify = _call(check, "verifyProvenanceCompletenessHelper", "verify")
-    assert "--source-root {scan_root}" in verify and "--skill-dir" not in verify, verify
+    assert "--source-root {project_root}" in verify and "--skill-dir" not in verify, verify
     fix = _call(check, "verifyProvenanceCompletenessHelper", "fix")
     assert "--provenance {forge_version}/provenance-map.json" in fix, fix
     assert "`missing`" in check and "`orphaned`" in check
@@ -673,9 +694,9 @@ def test_step_7_runs_the_verifier_on_the_code_mode_map():
 
 def test_the_line_check_calls_run_as_written(tmp_path):
     check = _from(_sections(_body(_read(GENERATE)))["7"], "**Source lines (code mode only).**")
-    scan_root = tmp_path / "project"
-    (scan_root / "libs" / "liba").mkdir(parents=True)
-    (scan_root / "libs" / "liba" / "api.py").write_bytes(LIBA_API)
+    project_root = tmp_path / "project"
+    (project_root / "libs" / "liba").mkdir(parents=True)
+    (project_root / "libs" / "liba" / "api.py").write_bytes(LIBA_API)
     staging = tmp_path / "skills" / "demo-stack" / "1.0.0" / "demo-stack.skf-tmp"
     staging.mkdir(parents=True)
     skill_md = b"# demo Stack Skill\n\n`get_config()` caches its result (libs/liba/api.py:10).\n"
@@ -685,7 +706,8 @@ def test_the_line_check_calls_run_as_written(tmp_path):
     forge_version.mkdir(parents=True)
     provenance = forge_version / "provenance-map.json"
     provenance.write_text(json.dumps({"skill_type": "stack", "entries": _liba_records()}), encoding="utf-8")
-    values = {"{skill_staging}": str(staging), "{forge_version}": str(forge_version), "{scan_root}": str(scan_root)}
+    values = {"{skill_staging}": str(staging), "{forge_version}": str(forge_version),
+              "{project_root}": str(project_root)}
 
     def run(subcommand):
         argv = _argv(_call(check, "verifyProvenanceCompletenessHelper", subcommand),
@@ -1412,6 +1434,318 @@ def test_the_name_rule_matches_the_scorer(tmp_path):
     looked_up = [name for name in candidates if "::" not in name]
     assert checked == len(looked_up)
     assert {item["export_name"] for item in absent} == set(looked_up) - credited
+
+
+# --- #594, #586: the inputs step 1 binds, the stack name and the quality score -----
+
+
+# The inputs the Invocation Contract declares.
+CONTRACT_INPUTS = {"project_path", "skills", "stack_name", "scope_overrides", "architecture_doc_path", "mode"}
+# An envelope line, indented or not (a list item holds some).
+ANY_ENVELOPE_RE = re.compile(r"^\s*SKF_STACK_RESULT_JSON: (\{.*\})$", re.MULTILINE)
+# Import counting or co-import detection done by hand.
+HAND_COUNT_RE = re.compile(r"import \.\* from|\bgrep\b|\brg\b|Grep tool|subprocess", re.IGNORECASE)
+
+
+def _contract_row(aspect: str) -> str:
+    (row,) = [line for line in _read(STACK_SKILL).splitlines() if line.startswith(f"| **{aspect}** |")]
+    return row
+
+
+def _envelopes(path: Path) -> list[dict]:
+    """Every SKF_STACK_RESULT_JSON line of a file, the success one's score filled in."""
+    return [json.loads(line.replace("{quality_score}", "90")) for line in ANY_ENVELOPE_RE.findall(_read(path))]
+
+
+def test_the_contract_declares_every_input_step_1_binds():
+    inputs = _contract_row("Inputs")
+    declared = set(re.findall(r"`(\w+)`: ", inputs))
+    assert declared == CONTRACT_INPUTS, declared
+    assert "[required]" not in inputs
+    sections = _sections(_body(_read(INIT)))
+    bound = set(re.findall(r"^- `(\w+)` → ", sections["3"], re.MULTILINE))
+    assert "the `stack_name` input" in sections["0"], "step 1 §0 does not bind the stack name"
+    assert bound | {"stack_name"} == declared, bound
+
+
+def test_a_bad_input_halts_with_input_invalid():
+    sections = _sections(_body(_read(INIT)))
+    for number in ("0", "3"):
+        halts = [e for e in map(json.loads, ANY_ENVELOPE_RE.findall(sections[number]))
+                 if e["halt_reason"] == "input-invalid"]
+        assert len(halts) == 1 and halts[0]["exit_code"] == 2, f"step 1 §{number}"
+    skill = _read(STACK_SKILL)
+    exit_codes = _slice(skill, "## Exit Codes", "## Result Contract")
+    (row,) = [line for line in exit_codes.splitlines() if line.startswith("| 2 ")]
+    assert "`input-invalid`" in row
+    assert '`"input-invalid"`' in _from(skill, "## Result Contract (Headless)")
+
+
+def test_the_stack_name_names_every_path_and_envelope():
+    zero = _sections(_body(_read(INIT)))["0"]
+    assert "`-stack` appended" in zero and "else `{project_name}-stack`" in zero
+    holders = {path.relative_to(STACK).as_posix(): _read(path).count("{project_name}-stack")
+               for path in sorted(STACK.rglob("*.md"))
+               if "{project_name}-stack" in _read(path) or "{project}-stack" in _read(path)}
+    # Only the default itself, in step 1 §0 and the contract, names the old form.
+    assert holders == {"SKILL.md": 1, "references/init.md": 1}, holders
+    for path in sorted(STACK.rglob("*.md")):
+        for envelope in _envelopes(path):
+            assert envelope["skill_name"] in ("{stack_name}", None, "…"), (path.name, envelope)
+    assert "--skill-dir-name {stack_name}" in _read(GENERATE)
+
+
+def test_every_envelope_carries_the_quality_score():
+    for path in sorted(STACK.rglob("*.md")):
+        for envelope in _envelopes(path):
+            assert "quality_score" in envelope, (path.name, envelope)
+            if envelope["status"] == "error":
+                assert envelope["quality_score"] is None, (path.name, envelope)
+    success = [line for line in ANY_ENVELOPE_RE.findall(_read(REPORT)) if '"status":"success"' in line]
+    assert len(success) == 1 and '"quality_score":{quality_score}' in success[0]
+    assert "and `quality_score` in `summary`" in _sections(_body(_read(REPORT)))["2b"]
+    three = _sections(_body(_read(VALIDATE)))["3"]
+    assert "Bind `{quality_score}` ← that score" in three and "not a test-skill score" in three
+    assert "not a test-skill score" in _from(_read(STACK_SKILL), "## Result Contract (Headless)")
+
+
+@pytest.mark.parametrize(("given", "verdict"), [
+    pytest.param("acme-web", 0, id="skill-name"),
+    pytest.param("a" * 58, 0, id="64-chars-with-suffix"),
+    pytest.param("a" * 60, 1, id="66-chars-with-suffix"),
+    pytest.param("acme--web", 1, id="two-hyphens"),
+    pytest.param("Acme-web", 1, id="upper-case"),
+])
+def test_the_stack_name_check_runs_as_written(given, verdict):
+    # Step 7's pre-commit check refuses these names for the stack's folder, which
+    # the run cannot rename, so step 1 checks the bound name before anything runs.
+    init = _read(INIT)
+    zero = _sections(_body(init))["0"]
+    assert _probe_script(init, "frontmatterValidator") == FRONTMATTER
+    call = _call(zero, "frontmatterValidator")
+    assert call.strip() == "uv run {frontmatterValidator} --check-name {stack_name}"
+    stack_name = given if given.endswith("-stack") else f"{given}-stack"
+    argv = _argv(call, "frontmatterValidator", {"{stack_name}": stack_name})
+    result = subprocess.run([sys.executable, str(FRONTMATTER), *argv], capture_output=True, text=True)
+    assert result.returncode == verdict, result.stdout
+    assert "with `skill_name` `null`, `exit_code` 3 and `halt_reason` `resolution-failure`" in zero
+    assert "{each `issues[]` message}" in zero
+
+
+# --- #606 item 5: {scan_root} from project_path or one question -------------------
+
+
+def test_step_1_binds_the_scan_root():
+    three = _sections(_body(_read(INIT)))["3"]
+    root = _from(three, "**Scan root.**").split("\n\n")[0]
+    assert "It is `project_path` when given" in root and "else `project_root`" in root
+    scope = _from(three, "**Scan scope (code mode).**")
+    assert "no `project_path` was given, ask once" in scope
+    assert "**Headless:** do not ask; keep the project root" in scope
+    assert 'code: "headless-scan-root-default"' in scope
+    inputs = _contract_row("Inputs")
+    assert "`project_path`: the folder code mode scans (default: the project root;" in inputs
+    assert "an interactive run asks once" in inputs
+    assert "`folders[]` lists more than one folder" in scope
+
+
+def test_steps_2_3_and_5_stay_inside_the_scan_root():
+    init, manifests, rank = _read(INIT), _read(MANIFESTS), _read(RANK)
+    scan = "uv run {scanManifestsHelper} scan {scan_root} --include-dev"
+    assert _probe_script(init, "scanManifests") == SCAN_MANIFESTS == _probe_script(manifests, "scanManifests")
+    assert _call(_sections(_body(init))["3"], "scanManifestsHelper", "scan").strip() == scan
+    assert _call(_sections(_body(manifests))["2"], "scanManifestsHelper", "scan").strip() == scan
+    assert _probe_script(rank, "countImports") == COUNT_IMPORTS
+    count = _call(_sections(_body(rank))["1"], "countImportsHelper", "count").strip()
+    assert count == "uv run {countImportsHelper} count {scan_root} --deps - --relative-to {project_root}"
+    sections = _sections(_body(_read(DETECT)))
+    assert "`{import_counts}`" in _from(sections["1"], "**If not compose_mode:**")
+    # Pair files and CCC hits share the project-root base, so the guard compares paths as they stand.
+    assert "both paths are relative to `{project_root}`" in _from(sections["2"], "**If not compose_mode:**")
+
+
+def test_the_monorepo_note_points_back_to_step_1():
+    two = _sections(_body(_read(MANIFESTS)))["2"]
+    note = _from(two, "When `folders[]` lists more than one folder").split("\n\n")[0]
+    assert "the folder step 1 §3 chose" in note and "re-run with `project_path`" in note
+
+
+# --- #606 item 4: compose candidates from the enumerate helper ---------------------
+
+
+def test_compose_candidates_come_from_the_helper():
+    manifests = _read(MANIFESTS)
+    assert _probe_script(manifests, "enumerateStackSkills") == ENUMERATE
+    zero = _sections(_body(manifests))["0"]
+    call = _call(zero, "enumerateStackSkillsHelper", "candidates").strip()
+    assert call == 'uv run {enumerateStackSkillsHelper} candidates {skills_output_folder} [--explicit "<names>"]'
+    for field in ("`{skill_candidates}`", "`manifest_parse_error`", "`not_skf_output`", "`excluded[]`",
+                  "`stale_manifest_keys`", "`kept[]`"):
+        assert field in zero, field
+    halts = [(e["exit_code"], e["halt_reason"]) for e in map(json.loads, ANY_ENVELOPE_RE.findall(zero))]
+    assert halts == [(3, "resolution-failure")] * 2, "the stale-manifest and no-skill halts keep exit 3"
+    for stale in ("try/except", "visited set", "*/active/*/SKILL.md", "`{stack_roster}`", "enumerate {skills"):
+        assert stale not in zero, stale
+    assert "An exit `1` (no skills folder) counts as an empty `kept[]`" in zero
+    init = _read(INIT)
+    three = _sections(_body(init))["3"]
+    assert _probe_script(init, "enumerateStackSkills") == ENUMERATE
+    # Step 1 runs the call step 2 would, explicit list included, and step 2 reuses its result.
+    assert _call(three, "enumerateStackSkillsHelper", "candidates").strip() == call
+    assert "When step 1 kept `{skill_candidates}`, use that result: it ran this same call." in zero
+    assert ".export-manifest.json" not in three, "step 1 still reads the export manifest by hand"
+    assert "**Compose-mode skill names.**" not in three, "step 1 still reduces package paths by hand"
+    # A headless run accepts the suggestion, which names only the listed skills when a list is given.
+    headless = _from(three, "**Headless default (B8):**").split("\n\n")[0]
+    assert "accept the suggestion" in headless and "With `explicit_deps`, keep code mode" not in headless
+
+
+def test_the_candidates_call_runs_as_written(tmp_path):
+    call = _call(_sections(_body(_read(MANIFESTS)))["0"], "enumerateStackSkillsHelper", "candidates").strip()
+    skills = tmp_path / "skills"
+    for name, skill_type, generator in (("alpha", "single", "create-skill"),
+                                        ("app-stack", "stack", "create-stack-skill")):
+        package = skills / name / "1.0.0" / name
+        package.mkdir(parents=True)
+        (package / "SKILL.md").write_bytes(b"# x\n")
+        metadata = {"name": name, "skill_type": skill_type, "generated_by": generator, "exports": []}
+        (package / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+    def run(written: str) -> dict:
+        argv = _argv(written, "enumerateStackSkillsHelper", {"{skills_output_folder}": str(skills)})
+        result = subprocess.run([sys.executable, str(ENUMERATE), *argv], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    named = run(call.replace('[--explicit "<names>"]', '--explicit "alpha,app-stack,gone"'))
+    assert [(e["name"], e["path"]) for e in named["kept"]] == [("alpha", "alpha/1.0.0/alpha")]
+    # A campaign passes package paths: the helper reduces each to its skill folder.
+    package = (skills / "alpha" / "1.0.0" / "alpha").as_posix()
+    paths = run(call.replace('[--explicit "<names>"]', f'--explicit "{package},{tmp_path.as_posix()}/x/y"'))
+    assert [e["name"] for e in paths["kept"]] == ["alpha"]
+    assert [x["reason"] for x in paths["excluded"]] == ["outside-skills-root"]
+    assert {x["skill_dir"]: x["reason"] for x in named["excluded"]} == {
+        "app-stack": "not-a-skill", "gone": "no-such-folder"}
+    assert all(x["message"].startswith(x["skill_dir"] + ": ") for x in named["excluded"])
+    # A manifest key whose folder is gone is the stale-manifest halt.
+    (skills / ".export-manifest.json").write_text(json.dumps({"exports": {"alpha": {}, "gone": {}}}),
+                                                  encoding="utf-8")
+    listed = run(call.replace(' [--explicit "<names>"]', ""))
+    assert [e["name"] for e in listed["kept"]] == ["alpha"] and listed["stale_manifest_keys"] == ["gone"]
+
+
+# --- #598: import counts, the searched files and the co-import pairs ---------------
+
+
+def test_step_3_counts_imports_with_the_helper():
+    rank = _read(RANK)
+    code = _from(_sections(_body(rank))["1"], "**If not compose_mode:**")
+    found = HAND_COUNT_RE.search(code)
+    assert found is None, f"step 3 still counts by hand: {found.group(0)!r}"
+    for stale in ("{manifestPatternsPath}", "Exclude from counting", "Use subprocess Pattern 1"):
+        assert stale not in rank, stale
+    assert "`{import_counts}`" in code and "`unresolved[]`" in code and '"modules"' in code
+    halt = "with `exit_code` 3 and `halt_reason` `resolution-failure`"
+    assert halt in code, "a missing import counter halts with no exit code"
+    assert halt in _sections(_body(_read(INIT)))["3"], "a missing step 1 helper halts with no exit code"
+    exit_codes = _slice(_read(STACK_SKILL), "## Exit Codes", "## Result Contract")
+    (row,) = [line for line in exit_codes.splitlines() if line.startswith("| 3 ")]
+    assert "step 1 §0 or §3, or step 3 §1, a helper missing (`resolution-failure`)" in row
+    unresolved = _from(code, "**Unresolved names.**").split("\n\n")[0]
+    assert "a guessed import name that matched no file, no import name, or an ecosystem with no import rules" \
+        in unresolved
+    assert "drop the entry from `unresolved[]`" in unresolved and "keep `dependencies[]` sorted" in unresolved
+    two = _sections(_body(rank))["2"]
+    assert "`above_threshold`" in two and "dev-only" in two
+    assert 'scope: "dev"' in _sections(_body(rank))["3"], "the Category column does not follow scope"
+    gate = [line for line in _sections(_body(rank))["5"].splitlines() if line.startswith("- **GATE")]
+    assert len(gate) == 1 and "the recommended libraries in code mode" in gate[0]
+
+
+def test_step_2_shows_what_the_scanner_searched():
+    sections = _sections(_body(_read(MANIFESTS)))
+    message = _slice(sections["2"], "**Interactive mode:**", "STOP and wait")
+    assert "`searched_filenames`" in message
+    assert "csproj" not in _read(MANIFESTS)
+    assert "`scope`" in sections["3"] and "`total_unique_dev`" in sections["3"]
+
+
+def test_step_5_takes_co_imports_from_step_3s_counts():
+    text = _read(DETECT)
+    code = _from(_sections(_body(text))["2"], "**If not compose_mode:**")
+    found = HAND_COUNT_RE.search(code)
+    assert found is None, f"step 5 still finds co-imports by hand: {found.group(0)!r}"
+    for needle in ("`intersection_count` 2 or more", "`line_a`", "`line_b`",
+                   "`co_import_files` ← its `files[]` as they stand"):
+        assert needle in code, needle
+    guard = _from(code, "**CCC precision guard (H3):**").split("\n\n")[0]
+    assert "keep a CCC-surfaced file only when the pair's `files[]` lists it" in guard
+    # A file that imports both libraries is already a pair file: CCC never raises a count.
+    assert "CCC never changes which pairs qualify" in code
+    for stale in ("even without explicit import co-location", "0 or 1 co-import files", "ccc-augmented"):
+        assert stale not in text, stale
+    assert "{manifestPatternsPath}" not in text
+    patterns = _read(INTEGRATION_PATTERNS)
+    for stale in ("## Co-Import Detection", "extract all import statements", "ccc-augmented"):
+        assert stale not in patterns, stale
+
+
+def test_the_scan_count_and_pair_calls_run_as_written(tmp_path):
+    """Step 1 scans, step 3 counts inside the chosen package, step 5 pairs from those counts."""
+    project = tmp_path / "project"
+    files = {
+        "apps/web/package.json": b'{"name": "web", "dependencies": {"react": "^18.2.0", "react-dom": "^18.2.0",'
+                                 b' "zustand": "^4.5.0"}, "devDependencies": {"vitest": "^1.0.0"}}\n',
+        "apps/web/requirements.txt": b"PyYAML==6.0\n",
+        "apps/web/src/main.tsx": b'import React from "react";\nimport { createRoot } from "react-dom/client";\n'
+                                 b'import { create } from "zustand";\n',
+        "apps/web/src/store.tsx": b'import { create } from "zustand";\nimport { hydrateRoot } from "react-dom/client";\n',
+        "apps/web/tools/a.py": b"import yaml\n",
+        "apps/web/tools/b.py": b"from yaml import safe_load\n",
+        "apps/api/package.json": b'{"name": "api", "dependencies": {"express": "^4.19.0"}}\n',
+        "apps/api/server.js": b'const express = require("express");\n',
+        "apps/api/routes.js": b'const express = require("express");\n',
+    }
+    for rel, content in files.items():
+        (project / rel).parent.mkdir(parents=True, exist_ok=True)
+        (project / rel).write_bytes(content)
+
+    def run(script: Path, call: str, helper: str, scan_root: Path, stdin: str | None = None,
+            names: str = "") -> dict:
+        argv = _argv(call, helper, {"{scan_root}": str(scan_root), "{project_root}": str(project),
+                                    "<names>": names})
+        result = subprocess.run([sys.executable, str(script), *argv], input=stdin, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    scan_call = _call(_sections(_body(_read(INIT)))["3"], "scanManifestsHelper", "scan").strip()
+    whole = run(SCAN_MANIFESTS, scan_call, "scanManifestsHelper", project)
+    folders = [f["path"] for f in whole["folders"]]
+    assert whole["monorepo"] is True and folders == ["apps/api", "apps/web"], "step 1 would ask its question"
+    assert {f["path"]: f["names"] for f in whole["folders"]}["apps/web"] == ["web"]
+    # The user names apps/web: step 1 scans it again, and steps 2 and 3 read only that package.
+    web = project / "apps" / "web"
+    scan = run(SCAN_MANIFESTS, scan_call, "scanManifestsHelper", web)
+    assert (scan["total_unique"], scan["total_unique_dev"]) == (4, 1)
+    assert {"package.json", "requirements.txt", "Package.swift"} <= set(scan["searched_filenames"])
+    count_call = _call(_sections(_body(_read(RANK)))["1"], "countImportsHelper", "count").strip()
+    counts = run(COUNT_IMPORTS, count_call, "countImportsHelper", web, json.dumps(scan))
+    by_name = {d["name"]: d for d in counts["dependencies"]}
+    assert "express" not in by_name, "a dependency outside the scan root was counted"
+    assert (by_name["react"]["file_count"], by_name["react"]["above_threshold"]) == (1, False), "react-dom counted"
+    assert by_name["PyYAML"]["above_threshold"] is True, "PyYAML's yaml imports were not counted"
+    assert by_name["vitest"]["scope"] == "dev"
+    recommended = [d["name"] for d in counts["dependencies"] if d["above_threshold"] and "scope" not in d]
+    assert recommended == ["PyYAML", "react-dom", "zustand"]
+    # Paths are relative to the project root, as source_file and the CCC hits are.
+    assert [f["path"] for f in by_name["zustand"]["files"]] == ["apps/web/src/main.tsx", "apps/web/src/store.tsx"]
+    # Step 5 §1: the counts piped as they stand; each pair carries its co-import files and lines.
+    pair_call = _call(_sections(_body(_read(DETECT)))["1"], "pairIntersectHelper", "intersect").strip()
+    pairs = run(PAIR_INTERSECT, pair_call, "pairIntersectHelper", web, json.dumps(counts),
+                names=",".join(recommended))["pairs"]
+    assert [(p["a"], p["b"], p["intersection_count"]) for p in pairs] == [("react-dom", "zustand", 2)]
+    assert pairs[0]["files"] == [{"path": "apps/web/src/main.tsx", "line_a": 2, "line_b": 3},
+                                 {"path": "apps/web/src/store.tsx", "line_a": 2, "line_b": 1}]
 
 
 # --- Every create-stack step file -------------------------------------------------

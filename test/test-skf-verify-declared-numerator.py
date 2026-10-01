@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Tests for verify-declared-numerator.py (skf-test-skill coverage-check.md §4b).
 
-Covers the numerator ground-truth grep: which declared export names are present
-in / absent from the documentation surface, the verified numerator, the
-`inflated` flag, injected-doc-text determinism, on-disk grepping over
-SKILL.md ∪ references/*.md, schema validation, and the subprocess CLI contract
-(exit codes + JSON-on-stdout).
+Covers the numerator ground-truth lookup: which declared export names are
+present in / absent from the documentation surface (as whole names, the
+match validate-inventory.py shares: `get` is found in neither `target` nor
+`getAll`), the verified numerator, the `inflated` flag, injected-doc-text
+determinism, on-disk lookups over SKILL.md ∪ references/*.md, schema
+validation, the --inputs file load-coverage-inputs.py metadata writes (a
+run without the inflation signature is skipped), and the subprocess CLI
+contract (exit codes + JSON-on-stdout).
 """
 
 from __future__ import annotations
@@ -57,8 +60,8 @@ def test_some_absent_is_inflated():
     assert out["inflated"] is True
 
 
-def test_case_sensitive_substring():
-    """Matching mirrors `grep "{name}"` — case-sensitive substring containment."""
+def test_case_sensitive_whole_name():
+    """A declared name counts when the text writes it, case-sensitive, as a whole name."""
     doc = "Foo and FOObar exist; formatDate is used"
     out = verify(
         {"declaredNames": ["foo", "Foo", "formatDate"], "skillPackagePath": "x"},
@@ -185,6 +188,56 @@ def test_cli_invalid_schema_exit_2():
 def test_cli_malformed_json_exit_1():
     res = _run_cli(["--stdin"], stdin="{not json")
     assert res.returncode == 1
+
+
+@pytest.mark.parametrize("doc, present", [
+    ("call get(url)", ["get"]), ("the target", []), ("getAll()", []),
+], ids=["whole-name", "inside-target", "prefix-of-getAll"])
+def test_a_name_inside_a_longer_identifier_is_absent(doc, present):
+    out = verify({"declaredNames": ["get"], "skillPackagePath": "x"}, doc_text=doc)
+    assert out["present"] == present and out["inflated"] is (not present)
+
+
+# --------------------------------------------------------------------------
+# --inputs: load-coverage-inputs.py metadata output
+# --------------------------------------------------------------------------
+
+
+def _inputs(tmp_path, signature, names):
+    path = tmp_path / "coverage-inputs.json"
+    path.write_bytes(json.dumps({"inflationSignature": signature, "declaredNames": names}).encode("utf-8"))
+    skill = tmp_path / "skill"
+    skill.mkdir(exist_ok=True)
+    (skill / "SKILL.md").write_bytes(b"`foo()` only\n")
+    return str(path), str(skill)
+
+
+def test_inputs_without_the_signature_are_skipped(tmp_path):
+    inputs, skill = _inputs(tmp_path, False, ["foo", "bar"])
+    res = _run_cli(["--inputs", inputs, "--skill-dir", skill])
+    assert res.returncode == 0
+    assert json.loads(res.stdout) == {"skipped": True, "declared": 2, "verified": None, "present": [],
+                                      "absent": [], "inflated": False}
+
+
+def test_inputs_with_the_signature_are_verified_and_written(tmp_path):
+    inputs, skill = _inputs(tmp_path, True, ["foo", "bar"])
+    out_path = tmp_path / "numerator.json"
+    res = _run_cli(["--inputs", inputs, "--skill-dir", skill, "--output", str(out_path)])
+    assert res.returncode == 0, res.stderr
+    out = json.loads(res.stdout)
+    assert json.loads(out_path.read_text(encoding="utf-8")) == out
+    assert (out["skipped"], out["verified"], out["absent"], out["inflated"]) == (False, 1, ["bar"], True)
+
+
+def test_inputs_need_a_skill_dir(tmp_path):
+    inputs, _ = _inputs(tmp_path, True, ["foo"])
+    assert _run_cli(["--inputs", inputs]).returncode == 2
+
+
+def test_unreadable_inputs_exit_1(tmp_path):
+    res = _run_cli(["--inputs", str(tmp_path / "absent.json"), "--skill-dir", str(tmp_path)])
+    assert res.returncode == 1 and "cannot read --inputs" in res.stderr
 
 
 if __name__ == "__main__":

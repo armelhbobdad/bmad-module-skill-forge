@@ -42,12 +42,18 @@ persistent_facts = [
 # without forking the skill. Empty string = use the bundled default.
 
 test_report_template_path = ""
-output_formats_path = ""
-scoring_rules_path = ""
+
+# The scoring rules and the output formats are not overridable: scripts own
+# the weights and the verdict rules, and the hard gate reads the Gap Severity
+# table, so a house-style copy could change what blocks export.
 
 # Pass threshold (percent). Precedence: CLI `--threshold=<N>` > per-pipeline
-# defaults (from init.md §1b lookup table) > this scalar > bundled fallback 80.
-# Override here to change the org-wide default without forking the skill.
+# defaults (the init.md §1b lookup table, which outranks this scalar in
+# forge-auto, forge, forge-quick and campaign runs) > this scalar > bundled
+# fallback 80. Override here to change the org-wide default without forking
+# the skill. A value above 80 is a target: a run scoring 80 or more still
+# passes through the threshold fallback (with an evidence report), while a
+# run a cap forced to FAIL stays FAIL at any threshold.
 default_threshold = 80
 
 # Optional post-finalization hook. When non-empty, the workflow invokes:

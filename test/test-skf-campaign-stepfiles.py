@@ -190,10 +190,12 @@ class TestSetupOpening:
         assert "piped to `uv run {manifestScript} -`" in intake
 
     def test_paste_takes_the_documented_manifest_format(self, intake: str) -> None:
-        # One copy of the line format, in SKILL.md On Activation, not a third one here.
-        assert "rewritten as manifest lines in the `--manifest` format On Activation describes" in intake
-        assert "name,repo_url,tier,pin" not in intake
-        assert "**`--manifest` format:**" in (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
+        # One copy of the line format, here beside the parser call that reads it, not in SKILL.md.
+        assert "rewritten as manifest lines in the manifest format above" in intake
+        assert intake.count("one `name,repo_url,tier,pin` target per line") == 1
+        skill_md = (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
+        assert "**`--manifest` format:**" not in skill_md
+        assert "step-01 §1 documents the manifest format" in skill_md
 
     def test_one_draft_then_only_missing_or_ambiguous_fields(self, intake: str) -> None:
         assert "Show the drafted campaign once for correction" in intake

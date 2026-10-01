@@ -2,22 +2,6 @@
 
 # Integration Pattern Detection Rules
 
-## Co-Import Detection
-
-A co-import is detected when two or more confirmed libraries are imported in the same source file.
-
-### Detection Method
-
-1. For each file in the codebase, extract all import statements
-2. Map imports to confirmed library list
-3. If a file imports 2+ confirmed libraries → co-import detected
-4. Record: file path, library pair, line numbers
-
-### Minimum Threshold
-
-- A library pair must co-appear in **2+ files** to qualify as an integration pattern
-- Single file co-imports may be incidental
-
 ## Integration Pattern Types
 
 ### Type 1: Middleware Chain
@@ -59,5 +43,5 @@ Library A + Library B
   Files: [count] files with co-imports
   Key files: [top 3 files by integration density]
   Pattern: [brief description of how they integrate]
-  Confidence: [the pair tier step 5 §3 takes from skf-render-stack-metadata.py, with the detection-method qualifier in parens, e.g. `T1-low (grep-co-import)`, `T1 (ccc-augmented)`, `T1-low (architecture-co-mention) [composed]`. Integration detection is grep plus co-import, never AST: do not label integrations "AST-verified".]
+  Confidence: [the pair tier step 5 §3 takes from skf-render-stack-metadata.py, with the detection-method qualifier in parens, e.g. `T1-low (grep-co-import)`, `T1 (grep-co-import)`, `T1-low (architecture-co-mention) [composed]`. Integration detection is co-import evidence from the import counts, never AST: do not label integrations "AST-verified".]
 ```

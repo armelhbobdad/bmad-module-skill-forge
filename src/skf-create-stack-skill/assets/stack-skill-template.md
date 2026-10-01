@@ -4,7 +4,7 @@
 
 ```markdown
 ---
-name: {project_name}-stack
+name: {stack_name}
 description: >
   Stack skill for {project_name} — {lib_count} libraries with
   {integration_count} integration patterns. Use when working with
@@ -88,8 +88,8 @@ ceilings at compile time:
 Indexed format targeting ~80-120 tokens per stack:
 
 ```markdown
-[{project}-stack v{version}]|root: skills/{project}-stack/
-|IMPORTANT: {project}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
+[{stack_name} v{version}]|root: skills/{stack_name}/
+|IMPORTANT: {stack_name} — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
 |integrations: {pattern-1}, {pattern-2}
 |gotchas: {1-2 most critical integration pitfalls}
@@ -100,7 +100,7 @@ Indexed format targeting ~80-120 tokens per stack:
 ```json
 {
   "skill_type": "stack",
-  "name": "{project}-stack",
+  "name": "{stack_name}",
   "version": "1.0.0",
   "generation_date": "{ISO-8601}",
   "forge_tier": "{Quick|Forge|Forge+|Deep}",

@@ -8,6 +8,19 @@ Two modes:
   --compute: topological sort of all skills from depends_on edges
   --check:   verify a single skill's dependencies are satisfied
 
+A Tier A skill may not depend on a Tier B skill: Tier B skills are built in
+the batch stage, after the skill loop that builds Tier A skills, so the Tier A
+skill could never pass its dependency gate. --compute reports each such edge
+in `tier_inversions` and exits 1, so the strategy stage rejects the plan
+before any skill is built. That rule and the dangling-reference rule come
+from campaign-parse-manifest.py's dependency_problems, the one statement of
+both, so Setup and Strategy report the same entries.
+
+At a blocked skill, --check names the status of each unmet dependency and the
+headless default: `skip` when every unmet dependency failed or was skipped
+(it can never complete in this run), `halt` when one is still pending or
+active (an order the loop cannot follow).
+
 CLI:
   uv run campaign-deps.py --compute --state-file <path>
   uv run campaign-deps.py --check --state-file <path> --skill <name>
@@ -16,27 +29,40 @@ CLI:
 Output (JSON on stdout):
   --compute:
     {"execution_order": [...], "circular_deps_detected": bool,
-     "cycle_participants": [...] | null, "tier_counts": {"A": int, "B": int}}
+     "cycle_participants": [...] | null, "tier_counts": {"A": int, "B": int},
+     "tier_inversions": [{"skill": "<Tier A>", "depends_on": "<Tier B>"}]}
 
   --check:
-    {"skill": "name", "ready": bool, "unmet_deps": [...], "forced": bool}
+    {"skill": "name", "ready": bool, "unmet_deps": [...], "forced": bool,
+     "unmet_status": {"<dep>": "<status>"}, "default_action": "skip" | "halt" | null}
 
 Exit codes:
   0  success / ready / force-override
-  1  circular deps / unmet deps / dangling reference
+  1  circular deps / tier inversion / unmet deps / dangling reference
   2  error (missing file, bad YAML)
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 import heapq
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import yaml
+
+MANIFEST_SCRIPT = Path(__file__).resolve().with_name("campaign-parse-manifest.py")
+
+
+def _dependency_problems(skills: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, str]]]:
+    """campaign-parse-manifest.py's dependency_problems (one rule for Setup and Strategy)."""
+    spec = importlib.util.spec_from_file_location("campaign_parse_manifest", MANIFEST_SCRIPT)
+    manifest = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(manifest)
+    return manifest.dependency_problems(skills)
 
 
 def _emit_error(message: str, code: str) -> None:
@@ -51,17 +77,6 @@ def _load_yaml(path: Path) -> Any:
 
 def _build_skill_map(skills: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return {s["name"]: s for s in skills}
-
-
-def _validate_deps(
-    skill_map: Dict[str, Dict[str, Any]],
-) -> Optional[List[str]]:
-    dangling: List[str] = []
-    for name, skill in skill_map.items():
-        for dep in skill.get("depends_on", []) or []:
-            if dep not in skill_map:
-                dangling.append(f"{name} depends on unknown skill '{dep}'")
-    return dangling if dangling else None
 
 
 def compute(state_file: str) -> int:
@@ -89,13 +104,19 @@ def compute(state_file: str) -> int:
         if tier in tier_counts:
             tier_counts[tier] += 1
 
-    dangling = _validate_deps(skill_map)
+    problems = _dependency_problems(list(skill_map.values()))
+    dangling = [
+        f"{d['skill']} depends on unknown skill '{d['depends_on']}'"
+        for d in problems["dangling_depends_on"]
+    ]
     if dangling:
         _emit_error(
             f"Dangling dependency references: {'; '.join(dangling)}",
             "DANGLING_DEPENDENCY",
         )
         return 1
+
+    inversions = problems["tier_inversions"]
 
     in_degree: Dict[str, int] = {name: 0 for name in skill_map}
     adjacency: Dict[str, List[str]] = {name: [] for name in skill_map}
@@ -133,20 +154,29 @@ def compute(state_file: str) -> int:
             "circular_deps_detected": True,
             "cycle_participants": cycle_participants,
             "tier_counts": tier_counts,
+            "tier_inversions": inversions,
         }
         json.dump(output, sys.stdout, separators=(",", ":"))
         sys.stdout.write("\n")
         return 1
+
+    if inversions:
+        _emit_error(
+            "Tier A skills depend on Tier B skills, which are built after them: "
+            + "; ".join(f"{i['skill']} depends on {i['depends_on']}" for i in inversions),
+            "TIER_INVERSION",
+        )
 
     output = {
         "execution_order": execution_order,
         "circular_deps_detected": False,
         "cycle_participants": None,
         "tier_counts": tier_counts,
+        "tier_inversions": inversions,
     }
     json.dump(output, sys.stdout, separators=(",", ":"))
     sys.stdout.write("\n")
-    return 0
+    return 1 if inversions else 0
 
 
 def check(state_file: str, skill_name: str, force: bool = False) -> int:
@@ -186,6 +216,13 @@ def check(state_file: str, skill_name: str, force: bool = False) -> int:
 
     ready = len(unmet) == 0
     forced = force and not ready
+    unmet_status = {dep: skill_map[dep].get("status") for dep in unmet}
+    if ready:
+        default_action = None
+    elif all(status in ("failed", "skipped") for status in unmet_status.values()):
+        default_action = "skip"
+    else:
+        default_action = "halt"
 
     if forced:
         json.dump(
@@ -199,6 +236,8 @@ def check(state_file: str, skill_name: str, force: bool = False) -> int:
         "ready": ready,
         "unmet_deps": unmet,
         "forced": forced,
+        "unmet_status": unmet_status,
+        "default_action": default_action,
     }
     json.dump(output, sys.stdout, separators=(",", ":"))
     sys.stdout.write("\n")

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Tests for reconcile-coverage.py (skf-test-skill coverage-check.md §2c).
 
-Covers the three §2c branches:
-  - "barrel"  (enumerated intersection) — Documented / Missing / Stale / coverage
-  - "scalar"  (effective_denominator, grep numerator, no Stale)
-  - "stack"   (composition-surface grep numerator, empty barrel)
-Plus method-exclusion, dedup, rounding, validation, and the subprocess CLI
-(exit codes + JSON-on-stdout contract).
+Covers the four §2c branches:
+  - "barrel"  (enumerated intersection): Documented / Missing / Stale / coverage
+  - "scalar"  (effective_denominator, looked-up numerator, no Stale)
+  - "stack"   (composition-surface looked-up numerator, empty barrel)
+  - "docsOnly" (#540: documentation completeness over the inventory)
+Plus method-exclusion, dedup, rounding, validation, the whole-name lookup
+(`get` is found in neither `target` nor `getAll`), the run-folder file flags
+(an extraction surface whose internal recipe matches never count), and the
+subprocess CLI (exit codes + JSON-on-stdout contract).
 """
 
 from __future__ import annotations
@@ -512,6 +515,183 @@ def test_cli_invalid_schema_exit2():
     proc = _run_cli([json.dumps({"denominatorSource": "bogus"})])
     assert proc.returncode == 2
     assert json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+
+
+# --------------------------------------------------------------------------
+# Whole-name lookup (shared with verify-declared-numerator.py)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("doc_text, found", [
+    ("call `get(url)` first", True),
+    ("the target is reached", False),
+    ("use getAll() instead", False),
+    ("obj.get and more", True),
+    ("forget it", False),
+], ids=["call", "inside-target", "prefix-of-getAll", "member", "suffix"])
+def test_scalar_lookup_never_matches_inside_a_longer_name(doc_text, found):
+    out = reconcile(
+        {"denominatorSource": "scalar", "exports": [{"name": "get", "kind": "function"}],
+         "denominatorValue": 1, "skillPackagePath": "/unused"},
+        doc_text=doc_text,
+    )
+    assert out["documented"] == (1 if found else 0)
+
+
+def test_lookup_reads_skill_md_and_flat_references(tmp_path):
+    (tmp_path / "references" / "deep").mkdir(parents=True)
+    (tmp_path / "SKILL.md").write_bytes(b"`alpha()`\n")
+    (tmp_path / "references" / "api.md").write_bytes("`b\u00e9ta`\n".encode("utf-8"))
+    (tmp_path / "references" / "deep" / "x.md").write_bytes(b"`gamma`\n")
+    out = reconcile({"denominatorSource": "stack", "compositionNames": ["alpha", "b\u00e9ta", "gamma"],
+                     "denominatorValue": 3, "skillPackagePath": str(tmp_path)})
+    assert out["documented"] == 2
+
+
+# --------------------------------------------------------------------------
+# docsOnly branch (#540)
+# --------------------------------------------------------------------------
+
+
+def test_docs_only_scores_completeness():
+    exports = [
+        {"name": "fmt", "kind": "function", "params": "x: str", "return_type": "str", "description": "Formats."},
+        {"name": "run", "kind": "function", "params": "", "return_type": "None", "description": "Runs."},
+        {"name": "go", "kind": "function", "params": "x", "description": "No return type."},
+        {"name": "Cfg", "kind": "class", "description": "Config."},
+        {"name": "Mode", "kind": "type", "description": ""},
+        {"name": "Cfg.load", "kind": "method", "params": [], "return_type": "Cfg", "description": "Loads."},
+    ]
+    out = reconcile({"denominatorSource": "docsOnly", "exports": exports})
+    assert (out["branch"], out["denominator"], out["documented"], out["missingCount"]) == ("docsOnly", 6, 4, 2)
+    assert out["exportCoverage"] == 66.67
+    assert out["incomplete"] == [{"name": "go", "kind": "function", "missing": ["return_type"]},
+                                 {"name": "Mode", "kind": "type", "missing": ["description"]}]
+    assert (out["staleApplicable"], out["missing"], out["stale"]) == (False, [], [])
+
+
+def test_docs_only_counts_a_listed_twice_item_once():
+    exports = [{"name": "a", "kind": "constant"}, {"name": "a", "kind": "constant", "description": "A."}]
+    out = reconcile({"denominatorSource": "docsOnly", "exports": exports})
+    assert (out["denominator"], out["documented"]) == (1, 1)
+
+
+def test_docs_only_with_no_item_is_an_error():
+    out = reconcile({"denominatorSource": "docsOnly", "exports": []})
+    assert out.get("code") == "INVALID_INPUT"
+    assert reconcile({"denominatorSource": "docsOnly"}).get("code") == "INVALID_INPUT"
+
+
+# --------------------------------------------------------------------------
+# Verified numerator (scalar) and the run-folder file flags
+# --------------------------------------------------------------------------
+
+
+def test_scalar_takes_the_verified_numerator_when_inflated():
+    out = reconcile({"denominatorSource": "scalar", "exports": [{"name": "a", "kind": "function"}],
+                     "denominatorValue": 10, "skillPackagePath": "/unused", "verifiedNumerator": 7},
+                    doc_text="a")
+    assert (out["documented"], out["missingCount"], out["numeratorSource"]) == (7, 3, "verified")
+
+
+def _write(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(json.dumps(payload).encode("utf-8"))
+    return str(path)
+
+
+INVENTORY = {"exports": [{"name": "fetchData", "kind": "function"}, {"name": "helper", "kind": "function"},
+                         {"name": "stale", "kind": "function"}, {"name": "Client.run", "kind": "method"}],
+             "cross_check_mismatches": []}
+# load-coverage-inputs.py surface output from a --mode full extraction: the
+# entry points' names only; the recipe match internalThing is not in a set.
+SURFACE = {"exports": [{"name": n, "kind": "function", "file": "src/index.ts", "line": 1, "origin": "extraction"}
+                       for n in ("fetchData", "helper", "parse")],
+           "sets": {"all": ["fetchData", "helper", "parse"], "root": ["fetchData", "parse"]},
+           "excluded": {"outsideScope": [{"name": "legacy", "file": "lib/legacy.ts"}]}}
+
+
+def test_cli_barrel_from_the_run_files(tmp_path):
+    out_path = tmp_path / "run" / "coverage.json"
+    proc = _run_cli(["--denominator-source", "barrel", "--inventory", _write(tmp_path / "inventory.json", INVENTORY),
+                     "--surface", _write(tmp_path / "surface.json", SURFACE), "--output", str(out_path)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert json.loads(out_path.read_text(encoding="utf-8")) == out
+    assert (out["documented"], out["missing"], out["stale"]) == (2, ["parse"], ["stale"])
+    assert "internalThing" not in out["missing"] and "legacy" not in out["missing"]
+
+
+def test_cli_surface_set_picks_the_name_set(tmp_path):
+    proc = _run_cli(["--denominator-source", "barrel", "--inventory", _write(tmp_path / "i.json", INVENTORY),
+                     "--surface", _write(tmp_path / "s.json", SURFACE), "--surface-set", "root"])
+    assert json.loads(proc.stdout)["denominator"] == 2
+    missing_set = _run_cli(["--denominator-source", "barrel", "--inventory", str(tmp_path / "i.json"),
+                            "--surface", str(tmp_path / "s.json"), "--surface-set", "subpaths"])
+    assert missing_set.returncode == 1 and "no name set `subpaths`" in missing_set.stderr
+
+
+def test_cli_validate_inventory_result_is_accepted_as_inventory(tmp_path):
+    wrapped = {"valid": True, "inventory": INVENTORY}
+    proc = _run_cli(["--denominator-source", "docsOnly", "--inventory", _write(tmp_path / "i.json", wrapped)])
+    assert proc.returncode == 0 and json.loads(proc.stdout)["denominator"] == 4
+
+
+def test_cli_stack_from_coverage_inputs(tmp_path):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"`connect()` and `Client`\n")
+    inputs = _write(tmp_path / "coverage-inputs.json",
+                    {"stack": {"basis": "provenance", "denominator": 3, "compositionNames": ["Client", "connect", "x"]}})
+    proc = _run_cli(["--denominator-source", "stack", "--coverage-inputs", inputs, "--skill-dir", str(skill)])
+    out = json.loads(proc.stdout)
+    assert (out["documented"], out["denominator"], out["missingCount"]) == (2, 3, 1)
+
+
+@pytest.mark.parametrize("verified, documented", [
+    ({"inflated": True, "verified": 1, "declared": 4}, 1),
+    ({"inflated": False, "verified": 4, "declared": 4}, 2),
+    ({"skipped": True, "inflated": False, "verified": None}, 2),
+], ids=["inflated", "not-inflated", "skipped"])
+def test_cli_scalar_reads_the_verified_numerator(tmp_path, verified, documented):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"fetchData helper\n")
+    proc = _run_cli(["--denominator-source", "scalar", "--denominator-value", "4",
+                     "--inventory", _write(tmp_path / "i.json", INVENTORY), "--skill-dir", str(skill),
+                     "--verified", _write(tmp_path / "numerator.json", verified)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["documented"] == documented
+
+
+def test_cli_scalar_takes_its_denominator_from_the_coverage_inputs(tmp_path):
+    """The scalar is read from the loader's file, never typed into the command."""
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"fetchData helper\n")
+    inventory = _write(tmp_path / "i.json", INVENTORY)
+    inputs = _write(tmp_path / "coverage-inputs.json", {"effectiveDenominator": 5, "stack": None})
+    proc = _run_cli(["--denominator-source", "scalar", "--coverage-inputs", inputs, "--inventory", inventory,
+                     "--skill-dir", str(skill)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["denominator"], out["documented"], out["missingCount"]) == (5, 2, 3)
+    without = _write(tmp_path / "no-scalar.json", {"effectiveDenominator": None, "stack": None})
+    proc = _run_cli(["--denominator-source", "scalar", "--coverage-inputs", without, "--inventory", inventory,
+                     "--skill-dir", str(skill)])
+    assert proc.returncode == 1 and "has no `effectiveDenominator`" in proc.stderr
+
+
+def test_cli_refused_input_removes_a_stale_output(tmp_path):
+    out_path = tmp_path / "coverage.json"
+    out_path.write_bytes(b'{"exportCoverage": 100}')
+    proc = _run_cli(["--denominator-source", "barrel", "--output", str(out_path)])
+    assert proc.returncode == 2 and not out_path.exists()
+
+
+def test_cli_unreadable_input_file_exits_1(tmp_path):
+    proc = _run_cli(["--denominator-source", "docsOnly", "--inventory", str(tmp_path / "absent.json")])
+    assert proc.returncode == 1 and "cannot read --inventory" in proc.stderr
 
 
 if __name__ == "__main__":

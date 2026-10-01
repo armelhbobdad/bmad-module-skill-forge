@@ -872,14 +872,19 @@ def test_stack_rosters_read_only_skf_output(rel):
 def test_compose_mode_reads_only_confirmed_skf_skills():
     detect = _read("src/skf-create-stack-skill/references/detect-manifests.md")
     assert "(`skill`, `stack`" not in detect, "SKF writes skill_type single, never skill"
-    # Explicitly named skills pass the same roster gate as discovered ones.
+    # Explicitly named skills pass the same roster gate as discovered ones: the
+    # enumerate helper's candidates mode gates both, and no step joins by hand.
     assert "Use the explicit dependency list directly" not in detect
-    assert "when `explicit_deps` was provided in step 01, each name in it is a candidate" in detect
-    assert "a name from `explicit_deps` is excluded with" in detect
-    for needle in ("`{stack_roster}` ← `skills`", "`{not_skf_output}` ← `not_skf_output`",
-                   "`single` or `individual`", "not SKF output — excluding",
+    assert 'uv run {enumerateStackSkillsHelper} candidates {skills_output_folder} [--explicit "<names>"]' in detect
+    for needle in ("`--explicit` with the `explicit_deps` entries as given",
+                   "`not_skf_output`", "`excluded[]`", "`stale_manifest_keys`",
                    "`skill_package_path` ← `{skills_output_folder}/{path}`", "one resolution"):
         assert needle in detect, needle
+    # The keep rule lives once, in the helper the step renders.
+    helper = _read("src/shared/scripts/skf-enumerate-stack-skills.py")
+    assert "whose skill_type is single, individual or null (an early Quick Skill" in " ".join(helper.split())
+    for stale in ("visited set", "try/except", "*/active/*/SKILL.md", "`{stack_roster}`"):
+        assert stale not in detect, stale
     extract = _read("src/skf-create-stack-skill/references/parallel-extract.md")
     for needle in ('"not_skf_output"', "Build a `per_library_extractions[]` entry for each confirmed skill",
                    "that name a confirmed skill", "If `cycles[]` names a confirmed skill",

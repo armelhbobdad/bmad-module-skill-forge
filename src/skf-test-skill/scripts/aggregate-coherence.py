@@ -15,8 +15,8 @@ compute-score.py is computed once, deterministically, instead of by hand on
 every run (this skill grades other skills — a false PASS is catastrophic, so
 every scoring input is scripted for run-to-run reproducibility).
 
-Formula (mirrors scoring-rules.md "Coherence Score Aggregation (Contextual
-Mode)" — the prose there remains the documented contract):
+Formula (this script is its one home: scoring-rules.md points here, and
+coherence-check.md §5 defines what makes a pattern complete):
 
     reference_validity       = (valid_references / total_references) * 100
     integration_completeness = (complete_patterns / total_patterns) * 100
@@ -27,7 +27,7 @@ Field-name mapping: the step-04 §5 integration JSON calls the pattern counts
 (= complete_patterns); this script's input uses those step-04 names directly
 so §5c passes them through unrenamed.
 
-Edge cases (both documented in scoring-rules.md — absence is never penalized):
+Edge cases (absence is never penalized):
   * patterns_documented == 0 -> no integration patterns to weigh, so
     combined_coherence == reference_validity and integrationCompleteness is
     null. (Do not divide by zero.)
@@ -62,6 +62,10 @@ CLI usage (mirrors compute-score.py):
   uv run aggregate-coherence.py --json-input '<JSON>'     # explicit flag form
   cat input.json | uv run aggregate-coherence.py --stdin  # piped input
 
+--output <file> also writes the result to a file (UTF-8 JSON), the one
+compute-score.py --coherence reads; a refused input removes a file left
+there earlier.
+
 Exit codes (same convention as compute-score.py / reconcile-coverage.py):
   0  — a result object was emitted
   1  — input could not be parsed at all (no input provided, or malformed JSON)
@@ -78,8 +82,9 @@ import argparse
 import json
 import math
 import sys
+from pathlib import Path
 
-# Weights for the combined-coherence mean (from scoring-rules.md). Kept as
+# Weights for the combined-coherence mean. Kept as
 # named constants so the 0.6 / 0.4 split lives in exactly one place.
 REFERENCE_VALIDITY_WEIGHT = 0.6
 INTEGRATION_COMPLETENESS_WEIGHT = 0.4
@@ -240,7 +245,17 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Read the JSON object from stdin.",
     )
+    parser.add_argument("--output", metavar="PATH", help="also write the result to this file")
     return parser
+
+
+def _write_output(path, result):
+    target = Path(path)
+    if result.get("code") == "INVALID_INPUT":
+        target.unlink(missing_ok=True)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes((json.dumps(result, indent=2) + "\n").encode("utf-8"))
 
 
 def _resolve_input(args: argparse.Namespace) -> str:
@@ -272,6 +287,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     result = aggregate_coherence(data)
+    if args.output:
+        _write_output(args.output, result)
     print(json.dumps(result, indent=2))
     # Same convention as compute-score.py / reconcile-coverage.py. This script
     # produces the coherence percentage that score.md §3a feeds to

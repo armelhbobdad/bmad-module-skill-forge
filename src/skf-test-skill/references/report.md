@@ -6,8 +6,8 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 # discovery outcome, and §4c renders the Gap Report from it.
 ledgerFile: '{forge_version}/test-findings-{run_id}.json'
 gapLedgerScript: 'scripts/gap-ledger.py'
-scoringRulesFile: '{scoringRulesPath}'
-outputFormatsFile: '{outputFormatsPath}'
+scoringRulesFile: 'references/scoring-rules.md'
+outputFormatsFile: 'assets/output-section-formats.md'
 # outputContractSchema and healthCheck resolve relative to the SKF module root
 # (`{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during
 # development), NOT relative to this step file. Both paths are probed in
@@ -323,7 +323,7 @@ SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":"F
 
 ### 7. Health-Check Dispatch + MENU OPTIONS
 
-**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from the `--no-health-check` flag, `init.md` §1), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). That rewrite is the run's last write to the result files: release the run lock now, from `{project-root}`, with `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"`. Log Info note "health-check: skipped, --no-health-check flag set" and exit the workflow: in `{headless_mode}`, exit with `{headless_exit_code}` (determined in §6b); non-headless, simply terminate after the §6 presentation. Do not resolve `{healthCheckFile}`, do not display the menu, do not chain to `{nextStepFile}`. This flag is the one path where §7 does not dispatch the health-check.
+**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from the `--no-health-check` flag, `init.md` §1), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). That rewrite is the run's last write to the result files: release the run lock now, from `{project-root}`, with `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"`, and remove the run folder with `rm -rf "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"`. Log Info note "health-check: skipped, --no-health-check flag set" and exit the workflow: in `{headless_mode}`, exit with `{headless_exit_code}` (determined in §6b); non-headless, simply terminate after the §6 presentation. Do not resolve `{healthCheckFile}`, do not display the menu, do not chain to `{nextStepFile}`. This flag is the one path where §7 does not dispatch the health-check.
 
 Resolve `{healthCheckFile}`: probe `{healthCheckProbeOrder}` in order. **HALT** if neither candidate exists — the health-check is the true terminal step; without it the workflow cannot complete honestly:
 
@@ -353,6 +353,12 @@ Also mirror the boolean into the `healthCheckDispatched` field of the result con
 
 ```bash
 uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"
+```
+
+Then remove the run folder init.md §6b created: no later step reads it.
+
+```bash
+rm -rf "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"
 ```
 
 Display: "**Test complete.** [C] Finish"

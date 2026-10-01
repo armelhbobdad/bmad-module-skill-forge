@@ -330,3 +330,47 @@ class TestRun:
         stderr = capsys.readouterr().err
         err = json.loads(stderr.strip())
         assert err["code"] == "AGGREGATE_ERROR"
+
+
+class TestExportGate:
+    """The report and its result JSON say which completed skills the gate kept from export."""
+
+    def test_verdicts_and_exclusions_in_the_result(self, tmp_path: Path, capsys):
+        state = _minimal_state()
+        state["skills"][1]["quality_score"] = 70
+        output_file = tmp_path / "report.md"
+        rc = mod.run(str(_write_state(tmp_path, state)), str(_write_template(tmp_path)), str(output_file))
+        assert rc == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["export_verdicts"] == {"skill-alpha": "pass", "skill-beta": "fail"}
+        assert result["skills_excluded"] == ["skill-beta"]
+        report = output_file.read_text(encoding="utf-8")
+        assert "| skill-alpha | 92 | pass |" in report
+        assert "**Not exported (below the quality gate):** skill-beta (70: below soft_fallback 80)" in report
+
+    def test_directive_overrides_apply(self, tmp_path: Path, capsys):
+        directive = tmp_path / "_campaign-directive.md"
+        directive.write_bytes(b"## Quality Overrides\n- soft_target: 95\n")
+        state = _minimal_state()
+        state["campaign"]["directive_path"] = str(directive)
+        rc = mod.run(str(_write_state(tmp_path, state)), str(_write_template(tmp_path)), str(tmp_path / "r.md"))
+        assert rc == 0
+        verdicts = json.loads(capsys.readouterr().out)["export_verdicts"]
+        assert verdicts == {"skill-alpha": "fallback", "skill-beta": "fallback"}
+
+    def test_gate_that_cannot_be_applied_is_null(self, tmp_path: Path, capsys):
+        state = _minimal_state()
+        state["campaign"]["quality_gate"]["hard"] = "lenient"
+        output_file = tmp_path / "report.md"
+        rc = mod.run(str(_write_state(tmp_path, state)), str(_write_template(tmp_path)), str(output_file))
+        assert rc == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["export_verdicts"] is None
+        assert result["skills_excluded"] is None
+        assert "could not be applied" in output_file.read_text(encoding="utf-8")
+
+    def test_no_completed_skill(self):
+        state = _minimal_state()
+        for skill in state["skills"]:
+            skill["status"] = "failed"
+        assert mod._compute_aggregates(state)["export_gate_section"] == "No completed skills."

@@ -39,9 +39,14 @@ Stack skills (`skill_type == "stack"`) and reference apps
 intentionally *different* surfaces, so comparing them yields only false drift.
 
 CLI usage:
+  uv run check-metadata-coherence.py --inputs <coverage-inputs.json>  # a file
   uv run check-metadata-coherence.py '<JSON>'                  # positional
   uv run check-metadata-coherence.py --json-input '<JSON>'     # explicit flag
   cat input.json | uv run check-metadata-coherence.py --stdin  # piped
+
+--inputs reads the input object from a file: load-coverage-inputs.py
+metadata writes these keys from metadata.json and the provenance map (any
+other key in the file is ignored), so no count is copied by hand.
 
 Input schema (one object; omit any count that is absent for the skill):
   {
@@ -83,6 +88,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 DEFAULT_DRIFT_PCT = 10
 CATEGORY = "structural/metadata coherence"
@@ -317,12 +323,19 @@ def _build_parser():
         action="store_true",
         help="Read the JSON object from stdin.",
     )
+    src.add_argument(
+        "--inputs",
+        metavar="PATH",
+        help="Read the JSON object from this file (load-coverage-inputs.py metadata output).",
+    )
     return parser
 
 
 def _resolve_input(args):
     if args.stdin:
         return sys.stdin.read()
+    if args.inputs is not None:
+        return Path(args.inputs).read_bytes().decode("utf-8-sig")
     if args.json_input_flag is not None:
         return args.json_input_flag
     if args.json_input is not None:
@@ -333,11 +346,15 @@ def _resolve_input(args):
 def main(argv=None):
     parser = _build_parser()
     args = parser.parse_args(argv)
-    raw = _resolve_input(args)
+    try:
+        raw = _resolve_input(args)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"error: cannot read --inputs {args.inputs}: {exc}", file=sys.stderr)
+        return 1
     if not raw.strip():
         parser.print_usage(file=sys.stderr)
         print(
-            "error: no input provided (positional arg, --json-input, or --stdin)",
+            "error: no input provided (positional arg, --json-input, --stdin or --inputs)",
             file=sys.stderr,
         )
         return 1
@@ -355,5 +372,21 @@ def main(argv=None):
     return 0
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdout and stderr to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which cannot print every character
+    of the --help text, so --help would stop with UnicodeEncodeError.
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdout, sys.stderr)
     raise SystemExit(main())

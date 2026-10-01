@@ -23,6 +23,7 @@ to import names.
 Subcommand:
   count <root> [--deps <json-file-or-'-'>] [--units <json-file-or-'-'>]
                [--threshold N] [--exclude GLOB]... [--format full|libraries]
+               [--relative-to DIR]
 
       Walk <root>, read every source file of the languages the targets need,
       and count the files that import each target. At least one of --deps
@@ -68,6 +69,12 @@ Subcommand:
                        `libraries` prints [{"name", "files": [<path>, ...]}]
                        for every dependency, then every unit: the input of
                        `skf-pair-intersect.py intersect --libraries -`.
+      --relative-to DIR
+                       write each `files[].path` relative to DIR, a folder
+                       that holds <root>, instead of to <root>: a caller that
+                       scans one package of a project keeps project-relative
+                       paths. Excludes and a unit's `path` stay relative to
+                       <root>.
 
       Emit JSON (`full`):
         {
@@ -181,7 +188,8 @@ CLI examples:
 Exit codes:
   0  success (including: no dependency imported, no source file found)
   1  user error (root not a directory, unreadable or malformed JSON input,
-     a bad dependency or unit entry, both inputs on stdin, bad --threshold)
+     a bad dependency or unit entry, both inputs on stdin, bad --threshold,
+     a --relative-to that is not a folder holding <root>)
 """
 
 from __future__ import annotations
@@ -1569,6 +1577,33 @@ def _unresolved(dep: dict, names: list[str], reason: str) -> dict:
     return entry
 
 
+def prefix_paths(result: dict, prefix: str) -> dict:
+    """Write every `files[].path` of `result` under `prefix`, a forward-slash folder."""
+    if not prefix:
+        return result
+
+    def moved(files: list[dict]) -> list[dict]:
+        return [{**f, "path": f"{prefix}/{f['path']}"} for f in files]
+
+    for entry in result["dependencies"] + result.get("units", []) + result.get("edge_files", []):
+        entry["files"] = moved(entry["files"])
+    return result
+
+
+def _relative_prefix(root: Path, base: Path) -> str:
+    """The forward-slash path of `root` inside `base` ('' when they are one folder).
+
+    Raises InputError when `base` is not a folder or does not hold `root`.
+    """
+    if not base.is_dir():
+        raise InputError(f"--relative-to not a directory: {base}")
+    try:
+        prefix = root.resolve().relative_to(base.resolve()).as_posix()
+    except ValueError:
+        raise InputError(f"root {root} is not inside --relative-to {base}") from None
+    return "" if prefix == "." else prefix
+
+
 def as_libraries(result: dict) -> list[dict]:
     """The skf-pair-intersect.py `--libraries` input: dependencies, then units."""
     rows = [
@@ -1602,6 +1637,7 @@ def _cmd_count(args: argparse.Namespace) -> int:
         print(f"error: --threshold must be >= 0; got {args.threshold}", file=sys.stderr)
         return 1
     try:
+        prefix = "" if args.relative_to is None else _relative_prefix(root, Path(args.relative_to))
         dependencies: list[dict] = []
         units: list[dict] | None = None
         if args.deps is not None:
@@ -1622,6 +1658,7 @@ def _cmd_count(args: argparse.Namespace) -> int:
     except OSError as exc:
         print(f"error: filesystem error during scan: {exc}", file=sys.stderr)
         return 1
+    result = prefix_paths(result, prefix)
     output = as_libraries(result) if args.format == "libraries" else result
     json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
@@ -1678,6 +1715,15 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("full", "libraries"),
         default="full",
         help="full envelope (default) or the skf-pair-intersect.py --libraries list",
+    )
+    p_count.add_argument(
+        "--relative-to",
+        default=None,
+        metavar="DIR",
+        help=(
+            "write each files[].path relative to DIR, a folder that holds the "
+            "root, instead of to the root"
+        ),
     )
     p_count.set_defaults(func=_cmd_count)
 

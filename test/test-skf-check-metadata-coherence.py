@@ -179,3 +179,24 @@ def test_cli_invalid_input_exit_2():
         text=True,
     )
     assert proc.returncode == 2
+
+
+def test_cli_inputs_file_ignores_other_keys(tmp_path):
+    """coverage-check §4b runs the script on load-coverage-inputs.py metadata's file."""
+    path = tmp_path / "coverage-inputs.json"
+    payload = {"skillType": "single", "scopeType": None,
+               "clusterA": {"exports_public_api": 55, "exports_length": 48},
+               "clusterB": {"exports_documented": 50}, "provenanceExportNames": None,
+               "confidenceDistribution": None, "declaredNames": ["a"], "stack": None}
+    path.write_bytes(json.dumps(payload).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--inputs", str(path)],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout
+    out = json.loads(proc.stdout)
+    assert [f["title"] for f in out["findings"]] == ["metadata drift \u2014 barrel export counts diverge"]
+
+
+def test_cli_unreadable_inputs_exit_1(tmp_path):
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--inputs", str(tmp_path / "absent.json")],
+                          capture_output=True, text=True)
+    assert proc.returncode == 1 and "cannot read --inputs" in proc.stderr

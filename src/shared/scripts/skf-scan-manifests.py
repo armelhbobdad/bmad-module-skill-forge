@@ -44,6 +44,10 @@ Subcommand:
           ],
           "total_unique": N,          // unique runtime dep names across all manifests
           "monorepo": <bool>,         // >1 manifest of same ecosystem at non-overlapping depths
+          "folders": [                // each folder holding a manifest ("." for <root>), sorted
+            {"path": "apps/web", "names": ["web"]},   // the package names its manifests give
+            ...
+          ],
           "umbrella_candidates": [
             {"path": "...", "name": "...", "ecosystem": "...",
              "internal_dep_count": N, "member_count": M},
@@ -1174,6 +1178,17 @@ def _path_is_ancestor(a: str, b: str) -> bool:
     return b.startswith(a + "/")
 
 
+def _folders(manifests: list[dict]) -> list[dict]:
+    """Each folder holding a manifest ("." for the root), with the names its manifests give."""
+    by_folder: dict[str, set[str]] = {}
+    for m in manifests:
+        folder = m["path"].rsplit("/", 1)[0] if "/" in m["path"] else "."
+        names = by_folder.setdefault(folder, set())
+        if isinstance(m["name"], str) and m["name"]:
+            names.add(m["name"])
+    return [{"path": folder, "names": sorted(names)} for folder, names in sorted(by_folder.items())]
+
+
 def scan(root: Path, include_dev: bool = False) -> dict:
     """Run a full manifest scan rooted at `root`.
 
@@ -1215,6 +1230,7 @@ def scan(root: Path, include_dev: bool = False) -> dict:
     if include_dev:
         result["total_unique_dev"] = len(dev_names - unique_names)
     result["monorepo"] = _is_monorepo(manifests)
+    result["folders"] = _folders(manifests)
     result["umbrella_candidates"] = _umbrella_candidates(manifests)
     result["searched_filenames"] = list(MANIFEST_ECOSYSTEMS)
     if warnings:

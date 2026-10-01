@@ -1,8 +1,8 @@
 ---
 nextStepFile: 'external-validators.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
-outputFormatsFile: '{outputFormatsPath}'
-scoringRulesFile: '{scoringRulesPath}'
+outputFormatsFile: 'assets/output-section-formats.md'
+scoringRulesFile: 'references/scoring-rules.md'
 coherenceAggregationScript: 'scripts/aggregate-coherence.py'
 locateExportSegmentsScript: 'scripts/locate-export-segments.py'
 migrationSectionRules: 'references/migration-section-rules.md'
@@ -59,17 +59,17 @@ The script matches case-insensitively and tolerates `##`/`###` heading levels. S
 
 **2.3 Language tags on opening fences.** Read `bare_opening_fences[]` from the second JSON blob. The script already runs the stateful open/close scan, so closing fences are never reported. For each entry, emit a **Medium severity** finding: `naive-coherence: opening code fence at line {entry.line} missing language tag`.
 
-**2.4 Exports cross-used in a usage-family section.** For each function name reported in the step 3 subagent inventory (`exports[].name` where `kind == "function"` or `kind == "method"`):
+**2.4 Exports cross-used in a usage-family section.** For each function name in the validated inventory step 3 wrote to `{run_dir}/inventory.json` (`exports[].name` where `kind == "function"` or `kind == "method"`):
 - Determine the usage-family search scope:
   - **Single-body skill** (no `references/` directory, or `## Full*` sections carry real content): the span from §2.1's `matched_synonym` anchor to the next `^## ` anchor.
   - **Split-body skill** (a `references/` directory exists alongside SKILL.md AND the SKILL.md `## Full*` sections are stubs/pointers): the union of EVERY usage-family heading present in SKILL.md (`Usage`/`Usage Patterns`/`Examples`/`How to use`/`Quickstart`/`Quick Start`/`Getting Started`/`Common Workflows`/`Adoption Steps`/`Key API Summary`/`Pattern Surface`/`Key Exports`), each from its anchor to the next `^## ` anchor, PLUS the full text of every file under `references/`.
 - `grep -c "{export.name}"` across that scope and sum the counts.
 - **Zero occurrences across the entire scope → Medium severity** finding: `naive-coherence: exported {kind} \`{name}\` is not referenced in any usage-family section or reference file`. This catches the "documented but unused" failure mode that trivially fails discovery testing. Like a missing export, it is a completeness gap, so it does not block the hard gate. A method referenced in any usage-family section OR any `references/` file satisfies the check.
 
-**2.5 Async/sync consistency.** `{locateExportSegmentsScript}` reports the facts: for each export the step 3 inventory lists with `kind` `function` or `method`, where the skill describes it (`descriptions[]`: the heading sections, table rows, list items and paragraphs that name it in code, and the signature lines that declare it) and each call to it in fenced code, with whether the call awaits it. Skip this check when the inventory has no such export; otherwise run the script (it resolves relative to the skill root):
+**2.5 Async/sync consistency.** `{locateExportSegmentsScript}` reports the facts: for each export the step 3 inventory lists with `kind` `function` or `method`, where the skill describes it (`descriptions[]`: the heading sections, table rows, list items and paragraphs that name it in code, and the signature lines that declare it) and each call to it in fenced code, with whether the call awaits it. It reads the names from the validated inventory file itself, keeping the `function` and `method` entries, so no name is copied by hand. Skip this check when the inventory has no such export; otherwise run the script (it resolves relative to the skill root):
 
 ```bash
-echo '{"names": [<each exports[].name whose kind is function or method>], "skillPackagePath": "{resolved_skill_package}"}' | uv run {locateExportSegmentsScript} --stdin
+uv run {locateExportSegmentsScript} --inventory "{run_dir}/inventory.json" --skill-dir "{resolved_skill_package}"
 ```
 
 The script judges no meaning. For each `exports[]` entry, read its `descriptions[]` and decide what they assert about **this** export. The word `async` in a description decides nothing:
@@ -185,7 +185,7 @@ Build integration completeness findings:
 
 Each `incomplete_patterns` entry is an incomplete integration pattern, a Medium `integration-pattern` gap, with its Source at `SKILL.md:{line}` and the missing evidence as its Issue; §6 records it.
 
-**Zero integration patterns:** If no integration patterns are documented in SKILL.md (e.g., a contextual-mode skill that uses shared types but has no middleware chains, plugin hooks, or event flows): record `patterns_documented: 0`, `patterns_complete: 0`. The coherence score will use reference validity alone — see `{scoringRulesFile}` Coherence Score Aggregation: "If no integration patterns exist, combined coherence equals reference validity."
+**Zero integration patterns:** If no integration patterns are documented in SKILL.md (e.g., a contextual-mode skill that uses shared types but has no middleware chains, plugin hooks, or event flows): record `patterns_documented: 0`, `patterns_complete: 0`. The coherence score then uses reference validity alone: with no integration patterns, §5c's script makes combined coherence equal reference validity.
 
 ### 5b. Migration/Deprecation Verification (Contextual Path)
 
@@ -195,18 +195,18 @@ results.
 
 ### 5c. Calculate Coherence Scores
 
-**Contextual mode only.** The reference-validity ratio, the integration-completeness ratio, and their fixed 0.6 / 0.4 weighted mean are pure arithmetic — the judgment (which references are valid in §4, which patterns are complete in §5) has already happened. Do not compute these percentages by hand; they are aggregated by `{coherenceAggregationScript}` (the formulas it encodes are documented in `{scoringRulesFile}` — Coherence Score Aggregation).
+**Contextual mode only.** The reference-validity ratio, the integration-completeness ratio, and their weighted mean are pure arithmetic: the judgment (which references are valid in §4, which patterns are complete in §5) has already happened. Do not compute these percentages by hand; `{coherenceAggregationScript}` aggregates them and is the one home of the formula and its weights.
 
 Tally the counts from the §4 per-reference JSON (`valid_references` = references with `target_exists && type_match && signature_match && no issues`; `total_references` = references extracted in §3) and the §5 integration JSON (`patterns_documented`, `patterns_complete`), then invoke:
 
 ```bash
-echo '{"valid_references": <V>, "total_references": <T>, "patterns_documented": <PD>, "patterns_complete": <PC>}' | uv run {coherenceAggregationScript} --stdin
+echo '{"valid_references": <V>, "total_references": <T>, "patterns_documented": <PD>, "patterns_complete": <PC>}' | uv run {coherenceAggregationScript} --stdin --output "{run_dir}/coherence.json"
 ```
 
-The script also accepts the JSON as a positional argument or via `--json-input`. Parse its output and read:
-- `referenceValidity` — reference-validity percentage
-- `integrationCompleteness` — integration-completeness percentage (`null` when no patterns are documented)
-- `combinedCoherence` — the combined coherence percentage passed to score.md §3a as the `coherence` input
+`--output` also writes the result to the run folder, where step 5 hands it to the scoring script. Parse its output and read:
+- `referenceValidity`: reference-validity percentage
+- `integrationCompleteness`: integration-completeness percentage (`null` when no patterns are documented)
+- `combinedCoherence`: the combined coherence percentage, the `coherence` score step 5 reads from `{run_dir}/coherence.json`
 
 The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6.
 

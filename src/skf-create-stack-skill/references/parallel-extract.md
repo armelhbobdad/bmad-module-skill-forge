@@ -69,7 +69,7 @@ The script emits JSON of the form:
 Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append to workflow state the `warnings[]` entries that name a confirmed skill (each starts with `<skill_dir>: `, e.g. `"<skill-name>: no exports found via any resolution path"`) for the evidence report. If `cycles[]` names a confirmed skill, a composes-cycle makes the stack unbuildable — emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3`:
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":[],"mode":"compose","quality_score":null,"exit_code":3,"halt_reason":"resolution-failure"}
 ```
 
 Build a `per_library_extractions[]` entry for each confirmed skill, from the `skills[]` entry whose `name` is its `skill_dir`:
@@ -140,7 +140,7 @@ For each library in `confirmed_dependencies`, determine extraction strategy base
 **Launch subprocesses in parallel** (max_parallel_generation: 3–5 concurrent Agent tool calls in Claude Code, IDE-dependent in Cursor, CPU core count in CLI) — one per confirmed library:
 
 Each subprocess:
-1. Reads all files importing the library (from step 03 file lists)
+1. Reads all files importing the library (its `files[]` in step 3's `{import_counts}`, whose paths are relative to `{project_root}`, as `source_file` is)
 2. Extracts key exports used in this project (functions, classes, types, constants)
 3. Identifies usage patterns (initialization, configuration, common call patterns)
 4. Labels each export by the tool that read it (§1)
@@ -156,7 +156,7 @@ Each subprocess:
       export_type: "function|class|type|constant",
       params: ["typed param strings"],
       return_type: "type",
-      source_file: "path relative to {scan_root}",
+      source_file: "path relative to {project_root}",
       source_line: 0,
       extraction_method: "ast_bridge|source_reading",
       confidence: "T1|T1-low",
@@ -175,7 +175,7 @@ Each subprocess:
 }
 ```
 
-`{scan_root}` is the project root, `project_root` from step 1: `source_file` is relative to it, with forward slashes (a library installed outside it, in a global site-packages say, is relative to its install folder, and step 7 warns on it). `source_line` is the export's `def`, `class` or declaration line, not a decorator above it. The subprocess returns no library tier: §3a sets it.
+`{project_root}` is the project root, `project_root` from step 1, whatever folder `{scan_root}` narrowed steps 2, 3 and 5 to: `source_file` is relative to it, with forward slashes (a library installed outside it, in a global site-packages say, is relative to its install folder, and step 7 warns on it). `source_line` is the export's `def`, `class` or declaration line, not a decorator above it. The subprocess returns no library tier: §3a sets it.
 
 **If parallel subprocess unavailable:** Process libraries sequentially in main thread. Report progress after each library.
 
@@ -195,21 +195,21 @@ For each library extraction:
 
 **If ALL extractions fail:** HALT — cannot produce meaningful stack skill. Before halting (B7):
 
-1. Purge any in-flight staging artifacts under the forge workspace: remove `{forge_data_folder}/{project_name}-stack/{version}/*-tmp`, any `{forge_data_folder}/{project_name}-stack/{version}/*.skf-tmp` directories and the §3a labels file `{forge_data_folder}/{project_name}-stack.skf-labels.json` so partial state does not linger.
+1. Purge any in-flight staging artifacts under the forge workspace: remove `{forge_data_folder}/{stack_name}/{version}/*-tmp`, any `{forge_data_folder}/{stack_name}/{version}/*.skf-tmp` directories and the §3a labels file `{forge_data_folder}/{stack_name}.skf-labels.json` so partial state does not linger.
 2. Emit the result envelope on stderr per the Result Contract in SKILL.md (`stack_libraries` carries the confirmed library names that failed extraction), and exit `2`:
 
    ```
-   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":2,"halt_reason":"all-extractions-failed"}
+   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","quality_score":null,"exit_code":2,"halt_reason":"all-extractions-failed"}
    ```
 
 ### 3a. Check the Export Labels
 
 Code mode only (compose mode leaves this step at §0). Steps 5 to 7 read the labels checked here. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}`; if neither path exists, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "label-check-skipped"`, `message`: the reason) and go to the library tiers below.
 
-Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{forge_data_folder}/{project_name}-stack.skf-labels.json`, and run:
+Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{forge_data_folder}/{stack_name}.skf-labels.json`, and run:
 
 ```bash
-echo '{}' | uv run {renderMetadataStatsHelper} {forge_data_folder}/{project_name}-stack.skf-labels.json --shape stack
+echo '{}' | uv run {renderMetadataStatsHelper} {forge_data_folder}/{stack_name}.skf-labels.json --shape stack
 ```
 
 Rely on its JSON, not the exit code, and write neither its `stats` nor its `confidence_distribution` into `metadata.json`. If it exits `2` (no JSON), append a `label-check-skipped` entry with its stderr as the message, delete the file and go to the library tiers. Otherwise fix each `coherence` violation in the stored records:

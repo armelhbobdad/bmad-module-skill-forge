@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-campaign
+summary: |
+  A headless campaign no longer stops at the first Tier A skill whose dependency failed. When every unmet dependency of a Tier A skill failed or was skipped, headless now skips that skill (`[S]kip`), logs why, and goes on with the independent skills, the Tier B batch and the report. It halts only while a dependency is still pending or active, now with exit code `13` and error code `dependency-blocked`, which the interactive `[H]alt` at a blocked skill uses too; before, that halt had no exit code. In execution order every dependency runs first, so only a `--from` resume or a hand-edited state leaves one pending. Exit code `7` (`dependency-deadlock`) stays for a deadlock, which Strategy's checks keep a normal run from reaching too. The Tier B batch applies no dependency rule, as before. `campaign-deps.py --check` reports each unmet dependency's status (`unmet_status`) and the headless choice (`default_action`).
+migration: |
+  A job that expected a headless campaign to halt at a skill whose dependency failed now sees it finish, with that skill `skipped` in state and in the decision log; branch on exit code `13` (`dependency-blocked`) for the halt that remains.
+prs: [635]
+issues: [586]
