@@ -22,8 +22,16 @@ setting can name, so the ownership rules never read SKF's staging as a
 skill folder SKF did not generate.
 
 The lifecycle writers (export, drop and rename) write the managed section
-through the same helper calls: the last tests run each skill's documented
+through the same helper calls: the lifecycle tests run each skill's documented
 commands and check that the three write byte-identical sections.
+
+The last tests pin rename-skill's run: its run lock through skf-run-lock.py
+(the documented calls run as separate processes, as each tool call is), the
+halt, dry-run and success envelopes the shared emitter builds from the
+payloads the step files pass it (run against the emitter, a halt with no run
+folder included, and checked with the schema), the exit-code table against
+the schema's map, the counts its report takes from helper results, and the
+recovery for a rename that stopped after its manifest re-key.
 """
 
 from __future__ import annotations
@@ -112,9 +120,14 @@ def _row(text: str, prefix: str) -> str:
 
 
 def _flat_rung(text: str) -> str:
-    """The flat-path fallback rung: from its first line to the next numbered step."""
-    start = text.index("If neither: fall back to the flat path")
-    rest = text[start:]
+    """The flat-path fallback rung: from its first line to the next numbered step.
+
+    Export's rung opens with its `reason` value, as its other rungs do; the
+    other sites open with "If neither".
+    """
+    start = re.search(r"(?:If neither|`flat-layout`): fall back to the flat path", text)
+    assert start, "the flat-path fallback rung is missing"
+    rest = text[start.start():]
     nxt = re.search(r"\n\d+\. ", rest)
     assert nxt, "the flat rung must be followed by the next numbered step"
     return rest[:nxt.start()]
@@ -424,7 +437,7 @@ def test_rename_recreates_active_with_flip_link():
     execute = _read(RENAME_EXECUTE)
     # skf-update-active-symlink.py has no flip-link, and rename no longer calls it.
     assert "updateActiveSymlink" not in execute
-    resolve = _section(execute, "### 0. Re-read", "### 1. ")
+    resolve = _section(execute, "### 0. Resolve Helpers", "### 1. ")
     assert "`{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §4" in resolve
     copy = _section(execute, "### 1. Copy skill_group and forge_group", "### 2. ")
     assert "the copy follows no link;" not in copy
@@ -447,7 +460,9 @@ def test_rename_recreates_active_with_flip_link():
     assert "`{target_version}` is not one of `renamed_versions`" in fix, "a broken link is refused, not copied"
     rollback = _section(fix, "**Rollback on a failure in step 2, 4 or 6:**", "Report:")
     assert "- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true" in rollback
-    assert '- Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`' in rollback
+    # The halt procedure releases the run lock after the rollback, through the helper.
+    assert "Release the lock" not in rollback
+    assert '`emit-halt` phase `execute:active-link`' in rollback
     assert 'then rm -f "{new_skill_group}/active"' in fix, "a link is removed as a link, never followed"
     assert 'elif [ -e "{new_skill_group}/active" ]; then rm -rf "{new_skill_group}/active"' in fix
     assert "bind `{active_link_kind}` ← `kind`" in fix and "bind `{flip_error}` ← `message`" in fix
@@ -482,7 +497,8 @@ def test_rename_restores_the_manifest_with_write_target():
     assert rollback.index("Only when `exports.{new_name}` is there") < rollback.index("write --target")
     assert "Otherwise restore the backup" not in rollback
     assert "- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true" in rollback
-    assert '- Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`' in rollback
+    assert "Release the lock" not in rollback, "the halt procedure releases the run lock after the rollback"
+    assert '`halt_reason: "manifest-write-failed"`, `emit-halt` phase `execute:manifest`' in rollback
     assert 'uv run {manifestOpsHelper} "{skills_output_folder}" rename {new_name} {old_name}' in manifest
     assert "Restored manifest from backup and rolled back" not in manifest, "say what the rollback did"
     assert "section 7 on failure" not in manifest, "§7 never rolls back"
@@ -669,8 +685,8 @@ def test_rename_checks_the_forge_folder_before_the_lock():
                    "a folder SKF can read"):
         assert needle in check, needle
     lock = _section(text, "### 4b. Concurrency Guard", "### 5. Ask for New Name")
-    assert "LOCK={forge_data_folder}/.skf-rename-{old_name}.lock" in lock
-    assert 'mkdir -p "{forge_data_folder}"' in lock
+    assert '--lock "{forge_data_folder}/.skf-rename-{old_name}.lock"' in lock
+    assert "The helper creates `{forge_data_folder}` when it is missing." in lock
 
 
 def test_rename_lock_never_sits_in_a_forge_folder():
@@ -697,18 +713,18 @@ def test_rename_moves_only_an_skf_forge_folder():
     assert 'Only when `{forge_move}` is true, add `"{old_forge_group}"` after `"{old_skill_group}"`' in delete
     update = _section(execute, "### 3. Update File Contents", "### 4. ")
     assert "context-snippet.md, provenance-map.json.\"" not in update, "name only the files rewritten"
-    assert "{if forge_move or same_folder: ', provenance-map.json'}" in update
-    assert "`same_folder` — carried from step 1" in _section(execute, "### 9. Store Results", "### 10. ")
-    assert "provenance-map.json when `forge_move` or `same_folder`" in _read("src/skf-rename-skill/references/report.md")
+    assert "Name only what `files_rewritten` holds, counted from it, never from the version count." in update
+    assert "`same_folder`: carried from step 1" in _section(execute, "### 9. Store Results", "### 10. ")
+    assert "{if forge_move or same_folder:}- provenance-map.json" in _read("src/skf-rename-skill/references/report.md")
 
 
 def test_rename_deletes_the_old_folders_through_the_guarded_delete():
     """determinism-2: the checked delete drop uses, resolved in §0 so a missing helper halts before the copy."""
     execute = _read(RENAME_EXECUTE)
     assert PROBE_ORDER in execute.split("\n---\n", 1)[0] + "\n"
-    resolve = _section(execute, "### 0. Re-read", "### 1. ")
+    resolve = _section(execute, "### 0. Resolve Helpers", "### 1. ")
     assert "`{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` (used in §8" in resolve
-    assert 'HALT (exit code 4, `halt_reason: "write-failed"`)' in resolve
+    assert 'HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:resolve-helpers`)' in resolve
     delete = _section(execute, "### 8. Delete Old Directories", "### 9. ")
     assert _inventory_call(RENAME_EXECUTE, "### 8. Delete Old Directories", "### 9. ") == (
         'uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" --root "{forge_data_folder}" '
@@ -1092,7 +1108,7 @@ def test_export_records_the_manifest_with_passive_context_off():
                   "confirmed when `get` returns", "or `get` does not confirm"):
         assert stale not in text, stale
     assert "also when `passive_context` is off" in _read(EXPORT_SKILL)
-    exit_codes = _section(_read(EXPORT_SKILL), "## Exit Codes", "## Result Contract")
+    exit_codes = _section(_read("src/skf-export-skill/references/result-envelope.md"), "## Exit Codes", None)
     exit_4 = next(line for line in exit_codes.splitlines() if line.startswith("| 4 "))
     assert "step 4 §9b manifest write → `manifest-write-failed`" in exit_4
 
@@ -1105,9 +1121,10 @@ def test_export_reads_the_manifest_only_through_the_helper():
                 f"{path.relative_to(REPO).as_posix()}: {line[:120]}")
     load = _read(EXPORT_LOAD)
     assert "python3 {manifestOpsHelper} {skills_output_folder} read" in load
-    assert "python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}" in load
+    assert ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
+            '--forge-data-folder "{forge_data_folder}"') in load, "§2 chooses the version through the helper"
     # A run that names its skill reads the manifest first too, so a file that does not parse halts
-    # with exit 3 at step 1, before the §1b probe, the §2 `get` or step 3 copies a snippet.
+    # with exit 3 at step 1, before the §1b probe, the §2 `resolve` or step 4 §9c writes a snippet.
     parse = _section(load, "### 1. Parse Export Arguments", "### 1b. ")
     assert "**Read the export manifest** on every run" in parse and "whenever this section needs it" not in parse
     assert parse.index("**Read the export manifest**") < parse.index("**Skill Path Discovery")
@@ -1132,18 +1149,20 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
     assert ('When no `{countTokensProbeOrder}` candidate exists, or the helper exits non-zero, delete the '
             '`{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`)') in count
     stage = _section(text, "### 2.8. Stage Folder", "### 3. ")
-    assert "so a dry run leaves nothing beside a skill package or a context file" in stage, (
-        "outside a dry run step 3 copies the snippet into the package before the step 4 gate")
+    assert "so a dry run leaves nothing beside a skill package or a context file" in stage
     assert "Step 4 deletes the folder on every exit, cancels and halts included." in stage
     assert 'print(tempfile.mkdtemp(prefix=\'skf-export-\'))' in text, "the stage folder lies outside the project"
-    assert ('cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" '
-            '"{resolved_skill_package}/context-snippet.md"') in text
+    copy = ('cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" '
+            '"{resolved_skill_package}/context-snippet.md"')
+    assert copy not in text, "step 3 only stages the snippet"
+    assert copy in _section(_read(EXPORT_UPDATE), "### 9c. Write the Snippets", None), (
+        "step 4 section 9c copies the snippet into the package only after its gate")
 
 
 def test_export_step_4_deletes_the_stage_folder_on_every_exit():
     """A halted or cancelled export leaves no skf-export-* folder behind in the OS temp folder."""
     helpers = _section(_read(EXPORT_UPDATE), "### 2. Resolve the Helpers", "### 3. ")
-    assert ("deletes the folder on every exit: the §8 dry run and cancel, the end of §9, the orphan-row (c) "
+    assert ("deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) "
             "Cancel and every HALT in this step") in helpers
     cancel = _section(_read("src/skf-export-skill/references/orphan-row-detection.md"), "### (c) Cancel",
                       "## Downstream contract")
@@ -1158,7 +1177,7 @@ def test_export_halts_on_a_malformed_target_before_the_orphan_gate():
             "and take its `malformed` HALT, before §4c.1 asks anything") in assemble
     check = _section(text, "### 5. Check Each Target File", "### 6. ")
     assert "`unreadable`" not in check, "§4b's assemble already halts on a context file SKF cannot read"
-    exit_codes = _section(_read(EXPORT_SKILL), "## Exit Codes", "## Result Contract")
+    exit_codes = _section(_read("src/skf-export-skill/references/result-envelope.md"), "## Exit Codes", None)
     exit_5 = next(line for line in exit_codes.splitlines() if line.startswith("| 5 "))
     assert "step 4 §4b or §5" in exit_5
 
@@ -1355,3 +1374,570 @@ def test_drop_and_rename_calls_name_what_the_operation_removed():
     assert "--renamed {old_name}:{new_name}" in _call("rename", "assemble", "assemble")
     export = _call("export", "assemble", "assemble")
     assert "--include {batch_includes}" in export and '--out "{export_stage_dir}/previews/' in export
+
+
+# --------------------------------------------------------------------------
+# rename-skill's run: the run lock, the envelopes the shared emitter builds,
+# the counts its report states and the recovery after the manifest re-key
+# --------------------------------------------------------------------------
+
+RENAME_REPORT = "src/skf-rename-skill/references/report.md"
+RENAME_HEALTH = "src/skf-rename-skill/references/health-check.md"
+RENAME_EXIT_CODES = "src/skf-rename-skill/references/exit-codes.md"
+RUN_LOCK_PY = SRC / "shared" / "scripts" / "skf-run-lock.py"
+EMITTER_PY = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
+VALIDATOR_PY = SRC / "skf-rename-skill" / "scripts" / "skf-validate-rename-name.py"
+RENAME_SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-rename-skill-result-envelope.v1.json"
+RENAME_RELEASE = ('uv run {runLockHelper} release --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" '
+                  '--owner "{lock_owner}"')
+RENAME_EMIT_HALT = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-rename-skill --run-dir "{run_dir}" '
+                    "--target stderr <<'SKF_HALT'")
+# A HALT site: its exit code, its halt_reason and the phase its emit-halt stages.
+RENAME_HALT_RE = re.compile(r'HALT:? \(?exit code (\d+), `halt_reason: "([a-z-]+)"`, `emit-halt` phase `([a-z]+:[a-z-]+)`')
+
+
+def _rename_markdown():
+    return sorted((SRC / "skf-rename-skill").rglob("*.md"))
+
+
+def _fenced_calls(text: str, helper: str) -> list[str]:
+    """The fenced lines of `text` that run `helper`, backslash continuations joined."""
+    calls, joined, fence = [], "", False
+    for line in text.split("\n"):
+        if re.match(r"^\s*```", line):
+            fence, joined = not fence, ""
+            continue
+        if not fence:
+            continue
+        if line.rstrip().endswith("\\"):
+            joined += line.rstrip()[:-1].strip() + " "
+            continue
+        joined += line.strip()
+        if helper in joined:
+            calls.append(re.sub(r"\s+", " ", joined))
+        joined = ""
+    return calls
+
+
+def _heredoc(text: str, tag: str) -> str:
+    """The one line between `<<'TAG'` and `TAG` in `text`."""
+    [body] = re.findall(rf"<<'{tag}'\n(.*?)\n\s*{tag}\n", text, re.S)
+    return body.strip()
+
+
+def _run_py(script: Path, args: list[str], stdin: bytes | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(script), *args], input=stdin, capture_output=True, timeout=60)
+
+
+def _documented_lock_argv(call: str, values: dict) -> list[str]:
+    """A documented `uv run {runLockHelper} ...` call as argv after the script, placeholders filled."""
+    words = shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call))
+    assert words[:3] == ["uv", "run", "@@runLockHelper@@"], words
+    return [re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], w) for w in words[3:]]
+
+
+def _documented_emit_argv(call: str, values: dict) -> list[str]:
+    """A documented `uv run {emitEnvelopeHelper} ...` call as argv after the script, its heredoc left out."""
+    words = shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call))
+    assert words[:3] == ["uv", "run", "@@emitEnvelopeHelper@@"], words
+    return [re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], w) for w in words[3:] if not w.startswith("<<")]
+
+
+def _halt_template(procedure: str) -> dict:
+    """The halt procedure's payload template, each placeholder filled with a value of its type."""
+    body = re.sub(r'<"\{\w+\}", or null [^>]*>', "null", _heredoc(procedure, "SKF_HALT"))
+    return json.loads(re.sub(r'"<[^">]*>"', '"x"', body.replace('"{old_name}"', '"x"').replace('"{new_name}"', '"x"')))
+
+
+def _emitted(proc: subprocess.CompletedProcess, stream: str = "stderr") -> dict:
+    """The one envelope line the emitter printed, checked against the rename schema."""
+    from jsonschema import Draft202012Validator
+
+    assert proc.returncode == 0, proc.stderr
+    [line] = getattr(proc, stream).decode("utf-8").splitlines()
+    envelope = json.loads(line.removeprefix("SKF_RENAME_SKILL_RESULT_JSON: "))
+    assert not list(Draft202012Validator(_schema()).iter_errors(envelope))
+    return envelope
+
+
+def test_rename_run_lock_goes_through_the_shared_helper():
+    """#588: no PID guard, no flock and no shell variable from an earlier call holds the lock."""
+    for path in _rename_markdown():
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(REPO).as_posix()
+        for stale in ('"$$"', "kill -0", "flock", "$LOCK", "LOCK=", "HELD_PID", "live-PID",
+                      'rm -f "{forge_data_folder}/.skf-rename-'):
+            assert stale not in text, f"{rel}: {stale}"
+    select = _read(RENAME_SELECT)
+    lock = _section(select, "### 4b. Concurrency Guard", "### 5. Ask for New Name")
+    assert _fenced_calls(lock, "{runLockHelper} acquire") == [
+        'uv run {runLockHelper} acquire --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" '
+        '--owner "rename-skill:{old_name}:{run_id}" --stale-after 60']
+    assert "**Skip this section when `--dry-run` is set:**" in lock, "a dry run never blocks a rename"
+    assert "bind `{lock_owner}` ← `owner`" in lock
+    held = _section(lock, "- **3** (`acquired` false)", "- **Any other exit")
+    assert ('HALT (exit code 5, `halt_reason: "halted-for-concurrent-run"`, `emit-halt` phase '
+            '`select:concurrency-guard`, with the lock file as `path`)') in held
+    assert "This run took no lock, so the halt releases none" in held
+    assert "run-lock-replaced: {stale_replaced.held_by} since {stale_replaced.held_since}" in lock
+    assert "When `record` exits non-zero, show its message and go on: the warning is advisory." in lock
+    # Every release names the lock by its full path and passes the owner acquire printed.
+    releases = {rel: _fenced_calls(_read(rel), "{runLockHelper} release")
+                for rel in (RENAME_SELECT, RENAME_EXECUTE, RENAME_REPORT)}
+    assert releases == {RENAME_SELECT: [RENAME_RELEASE], RENAME_EXECUTE: [RENAME_RELEASE],
+                        RENAME_REPORT: [RENAME_RELEASE]}
+    # step 2 renews the lock before its first write, and stops when this run lost it.
+    execute = _read(RENAME_EXECUTE)
+    copy = _section(execute, "### 1. Copy skill_group and forge_group", "### 2. ")
+    assert _fenced_calls(copy, "{runLockHelper} acquire") == [
+        'uv run {runLockHelper} acquire --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" '
+        '--owner "{lock_owner}" --stale-after 60']
+    assert copy.index("**Renew the run lock first.**") < copy.index("**Precondition:**")
+    renew = _section(copy, "- **Exit 0 with `refreshed` false, or exit 3:**", "- **Any other exit")
+    assert '`halt_reason: "halted-for-concurrent-run"`, `emit-halt` phase `execute:run-lock`' in renew
+    assert "before anything is copied" in renew
+
+
+def test_rename_health_check_only_relays():
+    """#588: the lock release moved to step 3, so the local health-check step keeps only the relay."""
+    text = _read(RENAME_HEALTH)
+    sequence = _section(text, "## MANDATORY SEQUENCE", None)
+    assert sequence.strip().splitlines()[1:] == ["", "1. Load `{nextStepFile}`, read it fully, then execute it."]
+    for stale in ("lock", "rm -f", "runLockHelper"):
+        assert stale not in text, stale
+    report = _read(RENAME_REPORT)
+    release = _section(report, "### 4. Release the Run Lock and the Run Folder", "### 5. Chain to Health Check")
+    assert _fenced_calls(release, "{runLockHelper} release") == [RENAME_RELEASE]
+    assert "`reason` `not-owner`" in release and "Never stop on the result" in release
+
+
+def test_rename_documented_lock_calls_hold_across_processes(tmp_path):
+    """Run select §1's run-id, §4b's acquire, execute §1's renewal and the releases as documented.
+
+    Each call is its own process, as each Bash tool call is: the lock a run takes in
+    one call still refuses another run in the next, and only its owner releases it.
+    """
+    select = _read(RENAME_SELECT)
+    [run_id_call] = _fenced_calls(_section(select, "### 1. Start the Run", "### 2. "), "{runLockHelper} run-id")
+    [acquire] = _fenced_calls(_section(select, "### 4b. Concurrency Guard", "### 5. "), "{runLockHelper} acquire")
+    [renew] = _fenced_calls(_section(_read(RENAME_EXECUTE), "### 1. Copy", "### 2. "), "{runLockHelper} acquire")
+    forge = tmp_path / "forge data"
+    lock = forge / ".skf-rename-demo.lock"
+
+    def run(call, **values):
+        proc = _run_py(RUN_LOCK_PY, _documented_lock_argv(call, {"forge_data_folder": str(forge),
+                                                                "old_name": "demo", **values}))
+        return proc.returncode, json.loads(proc.stdout.decode("utf-8") or "{}")
+
+    code, first = run(run_id_call)
+    assert code == 0 and re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{8}", first["run_id"])
+    code, taken = run(acquire, run_id=first["run_id"])
+    assert (code, taken["acquired"], Path(taken["lock"])) == (0, True, lock)
+    owner = taken["owner"]
+    assert owner == f"rename-skill:demo:{first['run_id']}"
+    # A second run, a later process: refused while the first run's lock is fresh.
+    _, second = run(run_id_call)
+    code, refused = run(acquire, run_id=second["run_id"])
+    assert (code, refused["acquired"], refused["held_by"]) == (3, False, owner)
+    assert str(lock) in refused["message"] and refused["stale_at"]
+    # Its halt releases nothing it does not hold.
+    code, kept = run(RENAME_RELEASE, lock_owner=f"rename-skill:demo:{second['run_id']}")
+    assert (code, kept["released"], kept["reason"]) == (0, False, "not-owner") and lock.is_file()
+    # The first run renews its lock before step 2 copies, then releases it.
+    code, renewed = run(renew, lock_owner=owner)
+    assert (code, renewed["refreshed"]) == (0, True)
+    code, released = run(RENAME_RELEASE, lock_owner=owner)
+    assert (code, released["released"]) == (0, True) and not lock.exists()
+    # A crashed run's lock goes stale after the documented 60 minutes, and the next run takes it.
+    lock.write_bytes(json.dumps({"owner": owner, "acquired_at": "2000-01-01T00:00:00Z",
+                                 "tool": "skf-run-lock"}).encode("utf-8"))
+    code, replaced = run(acquire, run_id=second["run_id"])
+    assert (code, replaced["acquired"], replaced["stale_replaced"]["held_by"]) == (0, True, owner)
+    # This run's lock went stale and another run took it over: the renewal finds it held.
+    code, lost = run(renew, lock_owner=owner)
+    assert (code, lost["acquired"]) == (3, False)
+
+
+def test_rename_lock_beside_a_shared_folder_stays_skf_own(tmp_path):
+    """#588: skf-skill-inventory.py still counts the rename lock as SKF's, where both settings name one folder."""
+    out = tmp_path / "out"
+    pkg = out / "demo" / "1.0.0" / "demo"
+    _write_bytes(pkg / "SKILL.md", "---\nname: demo\n---\n")
+    _write_bytes(pkg / "metadata.json", json.dumps({"name": "demo", "generated_by": "create-skill"}))
+    proc = _run_py(RUN_LOCK_PY, ["acquire", "--lock", str(out / ".skf-rename-demo.lock"),
+                                 "--owner", "rename-skill:demo", "--stale-after", "60"])
+    assert proc.returncode == 0, proc.stderr
+    scan = json.loads(_run_py(INVENTORY_PY, [str(out), "--forge-data-folder", str(out)]).stdout)
+    assert scan["not_skf_output"] == [] and [s["skf_skill"] for s in scan["skills"]] == [True]
+    check = json.loads(_run_py(INVENTORY_PY, [str(out), "--skill", "demo", "--rename-check",
+                                              "--forge-data-folder", str(out)]).stdout)
+    assert check["rename_check"]["verdict"] == "ok"
+
+
+def test_rename_halts_emit_through_the_shared_emitter():
+    """#593: every HALT names its phase, and each step file passes it to the one emitter call."""
+    for rel in (RENAME_SELECT, RENAME_EXECUTE):
+        text = _read(rel)
+        procedure = _section(text, "**Halt procedure.**", "## MANDATORY SEQUENCE")
+        assert _fenced_calls(procedure, "{runLockHelper} release") == [RENAME_RELEASE]
+        # The payload goes to the emitter on stdin: a halt stages no file, so it emits its
+        # line where it cannot write the run folder too.
+        assert _fenced_calls(procedure, "emit-halt") == [RENAME_EMIT_HALT]
+        assert "halt.json" not in text, f"{rel}: a halt stages nothing"
+        # The halt's own keys and the two names: every one is a field the schema takes.
+        assert set(_halt_template(procedure)) == {"phase", "halt_reason", "reason", "path", "old_name", "new_name"}
+        assert "escape `\"`, `\\` and control characters, and write every path with `/`" in procedure
+        assert ('add `"warnings": ["run-lock-not-released: {forge_data_folder}/.skf-rename-{old_name}.lock"]` '
+                "to the payload below") in procedure
+        assert ("Only when `{emitEnvelopeHelper}` is missing, or the emitter still fails or prints no line, "
+                "display the halt's message alone.") in procedure
+        for line in _section(text, "## MANDATORY SEQUENCE", None).split("\n"):
+            if re.search(r"\bHALT\b", line) and "exit code" in line:
+                assert RENAME_HALT_RE.search(line) or "halt_reason: \"{rename_verdict}\"" in line, (
+                    f"{rel}: a HALT names no emit-halt phase: {line[:100]}")
+    for path in _rename_markdown():
+        text = path.read_text(encoding="utf-8")
+        assert "emit the error envelope" not in text, path.name
+        assert 'SKF_RENAME_SKILL_RESULT_JSON: {"status":"error"' not in text, "the emitter builds the halt line"
+
+
+def test_rename_halt_emits_without_a_run_folder(tmp_path):
+    """A halt before §1 binds a run folder, or whose folder could not be created, still prints its line.
+
+    The documented call runs as written: without --run-dir for select §1's start-run halt, with
+    the --run-dir of a folder that does not exist for its write-probe halt, and with a run folder
+    that holds a decision for a step 2 halt whose lock release failed.
+    """
+    select = _read(RENAME_SELECT)
+    procedure = _section(select, "**Halt procedure.**", "## MANDATORY SEQUENCE")
+    [call] = _fenced_calls(procedure, "emit-halt")
+    assert 'pass `--run-dir "{run_dir}"` once §1 has bound it, even when the folder could not be created' in procedure
+    start = _section(select, "### 1. Start the Run", "### 2. ")
+    assert 'With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.' in start
+    assert "displays its message alone" not in start, "a missing run folder never silences a halt"
+    template = _halt_template(procedure)
+
+    def halt(argv_call: str, values: dict, **fields) -> dict:
+        payload = {**template, "old_name": None, "new_name": None, **fields}
+        if "path" not in fields:
+            del payload["path"]
+        return _emitted(_run_py(EMITTER_PY, _documented_emit_argv(argv_call, values),
+                                json.dumps(payload).encode("utf-8")))
+
+    no_run_dir = call.replace(' --run-dir "{run_dir}"', "")
+    started = halt(no_run_dir, {}, phase="select:start-run", halt_reason="write-failed",
+                   reason="Rename Skill cannot start: skf-run-lock.py is missing.")
+    assert (started["exit_code"], started["run_id"], started["error"]["phase"]) == (4, None, "select:start-run")
+    missing = tmp_path / "_bmad-output" / ".skf-run" / "skf-rename-skill-20261001T000000Z-0123abcd"
+    probe = halt(call, {"run_dir": str(missing)}, phase="select:write-probe", halt_reason="write-failed",
+                 reason=f"Cannot write to {missing.as_posix()}.", path=missing.as_posix())
+    assert (probe["run_id"], probe["error"]["path"]) == ("20261001T000000Z-0123abcd", missing.as_posix())
+    assert not missing.exists() and not missing.parent.exists(), "the emitter creates no run folder"
+    # A step 2 halt whose release failed: the payload's warning and the recorded decision both reach the line.
+    [step2_call] = _fenced_calls(_section(_read(RENAME_EXECUTE), "**Halt procedure.**", "## MANDATORY SEQUENCE"),
+                                 "emit-halt")
+    run_dir = tmp_path / "skf-rename-skill-20261001T000000Z-89abcdef"
+    decision = _record_the_override(run_dir)
+    lock = f"{(tmp_path / 'forge').as_posix()}/.skf-rename-demo.lock"
+    copied = halt(step2_call, {"run_dir": str(run_dir)}, phase="execute:copy", halt_reason="copy-failed",
+                  reason="Copy failed.", old_name="demo", new_name="demo-kit",
+                  warnings=[f"run-lock-not-released: {lock}"])
+    assert copied["headless_decisions"] == [decision]
+    assert copied["warnings"] == [f"run-lock-not-released: {lock}"]
+
+
+def test_rename_exit_code_table_names_every_halt_reason():
+    """The emitter reads the schema's exit_codes; the table names each halt_reason in its code's row only."""
+    table = _read(RENAME_EXIT_CODES)
+    assert "through the schema's `skf-envelope.exit_codes`; this table says where each code is raised" in table
+    codes = _schema()["$defs"]["skf-envelope"]["const"]["exit_codes"]
+    for reason, code in codes.items():
+        assert f"`{reason}`" in _row(table, f"| {code} "), f"exit-codes.md row {code} does not name `{reason}`"
+        for other in set(codes.values()) - {code}:
+            assert f"`{reason}`" not in _row(table, f"| {other} "), f"exit-codes.md row {other} names `{reason}`"
+    description = _schema()["properties"]["exit_code"]["description"]
+    assert "skf-envelope.exit_codes" in description and "input-missing" not in description, "one copy of the map"
+
+
+def _schema() -> dict:
+    return json.loads(RENAME_SCHEMA.read_text(encoding="utf-8"))
+
+
+def _halt_sites() -> list[tuple[str, str, int, str, str]]:
+    """(file, line number, exit code, halt_reason, phase) of every documented HALT."""
+    sites = []
+    for rel in (RENAME_SELECT, RENAME_EXECUTE):
+        for number, line in enumerate(_read(rel).split("\n"), 1):
+            for m in RENAME_HALT_RE.finditer(line):
+                sites.append((rel, number, int(m.group(1)), m.group(2), m.group(3)))
+            if 'halt_reason: "{rename_verdict}"' in line:  # §4a: one of the two verdicts
+                m = re.search(r"exit code (\d+), `halt_reason: \"\{rename_verdict\}\"`, `emit-halt` phase `([^`]+)`",
+                              line)
+                sites += [(rel, number, int(m.group(1)), verdict, m.group(2))
+                          for verdict in ("not-skf-output", "flat-layout")]
+    return sites
+
+
+def test_rename_every_halt_site_matches_the_schema_exit_code(tmp_path):
+    """Each halt's documented exit code is the one the emitter derives, and its envelope validates."""
+    codes = _schema()["$defs"]["skf-envelope"]["const"]["exit_codes"]
+    sites = _halt_sites()
+    assert {reason for _, _, _, reason, _ in sites} == set(codes), "every halt_reason has a documented halt"
+    run_dir = tmp_path / "skf-rename-skill-20261001T000000Z-0123abcd"
+    run_dir.mkdir()
+    argv = _documented_emit_argv(RENAME_EMIT_HALT, {"run_dir": str(run_dir)})
+    for rel, number, code, reason, phase in sites:
+        assert codes[reason] == code, f"{rel}:{number}: {reason} exits {codes[reason]}, not {code}"
+        payload = {"phase": phase, "halt_reason": reason, "reason": "the step halted", "old_name": "demo",
+                   "new_name": None}
+        envelope = _emitted(_run_py(EMITTER_PY, argv, json.dumps(payload).encode("utf-8")))
+        assert (envelope["status"], envelope["exit_code"], envelope["error"]["phase"]) == ("error", code, phase)
+        assert envelope["run_id"] == "20261001T000000Z-0123abcd"
+
+
+def test_rename_contract_lists_the_schema_halt_reasons():
+    skill = _read(RENAME_SKILL)
+    contract = _section(skill, "## Result Contract (Headless)", "## On Activation")
+    listed = set(re.findall(r'`"([a-z-]+)"`', _section(contract, "`halt_reason` is one of:", "(§7")))
+    enum = {r for r in _schema()["properties"]["halt_reason"]["enum"] if r is not None}
+    assert listed == enum
+    assert "`shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json`" in contract
+    assert "The model never types the line" in contract
+
+
+# Each placeholder the documented payload templates hold, and the JSON value a run fills in.
+RENAME_PAYLOAD_VALUES = {
+    '"{old_name}"': '"demo"',
+    '"{new_name}"': '"demo-kit"',
+    "<affected_versions as a JSON array>": '["2.0.0", "1.0.0"]',
+    "<renamed_versions as a JSON array>": '["2.0.0"]',
+    "<renamed_versions>": '["2.0.0"]',
+    "<manifest_rekeyed>": "true",
+    "<context_files_updated as a JSON array>": '["CLAUDE.md"]',
+    "<context_files_updated>": '["CLAUDE.md"]',
+    "<context_files_failed>": "[]",
+    "<forge_left_in_place, or null>": "null",
+    '<one {"type": "skill", "path": "<path>"} per path in files_rewritten>':
+        '[{"type": "skill", "path": "skills/demo-kit/2.0.0/demo-kit/SKILL.md"}]',
+}
+
+
+def _filled(template: str) -> dict:
+    for placeholder, value in RENAME_PAYLOAD_VALUES.items():
+        template = template.replace(placeholder, value)
+    return json.loads(template)
+
+
+def _record_the_override(run_dir: Path) -> dict:
+    """§6's two commands: stage the decision, then record it in the run sink."""
+    source = _section(_read(RENAME_SELECT), "### 6. Source Authority Check", "### 7. ")
+    decision = json.loads(_heredoc(source, "SKF_DECISION"))
+    assert _fenced_calls(source, "{emitEnvelopeHelper} record") == [
+        'uv run {emitEnvelopeHelper} record --workflow skf-rename-skill --run-dir "{run_dir}" --decision '
+        '< "{run_dir}/decision.json"']
+    proc = _run_py(EMITTER_PY, ["record", "--workflow", "skf-rename-skill", "--run-dir", str(run_dir), "--decision"],
+                   json.dumps(decision).encode("utf-8"))
+    assert proc.returncode == 0, proc.stderr
+    return decision
+
+
+def test_rename_dry_run_restates_its_complete_envelope(tmp_path):
+    """#585: the dry-run exit states its whole envelope and its stream, and writes no result file."""
+    from jsonschema import Draft202012Validator
+
+    confirm = _section(_read(RENAME_SELECT), "### 8. Confirmation Gate", "### 9. ")
+    dry = _section(confirm, "**If `--dry-run` was passed**", "- **If `Y`**")
+    assert "In `{headless_mode}`, emit the dry-run envelope on **stdout**" in dry
+    assert "Without `--result-dir` it writes no result file" in dry
+    assert _fenced_calls(dry, "{emitEnvelopeHelper} emit") == [
+        'uv run {emitEnvelopeHelper} emit --workflow skf-rename-skill --run-dir "{run_dir}" '
+        '< "{run_dir}/result-context.json"']
+    assert "The dry run took no lock (§4b), so it releases none" in dry
+    run_dir = tmp_path / "skf-rename-skill-20261001T000000Z-0123abcd"
+    decision = _record_the_override(run_dir)
+    proc = _run_py(EMITTER_PY, ["emit", "--workflow", "skf-rename-skill", "--run-dir", str(run_dir)],
+                   json.dumps(_filled(_heredoc(dry, "SKF_RESULT"))).encode("utf-8"))
+    assert proc.returncode == 0, proc.stderr
+    [line] = proc.stdout.decode("utf-8").splitlines()
+    envelope = json.loads(line.removeprefix("SKF_RENAME_SKILL_RESULT_JSON: "))
+    assert not list(Draft202012Validator(_schema()).iter_errors(envelope))
+    assert (envelope["status"], envelope["exit_code"], envelope["result_path"]) == ("dry-run", 0, None)
+    assert envelope["headless_decisions"] == [decision]
+    # The restated line names every field the emitter prints, in its order.
+    restated = re.search(r"It prints the complete line, `SKF_RENAME_SKILL_RESULT_JSON: (\{.*?\})`", dry).group(1)
+    assert re.findall(r'"(\w+)":', restated) == list(envelope)
+    assert _fenced_calls(dry, "rmdir") == [
+        'rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" '
+        '"{run_dir}/warnings.jsonl" && rmdir "{run_dir}"']
+    # When the emitter printed no line, the run folder is the only record of the decisions.
+    keep = dry.index("keep `{run_dir}` and say in one line that it holds the run's decisions, its warnings and "
+                     "the payload the emitter refused")
+    assert keep < dry.index("Otherwise, in both modes, delete the run folder") < dry.index("rmdir")
+
+
+def test_rename_report_writes_its_result_files_through_the_emitter(tmp_path):
+    """#593: step 3's payload validates, the emitter names and writes the result files, and
+    the auto-decisions come from the run sink, never from context."""
+    from jsonschema import Draft202012Validator
+
+    report = _read(RENAME_REPORT)
+    write = _section(report, "### 1. Write the Result Files and the Envelope", "### 2. Render the Report")
+    assert _fenced_calls(write, "{emitEnvelopeHelper} emit") == [
+        'uv run {emitEnvelopeHelper} emit --workflow skf-rename-skill --run-dir "{run_dir}" '
+        '--result-dir "{skills_output_folder}/{new_name}" < "{run_dir}/result-context.json"']
+    run_dir = tmp_path / "skf-rename-skill-20261001T000000Z-0123abcd"
+    decision = _record_the_override(run_dir)
+    group = tmp_path / "skills" / "demo-kit"
+    group.mkdir(parents=True)
+    payload = _filled(_heredoc(write, "SKF_RESULT"))
+    assert "headless_decisions" not in payload and "headless_decisions" not in payload["result_contract"]["summary"]
+    proc = _run_py(EMITTER_PY, ["emit", "--workflow", "skf-rename-skill", "--run-dir", str(run_dir),
+                                "--result-dir", str(group)], json.dumps(payload).encode("utf-8"))
+    assert proc.returncode == 0, proc.stderr
+    [line] = proc.stdout.decode("utf-8").splitlines()
+    envelope = json.loads(line.removeprefix("SKF_RENAME_SKILL_RESULT_JSON: "))
+    assert not list(Draft202012Validator(_schema()).iter_errors(envelope))
+    assert (envelope["status"], envelope["exit_code"], envelope["versions_renamed"]) == ("success", 0, ["2.0.0"])
+    assert envelope["headless_decisions"] == [decision]
+    per_run = Path(envelope["result_path"])
+    assert per_run.parent == group and re.fullmatch(r"rename-skill-result-\d{8}-\d{6}\.json", per_run.name)
+    latest = json.loads((group / "rename-skill-result-latest.json").read_text(encoding="utf-8"))
+    assert latest == json.loads(per_run.read_text(encoding="utf-8"))
+    assert latest["headless_decisions"] == [decision] and latest["run_id"] == "20261001T000000Z-0123abcd"
+    assert latest["summary"]["versions_renamed"] == ["2.0.0"]
+    # The hook reads the file the emitter named, never a timestamp the run typed.
+    hook = _section(report, "### 3. Post-Completion Hook (optional)", "### 4. ")
+    assert '{onCompleteCommand} --result-path="{result_path}"' in hook
+    for path in _rename_markdown():
+        assert "{timestamp}" not in path.read_text(encoding="utf-8"), path.name
+
+
+def test_rename_report_runs_one_terminal_sequence():
+    """#585: result files and envelope, report, hook, lock release and run folder, then the health check."""
+    report = _read(RENAME_REPORT)
+    order = ["### 1. Write the Result Files and the Envelope", "### 2. Render the Report",
+             "### 3. Post-Completion Hook (optional)", "### 4. Release the Run Lock and the Run Folder",
+             "### 5. Chain to Health Check"]
+    assert [report.index(heading) for heading in order] == sorted(report.index(heading) for heading in order)
+    assert "When `{headless_mode}` is true, display `{result_line}` verbatim" in report
+    release = _section(report, order[3], order[4])
+    assert _fenced_calls(release, "rmdir") == [
+        'rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" '
+        '"{run_dir}/warnings.jsonl" && rmdir "{run_dir}"']
+    # The run folder goes only once the emitter printed the line that carries its decisions.
+    assert "Then, when §1's emitter printed its line, delete the run folder:" in release
+    assert ("When §1's emitter printed no line, keep `{run_dir}` instead and tell the user in one line that it "
+            "holds the run's decisions, its warnings and the payload the emitter refused.") in release
+    write = _section(report, order[0], order[1])
+    assert "No result file was written, and §4 keeps the run folder." in write
+    assert "escape `\"`, `\\` and control characters, and write every path with `/`" in write
+    for mechanics in ("-latest.json", "`-2`", "a copy, not a symlink"):
+        assert mechanics not in write, "output-contract-schema.md owns how the emitter writes the files"
+    skill = _read(RENAME_SKILL)
+    activation = _section(skill, "## On Activation", None)
+    assert "Pre-flight write probe" not in activation and "timestamp" not in activation
+    start = _section(_read(RENAME_SELECT), "### 1. Start the Run", "### 2. ")
+    assert '`{run_dir}` ← `{project-root}/_bmad-output/.skf-run/skf-rename-skill-{run_id}`' in start
+    assert 'for dir in "{run_dir}" "{skills_output_folder}" "{forge_data_folder}"; do' in start
+    assert 'halt_reason: "write-failed"`, `emit-halt` phase `select:write-probe`' in start
+
+
+def test_rename_counts_come_from_the_helper_results():
+    """#593: the handoffs carry what the report and the envelope state, tallied from helper results."""
+    execute = _read(RENAME_EXECUTE)
+    update = _section(execute, "### 3. Update File Contents", "### 4. ")
+    assert "when its `wrote` is not null, add `{kind, path}` (the `--kind` and the `wrote` path) to `files_rewritten`" in update
+    results = _section(execute, "### 9. Store Results in Context", "### 10. ")
+    for bullet in ("- `renamed_versions`:", "- `files_rewritten`:", "- `run_id`, `run_dir` and `lock_owner`:",
+                   "- `manifest_rekeyed`: true only when section 6 ran the re-key and the helper exited 0"):
+        assert bullet in results, bullet
+    decisions = _section(_read(RENAME_SELECT), "### 9. Store Decisions in Context", "### 10. ")
+    for bullet in ("- `manifest_exists`: boolean from §2", "- `lock_owner`:", "- `run_id` and `run_dir`:"):
+        assert bullet in decisions, bullet
+    for section in (results, decisions):
+        assert "- `headless_decisions`" not in section, "the run sink holds the decisions"
+    report = _read(RENAME_REPORT)
+    assert "Versions renamed: {the number of renamed_versions} ({comma-separated renamed_versions})" in report
+    for kind in ("skill-frontmatter", "metadata-json", "context-snippet", "provenance-json"):
+        assert f"(×{{the files_rewritten entries of kind {kind}}})" in report, kind
+    for rel in (RENAME_EXECUTE, RENAME_REPORT):
+        text = _read(rel)
+        for stale in ("affected_versions_count", "files_updated_per_version"):
+            assert stale not in text, f"{rel}: {stale}"
+    verify = _section(execute, "### 5. Verify", "### 6. ")
+    assert "across the {number of `renamed_versions`} version(s) it checked" in verify
+    # §6's flag and report line say whether the re-key ran, as §9's manifest_rekeyed does.
+    manifest = _section(execute, "### 6. Update Export Manifest", "### 7. ")
+    assert "Set context flag `manifest_updated = true` when the helper ran and exited 0, else `false`" in manifest
+    assert 'When it skipped the call: "**Manifest unchanged:** it has no `exports.{old_name}` entry."' in manifest
+
+
+def test_rename_reads_the_version_through_the_inventory_helper(tmp_path):
+    """#597: no stage reads version-paths.md; §6 takes the version's metadata.json from `resolve`."""
+    for path in _rename_markdown():
+        text = path.read_text(encoding="utf-8")
+        for stale in ("versionPathsKnowledge", "version-paths.md"):
+            assert stale not in text, f"{path.name}: {stale}"
+    source = _section(_read(RENAME_SELECT), "### 6. Source Authority Check", "### 7. ")
+    [call] = [c for c in _fenced_calls(source, "{skillInventoryHelper}")]
+    assert call == ('uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {old_name} '
+                    '--forge-data-folder "{forge_data_folder}"')
+    assert "bind `{source_metadata}` ← `paths.metadata.path`" in source
+    # The documented call picks the manifest's version, and the link's when the manifest lags it.
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for version, authority in (("1.0.0", "community"), ("2.0.0", "official")):
+        _write_bytes(skills / "demo" / version / "demo" / "metadata.json",
+                     json.dumps({"name": "demo", "source_authority": authority}))
+    _write_bytes(skills / ".export-manifest.json", json.dumps({"schema_version": "2", "exports": {
+        "demo": {"active_version": "1.0.0", "versions": {"1.0.0": {"status": "active"}}}}}))
+    values = {"skills_output_folder": str(skills), "old_name": "demo", "forge_data_folder": str(forge)}
+    argv = [re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], w)
+            for w in shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call))[3:]]
+
+    def metadata_path():
+        out = json.loads(_run_py(INVENTORY_PY, argv).stdout)
+        return Path(out["resolve"]["paths"]["metadata"]["path"])
+
+    assert metadata_path() == skills / "demo" / "1.0.0" / "demo" / "metadata.json"
+    try:
+        (skills / "demo" / "active").symlink_to("2.0.0", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        return
+    assert metadata_path() == skills / "demo" / "2.0.0" / "demo" / "metadata.json"
+
+
+def test_rename_names_the_recovery_after_the_rekey(tmp_path):
+    """#587: a rename interrupted after the manifest re-key is named at the next run, with the
+    commands that finish it, instead of a dead-end collision that invites a third name."""
+    ask = _section(_read(RENAME_SELECT), "### 5. Ask for New Name", "### 6. Source Authority Check")
+    recovery = _section(ask, "**Recovery after the manifest re-key.**", "**If `{renameNameValidator}` cannot run**")
+    for needle in ("When `interrupted_after_rekey` is true", "`leftover_folders`", "in both modes",
+                   'uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" '
+                   '--root "{forge_data_folder}" {each path in leftover_folders, quoted}',
+                   "`[EX] Export Skill`",
+                   'HALT (exit code 5, `halt_reason: "name-collision"`, `emit-halt` phase `select:validate-new-name`)'):
+        assert needle in recovery, needle
+    assert "When `interrupted_after_rekey` is true, take the recovery halt below the list, in both modes" in ask
+    # The fingerprint is the validator's: the in-prompt fallback (which W5 removes) does not redo it.
+    assert "the fingerprint after the re-key" not in ask
+    assert "stopped after re-keying the export manifest" in _read(RENAME_EXIT_CODES)
+    # The documented commands on a rename that stopped after the re-key: the validator names the
+    # old folders, and the checked delete removes exactly them.
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    for group, name in ((skills / "demo", "demo"), (skills / "demo-kit", "demo-kit")):
+        _write_bytes(group / "1.0.0" / name / "SKILL.md", f"---\nname: {name}\n---\n")
+    for name in ("demo", "demo-kit"):
+        _write_bytes(forge / name / "1.0.0" / "provenance-map.json", json.dumps({"skill_name": name}))
+    _write_bytes(skills / ".export-manifest.json", json.dumps({"schema_version": "2", "exports": {
+        "demo-kit": {"active_version": "1.0.0"}}}))
+    proc = _run_py(VALIDATOR_PY, ["--old-name", "demo", "--new-name", "demo-kit", "--skills-output-folder",
+                                  str(skills), "--forge-data-folder", str(forge)])
+    verdict = json.loads(proc.stdout)
+    assert (proc.returncode, verdict["first_failure"], verdict["interrupted_after_rekey"]) == (2, "collision", True)
+    assert verdict["leftover_folders"] == [str(skills / "demo"), str(forge / "demo")]
+    deleted = _run_py(INVENTORY_PY, ["guarded-delete", "--root", str(skills), "--root", str(forge),
+                                     *verdict["leftover_folders"]])
+    assert json.loads(deleted.stdout)["purge_status"] == "success"
+    assert not (skills / "demo").exists() and not (forge / "demo").exists()
+    assert (skills / "demo-kit" / "1.0.0" / "demo-kit" / "SKILL.md").is_file()
+    assert (forge / "demo-kit" / "1.0.0" / "provenance-map.json").is_file()

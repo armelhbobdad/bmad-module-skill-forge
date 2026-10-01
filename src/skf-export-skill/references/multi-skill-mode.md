@@ -24,9 +24,9 @@ Loaded by `load-skill.md` §1c when `len(skill_batch) > 1`.
 | step 1 §6 | **Single gate** — present one consolidated summary table (one row per skill) and a single [C] gate for the whole batch. |
 | step 2 | **Iterate per skill** — validate each skill's package structure and collect per-skill readiness. |
 | step 3 | **Iterate per skill**: regenerate each skill's `context-snippet.md` independently (each skill has its own prior-gotchas carry-forward state), staging and measuring each draft in the run's one stage folder. |
-| step 4 | **Batch once**: §3b orphan detection, §4 section build, §5 to §9 check, preview, gate and write all run once for the entire batch. Each `assemble` call names every skill in `skill_batch` with `--include`, beside every skill of the manifest, so no batch member is left out, even on a first export. §9b records every skill in `skill_batch` with one `set` each. |
+| step 4 | **Batch once**: §3b orphan detection, §4 section build, §5 to §9 check, preview, gate and write all run once for the entire batch. Each `assemble` call names every skill in `skill_batch` with `--include`, beside every skill of the manifest, so no batch member is left out, even on a first export. §9b records every skill in `skill_batch` with one `set` each, and §9c then writes each skill's snippet. |
 | step 5 | **Iterate per skill** — compute token counts per skill, then present one aggregate report. |
-| step 6 | **One batch summary + one result contract** — the files-written table lists every skill; the result contract JSON covers the whole run, and `outputs` enumerates every context-snippet + target context file touched. |
+| step 6 | **One batch summary + one result contract**: the files-written table lists every skill; the result contract JSON covers the whole run, and `outputs` enumerates every context-snippet, every target context file touched and the manifest. |
 | step 7 | **Runs once** — health check is per-workflow-run, not per-skill. |
 
 ## Halt semantics

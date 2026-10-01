@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json",
+  "title": "SKF_RENAME_SKILL_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-rename-skill emits when {headless_mode} is true, prefixed with the literal 'SKF_RENAME_SKILL_RESULT_JSON: ': on stdout when a rename finishes (step 3, report) and at the --dry-run exit (step 1, select), and on stderr at every HARD HALT. The shared emitter (skf-emit-result-envelope.py) builds every line from a staged payload and checks it against this schema, so pipelines branch on status, halt_reason and exit_code without grepping message text.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-rename-skill",
+        "prefix": "SKF_RENAME_SKILL_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-missing": 2,
+          "input-invalid": 2,
+          "manifest-corrupt": 3,
+          "nothing-to-rename": 3,
+          "copy-failed": 4,
+          "write-failed": 4,
+          "manifest-write-failed": 4,
+          "not-skf-output": 5,
+          "flat-layout": 5,
+          "name-collision": 5,
+          "source-authority-blocked": 5,
+          "halted-for-concurrent-run": 5,
+          "verify-failed": 5,
+          "user-cancelled": 6
+        },
+        "success_exit_code": 0,
+        "result_file": "rename-skill-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "old_name",
+    "new_name",
+    "versions_renamed",
+    "manifest_rekeyed",
+    "context_files_updated",
+    "exit_code",
+    "halt_reason",
+    "headless_decisions"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error", "dry-run"],
+      "description": "'success' when the rename finished (step 3). 'dry-run' when --dry-run ended the run after the step 1 confirmation block, with nothing copied, re-keyed or deleted. 'error' on any HARD HALT, with halt_reason naming its class."
+    },
+    "old_name": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The skill being renamed. Null when the run halted before step 1 bound it."
+    },
+    "new_name": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The validated new name. Null when the run halted before step 1 bound it."
+    },
+    "versions_renamed": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "On success, the versions whose package step 2 renamed, as step 2 recorded them from its own moves: a version folder without a package is copied but not listed. On a dry run, the versions the rename would touch. Empty on a halt."
+    },
+    "manifest_rekeyed": {
+      "type": "boolean",
+      "description": "True when step 2 re-keyed the skill's export manifest entry to the new name. False on a dry run and on a halt."
+    },
+    "context_files_updated": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "The context files (CLAUDE.md, AGENTS.md, .cursorrules and the like) whose SKF managed section step 2 rebuilt. The rebuild is best-effort and never halts; a file that failed is reported in the step 3 report and the result file, not here. Empty on a dry run and on a halt."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6],
+      "description": "Process exit code, derived by the emitter from halt_reason through $defs.skf-envelope.exit_codes (0 when halt_reason is null). references/exit-codes.md says where each code is raised."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "input-missing",
+        "input-invalid",
+        "manifest-corrupt",
+        "nothing-to-rename",
+        "not-skf-output",
+        "flat-layout",
+        "name-collision",
+        "source-authority-blocked",
+        "halted-for-concurrent-run",
+        "copy-failed",
+        "verify-failed",
+        "manifest-write-failed",
+        "write-failed",
+        "user-cancelled"
+      ],
+      "description": "Null on success and on a dry run. One of the documented HALT classes otherwise. halted-for-concurrent-run fires while another rename of the same skill holds a fresh run lock (step 1), or when this run's lock went stale while it waited at a step 1 gate and another run may have taken it (step 2); error.reason names the run that holds the lock and when it goes stale, never a PID."
+    },
+    "headless_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "default_action", "taken_action", "reason"],
+        "properties": {
+          "gate": {
+            "type": "string",
+            "enum": ["source-authority", "confirm-rename"],
+            "description": "The gate that auto-resolved: the step 1 source-authority warning or the step 1 confirmation gate. Matches the labels in the stage prose."
+          },
+          "default_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action documented as the gate's default."
+          },
+          "taken_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action the run took."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why the gate resolved without a person, for example 'headless auto-confirm'."
+          }
+        }
+      },
+      "description": "One entry per gate that auto-resolved under {headless_mode}, recorded in the run folder's sink the moment the gate decided, so a halt still reports the decisions taken before it. Empty in interactive runs."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies the run recorded, one string each, such as run-lock-replaced (step 1 took over a stale run lock), run-lock-not-released (a halt could not release the run lock), result_file_write_failed or customization_resolver_unavailable. Present only when the run recorded at least one."
+    },
+    "run_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The run's id, the UTC time the run started and a random suffix. It names the run folder, {project-root}/_bmad-output/.skf-run/skf-rename-skill-<run_id>/, which a halt leaves in place with its staged payloads, and it ends the run lock's owner."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The per-run result file step 3 wrote, rename-skill-result-<YYYYMMDD-HHmmss>.json beside rename-skill-result-latest.json in the renamed skill's folder. Null on a dry run, on a halt and when the file could not be written."
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["phase", "reason"],
+          "properties": {
+            "phase": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The step and operation that halted, for example 'select:concurrency-guard' or 'execute:copy'."
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The message the halt displayed."
+            },
+            "path": {
+              "type": "string",
+              "description": "The path the halt names, when it names one: the lock file, the manifest or a folder."
+            }
+          }
+        }
+      ],
+      "description": "Optional. Present on a halt: the phase, the message and the path the halt names. Absent on success and on a dry run."
+    }
+  }
+}

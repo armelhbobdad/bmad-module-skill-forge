@@ -1,14 +1,10 @@
 ---
 nextStepFile: 'health-check.md'
-# §1 resolves `{manifestOpsHelper}` from this order (installed SKF module path
-# first, src/ dev-checkout fallback) to read the target skill's remaining
-# versions — `get` for the versions+status map and `affected-versions` for the
-# numeric semver-descending order — instead of re-parsing the manifest by hand.
-# A read, not an atomicity-critical write: if neither path resolves, §1 reads
-# the manifest in-prompt.
-manifestOpsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
-  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# SKILL.md On-Activation §4 binds `{manifestOpsHelper}`, which §1 reads the
+# skill's remaining versions through (`get` for the versions and their status,
+# `affected-versions` for the numeric semver-descending order), and
+# `{emitEnvelopeHelper}` with `{run_dir}`: the emitter stamps the time and the
+# result file names, so this step types neither.
 ---
 
 <!-- Config: communicate in {communication_language}. Render the report block in {document_output_language}. -->
@@ -23,6 +19,7 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 - Focus only on reporting results stored in context by step 2 — do not re-execute any part of the drop
 - Do not hide verification errors or failed context file rebuilds
+- Reached only after step 2 wrote the manifest (or had none to write, for a draft skill): a failed manifest write HALTs in step 2, so this step never reports a drop that did not happen
 - Chains to the local health-check step via `{nextStepFile}` after completion (see §3)
 
 ## MANDATORY SEQUENCE
@@ -35,7 +32,7 @@ Set `remaining_versions_display = "(skill fully removed)"`.
 
 **If `is_skill_level == false`:**
 
-**Resolve `{manifestOpsHelper}`** ← first existing path in `{manifestOpsProbeOrder}`, then read the target skill's remaining versions through it rather than re-parsing the manifest by hand:
+Read the target skill's remaining versions through the `{manifestOpsHelper}` On-Activation §4 resolved, rather than re-parsing the manifest by hand:
 
 ```bash
 python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}
@@ -49,8 +46,6 @@ python3 {manifestOpsHelper} {skills_output_folder} affected-versions {target_ski
   - 0.5.0 (archived)
   - 0.1.0 (deprecated)
 ```
-
-**If neither `{manifestOpsProbeOrder}` candidate resolves:** read `exports.{target_skill}.versions` from `{skills_output_folder}/.export-manifest.json` in-prompt, list each remaining version with its `status` (active marked `*`), ordering newest-first by comparing version components numerically.
 
 ### 2. Render the Report
 
@@ -90,35 +85,55 @@ These require manual review — see the error-handling guidance in step 2.
 
 ### Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/drop-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all purged file paths in `outputs`; include `target_skill`, `drop_mode`, `versions_affected`, `forge_left_in_place` (null when none) and a `headless_provenance` object in `summary`.
-
-`headless_provenance` persists the §8/§10 decision trail from step 1 so an unattended run's auto-decisions survive in the durable record, not only in the transient log — a consumer can tell an operator-confirmed drop from a headless auto-confirmed one without re-deriving it:
+The shared emitter writes the result contract (`shared/references/output-contract-schema.md`) and prints the envelope; this step stages their content. Write `{run_dir}/result-context.json`:
 
 ```json
-"headless_provenance": {"headless": {headless_mode}, "mode_source": "{mode_source}", "confirm": "{confirm_source}"}
+{
+  "status": "success",
+  "skill": "{target_skill}",
+  "drop_mode": "{drop_mode}",
+  "versions_affected": {target_versions},
+  "files_deleted": {files_deleted},
+  "forge_left_in_place": {forge_left_in_place},
+  "manifest_updated": {manifest_updated},
+  "result_contract": {
+    "skill": "skf-drop-skill",
+    "status": "{record_status}",
+    "outputs": [{"type": "skill", "path": "{each path in files_deleted}"}],
+    "summary": {
+      "target_skill": "{target_skill}",
+      "drop_mode": "{drop_mode}",
+      "versions_affected": {target_versions},
+      "forge_left_in_place": {forge_left_in_place},
+      "headless_provenance": {"headless": {headless_mode}, "mode_source": "{mode_source}", "confirm": "{confirm_source}"}
+    }
+  }
+}
 ```
 
-where `{headless_mode}` is the resolved boolean, `{mode_source}` is the step-1 §8 value (`"--mode argument"` / `"customize.toml.workflow.default_mode"` / `"interactive-prompt"` / `"draft-skill-forced-purge"`), and `{confirm_source}` is the step-1 §10 value (`"headless-auto"` / `"user-explicit"`).
+- `{target_versions}` is a JSON array (e.g. `["0.5.0"]`) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried, or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
+- `{record_status}` is `"partial"` when some (but not all) purge folders failed to delete (step 2's `purge_status`); then also put step 2's `delete_failures` in `summary.delete_failures`. Otherwise it is `"success"`. A full purge failure and a failed manifest write never reach this step: step 2 HALTs with `halt_reason: "delete-failed"` or `"manifest-write-failed"`.
+- `headless_provenance` persists the §8/§10 decision trail from step 1, so an unattended run's auto-decisions survive in the durable record and a consumer can tell an operator-confirmed drop from a headless auto-confirmed one: `{headless_mode}` is the resolved boolean, `{mode_source}` the step-1 §8 value (`"--mode argument"` / `"customize.toml.workflow.default_mode"` / `"interactive-prompt"` / `"draft-skill-forced-purge"`), and `{confirm_source}` the step-1 §10 value (`"headless-auto"` / `"user-explicit"`).
 
-Set the record's `status` from step 2's `purge_status`: `"partial"` when some (but not all) purge-mode directories failed to delete — surface the failing paths from `delete_failures` in `summary.delete_failures` — otherwise `"success"`. A *full* purge failure never reaches this step: step 2 §4 HALTs with `halt_reason: "delete-failed"` and the error-envelope path below handles it.
+Then run, in every mode:
 
-When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 4 (the full shape and field rules are in `references/headless-contract.md`):
-
+```bash
+uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}" --result-dir "{skills_output_folder}" < "{run_dir}/result-context.json"
 ```
-SKF_DROP_SKILL_RESULT_JSON: {"status":"success","skill":"{target_skill}","drop_mode":"{drop_mode}","versions_affected":{target_versions},"files_deleted":{files_deleted},"manifest_updated":{manifest_updated},"exit_code":0,"halt_reason":null}
-```
 
-Substitute `{target_versions}` as a JSON array (e.g. `["0.5.0"]`) or the literal string `"all"`; substitute `{files_deleted}` as a JSON array of absolute paths (`[]` in soft-drop mode); `manifest_updated` is the boolean from step 2's context.
+The emitter stamps the UTC time, the run id, the run's warnings and the auto-decisions select.md recorded (`headless_decisions`) into the record, writes it as `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json`, copies it to `{skills_output_folder}/drop-skill-result-latest.json` (the stable path pipelines read), and prints the `SKF_DROP_SKILL_RESULT_JSON:` line on stdout (field rules in `references/headless-contract.md`). Bind `{result_json_path}` ← that line's `result_path`: null when the record could not be written, and the line's `warnings` then say why. When `{headless_mode}` is true, display the line verbatim before chaining to step 4. If the helper exits non-zero, correct `result-context.json` from the `message` of its stderr JSON and run it once more; if it fails again, display "The drop result record could not be written: {message}" and go on, since the drop itself is complete.
 
 ### Post-drop hook (optional)
 
-If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it once the result contract above is finalized:
+If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) and `{result_json_path}` is not null, invoke it once the emitter has written the record:
 
 ```bash
 {onCompleteCommand} --result-path={result_json_path}
 ```
 
-where `{result_json_path}` is the per-run record written above (`{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json`). Log success or failure to `workflow_warnings[]` — never fail the workflow on a hook error; the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+Log success or failure to `workflow_warnings[]`, and never fail the workflow on a hook error: the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+
+Whether or not a hook ran, then delete the run folder, whose payload the emitter has read: `rm -rf "{run_dir}"`.
 
 ### 3. Chain to Health Check
 

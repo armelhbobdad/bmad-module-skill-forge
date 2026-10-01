@@ -45,6 +45,14 @@ Wait for user choice.
 
 > `headless: {N} managed-section rows had no manifest entry; preserving verbatim with deviations[].kind = preserve_external_skills. Run export-skill on each skill SKF generated to add it to the manifest; remove the rows of other skills from the context files yourself.`
 
+Record the decision in the run sink, listing each orphan row as `{skill_name} v{version}`. If `record` exits non-zero, display its error line and go on (a failed `record` never stops the run):
+
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+{"gate":"update-context.orphan-rows","default_action":"b","taken_action":"b","reason":"headless: managed-section rows with no manifest entry preserved verbatim","evidence":{"rows":["{skill_name} v{version}"]}}
+SKF_JSON
+```
+
 Silent drop under automation would regress the user's managed section without consent; cancel under automation would block the whole export over an externally-installed skill the user did not author. Preservation matches the prior-attentive-operator convention.
 
 ## Choice handling

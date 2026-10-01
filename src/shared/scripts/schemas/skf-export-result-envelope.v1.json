@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-export-result-envelope.v1.json",
+  "title": "SKF_EXPORT_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-export-skill emits when {headless_mode} is true, prefixed with the literal 'SKF_EXPORT_RESULT_JSON: ': once on stdout when a run ends (step 6, summary, with status success or dry-run) and once on stderr at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload the run passes it, folds in the auto-decisions the run's gates recorded in its run sink, derives exit_code from halt_reason and checks the line against this schema, so the model never types it. The skill's references/result-envelope.md holds the halt command and the Exit Codes table that maps each halt site to its code.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-export-skill",
+        "prefix": "SKF_EXPORT_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-missing": 2,
+          "resolution-failure": 3,
+          "not-skf-output": 3,
+          "write-failed": 4,
+          "context-rebuild-failed": 4,
+          "manifest-write-failed": 4,
+          "malformed-markers": 5,
+          "user-cancelled": 6
+        },
+        "success_exit_code": 0,
+        "result_file": "export-skill-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "skills",
+    "context_files_updated",
+    "manifest_path",
+    "headless_decisions",
+    "exit_code",
+    "halt_reason",
+    "result_path"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "dry-run", "error"],
+      "description": "'success' when the run reached the terminal step and recorded every skill of the batch in the export manifest (with passive context on, it also wrote the context files and the snippets). 'dry-run' when --dry-run previewed the run and wrote none of them (no result file either). 'error' on any HARD HALT."
+    },
+    "skills": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "The skill names of the run's batch. Empty when a halt came before step 1 resolved the batch."
+    },
+    "context_files_updated": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "The context files (CLAUDE.md, AGENTS.md, .cursorrules) whose managed section this run wrote and verified. Empty on a dry run, with passive context off, and when a halt came before any write."
+    },
+    "manifest_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The export manifest path once step 4 recorded every skill of the batch in it. Null when no manifest write completed: every dry run, and every halt before the manifest write finished."
+    },
+    "headless_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "default_action", "taken_action", "reason"],
+        "properties": {
+          "gate": {
+            "type": "string",
+            "enum": [
+              "load-skill.snippet-root-probe",
+              "load-skill.confirmation",
+              "update-context.orphan-context-files",
+              "update-context.orphan-rows",
+              "update-context.write-confirmation"
+            ],
+            "description": "The gate that auto-resolved: step 1's snippet-root mismatch gate and confirmation gate, and step 4's orphaned context files gate, orphaned managed-section rows gate and write confirmation gate. Each gate records its decision in the run sink the moment it decides."
+          },
+          "default_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action documented as the gate's default (for example 'C' for [C] Continue, 'b' for option (b))."
+          },
+          "taken_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action the run took. In a headless run it equals default_action."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable rationale, such as 'headless: auto-continue past skill confirmation'."
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional gate-specific data: the observed snippet-root prefixes, the orphaned context files, or the orphaned rows' skills."
+          }
+        }
+      },
+      "description": "One entry per gate that auto-resolved during the run, read from the run sink, so a halt reports the decisions taken before it. Empty in an interactive run."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6],
+      "description": "Process exit code matching the Exit Codes table of the skill's references/result-envelope.md, derived from halt_reason: null gives 0, input-missing 2, resolution-failure and not-skf-output 3, write-failed, context-rebuild-failed and manifest-write-failed 4, malformed-markers 5, user-cancelled 6."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "input-missing",
+        "resolution-failure",
+        "not-skf-output",
+        "write-failed",
+        "context-rebuild-failed",
+        "manifest-write-failed",
+        "malformed-markers",
+        "user-cancelled"
+      ],
+      "description": "Null on success and dry-run. One of the documented HALT classes on error, so pipelines branch on the failure class without grepping the prose message."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The per-run result file the emitter wrote in the skills output folder, export-skill-result-<YYYYMMDD-HHmmss>.json (its copy is export-skill-result-latest.json beside it). Null on a dry run, on every halt, and when the write failed (a result_file_write_failed warning says why)."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each (for example result_file_write_failed). Present only when there is at least one."
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "reason"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the run halted: the step file and section, for example 'update-context §9'."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The halt message the step displayed, on one line."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional path the failed operation targeted."
+        }
+      },
+      "description": "Present on a HARD HALT only: where the run stopped and why. Pipelines branch on halt_reason and read error for the diagnostic."
+    }
+  }
+}

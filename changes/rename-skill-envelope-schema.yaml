@@ -1,0 +1,6 @@
+type: added
+scope: skf-rename-skill
+summary: |
+  `SKF_RENAME_SKILL_RESULT_JSON` now has a schema, `skf-rename-skill-result-envelope.v1.json`, and the shared emitter builds and checks every line from it: the finished rename and the `--dry-run` exit on stdout, and each halt on stderr, a halt before the run folder exists included. Every envelope gains `run_id` and `result_path` (the per-run result file, null on a dry run and on a halt), a halt envelope gains `error` with the phase, the message and the path the halt names, and an envelope carries `warnings` when the run recorded one, such as `run-lock-replaced`, or `run-lock-not-released` when a halt could not release the run lock. A pipeline that checks envelopes against its own copy of the schema should take the installed one.
+prs: [629]
+issues: [593, 585]
