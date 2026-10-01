@@ -84,10 +84,6 @@ Each analysis step stores its findings two ways: as workflow state for Step 05, 
 
 ---
 
-## Preservation Rules
+## Preservation
 
-1. **Never delete original content** — only add annotations and subsections
-2. **Follow original section layout** — add refinement subsections within existing sections
-3. **Use callout blocks** for issues: `> [!WARNING]` or `> [!NOTE]` format
-4. **Mark additions clearly** — prefix added subsections with "RA:" or use a refinement marker
-5. **Maintain original heading hierarchy** — refinement subsections are one level deeper than the parent
+Preservation, placement and RA's markers are not set here: compile.md and `scripts/skf-check-preservation.py` own them, so an override of this file cannot change them.

@@ -3,7 +3,8 @@
  *
  * Validates cross-step state consistency for VS, RA, and compose-mode workflows:
  * - VS feasibility report frontmatter fields match step consumption
- * - RA state file comment block format matches step 5 recovery parser
+ * - RA state file comment block format matches step 5 recovery parser, and the
+ *   RA draft, run folder and run records agree between init, compile and report
  * - Compose-mode confidence tier labels follow the one pair-tier rule compose-mode-rules.md points at
  *
  * These are static analysis tests against the step markdown files.
@@ -170,6 +171,50 @@ async function runTests() {
     raReport.includes('refined-architecture-{arch_project_name}.md'),
     'RA report names output after arch project',
     'report.md outputFile should use refined-architecture-{arch_project_name}.md (must match compile.md)',
+  );
+
+  // Draft then promote: compile keeps the draft beside the RA state file and
+  // never writes the output itself; the records the preservation script
+  // writes in the run folder are the ones report.md reads back.
+  const raSkill = await readFile(path.join(srcDir, 'skf-refine-architecture/SKILL.md'));
+  const raGap = await readFile(path.join(srcDir, 'skf-refine-architecture/references/gap-analysis.md'));
+  assert(
+    raSkill.includes('`run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-refine-architecture-{timestamp}`'),
+    'RA SKILL.md fixes the run folder',
+    'SKILL.md On Activation should bind run_dir under _bmad-output/.skf-run/',
+  );
+  assert(
+    raStep05.includes("draftFile: '{forge_data_folder}/.skf-ra-draft-{project_name}.md'"),
+    'RA compile keeps the draft beside the state file',
+    'compile.md draftFile should sit in {forge_data_folder}, beside ra-state-{project_name}.md',
+  );
+  assert(
+    !raStep05.includes('Write the complete refined architecture to `{outputFile}`') && raStep05.includes('promote --original'),
+    'RA compile writes the output only through promote',
+    'compile.md must build a draft and promote it at the review, never write {outputFile} itself',
+  );
+  for (const [key, file] of [
+    ['applyResult', '{run_dir}/apply.json'],
+    ['promoteResult', '{run_dir}/promote.json'],
+  ]) {
+    const binding = `${key}: '${file}'`;
+    assert(
+      raStep05.includes(binding) && raReport.includes(binding),
+      `RA compile and report share ${key}`,
+      `compile.md writes and report.md reads ${file}`,
+    );
+  }
+  assert(
+    raStep01.includes('-o "{run_dir}/inspect.json"') && raReport.includes("inspectResult: '{run_dir}/inspect.json'"),
+    'RA init writes the earlier-pass record report reads',
+    'init.md §1b and report.md must name the same inspect.json',
+  );
+  assert(
+    raStep01.includes('--stripped "{run_dir}/analysis-doc.md"') &&
+      raStep01.includes('`{analysis_doc}` ← `{run_dir}/analysis-doc.md`') &&
+      raGap.includes('--doc "{analysis_doc}"'),
+    'RA gap analysis reads the analysis copy init writes',
+    'init.md §1b writes the copy with RA blocks set aside; gap-analysis.md must read it',
   );
 
   // Step-05 recovery should point to beginning, not mid-workflow

@@ -27,7 +27,7 @@ Extract: improvement classification (Unused Capability, Cross-Library Synergy, A
 
 ### 2. Build Architecture Usage Map
 
-For each library referenced in the architecture document, extract how it is used:
+For each library referenced in the architecture document, extract how it is used. Read it as `{analysis_doc}`, the copy Step 01 §1b wrote with any earlier Refine Architecture pass set aside, so an old RA suggestion never reads as a capability the architecture already uses:
 
 - What capabilities are described (e.g., "Loro for real-time data sync")
 - What APIs or features are referenced

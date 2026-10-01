@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-refine-architecture-result-envelope.v1.json",
+  "title": "SKF_REFINE_ARCHITECTURE_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-refine-architecture emits when {headless_mode} is true, prefixed with the literal 'SKF_REFINE_ARCHITECTURE_RESULT_JSON: ': once on stdout when step 6 (report) writes the result contract, after step 5's review promoted the refined document and before step 6's final menu, and once on stderr at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload a stage stages in the run folder, folds in the auto-decisions and warnings the run recorded there, derives exit_code from halt_reason, stamps run_id and result_path, and checks the line against this schema, so the model never types it. The skill's references/exit-codes.md lists the exit codes and the stage files hold the halt command.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-refine-architecture",
+        "prefix": "SKF_REFINE_ARCHITECTURE_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-missing": 2,
+          "input-invalid": 2,
+          "output-folder-unconfigured": 3,
+          "forge-folder-unconfigured": 3,
+          "resolution-failure": 3,
+          "write-failed": 4,
+          "preservation-failed": 4,
+          "insufficient-skills": 5,
+          "user-cancelled": 6,
+          "inventory-unreliable": 7,
+          "recovery-failed": 8
+        },
+        "success_exit_code": 0,
+        "result_file": "refine-architecture-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "refined_path",
+    "previous_refined_path",
+    "previous_pass",
+    "gap_count",
+    "issue_count",
+    "improvement_count",
+    "unverified_count",
+    "exit_code",
+    "halt_reason",
+    "run_id",
+    "result_path"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error"],
+      "description": "'success' when the review approved the draft, the preservation check passed and the refined document was promoted to its output path. 'error' on any HARD HALT."
+    },
+    "refined_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "The refined document, refined-architecture-<arch_project_name>.md in the output folder. Null on a halt before the review's [C] promoted the draft: a halt or a cancel before then leaves the output path as it was."
+    },
+    "previous_refined_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "Where the earlier refined document went: the review's [C] renames a file already at the output path to refined-architecture-<arch_project_name>-<YYYYMMDD-HHmmss>.md (the run's timestamp, with -2, -3 ... when that name is taken) before it promotes the draft, so it is never overwritten. Null when there was none, and on a halt before the promotion."
+    },
+    "previous_pass": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when the architecture document held an earlier Refine Architecture pass (RA's marked blocks, the unmarked annotations of an older pass with their Refinement Summary, or a refined-architecture-*.md file): the run set those annotations aside, analyzed the rest and replaced them with one current set."
+    },
+    "gap_count": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Gap-fill subsections in the refined document, counted by the preservation script from the insertion plan it applied. 0 on a halt."
+    },
+    "issue_count": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Issue annotations in the refined document, counted from the insertion plan. 0 on a halt."
+    },
+    "improvement_count": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Improvement suggestions in the refined document, counted from the insertion plan. 0 on a halt."
+    },
+    "unverified_count": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Technologies the architecture document names that no skill covers, so nothing checked what it says about them (the Refinement Summary's Not verified (no skill) row), counted from the insertion plan. 0 on a halt."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6, 7, 8],
+      "description": "Process exit code matching the skill's references/exit-codes.md table, derived from halt_reason: null gives 0, input-missing and input-invalid 2, output-folder-unconfigured, forge-folder-unconfigured and resolution-failure 3, write-failed and preservation-failed 4, insufficient-skills 5, user-cancelled 6, inventory-unreliable 7, recovery-failed 8."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "input-missing",
+        "input-invalid",
+        "output-folder-unconfigured",
+        "forge-folder-unconfigured",
+        "resolution-failure",
+        "write-failed",
+        "preservation-failed",
+        "insufficient-skills",
+        "user-cancelled",
+        "inventory-unreliable",
+        "recovery-failed"
+      ],
+      "description": "Null on success. One of the documented HALT classes on error, so a pipeline branches on the failure class without parsing the prose message. preservation-failed: the draft would not keep every line of the original architecture document, so it was not promoted."
+    },
+    "run_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The run's id, stamped by the emitter from the run folder name: the run's activation timestamp (YYYYMMDD-HHmmss, UTC). Null for a halt before the run folder exists."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The per-run result file the emitter wrote in the output folder, refine-architecture-result-<YYYYMMDD-HHmmss>.json (UTC), beside its refine-architecture-result-latest.json copy. Stamped by the emitter, never typed; step 6 passes it to the on_complete hook. Null on every halt, which writes no result file, and when the write failed (warnings say why)."
+    },
+    "headless_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "default_action", "taken_action", "reason"],
+        "properties": {
+          "gate": {
+            "type": "string",
+            "enum": ["init.vs-report", "init.vs-report-unreadable", "gap-analysis.scope", "compile.review"],
+            "description": "The gate that auto-resolved: init.vs-report (step 1 answered the [VS] report question with its default, the report the probe found or none), init.vs-report-unreadable (step 1 could not read the --vs-report-path it was given and probed for the report instead), gap-analysis.scope (step 2 kept the derived document scope), compile.review (step 5 approved the draft). The gate records its decision in the run sink the moment it decides."
+          },
+          "default_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action documented as the gate's default, such as 'C' for [C] continue or 'use-found-report'."
+          },
+          "taken_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action the run took. In a headless run it equals default_action."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable rationale, the line the gate logged, such as 'headless: auto-approve compiled architecture'."
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional gate-specific data, such as the report a headless run used or the in-scope and out-of-scope skills it kept."
+          }
+        }
+      },
+      "description": "Optional. One entry per gate that auto-resolved during the run, read from the run sink, so a halt reports the decisions taken before it. Present only when there is at least one."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: vs_report_not_read when the feasibility-report helper is unavailable, malformed_ra_markers when the document holds an RA marker without its pair (left in place as ordinary text), legacy_blocks_set_aside when an older pass left unmarked RA blocks, which run to the next heading and were set aside unchecked (it names their lines, so a user paragraph inside one is not silently counted as preserved), unknown_scope_skills when --scope-skills names a skill that is not in the inventory, scope_fallback_all_skills when --scope-skills or the document names no inventory skill and every skill is analyzed, customization_resolver_unavailable when the team and user overrides were not applied, and result_file_write_failed when the emitter could not write a result file. Present only when there is at least one."
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "reason"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the run halted: the step and gate, for example 'init:vs-report' or 'compile:promote'."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The halt message the step displayed, on one line."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional path the failed operation targeted."
+        }
+      },
+      "description": "Present on a HARD HALT only: where the run stopped and why. Pipelines branch on halt_reason and read error for the diagnostic."
+    }
+  }
+}

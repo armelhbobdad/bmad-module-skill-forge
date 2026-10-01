@@ -23,7 +23,8 @@ These tests keep the step files on that contract:
   writes the "Not verified (no skill)" row, the VS Coverage row (only with a
   VS report, `not recorded` when that run never reached its coverage step,
   and naming the report by file name only) and a [CS] or [QS] next step;
-- the report parses the same rows, shows them and points to [CS] or [QS]
+- the report takes the counts from the record of the draft's build (never
+  from a Refinement Summary), shows the same rows and points to [CS] or [QS]
   before [SS];
 - SKILL.md lists the gate in the Stages table and the Gates row, says in the
   Flags and Headless rows that `--scope-skills` skips it, and names it in the
@@ -43,8 +44,9 @@ through the shared helpers (#590, #598):
   exactly, keys the Plausible rule on the token, and scopes the verdicts by
   the pair lists; a lost JSON is read again through the helper, and a report
   [VS] rewrote meanwhile halts with exit 8;
-- gap analysis runs skf-comention-pairs.py `mentions` once (documented-pair
-  candidates, the Mermaid note, the derived scope), splits the pairs once
+- gap analysis runs skf-comention-pairs.py `mentions` once, on the analysis
+  copy that sets an earlier RA pass aside (documented-pair candidates, the
+  Mermaid note, the derived scope), splits the pairs once
   with skf-enumerate-stack-skills.py `scope` (naming a `--scope-skills`
   name that is no inventory skill), and reads `language` from the inventory;
 - compile fills the VS Coverage row from the JSON's `coverageMeasured`;
@@ -131,7 +133,7 @@ def _compile_base() -> str:
 
 
 def _compile_improvements() -> str:
-    return _slice(_read(COMPILE), "### 4. Insert Improvement Suggestions", "### 5.")
+    return _slice(_read(COMPILE), "### 4. Plan the Improvement Suggestions", "### 5.")
 
 
 def _compile_summary() -> str:
@@ -139,7 +141,7 @@ def _compile_summary() -> str:
 
 
 def _report_parse() -> str:
-    return _slice(_read(REPORT), "### 1. Load Refined Document", "### 2.")
+    return _slice(_read(REPORT), "### 1. Load the Run's Numbers", "### 2.")
 
 
 def _report_summary() -> str:
@@ -416,12 +418,15 @@ def test_refinement_summary_next_step_points_to_cs_or_qs():
 # --- Step 6: the report carries the same rows and next step ---
 
 
-def test_report_parses_the_new_rows():
-    parse = _slice(_report_parse(), "**Extract metrics from the Refinement Summary section:**", "\n\n")
-    assert f"from the Count and Breakdown cells of the table's {NOT_VERIFIED} row" in parse
-    assert "`unverified_count`" in parse and "`unverified_technologies`" in parse
-    assert f"`vs_coverage` from the Count cell of its {VS_COVERAGE} row" in parse
+def test_report_reads_the_new_rows_from_the_run():
+    # An input refined before can hold an older Refinement Summary, so the
+    # report reads the build record and the run's state, never the document.
+    parse = _slice(_report_parse(), "**Bind the metrics from the files:**", "\n\n")
+    assert "`unverified_count` from `counts.unverified`" in parse
+    assert "`unverified_technologies` from its `unverified_technologies` (comma-separated, or `none`)" in parse
+    assert "`vs_coverage` from `{vs_report}` as Step 05 §5 wrote it (the `[RA-VS]` block)" in parse
     assert f"leave the {VS_COVERAGE} row out of the summary below" in parse
+    assert "Extract metrics from the Refinement Summary section" not in _read(REPORT)
 
 
 def test_report_shows_the_new_rows():
@@ -461,7 +466,7 @@ def test_skill_md_lists_the_scope_gate():
     assert len(flags) == 1 and "so step 2 asks no scope confirmation" in flags[0]
     headless = [line for line in text.splitlines() if line.startswith("| **Headless** |")]
     assert len(headless) == 1 and "`--scope-skills` skips the step 2 scope confirmation" in headless[0]
-    exit_codes = _slice(text, "## Exit Codes", "## Result Contract")
+    exit_codes = _slice(_read(RA / "references" / "exit-codes.md"), "| Code |", "## Result Envelope")
     exit_6 = [line for line in exit_codes.splitlines() if line.startswith("| 6 ")]
     assert len(exit_6) == 1 and "step 2 §2b scope confirmation `[X]`" in exit_6[0]
 
@@ -707,7 +712,8 @@ def test_gap_analysis_binds_its_helpers():
 def test_the_mentions_helper_runs_once_with_aliases():
     claims = _gap_claims()
     assert _read(GAP).count("uv run {comentionHelper} mentions") == 1
-    assert 'uv run {comentionHelper} mentions --doc "{architecture_doc}" --skills -' in claims
+    assert 'uv run {comentionHelper} mentions --doc "{analysis_doc}" --skills -' in claims
+    assert "with any earlier Refine Architecture pass set aside (Step 01 §1b)" in claims
     assert "`source_repo_basename` and `source_root_basename`" in claims
     assert "Cache its JSON as `{doc_mentions}`" in claims
 
@@ -791,7 +797,7 @@ def test_compile_recovers_the_vs_report_block():
 
 
 def test_skill_md_names_the_vs_report_halt():
-    exit_codes = _slice(_read(SKILL), "## Exit Codes", "## Result Contract")
+    exit_codes = _slice(_read(RA / "references" / "exit-codes.md"), "| Code |", "## Result Envelope")
     [exit_2] = [line for line in exit_codes.splitlines() if line.startswith("| 2 ")]
     assert "a [VS] report that breaks the feasibility-report contract" in exit_2
     assert exit_2.rstrip(" |").endswith("→ `input-invalid`")
