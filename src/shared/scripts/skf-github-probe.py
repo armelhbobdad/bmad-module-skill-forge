@@ -81,8 +81,9 @@ Output (one ASCII JSON line; every key of the command is always present):
          and `<name>-v<v>`, where <v> drops a leading `v` of the version.
          A monorepo's package tags (`astro@4.16.0`) match through --name.
   tree:  ref (as given; "HEAD", the default branch, for an empty, `null`,
-         `none` or `head` --ref in any letter case), tree (file paths:
-         `echo` the JSON into skf-detect-language.py as it is), count,
+         `none` or `head` --ref in any letter case), tree (file paths;
+         hand the listing to skf-detect-language.py or another --tree-file
+         reader as a file, through --out, never through echo), count,
          truncated (GitHub cut the list short). With --out <file>, the
          whole line goes to <file>, which every --tree-file reader takes,
          and stdout carries it without `tree`, so a caller reads the
