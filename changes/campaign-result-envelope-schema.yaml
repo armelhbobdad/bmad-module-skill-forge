@@ -1,0 +1,5 @@
+type: added
+scope: skf-campaign
+summary: |
+  `src/shared/scripts/schemas/skf-campaign-result-envelope.v1.json` is the new schema of the `SKF_CAMPAIGN_RESULT_JSON` envelope and its one definition: the shared emitter (`skf-emit-result-envelope.py --workflow skf-campaign`) builds and checks every campaign envelope against it, the success line at the end and the error line at every HARD HALT, so the model no longer types it. The success line gains `exit_code` and `halt_reason` (`0` and null; `10` and `report-failure` when the report could not be generated), and the error line now carries every field the success line does, with `halt_reason` beside `phase` and `error`. In headless mode the success line is held until the end-of-run health check, which displays it as the run's last line, so a `claude -p` caller reads the envelope as the final message.
+issues: [593, 585]

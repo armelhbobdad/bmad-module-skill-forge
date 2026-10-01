@@ -19,7 +19,7 @@ Orchestrates the production of 15+ skills across multiple sessions by driving th
 
 ## Role
 
-You are a campaign orchestrator operating in Ferris's Management mode. You sequence workflows, track per-skill state, enforce quality gates, and ensure every skill reaches its target tier — while the individual pipeline workflows handle the actual artifact production.
+You are a campaign orchestrator operating in Ferris's Management mode. You sequence workflows, track per-skill state, enforce quality gates, and ensure every skill reaches its target tier, while the individual pipeline workflows handle the actual artifact production.
 
 ## On Activation
 
@@ -49,6 +49,7 @@ Run these steps once, in order, before dispatching to Mode Routing.
    - `{kickoffTemplatePath}` ← `workflow.kickoff_template_path` if non-empty, else `templates/kickoff-template.md`
    - `{briefTemplatePath}` ← `workflow.brief_template_path` if non-empty, else `templates/campaign-brief-template.yaml`
    - `{onComplete}` ← `workflow.on_complete` (empty = no-op)
+   - `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists)
 
    Load `workflow.persistent_facts` (literal sentences and `file:` references, globs expanded) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, once the CLI overrides are parsed.
 
@@ -69,16 +70,16 @@ Run these steps once, in order, before dispatching to Mode Routing.
 
 These rules apply to every step in this workflow:
 
-- State-first — write state to disk before chaining to the next step or workflow
-- Read-backup-modify-write for all state mutations (State Contract in `references/campaign-contracts.md`)
-- Validate `_campaign-state.yaml` on every load by running `uv run scripts/campaign-validate-state.py --state-file {stateFile}` and HALT (exit code 3, `invalid-state`) on non-zero — never hand-validate the schema
-- Zero memory dependency — campaign state is 100% recoverable from disk; never rely on conversation context for progress tracking
+- State-first: write state to disk before chaining to the next step or workflow
+- Every state write goes through `scripts/campaign-state.py` (State Contract in `references/campaign-contracts.md`); never edit the state or its `.bak` by hand
+- Validate `_campaign-state.yaml` on every load by running `uv run scripts/campaign-validate-state.py --state-file {stateFile}` and HALT (exit code 3, `invalid-state`) on non-zero; never hand-validate the schema
+- Zero memory dependency: campaign state is 100% recoverable from disk; never rely on conversation context for progress tracking
 - A sub-skill's result is what the step that runs it reads (an `SKF_*_RESULT_JSON` envelope or a verdict): a missing, unparseable or error result is a sub-skill failure, and never write partial state from an unparsed envelope
-- Append a one-line entry to the campaign decision log (`{campaignWorkspacePath}/_campaign-decision-log.md`, append-only) at every operator or auto-decision (skip/force, overwrite, export cancel/proceed, `.bak` recovery, user-cancel) so rationale survives compaction and resume
+- Log every operator decision, headless default and event (skip/force, overwrite, export cancel/proceed, `.bak` recovery, user-cancel, a failed skill) as one typed entry in the append-only `{campaignWorkspacePath}/_campaign-decision-log.md` through `campaign-state.py log` (`references/campaign-contracts.md`), so rationale survives compaction and resume
 - **Universal cancel affordance** — at any interactive gate between Setup and the Export gate, `cancel`/`exit`/`:q` triggers a HARD HALT with **exit code 12 (`user-cancelled`)**: log it and leave state intact and resumable. Exception: the Export gate's own `[C]ancel` stays exit code 11 (`export-cancelled`) — never also emit 12 there, so an automator's exit-code branch stays deterministic. These keywords count only as a response *to a prompt*; a skill or campaign named `cancel`/`exit` supplied as data is never treated as a cancel.
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
-- If `{headless_mode}` is true, emit a single-line JSON progress event to **stderr** at each step's entry, exit, and HARD HALT so schedulers stream live progress — event format in `references/campaign-contracts.md` (Headless Progress Events)
+- If `{headless_mode}` is true, emit a single-line JSON progress event to **stderr** at each step's entry, exit, and HARD HALT, and at every HARD HALT the error envelope (`references/campaign-contracts.md`: Headless Progress Events, Result Contract on HARD HALT)
 
 ## Stages
 
@@ -96,24 +97,24 @@ These rules apply to every step in this workflow:
 | 9 | Export | references/step-10-export.md | No (write-gate HALT) |
 | 10 | Maintenance | references/step-11-maintenance.md | Yes |
 
-**Stage numbering:** step files are 1-indexed (`step-01` … `step-11`); `campaign.current_stage` in state is 0-indexed, so step-`NN` runs stage `NN − 1` (step-01 = stage 0, step-11 = stage 10). `references/step-resume.md` §3–§4 own how a resolved stage maps back to its step file on resume (including the `current_stage + 1` advance when no skill is active).
+**Stage numbering:** `campaign.current_stage` is 0-indexed, so step-`NN` runs stage `NN - 1`; `campaign-state.py resume` maps a resumed campaign to its step file.
 
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | `campaign` to start a new campaign; `campaign resume [--from=<skill>]` to resume from last active or specified skill; `campaign status` for a read-only progress summary |
-| **Outputs** | `_campaign-state.yaml` (state), `campaign-brief.yaml` (machine-generated brief), `campaign-report.md` (post-campaign summary), `_campaign-decision-log.md` (append-only rationale), `SKF_CAMPAIGN_RESULT_JSON` (headless envelope) — all under `{campaignWorkspacePath}` |
+| **Outputs** | `_campaign-state.yaml` (state), `campaign-brief.yaml` (machine-generated brief), `campaign-report.md` (post-campaign summary), `_campaign-decision-log.md` (append-only rationale), all under `{campaignWorkspacePath}`; `SKF_CAMPAIGN_RESULT_JSON` (headless envelope) |
 
 ## Contracts
 
-Exit codes, the HARD-HALT error envelope, the read-backup-modify-write **State Contract**, the headless success envelope, and per-step progress events live in `references/campaign-contracts.md` — consult it when you HALT, mutate state, or emit headless output.
+Exit codes, the HARD-HALT error envelope, the **State Contract** (`scripts/campaign-state.py`), the decision log and per-step progress events live in `references/campaign-contracts.md`: consult it when you HALT, write state, or log. The envelope's one definition is `shared/scripts/schemas/skf-campaign-result-envelope.v1.json`; step-11 emits its success line.
 
 ## Mode Routing
 
 On invocation:
 
-1. **`campaign resume [--from=<skill>]`** — load `references/step-resume.md` (validates state, recovers from backup, chains to the right stage). `--from=<skill>` overrides the resume point to the named skill.
-2. **`campaign`** (new, no existing state) — run from stage 0 (Setup).
-3. **`campaign`** (state exists) — detect existing `{campaignWorkspacePath}/_campaign-state.yaml` and prompt **resume** (via `references/step-resume.md`) or **overwrite**. On overwrite, first archive the existing `_campaign-state.yaml` and `campaign-brief.yaml` to `{campaignWorkspacePath}/archive/{name}-{timestamp}/` and log it before chaining to step-01. In headless mode, default to **resume** (never silently clobber); archive-and-overwrite only when `--brief`/`--manifest` explicitly seeds a new campaign.
-4. **`campaign status`** (read-only) — load `{campaignWorkspacePath}/_campaign-state.yaml`, validate it via `campaign-validate-state.py`, then run `uv run scripts/campaign-status.py --state-file {campaignWorkspacePath}/_campaign-state.yaml` and display its summary (campaign name, current stage, completed-vs-total, per-status counts) followed by the last ~15 lines of `{campaignWorkspacePath}/_campaign-decision-log.md` for the recent decision trail, then stop. No backup, no mutation, no chaining. Exit 0 (or 9 if the state is unrecoverable).
+1. **`campaign resume [--from=<skill>]`**: load `references/step-resume.md` (validates state, recovers from backup, chains to the stage `campaign-state.py resume` computes). `--from=<skill>` overrides the resume point to the named skill.
+2. **`campaign`** (new, no existing state) to run from stage 0 (Setup).
+3. **`campaign`** (state exists): when `{campaignWorkspacePath}/_campaign-state.yaml` or its `.bak` exists, prompt **resume** (via `references/step-resume.md`) or **overwrite**. On overwrite, first run `uv run scripts/campaign-state.py archive --state-file {campaignWorkspacePath}/_campaign-state.yaml --brief-file {campaignWorkspacePath}/campaign-brief.yaml`, which moves the state, its `.bak` and the brief into a new folder under `{campaignWorkspacePath}/archive/`, and log the `archive_dir` it returns (type `decision`) before chaining to step-01 (its `init` refuses to overwrite a state or backup). A `--brief` that named the workspace's `campaign-brief.yaml` is then read from `archive_dir`. In headless mode, default to **resume** (never silently clobber); archive-and-overwrite only when `--brief`/`--manifest` explicitly seeds a new campaign.
+4. **`campaign status`** (read-only): load `{campaignWorkspacePath}/_campaign-state.yaml`, validate it via `campaign-validate-state.py`, then run `uv run scripts/campaign-status.py --state-file {campaignWorkspacePath}/_campaign-state.yaml` and display its summary (campaign name, current stage, completed-vs-total, per-status counts) followed by the last ~15 lines of `{campaignWorkspacePath}/_campaign-decision-log.md` for the recent decision trail, then stop. No backup, no mutation, no chaining. Exit 0 (or 9 if the state is unrecoverable).

@@ -1,17 +1,17 @@
 """Tests for skf-campaign state schema, directory structure, and backup behavior.
 
 Structural tests verify the campaign workflow scaffolding exists. Schema
-validation tests confirm _campaign-state.yaml shape enforcement. Backup
-behavior tests verify the read-backup-modify-write pattern.
+validation tests confirm _campaign-state.yaml shape enforcement. The backup
+test runs a write through campaign-state.py, which keeps the state it
+replaced in .bak.
 """
 
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import pathlib
-import shutil
-import tempfile
 
 import pytest
 import yaml
@@ -387,65 +387,32 @@ class TestMissingRequiredSkillFields:
 
 
 # ---------------------------------------------------------------------------
-# Task 5.13–5.14 — Backup behavior
+# Task 5.13-5.14: backup behavior, now campaign-state.py's write cycle
+# (test-skf-campaign-state-helper.py covers it in full)
 # ---------------------------------------------------------------------------
 
 
+def _state_helper():
+    spec = importlib.util.spec_from_file_location("campaign_state_backup_test",
+                                                  CAMPAIGN_DIR / "scripts" / "campaign-state.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class TestBackupBehavior:
-    def test_backup_created_before_write(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = pathlib.Path(tmpdir)
-            state_file = tmp / "_campaign-state.yaml"
-            backup_file = tmp / "_campaign-state.yaml.bak"
+    def test_a_write_keeps_the_pre_modification_state_in_bak(self, tmp_path: pathlib.Path, capsys) -> None:
+        state_file = tmp_path / "_campaign-state.yaml"
+        backup_file = tmp_path / "_campaign-state.yaml.bak"
+        state_file.write_bytes(yaml.dump(copy.deepcopy(VALID_MINIMAL_STATE), default_flow_style=False).encode("utf-8"))
+        original = state_file.read_bytes()
 
-            original_state = copy.deepcopy(VALID_MINIMAL_STATE)
-            state_file.write_text(
-                yaml.dump(original_state, default_flow_style=False),
-                encoding="utf-8",
-            )
+        assert _state_helper().main(["set-stage", "--state-file", str(state_file), "--stage", "3"]) == 0
+        capsys.readouterr()
 
-            shutil.copy2(str(state_file), str(backup_file))
-
-            modified_state = copy.deepcopy(original_state)
-            modified_state["campaign"]["current_stage"] = 3
-            modified_state["campaign"]["last_updated"] = "2026-05-27T02:00:00Z"
-            state_file.write_text(
-                yaml.dump(modified_state, default_flow_style=False),
-                encoding="utf-8",
-            )
-
-            assert backup_file.is_file(), ".bak file must exist after backup"
-
-    def test_backup_content_matches_pre_modification_state(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = pathlib.Path(tmpdir)
-            state_file = tmp / "_campaign-state.yaml"
-            backup_file = tmp / "_campaign-state.yaml.bak"
-
-            original_state = copy.deepcopy(VALID_MINIMAL_STATE)
-            state_file.write_text(
-                yaml.dump(original_state, default_flow_style=False),
-                encoding="utf-8",
-            )
-            original_content = state_file.read_text(encoding="utf-8")
-
-            shutil.copy2(str(state_file), str(backup_file))
-
-            modified_state = copy.deepcopy(original_state)
-            modified_state["campaign"]["current_stage"] = 5
-            modified_state["campaign"]["last_updated"] = "2026-05-27T03:00:00Z"
-            state_file.write_text(
-                yaml.dump(modified_state, default_flow_style=False),
-                encoding="utf-8",
-            )
-
-            backup_content = backup_file.read_text(encoding="utf-8")
-            assert backup_content == original_content, (
-                ".bak content must match the pre-modification state"
-            )
-            backup_data = yaml.safe_load(backup_content)
-            assert backup_data["campaign"]["current_stage"] == 0
-            assert backup_data["campaign"]["last_updated"] == "2026-05-27T00:00:00Z"
+        assert backup_file.read_bytes() == original, ".bak content must match the pre-modification state"
+        assert yaml.safe_load(backup_file.read_text(encoding="utf-8"))["campaign"]["current_stage"] == 0
+        assert yaml.safe_load(state_file.read_text(encoding="utf-8"))["campaign"]["current_stage"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -638,13 +605,11 @@ class TestSkillMdStructure:
             f"Stages table must have 11 step entries, found {step_rows}"
         )
 
-    def test_documents_backup_pattern(self, skill_content: str) -> None:
-        assert "read-backup-modify-write" in skill_content.lower() or (
-            "read" in skill_content.lower()
-            and "backup" in skill_content.lower()
-            and "modify" in skill_content.lower()
-            and "write" in skill_content.lower()
-        ), "SKILL.md must document the read-backup-modify-write pattern"
+    def test_documents_the_state_contract(self, skill_content: str) -> None:
+        # The read-backup-modify-write cycle is campaign-state.py's; SKILL.md names the helper and its contract.
+        assert "every state write goes through `scripts/campaign-state.py` (state contract" in skill_content.lower(), (
+            "SKILL.md must route every state write through campaign-state.py"
+        )
 
     def test_documents_campaign_result_json(self, skill_content: str) -> None:
         assert "SKF_CAMPAIGN_RESULT_JSON" in skill_content, (

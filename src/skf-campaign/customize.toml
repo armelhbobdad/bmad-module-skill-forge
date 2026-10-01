@@ -94,8 +94,11 @@ report_template_path = ""
 kickoff_template_path = ""
 brief_template_path = ""
 
-# Optional post-completion hook. When non-empty, the workflow invokes:
+# Optional post-completion hook. When non-empty, step-11 invokes it once
+# the campaign is finished: after the report and the final state write
+# (current_stage 10), before the headless result envelope:
 #   <on_complete> --report-path=<path-to-campaign-report.md>
-# after the campaign report is finalized (step-11). Failures are logged to
-# the decision log but never fail the campaign. Empty = no-op.
+# --report-path is passed only when the report was written; a report that
+# could not be generated leaves the hook called without it. Failures are
+# logged to the decision log but never fail the campaign. Empty = no-op.
 on_complete = ""

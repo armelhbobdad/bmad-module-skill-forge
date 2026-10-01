@@ -1,9 +1,11 @@
-"""Tests for campaign-provenance.py — repo access + commit SHA recording.
+"""Tests for campaign-provenance.py: repo access and commit SHA recording.
 
 The gh calls are exercised through an injected runner so the suite needs
 neither network nor an authenticated `gh`. Tests pin the URL parsing (the
 fragile string-munge that used to live in step-04 prose), the accessible /
-inaccessible aggregation, and the systemic-failure root-cause collapse (E-5).
+inaccessible aggregation, the systemic-failure root-cause hint (E-5), and the
+error classes, each from the stderr and exit code gh 2.101.0 really prints
+for that failure (GH_STDERR below).
 """
 
 from __future__ import annotations
@@ -70,19 +72,65 @@ def _write(tmp_path, skills, targets):
     return sf, bf
 
 
+# What gh 2.101.0 prints on stderr, with its exit code, for each failure class
+# of a `gh api repos/...` call (captured from real runs; the request ids of the
+# rate-limit and SAML messages trimmed).
+GH_STDERR = {
+    "unauthenticated": (4, "To get started with GitHub CLI, please run:  gh auth login\n"
+                           "Alternatively, populate the GH_TOKEN environment variable with a GitHub API "
+                           "authentication token.\n"),
+    "bad-credentials": (1, "gh: Bad credentials (HTTP 401)\n"),
+    "not-found": (1, "gh: Not Found (HTTP 404)\n"),
+    "no-such-ref": (1, "gh: No commit found for SHA: nope (HTTP 422)\n"),
+    "rate-limited": (1, "gh: API rate limit exceeded for user ID 1234567. If you reach out to GitHub Support "
+                        "for help, please include the request ID 0000:0000:0000000:0000000:00000000. (HTTP 403)\n"),
+    "secondary-rate-limit": (1, "gh: You have exceeded a secondary rate limit. Please wait a few minutes "
+                                "before you try again. (HTTP 429)\n"),
+    "forbidden": (1, "gh: Resource protected by organization SAML enforcement. You must grant your "
+                     "Personal Access token access to this organization. (HTTP 403)\n"),
+    "network": (1, "error connecting to api.github.com\ncheck your internet connection or "
+                   "https://githubstatus.com\n"),
+}
+EXPECTED_CLASS = {
+    "unauthenticated": "unauthenticated",
+    "bad-credentials": "unauthenticated",
+    "not-found": "not-found",
+    "no-such-ref": "not-found",
+    "rate-limited": "rate-limited",
+    "secondary-rate-limit": "rate-limited",
+    "forbidden": "forbidden",
+    "network": "network",
+}
+
+
 def _ok_runner(args):
     """Every gh call succeeds; default branch = main, sha = deadbeef."""
-    if args[1] == "repo" and "defaultBranchRef" in args:
-        return 0, "main\n", ""
-    if args[1] == "repo":
-        return 0, "", ""
-    if args[1] == "api":
+    assert args[:2] == ["gh", "api"], args
+    if "/commits/" in args[2]:
         return 0, "deadbeef\n", ""
-    return 0, "", ""
+    return 0, "main\n", ""
 
 
-def _auth_fail_runner(args):
-    return 1, "", "gh auth: not logged into any GitHub hosts"
+def _failing_runner(case):
+    rc, err = GH_STDERR[case]
+    return lambda args: (rc, "", err)
+
+
+class TestClassifyError:
+    @pytest.mark.parametrize("case", sorted(GH_STDERR))
+    def test_real_gh_stderr_lands_in_its_class(self, case):
+        rc, err = GH_STDERR[case]
+        assert mod._classify_error(rc, err) == EXPECTED_CLASS[case]
+
+    def test_repository_that_does_not_exist_is_not_a_network_failure(self):
+        # gh repo view's GraphQL message; the script asks REST, which says 404.
+        assert mod._classify_error(1, GH_STDERR["not-found"][1]) == "not-found"
+
+    def test_every_systemic_class_has_a_hint(self):
+        assert set(mod._SYSTEMIC_HINTS) == {"unauthenticated", "rate-limited", "forbidden", "network"}
+        for hint in mod._SYSTEMIC_HINTS.values():
+            assert "campaign resume" in hint
+            assert "\u2014" not in hint
 
 
 class TestRun:
@@ -107,8 +155,8 @@ class TestRun:
 
     def test_one_inaccessible_exit_1(self, tmp_path, capsys):
         def runner(args):
-            if args[3] == "o/bad" if len(args) > 3 else False:
-                return 1, "", "404 not found"
+            if args[2].startswith("repos/o/bad"):
+                return GH_STDERR["not-found"][0], "", GH_STDERR["not-found"][1]
             return _ok_runner(args)
 
         sf, bf = _write(
@@ -123,10 +171,14 @@ class TestRun:
         out = json.loads(capsys.readouterr().out.strip())
         assert out["all_accessible"] is False
         assert out["inaccessible_count"] == 1
-        # not systemic — only one failed
+        # not systemic: only one failed
         assert out["systemic_hint"] is None
+        bad = next(r for r in out["results"] if r["name"] == "bad")
+        assert bad["error"] == "gh: Not Found (HTTP 404)"
+        assert bad["error_class"] == "not-found"
 
-    def test_systemic_auth_failure_collapses(self, tmp_path, capsys):
+    @pytest.mark.parametrize("case", ["unauthenticated", "rate-limited", "forbidden", "network"])
+    def test_systemic_failure_adds_one_hint_and_keeps_each_error(self, tmp_path, capsys, case):
         sf, bf = _write(
             tmp_path,
             skills=[{"name": "a", "status": "pending", "tier": "A", "pin": "v1"},
@@ -134,12 +186,47 @@ class TestRun:
             targets=[{"name": "a", "repo_url": "https://github.com/o/a"},
                      {"name": "b", "repo_url": "https://github.com/o/b"}],
         )
-        rc = mod.run(str(sf), str(bf), runner=_auth_fail_runner)
+        rc = mod.run(str(sf), str(bf), runner=_failing_runner(case))
         assert rc == 1
         out = json.loads(capsys.readouterr().out.strip())
         assert out["inaccessible_count"] == 2
-        assert out["systemic_hint"] is not None
-        assert "auth" in out["systemic_hint"].lower()
+        assert out["systemic_hint"] == mod._SYSTEMIC_HINTS[case]
+        for result in out["results"]:
+            assert result["error"] == GH_STDERR[case][1].strip()
+            assert result["error_class"] == case
+
+    def test_every_repo_missing_gives_no_hint(self, tmp_path, capsys):
+        # Two missing repositories share a class, but no single fix covers them.
+        sf, bf = _write(
+            tmp_path,
+            skills=[{"name": "a", "status": "pending", "tier": "A", "pin": "v1"},
+                    {"name": "b", "status": "pending", "tier": "A", "pin": "v1"}],
+            targets=[{"name": "a", "repo_url": "https://github.com/o/a"},
+                     {"name": "b", "repo_url": "https://github.com/o/b"}],
+        )
+        rc = mod.run(str(sf), str(bf), runner=_failing_runner("not-found"))
+        assert rc == 1
+        out = json.loads(capsys.readouterr().out.strip())
+        assert out["systemic_hint"] is None
+        assert {r["error_class"] for r in out["results"]} == {"not-found"}
+
+    def test_one_rest_call_reads_access_and_default_branch(self, tmp_path, capsys):
+        calls = []
+
+        def runner(args):
+            calls.append(args)
+            return _ok_runner(args)
+
+        sf, bf = _write(
+            tmp_path,
+            skills=[{"name": "a", "status": "pending", "tier": "A", "pin": None}],
+            targets=[{"name": "a", "repo_url": "https://github.com/o/a"}],
+        )
+        assert mod.run(str(sf), str(bf), runner=runner) == 0
+        assert calls == [
+            ["gh", "api", "repos/o/a", "--jq", ".default_branch"],
+            ["gh", "api", "repos/o/a/commits/main", "--jq", ".sha"],
+        ]
 
     def test_missing_repo_url_in_brief(self, tmp_path, capsys):
         sf, bf = _write(

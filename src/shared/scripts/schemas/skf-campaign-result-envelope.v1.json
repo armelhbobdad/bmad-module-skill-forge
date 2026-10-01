@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-campaign-result-envelope.v1.json",
+  "title": "SKF_CAMPAIGN_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-campaign emits when {headless_mode} is true, prefixed with the literal 'SKF_CAMPAIGN_RESULT_JSON: ': once at the end of a campaign (step 11, after its final state write and the on_complete hook), which the end-of-run health check displays as the run's last line, again as the last line of a headless resume that finds the campaign already complete, and once on stderr at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload the step stages (at the end, the context campaign-report.py writes; at a HARD HALT, the one campaign-state.py halt-payload prints), derives exit_code from halt_reason and checks the line against this schema, so the model never types it. This schema is the one definition of the envelope: the skill's references/campaign-contracts.md lists the exit codes and holds the halt command.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries and the exit code of each halt_reason. Campaign writes no result file of its own (its state, report and decision log hold the record). Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-campaign",
+        "prefix": "SKF_CAMPAIGN_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "invalid-input": 2,
+          "invalid-state": 3,
+          "circular-deps": 4,
+          "invalid-pin": 5,
+          "inaccessible-repo": 6,
+          "dependency-deadlock": 7,
+          "missing-brief": 8,
+          "corrupt-state": 9,
+          "report-failure": 10,
+          "export-cancelled": 11,
+          "user-cancelled": 12,
+          "dependency-blocked": 13
+        },
+        "success_exit_code": 0,
+        "result_file": null
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "exit_code",
+    "halt_reason",
+    "skills_completed",
+    "skills_failed",
+    "quality_scores",
+    "export_verdicts",
+    "skills_excluded",
+    "campaign_report_path",
+    "decision_log",
+    "duration"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error"],
+      "description": "'success' when the campaign completed and its report was written. 'error' on any HARD HALT, and on the one degraded finish: a campaign that completed but whose report could not be generated (halt_reason report-failure, exit_code 10, campaign_report_path null), which keeps its state intact."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+      "description": "The campaign's exit code, derived from halt_reason: null gives 0, invalid-input 2, invalid-state 3, circular-deps 4, invalid-pin 5, inaccessible-repo 6, dependency-deadlock 7, missing-brief 8, corrupt-state 9, report-failure 10, export-cancelled 11, user-cancelled 12, dependency-blocked 13."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "invalid-input",
+        "invalid-state",
+        "circular-deps",
+        "invalid-pin",
+        "inaccessible-repo",
+        "dependency-deadlock",
+        "missing-brief",
+        "corrupt-state",
+        "report-failure",
+        "export-cancelled",
+        "user-cancelled",
+        "dependency-blocked"
+      ],
+      "description": "Null on success. The Exit Codes meaning of the halt otherwise, so a pipeline branches on the failure class without parsing the message; report-failure is the degraded finish described under status."
+    },
+    "phase": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Present on a HARD HALT only: the kebab slug of the step where the campaign stopped, such as 'strategy' or 'skill-loop'."
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The halt_reason."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The halt message the step displayed, on one line."
+        }
+      },
+      "description": "Present on a HARD HALT only: why the campaign stopped. Pipelines branch on halt_reason and read error for the diagnostic."
+    },
+    "skills_completed": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Skills whose status is completed: campaign-report.py's count at the end, campaign-state.py halt-payload's count at a HARD HALT (0 before the state exists)."
+    },
+    "skills_failed": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Skills whose status is failed, counted as skills_completed is."
+    },
+    "quality_scores": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {},
+      "description": "Each completed skill's recorded score, by skill name: test-skill's for a Tier A skill, the skill-check score quick-skill records for a Tier B skill. Empty on a HARD HALT."
+    },
+    "export_verdicts": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "default": null,
+      "description": "Each completed skill's quality-gate verdict at Export, by skill name: pass, fallback or fail. Null when the gate could not be applied, and on a HARD HALT."
+    },
+    "skills_excluded": {
+      "type": ["array", "null"],
+      "items": { "type": "string", "minLength": 1 },
+      "default": null,
+      "description": "The completed skills the gate kept from export (verdict fail), so a completed skill is not taken for an exported one. Null when the gate could not be applied, and on a HARD HALT."
+    },
+    "campaign_report_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "The campaign-report.md step 11 wrote. Null when it could not be written, and on a HARD HALT."
+    },
+    "decision_log": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "The append-only _campaign-decision-log.md, whose typed entries record every operator decision, headless default and event. Null before the campaign workspace exists."
+    },
+    "duration": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "Wall-clock time from campaign.started_at to its last state write before the report, as campaign-report.py formats it (such as '2h 5m 3s'). Null on a HARD HALT."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies the emitter raised, one string each, starting with its code. Present only when there is at least one."
+    }
+  }
+}

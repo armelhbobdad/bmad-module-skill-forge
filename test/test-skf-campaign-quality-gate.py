@@ -533,15 +533,35 @@ def _frontmatter(name: str) -> dict:
     return yaml.safe_load(_text(name).split("---", 2)[1])
 
 
-@pytest.mark.parametrize("name", ["step-01-setup.md", "step-05-skill-loop.md", "step-07-capstone.md", "step-10-export.md"])
+@pytest.mark.parametrize("name", ["step-05-skill-loop.md", "step-07-capstone.md", "step-10-export.md"])
 def test_steps_bind_the_gate_script(name):
     assert _frontmatter(name)["gateScript"] == "scripts/campaign-quality-gate.py"
 
 
-def test_setup_settles_the_gate_with_the_script():
+def test_setup_settles_the_gate_with_the_script(tmp_path, capsys):
+    # Setup's init (campaign-state.py) runs this script's check before it writes the state.
     text = _text("step-01-setup.md")
-    assert "uv run {gateScript} check --hard \"{qualityGateHard}\" --soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>]" in text
+    assert ("init --state-file {stateFile} --targets-file - --name \"<campaign_name>\" --hard \"{qualityGateHard}\" "
+            "--soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>]"
+            ) in text
+    assert "settles and checks the gate with `campaign-quality-gate.py check`" in text
     assert "field by field" not in text
+    spec = importlib.util.spec_from_file_location("campaign_state_gate_test", SCRIPT.parent / "campaign-state.py")
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    targets = tmp_path / "targets.json"
+    targets.write_text(json.dumps({"targets": [{"name": "core", "tier": "A", "pin": None, "depends_on": []}],
+                                   "errors": []}), encoding="utf-8")
+    state = tmp_path / "_campaign-state.yaml"
+    # A fallback above the target: the gate script refuses it, so init writes nothing.
+    rc = helper.main(["init", "--state-file", str(state), "--targets-file", str(targets), "--name", "demo",
+                      "--hard", "zero-critical-high", "--soft-target", "80", "--soft-fallback", "90"])
+    assert rc == 2
+    assert not state.exists()
+    with pytest.raises(mod.GateError) as refused:
+        mod.check("zero-critical-high", "80", "90")
+    err = json.loads(capsys.readouterr().err)
+    assert (err["code"], err["errors"]) == (refused.value.code, refused.value.extra["errors"])
 
 
 class TestSkillLoopProse:
@@ -571,7 +591,7 @@ class TestSkillLoopProse:
         assert "keep its `threshold`" not in self.TEXT
 
     def test_completed_skill_records_its_path(self):
-        assert "`skill_path` from the `{skill_package}` CS named" in self.TEXT
+        assert "--status completed --quality-score <quality_score> --skill-path <skill_package>`, with its `quality_score` and the `{skill_package}` CS named" in self.TEXT
 
     def test_directive_problems_are_logged_once_per_stage(self):
         assert "once per stage, from the first resolve call" in self.TEXT

@@ -1,4 +1,10 @@
-"""Tests for campaign-report.py — campaign report generation from state + template."""
+"""Tests for campaign-report.py: campaign report generation from state + template.
+
+With --context-file the script also writes the payload of the campaign's
+SKF_CAMPAIGN_RESULT_JSON line, which the shared emitter turns into an
+envelope that validates against skf-campaign-result-envelope.v1.json: the
+success payload, and on a failed report the degraded one.
+"""
 
 from __future__ import annotations
 
@@ -374,3 +380,94 @@ class TestExportGate:
         for skill in state["skills"]:
             skill["status"] = "failed"
         assert mod._compute_aggregates(state)["export_gate_section"] == "No completed skills."
+
+
+EMITTER = Path(__file__).resolve().parent.parent / "src" / "shared" / "scripts" / "skf-emit-result-envelope.py"
+ENVELOPE_SCHEMA = (Path(__file__).resolve().parent.parent / "src" / "shared" / "scripts" / "schemas"
+                   / "skf-campaign-result-envelope.v1.json")
+
+
+def _envelope(context: Path) -> dict:
+    """The envelope the shared emitter builds from a context file, checked against the schema."""
+    import subprocess
+
+    from jsonschema import Draft202012Validator
+
+    proc = subprocess.run([sys.executable, str(EMITTER), "emit", "--workflow", "skf-campaign"],
+                          input=context.read_text(encoding="utf-8"), capture_output=True, text=True,
+                          encoding="utf-8", timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    [line] = proc.stdout.splitlines()
+    prefix = "SKF_CAMPAIGN_RESULT_JSON: "
+    assert line.startswith(prefix)
+    envelope = json.loads(line[len(prefix):])
+    schema = json.loads(ENVELOPE_SCHEMA.read_text(encoding="utf-8"))
+    assert not list(Draft202012Validator(schema).iter_errors(envelope))
+    return envelope
+
+
+class TestContextFile:
+    def test_success_payload_becomes_the_success_envelope(self, tmp_path: Path, capsys):
+        context = tmp_path / "_result-context.json"
+        output_file = tmp_path / "campaign-report.md"
+        rc = mod.run(str(_write_state(tmp_path, _minimal_state())), str(_write_template(tmp_path)),
+                     str(output_file), str(context), "ws/_campaign-decision-log.md")
+        assert rc == 0
+        result = json.loads(capsys.readouterr().out)
+        envelope = _envelope(context)
+        assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("success", 0, None)
+        assert envelope["campaign_report_path"] == output_file.as_posix() == result["report_path"]
+        assert envelope["decision_log"] == "ws/_campaign-decision-log.md"
+        for key in ("skills_completed", "skills_failed", "quality_scores", "export_verdicts", "skills_excluded",
+                    "duration"):
+            assert envelope[key] == result[key], key
+
+    def test_a_failed_report_writes_the_degraded_payload(self, tmp_path: Path, capsys):
+        context = tmp_path / "_result-context.json"
+        state = _minimal_state()
+        state["skills"][1]["status"] = "failed"
+        rc = mod.run(str(_write_state(tmp_path, state)), str(tmp_path / "missing-template.md"),
+                     str(tmp_path / "r.md"), str(context), "ws/log.md")
+        assert rc == 2
+        assert json.loads(capsys.readouterr().err)["code"] == "TEMPLATE_NOT_FOUND"
+        envelope = _envelope(context)
+        assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("error", 10,
+                                                                                      "report-failure")
+        assert envelope["campaign_report_path"] is None
+        assert (envelope["skills_completed"], envelope["skills_failed"]) == (1, 1)
+        assert envelope["quality_scores"] == {"skill-alpha": 92}
+        assert envelope["decision_log"] == "ws/log.md"
+
+    def test_a_state_it_cannot_read_still_gives_a_degraded_payload(self, tmp_path: Path, capsys):
+        context = tmp_path / "_result-context.json"
+        bad = tmp_path / "_campaign-state.yaml"
+        bad.write_text("campaign: [half", encoding="utf-8")
+        rc = mod.run(str(bad), str(_write_template(tmp_path)), str(tmp_path / "r.md"), str(context))
+        assert rc == 2
+        envelope = _envelope(context)
+        assert (envelope["halt_reason"], envelope["skills_completed"], envelope["decision_log"]) == (
+            "report-failure", 0, None)
+
+    def test_a_payload_it_cannot_write_leaves_no_earlier_one(self, tmp_path: Path, capsys, monkeypatch):
+        # Step 11 falls back only when the file is missing: an earlier run's payload must not stand in.
+        context = tmp_path / "_result-context.json"
+        context.write_text('{"status": "success", "skills_completed": 99}', encoding="utf-8")
+        real_write = Path.write_text
+
+        def refuse_context(self, *args, **kwargs):
+            if self.name == context.name:
+                raise OSError("disk full")
+            return real_write(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", refuse_context)
+        rc = mod.run(str(_write_state(tmp_path, _minimal_state())), str(_write_template(tmp_path)),
+                     str(tmp_path / "r.md"), str(context), "ws/log.md")
+        assert rc == 0
+        assert not context.exists()
+        assert json.loads(capsys.readouterr().err)["code"] == "CONTEXT_WRITE_ERROR"
+
+    def test_no_context_file_writes_none(self, tmp_path: Path, capsys):
+        rc = mod.run(str(_write_state(tmp_path, _minimal_state())), str(_write_template(tmp_path)),
+                     str(tmp_path / "r.md"))
+        assert rc == 0
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["_campaign-state.yaml", "r.md", "template.md"]
