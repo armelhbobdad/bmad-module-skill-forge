@@ -1,0 +1,5 @@
+type: added
+scope: skf-forger
+summary: |
+  `skf-forger` now ships a `customize.toml` with an `[agent]` block (`code`, `name`, `title`, `icon`, `description` and `agent_type`), and SKF's `module.yaml` lists Ferris under `agents`, so a BMAD Method install counts Ferris as an agent: GitHub Copilot's Custom Agents picker now lists him, and `_bmad/config.toml` gets an `[agents.skf-forger]` entry that `_bmad/custom/config.toml` can override like any other agent's. The values copy `bmad-skill-manifest.yaml` and are read-only at runtime: Ferris's persona and menu stay in his `SKILL.md`.
+issues: [596]

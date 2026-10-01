@@ -476,13 +476,30 @@ def test_step_1_branches_before_any_workflow_runs():
     assert "already resolved at recognition" not in _read(PIPELINE_MODE)
 
 
-def test_resume_offer_skips_a_record_with_no_workflow():
+def test_resume_offer_skips_a_record_with_no_workflow(tmp_path):
     """A headless parse halt writes a failed pipeline result with no workflow
-    in it (step 1): On Activation step 4 must make no resume offer for it."""
-    m = re.search(r"^4\. \*\*Read the last pipeline result\*\*(.*?)(?=^\d+\. \*\*|^## )",
-                  _read(FORGER_SKILL), re.M | re.S)
-    assert m, "On Activation step 4 not found"
-    assert re.search(r"no workflow[^.]*no offer|no offer[^.]*no workflow", m.group(1)), m.group(1)
+    in it (step 1) and starts no journal: the On Activation step 4 call, run
+    as written after it, makes no offer."""
+    import shlex
+
+    journal_script = REPO / "src" / "skf-forger" / "scripts" / "pipeline-journal.py"
+    [halt] = re.findall(r"`(uv run scripts/pipeline-journal\.py finish --result-dir [^`]+)`", _step_1())
+    [resume] = re.findall(r"^\s*(uv run scripts/pipeline-journal\.py resume .+)$", _read(FORGER_SKILL), re.M)
+    values = {"{project-root}": str(tmp_path), "{sidecar_path}": str(tmp_path / "sidecar"),
+              "{forge_data_folder}": str(tmp_path / "forge-data"), "{skills_output_folder}": str(tmp_path / "skills"),
+              "<the halt reason>": "unknown code TX"}
+    outputs = []
+    for call in (halt, resume):
+        words = shlex.split(call)
+        assert words[:3] == ["uv", "run", "scripts/pipeline-journal.py"], words
+        for placeholder, value in values.items():
+            words = [w.replace(placeholder, value) for w in words]
+        p = subprocess.run([sys.executable, str(journal_script), *words[3:]], capture_output=True, text=True,
+                           encoding="utf-8", timeout=60)
+        assert p.returncode == 0, p.stdout + p.stderr
+        outputs.append(json.loads(p.stdout))
+    assert (outputs[0]["pipeline_status"], outputs[0]["halt_reason"]) == ("failed", "unknown code TX")
+    assert (outputs[1]["status"], outputs[1]["why"]) == ("none", "no-journal")
 
 
 def test_legacy_alias_texts_live_in_step_1_not_in_skill_md():

@@ -24,6 +24,16 @@ health_check_repo:
   prompt: false
   default: "armelhbobdad/bmad-module-skill-forge"
 
+# The agent roster: a BMAD Method install writes each entry to
+# {project-root}/_bmad/config.toml as [agents.<code>]. The entry mirrors the
+# [agent] block of skf-forger/customize.toml.
+agents:
+  - code: skf-forger
+    name: Ferris
+    title: "Skill Architect & Integrity Guardian"
+    icon: "⚒️"
+    description: "Skill compilation specialist who transforms code repositories, documentation, and developer discourse into verified agent skills."
+
 # Variables from Core Config inserted:
 ## user_name
 ## communication_language

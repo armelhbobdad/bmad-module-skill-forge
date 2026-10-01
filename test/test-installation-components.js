@@ -25,6 +25,28 @@ async function pathExists(filePath) {
   }
 }
 
+/**
+ * The string keys of one [table] in a TOML file: enough for the flat
+ * `key = "basic string"` metadata a customize.toml [agent] block holds.
+ */
+function readTomlTable(text, table) {
+  const values = {};
+  let inTable = false;
+  for (const line of text.split(/\r?\n/)) {
+    const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
+    if (header) {
+      inTable = header[1].trim() === table;
+      continue;
+    }
+    const pair = inTable ? /^\s*([\w-]+)\s*=\s*("(?:[^"\\]|\\.)*")\s*(?:#.*)?$/.exec(line) : null;
+    if (pair) values[pair[1]] = JSON.parse(pair[2]);
+  }
+  return values;
+}
+
+// skf-forger's [agent] block: the metadata a BMAD Method install reads.
+const AGENT_KEYS = ['code', 'name', 'title', 'icon', 'description'];
+
 // ANSI colors
 const colors = {
   reset: '\u001B[0m',
@@ -77,6 +99,23 @@ async function runTests() {
     assert(typeof moduleYaml.name === 'string' && moduleYaml.name.length > 0, 'module.yaml has name');
     assert(typeof moduleYaml.description === 'string' && moduleYaml.description.length > 0, 'module.yaml has description');
     assert(typeof moduleYaml.default_selected === 'boolean', 'module.yaml has boolean default_selected');
+
+    // The agent roster a BMAD Method install writes to _bmad/config.toml as
+    // [agents.<code>]: one entry, the same values as skf-forger's [agent] block.
+    const agents = Array.isArray(moduleYaml.agents) ? moduleYaml.agents : [];
+    assert(
+      agents.length === 1 && agents[0].code === 'skf-forger',
+      'module.yaml agents list has one entry, skf-forger',
+      JSON.stringify(moduleYaml.agents),
+    );
+    const agentBlock = readTomlTable(await fs.readFile(path.join(projectRoot, 'src/skf-forger/customize.toml'), 'utf8'), 'agent');
+    for (const key of AGENT_KEYS) {
+      assert(
+        typeof agentBlock[key] === 'string' && agents[0]?.[key] === agentBlock[key],
+        `module.yaml agents entry ${key} matches skf-forger/customize.toml [agent]`,
+        `module.yaml: ${JSON.stringify(agents[0]?.[key])}, customize.toml: ${JSON.stringify(agentBlock[key])}`,
+      );
+    }
   } catch (error) {
     assert(false, 'module.yaml loads and validates', error.message);
   }
@@ -105,6 +144,34 @@ async function runTests() {
       assert(typeof manifest.displayName === 'string', 'Agent manifest has displayName');
       assert(typeof manifest.title === 'string', 'Agent manifest has title');
       assert(typeof manifest.icon === 'string', 'Agent manifest has icon');
+
+      // customize.toml's [agent] block mirrors the manifest. A BMAD Method
+      // install counts a skill as an agent only when its customize.toml has
+      // an [agent] section at the start of a line.
+      const customizePath = path.join(agentSkillDir, 'customize.toml');
+      assert(await pathExists(customizePath), 'skf-forger/customize.toml exists');
+      const customize = (await pathExists(customizePath)) ? await fs.readFile(customizePath, 'utf8') : '';
+      assert(/^\[agent\]/m.test(customize), 'skf-forger/customize.toml has an [agent] section');
+      const agentBlock = readTomlTable(customize, 'agent');
+      const mirrored = {
+        code: manifest.name,
+        name: manifest.displayName,
+        title: manifest.title,
+        icon: manifest.icon,
+        description: manifest.role,
+      };
+      for (const key of AGENT_KEYS) {
+        assert(
+          agentBlock[key] === mirrored[key],
+          `customize.toml [agent] ${key} matches bmad-skill-manifest.yaml`,
+          `customize.toml: ${JSON.stringify(agentBlock[key])}, manifest: ${JSON.stringify(mirrored[key])}`,
+        );
+      }
+      assert(
+        agentBlock.agent_type === 'stateless',
+        'customize.toml [agent] agent_type is stateless',
+        JSON.stringify(agentBlock.agent_type),
+      );
     }
 
     if (await pathExists(agentSkillMd)) {

@@ -656,7 +656,7 @@ class TestForgerActivation:
         offer is read before the greeting that carries it."""
         steps = _steps()
         expected = ["Config guard.", "Preflight.", "Resolve `{headless_mode}`",
-                    "Read the last pipeline result", "Greet, then wait."]
+                    "Read the pipeline journal", "Greet, then dispatch or wait."]
         assert [t for _, t, _ in steps if t in expected] == expected
         assert [int(n) for n, _, _ in steps] == list(range(1, len(steps) + 1))
 
@@ -734,8 +734,10 @@ class TestForgerActivation:
         assert "preferences sets" not in step
 
     def test_resume_offer_is_read_before_the_greeting(self):
-        assert "`{sidecar_path}/pipeline-result-latest.json`" in _step("Read the last pipeline result")
-        greeting = _step("Greet, then wait.")
+        step = _step("Read the pipeline journal")
+        assert "uv run scripts/pipeline-journal.py resume" in step
+        assert '--result-dir "{sidecar_path}"' in step
+        greeting = _step("Greet, then dispatch or wait.")
         assert "resume offer" in greeting
         assert "End the greeting at the menu" in greeting
 
@@ -778,12 +780,12 @@ class TestForgerMenu:
                 '"Run each workflow in a fresh context window for best results."') in capabilities
         pipelines = next(p for p in capabilities.split("\n\n") if p.startswith("**Pipelines.**"))
         assert "below" not in pipelines  # users see this paragraph: no pointer into this file
-        greeting = _step("Greet, then wait.")
+        greeting = _step("Greet, then dispatch or wait.")
         assert "capabilities table" not in greeting
         assert greeting.count("present the menu") == 2
 
     def test_first_run_offers_forge_auto_after_sf_and_before_qs(self):
-        greeting = _step("Greet, then wait.")
+        greeting = _step("Greet, then dispatch or wait.")
         first_run = greeting.split("On a first run", 1)[1].split("Otherwise", 1)[0]
         paths = ["**SF**", "**forge-auto `<repo-or-doc-url>`**", "**QS**", "**BS**", "**KI**"]
         positions = [first_run.find(p) for p in paths]
@@ -815,7 +817,7 @@ class TestForgerMenu:
         ws = _inline("WS")
         assert "Read every source again each time WS runs" in ws
         assert "`derived.tier` and `derived.tier_source` from the On Activation step 2 preflight call, run again" in ws
-        assert "`{sidecar_path}/pipeline-result-latest.json`, read again" in ws
+        assert "`pipeline-journal.py resume` call, run again" in ws
         assert "resume offer from On Activation" not in ws
 
     def test_ws_inventory_call_runs_as_written(self, tmp_path):

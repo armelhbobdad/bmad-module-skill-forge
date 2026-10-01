@@ -542,12 +542,12 @@ def test_pipeline_mode_marks_every_workflow_it_invokes():
 
 
 def test_forger_and_pipeline_state_name_pipeline_mode():
-    """The forger's own summary and the Pipeline State block forward the marker too."""
-    forger = _read(SRC / "skf-forger" / "SKILL.md")
-    sentence = next(line for line in forger.splitlines() if "Each chained workflow runs with" in line)
-    assert "`{pipeline_mode}` = true" in sentence
+    """The forger routes every chain to pipeline-mode.md, whose step 4c sets
+    the marker (above), and the Pipeline State contract forwards it too."""
+    forger = _section(_read(SRC / "skf-forger" / "SKILL.md"), "## Pipeline Mode")
+    assert "`references/pipeline-mode.md`" in forger
     state = _section(_read(SRC / "shared" / "references" / "pipeline-contracts.md"), "## Pipeline State")
-    assert re.search(r"^\s+pipeline_mode: true\b", state, re.M)
+    assert "data context carries `pipeline_mode: true`" in state
 
 
 def test_pipeline_mode_reads_the_setup_envelope_status():

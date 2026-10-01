@@ -332,16 +332,23 @@ class TestCustomizeTomlPrecedence:
 
 
 class TestForgerPipelineAlias:
+    """pipeline-mode.md step 4c is the one home of the {pipeline_alias} rule;
+    the forger's SKILL.md only routes a chain there."""
+
     @pytest.fixture(scope="class")
     def pipeline_section(self) -> str:
-        text = _read(FORGER_MD)
-        m = re.search(
-            r"## Pipeline Mode\b(.*?)(?=^## |\Z)",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
+        step = next(
+            (line for line in _read(PIPELINE_MODE).splitlines() if "**Invoke the workflow**" in line),
+            None,
         )
+        assert step, "pipeline-mode.md must have step 4c, Invoke the workflow"
+        return step
+
+    def test_skill_md_routes_to_the_procedure(self) -> None:
+        m = re.search(r"^## Pipeline Mode\s*$(.*?)(?=^## |\Z)", _read(FORGER_MD), re.M | re.S)
         assert m, "Forger SKILL.md must have a Pipeline Mode section"
-        return m.group(1)
+        assert "`references/pipeline-mode.md`" in m.group(1)
+        assert "{pipeline_alias}" not in m.group(1)
 
     def test_step_4c_mentions_pipeline_alias(self, pipeline_section: str) -> None:
         assert "{pipeline_alias}" in pipeline_section, (
@@ -383,14 +390,14 @@ class TestPipelineContractsPipelineAlias:
         )
 
     def test_pipeline_alias_top_level(self, text: str) -> None:
-        assert re.search(r"alias:.*pipeline alias", text, re.IGNORECASE), (
+        assert re.search(r"^\| `alias` \|[^\n]*pipeline alias", text, re.IGNORECASE | re.MULTILINE), (
             "Pipeline State must include alias at top level of pipeline state"
         )
 
     def test_pipeline_alias_in_data_context(self, text: str) -> None:
         assert re.search(
-            r"data:.*pipeline_alias:", text, re.DOTALL
-        ), "Pipeline State must include pipeline_alias in the data sub-object"
+            r"data context carries[^\n]*`pipeline_alias`, the journal's `alias`", text
+        ), "Pipeline State must forward the alias as pipeline_alias in each workflow's data context"
 
     def test_pipeline_alias_references_init_1b(self, text: str) -> None:
         assert re.search(r"init\.md §1b", text), (

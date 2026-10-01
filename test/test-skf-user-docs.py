@@ -296,7 +296,7 @@ def test_troubleshooting_names_ferris_install_halts_and_the_installer():
 
 def test_agents_doc_lists_the_first_run_paths_ferris_highlights():
     """Ferris's first-run greeting and the Ferris page name the same starting points, in the same order."""
-    greeting = _slice(_read(FORGER_SKILL), "5. **Greet, then wait.**", "\n")
+    greeting = _slice(_read(FORGER_SKILL), "5. **Greet, then dispatch or wait.**", "\n")
     paths = BOLD_PATH_RE.findall(_slice(greeting, "On a first run", "Otherwise"))
     assert "forge-auto `<repo-or-doc-url>`" in paths
     doc = _paragraph(_read(AGENTS), "On your first run")
