@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -632,3 +633,99 @@ class TestScopeTierAIncludeSchema:
         result = mod.validate_brief(brief)
         assert result["valid"] is False
         assert any(e["field"].startswith("scope.tier_a_include") for e in result["errors"]), result["errors"]
+
+
+class TestComponentLibraryScopeSchema:
+    """skill-brief.v1.json lists the component-library scope fields create-skill
+    step 3d reads and writes back, and the amendments category it records
+    them under (#605)."""
+
+    SCHEMA = REPO_ROOT / "src" / "shared" / "scripts" / "schemas" / "skill-brief.v1.json"
+    PROSE_COPIES = (
+        REPO_ROOT / "src" / "skf-brief-skill" / "assets" / "skill-brief-schema.md",
+        REPO_ROOT / "src" / "skf-analyze-source" / "assets" / "skill-brief-schema.md",
+    )
+
+    @staticmethod
+    def _component_brief() -> dict:
+        brief = _valid_brief()
+        brief["scope"]["type"] = "component-library"
+        brief["scope"]["registry_path"] = "registry/index.ts"
+        brief["scope"]["ui_variants"] = [{"name": "shadcnui", "package": "packages/ui"}, {"name": "baseui"}]
+        brief["scope"]["demo_patterns"] = ["**/examples/**", "**/*.stories.*"]
+        brief["scope"]["amendments"] = [
+            {"path": "llms.txt", "action": "promoted", "heuristic": "llms.txt", "reason": "r",
+             "date": "2026-09-30", "workflow": "skf-create-skill"},
+            {"path": "src/new/**", "action": "promoted", "category": "scope-expansion", "reason": "r",
+             "evidence": "e", "date": "2026-09-30", "workflow": "skf-update-skill"},
+            {"path": "**/examples/**", "action": "demo-excluded", "category": "demo-and-registry", "reason": "r",
+             "evidence": "4 files", "date": "2026-10-01", "workflow": "skf-create-skill"},
+        ]
+        return brief
+
+    def test_the_fields_and_every_category_validate(self) -> None:
+        result = mod.validate_brief(self._component_brief())
+        assert result["valid"] is True, result["errors"]
+
+    def test_the_schema_only_adds_properties(self) -> None:
+        """Briefs that validated before keep validating: a variant without a
+        name and a category the docs do not list are not rejected (the
+        fragment is `added`, not `breaking`)."""
+        brief = self._component_brief()
+        brief["scope"]["ui_variants"] = [{"package": "packages/ui"}]
+        brief["scope"]["amendments"][2]["category"] = "demo-registry"
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True, result["errors"]
+
+    def test_legacy_brief_without_the_fields_validates(self) -> None:
+        assert mod.validate_brief(_valid_brief())["valid"] is True
+
+    @pytest.mark.parametrize("field, value", [
+        ("registry_path", ""),
+        ("demo_patterns", "**/examples/**"),
+        ("demo_patterns", [""]),
+        ("ui_variants", ["shadcnui"]),
+        ("ui_variants", [{"name": ""}]),
+    ], ids=["empty-registry-path", "demo-not-a-list", "blank-demo-glob", "variant-not-an-object", "blank-variant"])
+    def test_malformed_fields_fail(self, field: str, value: object) -> None:
+        brief = self._component_brief()
+        brief["scope"][field] = value
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any(e["field"].startswith(f"scope.{field}") for e in result["errors"]), result["errors"]
+
+    def test_a_nested_missing_field_is_named_by_its_path(self) -> None:
+        brief = self._component_brief()
+        brief["scope"]["rationale"] = {"recommended": "component-library", "chosen": "component-library",
+                                       "accepted_recommendation": True, "heuristic": "registry",
+                                       "recorded": "2026-10-01"}
+        [error] = mod.validate_brief(brief)["errors"]
+        assert error["field"] == "scope.rationale.reason"
+        assert "missing required field `scope.rationale.reason`" in error["message"]
+        # A top-level field keeps its bare name.
+        del brief["name"]
+        assert any(e["field"] == "name" for e in mod.validate_brief(brief)["errors"])
+
+    def test_a_category_must_be_a_string(self) -> None:
+        brief = self._component_brief()
+        brief["scope"]["amendments"][2]["category"] = ["demo-and-registry"]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any(e["field"].startswith("scope.amendments") for e in result["errors"]), result["errors"]
+
+    def test_the_categories_are_the_documented_ones(self) -> None:
+        """The schema's description and brief-skill's table name the same three."""
+        schema = json.loads(self.SCHEMA.read_text(encoding="utf-8"))
+        category = schema["properties"]["scope"]["properties"]["amendments"]["items"]["properties"]["category"]
+        assert "enum" not in category
+        documented = ["auth-doc", "scope-expansion", "demo-and-registry"]
+        assert all(name in category["description"] for name in documented)
+        doc = self.PROSE_COPIES[0].read_text(encoding="utf-8")
+        [row] = [line for line in doc.splitlines() if line.startswith("| `category` |")]
+        assert re.findall(r"`([a-z-]+)`", row.split("One of:", 1)[1].split(".", 1)[0]) == documented
+
+    def test_both_prose_copies_document_the_fields(self) -> None:
+        for copy in self.PROSE_COPIES:
+            text = copy.read_text(encoding="utf-8")
+            for field in ("registry_path", "ui_variants", "demo_patterns"):
+                assert f"| `scope.{field}` |" in text, (copy, field)

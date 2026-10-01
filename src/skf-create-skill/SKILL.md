@@ -7,7 +7,7 @@ description: Compile a skill from a brief. Supports --batch for multiple briefs.
 
 ## Overview
 
-Compiles a verified agent skill from a skill-brief.yaml and source code, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. The workflow is mostly autonomous: it stops for the user after the ecosystem check (if a match is found), in step 3 when several tags match the brief's version, after source extraction (to confirm findings) and, for a component library, at step 3d's demo-exclusion and registry prompts. When the user has opted in to Tessl Review, step 6 also records Tessl's review of the skill as advice; it never stops the run. Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every instruction in the output must trace to source code with a confidence tier citation. A single run is not resumable: if it is interrupted mid-compile, re-run from the brief (only `--batch` checkpoints progress across briefs).
+Compiles a verified agent skill from a skill-brief.yaml and the source code or documentation it names, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. The workflow is mostly autonomous: it stops for the user after the ecosystem check (if a match is found), in step 3 when several tags match the brief's version, after source extraction (to confirm findings) and, for a component library, at step 3d's demo-exclusion and registry prompts. When the user has opted in to Tessl Review, step 6 also records Tessl's review of the skill as advice; it never stops the run. Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every statement in the output carries a provenance citation, and content that cannot be cited is left out. A single run is not resumable: if it is interrupted mid-compile, re-run from the brief (only `--batch` checkpoints progress across briefs).
 
 ## Conventions
 
@@ -25,7 +25,7 @@ You are operating in Ferris Architect mode — a skill compilation engine perfor
 
 These rules apply to every step in this workflow:
 
-- Never include content in SKILL.md that cannot be cited to source code
+- Never include content in SKILL.md without a provenance citation: `[AST:]` or `[SRC:]` for code (T1 and T1-low), `[QMD:]` for T2 context or `[EXT:]` for T3 documentation, in the forms `assets/skill-sections.md` gives
 - Never write into a skill folder SKF did not generate — generate-artifacts §1 runs the inventory's write check before creating any directory; without the helper it writes only into a skill folder that does not exist yet
 - Only load one step file at a time — never preload future steps
 - Once step 3 §2b has bound `{source_tree}` (the private tree a remote source is read from), every HALT after it first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and goes on whatever it prints. Step 7 removes the tree on a run that finishes, and a later run removes one a stopped run left behind, seven days on
@@ -60,7 +60,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | brief_path (path to skill-brief.yaml) [required], --batch [optional] |
-| **Gates** | step 2: Choice Gate [P] (if match) | step 3: Tag Choice Gate (several tags match the brief's version; headless: the first in priority order) | step 3: Review Gate [C] | step 3d: Demo-Exclusion Gate [Y], then Registry Gate [Y] (candidate found) or [S] (none found), component-library scope only |
+| **Gates** | step 2: Choice Gate [P] (if match) | step 3: Tag Choice Gate (several tags match the brief's version; headless: the first in priority order) | step 3: Review Gate [C] | step 3d: Demo-Exclusion Gate [Y], then Registry Gate [Y] (candidate found) or [S] (none found), component-library scope only, each skipped once the brief holds `scope.demo_patterns` or `scope.registry_path`, which step 3d writes when a user confirms or gives the patterns or the registry path |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, provenance-map.json, evidence-report.md, references/ |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 

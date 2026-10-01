@@ -301,20 +301,21 @@ def baseline_time(provenance: dict) -> tuple[datetime | None, str | None]:
 
 
 def promoted_globs(brief: dict, tracked: set[str]) -> list[str]:
-    """The scope-expansion globs the latest amendment promoted and no tracked
-    file matches yet."""
+    """The scope-expansion globs the latest scope-expansion amendment promoted
+    and no tracked file matches yet. An entry of another category on the same
+    path (an auth-doc or a demo-and-registry decision) never stands in for it."""
     resolver = _resolver()
     scope = brief.get("scope") if isinstance(brief.get("scope"), dict) else {}
     amendments = scope.get("amendments") if isinstance(scope.get("amendments"), list) else []
     latest: dict[str, dict] = {}
     for amend in amendments:
-        if isinstance(amend, dict) and isinstance(amend.get("path"), str) and amend["path"].strip():
+        if (isinstance(amend, dict) and amend.get("category") == "scope-expansion"
+                and isinstance(amend.get("path"), str) and amend["path"].strip()):
             latest[resolver.normalize_rel_path(amend["path"])] = amend
     return sorted(
         glob
         for glob, amend in latest.items()
         if amend.get("action") == "promoted"
-        and amend.get("category") == "scope-expansion"
         and not any(resolver.glob_match(path, glob) for path in tracked)
     )
 

@@ -8,9 +8,12 @@ to verify CLI wiring (argparse, stdout JSON, exit codes).
 from __future__ import annotations
 
 import base64
+import gzip
 import importlib.util
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1453,3 +1456,418 @@ class TestHashUrlsCli:
         assert result.returncode == 2  # argparse usage error
         # the hash-urls parser answered, not the legacy --repo-url parser
         assert "hash-urls" in result.stderr and "source" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# page-metrics: the root-page test create-skill step 3c runs (#605)
+# --------------------------------------------------------------------------
+
+LINK_HUB = (
+    "# Acme docs\n"
+    "\n"
+    "- [Getting started](/docs/getting-started)\n"
+    "- [API reference](/docs/api \"API\")\n"
+    "* [Guides](https://docs.example.com/guides)\n"
+    "1. [Config](/docs/config) [Recipes](/docs/recipes)\n"
+    "> [Blog](/blog)\n"
+    "## [SDKs](/docs/sdks)\n"
+    "Welcome to Acme.\n"
+)
+
+HERO_PAGE = (
+    "# Acme\n"
+    "\n"
+    "The fastest way to build forms.\n"
+    "\n"
+    "```js\n"
+    "import { form } from 'acme';\n"
+    "export const app = form();\n"
+    "```\n"
+    "\n"
+    "| Option | Default |\n"
+    "|---|:---:|\n"
+    "| fast | true |\n"
+)
+
+
+def _long_page(words: int) -> str:
+    return "\n".join(" ".join(["word"] * 10) for _ in range(words // 10)) + "\n"
+
+
+class TestPageMetricsRootLike:
+    @pytest.mark.parametrize("url, segments, root_like", [
+        ("https://docs.example.com", 0, True),
+        ("https://docs.example.com/", 0, True),
+        ("https://example.com/docs", 1, True),
+        ("https://example.com/docs/", 1, True),
+        ("https://example.com/docs/index.html", 2, True),
+        ("https://example.com/v2/guide/", 2, True),
+        ("https://example.com/v2/index", 2, True),
+        ("https://example.com/api/reference", 2, False),
+        ("https://example.com/a/b/c.html", 3, False),
+    ])
+    def test_root_like_paths(self, url, segments, root_like):
+        result = mod.page_metrics(url, LINK_HUB)
+        assert (result["path_segments"], result["root_like"]) == (segments, root_like)
+
+    def test_a_deep_page_never_triggers(self):
+        result = mod.page_metrics("https://example.com/api/reference", LINK_HUB)
+        assert (result["trigger1"], result["trigger2"], result["discover_subpages"]) == (False, False, False)
+
+
+class TestPageMetricsTriggers:
+    def test_a_link_hub_fires_trigger_1(self):
+        result = mod.page_metrics("https://docs.example.com/", LINK_HUB)
+        # Six of the eight non-empty lines hold only links: the list, quote and
+        # heading marks do not count as text, a second link on a line does not
+        # either, and the plain heading and sentence are not link lines.
+        assert (result["link_lines"], result["non_empty_lines"]) == (6, 8)
+        assert result["link_line_ratio"] == 0.75
+        assert (result["code_fences"], result["table_rows"], result["signature_hits"]) == (0, 0, 0)
+        assert result["trigger1"] is True and result["discover_subpages"] is True
+
+    def test_a_hero_page_with_a_code_sample_fires_only_trigger_2(self):
+        result = mod.page_metrics("https://acme.dev", HERO_PAGE)
+        assert (result["code_fences"], result["table_rows"], result["signature_hits"]) == (1, 1, 1)
+        assert result["word_count"] < mod.ROOT_WORD_LIMIT
+        assert (result["trigger1"], result["trigger2"], result["discover_subpages"]) == (False, True, True)
+
+    def test_a_long_root_page_with_content_does_not_trigger(self):
+        result = mod.page_metrics("https://acme.dev/docs", _long_page(2000) + HERO_PAGE)
+        assert result["word_count"] >= mod.ROOT_WORD_LIMIT
+        assert result["discover_subpages"] is False
+
+    def test_the_word_limit_is_strict(self):
+        assert mod.page_metrics("https://acme.dev/", _long_page(1990))["trigger2"] is True
+        assert mod.page_metrics("https://acme.dev/", _long_page(2000))["trigger2"] is False
+
+    def test_the_link_ratio_must_exceed_seventy_percent(self):
+        seven_of_ten = "\n".join(["- [a](/a)"] * 7 + ["Some text here."] * 3) + "\n"
+        result = mod.page_metrics("https://acme.dev/", seven_of_ten)
+        assert result["link_line_ratio"] == 0.7 and result["trigger1"] is False
+
+    @pytest.mark.parametrize("line, hits", [
+        ("def parse(text):", 1),
+        ("function render() {}", 1),
+        ("pub fn draw() {}", 1),
+        ("func Open() error", 1),
+        ("export const x = 1", 1),
+        ("undefined behaviour, a refunction", 0),
+        ("exported values", 0),
+    ])
+    def test_signatures_are_whole_words(self, line, hits):
+        assert mod.page_metrics("https://acme.dev/", line + "\n")["signature_hits"] == hits
+
+    def test_fences_count_blocks_not_lines(self):
+        text = "```\na\n```\n~~~py\nb\n~~~\n````md\n```\nnested\n```\n````\n"
+        assert mod.page_metrics("https://acme.dev/", text)["code_fences"] == 3
+
+    def test_images_and_link_targets_are_not_words(self):
+        text = "![logo](https://example.com/a/very/long/path/to/the/logo.png) [Docs](https://example.com/x/y/z)\n"
+        assert mod.page_metrics("https://acme.dev/", text)["word_count"] == 2
+
+
+class TestPageMetricsCli:
+    def test_file_and_stdin(self, tmp_path):
+        page = tmp_path / "page-1.md"
+        page.write_bytes(LINK_HUB.encode("utf-8"))
+        from_file = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "page-metrics", "--url", "https://docs.example.com/", str(page)],
+            capture_output=True, timeout=30,
+        )
+        assert from_file.returncode == 0, from_file.stderr
+        from_stdin = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "page-metrics", "--url", "https://docs.example.com/", "-"],
+            input=LINK_HUB.encode("utf-8"), capture_output=True, timeout=30,
+        )
+        assert json.loads(from_file.stdout) == json.loads(from_stdin.stdout)
+        assert json.loads(from_file.stdout)["discover_subpages"] is True
+
+    def test_unreadable_file_exit_2(self, tmp_path):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "page-metrics", "--url", "https://x.dev/", str(tmp_path / "gone.md")],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 2
+        assert json.loads(result.stderr.strip())["code"] == "READ_ERROR"
+
+    def test_missing_url_exit_2(self, tmp_path):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "page-metrics", "-"], input="x", capture_output=True, text=True,
+            timeout=30,
+        )
+        assert result.returncode == 2 and "--url" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# filter-urls: the subpages step 3c may fetch for a root page (#605)
+# --------------------------------------------------------------------------
+
+SITEMAP = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://docs.example.com/intro</loc></url>
+  <url><loc>https://docs.example.com/api/reference</loc></url>
+  <url><loc>https://API.Example.com/methods</loc></url>
+  <url><loc>https://example.org/api</loc></url>
+  <url><loc>https://cdn.partner.io/embed.js</loc></url>
+  <url><loc>https://docs.example.com/blog/post-1</loc></url>
+  <url><loc>https://docs.example.com/about</loc></url>
+  <url><loc>https://docs.example.com/Changelog.html</loc></url>
+  <url><loc>https://docs.example.com/pricing</loc></url>
+  <url><loc>https://docs.example.com/careers/open-roles</loc></url>
+  <url><loc>https://docs.example.com/guide/configuration?a=1&amp;b=2</loc></url>
+  <url><loc>https://docs.example.com/api/reference#section</loc></url>
+  <url><loc>ftp://docs.example.com/file</loc></url>
+  <url><loc>https://docs.example.com/sitemap-2.xml</loc></url>
+</urlset>
+"""
+
+
+class TestRegistrableDomain:
+    @pytest.mark.parametrize("host, domain", [
+        ("docs.example.com", "example.com"),
+        ("a.b.example.com", "example.com"),
+        ("example.com", "example.com"),
+        ("Docs.Example.COM.", "example.com"),
+        ("www.bbc.co.uk", "bbc.co.uk"),
+        ("shop.example.com.au", "example.com.au"),
+        ("docs.example.io", "example.io"),
+        ("proj.github.io", "proj.github.io"),
+        ("a.proj.readthedocs.io", "proj.readthedocs.io"),
+        ("localhost", "localhost"),
+        ("127.0.0.1", "127.0.0.1"),
+        ("::1", "::1"),
+    ])
+    def test_heuristic(self, host, domain):
+        assert mod.registrable_domain(host) == domain
+
+
+class TestFilterUrls:
+    def _run(self, root: str, text: str) -> dict:
+        return mod.filter_urls(root, mod._candidate_urls(text, "<test>"))
+
+    def test_sitemap(self):
+        result = self._run("https://docs.example.com/intro", SITEMAP)
+        assert result["registrable_domain"] == "example.com"
+        assert [k["url"] for k in result["kept"]] == [
+            "https://docs.example.com/api/reference",
+            "https://api.example.com/methods",
+            "https://docs.example.com/guide/configuration?a=1&b=2",
+        ]
+        assert [k["terms"] for k in result["kept"]] == [["api", "reference"], ["method"], ["config", "guide"]]
+        assert result["sitemaps"] == ["https://docs.example.com/sitemap-2.xml"]
+        assert result["stats"] == {"input": 14, "kept": 3, "other_domain": 2, "excluded_path": 5,
+                                   "not_http": 1, "duplicate": 1, "root": 1, "sitemap": 1}
+
+    def test_each_hosted_site_is_its_own_domain(self):
+        text = json.dumps({"links": [
+            {"url": "https://proj.readthedocs.io/en/latest/api.html", "title": "API"},
+            {"url": "https://other.readthedocs.io/en/latest/", "title": "Other project"},
+            "https://proj.readthedocs.io/en/latest/getting-started/install.html",
+        ]})
+        result = self._run("https://proj.readthedocs.io/en/latest/", text)
+        assert [(k["url"], k["title"], k["terms"]) for k in result["kept"]] == [
+            ("https://proj.readthedocs.io/en/latest/api.html", "API", ["api"]),
+            ("https://proj.readthedocs.io/en/latest/getting-started/install.html", None, ["getting-started"]),
+        ]
+        assert result["stats"]["other_domain"] == 1
+
+    @pytest.mark.parametrize("text", [
+        '["https://a.example.com/api"]',
+        '{"urls": ["https://a.example.com/api"]}',
+        '[{"url": "https://a.example.com/api", "title": 3}]',
+        "https://a.example.com/api\n\n",
+        "/api\n",
+    ], ids=["json-list", "urls-object", "object-items", "lines", "root-relative"])
+    def test_input_forms(self, text):
+        result = self._run("https://a.example.com/", text)
+        assert [(k["url"], k["title"]) for k in result["kept"]] == [("https://a.example.com/api", None)]
+
+    @pytest.mark.parametrize("path, excluded", [
+        ("/blog/post-1", True),
+        ("/en/Changelog.html", True),
+        ("/docs/about/", True),
+        ("/careers", True),
+        ("/en/rest/about-the-rest-api/api-versions", False),
+        ("/about-us", False),
+        ("/docs/pricing-api", False),
+        ("/blogging", False),
+    ])
+    def test_a_word_excludes_only_a_whole_segment(self, path, excluded):
+        assert mod._excluded_path(path) is excluded
+
+    def test_a_section_a_longer_segment_heads_is_kept(self):
+        result = self._run("https://docs.github.com/en/rest/",
+                           "https://docs.github.com/en/rest/about-the-rest-api/api-versions\n")
+        assert [k["url"] for k in result["kept"]] == ["https://docs.github.com/en/rest/about-the-rest-api/api-versions"]
+
+    def test_the_root_page_is_never_a_subpage(self):
+        result = self._run("https://Docs.Example.com/intro/", "https://docs.example.com/intro\n")
+        assert result["kept"] == [] and result["stats"]["root"] == 1
+
+    @pytest.mark.parametrize("text, message", [
+        ("[not json", "malformed JSON"),
+        ('{"pages": []}', "holds no `links` or `urls` array"),
+        ('"just a string"', None),
+    ], ids=["malformed", "no-list", "bare-string"])
+    def test_bad_json(self, text, message):
+        if message is None:
+            # A bare JSON string reads as one line: not a URL, so nothing is kept.
+            assert self._run("https://a.example.com/", text)["kept"] == []
+            return
+        with pytest.raises(ValueError, match=re.escape(message)):
+            self._run("https://a.example.com/", text)
+
+    def test_root_must_be_http(self):
+        with pytest.raises(ValueError, match="root is not an http or https URL"):
+            mod.filter_urls("ftp://a.example.com/", [])
+
+
+class TestFilterUrlsCli:
+    def test_stdin_sitemap(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "filter-urls", "--root", "https://docs.example.com/intro", "-"],
+            input=SITEMAP, capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["stats"]["kept"] == 3
+
+    @pytest.mark.parametrize("root, text, code", [
+        ("https://a.example.com/", "[not json", "INVALID_INPUT"),
+        ("mailto:a@example.com", "https://a.example.com/x\n", "INVALID_INPUT"),
+    ], ids=["malformed-json", "root-not-http"])
+    def test_errors_exit_2(self, root, text, code):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "filter-urls", "--root", root, "-"],
+            input=text, capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 2
+        assert json.loads(result.stderr.strip())["code"] == code
+
+    def test_a_gzipped_sitemap_is_read(self, tmp_path):
+        """filter-urls lists a sitemap index's `.xml.gz` sitemaps, and step 3c
+        pipes each one back in as curl fetched it."""
+        packed = gzip.compress(SITEMAP.encode("utf-8"))
+        from_stdin = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "filter-urls", "--root", "https://docs.example.com/intro", "-"],
+            input=packed, capture_output=True, timeout=30,
+        )
+        assert from_stdin.returncode == 0, from_stdin.stderr
+        assert json.loads(from_stdin.stdout)["stats"]["kept"] == 3
+        sitemap = tmp_path / "sitemap-2.xml.gz"
+        sitemap.write_bytes(packed)
+        from_file = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "filter-urls", "--root", "https://docs.example.com/intro",
+             str(sitemap)],
+            capture_output=True, timeout=30,
+        )
+        assert from_file.returncode == 0, from_file.stderr
+        assert json.loads(from_file.stdout) == json.loads(from_stdin.stdout)
+
+    @pytest.mark.parametrize("data", [
+        b"\xff\xfe<\x00u\x00r\x00l\x00",
+        b"\x1f\x8b\x08\x00not a gzip stream",
+        gzip.compress(b"\xff\xfe\xfd"),
+    ], ids=["not-utf8", "broken-gzip", "gzipped-not-utf8"])
+    def test_an_undecodable_input_exits_2(self, data):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "filter-urls", "--root", "https://docs.example.com/", "-"],
+            input=data, capture_output=True, timeout=30,
+        )
+        assert result.returncode == 2
+        assert json.loads(result.stderr.decode("utf-8").strip())["code"] == "READ_ERROR"
+
+    @pytest.mark.parametrize("subcommand, field", [("page-metrics", "discover_subpages"), ("filter-urls", "sitemaps")])
+    def test_help_gives_the_contract(self, subcommand, field):
+        """Step 3c names only the fields it acts on and points at --help for the rules."""
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), subcommand, "--help"], capture_output=True, text=True,
+            encoding="utf-8", timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        assert f'"{field}"' in result.stdout and "Exit 0 once JSON is printed" in result.stdout
+
+
+# --------------------------------------------------------------------------
+# sub/fetch-docs.md reads the JSON instead of counting (#605 determinism-10)
+# --------------------------------------------------------------------------
+
+FETCH_DOCS = Path(__file__).parent.parent / "src" / "skf-create-skill" / "references" / "sub" / "fetch-docs.md"
+
+
+def _fetch_docs_section_3() -> str:
+    text = FETCH_DOCS.read_text(encoding="utf-8")
+    start = text.index("### 3. Fetch Documentation")
+    return text[start:text.index("### 4.", start)]
+
+
+class TestFetchDocsProse:
+    def test_each_saved_page_is_measured_by_the_helper(self):
+        section = _fetch_docs_section_3()
+        assert 'uv run {detectDocsHelper} page-metrics --url "{url}" "{docs_staging}/page-{n}.md"' in section
+        assert "**If `discover_subpages` is true:**" in section
+        assert "save it as `{docs_staging}/page-{n}.md`" in section
+
+    def test_discovered_urls_go_through_filter_urls(self):
+        section = _fetch_docs_section_3()
+        assert 'uv run {detectDocsHelper} filter-urls --root "{url}" -' in section
+        assert "Never fetch a URL the helper did not keep." in section
+        assert "eTLD+1" not in section and "strip the URL down" not in section
+
+    def test_no_count_is_left_to_the_model(self):
+        section = " ".join(_fetch_docs_section_3().split())
+        for phrase in ("Zero API content indicators", "High link density", "Trigger 1", "Trigger 2"):
+            assert phrase not in section, phrase
+
+    def test_the_rules_stay_in_the_helper(self):
+        """The step acts on discover_subpages, kept[], terms and sitemaps[]; the
+        thresholds and the excluded words are the helper's (its --help)."""
+        section = " ".join(_fetch_docs_section_3().split())
+        assert f"{round(mod.LINK_RATIO_THRESHOLD * 100)}%" not in section
+        assert f"{mod.ROOT_WORD_LIMIT} words" not in section
+        for word in mod.SUBPAGE_EXCLUDED_WORDS:
+            assert f"`{word}`" not in section, word
+        assert "`uv run {detectDocsHelper} page-metrics --help`" in section
+        assert "`uv run {detectDocsHelper} filter-urls --help`" in section
+
+    def test_a_helper_that_exits_non_zero_is_survived(self):
+        section = " ".join(_fetch_docs_section_3().split())
+        assert "When it is false, the command exits non-zero, or no candidate resolves, keep the page" in section
+        assert "When it exits non-zero, leave that input out." in section
+
+    @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None or shutil.which("xargs") is None,
+                        reason="POSIX shell")
+    def test_the_subpage_snippet_saves_only_fetched_pages(self, tmp_path):
+        """A failed fetch leaves no stub in the corpus §5b indexes and §5c keeps:
+        the snippet runs against a curl that fails for one URL."""
+        section = _fetch_docs_section_3()
+        assert "sha256sum" not in section and "subpage-{n}-{k}.md" in section
+        start = section.index("printf '%s\\n' \"${subpages[@]}\"")
+        snippet = section[start:section.index("```", start)]
+        staging = tmp_path / "docs"
+        staging.mkdir()
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "curl"
+        fake.write_bytes(
+            b'#!/bin/sh\n'
+            b'url=""; out=""\n'
+            b'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; --max-time) shift 2;; -*) shift;;'
+            b' *) url="$1"; shift;; esac; done\n'
+            b'case "$url" in *missing*) printf "404" > "$out"; exit 22;; esac\n'
+            b'printf "# page %s\\n" "$url" > "$out"\n'
+        )
+        fake.chmod(0o755)
+        script = ("subpages=(https://docs.example.com/api https://docs.example.com/missing "
+                  "https://docs.example.com/guide)\n"
+                  + snippet.replace("{docs_staging}", staging.as_posix()).replace("{n}", "1"))
+        proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60,
+                              env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+        assert proc.returncode == 0, proc.stderr
+        assert sorted(p.name for p in staging.iterdir()) == ["subpage-1-1.md", "subpage-1-3.md"]
+        assert "fetch failed: https://docs.example.com/missing" in proc.stderr
+
+    def test_a_docs_only_corpus_is_kept(self):
+        text = FETCH_DOCS.read_text(encoding="utf-8")
+        keep = text[text.index("### 5c."):text.index("### 6.")]
+        assert '**When `source_type` is `"docs-only"`, keep the folder at every tier:**' in keep

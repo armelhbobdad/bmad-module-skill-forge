@@ -231,6 +231,15 @@ class TestPromotedGlobs:
         brief = _brief(include=["packages/new/**"], amendments=[doc_promotion])
         assert _a(_diff(tmp_path, _provenance(), brief))["added"] == []
 
+    def test_a_later_entry_of_another_category_keeps_the_promotion(self, tmp_path: Path) -> None:
+        """create-skill step 3d records demo-and-registry entries by path too (#605)."""
+        self._tree(tmp_path)
+        demo = {"action": "demo-excluded", "category": "demo-and-registry", "path": "packages/new/**"}
+        brief = _brief(include=["packages/new/**"], amendments=[self.PROMOTED, demo])
+        assert _a(_diff(tmp_path, _provenance(), brief))["added"] == [
+            "packages/new/a.py", "packages/new/fixtures/f.py", "packages/new/sub/b.py",
+        ]
+
     def test_promoted_globs_are_reported_by_the_helper(self) -> None:
         brief = _brief(amendments=[self.PROMOTED, {**self.PROMOTED, "path": "./lib/**"}])
         assert mod.promoted_globs(brief, {"lib/a.py"}) == ["packages/new/**"]

@@ -152,12 +152,105 @@ with `detected_via: "readme_always"` on its entry, plus
   "skip_reason": null | "not-github"  (no entry: a source on another host)
 
 Exit 0 once JSON is printed; exit 2 on malformed args.
+
+---------------------------------------------------------------------------
+Subcommand: page-metrics
+---------------------------------------------------------------------------
+
+create-skill step 3c fetches each `doc_urls` page and looks for its
+subpages when the page is a documentation root with little API content of
+its own (a Mintlify, Docusaurus, ReadTheDocs or GitBook landing page). This
+subcommand measures a fetched page, saved as markdown, so the step reads the
+decision instead of counting words and link lines by eye.
+
+  uv run src/shared/scripts/skf-detect-docs.py page-metrics \\
+      --url <url> <file>
+
+Input: --url is the page's URL; <file> is its markdown, or `-` for stdin.
+
+Output (JSON object on stdout):
+  {
+    "url": "<url>",
+    "path_segments":   N,     # non-empty segments of the URL path
+    "root_like":       bool,  # N <= 1, or the path ends in `/`, `/index`
+                              #   or `/index.html`
+    "code_fences":     N,     # fenced code blocks (``` or ~~~)
+    "table_rows":      N,     # table separator rows (`|---|`), one a table
+    "signature_hits":  N,     # `def `, `function `, `fn `, `func `,
+                              #   `export ` as words
+    "link_lines":      N,     # non-empty lines holding only markdown links
+    "non_empty_lines": N,
+    "link_line_ratio": 0.0-1.0,  # link_lines / non_empty_lines, 4 places
+    "word_count":      N,     # words, link targets left out
+    "trigger1":        bool,  # root_like, no code fence, table row or
+                              #   signature, and link_line_ratio > 0.7
+    "trigger2":        bool,  # root_like and word_count < 2000
+    "discover_subpages": bool # trigger1 or trigger2
+  }
+
+A link line is a line whose text, once its list marker, quote marker or
+heading marks and its `[text](url)` links are taken out, holds no letter or
+digit. Exit 0 once JSON is printed; exit 2 on malformed args or an input
+that cannot be read or decoded as UTF-8.
+
+---------------------------------------------------------------------------
+Subcommand: filter-urls
+---------------------------------------------------------------------------
+
+The subpages step 3c may fetch for a root page: the URLs a site map, a
+sitemap.xml or a crawl found, cut to the root page's own site.
+
+  uv run src/shared/scripts/skf-detect-docs.py filter-urls \\
+      --root <url> <source>
+
+Input `<source>` (a file, or `-` for stdin), read as UTF-8 and gunzipped
+first when it is gzip compressed (a `.xml.gz` sitemap):
+  - a sitemap.xml (its `<loc>` values), or
+  - a JSON array of URL strings or `{url, title?}` objects, or an object
+    with such an array under `links` or `urls` (a map tool's result), or
+  - one URL per line.
+A URL given as a path from the site root (`/docs/api`) is read against
+the root URL.
+
+A URL is kept when it is http or https, on the root URL's registrable
+domain (any subdomain of it), not the root page itself, not a repeat once
+its `#fragment` is dropped (scheme and host compared in any letter case),
+and has no path segment, less its file extension, that is one of
+SUBPAGE_EXCLUDED_WORDS (`blog`, `changelog`, `pricing`, `about`,
+`careers`): such a segment names a section with no API content, while a
+longer one (`about-the-rest-api`) can head a section of API pages. The
+registrable domain is worked out without a public suffix list: the last two
+labels of the host, or the last three when the last two are a hosting
+suffix (HOSTED_SUFFIXES: `github.io`, `readthedocs.io` and the like, where
+each subdomain is another owner's site) or a country-code second level
+(`co.uk`, `com.au`). An IP address or a one-label host is its own domain.
+
+Output (JSON object on stdout):
+  {
+    "root": "<url>",
+    "registrable_domain": "example.com",
+    "kept": [{"url", "title": "..." | null,
+              "terms": ["api", "reference", ...]}],   # input order
+    "sitemaps": ["<url>", ...],   # same-site .xml / .xml.gz URLs
+    "stats": {"input", "kept", "other_domain", "excluded_path",
+              "not_http", "duplicate", "root", "sitemap"}
+  }
+
+`terms` lists the API words (API_TERMS) the URL path or title holds, to
+help choose the most relevant subpages; choosing them is the caller's call.
+A same-site URL ending in `.xml` or `.xml.gz` is a sitemap, not a page (a
+sitemap index lists them): it goes to `sitemaps`, for the caller to fetch
+and filter in turn.
+Exit 0 once JSON is printed; exit 2 on malformed args, an input that
+cannot be read or decoded as UTF-8, malformed JSON or a root URL that is
+not http or https.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import gzip
 import hashlib
 import json
 import os
@@ -168,6 +261,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -953,6 +1047,327 @@ def _cmd_readme_entry(argv: List[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: page-metrics, the root-page test create-skill step 3c runs
+# ---------------------------------------------------------------------------
+
+# A page is a navigation hub when more than this share of its non-empty
+# lines are links (trigger 1), or a landing page when it has fewer words
+# than ROOT_WORD_LIMIT (trigger 2).
+LINK_RATIO_THRESHOLD = 0.7
+ROOT_WORD_LIMIT = 2000
+
+_FENCE_OPEN_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_SIGNATURE_RE = re.compile(r"(?<![A-Za-z0-9_])(?:def|function|fn|func|export) ")
+# A markdown link that is not an image: `[text](target)`, the target
+# optionally followed by a quoted title.
+_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\(\s*[^)\s]*(?:\s+\"[^\"]*\")?\s*\)")
+_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_LINE_MARKER_RE = re.compile(r"^(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)?")
+_WORD_RE = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*")
+
+
+def _table_separator(line: str) -> bool:
+    """A markdown table's separator row: pipes, dashes, colons and spaces
+    only, with at least one pipe and three dashes in a row."""
+    text = line.strip()
+    return "|" in text and "---" in text and set(text) <= set("|-: \t")
+
+
+def _link_line(line: str) -> bool:
+    """True for a line that holds markdown links and no other text."""
+    text = _LINE_MARKER_RE.sub("", line.strip(), count=1)
+    if not _LINK_RE.search(text):
+        return False
+    return not re.search(r"[^\W_]", _LINK_RE.sub("", text))
+
+
+def _root_like(path: str) -> Tuple[int, bool]:
+    """(path segments, root-like) for a URL path."""
+    segments = [s for s in path.split("/") if s]
+    return len(segments), len(segments) <= 1 or path.endswith(("/", "/index", "/index.html"))
+
+
+def page_metrics(url: str, markdown: str) -> Dict[str, Any]:
+    """Measure a fetched page for the step 3c subpage decision."""
+    segments, root_like = _root_like(urllib.parse.urlsplit(url.strip()).path)
+    lines = markdown.splitlines()
+    fences = 0
+    open_fence: Optional[str] = None
+    for line in lines:
+        m = _FENCE_OPEN_RE.match(line)
+        if not m:
+            continue
+        mark = m.group(1)
+        if open_fence is None:
+            open_fence = mark
+            fences += 1
+        elif mark[0] == open_fence[0] and len(mark) >= len(open_fence):
+            open_fence = None
+    table_rows = sum(1 for line in lines if _table_separator(line))
+    signature_hits = len(_SIGNATURE_RE.findall(markdown))
+    non_empty = [line for line in lines if line.strip()]
+    link_lines = sum(1 for line in non_empty if _link_line(line))
+    ratio = link_lines / len(non_empty) if non_empty else 0.0
+    visible = _LINK_RE.sub(lambda m: " " + m.group(1) + " ", _IMAGE_RE.sub(lambda m: " " + m.group(1) + " ", markdown))
+    words = len(_WORD_RE.findall(visible))
+    trigger1 = (root_like and fences == 0 and table_rows == 0 and signature_hits == 0
+                and ratio > LINK_RATIO_THRESHOLD)
+    trigger2 = root_like and words < ROOT_WORD_LIMIT
+    return {
+        "url": url,
+        "path_segments": segments,
+        "root_like": root_like,
+        "code_fences": fences,
+        "table_rows": table_rows,
+        "signature_hits": signature_hits,
+        "link_lines": link_lines,
+        "non_empty_lines": len(non_empty),
+        "link_line_ratio": round(ratio, 4),
+        "word_count": words,
+        "trigger1": trigger1,
+        "trigger2": trigger2,
+        "discover_subpages": trigger1 or trigger2,
+    }
+
+
+def _read_source(source: str) -> Tuple[Optional[str], Optional[str]]:
+    """(text, None) of a file or of stdin for `-`, gunzipped first when it is
+    gzip compressed (a `.xml.gz` sitemap); (None, error) when it cannot be
+    read or decoded as UTF-8."""
+    label = "<stdin>" if source == "-" else source
+    try:
+        if source == "-":
+            stream = getattr(sys.stdin, "buffer", None)  # an in-process test double has none
+            data = stream.read() if stream is not None else sys.stdin.read().encode("utf-8")
+        else:
+            data = Path(source).read_bytes()
+        if data[:2] == b"\x1f\x8b":
+            data = gzip.decompress(data)
+        return data.decode("utf-8-sig"), None
+    except (OSError, EOFError, zlib.error, UnicodeDecodeError) as exc:
+        return None, f"cannot read {label}: {exc}"
+
+
+def _doc_section(name: str) -> str:
+    """The module docstring's section on one subcommand, shown by its --help."""
+    m = re.search(rf"^Subcommand: {re.escape(name)}\n-+\n(.*?)(?=^-{{10,}}\n|\Z)", __doc__ or "", re.S | re.M)
+    return m.group(1).strip() if m else ""
+
+
+def _cmd_page_metrics(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="skf-detect-docs.py page-metrics",
+        description=(
+            "Measure a fetched documentation page (saved as markdown) and say "
+            "whether create-skill step 3c should look for its subpages."
+        ),
+        epilog=_doc_section("page-metrics"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--url", required=True, help="the URL the page was fetched from")
+    parser.add_argument("source", help="the page's markdown file, or - to read it from stdin")
+    args = parser.parse_args(argv)
+
+    text, error = _read_source(args.source)
+    if text is None:
+        json.dump({"error": error, "code": "READ_ERROR"}, sys.stderr)
+        sys.stderr.write("\n")
+        return 2
+    json.dump(page_metrics(args.url, text), sys.stdout, separators=(",", ":"))
+    sys.stdout.write("\n")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: filter-urls, the subpages step 3c may fetch for a root page
+# ---------------------------------------------------------------------------
+
+# Multi-label suffixes a documentation site is often hosted under: each name
+# directly below one of them is another owner's site
+# (`project.readthedocs.io` and `other.readthedocs.io` are two sites). A
+# small stand-in for the public suffix list, which the script does not ship.
+HOSTED_SUFFIXES = frozenset({
+    "github.io", "gitlab.io", "codeberg.page", "readthedocs.io", "readthedocs-hosted.com",
+    "netlify.app", "vercel.app", "pages.dev", "workers.dev", "web.app", "firebaseapp.com",
+    "herokuapp.com", "gitbook.io", "mintlify.app", "azurewebsites.net", "cloudfront.net",
+    "surge.sh", "fly.dev", "onrender.com", "blogspot.com", "appspot.com", "hf.space",
+    "streamlit.app", "glitch.me", "sourceforge.io",
+})
+# Second-level labels country-code domains register names under (`co.uk`,
+# `com.au`): the registrable name is one label further left.
+_CCTLD_SECOND_LEVELS = frozenset({
+    "ac", "co", "com", "edu", "go", "gob", "gov", "ltd", "mil", "ne", "net", "nom", "or", "org", "plc",
+})
+# Path segments that name a page with no API content.
+SUBPAGE_EXCLUDED_WORDS = ("blog", "changelog", "pricing", "about", "careers")
+# Words in a URL path or title that point at API documentation. A word
+# matches when it starts with one (`configuration`, `methods`).
+API_TERMS = ("api", "reference", "quickstart", "setup", "config", "getting-started", "guide", "sdk",
+             "method", "function")
+
+_LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
+_IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+
+
+def registrable_domain(host: str) -> str:
+    """The registrable domain of a host name, by the heuristic in the
+    filter-urls section of the module docstring."""
+    host = (host or "").strip().lower().rstrip(".")
+    labels = host.split(".")
+    if ":" in host or _IPV4_RE.match(host) or len(labels) <= 2:
+        return host
+    last_two = ".".join(labels[-2:])
+    if last_two in HOSTED_SUFFIXES or (len(labels[-1]) == 2 and labels[-2] in _CCTLD_SECOND_LEVELS):
+        return ".".join(labels[-3:])
+    return last_two
+
+
+def _excluded_path(path: str) -> bool:
+    """True when a path segment, less its file extension, is one of SUBPAGE_EXCLUDED_WORDS."""
+    for segment in path.lower().split("/"):
+        stem = segment.rsplit(".", 1)[0] if "." in segment else segment
+        if stem in SUBPAGE_EXCLUDED_WORDS:
+            return True
+    return False
+
+
+def _api_terms(path: str, title: str) -> List[str]:
+    """The API_TERMS a URL path or title holds, as whole words (a word may go on: `configuration`)."""
+    words = re.findall(r"[a-z0-9]+", (path + " " + title).lower())
+    found = []
+    for term in API_TERMS:
+        parts = term.split("-")
+        for i in range(len(words) - len(parts) + 1):
+            head = words[i:i + len(parts)]
+            if head[:-1] == parts[:-1] and head[-1].startswith(parts[-1]):
+                found.append(term)
+                break
+    return found
+
+
+def _candidate_urls(text: str, source_label: str) -> List[Tuple[str, Optional[str]]]:
+    """(url, title) pairs from a sitemap, a JSON list or map result, or one URL per line.
+
+    Raises ValueError on malformed JSON or a JSON shape with no URL list.
+    """
+    stripped = text.lstrip()
+    if stripped.startswith("<"):
+        return [(m.group(1).replace("&amp;", "&"), None) for m in _LOC_RE.finditer(text)]
+    if stripped.startswith(("[", "{")):
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"malformed JSON in {source_label}: {exc}") from exc
+        if isinstance(data, dict):
+            items = next((data[k] for k in ("links", "urls") if isinstance(data.get(k), list)), None)
+            if items is None:
+                raise ValueError(f"{source_label} holds no `links` or `urls` array")
+            data = items
+        if not isinstance(data, list):
+            raise ValueError(f"{source_label} must be a JSON array of URLs")
+        out: List[Tuple[str, Optional[str]]] = []
+        for item in data:
+            if isinstance(item, str):
+                out.append((item, None))
+            elif isinstance(item, dict) and isinstance(item.get("url"), str):
+                title = item.get("title")
+                out.append((item["url"], title if isinstance(title, str) else None))
+        return out
+    return [(line.strip(), None) for line in text.splitlines() if line.strip()]
+
+
+def _url_key(parts: urllib.parse.SplitResult) -> str:
+    """A URL as filter-urls compares it: scheme and host in lower case, no `#fragment`."""
+    return parts._replace(scheme=parts.scheme.lower(), netloc=parts.netloc.lower(), fragment="").geturl()
+
+
+def filter_urls(root: str, candidates: List[Tuple[str, Optional[str]]]) -> Dict[str, Any]:
+    """Cut subpage candidates to the root page's site and drop non-API pages."""
+    root_parts = urllib.parse.urlsplit(root.strip())
+    if root_parts.scheme.lower() not in ("http", "https") or not root_parts.hostname:
+        raise ValueError(f"root is not an http or https URL: {root!r}")
+    domain = registrable_domain(root_parts.hostname)
+    root_key = _url_key(root_parts).rstrip("/")
+    stats = {"input": len(candidates), "kept": 0, "other_domain": 0, "excluded_path": 0,
+             "not_http": 0, "duplicate": 0, "root": 0, "sitemap": 0}
+    kept: List[Dict[str, Any]] = []
+    sitemaps: List[str] = []
+    seen: set = set()
+    for url, title in candidates:
+        url = url.strip()
+        if url.startswith("/"):
+            # A crawl may list a page by its path: read it against the root.
+            url = urllib.parse.urljoin(root.strip(), url)
+        try:
+            parts = urllib.parse.urlsplit(url)
+            host = parts.hostname
+        except ValueError:
+            parts, host = None, None
+        if parts is None or parts.scheme.lower() not in ("http", "https") or not host:
+            stats["not_http"] += 1
+            continue
+        key = _url_key(parts)
+        if key.rstrip("/") == root_key:
+            stats["root"] += 1
+            continue
+        if key in seen:
+            stats["duplicate"] += 1
+            continue
+        seen.add(key)
+        if registrable_domain(host) != domain:
+            stats["other_domain"] += 1
+            continue
+        if parts.path.lower().endswith((".xml", ".xml.gz")):
+            # A sitemap index lists sitemaps, not pages.
+            sitemaps.append(key)
+            stats["sitemap"] += 1
+            continue
+        if _excluded_path(parts.path):
+            stats["excluded_path"] += 1
+            continue
+        kept.append({"url": key, "title": title, "terms": _api_terms(parts.path, title or "")})
+    stats["kept"] = len(kept)
+    return {"root": root, "registrable_domain": domain, "kept": kept, "sitemaps": sitemaps, "stats": stats}
+
+
+def _cmd_filter_urls(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="skf-detect-docs.py filter-urls",
+        description=(
+            "Keep the subpage URLs on a documentation root page's own site "
+            "(its registrable domain) and drop pages with no API content."
+        ),
+        epilog=_doc_section("filter-urls"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--root", required=True, help="the root page's URL")
+    parser.add_argument(
+        "source",
+        help=(
+            "a sitemap.xml, a JSON array of URLs or {url, title} objects (or an "
+            "object with a links or urls array), or one URL per line; - for stdin"
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    text, error = _read_source(args.source)
+    if text is None:
+        json.dump({"error": error, "code": "READ_ERROR"}, sys.stderr)
+        sys.stderr.write("\n")
+        return 2
+    label = "<stdin>" if args.source == "-" else args.source
+    try:
+        result = filter_urls(args.root, _candidate_urls(text, label))
+    except ValueError as exc:
+        json.dump({"error": str(exc), "code": "INVALID_INPUT"}, sys.stderr)
+        sys.stderr.write("\n")
+        return 2
+    json.dump(result, sys.stdout, separators=(",", ":"))
+    sys.stdout.write("\n")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -986,6 +1401,10 @@ def main() -> int:
         return _cmd_hash_urls(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "readme-entry":
         return _cmd_readme_entry(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "page-metrics":
+        return _cmd_page_metrics(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "filter-urls":
+        return _cmd_filter_urls(sys.argv[2:])
 
     parser = argparse.ArgumentParser(
         description="Detect documentation URLs for a GitHub repository.",

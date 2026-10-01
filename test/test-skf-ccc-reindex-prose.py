@@ -658,9 +658,9 @@ def test_only_the_ccc_steps_name_the_workspace_clone():
     assert "whose recipe runner reads `{source_root}` itself" in extraction
     assert "reads the §2 filtered file list: build it first, from `{source_root}`, when §2 did not" in extraction
     assert "step 1's file tree" not in extraction
-    # the demo scan reads the list extraction reads, not SKF's clone
+    # the demo scan lists the tree extraction reads, not SKF's clone
     component = _read(SRC / "skf-create-skill" / "references" / "component-extraction.md")
-    assert "rebuilt the filtered file list from `{source_root}`" in component
+    assert 'demo --source-root "{source_root}"' in component
 
 
 def test_extract_leaves_workspace_clone_clean():

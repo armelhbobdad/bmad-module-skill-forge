@@ -75,3 +75,22 @@ def test_activation_reads_headless_mode_from_the_sidecar_preferences():
     [line] = [line for line in activation.splitlines() if "`headless_mode: true`" in line]
     assert "`{sidecar_path}/preferences.yaml`" in line
     assert line.count("preferences.yaml") == line.count("{sidecar_path}/preferences.yaml"), line
+
+
+def test_ratify_hydration_keeps_the_component_library_fields():
+    """#605: skf-create-skill writes a confirmed registry path and demo globs
+    back to the brief, so a ratify must hydrate them, with ui_variants, for
+    the writer to keep: each has a flat `scope_*` key the writer reads. The
+    headless from_brief route hydrates by the same list, not a copy of it."""
+    gather = _read(REFERENCES / "gather-intent.md")
+    [line] = [line for line in gather.splitlines()
+              if "`scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*`" in line]
+    assert "preserve all three verbatim" in line
+    [route] = [line for line in gather.splitlines() if "**Hydrate and route.**" in line]
+    assert "exactly as the §3.1a `[R]` branch does: every field of its mapping list" in route
+    assert "`scope.amendments`" not in route and "`scripts_intent`" not in route
+    writer = (REPO / "src" / "shared" / "scripts" / "skf-write-skill-brief.py").read_text(encoding="utf-8")
+    flat_keys = writer[writer.index("_FLAT_SCOPE_KEYS = ("):]
+    flat_keys = flat_keys[:flat_keys.index(")")]
+    for field in ("registry_path", "ui_variants", "demo_patterns"):
+        assert f'"scope_{field}"' in flat_keys, field

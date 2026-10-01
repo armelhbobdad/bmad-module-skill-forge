@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -960,3 +961,267 @@ class TestAtomicWriteBinary:
             mod.atomic_write(target, content)
             assert target.read_bytes() == content.encode("utf-8")
             assert b"\r\n" not in target.read_bytes()
+
+
+# --------------------------------------------------------------------------
+# Component-library fields (#605): create-skill step 3d writes the confirmed
+# registry path and demo globs back to the brief, and a brief-skill ratify
+# re-write must keep them, with ui_variants, verbatim.
+# --------------------------------------------------------------------------
+
+VALIDATE_SCHEMA_PATH = SCRIPT_PATH.parent / "skf-validate-brief-schema.py"
+
+
+def _component_scope() -> dict:
+    return {
+        "registry_path": "registry/index.ts",
+        "ui_variants": [{"name": "shadcnui", "package": "packages/ui"}, {"name": "baseui"}],
+        "demo_patterns": ["**/examples/**", "**/*.stories.*"],
+    }
+
+
+def _write_back_amendment() -> dict:
+    return {
+        "path": "registry/index.ts",
+        "action": "registry-confirmed",
+        "category": "demo-and-registry",
+        "reason": "user confirmed the detected registry at create-skill step 3d",
+        "evidence": "score 8/9, 52 entries",
+        "date": "2026-10-01",
+        "workflow": "skf-create-skill",
+    }
+
+
+def _component_ctx() -> dict:
+    ctx = _baseline_ctx()
+    ctx["scope"]["type"] = "component-library"
+    ctx["scope"]["amendments"] = [_write_back_amendment()]
+    ctx["scope"].update(_component_scope())
+    return ctx
+
+
+class TestComponentLibraryFieldsValidation:
+    def test_valid_fields_pass(self):
+        assert mod.validate_context(_component_ctx()) == []
+
+    def test_a_variant_needs_no_name(self):
+        """The checks mirror skill-brief.v1.json, which only adds the fields."""
+        ctx = _component_ctx()
+        ctx["scope"]["ui_variants"] = [{"package": "packages/ui"}]
+        assert mod.validate_context(ctx) == []
+
+    @pytest.mark.parametrize("field, value", [
+        ("registry_path", ""),
+        ("registry_path", ["registry/index.ts"]),
+        ("demo_patterns", "**/examples/**"),
+        ("demo_patterns", ["**/examples/**", ""]),
+        ("demo_patterns", [3]),
+        ("ui_variants", {"name": "shadcnui"}),
+        ("ui_variants", [{"name": ""}]),
+        ("ui_variants", [{"name": "shadcnui", "package": ""}]),
+        ("ui_variants", ["shadcnui"]),
+    ], ids=["path-empty", "path-list", "demo-string", "demo-blank", "demo-number", "variants-object",
+            "variant-blank-name", "variant-blank-package", "variant-string"])
+    def test_malformed_values_fail(self, field, value, capsys):
+        ctx = _component_ctx()
+        ctx["scope"][field] = value
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+        assert json.loads(capsys.readouterr().err)["field"] == f"scope.{field}"
+
+
+class TestComponentLibraryFieldsAssembly:
+    def test_absent_by_default(self):
+        brief = mod.assemble_brief(_baseline_ctx(), "1.0.0")
+        assert not {"registry_path", "ui_variants", "demo_patterns"} & set(brief["scope"])
+
+    def test_kept_verbatim_after_amendments(self):
+        brief = mod.assemble_brief(_component_ctx(), "1.0.0")
+        assert list(brief["scope"]) == [
+            "type", "include", "exclude", "notes", "amendments", "registry_path", "ui_variants", "demo_patterns",
+        ]
+        for field, value in _component_scope().items():
+            assert brief["scope"][field] == value
+
+    def test_a_ratify_re_write_is_byte_identical(self, tmp_path):
+        """Write, read the brief back as gather-intent's ratify hydrates it, write again."""
+        first = tmp_path / "first" / "skill-brief.yaml"
+        second = tmp_path / "second" / "skill-brief.yaml"
+        for target, ctx in ((first, _component_ctx()), (second, None)):
+            if ctx is None:
+                parsed = yaml.safe_load(first.read_text(encoding="utf-8"))
+                ctx = {k: v for k, v in parsed.items() if k != "version"}
+                ctx["version_resolved"] = parsed["version"]
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT_PATH), "write", "--target", str(target)],
+                input=json.dumps(ctx), capture_output=True, text=True,
+            )
+            assert proc.returncode == 0, proc.stderr + proc.stdout
+        assert first.read_bytes() == second.read_bytes()
+        assert yaml.safe_load(second.read_text(encoding="utf-8"))["scope"]["registry_path"] == "registry/index.ts"
+
+    def test_written_brief_validates_against_the_schema(self, tmp_path):
+        target = tmp_path / "skill-brief.yaml"
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "write", "--target", str(target)],
+            input=json.dumps(_component_ctx()), capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr + proc.stdout
+        checked = subprocess.run(
+            [sys.executable, str(VALIDATE_SCHEMA_PATH), str(target)], capture_output=True, text=True,
+        )
+        assert checked.returncode == 0, checked.stdout + checked.stderr
+        assert json.loads(checked.stdout)["valid"] is True
+
+
+class TestComponentLibraryFieldsFlat:
+    """The flat payload a ratify in brief-skill sends (`--from-flat`)."""
+
+    def test_flat_fields_map_into_scope(self):
+        flat = _baseline_flat()
+        flat.update({f"scope_{field}": value for field, value in _component_scope().items()})
+        nested = mod.flat_to_nested(flat)
+        for field, value in _component_scope().items():
+            assert nested["scope"][field] == value
+            assert f"scope_{field}" not in nested
+
+    def test_flat_nulls_drop(self):
+        flat = _baseline_flat()
+        flat.update({f"scope_{field}": None for field in _component_scope()})
+        nested = mod.flat_to_nested(flat)
+        assert not {"registry_path", "ui_variants", "demo_patterns"} & set(nested["scope"])
+
+    def test_flat_write_keeps_the_fields(self, tmp_target):
+        flat = _baseline_flat()
+        flat["scope_type"] = "component-library"
+        flat["scope_amendments"] = [_write_back_amendment()]
+        flat.update({f"scope_{field}": value for field, value in _component_scope().items()})
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "write", "--target", str(tmp_target), "--from-flat"],
+            input=json.dumps(flat), capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr + proc.stdout
+        scope = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]
+        assert scope["amendments"] == [_write_back_amendment()]
+        for field, value in _component_scope().items():
+            assert scope[field] == value
+
+
+# --------------------------------------------------------------------------
+# amend (#605): create-skill step 3d records its answers in the brief
+# without re-typing it.
+# --------------------------------------------------------------------------
+
+
+def _demo_amendment() -> dict:
+    return {**_write_back_amendment(), "path": "**/examples/**", "action": "demo-excluded",
+            "reason": "user confirmed the demo exclusion at create-skill step 3d", "evidence": "4 files"}
+
+
+def _answers() -> dict:
+    return {"registry_path": "registry/index.ts", "demo_patterns": ["**/examples/**"],
+            "amendments": [_demo_amendment(), _write_back_amendment()]}
+
+
+def _amend(target: Path, payload) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "amend", "--target", str(target)],
+        input=payload if isinstance(payload, str) else json.dumps(payload), capture_output=True, text=True,
+    )
+
+
+def _written_brief(target: Path) -> bytes:
+    ctx = _baseline_ctx()
+    ctx["scope"]["type"] = "component-library"
+    ctx["scope"]["amendments"] = [{"path": "llms.txt", "action": "skipped", "category": "auth-doc",
+                                   "reason": "r", "heuristic": "llms.txt", "date": "2026-09-30",
+                                   "workflow": "skf-create-skill"}]
+    ctx["scope"]["ui_variants"] = [{"name": "shadcnui"}]
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "write", "--target", str(target)],
+        input=json.dumps(ctx), capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return target.read_bytes()
+
+
+class TestAmend:
+    def test_sets_the_fields_and_appends_the_entries(self, tmp_target):
+        before = _written_brief(tmp_target)
+        proc = _amend(tmp_target, _answers())
+        assert proc.returncode == 0, proc.stderr
+        result = json.loads(proc.stdout)
+        assert (result["status"], result["set"], result["appended"]) == ("ok", ["registry_path", "demo_patterns"], 2)
+        backup = tmp_target.with_name("skill-brief.yaml.bak")
+        assert result["backup"] == str(backup.resolve()) and backup.read_bytes() == before
+        old, new = yaml.safe_load(before), yaml.safe_load(tmp_target.read_text(encoding="utf-8"))
+        assert new["scope"]["amendments"] == [*old["scope"]["amendments"], _demo_amendment(), _write_back_amendment()]
+        assert (new["scope"]["registry_path"], new["scope"]["demo_patterns"]) == ("registry/index.ts", ["**/examples/**"])
+        # Every other field keeps its value and its place.
+        for key in ("registry_path", "demo_patterns", "amendments"):
+            new["scope"].pop(key)
+            old["scope"].pop(key, None)
+        assert list(new) == list(old) and new == old
+
+    def test_the_amended_brief_validates_against_the_schema(self, tmp_target):
+        _written_brief(tmp_target)
+        assert _amend(tmp_target, _answers()).returncode == 0
+        checked = subprocess.run([sys.executable, str(VALIDATE_SCHEMA_PATH), str(tmp_target)],
+                                 capture_output=True, text=True)
+        assert checked.returncode == 0, checked.stdout + checked.stderr
+
+    def test_a_hand_written_brief_keeps_its_order(self, tmp_target):
+        tmp_target.parent.mkdir(parents=True)
+        tmp_target.write_bytes(
+            b"# hand written\nname: acme-ui\nversion: '2.1'\nscope:\n  notes: ''\n  type: component-library\n"
+            b"  include:\n  - src/**\n  exclude: []\n  registry_path: gone/index.ts\nlanguage: typescript\n"
+        )
+        payload = {"registry_path": "registry/index.ts",
+                   "amendments": [{**_write_back_amendment(),
+                                   "reason": "user replaced the unreadable registry path at create-skill step 3d"}]}
+        assert _amend(tmp_target, payload).returncode == 0
+        new = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))
+        assert list(new) == ["name", "version", "scope", "language"] and new["version"] == "2.1"
+        assert list(new["scope"]) == ["notes", "type", "include", "exclude", "registry_path", "amendments"]
+        assert new["scope"]["registry_path"] == "registry/index.ts"
+        assert tmp_target.with_name("skill-brief.yaml.bak").read_bytes().startswith(b"# hand written\n")
+
+    @pytest.mark.parametrize("payload, message", [
+        ({}, "nothing to amend"),
+        ({"registry_path": "r.ts", "ui_variants": []}, "unknown field"),
+        ({"registry_path": ""}, "scope.registry_path must be a non-empty string"),
+        ({"demo_patterns": "**/examples/**"}, "scope.demo_patterns must be an array"),
+        ({"amendments": [{**_write_back_amendment(), "reason": ""}]}, "amendments[0].reason"),
+        ({"amendments": [{**_write_back_amendment(), "date": "1 Oct 2026"}]}, "amendments[0].date"),
+        ("[not json", "invalid JSON"),
+    ], ids=["empty", "unknown-field", "blank-path", "demo-string", "blank-reason", "bad-date", "bad-json"])
+    def test_a_bad_payload_exits_1_and_touches_nothing(self, tmp_target, payload, message):
+        before = _written_brief(tmp_target)
+        proc = _amend(tmp_target, payload)
+        assert proc.returncode == 1 and message in proc.stderr, proc.stderr
+        assert tmp_target.read_bytes() == before
+        assert not tmp_target.with_name("skill-brief.yaml.bak").exists()
+
+    def test_a_utf8_payload_survives_a_cp1252_console(self, tmp_target):
+        """A Windows console pipes stdin as cp1252: the writer reads it as UTF-8."""
+        _written_brief(tmp_target)
+        reason = "user confirmed the détected registry, café über alles"
+        payload = {"registry_path": "registry/index.ts", "amendments": [{**_write_back_amendment(), "reason": reason}]}
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "amend", "--target", str(tmp_target)],
+            input=json.dumps(payload, ensure_ascii=False).encode("utf-8"), capture_output=True,
+            env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        )
+        assert proc.returncode == 0, proc.stderr
+        scope = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]
+        assert scope["amendments"][-1]["reason"] == reason
+
+    def test_a_missing_brief_exits_2(self, tmp_target):
+        proc = _amend(tmp_target, _answers())
+        assert proc.returncode == 2 and "cannot read" in proc.stderr
+
+    def test_a_brief_without_scope_exits_1(self, tmp_target):
+        tmp_target.parent.mkdir(parents=True)
+        tmp_target.write_bytes(b"name: acme-ui\n")
+        proc = _amend(tmp_target, _answers())
+        assert proc.returncode == 1 and "holds no scope mapping" in proc.stderr
