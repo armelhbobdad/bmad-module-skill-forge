@@ -326,6 +326,39 @@ class TestOverlappingAppends:
         assert len({r["title"] for r in data["records"]}) == workers * per_worker
         assert sorted(p.name for p in ledger.parent.iterdir()) == [ledger.name]
 
+    def test_a_rename_windows_refuses_for_a_moment_is_retried(self, ledger: Path, monkeypatch: pytest.MonkeyPatch):
+        # Windows refuses os.replace while another process (a virus scanner,
+        # the indexer) holds the just-written ledger open; the append retries.
+        real_replace = mod.os.replace
+        calls = []
+
+        def flaky_replace(src, dst):
+            calls.append(dst)
+            if len(calls) < 3:
+                raise PermissionError(13, "Access is denied", str(dst))
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        monkeypatch.setattr(mod.os, "replace", flaky_replace)
+        data = mod.new_ledger(ledger)
+        mod.append_records(data, "coverage-check", [record(title="retried")])
+        mod.save_ledger(ledger, data)
+        assert len(calls) == 3
+        assert [r["title"] for r in json.loads(ledger.read_text(encoding="utf-8"))["records"]] == ["retried"]
+        assert sorted(p.name for p in ledger.parent.iterdir()) == [ledger.name]
+
+    def test_a_rename_refused_past_the_wait_fails_and_leaves_no_temp_file(self, ledger: Path, monkeypatch: pytest.MonkeyPatch):
+        def refused(src, dst):
+            raise PermissionError(13, "Access is denied", str(dst))
+
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        monkeypatch.setattr(mod, "_REPLACE_WAIT_SECONDS", 0.05)
+        monkeypatch.setattr(mod.os, "replace", refused)
+        data = mod.new_ledger(ledger)
+        with pytest.raises(PermissionError):
+            mod.save_ledger(ledger, data)
+        assert not ledger.exists() and list(ledger.parent.glob("*.skf-tmp")) == []
+
     def test_a_held_lock_makes_an_append_wait_then_fail(
         self, ledger: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ):

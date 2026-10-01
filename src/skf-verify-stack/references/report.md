@@ -2,7 +2,8 @@
 # {outputFile} and {outputFileLatest} resolve from {timestamp} (fixed in
 # SKILL.md On Activation §2), {project_slug} (bound at the top of init.md)
 # and {outputFolderPath} (On Activation §4), with the same template as the
-# init.md frontmatter, so every stage sees the same path.
+# init.md frontmatter, so every stage sees the same path. §1 is the only
+# place that writes {outputFileLatest}: once the report passes its check.
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 feasibilitySchemaProbeOrder:
@@ -14,6 +15,9 @@ atomicWriteProbeOrder:
 validateFeasibilityReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
   - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 nextStepFile: 'health-check.md'
 ---
 
@@ -32,27 +36,41 @@ Present the complete feasibility report to the user. Display the overall verdict
 
 ## MANDATORY SEQUENCE
 
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound (first existing path wins), then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-verify-stack --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, then stop with the halt's exit code (`references/exit-codes.md` describes the envelope). If no candidate exists, or the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Load Complete Report
 
 Read the entire `{outputFile}` to have all data available for presentation.
 
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
-**Validate the report (deterministic gate).** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope. Then run:
+**Validate the report (deterministic gate).** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `report:check`. Then run:
 
 ```bash
-uv run {validateFeasibilityReportHelper} "{outputFile}"
+uv run {validateFeasibilityReportHelper} "{outputFile}" -o "{run_dir}/report-check.json"
 ```
 
-The script (see `--help`) checks the report against `{feasibilitySchemaRef}`: the five required body sections (`## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`) in canonical order, frontmatter `schemaVersion == "1.0"`, and whatever else its `--help` lists. It prints a JSON verdict on stdout (`violation` names the class; the detail fields say what failed) and exits `0` when valid, `1` on a schema violation, `2` when the report cannot be read.
+The script (see `--help`) checks the report against `{feasibilitySchemaRef}`: the five required body sections (`## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`) in canonical order, frontmatter `schemaVersion == "1.0"`, and whatever else its `--help` lists. It writes a JSON verdict to `{run_dir}/report-check.json` (`violation` names the class; the detail fields say what failed; `overallVerdict` and `coveragePercentage` are the report's own) and exits `0` when valid, `1` on a schema violation, `2` when the report cannot be read.
 
-On any non-zero exit, HALT (exit code 5, `halt_reason: "schema-violation"`): do not display partial results. Report the specific violation from the JSON:
+On any non-zero exit, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `report:check`: do not display partial results, and leave `{outputFileLatest}` as it is. Report the specific violation from the JSON:
 
 - a missing or out-of-order section (`missingHeadings` / `orderViolations`);
 - a schemaVersion mismatch: "Report frontmatter schemaVersion `{schemaVersionFound}` does not match producer schema `1.0`: report was corrupted between steps. Re-run [VS]." (The producer never proceeds past a schema mismatch.)
 - any other detail the JSON carries, such as a missing or doubled canonical verdict table or an unknown verdict token.
 
-In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `report_path: "{outputFile}"`, `overall_verdict: null`.
+**Publish the checked report.** With the gate passed, resolve `{atomicWriteHelper}` from `{atomicWriteProbeOrder}` (first existing path wins; if no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `report:publish`) and copy the report over its stable `-latest` copy, which consumers such as campaign, create-stack-skill and refine-architecture read:
+
+```bash
+python3 {atomicWriteHelper} write --target "{outputFileLatest}" < "{outputFile}"
+```
+
+It is a copy, not a symlink (per the shared schema). This is the run's only write of `{outputFileLatest}`: every stage before this one wrote only `{outputFile}`, so a run that halted earlier left the previous finished report at the stable path. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:publish`, with `"path": "{outputFileLatest}"`; the atomic write leaves the previous copy intact.
 
 With the deterministic gate passed, **extract metrics from `{outputFile}` frontmatter** (per shared schema in `{feasibilitySchemaRef}`): `skillsAnalyzed`, `coveragePercentage`, `pairsVerified` (as `verified_count`), `pairsPlausible` (as `plausible_count`), `pairsRisky` (as `risky_count`), `pairsBlocked` (as `blocked_count`), `requirementsFulfilled` (as `fulfilled_count`), `requirementsPartial` (as `partial_count`), `requirementsNotAddressed` (as `not_addressed_count`), `requirementsPass`, `overallVerdict`, and `recommendationCount`. Use these mapped display names in the summary table and next steps below.
 
@@ -99,19 +117,33 @@ Step 05 already wrote a **Suggested next workflow** block (keyed on the case-sen
 
 ### 4b. Result Contract
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
+The shared emitter writes the result contract (per `shared/references/output-contract-schema.md`, which resolves relative to the SKF module root: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development) and prints the envelope; this step stages their content, every count from a file a helper wrote. Write `{run_dir}/result-context.json`:
 
-Write the result contract per `shared/references/output-contract-schema.md` (this path resolves relative to the SKF module root — `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development — not relative to this step file): the per-run record at `{forge_data_folder}/verify-stack-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/verify-stack-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include the feasibility report path (both `{outputFile}` and `{outputFileLatest}`) in `outputs`; include `overallVerdict` (`FEASIBLE` / `CONDITIONALLY_FEASIBLE` / `NOT_FEASIBLE`), `coveragePercentage`, and `recommendationCount` in `summary` — use the case-sensitive schema tokens.
-
-Write both JSON files through `python3 {atomicWriteHelper} write --target ...` to avoid partial-write corruption. On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) and emit the error envelope.
-
-When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 7 (matches the SKILL.md "Result Contract (Headless)" shape):
-
+```json
+{
+  "status": "success",
+  "report_path": "{outputFile}",
+  "report_latest_path": "{outputFileLatest}",
+  "overall_verdict": "<overallVerdict>",
+  "coverage_percentage": <coveragePercentage>,
+  "recommendation_count": <recommendationCount>,
+  "result_contract": {
+    "skill": "skf-verify-stack",
+    "status": "success",
+    "outputs": [{"type": "report", "path": "{outputFile}"}, {"type": "report", "path": "{outputFileLatest}"}],
+    "summary": {"overallVerdict": "<overallVerdict>", "coveragePercentage": <coveragePercentage>, "recommendationCount": <recommendationCount>}
+  }
+}
 ```
-SKF_VERIFY_STACK_RESULT_JSON: {"status":"success","report_path":"{outputFile}","report_latest_path":"{outputFileLatest}","overall_verdict":"{overallVerdict}","coverage_percentage":{coveragePercentage},"recommendation_count":{recommendationCount},"exit_code":0,"halt_reason":null}
+
+`<overallVerdict>` and `<coveragePercentage>` are the `overallVerdict` (a case-sensitive schema token: `FEASIBLE`, `CONDITIONALLY_FEASIBLE` or `NOT_FEASIBLE`) and `coveragePercentage` §1's check read into `{run_dir}/report-check.json`; `<recommendationCount>` is the report frontmatter's `recommendationCount`, the count synthesize took from its verdict rollup. Then run, in every mode (the emitter writes result files only into a folder that exists):
+
+```bash
+mkdir -p "{forge_data_folder}" || uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'result_file_write_failed: cannot create the forge data folder'
+uv run {emitEnvelopeHelper} emit --workflow skf-verify-stack --run-dir "{run_dir}" --result-dir "{forge_data_folder}" < "{run_dir}/result-context.json"
 ```
 
-`{overallVerdict}` uses the schema tokens (`FEASIBLE` / `CONDITIONALLY_FEASIBLE` / `NOT_FEASIBLE`).
+It writes `{forge_data_folder}/verify-stack-result-{YYYYMMDD-HHmmss}.json` and its `verify-stack-result-latest.json` copy, whatever `{outputFolderPath}` is, and prints the `SKF_VERIFY_STACK_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, display the line verbatim before chaining to step 7. A result file that could not be written leaves `result_path` null and a `result_file_write_failed` warning in the line, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`, adding `"report_latest_path": "{outputFileLatest}"` to the halt payload: the run's result contract could not be written.
 
 ### 5. Finish
 
@@ -121,4 +153,4 @@ Re-run **[VS] Verify Stack** anytime after making changes to your skills or arch
 
 **Verification workflow complete.**"
 
-If `{workflow.on_complete}` is non-empty, execute it now (e.g. route the verdict onward or trigger a downstream step); in headless, log the action. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow.
+If `{workflow.on_complete}` is non-empty, execute it now (e.g. route the verdict onward or trigger a downstream step); in headless, log the action. Then delete the run folder, whose inventory, summaries and payloads the run no longer needs: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow.

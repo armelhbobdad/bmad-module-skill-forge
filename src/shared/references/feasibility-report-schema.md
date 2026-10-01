@@ -75,6 +75,7 @@ Only this table carries the per-pair verdicts, and the report holds it exactly o
 ## Producer obligations (skf-verify-stack)
 
 - Set `schemaVersion: "1.0"` in frontmatter.
+- Write the `-latest` copy only after the finished report passes `skf-validate-feasibility-report.py`, and write nothing but the timestamped report before that, so a run that halts leaves the previous finished copy, the one `--locate` reads, in place.
 - Never emit a verdict token outside the defined set.
 - Write the canonical table exactly once under `## Integration Verdicts`, with no data rows when the run found no integration pair: fill the empty table in `assets/feasibility-report-template.md` instead of appending a second one.
 - When Check 4 (documentation cross-reference) finds no literal citation, cap the per-pair verdict at `Plausible`. Protocol and data-format tokens inferred from prose (Check 2) can flag a risk, but they neither promote a pair to `Verified` nor cap it at `Plausible`.

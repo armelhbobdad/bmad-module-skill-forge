@@ -199,6 +199,7 @@ class TestNormalize:
             "bounded_scan_files": ["scripts/b.sh", "src/a.ts"],
             "is_stack_skill": False,
             "legacy_stack_provenance": False,
+            "compose_mode_stack": False,
             "source_root": "/path/to/src",
             "baseline_commit": "abc123",
             "baseline_ref": "v1.0.0",
@@ -222,7 +223,33 @@ class TestNormalize:
         result = mod.normalize(data)
         assert result["is_stack_skill"] is True
         assert result["legacy_stack_provenance"] is False
+        assert result["compose_mode_stack"] is False
         assert result["reexport_map"] == {"_X": "Y"}
+
+    def test_compose_mode_stack(self) -> None:
+        # create-stack-skill's compose-mode variant: null source anchors,
+        # entries recorded from constituent skills, and a constituents list.
+        data = {
+            "provenance_version": "2.0",
+            "skill_type": "stack",
+            "source_repo": None,
+            "source_commit": None,
+            "source_ref": None,
+            "entries": [{"export_name": "connect", "source_library": "lib-a", "source_file": "src/db.ts",
+                         "extraction_method": "compose-from-skill"}],
+            "constituents": [{"skill_name": "lib-a", "skill_path": "skills/lib-a/",
+                              "metadata_hash": "sha256:" + "0" * 64}],
+        }
+        result = mod.normalize(data)
+        assert (result["is_stack_skill"], result["compose_mode_stack"]) == (True, True)
+        assert (result["source_root"], result["baseline_commit"], result["baseline_ref"]) == (None, None, None)
+
+    @pytest.mark.parametrize("data", [
+        {"provenance_version": "2.0", "skill_type": "single", "constituents": []},
+        {"provenance_version": "2.0", "skill_type": "stack", "constituents": "lib-a"},
+    ], ids=["single-skill", "constituents-not-a-list"])
+    def test_not_a_compose_mode_stack(self, data) -> None:
+        assert mod.normalize(data)["compose_mode_stack"] is False
 
     def test_legacy_v1_stack(self) -> None:
         data = {
@@ -240,6 +267,7 @@ class TestNormalize:
             "bounded_scan_files": [],
             "is_stack_skill": False,
             "legacy_stack_provenance": False,
+            "compose_mode_stack": False,
             "source_root": None,
             "baseline_commit": None,
             "baseline_ref": None,

@@ -6,9 +6,9 @@ coverage and integration verdict rankings, unordered integration-pair matching,
 Replaced bucketing, evidence-tier downgrade detection on the one T-code scale
 (any other tier token is rejected as UNKNOWN_TIER), validation, reading the
 two reports (--previous-report, --current-report) from the template the
-producer fills, the reports it does not read (INVALID_REPORT), the installed
-layout that finds the shared reader, the subprocess CLI contract, and the call
-and tier inputs synthesize.md passes.
+producer fills, the reports it does not read (INVALID_REPORT), this run's tiers
+from the enumerate inventory (--inventory), the installed layout that finds the
+shared reader, the subprocess CLI contract, and the call synthesize.md makes.
 """
 
 from __future__ import annotations
@@ -538,6 +538,66 @@ def test_cli_reads_the_reports_with_tiers_on_stdin(tmp_path):
     assert json.loads(proc.stdout)["tierDowngradeCount"] == 1
 
 
+def _inventory(folder, tiers=CURRENT_TIERS):
+    """An skf-enumerate-stack-skills.py inventory whose skills carry these evidence tiers."""
+    skills = [{"name": name, "path": name, "evidence_tier": tier, "confidence_tier": "Deep"}
+              for name, tier in tiers.items()]
+    path = folder / "skill-inventory.json"
+    path.write_bytes(json.dumps({"skills": skills, "warnings": []}).encode("utf-8"))
+    return path
+
+
+def test_the_inventory_gives_the_current_tiers(tmp_path):
+    prev, curr = _reports(tmp_path)
+    from_inventory = mod.run({}, str(prev), str(curr), False, READER, str(_inventory(tmp_path)))
+    # The evidence_tier of each skill, never its confidence_tier (a forge tier).
+    assert from_inventory == _run_reports(prev, curr)
+    assert from_inventory["tierDowngrades"] == [{"skill": "react", "from": "T1", "to": "T1-low"}]
+
+
+def test_cli_reads_the_reports_and_the_inventory_with_no_json(tmp_path):
+    prev, curr = _reports(tmp_path)
+    proc = _run(["--previous-report", str(prev), "--current-report", str(curr),
+                 "--inventory", str(_inventory(tmp_path))])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["tiersCompared"], out["tierDowngradeCount"], out["improvedCount"]) == (True, 1, 2)
+
+
+@pytest.mark.parametrize(
+    "content, needle",
+    [
+        pytest.param(None, "cannot be read", id="missing-file"),
+        pytest.param(b"{not json", "is not JSON", id="not-json"),
+        pytest.param(b'{"skills": {}}', "holds no `skills` list", id="no-skills-list"),
+        pytest.param(b'{"skills": [{"path": "x"}]}', "skills[0] has no `name`", id="unnamed-skill"),
+    ],
+)
+def test_an_inventory_it_cannot_read_is_invalid_input(tmp_path, content, needle):
+    prev, curr = _reports(tmp_path)
+    inventory = tmp_path / "inventory.json"
+    if content is not None:
+        inventory.write_bytes(content)
+    out = mod.run({}, str(prev), str(curr), False, READER, str(inventory))
+    assert out["code"] == "INVALID_INPUT" and needle in out["error"]
+    assert out["path"] == str(inventory) and "report" not in out
+    # The retry synthesize.md asks for compares no tier, so it reads no inventory.
+    again = mod.run({}, str(prev), str(curr), True, READER, str(inventory))
+    assert "code" not in again and again["tiersCompared"] is False
+
+
+def test_an_inventory_tier_off_the_scale_is_unknown_tier(tmp_path):
+    prev, curr = _reports(tmp_path)
+    out = mod.run({}, str(prev), str(curr), False, READER, str(_inventory(tmp_path, {"react": "Deep"})))
+    assert out["code"] == "UNKNOWN_TIER"
+
+
+def test_current_tiers_come_from_one_source(tmp_path):
+    prev, curr = _reports(tmp_path)
+    out = mod.run({"currentTiers": CURRENT_TIERS}, str(prev), str(curr), False, READER, str(_inventory(tmp_path)))
+    assert out["code"] == "INVALID_INPUT" and "--inventory" in out["error"]
+
+
 def test_cli_one_report_flag_still_needs_json(tmp_path):
     prev, _curr = _reports(tmp_path)
     assert _run(["--previous-report", str(prev)]).returncode == 1
@@ -608,11 +668,12 @@ def _section(heading, end, path=SYNTHESIZE):
 
 def test_synthesize_runs_the_delta_on_both_reports():
     delta = _section("### 3. Check for Previous Report", "### 4.")
-    [call] = [line for line in delta.splitlines() if line.startswith("echo ") and "{reportDeltaScript}" in line]
+    [call] = [line for line in delta.splitlines() if line.startswith("uv run {reportDeltaScript} ")]
     words = shlex.split(call.split("uv run {reportDeltaScript}", 1)[1])
     parser = mod._build_parser()
     args = parser.parse_args(words)
-    assert (args.previous_report, args.current_report, args.stdin) == ("{previousReport}", "{outputFile}", True)
+    assert (args.previous_report, args.current_report, args.inventory, args.stdin) == (
+        "{previousReport}", "{outputFile}", "{inventoryFile}", False)
     # The retry the UNKNOWN_TIER branch asks for fits the parser too.
     assert parser.parse_args([*words, "--no-tiers"]).no_tiers
     assert "`--no-tiers`" in delta
@@ -628,11 +689,12 @@ def test_synthesize_runs_the_delta_on_both_reports():
 
 def test_synthesize_passes_evidence_tiers_on_the_scripts_scale():
     delta = _section("### 3. Check for Previous Report", "### 4.")
-    # The map holds the enumerate helper's evidence_tier, never metadata's
-    # confidence_tier (a forge tier for a single skill).
-    assert "`currentTiers`" in delta
-    assert "`evidence_tier`" in delta
-    assert "Never pass `confidence_tier`" in delta
+    # The script reads each skill's evidence_tier from the inventory, never
+    # metadata's confidence_tier (a forge tier for a single skill), so the
+    # prose builds no tier map.
+    assert '--inventory "{inventoryFile}"' in delta and "`evidence_tier`" in delta
+    assert "`currentTiers`" not in delta and "<tiers JSON>" not in delta
+    assert "--inventory fills\n  `currentTiers`" in mod.__doc__
     for tier in mod.TIERS:
         assert f"`{tier}`" in delta, tier
     assert "Tier 1 → Tier 2" not in delta, "the old gloss fits neither vocabulary"

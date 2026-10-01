@@ -9,7 +9,10 @@ atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
-outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+inventoryFile: '{run_dir}/skill-inventory.json'
 ---
 
 <!-- Config: communicate in {communication_language}. Append the Executive Summary, synthesized verdict, and Recommendations to the report in {document_output_language}. -->
@@ -27,15 +30,23 @@ Calculate the overall feasibility verdict based on all three analysis passes, ge
 
 ## MANDATORY SEQUENCE
 
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound (first existing path wins), then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-verify-stack --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, then stop with the halt's exit code (`references/exit-codes.md` describes the envelope). If no candidate exists, or the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Calculate Overall Verdict
 
-**The verdict token is deterministic: do not walk the ladder in prose.** All three passes have already persisted their counts in `{outputFile}` frontmatter: `coveragePercentage`, `coverageMissing` and `coverageCovered` (step 2's tally), `pairsBlocked`/`pairsRisky`/`pairsPlausible`/`pairsVerified`, and `requirementsPass` + `requirementsNotAddressed`/`requirementsPartial`. Rolling them up into one token has a single correct answer per input, so delegate it. Assemble the counts and run:
+**The verdict token is deterministic: do not walk the ladder in prose.** All three passes have already persisted their counts in `{outputFile}` frontmatter, each from its tally helper: `coveragePercentage`, `coverageMissing`, `coverageCovered` and `coverageReplaced` (step 2), `pairsBlocked`/`pairsRisky`/`pairsPlausible`/`pairsVerified` (step 3, each cycle row counted as `Risky`), and `requirementsPass` + `requirementsNotAddressed`/`requirementsPartial` (step 4). Rolling them up into one token has a single correct answer per input, and so has the number of recommendations they call for, so delegate both. Assemble the counts and run:
 
 ```bash
 echo '<counts JSON>' | uv run {verdictRollupScript} --stdin
 ```
 
-Input keys: `coveragePercentage`, `missingCount` ← `coverageMissing`, `coveredCount` ← `coverageCovered`, `pairsBlocked`, `pairsRisky`, `pairsPlausible`, `pairsVerified`; plus, only when the requirements pass ran (`requirementsPass == "completed"`), `requirementsEvaluated: true` with `requirementsNotAddressed`/`requirementsPartial`. Half-up rounding can leave `coveragePercentage == 100` with one technology still Missing, so the percentage stands in for neither count. The script (run `uv run {verdictRollupScript} --help` for the ladder) returns `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired) and `zeroPairsGuardFired`. When it exits non-zero, it rejected its input and says why (its JSON `error`, or a usage line for an empty input): fix the input and run it again.
+Input keys: `coveragePercentage`, `missingCount` ← `coverageMissing`, `coveredCount` ← `coverageCovered`, `replacedCount` ← `coverageReplaced`, `pairsBlocked`, `pairsRisky`, `pairsPlausible`, `pairsVerified`; plus, only when the requirements pass ran (`requirementsPass == "completed"`), `requirementsEvaluated: true` with `requirementsNotAddressed`/`requirementsPartial`. Half-up rounding can leave `coveragePercentage == 100` with one technology still Missing, so the percentage stands in for neither count. The script (run `uv run {verdictRollupScript} --help` for the ladder) returns `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired), `zeroPairsGuardFired`, `recommendations` (how many recommendations of each kind section 2 writes) and `recommendationCount` (their sum). When it exits non-zero, it rejected its input and says why (its JSON `error`, or a usage line for an empty input): fix the input and run it again.
 
 Technologies marked **Replaced** in Step 02 are intentionally being removed and are already excluded from `missingCount` and the coverage denominator: they never trigger `CONDITIONALLY_FEASIBLE` or a [CS]/[QS] recommendation.
 
@@ -50,7 +61,7 @@ Store the verdict for use in the report.
 
 ### 2. Generate Prescriptive Recommendations
 
-For each non-verified finding across all passes, generate an actionable next step:
+For each non-verified finding across all passes, generate one actionable next step: exactly the number of each kind the §1 rollup's `recommendations` gives (one per Blocked, Missing, Replaced, Risky and Plausible item, one for the zero-pairs note, and one per Not Addressed or Partially Fulfilled requirement when the requirements pass ran), so the list matches the `recommendationCount` the report and the envelope carry:
 
 **Missing skill (from Step 02):**
 - "Run **[CS] Create Skill** or **[QS] Quick Skill** for `{library_name}`, then re-run **[VS]** to verify coverage."
@@ -62,6 +73,8 @@ For each non-verified finding across all passes, generate an actionable next ste
 **Risky integration (from Step 03):**
 - If protocol mismatch → "Consider adding a bridge layer between `{lib_a}` and `{lib_b}` (e.g., HTTP adapter, message queue). Document the bridge in the architecture."
 - If type incompatibility → "Add a serialization/conversion layer between `{lib_a}` and `{lib_b}` to resolve the type mismatch identified in their API surfaces."
+- If circular dependency (a step 3 cycle row) → "`{A → B → C → A}` form a circular integration dependency: each skill's SKILL.md cites the next. Check that the architecture gives the calls between them one direction, or place an adapter between them, before you build on it."
+- If a skill changed mid-run (the rationale "skill modified mid-run") → "`{skill}` changed while this run read it, so `{lib_a}` ↔ `{lib_b}` was not rated: re-run **[VS]**."
 
 **Plausible integration (from Step 03; neither skill cites the other):**
 - "Neither `{lib_a}`'s nor `{lib_b}`'s SKILL.md names the other, so the pair stays `Plausible` until one of them does. When a page documents how the two work together (a `{lib_a}` guide that uses `{lib_b}`, say), add it to that skill's brief as a `doc_urls` entry with **[BS] Brief Skill**, re-create the skill with **[CS] Create Skill**, then re-run **[VS]**. Until then, prototype the integration before you rely on it."
@@ -84,19 +97,18 @@ For each non-verified finding across all passes, generate an actionable next ste
 
 Read `previousReport` from `{outputFile}` frontmatter (set in step 1): an earlier run's report, or empty when there is none or the user skipped the comparison. Step 1 compares against the newest earlier report unless the user names another; to compare against an older run, pass its timestamped report in step 1.
 
-**If `previousReport` is set:** comparing two runs has one correct answer, and so does reading their findings: each sits in a table with a pinned header. The delta helper reads both reports itself: the Coverage Analysis rows and the canonical `| lib_a | lib_b | verdict | rationale |` table of each, and the `evidence_tier` column of the previous report's `## Evidence Sources` table (section 5 writes it). This run's tiers go in as JSON: `currentTiers` maps each skill in `skill_inventory` to its `evidence_tier`, on the one scale `T1`, `T1-low`, `T2` and `T3`. Never pass `confidence_tier`: a single skill records its forge tier there (Quick to Deep) and a stack a T-code, so across the roster its values sit on two scales that do not compare. Run:
+**If `previousReport` is set:** comparing two runs has one correct answer, and so does reading their findings: each sits in a table with a pinned header. The delta helper reads both reports itself: the Coverage Analysis rows and the canonical `| lib_a | lib_b | verdict | rationale |` table of each, and the `evidence_tier` column of the previous report's `## Evidence Sources` table (section 5 writes it). It reads this run's tiers, each skill's `evidence_tier`, from `{inventoryFile}`. Run:
 
 ```bash
-echo '<tiers JSON>' | uv run {reportDeltaScript} --previous-report "{previousReport}" --current-report "{outputFile}" --stdin
+uv run {reportDeltaScript} --previous-report "{previousReport}" --current-report "{outputFile}" --inventory "{inventoryFile}"
 ```
 
-with `{"currentTiers": {"<skill>": "<evidence_tier>", …}}` as `<tiers JSON>`. The script (run `uv run {reportDeltaScript} --help` for the contract and rankings) returns `improved`/`regressed`/`unchanged`/`new`/`dropped`/`replaced` label lists with counts, `tierDowngrades` (each `{skill, from, to}`: a drop along `T1` > `T1-low` > `T2` > `T3`, such as `T1` to `T1-low`, counts as a regression) and `previousTiersRecorded`. Branch on its exit code and its JSON `code`:
+The script (run `uv run {reportDeltaScript} --help` for the contract and rankings) returns `improved`/`regressed`/`unchanged`/`new`/`dropped`/`replaced` label lists with counts, `tierDowngrades` (each `{skill, from, to}`: a drop along `T1` > `T1-low` > `T2` > `T3`, such as `T1` to `T1-low`, counts as a regression) and `previousTiersRecorded`. Branch on its exit code and its JSON `code`:
 
 - Exit 0: render the delta section from those results. When `previousTiersRecorded` is false (a report written before tiers were recorded), add "The previous report records no skill tiers, so tier changes were not compared." For each tier downgrade, flag: "skill `{skill}` evidence fell from `{from}` to `{to}`: check the forge tier with [SF] Setup Forge, then re-create the skill at its earlier tier with [CS] ([SS] for a stack skill)".
-- `UNKNOWN_TIER` (exit 2): the previous report's tier table holds a token outside the scale. Run it again with `--no-tiers` added, render the delta section from that run, and add "Tier changes were not compared: {error}".
+- `UNKNOWN_TIER` or `INVALID_INPUT` (exit 2): a tier outside the scale, or an `{inventoryFile}` it cannot read. Run it again with `--no-tiers` added, render the delta section from that run, and add "Tier changes were not compared: {error}".
 - `INVALID_REPORT` (exit 2): its `error` names a report that is not read (a `schemaVersion` other than `1.0`, a missing coverage or verdict table, the verdict table twice, or a verdict outside its token set). Write "No delta: {error}" in place of the delta section.
-- `INVALID_INPUT` (exit 2): `<tiers JSON>` was built wrong; fix it and run again.
-- `HELPER_MISSING` (exit 1): the shared report reader it loads is not installed; HALT per the Workflow Rules (exit code 3, `halt_reason: "resolution-failure"`).
+- `HELPER_MISSING` (exit 1): the shared report reader it loads is not installed; HALT per the Workflow Rules (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:delta`.
 
 **If `previousReport` is empty:** note "First verification run: no delta available."
 
@@ -106,14 +118,15 @@ Assemble the following for the report:
 
 **Overall verdict** with rationale citing the decision logic.
 
-**Recommendation list** ordered by priority (count total recommendations as `recommendationCount` — persist this count to `{outputFile}` frontmatter for use in step 6):
+**Recommendation list** ordered by priority, the order the §1 rollup's `recommendations` lists its kinds in (`recommendationCount` is the §1 rollup's `recommendationCount`, never a count of your own; section 5 persists it for step 6):
 1. Blocked integrations (if any)
 2. Missing skills
-3. Risky integrations
-4. Plausible integrations
-5. Zero integration pairs
-6. Not Addressed requirements
-7. Partially Fulfilled requirements
+3. Replaced technologies
+4. Risky integrations
+5. Plausible integrations
+6. Zero integration pairs
+7. Not Addressed requirements
+8. Partially Fulfilled requirements
 
 **Delta from previous run** (if applicable):
 - Improved, regressed, new, unchanged counts
@@ -126,7 +139,7 @@ Assemble the following for the report:
 
 ### 5. Append to Report
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:report`.
 
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
@@ -135,15 +148,15 @@ Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}
 - Include prioritized recommendation list under `## Recommendations`
 - Include delta from previous run (if applicable) under `## Recommendations` as a subsection
 - Include suggested next workflow at the end of `## Recommendations`
-- Populate `## Evidence Sources`: the template already holds its table, with the header `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |`. Fill it in place with one row per skill in `skill_inventory` (`name`, `evidence_tier`, `confidence_tier` or `none`, `metadata_schema_version` or `none`, and `{skills_output_folder}/{path}/SKILL.md`); the next run's delta reads its `evidence_tier` column (section 3). Below it, list the stack manifest, if any, and the architecture and PRD document paths.
+- Populate `## Evidence Sources`: the template already holds its table, with the header `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |`. Fill it in place with one row per skill in `skill_inventory` (`{inventoryFile}`: `name`, `evidence_tier`, `confidence_tier` or `none`, `metadata_schema_version` or `none`, and `{skills_output_folder}/{path}/SKILL.md`); the next run's delta reads its `evidence_tier` column (section 3). Below it, list the stack manifest, if any, and the architecture and PRD document paths.
 - Update frontmatter (shared-schema keys):
   - Append `'synthesize'` to `stepsCompleted`
   - Set `overallVerdict` to one of `FEASIBLE`, `CONDITIONALLY_FEASIBLE`, `NOT_FEASIBLE` (case-sensitive, underscores not spaces)
-  - Set `recommendationCount` to the total number of recommendations
+  - Set `recommendationCount` to the §1 rollup's `recommendationCount`
   - If delta was computed (section 3), set `deltaImproved`, `deltaRegressed`, `deltaNew`, `deltaUnchanged` from the delta helper's `improvedCount` / `regressedCount` / `newCount` / `unchangedCount`
-  - Verify that `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked` match the counts from Step 03 (these were set in Step 03). If a discrepancy is found, overwrite the frontmatter counts with the values from Step 03 — the report file is the system of record
+  - Leave the pair and requirement counts as their stages' tallies wrote them: the report file is the system of record
 - Write the `overallVerdict` the §1 rollup returned, verbatim.
-- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
+- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `synthesize:report`, with `"path": "{outputFile}"`.
 
 ### 6. Auto-Proceed to Next Step
 

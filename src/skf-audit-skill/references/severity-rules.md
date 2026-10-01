@@ -4,6 +4,8 @@
 
 ## Severity Levels
 
+Each line below is one rule of `skf-severity-classify.py`, which grades a finding by its type and category: `--rules` prints the pairs each line accepts.
+
 ### CRITICAL — Breaking Changes
 - Removed or renamed public exports (functions, classes, types)
 - Changed function signatures (parameter count, parameter types, return type)
@@ -17,6 +19,7 @@
 - Changed default parameter values that affect documented behavior
 - New required parameters added to documented functions
 - Deprecated APIs still documented as current in skill
+- Constituent skills changed since the stack was composed (compose-mode stacks)
 - **Impact:** Skill is incomplete or contains outdated guidance
 
 ### MEDIUM — Moderate Drift
@@ -25,12 +28,15 @@
 - New public exports not in skill (1-3 new exports)
 - Moved functions between files (same API, different location)
 - Changed internal implementation patterns documented in skill conventions
+- Added or changed script, asset or doc files (Script/Asset Drift)
+- Constituent skills that can no longer be found (compose-mode stacks)
 - **Impact:** Skill is functional but not fully current
 
 ### LOW — Minor Drift
 - Style or convention changes (formatting, naming patterns)
 - Comment or documentation changes in source
 - Whitespace or structural reorganization
+- Line-only changes (same export and file, only the line number changed)
 - New private/internal functions not affecting public API
 - Test file changes
 - **Impact:** Cosmetic — skill remains accurate for practical use

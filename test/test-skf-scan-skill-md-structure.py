@@ -23,8 +23,9 @@ Covers:
   - cross-reference: case-insensitive name and alias citations that
     `react-dom` and `preact` do not satisfy, every citing line with a
     count, a common-word first hit ahead of the real citation, --pairs,
-    the enumerate inventory as input, edges piped into
-    skf-find-cycles.py, a --skills-root that is not a directory
+    the enumerate inventory as input (its source basenames as aliases,
+    unless two skills hold one), edges piped into skf-find-cycles.py, a
+    --skills-root that is not a directory
   - reference-check: links (balanced parentheses, escapes and entities
     resolved), reference definitions and folder mentions; fenced code,
     URLs, provenance citations and placeholders skipped; ok / missing /
@@ -1320,6 +1321,36 @@ class TestParseCrossReferenceInputs:
             "terms": ["tq", "@tanstack/react-query"],
         }
 
+    def test_source_basenames_are_aliases_unless_shared(self) -> None:
+        # An inventory entry names the repository and the folder its skill
+        # was built from. A basename only one skill holds is an alias; one
+        # another skill also holds, as its name or a basename, is not.
+        entries = mod.parse_skill_entries({"skills": [
+            {"name": "oms-cognee", "path": "oms-cognee",
+             "source_repo_basename": "cognee", "source_root_basename": "cognee"},
+            {"name": "surrealdb", "path": "surrealdb",
+             "source_repo_basename": "surrealdb",
+             "source_root_basename": "surrealdb-v3.0.5"},
+            {"name": "surrealql", "path": "surrealql",
+             "source_repo_basename": "surrealdb", "source_root_basename": None},
+            {"name": "tauri-updater", "path": "tauri-updater",
+             "source_repo_basename": "plugins-workspace",
+             "source_root_basename": "updater"},
+            {"name": "tauri-auth-plugins", "path": "tauri-auth-plugins",
+             "source_repo_basename": "plugins-workspace",
+             "source_root_basename": 7},
+            {"name": "zod", "path": "zod", "aliases": ["Zod"],
+             "source_repo_basename": "zod", "source_root_basename": "zod"},
+        ]})
+        assert {e["name"]: e["terms"] for e in entries} == {
+            "oms-cognee": ["oms-cognee", "cognee"],
+            "surrealdb": ["surrealdb", "surrealdb-v3.0.5"],
+            "surrealql": ["surrealql"],
+            "tauri-updater": ["tauri-updater", "updater"],
+            "tauri-auth-plugins": ["tauri-auth-plugins"],
+            "zod": ["zod"],
+        }
+
     @pytest.mark.parametrize(
         "payload",
         [
@@ -1431,6 +1462,43 @@ class TestCrossReferenceCli:
             ("alpha", "beta", True), ("gamma", "alpha", False),
         ]
         assert payload["warnings"] == []
+
+    def test_inventory_source_basenames_cite_a_skill(self, tmp_path: Path) -> None:
+        # app names oms-cognee's repository, so it cites oms-cognee; the
+        # two tauri plugins share theirs, so naming it cites neither.
+        root = tmp_path / "skills"
+        repos = {
+            "oms-cognee": "https://github.com/topoteretes/cognee.git",
+            "tauri-updater": "https://github.com/tauri-apps/plugins-workspace",
+            "tauri-auth": "https://github.com/tauri-apps/plugins-workspace",
+            "app": None,
+        }
+        for name, repo in repos.items():
+            _write(root / name / "SKILL.md", f"# {name}\n")
+            metadata = {"generated_by": "create-skill", "exports": []}
+            if repo is not None:
+                metadata["source_repo"] = repo
+            _write(root / name / "metadata.json", json.dumps(metadata))
+        _write(
+            root / "app" / "SKILL.md",
+            "# app\n\nStores memories in Cognee.\nShips plugins-workspace builds.\n",
+        )
+        inventory = subprocess.run(
+            [sys.executable, str(ENUMERATE_PATH), "enumerate", str(root)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert inventory.returncode == 0, inventory.stderr
+        inventory_file = _write(tmp_path / "inventory.json", inventory.stdout)
+        result = _run_cli(
+            "cross-reference", "--skills", str(inventory_file),
+            "--skills-root", str(root),
+        )
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["edges"] == [["app", "oms-cognee"]]
+        assert (payload["citations"][0]["substring"], payload["citations"][0]["line"]) == ("Cognee", 3)
 
     def test_both_inputs_on_stdin_exit_1(self) -> None:
         result = _run_cli("cross-reference", "--skills", "-", "--pairs", "-")

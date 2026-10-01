@@ -39,12 +39,12 @@ Based on forge tier detected in Step 01:
 - Read by eye the forms the recipes leave out (Known Limitation #11 in `{extractionPatternsData}`) when a file uses them. `find_code` is only the fallback of Known Limitation #4, for a recipe that errors or finds nothing where the file holds exports
 - Label each export by the tool that produced it: an export an ast-grep rule matched is T1 (AST-verified structural truth) with `extraction_method: ast-grep` and the `kind` the matching pattern or recipe declares as `ast_node_type`; an export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched) is T1-low with `extraction_method: source-read` and `ast_node_type: null`
 
-**Tier degradation handling (Forge/Forge+/Deep):** If ast-grep is unavailable or fails on individual files, follow `{tierDegradationRulesData}` (AST Tool Unavailable, Per-File AST Failure) for the fallback and the user notification. A file ast-grep cannot parse falls back to reading that file only: its exports are T1-low with `extraction_method: source-read` and `ast_node_type: null`, and exports ast-grep matched in other files stay T1. Silent degradation is forbidden: the run names each file read after an ast-grep failure, and why (§3, §5). When ast-grep is unavailable for the whole run, every export is T1-low and `ast_fallback_files` records `all files (ast-grep unavailable)`.
+**Tier degradation handling (Forge/Forge+/Deep):** If ast-grep is unavailable or fails on individual files, follow `{tierDegradationRulesData}` (AST Tool Unavailable, Per-File AST Failure) for the fallback and the user notification. A file ast-grep cannot parse falls back to reading that file only: its exports are T1-low with `extraction_method: source-read` and `ast_node_type: null`, and exports ast-grep matched in other files stay T1. Silent degradation is forbidden: the run names each file read after an ast-grep failure, and why (§3, §4). When ast-grep is unavailable for the whole run, every export is T1-low and `ast_fallback_files` records `all files (ast-grep unavailable)`.
 
 **Forge+ tier (ast-grep + ccc available):**
 - Identical extraction to Forge tier (the AST Extraction Protocol, above)
 - Label each export by tool, as at Forge tier
-- CCC rename detection available (see section 4)
+- CCC rename detection runs in step 3 (`structural-diff.md` §1b), over the exports the diff reports removed
 
 **Deep tier (ast-grep + QMD available):**
 - Identical extraction to Forge tier, labeled by tool as at Forge tier
@@ -85,10 +85,12 @@ At Forge, Forge+ and Deep, run the recipes over the bounded scan list first (§1
 **For each file in the bounded scan list from §2, launch a subprocess that:**
 1. Loads the source file
 2. Extracts all public exports using tier-appropriate method
-3. Records: export name, type, signature, file path, line number, and the labels of the tool that produced it (`confidence`, `extraction_method`, `ast_node_type`, per §1)
+3. Records: export name, type, signature, file path, line number, the labels of the tool that produced it (`confidence`, `extraction_method`, `ast_node_type`, per §1) and, for a stack, its file's `source_library`
 4. Returns structured findings to parent
 
-**If ast-grep cannot parse a file** (Forge, Forge+ or Deep): read that file only, label its exports T1-low with `extraction_method: source-read` and `ast_node_type: null`, and warn: "**AST fallback:** ast-grep could not parse {file} ({reason}); its exports were read from source and labeled T1-low." Record the file in `ast_fallback_files` in workflow context: the §5 summary, the Structural Drift **Method:** line (step 3 §5) and the report's Provenance table (step 6 §3) read it.
+For a stack, the parent hands each worker its file's library, looked up once per file in the provenance map's `entries[]` (each entry's `source_file` and `source_library`).
+
+**If ast-grep cannot parse a file** (Forge, Forge+ or Deep): read that file only, label its exports T1-low with `extraction_method: source-read` and `ast_node_type: null`, and warn: "**AST fallback:** ast-grep could not parse {file} ({reason}); its exports were read from source and labeled T1-low." Record the file in `ast_fallback_files`: the §4 summary and the Structural Drift **Method:** line (step 3 §5) read it, and §5 writes it into the drift report's frontmatter for the report's Provenance table (step 6 §3).
 
 **If a file from the bounded scan list is missing on disk:** record `{file, exports: [], status: "missing"}` and continue — step 3 structural diff will classify exports previously at this path as DELETED.
 
@@ -112,34 +114,18 @@ At Forge, Forge+ and Deep, run the recipes over the bounded scan list first (§1
       "line": {line_number},
       "confidence": "T1|T1-low",
       "extraction_method": "ast-grep|source-read",
-      "ast_node_type": "{the kind the matching ast-grep pattern or recipe declares, or null}"
+      "ast_node_type": "{the kind the matching ast-grep pattern or recipe declares, or null}",
+      "source_library": "{a stack skill's library: the source_library of the provenance entries for its file; left out for a single skill}"
     }
   ]
 }
 ```
 
-`confidence_tier` holds the forge tier the re-index ran at, not a label. `confidence`, `extraction_method` and `ast_node_type` label the structural extraction by the tool that produced it (§1).
+`confidence_tier` holds the forge tier the re-index ran at, not a label. `confidence`, `extraction_method` and `ast_node_type` label the structural extraction by the tool that produced it (§1). A stack skill's exports carry `source_library` too, so step 3 diffs each library on its own.
 
 Record the written path as `{extractionSnapshot}` in workflow context — step 3 passes it to the deterministic structural-diff helper.
 
-### 4. CCC Rename Detection (Forge+ and Deep with ccc)
-
-**If `tools.ccc` is true in forge-tier.yaml:**
-
-For each export in the skill baseline that was NOT found at its recorded file path during re-extraction (potential "deleted" export):
-
-1. Run `ccc_bridge.search("{export_name}", source_root, top_k=5)` — **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc search --limit 5 "{export_name}"` (CLI) — to find candidate current locations. `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`) — see `knowledge/ccc-bridge.md`.
-2. If CCC returns files containing the export name:
-   - Run ast-grep verification on each candidate file
-   - If verified at a new location: reclassify from "deleted" to "moved" with the new file:line reference
-   - This reduces false-positive structural drift findings where exports were relocated, not removed
-3. If CCC returns no results or verification fails: keep the "deleted" classification
-
-CCC failures: skip rename detection silently, proceed with standard structural diff.
-
-**If `tools.ccc` is false:** Skip this section silently.
-
-### 5. Validate Extraction Completeness
+### 4. Validate Extraction Completeness
 
 "**Extraction complete.**
 
@@ -157,7 +143,7 @@ CCC failures: skip rename detection silently, proceed with standard structural d
 
 **Proceeding to structural comparison...**"
 
-### 6. Update Report and Auto-Proceed
+### 5. Update Report and Auto-Proceed
 
-Update {outputFile} frontmatter — append `'re-index'` to `stepsCompleted`. Once the extraction snapshot is complete with all source files processed, load, read fully, and execute `{nextStepFile}` (structural diff).
+Update {outputFile} frontmatter: append `'re-index'` to `stepsCompleted` and set `ast_fallback_files` to the files §3 read after an ast-grep failure (an empty list when there were none, and at Quick tier). Once the extraction snapshot is complete with all source files processed, load, read fully, and execute `{nextStepFile}` (structural diff).
 

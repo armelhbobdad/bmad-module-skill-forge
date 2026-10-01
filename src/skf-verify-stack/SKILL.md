@@ -7,7 +7,7 @@ description: Pre-code stack feasibility verification against architecture and PR
 
 ## Overview
 
-Cross-references generated skills against architecture and PRD documents to produce a feasibility report with evidence-backed integration verdicts, coverage analysis, and requirements mapping. Read-only: it reads skills and input documents and writes only the feasibility report (see Workflow Rules).
+Cross-references generated skills against architecture and PRD documents to produce a feasibility report with evidence-backed integration verdicts, coverage analysis, and requirements mapping. Read-only: it reads skills and input documents and writes only the feasibility report, its result files and a scratch run folder (see Workflow Rules).
 
 **Schema contract:** This skill is the producer of the SKF shared feasibility report schema — every report conforms to it.
 
@@ -33,8 +33,11 @@ These rules apply to every step in this workflow:
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
-- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
-- Every helper a stage runs (a `scripts/` file, or a shared helper from the stage's probe order) is required: if the probe order resolves to no path, or the helper cannot start, HALT (exit code 3, `halt_reason: "resolution-failure"`; in headless, emit the error envelope). Never recompute a helper's result by hand: the main-thread rule above covers subagent work, not helpers.
+- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; a gate that picks its default for the user (step 1's offer of the newest earlier report) also records that decision in the run sink the moment it decides
+- Every helper a stage runs (a `scripts/` file, or a shared helper from the stage's probe order) is required: if the probe order resolves to no path, or the helper cannot start, HALT (exit code 3, `halt_reason: "resolution-failure"`) at the stage's phase, through the stage's halt envelope. Never recompute a helper's result by hand: the main-thread rule above covers subagent work, not helpers.
+- Every HARD HALT names its exit code, `halt_reason` and phase, and in headless mode prints its envelope through the shared emitter, with the command each stage file shows (`references/exit-codes.md` describes the envelope).
+- Stages 1 to 5 write only the timestamped report `{outputFile}`, and each write that fails halts (exit code 4, `halt_reason: "write-failed"`). Step 6 copies the report to `{outputFileLatest}` only after it passes the feasibility-report check, so a run that halts before then leaves the previous finished copy, the one consumers read, in place.
+- Run state lives in `{run_dir}`, not in context; step 6 deletes it, a HALT keeps it.
 
 ## Stages
 
@@ -55,19 +58,13 @@ These rules apply to every step in this workflow:
 | **Inputs** | architecture_doc_path [required], prd_path [optional], previous_report_path [optional] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--prd <path>` (skip step 1 prompt for the optional PRD); `--previous-report <path>` (skip step 1 prompt for delta comparison) |
 | **Gates** | step 1 Input Gate (use args), including the offer to compare against the newest earlier report (headless default: use it). No later stage waits for input: a run with 0% coverage or only Blocked pairs prints one warning and continues, so its report still carries the recommendations. |
-| **Outputs** | `feasibility-report-{projectSlug}-{timestamp}.md` and `feasibility-report-{projectSlug}-latest.md` (copy, not symlink) per the SKF shared feasibility report schema (`_bmad/skf/shared/references/feasibility-report-schema.md`; `src/shared/references/…` in a dev checkout) — with integration verdicts, coverage analysis, recommendations, and evidence sources; plus `verify-stack-result-{timestamp}.json` and `verify-stack-result-latest.json` |
+| **Outputs** | `feasibility-report-{project_slug}-{timestamp}.md` and its `feasibility-report-{project_slug}-latest.md` copy (not a symlink), written by step 6 once the finished report passes the feasibility-report check, both per the SKF shared feasibility report schema (`{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md`; `{project-root}/src/shared/references/feasibility-report-schema.md` in a dev checkout), with integration verdicts, coverage analysis, recommendations, and evidence sources; plus `verify-stack-result-{YYYYMMDD-HHmmss}.json` and `verify-stack-result-latest.json` in `{forge_data_folder}` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--prd`, `--previous-report`) consumed at the gates that would otherwise prompt. |
 | **Exit codes** | See `references/exit-codes.md` |
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every headless hard halt emits the same envelope shape on **stderr** with `status: "error"`:
-
-```
-SKF_VERIFY_STACK_RESULT_JSON: {"status":"success|error","report_path":"…|null","report_latest_path":"…|null","overall_verdict":"…|null","coverage_percentage":0,"recommendation_count":0,"exit_code":0,"halt_reason":null}
-```
-
-`status` is `"success"` on the terminal happy path, `"error"` on any halt. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"skills-folder-missing"`, `"insufficient-skills"`, `"forge-folder-unconfigured"`, `"resolution-failure"`, `"previous-report-collision"`, `"inventory-unreliable"`, `"schema-violation"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches `references/exit-codes.md`. `overall_verdict` uses the schema tokens (`FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`).
+When `{headless_mode}` is true, step 6 prints one `SKF_VERIFY_STACK_RESULT_JSON: {...}` line on **stdout** and every HARD HALT one on **stderr**, built by the shared emitter: `references/exit-codes.md` gives its fields, the `halt_reason` values and the halt command.
 
 ## On Activation
 
@@ -79,6 +76,7 @@ SKF_VERIFY_STACK_RESULT_JSON: {"status":"success|error","report_path":"…|null"
    - `timestamp` ← UTC `YYYYMMDD-HHmmss` captured at activation time
    - `project_slug` is bound by init.md before its §1, from the shared feasibility-report helper, which holds the one slug rule the consumers of this report also apply; never slugify `project_name` by hand
    - The two combine in init.md §4 into `{outputFile}` and `{outputFileLatest}` per the stage frontmatter template, and stay fixed for the whole run, so every later reference to either file resolves to the same path.
+   - `run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-verify-stack-{timestamp}`, the run folder init.md creates first
 
 3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
@@ -110,14 +108,6 @@ SKF_VERIFY_STACK_RESULT_JSON: {"status":"success|error","report_path":"…|null"
 
    Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries load their file/glob contents as facts — the bundled default glob is `{project-root}/**/project-context.md`); then execute each entry in `workflow.activation_steps_append` after activation completes.
 
-5. **Pre-flight write probe.** Verify `{outputFolderPath}` is writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces at init.md §4 atomic write — by then the user has already gone through the input prompts:
-
-   ```bash
-   mkdir -p "{outputFolderPath}" && \
-     printf 'probe' > "{outputFolderPath}/.skf-write-probe" && \
-     rm "{outputFolderPath}/.skf-write-probe"
-   ```
-
-   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, emit the error envelope per **Result Contract (Headless)** with `report_path: null`, `report_latest_path: null`, `overall_verdict: null`.
+5. **Pre-flight: the emitter.** Before the first prompt, resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists). If neither exists, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `on-activation:emitter` and display only: "Verify Stack cannot run without `skf-emit-result-envelope.py`, which is not installed. Re-install SKF."
 
 6. Load, read the full file, and then execute `references/init.md` to begin the workflow.

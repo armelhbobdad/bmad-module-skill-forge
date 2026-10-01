@@ -12,6 +12,8 @@ CLI:
   python3 skf-severity-classify.py findings.json [-o result.json]
   python3 skf-severity-classify.py - < findings.json
   python3 skf-severity-classify.py --from-diff structural-diff.json [-o findings.json]
+  python3 skf-severity-classify.py [--from-diff DIFF] [--file-drift FILE] [--constituents FILE]
+                                   [--semantic FILE] [-o findings.json]
   python3 skf-severity-classify.py --rules [--format json|markdown]
 
 Classify (the default mode):
@@ -86,6 +88,27 @@ Classify (the default mode):
   label_changes[] and signature_unverified[] are never findings. Only the
   categories with category_choices need judgment; the rest are fixed.
 
+--file-drift FILE, --constituents FILE, --semantic FILE:
+  Project the other drift sources into the same findings array, after the
+  diff's findings and in this order. A hash comparison labels no export,
+  so its findings carry a null line and confidence:
+    --file-drift    a skf-compare-file-hashes.py compare result: each
+                    added[] path is added/file, each removed[] path
+                    removed/file and each changed[] item changed/file,
+                    with the path as name and file
+    --constituents  a skf-hash-content.py compare-constituent-hashes
+                    result: each drifted[] entry is changed/constituent
+                    (detail "metadata.json <stored> -> <current>"), each
+                    missing[] entry removed/constituent (its reason as the
+                    detail), with skill_name as name and skill_path as
+                    file; fresh[] and skipped_null_hash[] are no findings
+    --semantic      the semantic diff's findings, an array of objects whose
+                    type is semantic, kept as written
+  Each may be given with or without --from-diff. A FILE of these three
+  that does not exist is skipped (the stage that saves it did not run),
+  but at least one source file must exist. The summary line's sources
+  gives the findings each flag added, or null for a skipped file.
+
 --rules:
   Prints the rule table: each rule's severity and text, and the types and
   categories it accepts, as JSON
@@ -97,8 +120,10 @@ Classify (the default mode):
 Exit codes:
   0  output written
   1  input error: unreadable or invalid JSON, not a findings array, a
-     finding that fits no rule, or a --from-diff file that is not a
-     structural diff ({status: "error", ...} on stdout)
+     finding that fits no rule, a source file that is not what its flag
+     reads, no source file that exists, or an -o FILE that cannot be
+     written (an error that starts "Cannot write output")
+     ({status: "error", ...} on stdout)
   2  usage error (argparse, usage on stderr)
 """
 
@@ -439,6 +464,104 @@ def project_diff(diff):
     return findings
 
 
+def _lists(data, keys, what):
+    """Raise ValueError unless data is an object holding a list at each key."""
+    if not isinstance(data, dict) or not all(isinstance(data.get(k), list) for k in keys):
+        raise ValueError(f"not {what}: expected an object with {', '.join(keys)} lists")
+
+
+def project_file_drift(data):
+    """The findings for a skf-compare-file-hashes.py compare result (see --file-drift).
+
+    Raises ValueError when data is not one.
+    """
+    _lists(data, ("added", "removed", "changed"),
+           "a file drift result (the output of skf-compare-file-hashes.py compare)")
+    findings = []
+    for f_type, detail in (("added", "new file"), ("removed", "file removed")):
+        for path in data[f_type]:
+            if isinstance(path, str):
+                findings.append(_finding(f_type, "file", {"name": path, "file": path}, detail))
+    for item in data["changed"]:
+        if isinstance(item, dict):
+            path = item.get("path")
+            detail = f"content {item.get('stored_hash')} -> {item.get('current_hash')}"
+            findings.append(_finding("changed", "file", {"name": path, "file": path}, detail))
+    return findings
+
+
+def project_constituents(data):
+    """The findings for a skf-hash-content.py compare-constituent-hashes result
+    (see --constituents).
+
+    Raises ValueError when data is not one.
+    """
+    _lists(data, ("drifted", "missing"),
+           "a constituent freshness result (the output of skf-hash-content.py compare-constituent-hashes)")
+    findings = []
+    for rec in data["drifted"]:
+        if isinstance(rec, dict):
+            detail = f"metadata.json {rec.get('stored_hash')} -> {rec.get('current_hash')}"
+            findings.append(_finding("changed", "constituent",
+                                     {"name": rec.get("skill_name"), "file": rec.get("skill_path")}, detail))
+    for rec in data["missing"]:
+        if isinstance(rec, dict):
+            findings.append(_finding("removed", "constituent",
+                                     {"name": rec.get("skill_name"), "file": rec.get("skill_path")},
+                                     rec.get("reason")))
+    return findings
+
+
+def project_semantic(data):
+    """The semantic diff's findings, kept as written (see --semantic).
+
+    Raises ValueError unless data is an array of semantic findings.
+    """
+    if not isinstance(data, list) or not all(
+            isinstance(f, dict) and _norm(f.get("type")) == "semantic" for f in data):
+        raise ValueError("not a semantic findings file: expected an array of objects whose type is semantic")
+    return list(data)
+
+
+# Each projection source: its name in the summary line, its argparse dest,
+# its projection, and whether a file that does not exist is skipped.
+SOURCES = (
+    ("diff", "from_diff", project_diff, False),
+    ("file_drift", "file_drift", project_file_drift, True),
+    ("constituents", "constituents", project_constituents, True),
+    ("semantic", "semantic", project_semantic, True),
+)
+
+
+def project_sources(paths):
+    """(findings, sources) for the projection flags.
+
+    paths maps each source name to its file, or None when its flag is not
+    given. sources gives the findings each given flag added, or None for a
+    skipped file. Raises ValueError, naming the file, when a file cannot be
+    read or is not what its flag reads, or when no source file exists.
+    """
+    findings, sources = [], {}
+    for name, _, project, optional in SOURCES:
+        path = paths.get(name)
+        if path is None:
+            continue
+        path = Path(path)
+        if optional and not path.exists():
+            sources[name] = None
+            continue
+        try:
+            part = project(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, ValueError) as e:
+            # json.JSONDecodeError is a ValueError.
+            raise ValueError(f"{path}: {e}") from e
+        findings.extend(part)
+        sources[name] = len(part)
+    if sources and all(count is None for count in sources.values()):
+        raise ValueError("none of the source files exists: " + ", ".join(str(paths[n]) for n in sources))
+    return findings, sources
+
+
 # --------------------------------------------------------------------------
 # --rules
 # --------------------------------------------------------------------------
@@ -514,6 +637,21 @@ def _build_parser():
         help="project a skf-structural-diff.py result file into a findings array",
     )
     parser.add_argument(
+        "--file-drift",
+        metavar="FILE",
+        help="also project a skf-compare-file-hashes.py compare result (skipped when FILE does not exist)",
+    )
+    parser.add_argument(
+        "--constituents",
+        metavar="FILE",
+        help="also project a compare-constituent-hashes result (skipped when FILE does not exist)",
+    )
+    parser.add_argument(
+        "--semantic",
+        metavar="FILE",
+        help="also add the semantic diff's findings array (skipped when FILE does not exist)",
+    )
+    parser.add_argument(
         "--rules",
         action="store_true",
         help="print the rule table: severities and the accepted type/category pairs",
@@ -549,9 +687,12 @@ def _emit(text, output, summary):
 def main(argv=None):
     parser = _build_parser()
     args = parser.parse_args(argv)
-    modes = [args.findings is not None, args.from_diff is not None, args.rules]
+    paths = {name: getattr(args, dest) for name, dest, _, _ in SOURCES}
+    projecting = any(path is not None for path in paths.values())
+    modes = [args.findings is not None, projecting, args.rules]
     if sum(modes) != 1:
-        parser.error("give exactly one of FINDINGS, --from-diff DIFF or --rules")
+        parser.error("give exactly one of FINDINGS, the projection flags (--from-diff, --file-drift, "
+                     "--constituents, --semantic) or --rules")
     if args.format and not args.rules:
         parser.error("--format applies to --rules only")
 
@@ -561,16 +702,16 @@ def main(argv=None):
         else:
             text = json.dumps(rules_table(), indent=2)
         failed = _emit(text, args.output, {})
-    elif args.from_diff is not None:
+    elif projecting:
         try:
-            findings = project_diff(json.loads(Path(args.from_diff).read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError, ValueError) as e:
-            # json.JSONDecodeError is a ValueError.
+            findings, sources = project_sources(paths)
+        except ValueError as e:
             print(json.dumps(_error(str(e)), indent=2))
             return 1
         failed = _emit(json.dumps(findings, indent=2), args.output, {
             "findings": len(findings),
             "needs_judgment": sum(1 for f in findings if "category_choices" in f),
+            "sources": sources,
         })
     else:
         try:

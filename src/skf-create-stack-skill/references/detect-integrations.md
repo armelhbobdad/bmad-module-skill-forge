@@ -9,6 +9,9 @@ comentionProbeOrder:
 validateFeasibilityReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
   - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
+renderStackMetadataProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
+  - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -28,15 +31,11 @@ Analyze co-import patterns between confirmed libraries to identify integration p
 
 ### 1. Generate Library Pairs
 
-**If `compose_mode` is true:**
-
-Skip the file-list intersection. Step 3 counts no imports in compose mode, so the per-library file lists this pass intersects do not exist, and the §2 compose branch builds the compose-mode pair set itself: architecture-document co-mentions, or shared-domain inference when no architecture document is available.
-
-Skip to [Detect Co-Import Files](#2-detect-co-import-files).
+**If `compose_mode` is true:** step 3 counts no imports, so there are no per-library file lists to intersect: the §2 compose branch finds the candidates. Skip to [Detect Co-Import Files](#2-detect-co-import-files).
 
 **If not compose_mode:**
 
-From `confirmed_dependencies`, conceptually you have N*(N-1)/2 unordered pairs. Rather than enumerating and grep-testing each one, prune the matrix via a deterministic **file-list intersection fast path** (MANDATORY first pass, all N): pairs whose per-library file lists do not overlap cannot be integration candidates by construction — drop them. Subsequent grep passes (§2) run only against pairs with a non-empty intersection, and grep scope is restricted to those intersection files rather than the whole source tree. This is NOT a "subprocess-unavailable" fallback; it is the default strategy for every N. Rationale: at N≈21 this collapses 210 prescribed pair greps to ~12 non-empty-intersection pairs in typical codebases; at larger N the compression is even greater.
+Of the N*(N-1)/2 pairs of `confirmed_dependencies`, only those whose per-library file lists overlap can integrate. This pass finds them for every N, and §2 greps each such pair's intersection files only.
 
 **Compute the intersection deterministically via the shared script:**
 
@@ -54,18 +53,10 @@ From `confirmed_dependencies`, conceptually you have N*(N-1)/2 unordered pairs. 
    ```bash
    uv run {pairIntersectHelper} intersect --libraries -
    ```
-   piping the libraries JSON on stdin. The script emits:
-   ```json
-   {
-     "pairs": [{"a": "<lib>", "b": "<lib>", "intersection_count": N, "files": [...]}, ...],
-     "truncated": <bool>,
-     "total_pairs": <int>
-   }
-   ```
-   `pairs[]` is sorted by `intersection_count` DESC, then `(a, b)` ASC for stable ordering. Default Top-K cap is **20** (matches S7 below); pass `--top-k N` to override.
-3. **Parse the JSON result** and use `pairs[]` as the qualifying-pair set for §2 onward. The `intersection_count` is the candidate file count for the §2 2-file threshold pre-grep; `files[]` is the grep-scope for that pair.
+   piping the libraries JSON on stdin. It emits `pairs[]` (`a`, `b`, `intersection_count`, `files`), sorted by `intersection_count` and capped at the Top-K below, with `truncated` and `total_pairs`.
+3. **Use `pairs[]` as the qualifying-pair set** for §2 onward: each pair's `files[]` is its grep scope.
 
-**Top-K cap (S7, 20):** If the script's response has `truncated: true`, more pairs than the cap had non-empty intersections. Surface a user-visible warning composed as: `"non-empty-intersection pair count {total_pairs} exceeds cap — analyzing top 20 by intersection size; {total_pairs - 20} pairs skipped"`. Record this cap in the evidence report. (Tie-break by intersection size is what the script sorts on; if you need to override the cap intentionally, pass `--top-k N` and document the rationale.) The cap is a second-order safety limit, not a primary strategy — the file-intersection prune does the bulk of the work.
+**Top-K cap (S7, 20):** When the script reports `truncated: true`, warn the user: `"non-empty-intersection pair count {total_pairs} exceeds cap: analyzing top 20 by intersection size; {total_pairs - 20} pairs skipped"`, and record the cap in the evidence report.
 
 Report: "**Analyzing {pair_count} library pairs for integration patterns** (pruned from {N*(N-1)/2} via file-list intersection; {capped_count} after Top-K if applicable)**...**"
 
@@ -73,75 +64,64 @@ Report: "**Analyzing {pair_count} library pairs for integration patterns** (prun
 
 **If `compose_mode` is true:**
 
-Instead of co-import grep, detect integrations from architecture document:
+A helper reports candidate pairs with their evidence; a candidate becomes an integration only when that evidence shows how the two libraries work together.
 
-1. Load `{composeModeRulesPath}` for integration evidence format rules
-2. **If `{architecture_doc_path}` is null or not available:** Skip directly to the "If no architecture document available" fallback below
-3. **Compute qualifying co-mention pairs deterministically via the shared script.** The precision guards (word-boundary matching `\b{skill_name}\b` case-insensitive to reject substrings like `react` inside `reactive`; H1/H2 section exclusion for headers that normalise to `introduction`, `overview`, `glossary`, `table of contents`, `references`, `appendix`, or `index`, with heading text itself never a co-mention source; and the ≥2-distinct-body-paragraph gate) are a scan-and-count with one correct answer per `(architecture_doc, skill-name-set)` — do not perform them in-prompt. Risks and rationale stay documented in `{composeModeRulesPath}` under "Compose-mode co-mention precision".
-
-   **Resolve `{comentionHelper}`** from `{comentionProbeOrder}`; first existing path wins.
+1. Load `{composeModeRulesPath}` for the integration evidence format and labels
+2. **If `{architecture_doc_path}` is null or not available:** skip to the **No architecture document** path below
+3. **Find the candidates with the shared script**, which applies the co-mention guards `{composeModeRulesPath}` documents (never apply them in-prompt). **Resolve `{comentionHelper}`** from `{comentionProbeOrder}`; first existing path wins.
 
    ```bash
    uv run {comentionHelper} comention --doc {architecture_doc_path} --skills -
    ```
-   piping the loaded skill names — the `confirmed_dependencies` names — as a JSON array on stdin (e.g. `["react", "express"]`; use a temp file under `{forge_data_folder}/` if stdin piping is unavailable). The script emits:
-   ```json
-   {
-     "pairs": [
-       {"a": "<skill>", "b": "<skill>", "paragraph_count": N,
-        "evidence": [{"header": "<governing-header-or-null>", "excerpt": "<text>"}, ...]},
-       ...
-     ],
-     "excluded_section_count": M
-   }
-   ```
-   `pairs[]` contains only qualifying pairs (≥2 distinct body paragraphs), sorted by `paragraph_count` DESC then `(a, b)` ASC. Use `pairs[]` as the detected-integration-pair set for step 4 onward; each pair's `evidence[]` supplies the governing header and paragraph excerpts to quote as architecture-reference evidence.
+   piping the `confirmed_dependencies` names as a JSON array on stdin (e.g. `["react", "express"]`; use a temp file under `{forge_data_folder}/` if stdin piping is unavailable). Each pair of its `pairs[]` has `comention_count`, `lead_in_count` and one `evidence[]` entry per body paragraph naming both, of `kind` `co-mention` (one run of prose, list item, table row or code line names both), `lead-in` (prose names one, an item or row under it the other) or `list-only` (separate items only, as a Tech Stack table gives every pair); `unit_excerpt` quotes a co-mention or lead-in, from `unit_line`. A lead-in with a blank line before its list gives no evidence.
 
-   **Graceful degradation:** if no `{comentionProbeOrder}` candidate exists (e.g. `uv` unavailable on claude.ai web), perform the equivalent scan directly per the guards above and the script's `--help` contract, then proceed with the same qualifying-pair set.
-4. For each detected integration pair (from `pairs[]`):
-   - Load both skills' export lists and API signatures
-   - Compose an integration section following the format from `{composeModeRulesPath}`
-   - Include VS feasibility verdict if a feasibility report matching the filename pattern defined in `src/shared/references/feasibility-report-schema.md` exists under `{forge_data_folder}/` (timestamped `feasibility-report-{project_slug}-{YYYYMMDD-HHmmss}.md` or the stable `feasibility-report-{project_slug}-latest.md` copy). Schema version `"1.0"` is required; see the schema for the full contract.
-   - Cite evidence from both skills: `[from skill: {skill_name}]`
+   **Graceful degradation:** if no `{comentionProbeOrder}` candidate exists (e.g. `uv` unavailable on claude.ai web), perform the equivalent scan directly per those guards and the script's `--help` contract, then proceed with the same candidates.
+4. **Drop the pairs that are only listed together.** A pair whose `comention_count` and `lead_in_count` are both 0 is no integration: drop it and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "info"`, `code: "comention-list-only"`, `message`: the pair and its `paragraph_count`), which the evidence report lists.
+5. **Confirm each remaining candidate** from the `unit_excerpt` of its `co-mention` and `lead-in` entries. Keep the pair only when an excerpt says how the two libraries work together: data flows from one to the other, one wraps or adapts the other, one configures or initializes the other, or one handles the other's events. The script reads fenced code as text, so a diagram line counts too: a Mermaid edge between the two (`react --> express`) shows data flow. Two names side by side ("built with React and Express") or an intro line that only names both does not confirm a pair. Drop each pair no excerpt confirms and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "comention-unconfirmed"`, `message`: the pair and the excerpts read).
+6. For each confirmed pair, compose an integration section in the evidence format of `{composeModeRulesPath}` from both skills' export lists and API signatures, with the confirming `unit_excerpt` as its architecture reference and the VS verdicts below. Its tier comes from `{renderStackMetadataHelper}` in §3 (see **Confidence Tier Inheritance** in `{composeModeRulesPath}`), and every compose-mode label takes the `[composed]` suffix except an inferred-shared-domain one.
 
-All integration evidence inherits confidence tiers from the source skills. Load and apply the **Confidence Tier Inheritance** rule from `{composeModeRulesPath}` to compute each pair's tier: the weaker of the two constituents' tiers, the rule §3 applies in both modes. Apply the `[composed]` suffix to all confidence labels, e.g. `T1 [composed]` or `T2 [composed]`.
+**VS verdicts (architecture-document pairs).** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}` (first existing path wins) and locate the [VS] report through it (see `shared/references/feasibility-report-schema.md`):
 
-**VS verdict parsing (if feasibility report exists):** The feasibility report format is defined by the shared schema at `src/shared/references/feasibility-report-schema.md` (single source of truth; skf-verify-stack is the producer, this skill is the consumer). Follow the schema strictly:
+```bash
+uv run {validateFeasibilityReportHelper} --locate "{forge_data_folder}" --project-name "{project_name}"
+```
 
-- Locate the report via the filename pattern in the schema: `{forge_data_folder}/feasibility-report-{project_slug}-{YYYYMMDD-HHmmss}.md` (or the stable `feasibility-report-{project_slug}-latest.md` copy next to it).
-- **Schema version guard (deterministic gate):** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}` (first existing path wins) and run it against the located report:
+Act on the first of these that applies:
 
-  ```bash
-  python3 {validateFeasibilityReportHelper} <located-report-path>
-  ```
-
-  Consume `schemaVersionOk` / `schemaVersionFound` from its JSON. If `schemaVersionOk` is false, HALT with `"feasibility-report schemaVersion mismatch: expected '1.0', got '{schemaVersionFound}' — refusing to proceed"`, then emit the result envelope on stderr per the Result Contract in SKILL.md and exit `2`. The script's structural findings (`headingsOk` / `orderViolations`) are advisory for this consumer — it gates only on schemaVersion. **If the helper does not resolve or cannot run,** parse the report's YAML frontmatter directly and compare `schemaVersion` to the literal `1.0`, applying the same HALT (a missing or mismatched version halts identically). Unknown versions are never interpreted.
+- **`status: "ok"`:** add each confirmed pair's `pairVerdicts` row (`lib_a` and `lib_b` in either order) and the `overallVerdict` to its evidence, as `{composeModeRulesPath}` shows.
+- **`status: "not-found"`, or no JSON** (no candidate resolves, or `uv` cannot run it): compose without VS verdicts. With no JSON, append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "vs-report-unread"`, `message`: the reason).
+- **`schemaVersionOk` is false:** never interpret the report. HALT with `"feasibility-report schemaVersion mismatch: expected '1.0', got '{schemaVersion}'; refusing to proceed"`, then emit the result envelope on stderr per the Result Contract in SKILL.md and exit `2`:
 
   ```
   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":2,"halt_reason":"schema-version-mismatch"}
   ```
-- Read `overallVerdict` from frontmatter (exactly one of `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE`).
-- Parse the `## Integration Verdicts` markdown table for per-pair verdicts (exactly one of `Verified|Plausible|Risky|Blocked`). Any unknown verdict token is a hard error per the schema — do not silently drop or map.
-- For each architecture-detected pair, include `VS overall: {overallVerdict}` and `VS pair: {verdict}` in the integration evidence per the format in `{composeModeRulesPath}`. VS verdicts do not apply to inferred integrations since the VS report operates on architecture-described interactions only. Additionally, flag any pairs where VS reported `Risky` or `Blocked` by appending a `[VS: Risky]` or `[VS: Blocked]` warning annotation to the integration entry.
+- **`unknownTokens` is not empty:** a verdict token outside the schema's set is a hard error, as the schema requires: HALT, naming each token with its line and pair, and never drop or map one.
+- **Any other exit `1`, or exit `2` with a JSON:** the report breaks the contract otherwise (a section missing or out of order, no verdict table or a second one) or could not be read. Read no verdict from it: compose without VS verdicts and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "vs-report-unusable"`, `message`: its `path` and each problem its JSON names, or its `error`).
 
-If no architecture document available:
-- Infer potential integrations from skills sharing the same `language` field or sharing domain keywords in their SKILL.md descriptions (use the `usage_patterns` and `exports` fields from `per_library_extractions[]` built in step 4, or reload SKILL.md from the version-aware path: use `skill_package_path` from step 2, or resolve via `{skills_output_folder}/{skill_dir}/active/{skill_dir}/SKILL.md` — see `knowledge/version-paths.md`)
-- Mark inferred integrations: `[inferred from shared domain]` — use this suffix instead of `[composed]` for inferred integrations
-- Inferred integrations qualify automatically — no file-count threshold applies
+**No architecture document.** Find the candidates in the constituents themselves, with `{comentionHelper}` resolved as in step 3:
+
+```bash
+uv run {comentionHelper} infer --skills - --top-k 20
+```
+
+piping one object per confirmed skill on stdin: `{"name": "<skill>", "keywords": ["<keyword>", ...], "language": "<language>", "docs": ["<path>", ...]}`. Its `keywords` are the domain terms its SKILL.md `description` names (such as `orm` or `validation`, never a language), `language` is the one step 2 read from its `metadata.json`, and `docs` are its `SKILL.md` and the `.md` files in its `references/`, under `skill_package_path`. A pair is a candidate only on this evidence, never on a shared language alone, and each candidate is judged like a co-mention:
+
+- **`docs-mention`:** one skill's own docs name the other; `excerpt` quotes the first such line (`doc`, `line`). Keep the pair as a `constituent-documented-contract` integration only when that line says how the two work together, never on a "see also" or "unlike" line.
+- **`shared-keywords`:** the two share a domain keyword. Keep the pair as an `inferred-shared-domain` integration only when both skills' descriptions and exports show how that domain makes them work together (one feeds, wraps, configures or consumes the other), never for two libraries that do the same job, such as `zod` and `yup` or `express` and `fastify`.
+
+Drop every other candidate and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "infer-unconfirmed"`, `message`: the pair and the evidence read). When `truncated` is true, record the cap as §1 does (`total_pairs` found, the top 20 analyzed); when `language_only_pair_count` is above 0, append an entry (`step: "step-05"`, `severity: "info"`, `code: "infer-language-only"`) giving that count. On exit `1` its stderr names the input it refused, such as a `docs` path that is missing, unreadable or not UTF-8: fix or drop it and run the call again. On exit `2`, or when no candidate resolves or `uv` cannot run it, compose with no inferred pairs and append an entry (`step: "step-05"`, `severity: "warn"`, `code: "infer-unavailable"`, `message`: the reason).
 
 Skip to section 3 (Classify Integration Types) with the compose-mode pairs.
 
 **If not compose_mode:**
 
-For each library pair (A, B):
+For each library pair (A, B) from §1:
 
-**Launch a subprocess** that greps across all source files to find files importing BOTH library A and library B. Return only file paths and import line numbers.
-
-**Subprocess resolution:** Use the Grep tool (Claude Code), built-in search (Cursor), or `grep`/`rg` (CLI). See `knowledge/tool-resolution.md`.
+**Launch a subprocess** that greps the pair's §1 intersection files (never the whole source tree) for files importing BOTH library A and library B. Return only file paths and import line numbers.
 
 **Subprocess returns:** `{pair: [A, B], co_import_files: [{path, line_A, line_B}], count: N}`
 
-**Note on file-list intersection:** per §1, the intersection has already been computed and the pair's `intersection_files` set is known. The grep below runs against that set only, not the whole source tree. If a subprocess is entirely unavailable, the intersection itself is the integration evidence — count the intersection files against the 2-file threshold below without the grep. The intersection is mandatory first-pass work, not a fallback.
+With no subprocess available, the intersection files are the evidence: count them against the threshold below.
 
 **Threshold:** A pair must have 2+ co-import files to qualify as an integration pattern (single file co-imports may be incidental).
 
@@ -165,20 +145,34 @@ CCC failures: skip augmentation silently, proceed with grep-only results.
 
 Load `{integrationPatternsPath}` for classification rules.
 
-For each qualifying pair, analyze to classify the integration type against those pattern types (**in compose-mode**: all architecture-document-detected pairs qualify automatically — the 2+ co-import file threshold applies only in code-mode; **in code-mode**: pair must have 2+ co-import files):
+For each qualifying pair, classify the integration type against those pattern types (**in compose mode**: the candidates §2 kept qualify, with no co-import file threshold; **in code mode**: a pair must have 2+ co-import files).
+
+**Pair tiers.** Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. It holds the one rule for an integration's tier in both modes, so no step works a tier out by hand. If no candidate exists, HALT with "**Cannot proceed.** `skf-render-stack-metadata.py` is missing, so no integration tier can be set. Re-install SKF, then re-run.", then emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3`:
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":3,"halt_reason":"resolution-failure"}
+```
+
+When at least one pair qualifies, run it once on all of them:
+
+```bash
+uv run {renderStackMetadataHelper} pair-tiers --input -
+```
+
+piping `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidence": "<its per_library_extractions[].confidence>"}, ...], "integrations": [{"a": "<library>", "b": "<library>"}, ...]}` on stdin, each qualifying pair once. Each entry of its `integrations[]` gives a pair's `tier`. On exit `2` its stderr names the input it refused, such as a pair naming a library the list lacks: fix the input and run it again.
 
 For each detected integration:
 - Identify the top 3 files demonstrating the pattern
 - Extract a brief description of how the libraries connect
-- **Assign confidence (M1/M3) — derive from per-library tiers + detection-method qualifier (NOT from AST):** integration detection here is grep + co-import (optionally CCC-augmented), never AST. The integration's confidence is the **weaker** of the two libraries' tiers from `per_library_extractions[]` (tie-break: T1-low > T1, T2 > T1-low, T3 > T2 — never overstate). Then append a detection-method qualifier:
-  - `grep-co-import` — the pair qualified via direct co-import grep (the default).
-  - `ccc-augmented` — the pair qualified only after CCC semantic search elevated it (per §2 CCC augmentation), and the post-hoc import verification (H3) confirmed both imports.
-  - `architecture-co-mention` — compose-mode pair qualified via word-boundary co-mention in the architecture document (per §2 H2 guards). Maps to `detection_method: architecture_co_mention` in `provenance-map.json`.
-  - `constituent-documented-contract` — compose-mode pair whose cross-library contract is documented in a constituent skill's integration docs (cited, e.g. a grep-verified upstream seam) but not co-mentioned in the architecture document. Maps to `detection_method: constituent_documented_contract` in `provenance-map.json`.
-  - `inferred-shared-domain` — compose-mode pair without an architecture document, inferred from shared `language` or domain keywords (no cited contract). Maps to `detection_method: inferred_from_shared_domain` in `provenance-map.json`.
-  - Render as `{tier} ({qualifier})` — e.g., `T1-low (grep-co-import)`, `T1 (ccc-augmented)`, `T1-low (architecture-co-mention) [composed]`. The `[composed]`/`[inferred from shared domain]` suffix from `{composeModeRulesPath}` is appended after the qualifier in compose-mode.
+- **Assign confidence (M1/M3): the pair's `tier` and a detection-method qualifier, never AST:** integration detection here is grep plus co-import (optionally CCC-augmented), or a compose-mode candidate §2 confirmed. Append the qualifier that says how the pair was found:
+  - `grep-co-import`: the pair qualified via direct co-import grep (the default).
+  - `ccc-augmented`: the pair qualified only after CCC semantic search elevated it (per §2 CCC augmentation), and the post-hoc import verification (H3) confirmed both imports.
+  - `architecture-co-mention`: compose-mode pair the architecture document names together, confirmed from its excerpt in §2. Maps to `detection_method: architecture_co_mention` in `provenance-map.json`.
+  - `constituent-documented-contract`: compose-mode pair with no architecture document whose contract a constituent's own docs state, a docs mention §2 confirmed. Maps to `detection_method: constituent_documented_contract` in `provenance-map.json`.
+  - `inferred-shared-domain`: compose-mode pair with no architecture document, a shared-keywords candidate §2 kept (no cited contract, never a shared language alone). Maps to `detection_method: inferred_from_shared_domain` in `provenance-map.json`.
+  - Render as `{tier} ({qualifier})`, e.g. `T1-low (grep-co-import)`, `T1 (ccc-augmented)`, `T1-low (architecture-co-mention) [composed]`. The `[composed]`/`[inferred from shared domain]` suffix from `{composeModeRulesPath}` is appended after the qualifier in compose-mode.
 
-  **Provenance ↔ SKILL.md tier parity:** The tier derived above is the single value for this edge — write the *same* tier to both the SKILL.md integration label and `provenance-map.json` `integrations[].confidence`. The detection-method qualifier (and the `provenance-map.json` `detection_method` it maps to) records *how* the edge was found and is orthogonal to confidence; it never forces the tier into a fixed band.
+  **Provenance ↔ SKILL.md tier parity:** write the pair's `tier` to both the SKILL.md integration label and `provenance-map.json` `integrations[].confidence`. The qualifier, and the `detection_method` it maps to, say how the edge was found and never change the tier.
 
 ### 4. Build Integration Graph
 

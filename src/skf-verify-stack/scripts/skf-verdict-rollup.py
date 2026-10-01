@@ -59,15 +59,30 @@ Input schema (one object; counts come straight from the report frontmatter/table
     "pairsVerified": <int>,
     "requirementsEvaluated": <bool>,         # optional (default false): requirementsPass == "completed"
     "requirementsNotAddressed": <int>,       # optional (default 0); ignored unless evaluated
-    "requirementsPartial": <int>             # optional (default 0); ignored unless evaluated
+    "requirementsPartial": <int>,            # optional (default 0); ignored unless evaluated
+    "replacedCount": <int>                   # optional (default 0): Replaced technologies (the coverage tally's replaced_count)
   }
 
 Output (stdout, one object):
   {
     "overallVerdict": "FEASIBLE" | "CONDITIONALLY_FEASIBLE" | "NOT_FEASIBLE",
     "matchedConditions": [<condition codes, in ladder order>],
-    "zeroPairsGuardFired": <bool>
+    "zeroPairsGuardFired": <bool>,
+    "recommendationCount": <int>,            # the sum of `recommendations`
+    "recommendations": {"blocked": <int>, "missing": <int>, "replaced": <int>,
+                        "risky": <int>, "plausible": <int>, "zeroPairs": 0 | 1,
+                        "notAddressed": <int>, "partial": <int>}
   }
+
+Recommendation count: synthesize.md section 2 writes one recommendation per
+finding that is not verified, so their number has one correct answer per input
+too: one per Blocked, Missing, Replaced, Risky (each circular-dependency row
+included, as the Risky count holds it) and Plausible item, one when the
+zero-integration-pairs guard fired, and, only when the requirements pass ran, one
+per Not Addressed or Partially Fulfilled requirement. `recommendations` gives each
+kind's share in the order synthesize.md lists them, and `recommendationCount` is
+their sum: the report's recommendationCount and the envelope's
+recommendation_count.
 
 Condition codes (stable; the prompt cites these when synthesizing the rationale):
   zero-coverage · blocked-integration · missing-coverage · risky-integration ·
@@ -94,7 +109,7 @@ REQUIRED_COUNTS = (
     "pairsPlausible",
     "pairsVerified",
 )
-OPTIONAL_COUNTS = ("requirementsNotAddressed", "requirementsPartial")
+OPTIONAL_COUNTS = ("requirementsNotAddressed", "requirementsPartial", "replacedCount")
 
 # The zero-pairs guard needs a pair that could have been found: two Covered
 # technologies (the schema's "two or more live technologies", all of them Covered
@@ -153,6 +168,7 @@ def rollup(inp):
     req_eval = bool(inp.get("requirementsEvaluated", False))
     not_addressed = inp.get("requirementsNotAddressed") or 0
     partial = inp.get("requirementsPartial") or 0
+    replaced = inp.get("replacedCount") or 0
     covered = inp["coveredCount"]
 
     matched: list[str] = []
@@ -199,10 +215,24 @@ def rollup(inp):
             verdict = "CONDITIONALLY_FEASIBLE"
         matched.append("zero-integration-pairs")
 
+    # One recommendation per finding that is not verified (synthesize.md section 2),
+    # in the order its recommendation list gives them.
+    recommendations = {
+        "blocked": blocked,
+        "missing": missing,
+        "replaced": replaced,
+        "risky": risky,
+        "plausible": plausible,
+        "zeroPairs": 1 if guard_fired else 0,
+        "notAddressed": not_addressed if req_eval else 0,
+        "partial": partial if req_eval else 0,
+    }
     return {
         "overallVerdict": verdict,
         "matchedConditions": matched,
         "zeroPairsGuardFired": guard_fired,
+        "recommendationCount": sum(recommendations.values()),
+        "recommendations": recommendations,
     }
 
 
@@ -265,5 +295,22 @@ def main(argv=None):
     return 0
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure the given streams to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which cannot print every character
+    of the --help text this module docstring supplies, and which garbles UTF-8
+    JSON piped into --stdin.
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdin, sys.stdout, sys.stderr)
     raise SystemExit(main())

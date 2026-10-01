@@ -156,18 +156,6 @@ diff_spec = importlib.util.spec_from_file_location("skf_diff_for_severity", DIFF
 diff_mod = importlib.util.module_from_spec(diff_spec)
 diff_spec.loader.exec_module(diff_mod)
 
-# Rules the helper grades that severity-rules.md does not state yet: the
-# audit-skill change that adopts --from-diff states each with this exact
-# text, and then deletes its entry here (test_new_rules_are_not_stated_yet
-# fails until it does).
-NEW_RULES = {
-    mod.LINE_ONLY_RULE: "LOW",
-    mod.CONSTITUENT_CHANGED_RULE: "HIGH",
-    mod.CONSTITUENT_MISSING_RULE: "MEDIUM",
-    mod.SCRIPT_ASSET_RULE: "MEDIUM",
-}
-
-
 def _rules_file_lines():
     """(severity, text) of each bullet under a severity heading of
     severity-rules.md, its **Impact:** line left out."""
@@ -194,7 +182,7 @@ def _grade(f_type, category, count=1):
 
 def test_the_rules_file_is_read():
     assert {level for level, _ in RULES_FILE_LINES} == set(mod.SEVERITIES)
-    assert len(RULES_FILE_LINES) >= 19
+    assert len(RULES_FILE_LINES) >= 23
 
 
 @pytest.mark.parametrize(
@@ -212,21 +200,10 @@ def test_each_rules_file_line_is_graded_by_the_helper(severity, text):
                 assert _grade(f_type, category, count) == severity, (f_type, category)
 
 
-def test_every_helper_rule_is_in_the_rules_file_or_new():
+def test_every_helper_rule_is_in_the_rules_file():
     stated = set(RULES_FILE_LINES)
     for rule in mod.RULES:
-        if (rule["severity"], rule["rule"]) in stated:
-            continue
-        assert NEW_RULES.get(rule["rule"]) == rule["severity"], rule["rule"]
-
-
-def test_new_rules_are_not_stated_yet():
-    # The carve-out expires with the line that ends it: once
-    # severity-rules.md states a rule, its NEW_RULES entry must go.
-    stated = {text for _, text in RULES_FILE_LINES}
-    for text in NEW_RULES:
-        assert text not in stated, f"severity-rules.md states {text!r}: delete its NEW_RULES entry"
-    assert set(NEW_RULES) <= {rule["rule"] for rule in mod.RULES}
+        assert (rule["severity"], rule["rule"]) in stated, f"severity-rules.md must state {rule['rule']}"
 
 
 def test_no_pair_reaches_two_rules_but_the_added_exports_threshold():
@@ -480,6 +457,113 @@ class TestFromDiff:
 
 
 # --------------------------------------------------------------------------
+# --file-drift, --constituents, --semantic: the other drift sources
+# --------------------------------------------------------------------------
+
+
+FILE_DRIFT = {"added": ["scripts/new.sh"], "removed": ["assets/old.json"],
+              "changed": [{"path": "scripts/run.sh", "stored_hash": "sha256:aa", "current_hash": "sha256:bb"}],
+              "stats": {"added": 1, "removed": 1, "changed": 1, "unchanged": 4}}
+FRESHNESS = {"drifted": [{"skill_name": "lib-a", "skill_path": "skills/lib-a/", "stored_hash": "sha256:aa",
+                          "current_hash": "sha256:bb"}],
+             "fresh": [{"skill_name": "lib-b"}],
+             "missing": [{"skill_name": "lib-c", "skill_path": "skills/lib-c/", "stored_hash": "sha256:cc",
+                          "reason": "metadata-not-found"}],
+             "skipped_null_hash": [{"skill_name": "lib-d"}],
+             "stats": {"total": 4, "drifted": 1, "fresh": 1, "missing": 1, "skipped_null_hash": 1}}
+
+
+class TestOtherSources:
+    def test_file_drift_rows_take_the_file_category(self):
+        findings = mod.project_file_drift(FILE_DRIFT)
+        assert [(f["type"], f["category"], f["name"], f["file"]) for f in findings] == [
+            ("added", "file", "scripts/new.sh", "scripts/new.sh"),
+            ("removed", "file", "assets/old.json", "assets/old.json"),
+            ("changed", "file", "scripts/run.sh", "scripts/run.sh")]
+        assert findings[2]["detail"] == "content sha256:aa -> sha256:bb"
+        assert all(f["line"] is None and f["confidence"] is None for f in findings)
+        assert [f["severity"] for f in classify_all(findings)["findings"]] == ["CRITICAL", "MEDIUM", "MEDIUM"]
+
+    def test_drifted_and_missing_constituents_are_findings(self):
+        findings = mod.project_constituents(FRESHNESS)
+        assert [(f["type"], f["category"], f["name"], f["file"], f["detail"]) for f in findings] == [
+            ("changed", "constituent", "lib-a", "skills/lib-a/", "metadata.json sha256:aa -> sha256:bb"),
+            ("removed", "constituent", "lib-c", "skills/lib-c/", "metadata-not-found")]
+        r = classify_all(findings)
+        assert r["by_severity"] == {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 1, "LOW": 0}
+
+    def test_semantic_findings_are_kept_as_written(self):
+        rows = [{"type": "semantic", "category": "convention", "name": "errors", "detail": "now raises",
+                 "file": None, "line": None, "confidence": "T2"}]
+        assert mod.project_semantic(rows) == rows
+        with pytest.raises(ValueError, match="not a semantic findings file"):
+            mod.project_semantic([{"type": "added", "category": "export"}])
+
+    @pytest.mark.parametrize("project,data", [
+        (mod.project_file_drift, {"added": [], "removed": []}),
+        (mod.project_constituents, {"drifted": []}),
+        (mod.project_constituents, [FRESHNESS]),
+    ], ids=["file-drift-partial", "constituents-partial", "constituents-array"])
+    def test_a_file_that_is_not_its_source_is_refused(self, project, data):
+        with pytest.raises(ValueError, match="^not a "):
+            project(data)
+
+    def test_sources_come_in_order_after_the_diff(self, tmp_path):
+        diff = _write_json(tmp_path / "structural-diff.json", _diff([_export("gone", "a.py", 1)], []))
+        drift = _write_json(tmp_path / "file-drift.json", FILE_DRIFT)
+        semantic = _write_json(tmp_path / "semantic-findings.json", [
+            {"type": "semantic", "category": "pattern", "name": "retry", "detail": "x"}])
+        findings = tmp_path / "findings.json"
+        res = _run_cli("--from-diff", str(diff), "--file-drift", str(drift), "--semantic", str(semantic),
+                       "-o", str(findings))
+        assert res.returncode == 0, res.stdout + res.stderr
+        line = json.loads(res.stdout)
+        assert line["sources"] == {"diff": 1, "file_drift": 3, "semantic": 1}
+        written = json.loads(findings.read_text(encoding="utf-8"))
+        assert [f["category"] for f in written] == ["export", "file", "file", "file", "pattern"]
+
+    def test_an_absent_optional_file_is_skipped(self, tmp_path):
+        diff = _write_json(tmp_path / "structural-diff.json", _diff([], []))
+        res = _run_cli("--from-diff", str(diff), "--file-drift", str(tmp_path / "file-drift.json"),
+                       "--semantic", str(tmp_path / "semantic-findings.json"))
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert json.loads(res.stdout) == []
+
+    def test_an_absent_diff_is_an_error(self, tmp_path):
+        res = _run_cli("--from-diff", str(tmp_path / "structural-diff.json"),
+                       "--file-drift", str(_write_json(tmp_path / "file-drift.json", FILE_DRIFT)))
+        assert res.returncode == 1
+        assert "structural-diff.json" in json.loads(res.stdout)["error"]
+
+    def test_constituents_alone_project_a_compose_stack(self, tmp_path):
+        freshness = _write_json(tmp_path / "constituent-freshness.json", FRESHNESS)
+        findings = tmp_path / "findings.json"
+        res = _run_cli("--constituents", str(freshness), "-o", str(findings))
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert json.loads(res.stdout)["sources"] == {"constituents": 2}
+        r = classify_all(json.loads(findings.read_text(encoding="utf-8")))
+        assert (r["drift_score"], r["by_severity"]["HIGH"]) == ("SIGNIFICANT", 1)
+
+    def test_no_source_file_is_an_error(self, tmp_path):
+        res = _run_cli("--constituents", str(tmp_path / "constituent-freshness.json"))
+        assert res.returncode == 1
+        assert json.loads(res.stdout)["error"].startswith("none of the source files exists")
+
+    def test_a_bad_source_file_is_named(self, tmp_path):
+        bad = tmp_path / "file-drift.json"
+        bad.write_bytes(b"{not json")
+        res = _run_cli("--file-drift", str(bad))
+        assert res.returncode == 1
+        assert json.loads(res.stdout)["error"].startswith(str(bad))
+
+    def test_an_output_that_cannot_be_written_says_so(self, tmp_path):
+        diff = _write_json(tmp_path / "structural-diff.json", _diff([], []))
+        res = _run_cli("--from-diff", str(diff), "-o", str(tmp_path / "absent" / "findings.json"))
+        assert res.returncode == 1
+        assert json.loads(res.stdout)["error"].startswith("Cannot write output")
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -531,7 +615,7 @@ class TestQuotesSurvive:
         res = _run_cli("--from-diff", str(diff), "-o", str(findings))
         assert res.returncode == 0, res.stdout
         assert json.loads(res.stdout) == {"status": "ok", "output": str(findings), "findings": 1,
-                                          "needs_judgment": 1}
+                                          "needs_judgment": 1, "sources": {"diff": 1}}
         result = tmp_path / "severity.json"
         res = _run_cli(str(findings), "-o", str(result))
         assert res.returncode == 0, res.stdout
@@ -560,8 +644,9 @@ class TestCli:
         assert "| CRITICAL | `changed` | `inheritance`, `interface`, `interface_contract` |" in res.stdout
 
     @pytest.mark.parametrize("args", [[], ["x.json", "--rules"], ["--from-diff", "d.json", "--rules"],
-                                      ["x.json", "--format", "markdown"]],
-                             ids=["none", "findings-and-rules", "diff-and-rules", "format-without-rules"])
+                                      ["x.json", "--format", "markdown"], ["x.json", "--constituents", "c.json"]],
+                             ids=["none", "findings-and-rules", "diff-and-rules", "format-without-rules",
+                                  "findings-and-constituents"])
     def test_usage_errors_exit_2(self, args):
         assert _run_cli(*args).returncode == 2
 
@@ -584,5 +669,6 @@ class TestCli:
     def test_help_prints_the_contract(self):
         res = _run_cli("--help")
         assert res.returncode == 0, res.stderr
-        for section in ("--from-diff DIFF:", "category_choices", "ambiguous_name", "--rules:", "Exit codes:"):
+        for section in ("--from-diff DIFF:", "--file-drift FILE, --constituents FILE, --semantic FILE:",
+                        "category_choices", "ambiguous_name", "--rules:", "Exit codes:"):
             assert section in res.stdout, section

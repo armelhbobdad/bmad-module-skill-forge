@@ -37,6 +37,7 @@ Subcommand:
           "bounded_scan_files": ["<rel-path, forward-slash>", ...],
           "is_stack_skill": <bool>,
           "legacy_stack_provenance": <bool>,
+          "compose_mode_stack": <bool>,
           "source_root": "<path or null>",
           "baseline_commit": "<sha or null>",
           "baseline_ref": "<ref or null>",
@@ -59,6 +60,11 @@ Subcommand:
         Note: detecting `is_stack_skill` for a v1 map by the presence of
         `libraries` alone (the documented behavior in init.md) is also
         honored — see condition handling in `detect_stack_flags`.
+        - `compose_mode_stack` is true for a stack whose map holds a
+          `constituents` list: the compose-mode variant create-stack-skill
+          writes, whose entries come from constituent skills rather than a
+          source tree. Audit-skill checks its constituents' freshness
+          instead of re-indexing a source.
 
       Re-export map: read `reexport_map` field directly from the provenance
       map if it exists (writer-side captures __init__.py walk results there).
@@ -326,6 +332,7 @@ def normalize(
         "bounded_scan_files": bounded_scan_files(data),
         "is_stack_skill": is_stack,
         "legacy_stack_provenance": legacy,
+        "compose_mode_stack": is_stack and isinstance(data.get("constituents"), list),
         "source_root": source_root,
         "baseline_commit": baseline_commit,
         "baseline_ref": baseline_ref,

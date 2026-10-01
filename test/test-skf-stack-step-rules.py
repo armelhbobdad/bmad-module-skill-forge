@@ -40,6 +40,24 @@ compose branch of the sections they govern.
 - Step 7's pre-commit gate runs skf-names-present.py on the compose-mode
   map before the commit, and that helper applies the rule skf-test-skill
   scores names by (#538).
+- One tier rule: step 5 §3 takes each pair's tier from
+  skf-render-stack-metadata.py (and halts with its envelope when the helper
+  is missing), compose-mode-rules and integration-patterns point at it, and
+  no step file restates the tier ordering; step 7 §6 takes metadata.json's
+  counts, lists, distribution, dominant tier and source_authority from it,
+  with the authority step 2 records; step 8 reads the validator's stack
+  structure pass instead of checking headings, keys and labels by hand, and
+  runs it again after §3 changes the package (#606).
+- Compose-mode pairs are candidates: step 5 §2 drops the pairs a document
+  only lists together, confirms the rest from their excerpts, finds pairs
+  with no architecture document by docs mentions or shared keywords (never
+  a shared language) and judges those too, writes each pair in an evidence
+  format whose label the structure pass reads, and locates the [VS] report
+  with --locate, an unknown verdict token staying a hard error (#582,
+  #590).
+- Step 7 §1 takes the stack version from skf-skill-inventory.py `version`
+  (#597), and §5 measures the snippet with skf-count-tokens.py, the count
+  the validator takes (#591).
 
 The step calls run as written, on small fixtures.
 
@@ -74,7 +92,9 @@ VALIDATE = REFS / "validate.md"
 DETECT = REFS / "detect-integrations.md"
 REPORT = REFS / "report.md"
 EXTRACT = REFS / "parallel-extract.md"
+MANIFESTS = REFS / "detect-manifests.md"
 COMPOSE_RULES = REFS / "compose-mode-rules.md"
+STACK_SKILL = STACK / "SKILL.md"
 STEP_FILES = sorted(REFS.glob("*.md"))
 TIERS = REPO_ROOT / "src" / "knowledge" / "confidence-tiers.md"
 SCRIPTS = REPO_ROOT / "src" / "shared" / "scripts"
@@ -82,6 +102,13 @@ STATS_HELPER = SCRIPTS / "skf-render-metadata-stats.py"
 VERIFIER = SCRIPTS / "skf-verify-provenance-completeness.py"
 ENUMERATE = SCRIPTS / "skf-enumerate-stack-skills.py"
 NAMES_HELPER = SCRIPTS / "skf-names-present.py"
+STACK_METADATA = SCRIPTS / "skf-render-stack-metadata.py"
+COMENTION = SCRIPTS / "skf-comention-pairs.py"
+FEASIBILITY = SCRIPTS / "skf-validate-feasibility-report.py"
+INVENTORY = SCRIPTS / "skf-skill-inventory.py"
+VALIDATOR = SCRIPTS / "skf-validate-output.py"
+COUNT_TOKENS = SCRIPTS / "skf-count-tokens.py"
+INTEGRATION_PATTERNS = REFS / "integration-patterns.md"
 RECONCILE = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "reconcile-coverage.py"
 NUMERATOR = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "verify-declared-numerator.py"
 
@@ -127,6 +154,14 @@ PAIRING_RE = re.compile(
     r'`extraction_method: "(\w+)"`, `confidence: "([\w-]+)"`, `signature_source: "([\w-]+)"`')
 # A pointer at the compose tier matrix the weaker-tier rule replaced.
 OLD_MATRIX_RE = re.compile(r"Inheritance\**\s+matrix|matrix above")
+# Prose that restates the tier ordering skf-render-stack-metadata.py holds:
+# an ordering of two tiers, a worked pair case, a tie-break or the authority
+# order.
+ORDERING_RE = re.compile(
+    r"T1-low\s*>\s*T1\b|T2\s*>\s*T1-low|T3\s*>\s*T2|\bis weaker than\b|\btie-break\b.*T1|highest count"
+    r"|official\s*>\s*community|" + PAIR_CASE_RE.pattern,
+    re.IGNORECASE,
+)
 
 
 def _read(path: Path) -> str:
@@ -678,10 +713,11 @@ def test_the_line_check_calls_run_as_written(tmp_path):
 
 
 def test_stack_distribution_counts_each_library_once():
-    (bullet,) = [line for line in _sections(_body(_read(GENERATE)))["6"].splitlines()
-                 if line.startswith("- `confidence_distribution`")]
-    for needle in ("`per_library_extractions[].confidence`", "`library_count`", "evidence report"):
-        assert needle in bullet, needle
+    six = _sections(_body(_read(GENERATE)))["6"]
+    # §6 pipes each library's step-4 tier to the helper, which bins each library once.
+    for needle in ("`confidence_distribution`", "per_library_extractions[].confidence", "`library_count`",
+                   "evidence report"):
+        assert needle in six, needle
     note = _h2_section(_read(TEMPLATE), "## metadata.json Structure").split("```")[-1]
     knowledge = _slice(_read(TIERS), "## Confidence Distribution in Metadata", "## Anti-Patterns")
     for where, text in (("the template note", note), ("confidence-tiers.md", knowledge)):
@@ -754,18 +790,539 @@ def test_compose_entries_carry_their_constituent_tier():
         assert "when it was forged" not in _read(path), f"{path.name} says a constituent checked the stack's labels"
 
 
-def test_compose_pairs_take_the_weaker_tier():
+def test_compose_pairs_take_the_helper_tier():
+    """#534, #606: a pair's tier is the helper's, the weaker of its two tiers, in both modes."""
     rules = _h2_section(_read(COMPOSE_RULES), "## Confidence Tier Inheritance")
-    cases = PAIR_CASE_RE.findall(rules)
-    assert len(cases) >= 2, "the rule lost its worked pair cases"
-    for a, b, c, d, tier in cases:
-        for x, y in ((a, b), (c, d)):
-            if x:
-                assert tier == _weaker(x, y), f"{x} + {y} gives {tier}, not the weaker tier"
+    assert "`skf-render-stack-metadata.py`" in rules and "`combine_pair_tier`" in rules
+    assert not PAIR_CASE_RE.search(rules), "compose-mode-rules still works pair cases out by hand"
     for path in (COMPOSE_RULES, DETECT):
         assert "+T2 annotations" not in _read(path), f"{path.name} still keeps a T2 pair at a stronger tier"
     for path in (COMPOSE_RULES, DETECT, SCHEMA):
         assert not OLD_MATRIX_RE.search(_read(path)), f"{path.name} still points at the old tier matrix"
+    helper = _load(STACK_METADATA, "skf_render_stack_metadata_stack_rules")
+    for mode in ("code", "compose"):
+        for a, b in (("T1", "T2"), ("T1-low", "T2"), ("T2", "T2"), ("T1", "T1-low"), ("T1-low", "T3")):
+            assert helper.combine_pair_tier(a, b, mode) == _weaker(a, b), (a, b, mode)
+
+
+# --- #606: one tier rule, one metadata projection, one structure pass -------------
+
+
+@pytest.mark.parametrize("path", [*STEP_FILES, TEMPLATE, SCHEMA], ids=lambda p: p.name)
+def test_no_step_file_restates_the_tier_ordering(path):
+    """The ordering lives in skf-render-stack-metadata.py; a step names the helper instead."""
+    hits = [m.group(0) for m in ORDERING_RE.finditer(_read(path))]
+    assert not hits, f"{path.name} restates the tier ordering: {hits}"
+
+
+@pytest.mark.parametrize("text", [
+    "tie-break: T1-low > T1, T2 > T1-low, T3 > T2",
+    "`T1-low` is weaker than `T1`",
+    "a T1 + T2 or T1-low + T2 pair is T2",
+    "Pick the tier with the highest count",
+    "the lowest authority among constituent skills (official > community > internal)",
+])
+def test_the_ordering_pattern_matches_a_restatement(text):
+    assert ORDERING_RE.search(text)
+
+
+def test_the_integration_label_names_the_helper_tier():
+    (line,) = [line for line in _read(INTEGRATION_PATTERNS).splitlines() if line.lstrip().startswith("Confidence:")]
+    assert "skf-render-stack-metadata.py" in line and "weaker" not in line, line
+    detect_2 = _sections(_body(_read(DETECT)))["2"]
+    compose = detect_2[:detect_2.index("**If not compose_mode:**")]
+    assert "{renderStackMetadataHelper}" in compose, "§2's compose tier line does not point at the helper"
+    assert "Confidence Tier Inheritance" in compose
+
+
+def _pair_tiers_call() -> str:
+    return _call(_sections(_body(_read(DETECT)))["3"], "renderStackMetadataHelper", "pair-tiers")
+
+
+def test_step_5_takes_each_pair_tier_from_the_helper():
+    text = _read(DETECT)
+    assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
+    three = _sections(_body(text))["3"]
+    assert "--input -" in _pair_tiers_call()
+    for needle in ('"mode": "code|compose"', "per_library_extractions[].confidence", "`tier`"):
+        assert needle in three, needle
+    assert "weaker" not in three, "§3 still states the tier rule itself"
+
+
+ENVELOPE_RE = re.compile(r"^SKF_STACK_RESULT_JSON: (\{.*\})$", re.MULTILINE)
+
+
+def test_a_missing_tier_helper_halts_with_its_envelope():
+    """Every HARD HALT carries an exit code and an envelope (SKILL.md Exit Codes, Result Contract)."""
+    three = _sections(_body(_read(DETECT)))["3"]
+    halt = _slice(three, "If no candidate exists, HALT", "When at least one pair qualifies")
+    (line,) = ENVELOPE_RE.findall(halt)
+    envelope = json.loads(line)
+    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("error", 3, "resolution-failure")
+    assert envelope["skill_package"] is None and envelope["stack_libraries"] == ["<confirmed-lib>", "..."]
+    # Step 7 §6 resolves the same helper after staging: it rolls back with the same code, not as a write failure.
+    six = _sections(_body(_read(GENERATE)))["6"]
+    assert "rollback contract from §1 with `exit_code` 3 and `halt_reason` `resolution-failure`" in six
+    (row,) = [line for line in _read(STACK_SKILL).splitlines()
+              if line.startswith("| 3 ") and "| resolution-failure " in line]
+    assert "step 5 §3 or step 7 §6 `skf-render-stack-metadata.py` missing" in row
+
+
+def test_step_2_records_the_authority_step_7_projects():
+    """§6 pipes each constituent's source_authority, so step 2 must still read it (#606)."""
+    six = _sections(_body(_read(GENERATE)))["6"]
+    assert '"source_authority": "<compose mode: the constituent\'s>"' in six
+    (read,) = [line for line in _sections(_body(_read(MANIFESTS)))["0"].splitlines()
+               if line.startswith("3. Read `metadata.json` from `skill_package_path`")]
+    assert "source_authority" in read, "step 2 no longer records each constituent's source_authority"
+
+
+def _stack_input(mode: str = "compose") -> dict:
+    return {
+        "mode": mode,
+        "libraries": [{"name": "react", "confidence": "T1", "source_authority": "community"},
+                      {"name": "express", "confidence": "T2", "source_authority": "internal"},
+                      {"name": "zod", "confidence": "T1-low"}],
+        "integrations": [{"a": "react", "b": "express"}, {"a": "react", "b": "zod"}],
+    }
+
+
+def _run_stack_metadata(call: str, payload: dict) -> dict:
+    argv = _argv(call, "renderStackMetadataHelper", {})
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *argv], input=json.dumps(payload),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_the_pair_tier_call_runs_as_written():
+    out = _run_stack_metadata(_pair_tiers_call(), _stack_input())
+    assert out["integrations"] == [{"a": "react", "b": "express", "tier": "T2"},
+                                   {"a": "react", "b": "zod", "tier": "T1-low"}]
+
+
+def _metadata_call() -> str:
+    return _call(_sections(_body(_read(GENERATE)))["6"], "renderStackMetadataHelper", "metadata")
+
+
+def test_step_7_writes_the_metadata_projection():
+    text = _read(GENERATE)
+    assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
+    six = _sections(_body(text))["6"]
+    for field in ("library_count", "integration_count", "libraries", "integration_pairs",
+                  "confidence_distribution", "confidence_tier", "source_authority"):
+        assert f"`{field}`" in six, field
+    assert "verbatim" in six and "rollback contract" in six
+    template_note = _h2_section(_read(TEMPLATE), "## metadata.json Structure").split("```")[-1]
+    assert "`skf-render-stack-metadata.py`" in template_note
+
+
+def test_the_metadata_call_runs_as_written():
+    """The distribution counts each library once and sums to library_count (#528)."""
+    out = _run_stack_metadata(_metadata_call(), _stack_input())
+    assert out["library_count"] == sum(out["confidence_distribution"].values()) == 3
+    assert out["confidence_distribution"] == {"t1": 1, "t1_low": 1, "t2": 1, "t3": 0}
+    assert out["confidence_tier"] == "T2"  # a tie goes to the weaker tier
+    assert out["source_authority"] == "internal"  # community and internal give internal
+    assert out["integration_pairs"] == [["react", "express"], ["react", "zod"]]
+    code = _run_stack_metadata(_metadata_call(), _stack_input("code"))
+    assert code["confidence_tier"] == out["confidence_tier"]
+
+
+VALIDATE_CHECKS = {"4": "skill_md", "5": "metadata", "6": "references", "7": "tier_labels"}
+
+
+def test_step_8_reads_the_structure_pass():
+    text = _read(VALIDATE)
+    sections = _sections(_body(text))
+    call = [line for line in _fence_lines(sections["1"]) if "{outputValidator}" in line]
+    assert len(call) == 1 and "--skill-type stack" in call[0] and "--forge-tier {forge_tier}" in call[0], call
+    assert "`validation.stack_structure`" in sections["1"]
+    for number, check in VALIDATE_CHECKS.items():
+        assert "`validation.stack_structure.issues[]`" in sections[number], number
+        assert f"`check` is `{check}`" in sections[number], number
+    assert "Scan all output files" not in sections["7"], "§7 still scans every output file by hand"
+    validator = _load(VALIDATOR, "skf_validate_output_stack_rules")
+    source = VALIDATOR.read_text(encoding="utf-8")
+    for check in VALIDATE_CHECKS.values():
+        assert f'"{check}"' in source, check
+    assert validator._STACK_RULES_HELPER == STACK_METADATA.name
+
+
+def test_the_validator_call_runs_as_written(tmp_path):
+    call = [line for line in _fence_lines(_sections(_body(_read(VALIDATE)))["1"]) if "{outputValidator}" in line][0]
+    package = tmp_path / "demo-stack"
+    package.mkdir()
+    args = shlex.split(call.split("python3 {outputValidator}", 1)[1].replace("{skill_package}", str(package))
+                       .replace("{forge_tier}", "Deep"))
+    result = subprocess.run([sys.executable, str(VALIDATOR), *args], capture_output=True, text=True)
+    out = json.loads(result.stdout)
+    assert set(out["validation"]) >= {"stack_counts", "stack_structure"}
+
+
+def test_a_changed_package_is_validated_again():
+    """§3's fixes and splits change the committed package after §1 ran: §4 to §8 read a run made after them."""
+    sections = _sections(_body(_read(VALIDATE)))
+    rerun = _from(sections["3"], "**Re-validate a changed package.**").split("\n\n", 1)[0]
+    for needle in ("`fixed[]` is non-empty", "a split ran", "the §1 `{outputValidator}` command again", "§4 to §8"):
+        assert needle in rerun, needle
+    assert "§4 to §8 read the latest run" in sections["1"]
+    for number in ("5", "7"):
+        assert "the latest output-validator run" in sections[number], number
+        assert "the §1 output-validator run" not in sections[number], number
+    # The section-by-section restatements of the validator's checks are gone: each section records by `check`.
+    for number in VALIDATE_CHECKS:
+        assert "The pass checks" not in sections[number] and "the pass looks for" not in sections[number], number
+
+
+# --- #582: compose-mode pairs are candidates, judged on their evidence ---------------
+
+
+def _compose_branch() -> str:
+    two = _sections(_body(_read(DETECT)))["2"]
+    return two[:two.index("**If not compose_mode:**")]
+
+
+def test_compose_candidates_are_judged_on_their_evidence():
+    branch = _compose_branch()
+    for needle in ("`comention_count`", "`lead_in_count`", "`list-only`", "`unit_excerpt`", "`unit_line`",
+                   "comention-list-only", "comention-unconfirmed", "`workflow_warnings[]`"):
+        assert needle in branch, needle
+    for stale in ("qualify automatically", "detected-integration-pair set", "same `language` field"):
+        assert stale not in _read(DETECT), stale
+    assert "the candidates §2 kept qualify" in _sections(_body(_read(DETECT)))["3"]
+    mapping = _h2_section(_read(COMPOSE_RULES), "## Architecture Integration Mapping")
+    for stale in ("A **co-mention** is detected when", "Complementary domain roles"):
+        assert stale not in mapping, stale
+    assert "`unit_excerpt`" in mapping
+
+
+def test_the_comention_call_runs_as_written(tmp_path):
+    call = _call(_compose_branch(), "comentionHelper", "comention")
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(
+        b"# Architecture\n\n## Tech Stack\n\n- react\n- express\n- zod\n\n"
+        b"## Components\n\n| Part | Library |\n|------|---------|\n| UI | react |\n| API | express |\n| Schemas | zod |\n\n"
+        b"## Data Flow\n\nThe react client posts forms to express, which validates them with zod.\n\n"
+        b"Every express handler parses its body with zod before it runs.\n"
+    )
+    argv = _argv(call, "comentionHelper", {"{architecture_doc_path}": str(doc)})
+    result = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react", "express", "zod"]',
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    pairs = {(p["a"], p["b"]): p for p in json.loads(result.stdout)["pairs"]}
+    # Listed together only in the Tech Stack list and the Components table, and
+    # named once in prose: dropped at §2 step 4 unless a unit names both.
+    assert set(pairs) == {("express", "react"), ("express", "zod"), ("react", "zod")}
+    confirmed = pairs[("express", "zod")]
+    assert confirmed["comention_count"] == 2
+    assert [e["kind"] for e in confirmed["evidence"]] == ["list-only", "list-only", "co-mention", "co-mention"]
+    assert all(e["unit_excerpt"] for e in confirmed["evidence"] if e["kind"] == "co-mention")
+
+
+def test_a_diagram_edge_is_a_co_mention(tmp_path):
+    """§2 step 5 counts a Mermaid edge as data flow: the script reads fenced code as text."""
+    assert "`react --> express`" in _compose_branch()
+    call = _call(_compose_branch(), "comentionHelper", "comention")
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(b"# Architecture\n\n## Flow\n\n```mermaid\ngraph LR\n  A[react] --> B[express]\n```\n\n"
+                    b"The react client calls express.\n")
+    argv = _argv(call, "comentionHelper", {"{architecture_doc_path}": str(doc)})
+    result = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react", "express"]',
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    (pair,) = json.loads(result.stdout)["pairs"]
+    assert [(e["kind"], e["unit_excerpt"]) for e in pair["evidence"]][0] == ("co-mention", "A[react] --> B[express]")
+
+
+def test_no_document_pairs_come_from_docs_or_keywords(tmp_path):
+    branch = _compose_branch()
+    for needle in ("`docs-mention`", "`shared-keywords`", "`language_only_pair_count`", "`truncated`",
+                   "never on a shared language alone", "infer-unconfirmed"):
+        assert needle in branch, needle
+    call = _call(branch, "comentionHelper", "infer")
+    assert "--top-k 20" in call
+    docs = tmp_path / "express.md"
+    docs.write_bytes(b"# express\n\nMount the passport middleware before the router.\n")
+    skills = [
+        {"name": "express", "keywords": ["http"], "language": "typescript", "docs": [str(docs)]},
+        {"name": "passport", "keywords": ["auth"], "language": "typescript", "docs": []},
+        {"name": "axios", "keywords": ["http"], "language": "typescript", "docs": []},
+        {"name": "zod", "keywords": ["validation"], "language": "typescript", "docs": []},
+    ]
+    argv = _argv(call, "comentionHelper", {})
+    result = subprocess.run([sys.executable, str(COMENTION), *argv], input=json.dumps(skills),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    kinds = {(p["a"], p["b"]): [e["kind"] for e in p["evidence"]] for p in out["pairs"]}
+    assert kinds == {("express", "passport"): ["docs-mention"], ("axios", "express"): ["shared-keywords"]}
+    assert out["language_only_pair_count"] == 4  # the typescript pairs with no evidence
+    rules = _h2_section(_read(COMPOSE_RULES), "## Inferred Integrations (No Architecture Document)")
+    assert "never on a shared language alone" in rules
+    assert "Infer potential integrations from skills sharing the same `language` field" not in rules
+
+
+def _infer_bullet(kind: str) -> str:
+    (bullet,) = [line for line in _compose_branch().splitlines() if line.startswith(f"- **`{kind}`:**")]
+    return bullet
+
+
+def test_shared_keyword_candidates_are_judged(tmp_path):
+    """A shared keyword makes a candidate, never an integration on its own (determinism-5, #582).
+
+    Libraries that do the same job share their domain keywords: the helper
+    reports such pairs, so the step judges every one before it keeps it.
+    """
+    shared = _infer_bullet("shared-keywords")
+    for needle in ("Keep the pair as an `inferred-shared-domain` integration only when",
+                   "both skills' descriptions and exports show how that domain makes them work together",
+                   "never for two libraries that do the same job"):
+        assert needle in shared, needle
+    assert "Keep the pair as a `constituent-documented-contract` integration only when" in _infer_bullet("docs-mention")
+    assert "finds and judges these pairs" in _h2_section(_read(COMPOSE_RULES),
+                                                          "## Inferred Integrations (No Architecture Document)")
+    call = _call(_compose_branch(), "comentionHelper", "infer")
+    skills = [{"name": name, "keywords": keywords, "language": "typescript", "docs": []}
+              for name, keywords in (("zod", ["validation", "schema"]), ("yup", ["validation", "schema"]),
+                                     ("express", ["http", "server"]), ("fastify", ["http", "server"]),
+                                     ("react", ["ui"]))]
+    result = subprocess.run([sys.executable, str(COMENTION), *_argv(call, "comentionHelper", {})],
+                            input=json.dumps(skills), capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    pairs = json.loads(result.stdout)["pairs"]
+    assert {(p["a"], p["b"]) for p in pairs} == {("express", "fastify"), ("yup", "zod")}
+    assert {e["kind"] for p in pairs for e in p["evidence"]} == {"shared-keywords"}
+
+
+def test_the_infer_call_failures_have_a_branch(tmp_path):
+    branch = _compose_branch()
+    infer = _from(branch, "**No architecture document.**")
+    assert "On exit `1` its stderr names the input it refused" in infer
+    assert '`code: "infer-unavailable"`' in infer and "compose with no inferred pairs" in infer
+    call = _call(branch, "comentionHelper", "infer")
+    missing = tmp_path / "express" / "SKILL.md"
+    skills = [{"name": "express", "docs": [str(missing)]}, {"name": "passport"}]
+    result = subprocess.run([sys.executable, str(COMENTION), *_argv(call, "comentionHelper", {})],
+                            input=json.dumps(skills), capture_output=True, text=True)
+    assert (result.returncode, result.stdout) == (1, "")
+    assert str(missing) in result.stderr
+
+
+WARNING_ENTRY_RE = re.compile(r"\(([^()]*`code: \"[a-z-]+\"`[^()]*)\)")
+
+
+def test_every_step_5_warning_names_its_step_and_severity():
+    """SKILL.md's workflow_warnings[] shape: {step, severity, code, message}."""
+    entries = WARNING_ENTRY_RE.findall(_body(_read(DETECT)))
+    assert len(entries) >= 7, entries
+    for entry in entries:
+        assert '`step: "step-05"`' in entry and re.search(r'`severity: "(info|warn|error)"`', entry), entry
+
+
+def test_the_evidence_format_writes_the_label_the_validator_reads():
+    """A compose pair entry written to the format passes the structure pass's tier-label check (#606)."""
+    section = _h2_section(_read(COMPOSE_RULES), "## Integration Evidence Format")
+    block = _first_fence(section)
+    validator = _load(VALIDATOR, "skf_validate_output_evidence_format")
+    filled = block.replace("{pair tier}", "T1-low").replace("{qualifier}", "architecture-co-mention")
+    assert validator._TIER_LABEL_RE.search(filled), block
+    assert "**Architecture reference:** \"{unit_excerpt}\" (architecture doc line {unit_line})" in block
+    # A pair found without an architecture document cites its own evidence, not an architecture line.
+    after = section.split("```")[-1]
+    assert '`**Contract reference:** "{excerpt}" ({doc} line {line})`' in after
+    assert "`**Shared domain:** {keywords}`" in after
+
+
+# --- #590: the [VS] report is located and read through the helper -----------------
+
+
+FEASIBILITY_REPORT = """---
+schemaVersion: "{version}"
+reportType: feasibility
+projectName: "Demo App"
+overallVerdict: "CONDITIONALLY_FEASIBLE"
+---
+
+# Feasibility Report
+
+## Executive Summary
+
+Summary.
+
+## Coverage Analysis
+
+Coverage.
+
+## Integration Verdicts
+
+| lib_a | lib_b | verdict | rationale |
+|-------|-------|---------|-----------|
+| react | express | Risky | an adapter is needed |
+
+## Recommendations
+
+None.
+
+## Evidence Sources
+
+Skills.
+"""
+
+
+def test_the_vs_report_is_located_through_the_helper(tmp_path):
+    branch = _compose_branch()
+    call = _call(branch, "validateFeasibilityReportHelper")
+    assert "--locate" in call and '--project-name "{project_name}"' in call, call
+    for path in (DETECT, COMPOSE_RULES):
+        assert "feasibility-report-{project_slug}" not in _read(path), f"{path.name} still builds the file name"
+    for needle in ("`schemaVersionOk`", "schema-version-mismatch", "`unknownTokens`", "vs-report-unusable",
+                   "`pairVerdicts`", 'status: "not-found"'):
+        assert needle in branch, needle
+    forge = tmp_path / "forge data"
+    forge.mkdir()
+    argv = _argv(call, "validateFeasibilityReportHelper",
+                 {"{forge_data_folder}": str(forge), "{project_name}": "Demo App"})
+
+    def run():
+        result = subprocess.run([sys.executable, str(FEASIBILITY), *argv], capture_output=True, text=True)
+        return result.returncode, json.loads(result.stdout)
+
+    assert run()[1]["status"] == "not-found"
+    report = forge / "feasibility-report-demo-app-latest.md"
+    report.write_text(FEASIBILITY_REPORT.replace("{version}", "1.0"), encoding="utf-8")
+    code, out = run()
+    assert (code, out["status"], out["overallVerdict"]) == (0, "ok", "CONDITIONALLY_FEASIBLE")
+    assert [(v["lib_a"], v["lib_b"], v["verdict"]) for v in out["pairVerdicts"]] == [("react", "express", "Risky")]
+    report.write_text(FEASIBILITY_REPORT.replace("{version}", "2.0"), encoding="utf-8")
+    code, out = run()
+    assert (code, out["schemaVersionOk"]) == (1, False)
+    report.write_text(FEASIBILITY_REPORT.replace("{version}", "1.0").replace("| Risky |", "| Maybe |"),
+                      encoding="utf-8")
+    code, out = run()
+    assert (code, out["schemaVersionOk"]) == (1, True)
+    assert [t["token"] for t in out["unknownTokens"]] == ["Maybe"]
+
+
+def test_an_unknown_verdict_token_is_a_hard_error():
+    """The shared schema's consumer obligation: an unknown token stops the run, never dropped or mapped (#590).
+
+    The branches apply in order, so a report of another schemaVersion halts as
+    a mismatch first, and only a contract break with no unknown token is read
+    as unusable and composed without verdicts.
+    """
+    branch = _compose_branch()
+    assert "Act on the first of these that applies" in branch
+    bullets = [line for line in branch.splitlines() if line.startswith("- **")]
+    order = [next(i for i, line in enumerate(bullets) if line.startswith(start))
+             for start in ("- **`schemaVersionOk` is false:**", "- **`unknownTokens` is not empty:**",
+                           "- **Any other exit `1`")]
+    assert order == sorted(order), order
+    unknown = bullets[order[1]]
+    for needle in ("hard error", "HALT", "never drop or map"):
+        assert needle in unknown, needle
+    assert "vs-report-unusable" not in unknown and "unknownTokens" not in bullets[order[2]]
+
+
+# --- #597, #591: the stack version and the snippet estimate ------------------------
+
+
+def _one() -> str:
+    return _sections(_body(_read(GENERATE)))["1"]
+
+
+def test_the_stack_version_comes_from_the_inventory_helper():
+    one = _one()
+    assert "never reduce, compare or bump a version by hand" in one
+    for stale in ("**Major** if any library", "**Minor** otherwise", "{primary_library_version}"):
+        assert stale not in one, stale
+    for needle in ("`NOT_A_VERSION`", "`BAD_INPUT`", "`USAGE`", "stack-version-default", "`reason`", "`bump`"):
+        assert needle in one, needle
+    assert not re.search(r"\bHALT\b[^.\n]*version", one), "a version the helper cannot give halts the run"
+    # A malformed call is fixed and run again; only a version the helper cannot give starts a new line.
+    (rule,) = [line for line in one.splitlines() if line.startswith("Narrate the version")]
+    fix, default = rule.split("Start a new release line at `1.0.0` only when", 1)
+    assert "`BAD_INPUT` or `USAGE`" in fix and "run it again" in fix
+    assert "`NOT_A_VERSION`" in default and "`USAGE`" not in default and "`NOT_INCREASING`" not in default
+
+
+def _inventory(argv: list[str], stdin: str | None = None) -> dict:
+    result = subprocess.run([sys.executable, str(INVENTORY), *argv], input=stdin, capture_output=True, text=True)
+    out = json.loads(result.stdout)
+    assert result.returncode == (0 if out["status"] == "ok" else 1)
+    return out
+
+
+def _version_call(command: str) -> str:
+    calls = [line for line in _fence_lines(_one()) if f"{{skillInventoryHelper}} version {command} " in line]
+    assert len(calls) == 1, calls
+    return calls[0]
+
+
+def test_the_primary_version_call_runs_as_written():
+    argv = _argv(_version_call("primary"), "skillInventoryHelper", {})
+    candidates = [{"name": "react", "import_count": 12, "version": "^18.2.0"},
+                  {"name": "express", "import_count": 12, "version": None},
+                  {"name": "zod", "import_count": 3, "version": "3.22.4+build.7"}]
+    out = _inventory(argv, json.dumps(candidates))
+    assert (out["primary"], out["version"], out["reason"]) == ("react", "18.2.0", "tie-usable-version")
+    assert _inventory(argv, "[]")["version"] == "1.0.0"
+
+
+def test_the_compose_bump_call_runs_as_written():
+    call = _version_call("bump")
+    values = {"{prior_stack_version}": "3.0.5", "{prior_libraries}": "react,express",
+              "{stack_libraries}": "react,express,zod"}
+    assert _inventory(_argv(call, "skillInventoryHelper", values))["version"] == "3.1.0"
+    values["{stack_libraries}"] = "react,zod"
+    out = _inventory(_argv(call, "skillInventoryHelper", values))
+    assert (out["bump"], out["version"], out["removed"]) == ("major", "4.0.0", ["express"])
+    values["{prior_stack_version}"] = "latest"
+    assert _inventory(_argv(call, "skillInventoryHelper", values))["code"] == "NOT_A_VERSION"
+
+
+def _shell_filled(call: str, helper: str, values: dict[str, str]) -> list[str]:
+    """The arguments of a documented call as a shell gives them: filled in first, then split."""
+    rest = call.split(f"uv run {{{helper}}}", 1)[1]
+    for placeholder, value in values.items():
+        rest = rest.replace(placeholder, value)
+    return shlex.split(rest)
+
+
+def test_a_list_with_spaces_survives_the_bump_call():
+    """A list written with a space after a comma reaches the helper whole, so a 3.0.5 stack is never reset."""
+    call = _version_call("bump")
+    values = {"{prior_stack_version}": "3.0.5", "{prior_libraries}": "react, express",
+              "{stack_libraries}": "react, express, zod"}
+    out = _inventory(_shell_filled(call, "skillInventoryHelper", values))
+    assert (out["bump"], out["version"]) == ("minor", "3.1.0")
+    # Unquoted, the shell splits the list and the helper refuses the call: USAGE, which the step fixes and reruns.
+    unquoted = call.replace('"', "")
+    refused = _inventory(_shell_filled(unquoted, "skillInventoryHelper", values))
+    assert (refused["status"], refused["code"]) == ("error", "USAGE")
+    assert "unexpected argument" in refused["error"]
+
+
+def test_the_snippet_is_measured_with_the_count_helper(tmp_path):
+    """#591: the snippet budget reads the count step 8's validator takes, from a script, not an estimate."""
+    text = _read(GENERATE)
+    assert _probe_script(text, "countTokens") == COUNT_TOKENS
+    five = _sections(_body(text))["5"]
+    assert "ceil(" not in five and "character count" not in five
+    assert "`{token_estimate}` exceeds **120**" in five and "snippet-unmeasured" in five
+    call = _call(five, "countTokensHelper")
+    staging = tmp_path / "demo-stack.skf-tmp"
+    staging.mkdir()
+    snippet = ("[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: demo-stack: read SKILL.md first.\n"
+               "|stack: react@18.2.0, express@4.19.2\n|integrations: react+express\n")
+    (staging / "context-snippet.md").write_bytes(snippet.encode("utf-8"))
+    argv = _argv(call, "countTokensHelper", {"{skill_staging}": str(staging)})
+    result = subprocess.run([sys.executable, str(COUNT_TOKENS), *argv], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    (row,) = [row for row in json.loads(result.stdout)["files"] if row["path"] == "context-snippet.md"]
+    assert row["tokens"] == len(snippet) // 4
+    # Step 8's validator takes the same count of the same file.
+    assert "approx_tokens = len(content) // 4" in VALIDATOR.read_text(encoding="utf-8")
 
 
 # --- #538: compose-mode export names checked before the commit --------------------

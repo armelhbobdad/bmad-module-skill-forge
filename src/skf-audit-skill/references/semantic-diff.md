@@ -1,6 +1,8 @@
 ---
 nextStepFile: 'severity-classify.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
+# This run's stage data folder: §4 saves the findings step 5 classifies.
+auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -46,10 +48,10 @@ Continue to section 2.
 
 ### 2. Query Original Knowledge Context
 
-Launch a subprocess (Pattern 3 — data operations) that:
+Run item 1 in the main thread, because only the main thread can end this step, then launch a subprocess (Pattern 3, data operations) for items 2 to 4:
 1. Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`. Find the entry where `skill_name` matches `{skill_name}` AND `type` is `"extraction"`. Three cases must be handled distinctly — collapsing them into "found vs. not found" silently degrades semantic diff when a collection is registered but never indexed.
 
-   - **Registry entry missing.** Log: "No QMD extraction collection found for `{skill_name}`. Semantic diff skipped." → Auto-proceed to {nextStepFile}.
+   - **Registry entry missing.** Log: "No QMD extraction collection found for `{skill_name}`. Semantic diff skipped." Append a `## Semantic Drift` section holding `**Status:** Skipped: no QMD extraction collection is registered for {skill_name}` to {outputFile}, append `'semantic-diff'` to `stepsCompleted`, and auto-proceed to {nextStepFile}.
    - **Registry entry present but collection empty.** Run a pre-query probe — `qmd ls {collection_name}` (CLI) or the equivalent MCP call. If it reports zero files (`Files: 0 (updated never)` or an empty listing), the collection is registered but has never been indexed. Do **not** proceed to querying — queries will return nothing and the step would silently degrade.
      - Log: "QMD collection `{collection_name}` is registered but empty. Run `qmd update` to (re-)index `{collection.path}`, then re-audit for full Deep-tier semantic coverage."
      - Fall through to the **direct-content fallback** below instead of skipping outright.
@@ -108,6 +110,12 @@ Append to {outputFile}:
 |--------|---------------------|---------------------|--------|------------|
 | {export} | {old_deps} | {new_deps} | {description} | T2 |
 
+### Architectural Changes ({count})
+
+| Change | Description | Affected Exports | Evidence | Confidence |
+|--------|-------------|------------------|----------|------------|
+| {change} | {description} | {exports} | {evidence} | T2 |
+
 ### Deprecated Patterns ({count})
 
 | Pattern | Documented In Skill | Current Status | Evidence | Confidence |
@@ -121,9 +129,12 @@ Append to {outputFile}:
 | New patterns | {count} |
 | Changed conventions | {count} |
 | Dependency shifts | {count} |
+| Architectural changes | {count} |
 | Deprecated patterns | {count} |
 | **Total Semantic Items** | {total} |
 ```
+
+Save the same rows to `{auditDataFolder}/semantic-findings.json`: step 5 classifies this file, not the tables. It is a JSON array with one object per row, `{"type": "semantic", "category", "name", "detail", "file", "line", "confidence"}`. `category` is its table's: New Patterns `pattern`, Changed Conventions `convention`, Dependency Shifts `dependency`, Architectural Changes `architecture` and Deprecated Patterns `deprecated_pattern`. `name` is the row's first cell, `detail` its description or change, `file` and `line` its evidence when that cites a source line (null otherwise), and `confidence` the row's (T2, or T1-low-fallback).
 
 ### 5. Update Report and Auto-Proceed
 

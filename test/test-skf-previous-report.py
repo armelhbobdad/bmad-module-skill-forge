@@ -3,11 +3,15 @@
 
 Covers the collision check against both files a run writes (the timestamped
 report and the -latest copy, compared as files so a link still matches), the
-pick of the newest earlier report of the project, the reports it never picks
-(this run's own, -latest, another project's whose slug extends this one, one
-it cannot read), the not-found path (a path it cannot read included), usage
+pick of the newest finished earlier report of the project (its stepsCompleted
+lists synthesize and it passes the feasibility-report check, both read with the
+shared report reader), the reports it never picks (this run's own, -latest,
+another project's whose slug extends this one, one it cannot read, one a halted
+run left unfinished or unchecked), the not-found path (a path it cannot read
+included), the missing shared reader (exit 3), the installed layout, usage
 errors, the CLI exit codes, and the init.md prose that calls the helper, asks
-again on an interactive collision and maps a headless one to the exit 5 halt.
+again on an interactive collision, maps a headless one to the exit 5 halt and
+records the headless pick.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +29,7 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent
 SKILL = REPO_ROOT / "src" / "skf-verify-stack"
 SCRIPT_PATH = SKILL / "scripts" / "skf-previous-report.py"
+READER_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-validate-feasibility-report.py"
 INIT = SKILL / "references" / "init.md"
 EXIT_CODES = SKILL / "references" / "exit-codes.md"
 
@@ -37,7 +43,26 @@ SLUG = "my-app"
 NOW = "20260930-120000"
 
 
-def _report(folder: Path, suffix: str, slug: str = SLUG, body: str = "---\nschemaVersion: \"1.0\"\n---\n") -> Path:
+# The body of a report that passes the feasibility-report check report.md §1
+# runs: the five sections in their order, the canonical verdict table once.
+CHECKED_BODY = (
+    "## Executive Summary\n\n## Coverage Analysis\n\n## Integration Verdicts\n\n"
+    "| lib_a | lib_b | verdict | rationale |\n|---|---|---|---|\n\n"
+    "## Recommendations\n\n## Evidence Sources\n"
+)
+CHECKED_FRONTMATTER = "---\nschemaVersion: \"1.0\"\noverallVerdict: \"FEASIBLE\"\n"
+# A report whose run finished: synthesize appended its step (synthesize.md §5),
+# and the report passes the check.
+FINISHED = (
+    CHECKED_FRONTMATTER
+    + "stepsCompleted: ['init', 'coverage', 'integrations', 'requirements', 'synthesize']\n---\n"
+    + CHECKED_BODY
+)
+# A report a run left when it halted in its integrations step.
+UNFINISHED = "---\nschemaVersion: \"1.0\"\nstepsCompleted: ['init', 'coverage']\n---\n"
+
+
+def _report(folder: Path, suffix: str, slug: str = SLUG, body: str = FINISHED) -> Path:
     path = folder / f"feasibility-report-{slug}-{suffix}.md"
     path.write_bytes(body.encode("utf-8"))
     return path
@@ -227,6 +252,126 @@ def test_nothing_to_discover(tmp_path):
     assert _posix(result["outputFile"]) == (tmp_path / "missing" / f"feasibility-report-{SLUG}-{NOW}.md").as_posix()
 
 
+# --- only a finished report is a baseline ------------------------------------------
+
+
+def test_discovery_skips_a_report_a_halted_run_left(tmp_path):
+    # The newest report stopped before synthesize: comparing against it would
+    # measure the run against a partial analysis.
+    finished = _report(tmp_path, "20260101-080000")
+    _report(tmp_path, "20260930-110000", body=UNFINISHED)
+    result, code = resolve(str(tmp_path), SLUG, NOW)
+    assert code == 0
+    assert result["status"] == "discovered"
+    assert _posix(result["previousReport"]) == finished.as_posix()
+    assert result["previousTimestamp"] == "20260101-080000"
+
+
+def test_only_unfinished_reports_leave_nothing_to_discover(tmp_path):
+    _report(tmp_path, "20260930-110000", body=UNFINISHED)
+    _report(tmp_path, "20260930-100000", body="---\nschemaVersion: \"1.0\"\nstepsCompleted: []\n---\n")
+    result, code = resolve(str(tmp_path), SLUG, NOW)
+    assert code == 0
+    assert result["status"] == "none"
+    assert result["previousReport"] is None
+
+
+@pytest.mark.parametrize(
+    "steps, prefix, newline",
+    [
+        pytest.param("stepsCompleted:\n  - init\n  - coverage\n  - integrations\n  - requirements\n  - synthesize\n",
+                     "", "\n", id="block-list"),
+        pytest.param("stepsCompleted: [\"init\", \"synthesize\"]  # done\n", "", "\n", id="double-quoted-with-comment"),
+        pytest.param("stepsCompleted: ['synthesize']\n", "\ufeff", "\n", id="byte-order-mark"),
+        pytest.param("stepsCompleted: ['init', 'synthesize']\n", "", "\r\n", id="crlf"),
+    ],
+)
+def test_a_finished_report_reads_in_any_list_form(tmp_path, steps, prefix, newline):
+    body = prefix + (CHECKED_FRONTMATTER + steps + "---\n" + CHECKED_BODY).replace("\n", newline)
+    finished = _report(tmp_path, "20260930-110000", body=body)
+    result, code = resolve(str(tmp_path), SLUG, NOW)
+    assert code == 0
+    assert _posix(result["previousReport"]) == finished.as_posix()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("# no frontmatter\n", id="no-frontmatter"),
+        pytest.param("---\nschemaVersion: \"1.0\"\n---\n", id="no-steps"),
+        pytest.param("---\nstepsCompleted: synthesize\n---\n", id="scalar-not-a-list"),
+        pytest.param("---\nstepsCompleted: ['synthesized']\n---\n", id="another-step"),
+        pytest.param("---\nstepsCompleted: ['synthesize']\n", id="unclosed-frontmatter"),
+    ],
+)
+def test_a_report_that_does_not_list_synthesize_is_skipped(tmp_path, body):
+    older = _report(tmp_path, "20260101-080000")
+    _report(tmp_path, "20260930-110000", body=body)
+    result, code = resolve(str(tmp_path), SLUG, NOW)
+    assert code == 0
+    assert _posix(result["previousReport"]) == older.as_posix()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(FINISHED.replace("## Evidence Sources\n", ""), id="missing-section"),
+        pytest.param(FINISHED.replace("## Recommendations\n\n## Evidence Sources\n",
+                                      "## Evidence Sources\n\n## Recommendations\n"), id="sections-out-of-order"),
+        pytest.param(FINISHED.replace('schemaVersion: "1.0"', 'schemaVersion: "2.0"'), id="another-schema-version"),
+        pytest.param(FINISHED.replace('"FEASIBLE"', '"PROBABLY"'), id="unknown-overall-verdict"),
+        pytest.param(FINISHED.replace("|---|---|---|---|\n", "|---|---|---|---|\n| a | b | Fine | x |\n"),
+                     id="unknown-pair-verdict"),
+        pytest.param(FINISHED.replace("| lib_a | lib_b | verdict | rationale |\n|---|---|---|---|\n", ""),
+                     id="no-verdict-table"),
+    ],
+)
+def test_a_finished_report_that_fails_the_check_is_skipped(tmp_path, body):
+    # synthesize ran, but report.md §1's check refused the report, so the run
+    # never published it: the last report that passed is the baseline.
+    checked = _report(tmp_path, "20260101-080000")
+    _report(tmp_path, "20260930-110000", body=body)
+    result, code = resolve(str(tmp_path), SLUG, NOW)
+    assert code == 0
+    assert result["status"] == "discovered"
+    assert _posix(result["previousReport"]) == checked.as_posix()
+
+
+def test_a_report_that_is_not_utf8_is_skipped(tmp_path):
+    older = _report(tmp_path, "20260101-080000")
+    (tmp_path / f"feasibility-report-{SLUG}-20260930-110000.md").write_bytes(b"---\nstepsCompleted: [\xff]\n---\n")
+    result, code = resolve(str(tmp_path), SLUG, NOW)
+    assert code == 0
+    assert _posix(result["previousReport"]) == older.as_posix()
+
+
+def test_a_given_unfinished_report_is_still_used(tmp_path):
+    # The user named it: the delta says what it cannot compare.
+    partial = _report(tmp_path, "20260930-110000", body=UNFINISHED)
+    result, code = resolve(str(tmp_path), SLUG, NOW, str(partial))
+    assert code == 0
+    assert result["status"] == "provided"
+    assert result["previousReport"] == str(partial)
+
+
+def test_a_missing_shared_reader_stops_discovery(tmp_path, monkeypatch):
+    _report(tmp_path, "20260101-080000")
+    monkeypatch.setattr(mod, "SHARED_READER", tmp_path / "gone" / "skf-validate-feasibility-report.py")
+    result, code = resolve(str(tmp_path), SLUG, NOW)
+    assert code == 3
+    assert result["status"] == "reader-missing"
+    assert result["previousReport"] is None
+    assert "skf-validate-feasibility-report.py" in result["error"]
+    # A given path needs no reader.
+    given = _report(tmp_path, "20260101-090000")
+    result, code = resolve(str(tmp_path), SLUG, NOW, str(given))
+    assert (code, result["status"]) == (0, "provided")
+
+
+def test_the_reader_sits_in_the_shared_scripts_folder():
+    assert mod.SHARED_READER == READER_PATH.resolve()
+
+
 # --- CLI -------------------------------------------------------------------------
 
 
@@ -271,6 +416,52 @@ def test_cli_discovery_and_blank_provided(tmp_path):
         out = json.loads(proc.stdout)
         assert out["status"] == "discovered"
         assert _posix(out["previousReport"]) == earlier.as_posix()
+
+
+def _install(root: Path, with_reader: bool) -> Path:
+    """Copy the helper into an installed layout, the shared reader beside it or not."""
+    scripts = root / "_bmad" / "skf" / "skf-verify-stack" / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy2(SCRIPT_PATH, scripts / SCRIPT_PATH.name)
+    if with_reader:
+        shared = root / "_bmad" / "skf" / "shared" / "scripts"
+        shared.mkdir(parents=True)
+        shutil.copy2(READER_PATH, shared / READER_PATH.name)
+    return scripts / SCRIPT_PATH.name
+
+
+def test_cli_installed_layout_reads_the_shared_reader(tmp_path):
+    script = _install(tmp_path / "project", with_reader=True)
+    reports = tmp_path / "forge"
+    reports.mkdir()
+    finished = _report(reports, "20260101-080000")
+    _report(reports, "20260930-110000", body=UNFINISHED)
+    proc = subprocess.run(
+        [sys.executable, str(script), "--folder", str(reports), "--slug", SLUG, "--timestamp", NOW],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["status"] == "discovered"
+    assert _posix(out["previousReport"]) == finished.as_posix()
+
+
+def test_cli_without_the_shared_reader_exits_3(tmp_path):
+    script = _install(tmp_path / "project", with_reader=False)
+    reports = tmp_path / "forge"
+    reports.mkdir()
+    _report(reports, "20260101-080000")
+    proc = subprocess.run(
+        [sys.executable, str(script), "--folder", str(reports), "--slug", SLUG, "--timestamp", NOW],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 3
+    out = json.loads(proc.stdout)
+    assert out["status"] == "reader-missing" and out["previousReport"] is None
 
 
 @pytest.mark.parametrize(
@@ -336,6 +527,26 @@ def test_init_maps_each_status_and_halts_exit_5_on_a_collision():
     # The file-identity procedure now lives in the helper, not in prose.
     assert "st_ino" not in text and "stat(2)" not in text
     assert "provide a backup copy" not in text
+
+
+def test_init_skips_unfinished_reports_and_records_the_headless_pick():
+    text = _init_text()
+    section = text[text.index("**Resolve the previous report"):text.index("### 2.")]
+    # Discovery takes only a finished report; what finished means is the
+    # helper's rule (stepsCompleted lists synthesize, the report passes the
+    # check), stated in its docstring and not again in prose.
+    assert "the newest earlier report that finished" in section
+    assert "stepsCompleted" not in section
+    assert "lists `synthesize`" in mod.__doc__ and "read_report()" in mod.__doc__
+    assert "§4 overwrites `{outputFile}` and `{outputFileLatest}`" not in section
+    # The headless pick is recorded in the run sink, so the envelope lists it.
+    discovered = section[section.index("`discovered`"):section.index("`none`")]
+    assert '"gate": "init.previous-report"' in discovered
+    assert ('uv run {emitEnvelopeHelper} record --workflow skf-verify-stack --run-dir "{run_dir}" '
+            '--decision < "{run_dir}/decision.json"') in discovered
+    # A missing shared reader halts as any helper that cannot run does.
+    missing = section[section.index("`reader-missing` (exit 3)"):]
+    assert '(exit code 3, `halt_reason: "resolution-failure"`) at phase `init:previous-report`' in missing
 
 
 def test_exit_codes_name_both_files_for_the_collision():
