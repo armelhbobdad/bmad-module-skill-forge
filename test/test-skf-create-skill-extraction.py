@@ -425,7 +425,7 @@ def test_protocol_runs_the_recipes_through_the_runner() -> None:
     assert ("`skf-extract-public-api.py --mode full` runs the recipes below over the files in scope in one "
             "call") in protocol
     assert "never run the recipes one at a time, batch them, or merge and dedupe their matches by hand" in protocol
-    # a step that gives no runner command (audit-skill's re-index, until it adopts the runner) runs the recipes
+    # a step that gives no runner command runs the recipes
     assert "and the step that runs this protocol gives the recipe runner's command, the runner extracts" in protocol
     assert ("`-o` for the JSON, a file the step removes before the call, so that a JSON there after the call is "
             "this call's") in protocol
