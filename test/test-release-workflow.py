@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """release.yaml: the retry-safe check wait, the cleanup after a failed run,
-the version, dist-tag and commit steps, and the resume path.
+the version, dist-tag and commit steps, the resume path, and the required
+checks compared with the ruleset before the bump.
 
-Issues #563, #564 and #566. The main-dispatch path of
+Issues #563, #564, #566 and #570. The main-dispatch path of
 .github/workflows/release.yaml only runs for real on a `--ref main` dispatch,
 which is also a real npm publish, so these tests run the steps' own `run:`
 scripts instead. Each script is read from the workflow with PyYAML and run
@@ -70,6 +71,13 @@ Covers:
     the release commit when it did (the rule tools/release-state.js applies
     for a resumed cut), and errors that name version_bump=resume, or the
     patch ship-forward when resume cannot finish the cut either
+  - Check the required checks against the ruleset (issue #570): a cut from
+    main runs it right after the tests and before Bump version, a
+    prerelease from another branch and a resumed cut skip it, it asks
+    tools/check-required-checks.js about the dispatch repository, and
+    end to end, with gh answering for the ruleset, a ruleset that disagrees
+    with quality.yaml stops it, naming the missing and the extra checks,
+    before anything is committed
 
 The behaviour tests need bash and jq (both on the GitHub-hosted Ubuntu
 runner) and are skipped on Windows. The version step's tests also need node
@@ -120,6 +128,7 @@ RESUME_NOTES = "Write the release notes (resume)"
 RESUME_TAG = "Create and push the tag (resume)"
 GUARD = "Refuse to bump past an unpublished release"
 GATE = "Check the version bump against the change fragments"
+REQUIRED_CHECKS = "Check the required checks against the ruleset"
 TAG = "Create and push tag"
 MERGE_SHA = "b" * 40
 DISPATCH_SHA = "f" * 40
@@ -232,6 +241,7 @@ def run_step(
     branch_on_origin: bool = False,
     npm: list[dict] | None = None,
     node: list[dict] | None = None,
+    cwd: Path | None = None,
 ) -> Result:
     stub_dir = tmp_path / "stub"
     bin_dir = tmp_path / "bin"
@@ -271,7 +281,7 @@ def run_step(
     }
     proc = subprocess.run(
         ["bash", "-e", str(script)],
-        cwd=tmp_path,
+        cwd=cwd or tmp_path,
         env=full_env,
         capture_output=True,
         text=True,
@@ -1639,3 +1649,95 @@ def test_the_squash_merge_error_of_the_tag_step_names_the_ship_forward(tmp_path)
     ship_forward = "version_bump=resume cannot finish the cut either: ship v3.0.0 forward with version_bump=patch"
     assert ship_forward in result.out
     assert not result.called("git", "tag -a")
+
+
+# --------------------------------------------------------------------------
+# Check the required checks against the ruleset (issue #570)
+# --------------------------------------------------------------------------
+
+
+def test_a_cut_from_main_checks_the_ruleset_right_after_the_tests_and_before_the_bump():
+    ran = steps_that_run("refs/heads/main", "major", CUT_OUTPUTS)
+    assert ran[ran.index("Run tests and validation") + 1] == REQUIRED_CHECKS
+    assert ran.index(REQUIRED_CHECKS) < ran.index("Bump version") < ran.index(COMMIT) < ran.index(TEMP_PUSH)
+
+
+def test_only_a_cut_from_main_checks_the_ruleset():
+    # A prerelease from another branch opens no bot PR, and a resumed cut
+    # runs no tests and no bump.
+    prerelease = {"version": {"new_version": "3.0.1-alpha.0", "dist_tag": "alpha"}}
+    assert REQUIRED_CHECKS not in steps_that_run("refs/heads/feat/x", "alpha", prerelease)
+    for outputs in (resume_outputs(), {"resume": {"done": "true"}}):
+        assert REQUIRED_CHECKS not in steps_that_run("refs/heads/main", "resume", outputs)
+
+
+@needs_shell
+def test_the_ruleset_check_asks_the_tool_about_the_dispatch_repository(tmp_path):
+    result = run_step(tmp_path, REQUIRED_CHECKS, {}, node=NODE_OK)
+    assert result.code == 0, result.out
+    assert result.called("node") == [["node", "tools/check-required-checks.js", "--ruleset", "--repo", REPOSITORY]]
+
+
+@needs_shell
+@pytest.mark.parametrize("exit_code", [pytest.param(1, id="drift"), pytest.param(2, id="cannot-run")])
+def test_a_ruleset_check_that_fails_stops_the_run(tmp_path, exit_code):
+    node = [{"match": "tools/", "answers": [{"exit": exit_code, "stdout": "The Default ruleset ... disagree\n"}]}]
+    assert run_step(tmp_path, REQUIRED_CHECKS, {}, node=node).code == exit_code
+
+
+def test_the_ruleset_check_and_the_wait_step_read_the_same_ruleset():
+    # The tool reads the ruleset through tools/release-state.js, by name.
+    assert 'select(.name=="Default")' in step(WAIT)["run"]
+    assert "candidate.name === 'Default'" in RELEASE_STATE.read_text(encoding="utf-8")
+
+
+def quality_checks() -> list[str]:
+    """The check names tools/check-required-checks.js derives from this repository's quality.yaml."""
+    proc = subprocess.run(
+        ["node", "tools/check-required-checks.js"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.splitlines()
+
+
+def ruleset_rules(required: list[str]) -> list[dict]:
+    """gh answering for the Default ruleset, found by name, with these required checks."""
+    body = {
+        "rules": [
+            {
+                "type": "required_status_checks",
+                "parameters": {"required_status_checks": [{"context": c} for c in required]},
+            }
+        ]
+    }
+    return [
+        {"match": f"repos/{REPOSITORY}/rulesets/5", "answers": [ok(json.dumps(body))]},
+        {"match": f"repos/{REPOSITORY}/rulesets", "answers": [ok(json.dumps([{"name": "Default", "id": 5}]))]},
+    ]
+
+
+@needs_shell
+@needs_node
+def test_the_ruleset_check_passes_when_the_ruleset_requires_every_job(tmp_path):
+    checks = quality_checks()
+    result = run_step(tmp_path, REQUIRED_CHECKS, {}, gh=ruleset_rules(checks), cwd=REPO_ROOT)
+    assert result.code == 0, result.out
+    assert f"The Default ruleset of {REPOSITORY} requires the {len(checks)} checks" in result.out
+    assert [c[1:3] for c in result.called("gh")] == [
+        ["api", f"repos/{REPOSITORY}/rulesets"],
+        ["api", f"repos/{REPOSITORY}/rulesets/5"],
+    ]
+
+
+@needs_shell
+@needs_node
+def test_a_ruleset_that_disagrees_with_quality_yaml_stops_the_run_naming_each_check(tmp_path):
+    # The ruleset lost `docs-links` and still requires a `lint` no job reports.
+    checks = quality_checks()
+    assert "docs-links" in checks
+    required = [c for c in checks if c != "docs-links"] + ["lint"]
+    result = run_step(tmp_path, REQUIRED_CHECKS, {}, gh=ruleset_rules(required), cwd=REPO_ROOT)
+    assert result.code == 1, result.out
+    assert "  reported by a quality.yaml job, but not required, so it gates nothing: `docs-links`" in result.out
+    assert "  required, but no quality.yaml job reports it" in result.out
+    assert result.out.count("`lint`") == 1

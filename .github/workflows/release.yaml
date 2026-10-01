@@ -9,7 +9,10 @@ name: Release
 #    (tools/covered-surfaces.js) do not allow, before the tests run and before
 #    anything is committed. A stable bump (patch, minor, major) is refused
 #    from any ref but main.
-# 2. After the tests, the version is bumped in package.json, package-lock.json,
+# 2. After the tests, a dispatch from main compares the required checks of
+#    the Default ruleset with the jobs of quality.yaml
+#    (tools/check-required-checks.js) and stops when they differ. Then the
+#    version is bumped in package.json, package-lock.json,
 #    .claude-plugin/marketplace.json and docs/_data/pinned.yaml, and the
 #    fragments added since the last stable tag are rendered into
 #    release_notes.md (the GitHub Release body), release_review.md (the
@@ -234,6 +237,20 @@ jobs:
       - name: Run tests and validation
         if: github.event.inputs.version_bump != 'resume'
         run: npm test
+
+      # Compares the required status checks of the live Default ruleset with
+      # the checks the jobs of quality.yaml report (issue #570), before
+      # anything is bumped, committed or pushed. A check the ruleset
+      # requires that no job reports would keep the bot PR waiting until the
+      # Wait for required status checks step times out, after the release
+      # commit is pushed; a job the ruleset does not require gates nothing.
+      # The tool finds the ruleset by name, as that step does, with the
+      # job's GH_TOKEN, and names each missing and extra check. Main
+      # dispatches only: only they open a bot PR. npm test above already
+      # compared quality.yaml with the list in docs/_internal/RELEASING.md.
+      - name: Check the required checks against the ruleset
+        if: github.ref == 'refs/heads/main' && github.event.inputs.version_bump != 'resume'
+        run: node tools/check-required-checks.js --ruleset --repo "$GITHUB_REPOSITORY"
 
       - name: Configure Git
         run: |
