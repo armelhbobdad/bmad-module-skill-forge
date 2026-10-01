@@ -7,7 +7,13 @@ was never read into a tree (Quick tier, or a read that failed) skips the scan
 with a notice instead of handing the helper a URL. The skip reaches the
 evidence report that step 7 writes, under a key of its own, and each brief
 of a --batch run starts with no scan record. A halt the scan asks for removes
-the tree first.
+the tree first and emits the create-skill envelope.
+
+Each decision lands in the brief through skf-write-skill-brief.py amend
+(one call backs up, appends, checks the schema and writes atomically), a
+promoted path joins scope.include only when that list is not empty, and a
+headless run defers every candidate (deferred-headless, one auto-decision
+per path) instead of recording a skip no person chose (#593).
 """
 
 from __future__ import annotations
@@ -19,7 +25,10 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 REFS = REPO_ROOT / "src" / "skf-create-skill" / "references"
 EXTRACT = REFS / "extract.md"
 PROTOCOL = REFS / "authoritative-files-protocol.md"
-GENERATE_ARTIFACTS = REFS / "generate-artifacts.md"
+VALIDATE = REFS / "validate.md"
+WRITE_BRIEF = REPO_ROOT / "src" / "shared" / "scripts" / "skf-write-skill-brief.py"
+EMIT_HALT = ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" '
+             '--target stderr < "{run_dir}/halt.json"`')
 
 SKIP_RECORD = 'authoritative_files_scan: {not_scanned: "remote source not cloned"}'
 FULL_RECORD_RE = re.compile(r"\*\*Record for evidence report:\*\* `authoritative_files_scan: \{([^`]+)\}`")
@@ -118,10 +127,91 @@ def test_update_halt_removes_the_private_tree() -> None:
     assert ('When `{source_tree}` is set, first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` '
             "from `{project-root}`") in update
     assert "ephemeral" not in _read(PROTOCOL)
+    # the halt emits its envelope after the tree is closed
+    assert update.index("close --tree") < update.index("**HARD HALT**")
+    assert f"(exit code 6, `halted-for-brief-refinement`, phase `extract`; stage `{{run_dir}}/halt.json`" in update
+    assert EMIT_HALT in update
 
 
 def test_skip_reaches_the_evidence_report() -> None:
     assert f"the record is `{SKIP_RECORD}` instead" in _read(PROTOCOL)
-    file_6 = _section(_read(GENERATE_ARTIFACTS), "**File 6:**", "**File 7:**")
-    assert "`## Remaining Warnings`" in file_6
-    assert "`authoritative_files_scan.not_scanned`" in file_6
+    assert "step 6 lists that skip under the evidence report's Remaining Warnings" in _read(PROTOCOL)
+    report = _section(_read(VALIDATE), "### 8. Update Evidence Report", "```markdown")
+    assert "under `## Remaining Warnings`" in report
+    assert "the inventory's `authoritative_files_scan` records `not_scanned`" in report
+
+
+def _decision_section() -> str:
+    return _section(_read(PROTOCOL), "5. **Apply decision:**", "6. **Summary.**")
+
+
+def test_decisions_reach_the_brief_through_amend() -> None:
+    """One amend call backs up, appends, checks the schema and writes atomically."""
+    protocol = _read(PROTOCOL)
+    decision = _decision_section()
+    assert 'uv run {writeSkillBriefHelper} amend --target "{brief_path}" <<\'SKF_BRIEF_DECISION\'' in decision
+    for by_hand in ("cp {forge_data_folder}", "skill-brief.yaml.bak", "AMENDED_YAML", "{atomicWriteHelper}"):
+        assert by_hand not in protocol, by_hand
+    assert '--brief "{brief_path}"' in protocol
+    assert "{forge_data_folder}/{skill_name}/skill-brief.yaml" not in protocol
+    promote = _section(decision, "- **[P] Promote:**", "- **[S] Skip:**")
+    assert 'with `include: ["{path}"]`' in promote
+    skip = _section(decision, "- **[S] Skip:**", "- **[U] Update:**")
+    assert "with no `include`" in skip
+    # an empty include covers every file: the helper leaves it empty
+    assert "The helper appends it only when `scope.include` is not empty" in decision
+    assert "writeSkillBriefProbeOrder" in _read(EXTRACT).split("\n---\n", 1)[0]
+
+
+def test_filtered_list_is_trimmed_only_where_section_2_built_one() -> None:
+    procedure = _section(_read(PROTOCOL), "2. **Apply the helper's classification:**", "3. **Prompt.**")
+    in_scope = next(line for line in procedure.splitlines() if "`already_in_scope[]`" in line)
+    assert "remove the path from §2's filtered file list when §2 built one" in in_scope
+    assert "the recipe runner reads the brief itself and builds no list" in in_scope
+    promote = _section(_decision_section(), "- **[P] Promote:**", "- **[S] Skip:**")
+    assert "remove it from §2's filtered file list when §2 built one" in promote
+
+
+def test_headless_defers_instead_of_skipping() -> None:
+    headless = _section(_read(PROTOCOL), "4. **Headless mode (`{headless_mode}` is true):**", "5. **Apply decision:**")
+    assert '`action: "skipped"`' not in headless and "headless: no user to prompt" not in headless
+    assert "promote nothing and decline nothing" in headless
+    assert '"gate": "authoritative-file:{path}", "decision": "deferred-headless"' in headless
+    assert "Record one auto-decision per path" in headless
+    assert '`action: "deferred-headless"`' in headless
+    assert "is not written again" in headless
+    unresolved = _section(_read(PROTOCOL), "   - **`unresolved[]`**", "3. **Prompt.**")
+    assert "`deferred-headless`" in unresolved
+
+
+def test_amend_appends_include_only_to_a_non_empty_list(tmp_path) -> None:
+    import json
+    import subprocess
+    import sys
+
+    import yaml
+
+    def amend(include: list[str]) -> dict:
+        brief = tmp_path / "skill-brief.yaml"
+        brief.write_text(yaml.safe_dump({
+            "name": "demo", "version": "1.0.0", "source_repo": "https://github.com/o/demo", "language": "python",
+            "description": "Demo. Use when testing.", "forge_tier": "Forge", "created": "2026-10-01",
+            "created_by": "t", "scope": {"type": "full-library", "include": include, "exclude": [], "notes": ""},
+        }, sort_keys=False), encoding="utf-8")
+        payload = {"include": ["AGENTS.md"], "amendments": [
+            {"path": "AGENTS.md", "action": "promoted", "reason": "r", "heuristic": "AGENTS.md",
+             "date": "2026-10-01", "workflow": "skf-create-skill"}]}
+        proc = subprocess.run([sys.executable, str(WRITE_BRIEF), "amend", "--target", str(brief)],
+                              input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8")
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        out["brief"] = yaml.safe_load(brief.read_text(encoding="utf-8"))
+        return out
+
+    narrowed = amend(["src/**"])
+    assert narrowed["included"] == ["AGENTS.md"]
+    assert narrowed["brief"]["scope"]["include"] == ["src/**", "AGENTS.md"]
+    assert narrowed["brief"]["scope"]["amendments"][0]["action"] == "promoted"
+    covering = amend([])
+    assert covering["included"] == []
+    assert covering["brief"]["scope"]["include"] == []

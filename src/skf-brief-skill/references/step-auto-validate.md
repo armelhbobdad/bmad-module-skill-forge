@@ -20,7 +20,7 @@ To present the user with a concise summary of the auto-generated brief and offer
 ## Rules
 
 - This step is conditional — only loaded from step-auto-brief.md when `[auto]` mode is active
-- The brief MUST already exist on disk (written by step-auto-brief §5) before this step runs
+- The brief MUST already exist on disk (written by step-auto-brief §4) before this step runs
 - Do NOT render YAML or JSON envelopes in the LLM — delegate to deterministic scripts
 - Do NOT modify confirm-brief.md or write-brief.md — the [R]eject path reuses them as-is
 - The 10-line summary is always displayed, even in headless mode, for logging transparency
@@ -29,7 +29,7 @@ To present the user with a concise summary of the auto-generated brief and offer
 
 ### 1. Load Auto-Brief
 
-Read the brief from `{forge_data_folder}/{skill_name}/skill-brief.yaml` (written by step-auto-brief §5).
+Read the brief from `{forge_data_folder}/{skill_name}/skill-brief.yaml` (written by step-auto-brief §4).
 
 **Resolve `{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
@@ -117,6 +117,12 @@ Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If 
 
 A hook error never fails the run: on a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. The envelope is already printed, so it does not carry this line. When `{onCompleteCommand}` is empty, skip the hook.
 
+**Remove the run folder.** The brief is written, so the folder step 1 §1 created has done its job; remove it (the guard keeps the command to that folder):
+
+```bash
+case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac
+```
+
 Chain to {nextStepFile} (health-check.md): load, read fully, then execute. The health check only relays to the shared check: the envelope and the hook of this path run here.
 
 ### 5. [E]dit Path
@@ -144,10 +150,13 @@ Wait for user response. Apply changes to the brief context.
 
 **Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins.
 
-Assemble the modified brief context as a flat JSON object (same format as step-auto-brief §4):
+Stage the user's changes, and only them, as one JSON object nested as the brief nests them (`{"scope": {"type": "public-api"}}`, `{"description": "..."}`): a list you change (`doc_urls`, `scope.include`) goes in whole with the change applied, and `null` removes an optional field. A changed version goes in `version`, and in `target_version` too when the brief has one (the writer requires the two to match). Then run the writer on the brief it wrote, with the changes laid over it; every field the user did not change is kept as it is on disk:
 
 ```bash
-echo '<modified-flat-json>' | uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --from-flat
+cat > "{run_dir}/edit.json" <<'SKF_JSON'
+<the fields the user changed, as one JSON object>
+SKF_JSON
+uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --base-brief {forge_data_folder}/{skill_name}/skill-brief.yaml --patch-file "{run_dir}/edit.json"
 ```
 
 The canonical writer validates the brief internally — on non-zero exit, surface the error and re-prompt for corrections. The edit loop allows multiple modifications — each write re-validates before accepting.
@@ -166,7 +175,7 @@ Re-present the 10-line summary (§2 format) with updated values so the user can 
 
 "Updated brief written. **Select:** [A] Approve and continue · [E] Edit more · [R] Reject"
 
-- `[A]` → §4: the envelope, then the on_complete hook, then the chain to {nextStepFile}
+- `[A]` → §4: the envelope, then the on_complete hook, then the run folder's removal and the chain to {nextStepFile}
 - `[E]` → repeat §5 edit loop
 - `[R]` → §6 ([R]eject path)
 

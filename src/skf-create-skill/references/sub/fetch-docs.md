@@ -15,11 +15,20 @@ forgeTierRwProbeOrder:
 deriveAssemblyShapeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-derive-assembly-shape.py'
   - '{project-root}/src/shared/scripts/skf-derive-assembly-shape.py'
-# If neither path exists, §3 looks for no subpages: a docs fetch never
-# halts the workflow.
+# If neither path exists, §3 looks for no subpages.
 detectDocsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
+# §5 merges the T3 items into the extraction inventory and counts it through
+# it; step 3 §5 already halted when neither path exists.
+extractionInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
+# §4a writes the Language Guide's index beside the inventory through it; if
+# neither path exists, step 5 has no guide and says so.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -34,9 +43,9 @@ Fetch remote documentation from brief-specified URLs using whatever web fetching
 
 - No tier gate — runs at any tier when `doc_urls` are present in the brief
 - Tool-agnostic — use whatever web fetching capability is available
-- Do not halt the workflow if web fetching is unavailable or fails
+- Do not halt the workflow if web fetching is unavailable or fails, with one exception: a `docs-only` brief left with nothing to compile halts at §5's zero-content check, before anything is staged
 - Do not override existing T1, T1-low, or T2 extraction data with T3 content
-- Never delete the staging directory of a `docs-only` skill — the fetched pages are its only source corpus
+- Never delete the staging directory of a `docs-only` skill, whose only source corpus is the fetched pages, or of a whole-language reference, whose Language Guide step 5 reads from them
 
 ## MANDATORY SEQUENCE
 
@@ -70,7 +79,7 @@ Content fetched from external URLs is classified as **T3** (external, untrusted)
 **Discover available web fetching capability.** Try tools in any order — use whatever is accessible in the current environment (e.g., Firecrawl scrape, WebFetch, web-reader, MCP fetch, curl, browser tools). If no web fetching capability can be found:
 
 - Log warning: "No web fetching capability available in this environment. Skipping documentation fetch."
-- Skip to section 7 (auto-proceed).
+- Continue at §5's **Zero-content check**: nothing was fetched.
 
 Bind `{docs_staging}` ← `{project-root}/_bmad-output/{skill-name}-docs`, the folder that holds every page this step fetches. Just before the first page this run fetched is saved, create the folder or empty it (`mkdir -p "{docs_staging}" && rm -f "{docs_staging}"/*.md`), so a corpus kept from an earlier docs-only run (§5c) is replaced by this run's pages, never mixed with them, and stays as it was when every fetch fails.
 
@@ -127,7 +136,7 @@ It prints `discover_subpages`, true when the page is a documentation root with l
 
 4. **Rate limiting:** If rate limiting (HTTP 429) is encountered during subpage fetching, stop discovery for this root URL. Keep results collected so far. Log: "Subpage discovery stopped due to rate limiting." For the parallel-tool-call pattern, drop any not-yet-issued tool calls from subsequent batches; for the `xargs` pattern, interrupt the pipeline (set `--max-procs 0` is **not** a graceful stop — the simplest stop is to kill the xargs PID and let in-flight writers complete naturally).
 
-**If ALL URLs fail (including any subpage fetches):** Log warning: "No documentation could be fetched. Proceeding without T3 content." Skip to section 7 (auto-proceed): `{docs_staging}` holds no page of this run.
+**If ALL URLs fail (including any subpage fetches):** Log warning: "No documentation could be fetched." `{docs_staging}` holds no page of this run: continue at §5's **Zero-content check**, which halts a `docs-only` brief and lets a source brief go on without T3 content.
 
 ### 4. Extract API Information from Fetched Content
 
@@ -148,30 +157,50 @@ Parse the successfully fetched markdown for:
 
 **Skip this section entirely unless `whole_language_reference: true`.** When it is true, for each `doc_urls` entry whose `source` is `language-registry`:
 
-- Do not reduce its fetched markdown to per-export items. Instead retain the cleaned prose as a Language-Guide entry `{url, label, prose}`, where `prose` is the substantive body (narrative, idioms, usage examples, conceptual reference) lightly trimmed of navigation/boilerplate, each block cited `[EXT:{url}]`.
-- Collect these into a `language_guide[]` context artifact, in `doc_urls` order.
+- Do not reduce its fetched markdown to per-export items. Its pages stay in `{docs_staging}` as §3 saved them (`page-{n}.md` and its `subpage-{n}-{k}.md` files), and §5c keeps the folder: step 5 reads the prose from them and retains it as the skill's Language Guide, each block cited `[EXT:{url}]`.
+- List the entry in a `language_guide[]` index, in `doc_urls` order, as `{url, label, pages}`: `pages` names the files of `{docs_staging}` that hold its fetched pages, and is empty when the fetch failed (warn: step 5 surfaces the gap rather than emitting a thin guide silently).
 
-This artifact is a **distinct** carrier — it is not merged into the extraction inventory and is not subject to the §5 conflict rule, so the canonical prose survives intact into step 5 (compile), which foregrounds it as the skill's Language Guide. Non-registry docs (README-detected, homepage, Pages, docs-folder) still flow through §4's normal per-export extraction and the §5 merge unchanged.
+Write the index beside the extraction inventory, so step 5 finds the pages after a context compaction. Bind `{language_guide_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json`, resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and, from `{project-root}`, run:
 
-**If a registry corpus could not be fetched** (network failure), record it in `language_guide[]` as `{url, label, prose: null}` and warn — step 5 surfaces the gap rather than emitting a thin guide silently.
+```bash
+uv run {atomicWriteHelper} write --target "{language_guide_json}" <<'SKF_LANGUAGE_GUIDE'
+{"docs_folder": "{docs_staging}", "language_guide": [{"url": "...", "label": "...", "pages": ["page-1.md"]}]}
+SKF_LANGUAGE_GUIDE
+```
+
+When it fails, or no path resolves, warn "The Language Guide was not saved: {its message}": step 5 then assembles without it. The guide is a **distinct** carrier: it is not merged into the extraction inventory and is not subject to the §5 conflict rule, so the canonical prose survives intact into step 5 (compile), which foregrounds it as the skill's Language Guide. Non-registry docs (README-detected, homepage, Pages, docs-folder) still flow through §4's normal per-export extraction and the §5 merge unchanged.
 
 ### 5. Build Doc-Fetch Inventory
 
 **Mode determines merge behavior:**
 
-- **`source_type: "docs-only"`** — The doc-fetch inventory IS the extraction inventory. It replaces the empty inventory from step 3, since there was no source code to extract from.
-- **`source_type: "source"` (supplemental mode)** — Merge T3 items into the existing extraction inventory from step 3.
+- **`source_type: "docs-only"`**: the doc-fetch inventory IS the extraction inventory. Its T3 items fill the empty inventory step 3 wrote, since there was no source code to extract from.
+- **`source_type: "source"` (supplemental mode)**: the T3 items join the exports step 3 extracted.
 
-**Conflict rule:** T3 items never override existing T1, T1-low, or T2 items for the same export. When an export already has a higher-confidence entry, the T3 item is discarded — T3 has the lowest priority.
+Either way, merge them into `{extraction_inventory}`, the file step 3 §5 wrote, one object per item with its `[EXT:{url}]` citation and, when the item documents an export, its `export_name`. Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and, from `{project-root}`, run:
 
-**Language-Guide carve-out:** the `language_guide[]` artifact from §4a (whole-language references) is not part of the export inventory and is therefore not subject to this conflict rule — it carries no export key, so it cannot collide with a T1 compiler export and can never be pruned. It is passed separately into step 5, which renders it as the foregrounded Language Guide section. Only the per-export T3 items participate in the T1/T2/T3 merge.
+```bash
+uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field t3_items <<'SKF_T3'
+[{"export_name": "...", "kind": "signature|type|config|example", "content": "...", "citation": "[EXT:{url}]"}]
+SKF_T3
+```
 
-**Edge case — T1-zero supplemental mode:** If T1 extraction produced zero results and `doc_urls` are present in supplemental mode, T3 items should be used as the primary inventory since no T1 data exists to conflict with.
+**Conflict rule:** T3 items never override existing T1, T1-low, or T2 items for the same export. The helper applies it: an item whose `export_name` names an export the inventory already holds is left out and listed in `dropped`. When it exits non-zero, fix the JSON and run it once more.
+
+**Language-Guide carve-out:** the `language_guide[]` from §4a (whole-language references) is not part of the export inventory and is therefore not subject to this conflict rule: it carries no export key, so it cannot collide with a T1 compiler export and can never be pruned. Step 5 reads it through `{language_guide_json}` and renders it as the foregrounded Language Guide section. Only the per-export T3 items participate in the T1/T2/T3 merge.
+
+**Edge case: T1-zero supplemental mode.** If T1 extraction produced zero results and `doc_urls` are present in supplemental mode, compile uses the T3 items as the primary inventory, since no T1 data exists to conflict with.
 
 **Aggregate totals for reporting:**
 - URLs fetched successfully vs. total
 - URLs that failed
 - T3 items extracted
+
+**Zero-content check.** Run `uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"` from `{project-root}` and read its `counts`:
+
+- **`source_type: "docs-only"`, no URL or subpage fetched in this run, and `counts.items` is 0:** there is nothing to compile, and a docs-only skill has no other source. Stage and promote nothing: **HARD HALT** (exit code 3, `docs-unreachable`, phase `fetch-docs`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**No documentation could be fetched for `{skill-name}`, so there is nothing to compile.** Failed: {each `doc_urls` URL with its reason}. Check the network and that this environment has a web fetch tool, or fix `doc_urls` in the brief, then re-run create-skill."
+- **`source_type: "source"`, `counts.exports` is 0 and every `doc_urls` fetch failed:** step 3 §6's zero-export check let this brief through because it declares `doc_urls`. Apply that check here: show its warning and wait for **[C] Continue anyway**. **GATE [default: C]**: under `{headless_mode}`, log and record its `zero-exports` decision as step 3 §6 says, and continue.
+- **Otherwise:** continue. When no page of this run was saved (every fetch failed, or no fetch tool), skip §5b and §5c, which have nothing to index or remove, and go on to §6: `{docs_staging}` stays as it was.
 
 ### 5b. Index into QMD (Deep Tier Only)
 
@@ -199,7 +228,7 @@ This artifact is a **distinct** carrier — it is not merged into the extraction
 
 ### 5c. Keep or Remove the Fetched Pages
 
-Once the pages are extracted, and at Deep tier indexed by §5b, remove `{docs_staging}` **only when `source_type` is `"source"`**: `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`. At Deep tier the folder is the source path of the `{skill-name}-docs` collection §5b registered; removing it is accepted for supplemental docs, whose T3 items already live in the extraction inventory. **When `source_type` is `"docs-only"`, keep the folder at every tier:** the fetched pages are the skill's only source corpus, since there is no code tree, so deleting them would leave nothing to verify citations against and, at Deep tier, the just-registered collection with nothing to refresh from. Record the kept path in the evidence report.
+Once the pages are extracted, and at Deep tier indexed by §5b, remove `{docs_staging}` **only when `source_type` is `"source"` and the brief is not a whole-language reference** (`whole_language_reference` false): `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`. A whole-language reference keeps the folder, since its Language Guide index (§4a) points step 5 at the pages in it. At Deep tier the folder is the source path of the `{skill-name}-docs` collection §5b registered; removing it is accepted for supplemental docs, whose T3 items already live in the extraction inventory. **When `source_type` is `"docs-only"`, keep the folder at every tier:** the fetched pages are the skill's only source corpus, since there is no code tree, so deleting them would leave nothing to verify citations against and, at Deep tier, the just-registered collection with nothing to refresh from. Record the kept path in the evidence report.
 
 ### 6. Report
 
@@ -210,7 +239,7 @@ Display:
 **T3 items extracted:** {count}
 **Confidence:** All doc-fetched items are T3 — `[EXT:{url}]` citations applied.
 {If docs-only mode: '**Mode:** Docs-only — all skill content is T3. source_authority: community'}
-{If docs-only mode: '**Docs corpus kept:** `{docs_staging}`{if the `{skill-name}-docs` collection was registered in §5b: ', the source path of QMD collection `{skill-name}-docs`'}'}
+{If docs-only mode or a whole-language reference: '**Docs corpus kept:** `{docs_staging}`{if the `{skill-name}-docs` collection was registered in §5b: ', the source path of QMD collection `{skill-name}-docs`'}'}
 
 Proceeding to enrichment..."
 

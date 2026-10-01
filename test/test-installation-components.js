@@ -279,7 +279,6 @@ async function runTests() {
     'create-skill': {
       steps: [
         'load-brief.md',
-        'ecosystem-check.md',
         'sub/ccc-discover.md',
         'extract.md',
         'sub/fetch-temporal.md',
@@ -296,6 +295,7 @@ async function runTests() {
       references: [
         'extraction-patterns.md',
         'extraction-patterns-tracing.md',
+        'entry-points-by-hand.md',
         'source-resolution-protocols.md',
         'tier-degradation-rules.md',
       ],

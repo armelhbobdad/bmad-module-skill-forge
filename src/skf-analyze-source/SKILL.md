@@ -56,23 +56,28 @@ These rules apply to every step in this workflow:
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a; see **Auto mode path** above). Pipelines pass this as `AN[auto]`. Requires `--project-path`. |
 | **Gates** | steps 2/3/4/5: Confirm Gate [C] (step 4 also accepts or rejects each composite merge proposal, default accept); step 6: Confirm Gate [Y] (write briefs); all skipped in auto mode |
-| **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit); final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true. In auto mode, the envelope includes `"mode":"auto"`. |
+| **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit) and the run's result files, written by every run that ends, zero confirmed units included; final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true. In auto mode, the envelope includes `"mode":"auto"`. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
-| **Exit codes** | See `references/headless-contract.md` |
-
-## Headless Result Contract
-
-Headless/pipeline runs emit a single-line `SKF_ANALYZE_RESULT_JSON` envelope — on **stdout** for the terminal success path (step 6 or step 1a), on **stderr** with `status: "error"` for every HARD HALT — and exit with a stable code per failure class. The envelope shape, the `halt_reason` enum, and the exit-code table live in `references/headless-contract.md`; step files emit the concrete instance at each site.
+| **Exit codes** | Envelope, emitter, result files, `halt_reason` enum and exit codes: `references/headless-contract.md` |
 
 ## On Activation
 
-1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
+1. **Resolve the envelope helper.** `{emitEnvelopeHelper}` ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. If neither path exists, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `on-activation:helpers`) and display only: "`skf-emit-result-envelope.py` is missing. Nothing was changed. Re-install SKF." In headless mode every other HARD HALT prints its envelope on stderr through the emitter: with the first command below once step 5 has created `{run_dir}`, before that with the second, the payload on one line. `references/headless-contract.md` (Halt Envelope) gives the payload rules, and each step file restates them in its opening.
+
+   ```bash
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --target stderr <<'SKF_ANALYZE_HALT'
+   {"phase": "on-activation:config", "reason": "<the halt message>", "halt_reason": "input-missing", "mode": "interactive"}
+   SKF_ANALYZE_HALT
+   ```
+
+2. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `forge_data_folder`, `skills_output_folder`, `sidecar_path`
-   - If the config cannot be loaded, HARD HALT with exit code 2 (`input-missing`) per `references/headless-contract.md` — the workflow has no forge context to run against.
+   - If the config cannot be loaded, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `on-activation:config`): "SKF cannot load `{project-root}/_bmad/skf/config.yaml`: the workflow has no forge context to run against. Run setup first." When `--headless` or `-H` was passed, print its envelope with the second command above.
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
+3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. **Resolve workflow customization.** Run:
+4. **Resolve workflow customization.** Run:
 
    ```bash
    python3 {project-root}/_bmad/scripts/resolve_customization.py \
@@ -98,4 +103,12 @@ Headless/pipeline runs emit a single-line `SKF_ANALYZE_RESULT_JSON` envelope —
 
    Apply the array surfaces too: run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` after activation.
 
-4. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the subagents' unit records, the halt and result payloads) and the sink of its auto-decisions:
+
+   ```bash
+   mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-analyze-source-XXXXXXXX"
+   ```
+
+   Bind `{run_dir}` ← the path it prints. The step that ends the run deletes it once the envelope is out; a HARD HALT keeps it. If it cannot be created, HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:run-folder`, path `{project-root}/_bmad-output/.skf-run`): "SKF cannot create its run folder under `{project-root}/_bmad-output/.skf-run/`: {the first stderr line}. Nothing was changed." Its envelope goes through the second command of step 1.
+
+6. Load, read the full file, and then execute `references/init.md` to begin the workflow.

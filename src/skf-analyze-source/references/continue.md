@@ -7,7 +7,6 @@ nextStepOptions:
   step 4: 'map-and-detect.md'
   step 5: 'recommend.md'
   step 6: 'generate-briefs.md'
-  step 7: 'health-check.md'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -16,7 +15,7 @@ nextStepOptions:
 
 ## STEP GOAL:
 
-To resume the analyze-source workflow from where it was left off in a previous session by reading the analysis report's progress state and routing to the correct next step.
+To resume an unfinished analyze-source run from where a previous session left off, by reading the analysis report's progress state and routing to the correct next step. Init section 1 sends only an unfinished report here: a report whose `stepsCompleted` holds `generate-briefs` or `auto-scope` is finished, and init archives it and starts a fresh analysis instead.
 
 ## Rules
 
@@ -55,9 +54,7 @@ Load {outputFile} and read frontmatter:
 
 ### 4. Determine Next Step
 
-**IF the report's `mode` is `'auto'`** (produced by the auto-scope path; reached here because the resume invocation did not carry `[auto]`): an auto analysis is a single idempotent pass, not a resumable interactive chain. Do not use the interactive table below.
-- If `auto-scope` is in `stepsCompleted`, the auto analysis already completed — announce "**This auto analysis is already complete.** Would you like to start a new analysis?" and stop.
-- Otherwise (an auto run interrupted before auto-scope finished), re-enter the auto path: load, read fully, then execute `step-auto-scope.md` (it reads the existing report frontmatter and re-runs cleanly). **STOP HERE.**
+**IF the report's `mode` is `'auto'`** (an auto run interrupted before auto-scope finished, resumed by an invocation without `[auto]`): an auto analysis is a single pass, not a resumable interactive chain, so do not use the interactive table below. Re-enter the auto path: load, read fully, then execute `step-auto-scope.md` (it reads the existing report frontmatter and re-runs cleanly). **STOP HERE.** (When auto-scope falls back to the interactive chain, it sets `mode: 'interactive'` first, so such a report resumes through the table below.)
 
 For interactive reports, map the last completed step to the next step file:
 
@@ -68,10 +65,6 @@ For interactive reports, map the last completed step to the next step file:
 | identify-units | map-and-detect |
 | map-and-detect | recommend |
 | recommend | generate-briefs |
-| generate-briefs | health-check |
-
-**IF `health-check` is in `stepsCompleted`:**
-"**This analysis appears to be complete.** All steps have been finished. Would you like to start a new analysis?"
 
 ### 5. Update and Route
 

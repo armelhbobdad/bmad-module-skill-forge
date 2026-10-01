@@ -26,7 +26,7 @@ To finalize the skill by creating the active-version pointer, displaying the com
 
 **If `{overrides.no_active_pointer}` is true**, skip the helper invocation entirely. Log: "Active pointer: skipped per `--no-active-pointer` override." Do not update `{skill_group}/active`, and set `{active_pointer}` to `skipped-no-active-pointer`. Proceed to §2 with the active-pointer line omitted from the completion summary and the outputs payload.
 
-`{skill_group}` and `{skill_package}` were computed in step 5 §1 from `{skills_output_folder}`, `{repo_name}`, and `{version}`; `{version}` was resolved from the extraction inventory. Reuse the same values here — do not recompute.
+`{skill_group}` and `{skill_package}` were computed in step 5 §1 from `{skills_output_folder}`, `{repo_name}`, and `{version}`; `{version}` is the `version` of the `metadata.json` step 5 installed. Reuse the same values here, do not recompute.
 
 Create or update the `active` pointer at `{skill_group}/active` pointing to `{version}` using the shared atomic-flip helper. The helper acquires an `flock` on `{skill_group}/active.skf-lock`, refuses to replace a non-link at `{skill_group}/active` (protecting against accidental `rm -rf` of a real directory), and uses a rename-over-symlink pattern so the update is atomic from a concurrent reader's perspective. On Windows the helper automatically falls back to a directory junction (`mklink /J`) when `os.symlink` fails with `PRIVILEGE_NOT_HELD` / `ACCESS_DENIED` — junctions require no admin elevation and resolve identically for `skf-skill-inventory`'s consumers:
 
@@ -99,13 +99,11 @@ cat > "{run_dir}/result-context.json" <<'SKF_JSON'
   },
   "result_contract": {
     "skill": "skf-quick-skill",
-    "status": "success",
     "outputs": [
       {"type": "skill", "path": "{skill_package}/SKILL.md"},
       {"type": "skill", "path": "{skill_package}/context-snippet.md"},
       {"type": "skill", "path": "{skill_package}/metadata.json"}
-    ],
-    "summary": {the same summary object}
+    ]
   }
 }
 SKF_JSON
@@ -114,7 +112,7 @@ uv run {emitEnvelopeHelper} emit --workflow skf-quick-skill --run-dir "{run_dir}
 
 This list is the summary, once: `skill_name`, `version`, `language`, `exports_documented` (the export count), `quality_score` and `validation_issues` (step 5, the object `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`), `confidence` and `repo_shape` (step 3, the shape null when it recorded none), `language_resolution` and `detected_languages` (step 1), `zero_exports_rescue` (step 3 §4.5, else null) and `active_pointer` (§1). Write each value as JSON: a string in double quotes with any `"` or `\` escaped, every path absolute with `/`, and `null` for a value the run did not record. Leave the snippet out of both `outputs` under `--skip-snippet`, and `outputs.active_pointer` out when §1 flipped no pointer.
 
-The emitter writes the result contract from `result_contract` (the per-run record `{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json` and its copy `quick-skill-result-latest.json`, the stable path for pipeline consumers) and prints one line on stdout, `SKF_QUICK_SKILL_RESULT_JSON: {...}`: display it verbatim as its own line. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again; if it still fails, or no path resolved for `{emitEnvelopeHelper}`, say that the result contract was not written and why, and go on.
+The emitter writes the result contract from `result_contract`, with the payload's own `status` and `summary`, so neither is typed twice (the per-run record `{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json` and its copy `quick-skill-result-latest.json`, the stable path for pipeline consumers) and prints one line on stdout, `SKF_QUICK_SKILL_RESULT_JSON: {...}`: display it verbatim as its own line. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again; if it still fails, or no path resolved for `{emitEnvelopeHelper}`, say that the result contract was not written and why, and go on.
 
 **Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it after the result contract is finalized:
 
@@ -124,10 +122,10 @@ The emitter writes the result contract from `result_contract` (the per-run recor
 
 Log success/failure but never fail the workflow on a hook error: the skill is already written. The hook runs last so a git-add, registry registration, or notifier sees a complete package. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely. Under `--batch` it runs once per target that reaches this section.
 
-In a single-target run, then delete the run folder, which a finished run no longer needs (if `rmdir` reports it is not empty, leave it):
+In a single-target run, then delete the run folder, which a finished run no longer needs: the files step 3 fetched into it, and the files the steps staged (if `rmdir` reports it is not empty, leave it). The `case` guard deletes nothing unless the path is a quick-skill run folder:
 
 ```bash
-rm -f "{run_dir}"/*.json "{run_dir}"/*.jsonl && rmdir "{run_dir}"
+case "{run_dir}" in */.skf-run/skf-quick-skill-*) rm -rf "{run_dir}/src" && rm -f "{run_dir}"/*.json "{run_dir}"/*.jsonl "{run_dir}"/*.txt && rmdir "{run_dir}" ;; esac
 ```
 
 Under `--batch`, leave it: batch mode §3 records the target from it, then removes it.

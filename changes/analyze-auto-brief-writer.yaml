@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-analyze-source
+summary: |
+  Analyze Source writes every `skill-brief.yaml`, on the `[auto]` path and in the interactive step alike, through `skf-write-skill-brief.py`, and outside the documentation-URL branch checks it with `skf-validate-brief-schema.py`, the check Brief Skill runs when it reads a brief, before any brief reaches the forge data folder. A brief either one rejects now stops the run with exit `4` (`write-failed`) and an error envelope, where `AN[auto]` used to write it, report success and leave `BS[auto]` to halt one stage later (a whole-language caveat holding an apostrophe was enough). `brief_paths` therefore lists only briefs that passed these checks. Exit `4` with `write-failed` at the end of a run now means that the shared emitter refused the result payload twice: a result file that cannot be written leaves `result_path` null and a `result_file_write_failed` warning, and the run finishes with exit `0`. The auto path also reads the target's whole file list from one file, so shape detection sees every grammar file and compiler folder.
+migration: |
+  Re-run `@Ferris AN[auto] <target>` (or the `forge-auto` pipeline) on a target whose run stops with `write-failed`: the envelope's `error.reason` names the brief field the writer or the schema rejected. A pipeline that treated exit `4` as a missing result file now checks the envelope's `warnings` for `result_file_write_failed` before it reads `analyze-source-result-latest.json`.
+prs: [634]
+issues: [592]

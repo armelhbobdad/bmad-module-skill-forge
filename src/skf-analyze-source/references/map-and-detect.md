@@ -20,6 +20,9 @@ pairIntersectProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+checkUnitRecordsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-check-unit-records.py'
+  - '{project-root}/src/shared/scripts/skf-check-unit-records.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -38,6 +41,14 @@ To analyze each qualifying unit's export surface and import graph, detect cross-
 
 ## MANDATORY SEQUENCE
 
+Every HARD HALT in this step names its exit code, `halt_reason` and phase. When `{headless_mode}` is true it first prints its envelope on stderr through the shared emitter (`{emitEnvelopeHelper}` and `{run_dir}` come from SKILL.md On Activation): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "mode": "interactive", "report_path": "{outputFile as an absolute path}"}`, plus `"path"` when the halt names one, then run
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Load Context
 
 Read {outputFile} to obtain:
@@ -50,7 +61,7 @@ Load {heuristicsFile} for stack skill candidate detection rules.
 
 For each qualifying unit, delegate deep analysis to a subagent so per-unit work runs in parallel and the parent's context stays clean.
 
-**Resolve `{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with exit code 3 (`resolution-failure`) and the error envelope on stderr (shape in `references/headless-contract.md`). Pass the resolved path to every subagent.
+**Resolve `{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}` and **`{checkUnitRecordsHelper}`** from `{checkUnitRecordsProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:2`): "`{the missing script}` is missing. Re-install SKF." Pass the resolved `{extractPublicApiHelper}` to every subagent.
 
 **Subagent fan-out protocol:**
 
@@ -60,6 +71,7 @@ For each qualifying unit, delegate deep analysis to a subagent so per-unit work 
    - The subagent reads only that unit's directory tree
    - The subagent analyzes exports / usage / CCC signals / scripts+assets for that one unit
    - **The parent does not read the unit's source files before delegating** (avoid the implicit-read trap — the whole point of fan-out is to keep large source bodies out of the parent's context)
+   - The subagent writes its record (point 4) to a file of the run folder and returns only that file's path, so the parent never copies a record: pass it `{run_dir}`
 
 3. **Per-unit analysis the subagent performs:**
 
@@ -88,7 +100,7 @@ For each qualifying unit, delegate deep analysis to a subagent so per-unit work 
    - Script/asset presence: check for `scripts/`, `bin/`, `assets/`, `templates/` directories and files matching detection signals in `{heuristicsFile}`
    - The export-surface call's `strategy_used`, `confidence` and `warnings`
 
-4. **Subagent return contract.** Each subagent returns only this JSON object — no prose, no commentary, no markdown fences:
+4. **Subagent record contract.** Each subagent writes only this JSON object, with no prose, no commentary and no markdown fence, to `{run_dir}/unit-records/{unit_name}.json` (creating the folder), and returns that path:
 
    ```json
    {
@@ -107,9 +119,15 @@ For each qualifying unit, delegate deep analysis to a subagent so per-unit work 
 
    `files_count` is the unit's file count from Identified Units, not the runner's `files_in_scope`, which leaves out every file no recipe reads.
 
-5. **Parent post-processing.** Strip any wrapping markdown fences (subagents sometimes wrap JSON in ` ```json … ``` ` despite the contract) before parsing. Validate each payload against the contract; if a key is missing, log a warning to `workflow_warnings[]` and continue with that unit's degraded record. Add each record's `warnings` to `workflow_warnings[]`.
+5. **Parent post-processing.** Once every subagent has returned its path (a main-thread analysis writes its record the same way), check all the records in one call:
 
-6. **Aggregate.** Collect all per-unit JSON payloads into `per_unit_findings[]` in workflow context for use by §3 (import graph), §4 (integration points), §5 (composites and stack candidates), §6 (findings presentation), and downstream stages (recommend.md, generate-briefs.md).
+   ```bash
+   uv run {checkUnitRecordsHelper} --dir "{run_dir}/unit-records"
+   ```
+
+   The script drops a wrapping markdown fence (a subagent sometimes writes one despite the contract), checks each record against the contract above and fills a missing or wrong-typed key with its empty value, so a degraded record still goes on. Its `records` are the per-unit payloads. Record each `problems` entry as the warning `{unit_name}: {problem}` and each `warnings` entry as it is, so they reach the envelope's `warnings`: one `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning>'` per entry, a single quote in it written as a backtick. A unit with no file in the folder, or a file the script lists in `unreadable` (it held no JSON object), is analyzed again in the main thread (graceful degradation below), and the check runs once more.
+
+6. **Aggregate.** Collect the checked `records` into `per_unit_findings[]` in workflow context for use by §3 (import graph), §4 (integration points), §5 (composites and stack candidates), §6 (findings presentation), and downstream stages (recommend.md, generate-briefs.md).
 
 **Per-unit export summary (built from `per_unit_findings[]`):**
 
@@ -123,7 +141,7 @@ For each qualifying unit, delegate deep analysis to a subagent so per-unit work 
 
 Which unit imports which, how many files import each unit, which units are imported together and which import each other in a cycle each have one right answer per tree, so the helpers compute them and this section reads their output.
 
-**Resolve `{scanManifestsHelper}`, `{countImportsHelper}`, `{findCyclesHelper}` and `{pairIntersectHelper}`** from their probe orders; first existing path wins for each. If one has no candidate, HARD HALT with exit code 3 (`resolution-failure`) and the error envelope on stderr (shape in `references/headless-contract.md`).
+**Resolve `{scanManifestsHelper}`, `{countImportsHelper}`, `{findCyclesHelper}` and `{pairIntersectHelper}`** from their probe orders; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:3`): "`{the missing script}` is missing. Re-install SKF."
 
 **Units JSON.** One entry per qualifying unit, from its Identified Units row: `{"name": "<unit name>", "path": "<its path, relative to the source root>", "manifest_name": "<its own manifest's name>", "ecosystem": "<its own manifest's ecosystem>"}`, with `manifest_name` and `ecosystem` left out for a unit without a manifest. The import helper works out the names other code imports each unit by from what the unit declares. Add `"modules"` only for a folder without a manifest that code imports by name: a Python package folder (`["acme"]`) or a Go package inside a module (`["example.com/svc/internal/auth"]`).
 
@@ -178,7 +196,7 @@ Identify cross-unit integration patterns:
 
 Decide both here, in one pass over §3's graph and §4's integration map, so each group of units is judged once: a **composite** when its units only deliver value together, a **stack skill candidate** when each is useful on its own and they are also used together. A group is never both.
 
-**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with exit code 3 (`resolution-failure`) and the error envelope on stderr (shape in `references/headless-contract.md`).
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:5`): "`skf-skill-inventory.py` is missing. Re-install SKF."
 
 1. **Composite merge proposals.** Apply the Composite Boundary triggers in {heuristicsFile} (mutual hard dependency, shared integration surface, and the Cohesion Triggers: umbrella facade, shared runtime contract, internal building blocks) to the qualifying units. The evidence comes from the helpers: `cycles[]` for a mutual dependency, `edges[]` and §4's shared types for a shared integration surface, and the §3 scan's `umbrella_candidates[]` and each member's `internal_deps` and `private` for the cohesion triggers. For each group that meets a trigger, propose one composite:
    - **Constituents:** the unit names and paths merged

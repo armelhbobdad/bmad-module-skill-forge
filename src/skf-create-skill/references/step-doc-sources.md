@@ -2,9 +2,10 @@
 nextStepFile: 'step-auto-shard.md'
 # Resolve `{detectDocsHelper}` by probing `{detectDocsProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves: §2 has no prose fallback for doc-source
-# detection (Pages-API walk, docs/ folder scan, content hashing), §2a none
-# for URL hashing and §3 none for the README entry.
+# path wins. HALT (exit code 3, helper-missing) if neither resolves: §2
+# has no prose fallback for doc-source detection (Pages-API walk, docs/
+# folder scan, content hashing), §2a none for URL hashing and §3 none for
+# the README entry.
 detectDocsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
@@ -47,7 +48,7 @@ Otherwise check that `{source_repo}` is available from the skill brief.
 
 **If `{source_repo}` is available:**
 
-**Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. If no candidate exists, **HARD HALT** (exit code 3, `helper-missing`, phase `doc-sources`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot record the doc sources: skf-detect-docs.py is missing. Re-install SKF, then re-run create-skill."
 
 Invoke the detect-docs script:
 
@@ -68,7 +69,7 @@ Pass no `--local-path`: step 3 read a remote source from a private tree that ste
 
 Runs only when `source_type` is `"docs-only"` (§2 routed here). Build the URL list: every `doc_urls[].url` from the brief, in brief order, followed by every subpage URL that step 3c (fetch-docs) actually fetched through subpage discovery — the `[EXT:{url}]` provenance set of the doc-fetch inventory. Include a brief URL even if step 3c could not fetch it; the helper fetches independently of the agent's web tools.
 
-**Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. If no candidate exists, **HARD HALT** (exit code 3, `helper-missing`, phase `doc-sources`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot record the doc sources: skf-detect-docs.py is missing. Re-install SKF, then re-run create-skill."
 
 Pipe the list to the `hash-urls` subcommand. It fetches each URL and hashes the raw response bytes with the same primitive `skf-audit-skill` step 5a (`compare-hashes`) uses, so a hash recorded here compares byte-for-byte at audit time. Do not hash the markdown a web-fetch tool rendered in step 3c — the audit re-fetches raw bytes, and a rendered-markdown hash would report every page as drifted.
 
@@ -92,7 +93,7 @@ After obtaining detection results, check if any entry has a URL matching `*/READ
 
 **If a README entry already exists** from detection (e.g., `detected_via: "docs_folder"` found a README): keep it as-is.
 
-**If no README entry exists,** add the one the `readme-entry` subcommand builds. It picks the README at the top of the source (`README.md` before a translation such as `README-ja.md`), records the raw GitHub file at the ref step 3 resolved (a `file://` URL for a local source), and hashes it with the fetch `skf-audit-skill`'s `compare-hashes` runs again, so an unchanged README reads as unchanged at audit time. **Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. HALT if no candidate exists. From `{project-root}`, run:
+**If no README entry exists,** add the one the `readme-entry` subcommand builds. It picks the README at the top of the source (`README.md` before a translation such as `README-ja.md`), records the raw GitHub file at the ref step 3 resolved (a `file://` URL for a local source), and hashes it with the fetch `skf-audit-skill`'s `compare-hashes` runs again, so an unchanged README reads as unchanged at audit time. **Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. If no candidate exists, **HARD HALT** (exit code 3, `helper-missing`, phase `doc-sources`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot record the doc sources: skf-detect-docs.py is missing. Re-install SKF, then re-run create-skill." From `{project-root}`, run:
 
 ```bash
 uv run {detectDocsHelper} readme-entry --source-repo "{source_repo}" --ref "{source_ref}" [--local-root "{source_root}"]
@@ -130,7 +131,7 @@ For a docs-only skill the `hash-urls` output from §2a is already in this shape 
 
 Read the staging `_bmad-output/.skf-stage/{skill-name}/metadata.json` that compile (step 5) wrote.
 
-**If the staging metadata.json is unreadable:** HALT — this indicates compile failed (critical, not doc-detection-related).
+**If the staging metadata.json is unreadable:** **HARD HALT** (exit code 4, `staging-unreadable`, phase `doc-sources`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staged `metadata.json`: "Cannot read the staged metadata.json that compile wrote. Re-run create-skill." It means compile failed, which no doc detection caused.
 
 **Replace** the `doc_sources` field entirely (do not merge or append to stale data from prior compiles):
 

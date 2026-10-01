@@ -39,6 +39,7 @@ def assert_result_shape(out: dict) -> None:
     assert out["confidence"] in {"high", "medium", "low"}
     assert isinstance(out["detection_source"], str) and out["detection_source"]
     assert isinstance(out["fallback_to_extension_frequency"], bool)
+    assert isinstance(out["source_language"], str) and out["source_language"], out
     assert "detected_languages" in out, out
     assert isinstance(out["detected_languages"], list)
     assert all(isinstance(x, str) for x in out["detected_languages"])
@@ -115,10 +116,12 @@ def test_unknown_or_null_workspace_signal_is_ignored():
     assert mod.detect({"tree": tree, "workspace_signal": None})["language"] == "javascript"
 
 
-def test_no_workspace_signal_preserves_legacy_behavior():
-    """Absent workspace_signal: a nested package.json still matches rule 1 (unchanged)."""
+def test_no_workspace_signal_a_docs_package_json_does_not_decide():
+    """Absent workspace_signal: the root Cargo.toml decides, not the docs/ site's
+    package.json (rule 1 used to fire on it from any depth and give javascript)."""
     result = mod.detect({"tree": ["docs/package.json", "Cargo.toml", "src/lib.rs"]})
-    assert result["language"] == "javascript"
+    assert (result["language"], result["confidence"]) == ("rust", "high")
+    assert result["detected_languages"] == ["rust", "javascript"]
 
 
 # --------------------------------------------------------------------------
@@ -573,13 +576,19 @@ def test_tree_file_takes_the_signal_from_a_flag_never_from_stdin(tmp_path):
     """With --tree-file, stdin is never read for the payload: a
     workspace_signal piped in changes nothing (the help says so), while
     --workspace-signal or --json decides, and passing it twice is refused."""
-    tree_file = _tree_file(tmp_path, "Cargo.toml\ndocs/package.json\ndocs/tsconfig.json\n")
+    # A root package.json beside a nested crate: typescript, unless the
+    # workspace signal says the repository is a cargo workspace.
+    tree_file = _tree_file(tmp_path, "package.json\ntsconfig.json\ncrates/core/Cargo.toml\n")
     signal = json.dumps({"workspace_signal": "cargo-workspace"})
     assert _out(run_cli("--tree-file", str(tree_file), stdin=signal))["language"] == "typescript"
     assert _out(run_cli("--tree-file", str(tree_file), "--workspace-signal", "cargo-workspace"))["language"] == "rust"
     assert _out(run_cli("--tree-file", str(tree_file), "--json", signal))["language"] == "rust"
     # a JS-family manifest_kind carries no override, as in the payload
     assert _out(run_cli("--tree-file", str(tree_file), "--workspace-signal", "npm-workspaces"))["language"] == "typescript"
+    # A docs/ site no longer needs the signal: the root Cargo.toml decides.
+    docs_site = _tree_file(tmp_path, "Cargo.toml\ndocs/package.json\ndocs/tsconfig.json\n")
+    assert _out(run_cli("--tree-file", str(docs_site)))["language"] == "rust"
+    assert _out(run_cli("--tree-file", str(docs_site), "--workspace-signal", "npm-workspaces"))["language"] == "rust"
     twice = run_cli("--tree-file", str(tree_file), "--workspace-signal", "cargo-workspace", "--json", signal)
     assert twice.returncode == 2
     assert "pass workspace_signal once" in twice.stderr.decode("utf-8")
@@ -678,3 +687,154 @@ def test_the_reader_raises_on_a_failed_listing():
 def test_is_source_file_follows_the_extension_rule(path, source):
     """skf-detect-workspaces.py's tree snapshot counts source files with it."""
     assert mod.is_source_file(path) is source
+
+
+# --------------------------------------------------------------------------
+# Which manifests decide: the manifests nearest the root, never a non-core
+# folder's (the wave-3 re-check of skf-analyze-source, determinism-1)
+# --------------------------------------------------------------------------
+
+
+def test_a_root_pyproject_beats_a_docs_package_json():
+    """A Python library whose docs site carries a package.json is python (it
+    was javascript, high: rule 1 fired on a manifest at any depth)."""
+    result = mod.detect({"tree": ["pyproject.toml", "docs/package.json", "src/pkg/core.py"]})
+    assert_result_shape(result)
+    assert (result["language"], result["confidence"]) == ("python", "high")
+    assert result["detection_source"] == "pyproject.toml present"
+    assert result["detected_languages"] == ["python", "javascript"]
+
+
+def test_a_root_pyproject_beats_a_nested_rust_core():
+    """pydantic: the root pyproject.toml decides over pydantic-core/Cargo.toml
+    (it was rust, high), and rust stays in detected_languages."""
+    tree = ["pydantic-core/Cargo.toml", "pydantic-core/pyproject.toml", "pyproject.toml", "pydantic/main.py"]
+    result = mod.detect({"tree": tree})
+    assert (result["language"], result["confidence"]) == ("python", "high")
+    assert result["detected_languages"] == ["python", "rust"]
+
+
+# python/cpython at the root: no manifest, so the shallowest one below
+# decides, at medium confidence, and the language of its source files ends
+# detected_languages.
+CPYTHON_TREE = [
+    "PCbuild/pcbuild.sln", "PCbuild/python.vcxproj",
+    "Platforms/Android/testbed/build.gradle.kts",
+    "Platforms/emscripten/browser_test/package.json", "Platforms/emscripten/browser_test/tsconfig.json",
+    "Platforms/emscripten/browser_test/run_test.ts",
+    "Doc/conf.py", "Tools/build/freeze.py", "configure", "README.rst",
+    "Python/ceval.c", "Parser/parser.c", "Include/Python.h",
+    *(f"Lib/mod{i}.py" for i in range(40)),
+    *(f"Lib/test/test_mod{i}.py" for i in range(40)),
+]
+
+
+def test_a_cpython_shaped_tree_decides_below_the_root_at_medium_confidence():
+    result = mod.detect({"tree": CPYTHON_TREE})
+    assert_result_shape(result)
+    assert result["confidence"] == "medium"
+    assert result["language"] != "python"
+    assert result["language"] == result["detected_languages"][0]
+    assert "PCbuild/pcbuild.sln" in result["detection_source"]
+    assert "no manifest at the tree's root" in result["detection_source"]
+    assert result["source_language"] == "python"
+    assert result["detected_languages"][-1] == "python"
+    assert set(result["detected_languages"]) == {"csharp", "typescript", "kotlin", "python"}
+
+
+def test_a_root_manifest_keeps_the_source_language_out_of_detected_languages():
+    """The extension count joins detected_languages only when no manifest sits at the root."""
+    result = mod.detect({"tree": ["package.json", "a.py", "b.py", "c.py"]})
+    assert (result["language"], result["source_language"]) == ("javascript", "python")
+    assert result["detected_languages"] == ["javascript"]
+
+
+@pytest.mark.parametrize(
+    "tree,language,detected",
+    [
+        pytest.param(["Cargo.toml", "examples/demo/package.json", "benchmarks/x/go.mod"], "rust",
+                     ["rust", "javascript", "go"], id="examples-and-benches"),
+        pytest.param(["go.mod", ".github/actions/setup/package.json", "main.go"], "go", ["go", "javascript"],
+                     id="hidden-folder"),
+        pytest.param(["pyproject.toml", "tests/fixtures/app/package.json", "website/package.json"], "python",
+                     ["python", "javascript"], id="fixtures-and-website"),
+        pytest.param(["setup.py", "Tools/node/package.json"], "python", ["python", "javascript"],
+                     id="upper-case-tools"),
+    ],
+)
+def test_a_non_core_folder_never_decides(tree, language, detected):
+    result = mod.detect({"tree": tree})
+    assert (result["language"], result["confidence"]) == (language, "high")
+    assert result["detected_languages"] == detected
+
+
+def test_the_shallowest_core_folder_decides_before_rule_order():
+    """packages/a/package.json at depth 2 loses to crates/go.mod at depth 1,
+    though rule 1 comes first in the table."""
+    result = mod.detect({"tree": ["packages/a/package.json", "crates/go.mod", "README.md"]})
+    assert (result["language"], result["confidence"]) == ("go", "medium")
+    assert result["detected_languages"] == ["go", "javascript"]
+
+
+def test_rule_order_decides_within_one_depth():
+    result = mod.detect({"tree": ["x/Cargo.toml", "y/package.json", "y/tsconfig.json", "README.md"]})
+    assert (result["language"], result["confidence"]) == ("typescript", "medium")
+    assert result["detected_languages"] == ["typescript", "rust"]
+
+
+def test_a_docs_tsconfig_does_not_turn_a_root_package_into_typescript():
+    result = mod.detect({"tree": ["package.json", "index.js", "website/tsconfig.json", "website/package.json"]})
+    assert (result["language"], result["confidence"]) == ("javascript", "high")
+    assert result["detected_languages"] == ["javascript", "typescript"]
+
+
+def test_a_unit_under_a_non_core_folder_reads_from_its_own_folder():
+    """One unit's files (identify-units section 4) sit under its folder: that
+    folder is the tree's root, so tools/cli's own package.json decides."""
+    result = mod.detect({"tree": ["tools/cli/package.json", "tools/cli/bin/run.js", "tools/cli/lib/a.js"]})
+    assert (result["language"], result["confidence"]) == ("javascript", "high")
+    assert result["detected_languages"] == ["javascript"]
+
+
+def test_only_non_core_manifests_still_decide():
+    """No core manifest: every manifest takes part again, below the root at medium."""
+    result = mod.detect({"tree": ["docs/package.json", "a.py", "b.py", "c.py"]})
+    assert (result["language"], result["confidence"]) == ("javascript", "medium")
+    assert result["detected_languages"] == ["javascript", "python"]
+
+
+def test_a_typescript_unit_in_a_cargo_workspace_is_typescript_without_the_signal():
+    """identify-units passes no --workspace-signal: rule 0 would answer rust
+    for any unit of a cargo workspace."""
+    tree = ["packages/node/package.json", "packages/node/tsconfig.json", "packages/node/index.ts"]
+    assert mod.detect({"tree": tree})["detected_languages"] == ["typescript"]
+    assert mod.detect({"tree": tree, "workspace_signal": "cargo-workspace"})["detected_languages"] == ["rust"]
+
+
+@pytest.mark.parametrize(
+    "tree",
+    [
+        pytest.param(["pyproject.toml", "docs/package.json"], id="docs"),
+        pytest.param(CPYTHON_TREE, id="cpython"),
+        pytest.param(["a/b/build.gradle", "a/b/src/main/kotlin/A.kt", "c/pom.xml"], id="gradle"),
+        pytest.param(["x.sln", "src/package.json", "src/tsconfig.json"], id="suffix-at-root"),
+    ],
+)
+def test_language_is_the_first_detected_language(tree):
+    result = mod.detect({"tree": tree})
+    assert result["language"] == result["detected_languages"][0]
+
+
+def test_the_cli_reads_a_cpython_listing(tmp_path):
+    out = _out(run_cli("--tree-file", str(_tree_file(tmp_path, "".join(f"{p}\n" for p in CPYTHON_TREE)))))
+    assert (out["confidence"], out["source_language"], out["detected_languages"][-1]) == ("medium", "python", "python")
+
+
+def test_the_non_core_folders_match_shape_detection():
+    """The set is a copy of skf-shape-detect.py's (which loads this script, so
+    this one cannot import it): both scripts must call the same folders non-core."""
+    path = SCRIPT_PATH.parent / "skf-shape-detect.py"
+    spec_shape = importlib.util.spec_from_file_location("skf_shape_detect_parity", path)
+    shape = importlib.util.module_from_spec(spec_shape)
+    spec_shape.loader.exec_module(shape)
+    assert mod._NON_CORE_PATH_SEGMENTS == shape._NON_CORE_PATH_SEGMENTS

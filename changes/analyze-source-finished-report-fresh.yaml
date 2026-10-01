@@ -1,0 +1,6 @@
+type: changed
+scope: skf-analyze-source
+summary: |
+  Running Analyze Source again after an analysis finished now starts a fresh analysis, in interactive and headless mode: the finished report (one whose steps include writing the briefs, or the auto scope) is archived beside it as `analyze-source-report-<project>-<YYYYMMDD-HHmmss>.md`, where before the run resumed it and stopped at the health check. Only an unfinished report is resumed, and an `[auto]` run archives any earlier report instead of overwriting it. A unit that only has a brief from an earlier analysis is analyzed again (its status is `briefed`, and its brief is rewritten if you confirm the unit): only a compiled skill SKF generated makes a unit already skilled. An `[auto]` run that falls back to the step-by-step analysis now marks its report as interactive, so a resumed session continues that analysis instead of restarting the auto scope, and its envelopes from then on carry `mode: interactive`.
+prs: [634]
+issues: [587]

@@ -60,6 +60,7 @@ Skill Brief: {name}
 ====================
 
 Target:      {source_repo}
+Target ref:  {target_ref; omit this line entirely when target_ref is unset}
 Language:    {language}
 Forge Tier:  {forge_tier} — {tier_gloss}
 Description: {description}
@@ -156,7 +157,7 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 - IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
-- IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — step 5 has not run, no skill-brief.yaml file exists yet. `[X]` is interactive-only; the headless GATE never reaches this branch.
+- IF X: Treat as user-cancellation. Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Step 5 has not run, so no brief was written; a saved draft stays for a later resume. `[X]` is interactive-only; the headless GATE never reaches this branch.
 - IF Any other comments or queries: help user respond, apply any field adjustments, re-present brief if changed, then [Redisplay Menu Options](#5-present-menu-options)
 
 #### Execution rules:

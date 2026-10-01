@@ -1225,3 +1225,184 @@ class TestAmend:
         tmp_target.write_bytes(b"name: acme-ui\n")
         proc = _amend(tmp_target, _answers())
         assert proc.returncode == 1 and "holds no scope mapping" in proc.stderr
+
+    # create-skill step 3's authoritative-files protocol records its decisions through amend (#593).
+
+    def _auth_amendment(self, action: str = "promoted") -> dict:
+        return {"path": "AGENTS.md", "action": action, "reason": "r", "heuristic": "AGENTS.md",
+                "date": "2026-10-01", "workflow": "skf-create-skill"}
+
+    def test_include_appends_a_literal_path_once(self, tmp_target):
+        _written_brief(tmp_target)
+        old = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["include"]
+        payload = {"include": ["AGENTS.md", "AGENTS.md"], "amendments": [self._auth_amendment()]}
+        proc = _amend(tmp_target, payload)
+        assert proc.returncode == 0, proc.stderr
+        result = json.loads(proc.stdout)
+        assert (result["included"], result["set"], result["appended"]) == (["AGENTS.md"], [], 1)
+        assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["include"] == [*old, "AGENTS.md"]
+        again = _amend(tmp_target, {"include": ["AGENTS.md"]})
+        assert json.loads(again.stdout)["included"] == []
+
+    def test_an_empty_include_stays_empty(self, tmp_target):
+        """An empty scope.include covers every file: one appended path would narrow it to that file."""
+        tmp_target.parent.mkdir(parents=True)
+        tmp_target.write_bytes(b"name: demo\nscope:\n  type: full-library\n  include: []\n  exclude: []\n  notes: ''\n")
+        proc = _amend(tmp_target, {"include": ["AGENTS.md"], "amendments": [self._auth_amendment()]})
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["included"] == []
+        scope = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]
+        assert scope["include"] == [] and scope["amendments"][0]["action"] == "promoted"
+
+    def test_a_headless_deferral_is_recorded(self, tmp_target):
+        _written_brief(tmp_target)
+        proc = _amend(tmp_target, {"amendments": [self._auth_amendment("deferred-headless")]})
+        assert proc.returncode == 0, proc.stderr
+        scope = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]
+        assert scope["amendments"][-1]["action"] == "deferred-headless"
+
+    @pytest.mark.parametrize("include", ["AGENTS.md", [""], [3]], ids=["string", "blank", "number"])
+    def test_a_bad_include_exits_1_and_touches_nothing(self, tmp_target, include):
+        before = _written_brief(tmp_target)
+        proc = _amend(tmp_target, {"include": include})
+        assert proc.returncode == 1 and "include must be an array of non-empty paths" in proc.stderr, proc.stderr
+        assert tmp_target.read_bytes() == before
+
+    def test_an_amendment_that_adds_a_schema_error_is_refused(self, tmp_target):
+        """Only an error the amendment adds is refused, never one the brief already held."""
+        spec = importlib.util.spec_from_file_location("skf_write_skill_brief_amend", SCRIPT_PATH)
+        writer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(writer)
+        _written_brief(tmp_target)
+        good = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))
+        broken = {**good, "version": "not-semver"}
+        assert writer._added_errors(good, good) == []
+        assert writer._added_errors(broken, broken) == []
+        assert writer._added_errors(good, broken)
+
+
+# --------------------------------------------------------------------------
+# write --base-brief: rewrite a brief on disk without retyping it
+# --------------------------------------------------------------------------
+
+
+def _full_brief_ctx() -> dict:
+    """A context carrying every field the writer renders, version pinned by target_version."""
+    ctx = _component_ctx()
+    ctx["scope"]["tier_a_include"] = ["registry/button.tsx"]
+    ctx["scope"]["notes"] = "It's the registry's surface."
+    ctx["scope"]["rationale"] = {"recommended": "full-library", "chosen": "component-library",
+                                 "accepted_recommendation": False, "heuristic": "component-registry",
+                                 "reason": "a registry", "recorded": "2026-09-30"}
+    ctx.update(target_version="1.2.3", target_ref="v1.2.3", source_ref="v1.2.3", scripts_intent="none",
+               assets_intent="the JSON schemas", source_authority="official",
+               doc_urls=[{"url": "https://marked.js.org/", "label": "Docs", "source": "homepage"}])
+    return ctx
+
+
+def _base_write(target: Path, base: Path, *flags: str, stdin: str = "") -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "write", "--target", str(target), "--base-brief", str(base), *flags],
+        input=stdin, capture_output=True, text=True, encoding="utf-8",
+    )
+
+
+def _loaded(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+class TestBaseBrief:
+    def _base(self, tmp_path: Path) -> Path:
+        base = tmp_path / "upstream" / "skill-brief.yaml"
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "write", "--target", str(base)],
+                              input=json.dumps(_full_brief_ctx()), capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr
+        return base
+
+    def test_a_brief_rewritten_from_itself_is_byte_identical(self, tmp_path):
+        base = self._base(tmp_path)
+        target = tmp_path / "out" / "skill-brief.yaml"
+        proc = _base_write(target, base, stdin="not read")
+        assert proc.returncode == 0, proc.stderr
+        assert target.read_bytes() == base.read_bytes()
+        assert json.loads(proc.stdout)["version"] == "1.2.3"
+
+    def test_the_merged_doc_urls_replace_the_briefs(self, tmp_path):
+        base = self._base(tmp_path)
+        merged = tmp_path / "doc-urls-merged.json"
+        doc_urls = [{"url": "https://marked.js.org/", "label": "Docs", "source": "homepage"},
+                    {"url": "https://marked.js.org/api", "label": "API's reference", "source": "readme-detection"}]
+        merged.write_bytes(json.dumps({"doc_urls": doc_urls, "suppressed": [{"url": "x", "reason": "y"}]})
+                           .encode("utf-8"))
+        target = tmp_path / "out" / "skill-brief.yaml"
+        proc = _base_write(target, base, "--doc-urls-file", str(merged))
+        assert proc.returncode == 0, proc.stderr
+        written, before = _loaded(target), _loaded(base)
+        assert written["doc_urls"] == doc_urls and "suppressed" not in written
+        assert {k: v for k, v in written.items() if k != "doc_urls"} == \
+            {k: v for k, v in before.items() if k != "doc_urls"}
+
+    def test_a_patch_changes_only_what_it_names(self, tmp_path):
+        base = self._base(tmp_path)
+        patch = tmp_path / "edit.json"
+        patch.write_bytes(json.dumps({"description": "It's the parser. Use when Markdown needs HTML.",
+                                      "scope": {"type": "public-api", "tier_a_include": None},
+                                      "version": "1.3.0", "target_version": "1.3.0",
+                                      "source_ref": None}).encode("utf-8"))
+        proc = _base_write(base, base, "--patch-file", str(patch))
+        assert proc.returncode == 0, proc.stderr
+        written = _loaded(base)
+        assert written["description"] == "It's the parser. Use when Markdown needs HTML."
+        assert written["scope"]["type"] == "public-api" and "tier_a_include" not in written["scope"]
+        assert written["scope"]["registry_path"] == "registry/index.ts"
+        assert written["scope"]["amendments"] == [_write_back_amendment()]
+        assert (written["version"], written["target_version"]) == ("1.3.0", "1.3.0")
+        assert "source_ref" not in written and written["target_ref"] == "v1.2.3"
+
+    def test_a_version_change_without_target_version_breaks_the_invariant(self, tmp_path):
+        base = self._base(tmp_path)
+        before = base.read_bytes()
+        patch = tmp_path / "edit.json"
+        patch.write_bytes(b'{"version": "2.0.0"}')
+        proc = _base_write(base, base, "--patch-file", str(patch))
+        assert proc.returncode == 1 and json.loads(proc.stderr)["field"] == "target_version"
+        assert base.read_bytes() == before
+
+    def test_an_unquoted_date_is_read_as_its_iso_text(self, tmp_path):
+        base = tmp_path / "skill-brief.yaml"
+        base.write_bytes(b"name: marked\nversion: 2.0.0\nsource_repo: https://github.com/markedjs/marked\n"
+                         b"language: javascript\ndescription: Markdown to HTML. Use when rendering Markdown.\n"
+                         b"forge_tier: Quick\ncreated: 2026-05-02\ncreated_by: armel\n"
+                         b"scope:\n  type: full-library\n  include: [src/**]\n  exclude: []\n  notes: ''\n")
+        target = tmp_path / "out.yaml"
+        proc = _base_write(target, base)
+        assert proc.returncode == 0, proc.stderr
+        written = _loaded(target)
+        assert (written["created"], written["version"]) == ("2026-05-02", "2.0.0")
+
+    @pytest.mark.parametrize("flags, code, message", [
+        pytest.param(["--from-flat"], 1, "exclude each other", id="from-flat"),
+        pytest.param(["--doc-urls-file", "{missing}"], 2, "cannot read", id="missing-doc-urls-file"),
+        pytest.param(["--patch-file", "{list}"], 1, "must hold a JSON object", id="patch-not-an-object"),
+        pytest.param(["--doc-urls-file", "{empty}"], 1, "holds no doc_urls", id="no-doc-urls"),
+    ])
+    def test_bad_inputs_exit_non_zero_and_write_nothing(self, tmp_path, flags, code, message):
+        base = self._base(tmp_path)
+        (tmp_path / "list.json").write_bytes(b"[1, 2]")
+        (tmp_path / "empty.json").write_bytes(b"{}")
+        flags = [f.format(missing=tmp_path / "missing.json", list=tmp_path / "list.json",
+                          empty=tmp_path / "empty.json") for f in flags]
+        target = tmp_path / "out" / "skill-brief.yaml"
+        proc = _base_write(target, base, *flags)
+        assert proc.returncode == code and message in proc.stderr
+        assert not target.exists()
+
+    def test_a_missing_base_brief_exits_2(self, tmp_path):
+        proc = _base_write(tmp_path / "out.yaml", tmp_path / "missing.yaml")
+        assert proc.returncode == 2 and "cannot read the base brief" in proc.stderr
+
+    def test_the_change_flags_need_a_base_brief(self, tmp_path):
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "write", "--target", str(tmp_path / "x.yaml"),
+                               "--patch-file", str(tmp_path / "p.json")],
+                              input=json.dumps(_baseline_ctx()), capture_output=True, text=True)
+        assert proc.returncode == 1 and "change a --base-brief" in proc.stderr

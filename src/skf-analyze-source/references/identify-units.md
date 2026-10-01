@@ -29,18 +29,26 @@ To classify each detected boundary from the project scan into discrete skillable
 
 ## MANDATORY SEQUENCE
 
+Every HARD HALT in this step names its exit code, `halt_reason` and phase. When `{headless_mode}` is true it first prints its envelope on stderr through the shared emitter (`{emitEnvelopeHelper}` and `{run_dir}` come from SKILL.md On Activation): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "mode": "interactive", "report_path": "{outputFile as an absolute path}"}`, plus `"path"` when the halt names one, then run
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Load Context
 
 Read {outputFile} to obtain:
 - Project Scan results (detected boundaries, manifests, entry points)
 - `forge_tier` from frontmatter
-- `existing_skills` from frontmatter
+- `existing_skills` and `existing_briefs` from frontmatter
 
 Load {heuristicsFile} for classification rules.
 
 ### 2. Apply Detection Heuristics
 
-**Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}` and **`{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT with exit code 3 (`resolution-failure`) and the error envelope on stderr (shape in `references/headless-contract.md`).
+**Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}` and **`{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `identify-units:2`): "`{the missing script}` is missing. Re-install SKF."
 
 For each detected boundary from the scan, apply the classification rules from {heuristicsFile} (loaded in §1):
 
@@ -93,7 +101,7 @@ Show every drop and every restore in §5 with its reason and evidence (the recor
    SKF_UNIT_NAMES
    ```
    Each `names[].name` is that unit's name from here on. Boundaries whose names would clash are already told apart by their parent folders (`clash` keeps the name they shared); give the entries `unnamed` and `duplicates` list a name of your own, from their folder.
-2. **Already skilled:** a unit whose name is in `existing_skills` fails the last LLM-judged rule: remove it from the working `kept` set and append it to `dropped[]` with reason `already-skilled` (recommend `update-skill` instead).
+2. **Already skilled:** a unit whose name is in `existing_skills` (a compiled skill) fails the last LLM-judged rule: remove it from the working `kept` set and append it to `dropped[]` with reason `already-skilled` (recommend `update-skill` instead). A unit whose name is in `existing_briefs` only has a brief from an earlier analysis: it stays a candidate with status `briefed` and its brief's path, and generate-briefs rewrites that brief only if the unit is confirmed.
 
 **Step D: Tally detection signals** per the Detection Signals tables in {heuristicsFile}: cite the file each record's `signals` entry names (and `large_directory`), and judge the signals the helper does not report, as that file says.
 
@@ -105,7 +113,7 @@ For each candidate that passes disqualification:
 
 | # | Unit Name | Path | Boundary Type | Scope Type | Files | Own Manifest | Signals | Confidence | Status |
 |---|-----------|------|---------------|------------|-------|--------------|---------|------------|--------|
-| 1 | {name} | {path} | {type} | {scope} | {files_count} | {manifest path, name and ecosystem, or --} | {signal count: strong/moderate/weak} | {high/medium/low} | {new/already-skilled} |
+| 1 | {name} | {path} | {type} | {scope} | {files_count} | {manifest path, name and ecosystem, or --} | {signal count: strong/moderate/weak} | {high/medium/low} | {new/briefed/already-skilled} |
 
 For disqualified candidates, note reason and evidence:
 
@@ -118,7 +126,7 @@ For disqualified candidates, note reason and evidence:
 
 For each qualifying unit, detect the primary language deterministically via the shared helper, the single source of truth for the manifest→language rule table.
 
-**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins.
+**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins. If neither exists, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `identify-units:4`): "`skf-detect-language.py` is missing. Re-install SKF."
 
 For each unit, pipe its file list — the `files` array built for that boundary in the §2 boundaries JSON — as the tree:
 
@@ -126,7 +134,7 @@ For each unit, pipe its file list — the `files` array built for that boundary 
 echo '{"tree": [<unit files — forward-slash, repo-relative>]}' | uv run {detectLanguageHelper}
 ```
 
-Read `.language` and `.confidence` for the unit. When confidence is low (the extension-frequency fallback fired — no manifest matched), surface it in §5 so the user can override the guess.
+Pass no `--workspace-signal` here: a workspace root's language would answer for every unit of the workspace (a TypeScript package in a Cargo workspace would read as `rust`). The unit's folder is the tree's root for the helper, so the unit's own manifest decides, and a manifest in its docs, examples, tests or tools folder never does while another one exists. Read `.language` and `.confidence` for the unit. When `detected_languages` has more than one entry, `.language` is the helper's first guess: choose the language the unit documents from its own manifest (the record's `manifest`), or, without one, `.source_language` (the language most of its files are written in), and name the choice and the other languages in §5. When confidence is low (the extension-frequency fallback fired: no manifest matched), surface it in §5 so the user can override the guess.
 
 ### 5. Present Classifications
 
@@ -178,7 +186,7 @@ Display: "**Select:** [C] Continue to Export Mapping and Integration Detection |
 #### Menu Handling Logic:
 
 - IF C: Save classifications to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the error envelope on stderr with `halt_reason: "user-cancelled"` and counts/paths reflecting state at cancellation (shape in `references/headless-contract.md`)
+- IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `identify-units:7`): "Cancelled at unit identification."
 - IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
 
 **GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: accept all classifications and auto-proceed, log: "headless: auto-accept unit classifications".

@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """Quick Skill contract: the skills-module shape (#527), the batch override
 rule and review preview (#609), how resolve-target reads a target (#582,
-#588), and the run contract the shared emitter and skf-quick-batch.py keep
-(#585, #586, #587, #593).
+#588), the inputs it takes by file and by flag (#592, #594), and the run
+contract the shared emitter and skf-quick-batch.py keep (#585, #586, #587,
+#593).
 
-quick-extract.md gives the agent two commands for a skills module: a filtered
-tree listing (`gh api --jq`) and a loop that prints each skill's SKILL.md
-frontmatter. Both run here against fixtures (jq, awk and bash stand in for
-what the agent runs; each test is skipped when its tool is missing), so the
-prose cannot drift from a command that works. The rule that picks the skills
-root from that listing is prose the agent applies, so it is restated here as
-code and run over the listing of real repository layouts: each layout states
-the skills root the rule gives it, and a library that ships a skill stays a
-library. The batch rule, the halt contract entry and the preview are pinned
-where each file states them.
+Step 1 lists the repository once, into the run folder, and every later
+read goes through that listing: step 3 fetches each file raw into the run
+folder with skf-github-fetch.py and hands it to the helper that reads it
+by path, and compile renders metadata.json from those files and a staged
+heredoc. The chain runs here as the steps write it, against a local
+server standing in for raw.githubusercontent.com (bash runs each block;
+skipped on Windows), so the prose cannot drift from commands that work: a
+skills module from its listing to its metadata.json, a library whose
+source holds an apostrophe, and a run that fetched no source file, whose
+empty envelope still reaches the renderer. The skills-module rule itself
+lives in skf-skills-module.py (test/test-skf-skills-module.py runs the
+real repository layouts); the step reads its answer. The batch rule, the halt
+contract entry, the hint flags, the language pick and the preview are
+pinned where each file states them.
 
 resolve-target.md hands every target to skf-resolve-package.py parse-target
 through a quoted heredoc, which runs here through bash with a target that
@@ -43,8 +48,8 @@ import re
 import shutil
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
-from typing import NamedTuple
 
 import pytest
 
@@ -100,336 +105,313 @@ def _tool(name: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# skills-module: the tree listing (quick-extract §1.5)
+# #592: one listing, files fetched raw into the run folder, passed by path
 # --------------------------------------------------------------------------
+
+SCRIPTS = REPO / "src" / "shared" / "scripts"
+GITHUB_FETCH = SCRIPTS / "skf-github-fetch.py"
+SKILLS_MODULE = SCRIPTS / "skf-skills-module.py"
+EXTRACTOR = SCRIPTS / "skf-extract-public-api.py"
+RENDERER = SCRIPTS / "skf-render-quick-metadata.py"
+WRITE_AND_VALIDATE = QS / "references" / "write-and-validate.md"
+
 
 def _sniff() -> str:
     return _section(_read(QUICK_EXTRACT), "### 1.5. Repo-Shape Sniff", "### 2. ")
 
 
-def _listing() -> str:
-    return _bash_block(_sniff(), "git/trees/")
+def _bash_blocks(text: str) -> list[str]:
+    """Every ```bash block of `text`, one in a list item included, dedented."""
+    return [textwrap.dedent(b) for b in re.findall(r"^[ ]*```bash\n(.*?)^[ ]*```$", text, flags=re.M | re.S)]
 
 
-TREE = {"sha": "0" * 40, "truncated": False, "tree": [
-    {"path": ".github", "type": "tree"},
-    {"path": ".github/workflows/ci.yaml", "type": "blob"},
-    {"path": "README.md", "type": "blob"},
-    {"path": "package.json", "type": "blob"},
-    {"path": "docs", "type": "tree"},
-    {"path": "docs/index.md", "type": "blob"},
-    {"path": "docs/SKILL.md.bak", "type": "blob"},
-    {"path": "samples/demo/SKILL.md", "type": "blob"},
-    {"path": "skills", "type": "tree"},
-    {"path": "skills/alpha/SKILL.md", "type": "blob"},
-    {"path": "skills/alpha/assets/module.yaml", "type": "blob"},
-    {"path": "skills/alpha/references/guide.md", "type": "blob"},
-    {"path": "skills/beta/NOTSKILL.md", "type": "blob"},
-    {"path": "skills/beta/SKILL.md", "type": "blob"},
-    {"path": "skills/module-help.csv", "type": "blob"},
-    {"path": "skills/module.yaml", "type": "blob"},
-    {"path": "src/index.js", "type": "blob"},
-]}
+def _nested_bash_block(text: str, needle: str) -> str:
+    """The one ```bash block of `text`, at any indent, that holds `needle`."""
+    blocks = [b for b in _bash_blocks(text) if needle in b]
+    assert len(blocks) == 1, f"expected one bash block holding {needle!r}, found {len(blocks)}"
+    return blocks[0]
 
 
-def test_the_listing_reads_the_tree_at_the_resolved_ref():
-    listing = _listing()
-    assert 'gh api "repos/{owner}/{repo}/git/trees/{source_ref or HEAD}?recursive=1"' in listing
-    assert "--jq '" in listing
+def test_step_1_lists_the_tree_once_into_the_run_folder():
+    detect = _section(_read(RESOLVE_TARGET), "### 4. Detect Language", "### 5. ")
+    assert _bash_block(detect, " tree ") == ('uv run {githubProbe} tree --repo {owner}/{repo} '
+                                            '--ref {source_ref or HEAD} > "{run_dir}/tree.json"\n')
+    assert _nested_bash_block(detect, "{detectLanguageHelper}") == \
+        'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree.json"\n'
+    # The listing comes first, so a language hint still leaves step 3 its tree.json.
+    assert detect.index("tree.json") < detect.index("1. **User-provided language hint**")
+    [unavailable] = [line for line in detect.splitlines() if line.startswith('- **`status: "unavailable"`')]
+    for needle in ("HARD HALT with **exit code 3 (resolution-failure)**", "the probe's `message`",
+                   '"details": {"ref": "{source_ref or HEAD}", "cause": ', "github-probe-missing"):
+        assert needle in unavailable, needle
 
 
-def test_the_listing_keeps_root_files_and_skill_and_module_files_only():
-    listing = _listing()
-    jq = _tool("jq")
-    result = subprocess.run([jq, "-r", _single_quoted_after(listing, "--jq")],
-                            input=json.dumps(TREE), capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == [
-        "README.md",
-        "package.json",
-        "samples/demo/SKILL.md",
-        "skills/alpha/SKILL.md",
-        "skills/alpha/assets/module.yaml",
-        "skills/beta/SKILL.md",
-        "skills/module-help.csv",
-        "skills/module.yaml",
-    ]
+def test_no_step_lists_the_tree_or_types_a_file_into_a_shell_string():
+    """#592: no recursive tree, file text or export list passes through the model or an echo."""
+    for path in HALT_FILES:
+        text = _read(path)
+        assert "git/trees" not in text, path.name
+        assert not re.search(r"echo '\{", text), path.name
+        for block in _bash_blocks(text):
+            assert "gh api" not in block, (path.name, block)
+    extract = _read(QUICK_EXTRACT)
+    assert "via web browsing" not in extract and "or web browsing" not in extract
+    assert "does pure parsing" not in extract
+    compile_md = _read(COMPILE)
+    assert "Probe `tool_versions.skf`" not in compile_md and "skf/VERSION" not in compile_md
 
 
-# --------------------------------------------------------------------------
-# skills-module: the rule that picks the skills root (quick-extract §1.5)
-# --------------------------------------------------------------------------
-
-# The §1.5 rule as code. It reads only what the listing keeps (root files,
-# SKILL.md, module.yaml, module-help.csv) plus the root package.json, which
-# the rule fetches when it needs it. The root folder is "".
-MANIFESTS = frozenset({"package.json", "pyproject.toml", "setup.py", "setup.cfg", "Cargo.toml", "go.mod",
-                       "pom.xml", "build.gradle", "build.gradle.kts", "Gemfile"})
-
-
-def _folder(path: str) -> str:
-    return path.rpartition("/")[0]
-
-
-def _ancestors(folder: str) -> list[str]:
-    """The folders above `folder`, the root excluded."""
-    parts = folder.split("/") if folder else []
-    return ["/".join(parts[:i]) for i in range(1, len(parts))]
+def test_every_step_3_read_goes_through_the_fetch_helper():
+    text = _read(QUICK_EXTRACT)
+    frontmatter = text.split("---\n", 2)[1]
+    for stem, script in (("githubFetch", "skf-github-fetch.py"), ("skillsModule", "skf-skills-module.py")):
+        assert (f"{stem}ProbeOrder:\n  - '{{project-root}}/_bmad/skf/shared/scripts/{script}'\n"
+                f"  - '{{project-root}}/src/shared/scripts/{script}'\n") in frontmatter, stem
+    calls = [line for block in _bash_blocks(text) for line in block.splitlines() if "{githubFetch}" in line]
+    assert len(calls) == 3, calls
+    parser = _load(GITHUB_FETCH, "skf_github_fetch_for_quick_contract")._build_parser()
+    for line in calls:
+        line = re.sub(r"\[--limit <n>\] \[--exclude <glob>\]\.\.\. <path or glob>\.\.\.", "README.md", line)
+        args = line.replace("uv run {githubFetch} ", "").replace("{owner}/{repo}", "acme/lib")
+        args = args.replace("{source_ref or HEAD}", "HEAD").replace("{run_dir}", "/tmp/run")
+        parsed = parser.parse_args([token.strip('"') for token in re.findall(r'"[^"]*"|\S+', args)])
+        assert parsed.tree_file == "/tmp/run/tree.json" and parsed.dest == "/tmp/run/src"
 
 
-def _skill_dirs(listing: set[str]) -> set[str]:
-    return {_folder(p) for p in listing if p.rpartition("/")[2] == "SKILL.md"}
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_the_skills_module_chain_runs_from_the_listing_to_metadata(tmp_path, raw_github):
+    """quick-extract §1 to §3 and compile §4 run as written: the listing, the sniff, the raw
+    fetch, the skills-module envelope and the renderer, with a description holding quotes."""
+    run_dir = _run_folder(tmp_path, BUILDER_TREE)
+    raw_github.update({"README.md": b"# bmad-builder\n", "package.json": b'{"name": "bmad-builder", "main": ""}',
+                       "skills/alpha/SKILL.md": ALPHA, "skills/beta/SKILL.md": b"# no frontmatter\n",
+                       "skills/module-help.csv": MODULE_HELP})
+    extract = _read(QUICK_EXTRACT)
+    _run(_bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff "), run_dir)
+    sniffed = json.loads((run_dir / "sniff.json").read_text(encoding="utf-8"))
+    assert (sniffed["skills_root"], sniffed["readme"]) == ("skills", "README.md")
+    _run(_bash_block(_section(extract, "### 2. Fetch Source Files", "### 3. "), "--patterns-file"), run_dir)
+    skills = _section(extract, "**Skills module** (`repo_shape: skills-module`): when §2", "### 4. ")
+    _run(_bash_block(skills, " extract "), run_dir)
+    envelope = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+    assert [(e["name"], e["type"]) for e in envelope["exports"]] == [("alpha", "skill"), ("beta", "skill"),
+                                                                      ("BA", "menu-code")]
+    assert envelope["confidence"] == "medium" and envelope["package_name"] == "acme-module"
+    metadata = _render(run_dir, tmp_path)
+    assert metadata["exports"] == ["alpha", "beta", "BA"]
+    assert metadata["description"] == DESCRIPTION
+    assert metadata["tool_versions"]["skf"] == "3.0.0"
 
 
-def _is_module_root(folder: str, listing: set[str], skill_dirs: set[str]) -> bool:
-    """Directly holds module.yaml or module-help.csv, and sits in no skill folder."""
-    prefix = f"{folder}/" if folder else ""
-    holds = f"{prefix}module.yaml" in listing or f"{prefix}module-help.csv" in listing
-    in_skill = folder in skill_dirs or any(a in skill_dirs for a in _ancestors(folder))
-    return holds and not in_skill
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_the_library_chain_hands_the_files_to_the_extractor_by_path(tmp_path, raw_github):
+    """A source file holding an apostrophe reaches the extractor as written (#592)."""
+    run_dir = _run_folder(tmp_path, ["README.md", "pyproject.toml", "src/acme/__init__.py", "tests/test_a.py"])
+    raw_github.update({"README.md": b"# acme\n", "pyproject.toml": PYPROJECT, "src/acme/__init__.py": INIT_PY})
+    extract = _read(QUICK_EXTRACT)
+    _run(_bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff "), run_dir)
+    assert json.loads((run_dir / "sniff.json").read_text(encoding="utf-8"))["skills_module"] is False
+    fetch = _bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff ")
+    fetch = fetch.splitlines()[0].replace(" package.json", " pyproject.toml 'src/{package}/__init__.py'")
+    _run(fetch.replace("{package}", "acme") + "\n", run_dir)
+    call = _bash_block(_section(extract, "### 3. Parse Manifest and Scan Exports", "**Multi-module loop:**"),
+                       "--manifest-file")
+    call = call.replace("<lang>", "python").replace("<manifest path>", "pyproject.toml")
+    call = call.replace("--entry-file <entry path> [--entry-file <entry path>]...", "--entry-file src/acme/__init__.py")
+    _run(call, run_dir)
+    envelope = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+    assert [e["name"] for e in envelope["exports"]] == ["greet"]
+    assert (run_dir / "src" / "src" / "acme" / "__init__.py").read_bytes() == INIT_PY
+    metadata = _render(run_dir, tmp_path)
+    assert (metadata["exports"], metadata["version"], metadata["source_package"]) == (["greet"], "0.4.0", "acme")
 
 
-def _skill_folders(folder: str, listing: set[str], skill_dirs: set[str]) -> list[str]:
-    prefix = f"{folder}/" if folder else ""
-    below = [d for d in skill_dirs if d.startswith(prefix) and d != folder]
-    if _is_module_root(folder, listing, skill_dirs):
-        return sorted(d for d in below if not any(a in skill_dirs for a in _ancestors(d)))
-    return sorted(d for d in below if "/" not in d[len(prefix):])
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_a_run_that_fetched_no_source_file_still_reaches_the_zero_exports_gate(tmp_path):
+    """No manifest and no entry point (no candidate in the listing, a language with no row, a fetch
+    that read none): the extractor is not called with no file, and step 4 still renders metadata.json."""
+    parse = _section(_read(QUICK_EXTRACT), "### 3. Parse Manifest and Scan Exports", "### 4. ")
+    rule = _section(parse, "**When §2 fetched neither a manifest nor an entry point**", "\n\n")
+    for needle in ("the listing holds no candidate", "the language has no row in §2's table",
+                   "do not run the extractor", "§4.5 decides what follows"):
+        assert needle in rule, needle
+    assert "Stage it the same way when the extractor exits non-zero" in parse
+    assert ("stage what it finds as `{run_dir}/extract.json` through a quoted heredoc, in the shape of the "
+            "empty envelope below") in parse
+    # The call with no file exits 2 and leaves its redirect empty, which the renderer refuses.
+    called = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "quick", "--language", "python",
+                             "--source-root", str(tmp_path)], capture_output=True, text=True, check=False)
+    assert called.returncode == 2 and called.stdout == ""
+    run_dir = _run_folder(tmp_path, ["README.md", "docs/guide.md"])
+    block = _bash_block(parse, "no source file was fetched")
+    assert block.startswith("cat > \"{run_dir}/extract.json\" <<'SKF_JSON'\n")
+    _run(block.replace("{language}", "markdown"), run_dir)
+    envelope = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+    assert (envelope["language"], envelope["exports"], envelope["warnings"]) == \
+        ("markdown", [], ["no source file was fetched"])
+    metadata = _render(run_dir, tmp_path)
+    assert (metadata["exports"], metadata["version"], metadata["stats"]["exports_documented"]) == ([], "1.0.0", 0)
+    render = _section(_read(COMPILE), "### 4. Generate Metadata JSON", "### 5. ")
+    failed = _section(render, "If the renderer exits non-zero", "\n\n")
+    assert "fix that file once" in failed and "If it fails a second time, render the envelope in-prompt" in failed
 
 
-def _ships_no_code(listing: set[str], package_json: dict | None) -> bool:
-    root = {p for p in listing if "/" not in p}
-    manifests = {p for p in root if p in MANIFESTS or p.endswith(".csproj")}
-    if not manifests:
-        return True
-    if manifests != {"package.json"}:
-        return False
-    fields = package_json or {}
-    if fields.get("main") or any(key in fields for key in ("exports", "bin", "workspaces")):
-        return False
-    return not root & {"index.js", "index.ts"}
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's command through a POSIX shell")
+def test_a_rerun_of_step_3_starts_with_no_extraction_file_of_the_old_scope(tmp_path):
+    """§4.5 [R] and step 4's [S] run step 3 again: an old extract-added.json or extract-manifest.json
+    must not reach the renderer, which takes every extraction file step 3 left."""
+    extract = _read(QUICK_EXTRACT)
+    first = _section(extract, "### 1. Read the Listing and README", "### 1.5. ")
+    block = _bash_block(first, "rm -f")
+    assert block == 'rm -f "{run_dir}"/extract*.json\n'
+    assert first.index("rm -f") < first.index("{githubFetch}")
+    assert "**re-execute step 3 from §1**" in extract
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    _run(block, run_dir)  # a first run has nothing to clear
+    kept = ["metadata-input.json", "sniff.json", "tree.json"]
+    for name in ["extract.json", "extract-added.json", "extract-manifest.json", "extract-module-1.json", *kept]:
+        (run_dir / name).write_text("{}", encoding="utf-8")
+    _run(block, run_dir)
+    assert sorted(p.name for p in run_dir.iterdir()) == kept
 
 
-def skills_root(listing: set[str], package_json: dict | None, scope_hint: str | None) -> tuple[str, list[str]] | None:
-    """(skills root, its skill folders), or None when the shape stays library."""
-    skill_dirs = _skill_dirs(listing)
-    if scope_hint is not None:
-        found = _skill_folders(scope_hint.strip("/"), listing, skill_dirs)
-        return (scope_hint.strip("/"), found) if found else None
-    counting = []
-    for candidate in ["", *sorted({p.split("/")[0] for p in listing if "/" in p})]:
-        found = _skill_folders(candidate, listing, skill_dirs)
-        module_root = _is_module_root(candidate, listing, skill_dirs)
-        if found and (module_root or _ships_no_code(listing, package_json)):
-            counting.append((module_root, len(found), candidate, found))
-    if not counting:
-        return None
-    best = max(counting, key=lambda c: c[:2])
-    return best[2], best[3]
+def test_each_module_extraction_is_named_by_its_position():
+    """A Maven module path (modules/core, ../sibling) or a Gradle name (core:api) cannot name a file."""
+    extract, compile_md = _read(QUICK_EXTRACT), _read(COMPILE)
+    for text in (extract, compile_md):
+        assert "extract-<module>" not in text
+        assert "`{run_dir}/extract-module-<n>.json`" in text
+    assert "`<n>` counting from 1 in `modules[]` order" in _section(extract, "**Multi-module loop:**", "\n\n")
+    assert "of a multi-module build in `<n>` order" in compile_md
 
 
-def suggested_scope(listing: set[str]) -> str | None:
-    """The folder the §4 note names when a run stays a library with no exports."""
-    skill_dirs = _skill_dirs(listing)
-    folders = {a for p in listing for a in [*_ancestors(_folder(p)), _folder(p)] if a}
-    scored = [(_is_module_root(f, listing, skill_dirs), len(_skill_folders(f, listing, skill_dirs)), f)
-              for f in sorted(folders)]
-    scored = [s for s in scored if s[1]]
-    return max(scored, key=lambda s: s[:2])[2] if scored else None
+def test_a_truncated_listing_is_tried_and_reported():
+    extract = _read(QUICK_EXTRACT)
+    assert ("When the listing is `truncated` (GitHub cut a very large tree short), a path with no `*` or `?` "
+            "that the listing lacks is read anyway") in extract
+    report = _section(extract, "### 5. Report Extraction Summary", "### 6. ")
+    assert "{If the fetch output's `truncated` was true, add:} - **Listing:** truncated by GitHub" in report
 
 
-class Layout(NamedTuple):
-    paths: tuple[str, ...]
-    package_json: dict | None
-    root: str | None  # the skills root the rule picks; None: the shape stays library
-    skills: tuple[str, ...] = ()
-    suggestion: str | None = None  # the folder the §4 note names, for a library
-    scope_hint: str | None = None
+def test_the_snippet_version_is_the_one_metadata_json_gets():
+    """The snippet and the headless line name the version the renderer writes, not the manifest's alone."""
+    compile_md = _read(COMPILE)
+    snippet = _section(compile_md, "### 3. Generate Context Snippet", "### 4. ")
+    [rule] = [line for line in snippet.splitlines() if line.startswith("Its `{version}` is the version §4 gives")]
+    for needle in ("`{target_version}` when step 1 parsed one from the target",
+                   "else the first `version` set in step 3's extraction files", "else `1.0.0`"):
+        assert needle in rule, needle
+    headless = _section(compile_md, "### 5. Present Compiled Output for Review", "### 6. ")
+    assert "metadata.json (version {metadata.version}, confidence {confidence})" in headless
 
 
-BUILDER = (  # bmad-code-org/bmad-builder@v2.2.2, the #527 repository
-    "README.md", "package.json",
-    "samples/bmad-agent-code-coach/SKILL.md", "samples/bmad-agent-creative-muse/SKILL.md",
-    "samples/bmad-agent-diagram-reviewer/SKILL.md", "samples/bmad-agent-dream-weaver/SKILL.md",
-    "samples/bmad-agent-dream-weaver/assets/module-help.csv", "samples/bmad-agent-dream-weaver/assets/module.yaml",
-    "samples/bmad-agent-sentinel/SKILL.md", "samples/bmad-excalidraw/SKILL.md", "samples/sample-module-setup/SKILL.md",
-    "samples/sample-module-setup/assets/module-help.csv", "samples/sample-module-setup/assets/module.yaml",
-    "skills/bmad-agent-builder/SKILL.md", "skills/bmad-agent-builder/references/build-process.md",
-    "skills/bmad-bmb-setup/SKILL.md", "skills/bmad-bmb-setup/assets/module-help.csv",
-    "skills/bmad-bmb-setup/assets/module.yaml", "skills/bmad-eval-runner/SKILL.md",
-    "skills/bmad-module-builder/SKILL.md", "skills/bmad-module-builder/assets/setup-skill-template/SKILL.md",
-    "skills/bmad-module-builder/assets/setup-skill-template/assets/module.yaml",
-    "skills/bmad-workflow-builder/SKILL.md", "skills/module-help.csv", "skills/module.yaml",
-)
-BUILDER_SKILLS = ("skills/bmad-agent-builder", "skills/bmad-bmb-setup", "skills/bmad-eval-runner",
-                  "skills/bmad-module-builder", "skills/bmad-workflow-builder")
-BMM_612 = (  # bmad-code-org/BMAD-METHOD@v6.12.0: an installer CLI with two modules under src/
-    "README.md", "package.json", "src/bmm-skills/agents/bmad-agent-pm/SKILL.md", "src/bmm-skills/module-help.csv",
-    "src/bmm-skills/module.yaml", "src/bmm-skills/plan/bmad-prd/SKILL.md", "src/bmm-skills/ship/bmad-build/SKILL.md",
-    "src/core-skills/bmad-help/SKILL.md", "src/core-skills/module-help.csv", "src/core-skills/module.yaml",
-    "tools/installer/bmad-cli.js", "web-bundles/prd-coach/SKILL.md", "web-bundles/ux-coach/SKILL.md",
-)
-BMM_612_PACKAGE = {"name": "bmad-method", "main": "tools/installer/bmad-cli.js",
-                   "bin": {"bmad-method": "tools/installer/bmad-cli.js"}}
-BMM_612_SKILLS = ("src/bmm-skills/agents/bmad-agent-pm", "src/bmm-skills/plan/bmad-prd",
-                  "src/bmm-skills/ship/bmad-build")
-BMM_HEAD = (  # bmad-code-org/BMAD-METHOD@HEAD: skills/ beside a tooling pyproject.toml
-    "README.md", "pyproject.toml", "skills/bmad-agent-pm/SKILL.md", "skills/bmad-architecture/SKILL.md",
-    "skills/bmad-prd/SKILL.md", "tools/tests/fixtures/validate-skills/bmad/SKILL.md",
-    "web-bundles/prd-coach/SKILL.md",
-)
-
-LAYOUTS = {
-    "bmad-builder: the module root wins over samples/, which has more skill folders": Layout(
-        BUILDER, {"name": "bmad-builder", "main": "", "private": True}, "skills", BUILDER_SKILLS),
-    "bmad-builder with scope=skills/, the #527 run": Layout(
-        BUILDER, {"name": "bmad-builder", "main": "", "private": True}, "skills", BUILDER_SKILLS,
-        scope_hint="skills/"),
-    "creative-intelligence-suite: skill folders and a package.json that ships no code": Layout(
-        ("README.md", "package.json", "skills/bmad-cis-design-thinking/SKILL.md",
-         "skills/bmad-cis-problem-solving/SKILL.md", "skills/bmad-cis-storytelling/SKILL.md", "skills/bmod-cis/SKILL.md"),
-        {"name": "bmad-creative-intelligence-suite", "private": True}, "skills",
-        ("skills/bmad-cis-design-thinking", "skills/bmad-cis-problem-solving", "skills/bmad-cis-storytelling",
-         "skills/bmod-cis")),
-    "test-architecture-enterprise: skills at any depth below the module root": Layout(
-        ("README.md", "package.json", "src/agents/bmad-tea/SKILL.md", "src/module-help.csv", "src/module.yaml",
-         "src/workflows/testarch/bmad-testarch-atdd/SKILL.md", "src/workflows/testarch/bmad-testarch-trace/SKILL.md",
-         "test/fixtures/evaluate/stub-agent/skill/SKILL.md"),
-        {"name": "bmad-method-test-architecture-enterprise", "main": "", "bin": {"tea-evaluate": "cli/evaluate.js"}},
-        "src", ("src/agents/bmad-tea", "src/workflows/testarch/bmad-testarch-atdd",
-                "src/workflows/testarch/bmad-testarch-trace")),
-    "game-dev-studio: skills at mixed depths below the module root": Layout(
-        ("README.md", "package.json", "src/agents/gds-agent-game-dev/SKILL.md", "src/module-help.csv",
-         "src/module.yaml", "src/workflows/1-preproduction/research/gds-domain-research/SKILL.md",
-         "src/workflows/gds-document-project/SKILL.md", "src/workflows/gds-quick-flow/gds-quick-dev/SKILL.md"),
-        {"name": "bmad-game-dev-studio", "main": "", "private": True}, "src",
-        ("src/agents/gds-agent-game-dev", "src/workflows/1-preproduction/research/gds-domain-research",
-         "src/workflows/gds-document-project", "src/workflows/gds-quick-flow/gds-quick-dev")),
-    "skill-forge: a module root beside a package.json with main and bin": Layout(
-        ("README.md", "package.json", "src/module-help.csv", "src/module.yaml", "src/skf-create-skill/SKILL.md",
-         "src/skf-quick-skill/SKILL.md", "src/shared/scripts/skf-atomic-write.py"),
-        {"name": "bmad-module-skill-forge", "main": "tools/cli/skf-cli.js",
-         "bin": {"bmad-module-skill-forge": "tools/skf-npx-wrapper.js"}},
-        "src", ("src/skf-create-skill", "src/skf-quick-skill")),
-    "module files at the repository root": Layout(
-        ("README.md", "module-help.csv", "module.yaml", "package.json", "agents/helper/SKILL.md",
-         "workflows/plan/make-plan/SKILL.md", "workflows/plan/make-plan/templates/inner/SKILL.md"),
-        {"name": "some-module", "main": "index.js"}, "", ("agents/helper", "workflows/plan/make-plan")),
-    "anthropics/skills: no manifest, and the folder with the most skill folders wins": Layout(
-        (".gitignore", "README.md", "THIRD_PARTY_NOTICES.md", "skills/docx/SKILL.md", "skills/pdf/SKILL.md",
-         "skills/skill-creator/SKILL.md", "skills/skill-creator/scripts/init_skill.py", "template/SKILL.md"),
-        None, "skills", ("skills/docx", "skills/pdf", "skills/skill-creator")),
-    "typescript-wsdl-client: a library with main, exports and bin keeps agent-skill/": Layout(
-        ("README.md", "agent-skill/SKILL.md", "package.json", "src/index.ts", "tsconfig.json"),
-        {"name": "@techspokes/typescript-wsdl-client", "main": "dist/index.js", "exports": {".": "./dist/index.js"},
-         "bin": {"wsdl-tsc": "dist/cli.js"}}, None),
-    "better-firebase-functions: a workspaces root keeps skill/": Layout(
-        ("README.md", "package.json", "skill/SKILL.md", "turbo.json"),
-        {"name": "better-firebase-functions-monorepo", "private": True, "workspaces": ["packages/*"]}, None),
-    "viewflow: setup.py beside package.json keeps skill/": Layout(
-        ("README.md", "package.json", "setup.py", "skill/SKILL.md"), {"name": "viewflow"}, None),
-    "a package.json with no main field, beside the index.js npm then loads": Layout(
-        ("README.md", "index.js", "package.json", "skill/SKILL.md"), {"name": "tiny-lib"}, None),
-    "BMAD-METHOD v6.12.0: code at the root, so the note names the larger module root": Layout(
-        BMM_612, BMM_612_PACKAGE, None, suggestion="src/bmm-skills"),
-    "BMAD-METHOD v6.12.0 with scope=src/bmm-skills": Layout(
-        BMM_612, BMM_612_PACKAGE, "src/bmm-skills", BMM_612_SKILLS, scope_hint="src/bmm-skills"),
-    "BMAD-METHOD v6.12.0 with scope=src/, which holds neither": Layout(
-        BMM_612, BMM_612_PACKAGE, None, scope_hint="src/"),
-    "BMAD-METHOD HEAD: a pyproject.toml at the root, so the note names skills/": Layout(
-        BMM_HEAD, None, None, suggestion="skills"),
-    "BMAD-METHOD HEAD with scope=skills/": Layout(
-        BMM_HEAD, None, "skills", ("skills/bmad-agent-pm", "skills/bmad-architecture", "skills/bmad-prd"),
-        scope_hint="skills/"),
-}
+BUILDER_TREE = ["README.md", "package.json", "skills/alpha/SKILL.md", "skills/alpha/assets/module.yaml",
+                "skills/beta/SKILL.md", "skills/module-help.csv", "skills/module.yaml", "samples/demo/SKILL.md"]
+ALPHA = (b"---\nname: alpha\ndescription: >\n  Builds alpha things.\n  Use when it's needed.\n---\n\n"
+         b"# Alpha\n\n---\n\nname: not-frontmatter\n")
+MODULE_HELP = (b"module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by\n"
+               b"Demo,_meta,,,,,,,,\n"
+               b'Demo,alpha,Build Alpha,BA,"Create, edit, or rebuild an alpha.",build,,anytime,,\n')
+PYPROJECT = b'[project]\nname = "acme"\nversion = "0.4.0"\ndescription = "Acme\'s tools"\ndependencies = ["attrs"]\n'
+INIT_PY = b"def greet(name):\n    return f\"Hi, {name}! It's {'me'}\"\n"
+# A description that a single-quoted echo, or a double-quoted shell string, would break or rewrite.
+DESCRIPTION = "Builds the module's skills: \"agents\", `$HOME` and it's done."
 
 
-def _listed(paths: tuple[str, ...]) -> set[str]:
-    """What the §1.5 listing prints for a tree holding `paths`."""
-    jq = _tool("jq")
-    folders = {a for p in paths for a in [*_ancestors(_folder(p)), _folder(p)] if a}
-    tree = [{"path": f, "type": "tree"} for f in sorted(folders)] + [{"path": p, "type": "blob"} for p in paths]
-    result = subprocess.run([jq, "-r", _single_quoted_after(_listing(), "--jq")],
-                            input=json.dumps({"tree": tree}), capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr
-    return set(result.stdout.splitlines())
+@pytest.fixture
+def raw_github(monkeypatch):
+    """A local server standing in for raw.githubusercontent.com: acme/lib at HEAD."""
+    import http.server
+    import threading
+    files: dict[str, bytes] = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - http.server's name
+            prefix = "/acme/lib/HEAD/"
+            body = files.get(self.path[len(prefix):]) if self.path.startswith(prefix) else None
+            self.send_response(200 if body is not None else 404)
+            self.end_headers()
+            self.wfile.write(body if body is not None else b"404: Not Found")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("SKF_TEST_RAW_ROOT", f"http://127.0.0.1:{server.server_address[1]}")
+    yield files
+    server.shutdown()
 
 
-@pytest.mark.parametrize("name", list(LAYOUTS))
-def test_the_rule_picks_the_skills_root_of_real_layouts(name):
-    layout = LAYOUTS[name]
-    listing = _listed(layout.paths)
-    found = skills_root(listing, layout.package_json, layout.scope_hint)
-    if layout.root is None:
-        assert found is None
-        if layout.scope_hint is None:
-            assert suggested_scope(listing) == layout.suggestion
-    else:
-        assert found == (layout.root, list(layout.skills))
+def _run_folder(tmp_path: Path, paths: list[str]) -> Path:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "tree.json").write_text(json.dumps({"status": "ok", "tree": paths, "truncated": False}),
+                                       encoding="utf-8")
+    shim = tmp_path / "fetch-shim.py"
+    shim.write_text(
+        "import importlib.util, os, sys\n"
+        f"spec = importlib.util.spec_from_file_location('fetch', {str(GITHUB_FETCH)!r})\n"
+        "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
+        "mod.RAW_ROOT = os.environ['SKF_TEST_RAW_ROOT']\nmod._gh_raw = lambda *a: (None, 'no gh in this test')\n"
+        "raise SystemExit(mod.main(sys.argv[1:]))\n", encoding="utf-8")
+    return run_dir
 
 
-# --------------------------------------------------------------------------
-# skills-module: the frontmatter loop (quick-extract §2)
-# --------------------------------------------------------------------------
-
-def _loop() -> str:
-    return _bash_block(_section(_read(QUICK_EXTRACT), "### 2. Fetch Source Files", "### 3. "), "SKILL.md")
-
-
-ALPHA = (
-    "---\nname: alpha\ndescription: >\n  Builds alpha things.\n  Use when alpha is needed.\n---\n\n"
-    "# Alpha\n\n---\n\nname: not-frontmatter\n"
-)
-ALPHA_FRONTMATTER = "name: alpha\ndescription: >\n  Builds alpha things.\n  Use when alpha is needed.\n"
-
-
-def _awk(text: bytes) -> bytes:
-    program = _single_quoted_after(_loop(), "awk")
-    awk = _tool("awk")
-    result = subprocess.run([awk, program], input=text, capture_output=True, check=False)
-    assert result.returncode == 0, result.stderr
-    return result.stdout
-
-
-@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
-def test_the_awk_program_prints_the_frontmatter_and_no_body(newline):
-    assert _awk(ALPHA.replace("\n", newline).encode()) == ALPHA_FRONTMATTER.encode()
-
-
-def test_the_awk_program_prints_nothing_without_frontmatter():
-    assert _awk(b"# Beta\n\n---\n\nname: body-text\n") == b""
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in gh is a POSIX shell script")
-def test_the_loop_prints_each_frontmatter_under_its_folder(tmp_path):
-    loop = _loop()
+def _run(block: str, run_dir: Path) -> None:
+    """A step's bash block, its helpers run with this interpreter (the raw fetch against the local server)."""
     bash = _tool("bash")
-    _tool("awk")
-    fixtures = tmp_path / "repo"
-    (fixtures / "skills" / "alpha").mkdir(parents=True)
-    (fixtures / "skills" / "beta").mkdir(parents=True)
-    (fixtures / "skills" / "alpha" / "SKILL.md").write_text(ALPHA, encoding="utf-8")
-    (fixtures / "skills" / "beta" / "SKILL.md").write_text("# Beta, no frontmatter\n", encoding="utf-8")
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    gh = bin_dir / "gh"
-    # Prints the file a contents URL names, after checking the call's shape.
-    gh.write_text(
-        "#!/bin/sh\n"
-        '[ "$1" = api ] && [ "$2" = -H ] && [ "$3" = "Accept: application/vnd.github.raw" ] || exit 9\n'
-        'url=$4\n'
-        'path=${url#repos/acme/module/contents/}\n'
-        'case $url in *"?ref=v1.2.0") ;; *) exit 8 ;; esac\n'
-        'cat "$FIXTURES/${path%%\\?*}"\n',
-        encoding="utf-8",
-    )
-    gh.chmod(0o755)
-    script = loop.replace("{owner}", "acme").replace("{repo}", "module").replace("{source_ref}", "v1.2.0")
-    script = re.sub(r"<each skill folder path[^>]*>", "skills/alpha skills/beta", script)
-    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}", "FIXTURES": str(fixtures)}
-    result = subprocess.run([bash, "-c", script], capture_output=True, text=True, env=env, check=False)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == f"=== skills/alpha\n{ALPHA_FRONTMATTER}=== skills/beta\n"
+    python = f'"{sys.executable}"'
+    script = (block.replace("uv run {githubFetch}", f'{python} "{run_dir.parent / "fetch-shim.py"}"')
+              .replace("uv run {skillsModuleHelper}", f'{python} "{SKILLS_MODULE}"')
+              .replace("uv run {publicApiExtractor}", f'{python} "{EXTRACTOR}"')
+              .replace("uv run {quickMetadataRenderer}", f'{python} "{RENDERER}"')
+              .replace("{owner}/{repo}", "acme/lib").replace("{source_ref or HEAD}", "HEAD")
+              .replace("{run_dir}", run_dir.as_posix()).replace("{repo_name}", "acme-module"))
+    script = re.sub(r' \[--scope-hint "\{scope_hint\}"\]', "", script)
+    script = re.sub(r' \[--package "[^"]*"\]', "", script)
+    result = subprocess.run([bash, "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode in (0, 3), result.stderr
+    assert result.returncode == 0 or '"status": "partial"' not in result.stdout, result.stdout
+
+
+def _render(run_dir: Path, tmp_path: Path) -> dict:
+    """compile §4's staging heredoc and renderer call, filled in, with DESCRIPTION as the description."""
+    block = _bash_block(_section(_read(COMPILE), "### 4. Generate Metadata JSON", "### 5. "), "SKF_JSON")
+    skf_root = tmp_path / "project" / "_bmad" / "skf"
+    skf_root.mkdir(parents=True)
+    (skf_root / "VERSION").write_text("3.0.0\n", encoding="utf-8")
+    values = {'"{repo_name}"': '"acme-module"', '"<the SKILL.md frontmatter description>"': json.dumps(DESCRIPTION),
+              '<"{target_version}" or null>': "null", '"{language}"': '"python"',
+              '"{resolved_url}"': '"https://github.com/acme/lib"', '"<path or empty>"': '""',
+              '"<source_ref or empty>"': '""', '"<package name or empty>"': '""', '"<semver-range or empty>"': '""',
+              '<"{language_hint}" or null>': "null", '<"{scope_hint}" or null>': "null",
+              "<the --exports names as a JSON list, or null>": "null", "{project-root}": (tmp_path / "project").as_posix()}
+    for placeholder, value in values.items():
+        assert placeholder in block, placeholder
+        block = block.replace(placeholder, value)
+    _run(block, run_dir)
+    staged = json.loads((run_dir / "metadata-input.json").read_text(encoding="utf-8"))
+    assert staged["description"] == DESCRIPTION
+    return json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
+
+
+def test_the_unknown_language_branch_asks_the_skills_module_helper():
+    """W1 handoff: a Markdown-only skills repository has no language, and step 1 must not halt on it."""
+    detect = _section(_read(RESOLVE_TARGET), "### 4. Detect Language", "### 5. ")
+    auto = _section(detect, "3. **Auto-pick**", "4. **Multi-language gate**")
+    # Step 1 sniffs under the scope hint as step 3 does, so both classify the same folder.
+    assert _nested_bash_block(auto, " sniff ") == \
+        'uv run {skillsModuleHelper} sniff --tree-file "{run_dir}/tree.json" [--scope-hint "{scope_hint}"]\n'
+    assert "Pass `--scope-hint` when `scope_hint` is set, as step 3 does" in auto
+    assert ("- **`skills_module` is true**: set `language` to `markdown` and `language_resolution` to `detected`"
+            in auto)
+    assert auto.index("set `language` to `markdown`") < auto.index("HARD HALT")
+    tree = ["README.md", "LICENSE", "skills/docx/SKILL.md", "skills/pdf/SKILL.md"]
+    detect_language = _load(SCRIPTS / "skf-detect-language.py", "skf_detect_language_for_quick_contract")
+    assert detect_language.detect({"tree": tree})["detected_languages"] == []
+    assert _load(SKILLS_MODULE, "skf_skills_module_for_quick_contract").sniff(tree, None, None)["skills_module"]
 
 
 # --------------------------------------------------------------------------
@@ -440,36 +422,24 @@ def test_the_loop_prints_each_frontmatter_under_its_folder(tmp_path):
 def test_skills_module_is_a_shape_with_no_gate():
     sniff = _sniff()
     shapes = _section(sniff, "**Classify as one of:**", "\n\n**If ")
-    # The item runs from its bullet through its indented sub-bullets.
     item = _section(shapes, "- **skills-module**", "\n- **library** (default)")
-    for phrase in (
-        "Skill folders alone qualify", "proceed with no gate",
-        "A module root is a folder that directly holds `module.yaml` or `module-help.csv`: "
-        "the listing shows `<folder>/module.yaml` or `<folder>/module-help.csv`",
-        "A copy that sits in a skill folder, such as a skill's `assets/module.yaml`, makes no module root.",
-        "The skill folders of a module root are all the folders below it that hold a `SKILL.md` "
-        "and sit in no other skill folder.",
-        "The skill folders of any other folder are its direct subfolders that hold one (`<folder>/<name>/SKILL.md`).",
-        "When `scope_hint` is set, it is the only candidate, and it counts whenever it has skill folders.",
-        "Otherwise the candidates are the repository root and each top-level folder that has skill folders, "
-        "and a candidate counts only when it is a module root or the root ships no code.",
-        "or when its only one is a `package.json` that declares no `main` (or an empty one), `exports`, `bin` "
-        "or `workspaces` and has no `index.js` or `index.ts` beside it.",
-        "So a library with a manifest and one `skill/SKILL.md` stays a library.",
-        "When several candidates count, prefer a module root, then the one with the most skill folders.",
-    ):
+    for phrase in ("`skills_module` is true", "Skill folders alone qualify", "proceed with no gate",
+                   "record `repo_shape: skills-module` and `skills_root`",
+                   "A library with a manifest and one `skill/SKILL.md` stays a library"):
         assert phrase in item, phrase
-    # The soft-warn gate names the shapes it stops, so skills-module never reaches it.
+    # The rule itself lives in the helper; the step reads its answer.
+    for phrase in ("a folder that directly holds `module.yaml` or `module-help.csv`", "when `scope_hint` is set",
+                   "Read its answer; do not re-derive it from the listing."):
+        assert phrase in sniff, phrase
     assert "**If an awesome-list, docs-site or examples-only shape is detected**" in sniff
     assert "**If a non-library shape is detected**" not in sniff
 
 
 def test_a_library_run_with_no_exports_names_the_scope_to_rerun_with():
     inventory = _section(_read(QUICK_EXTRACT), "### 4. Build Extraction Inventory", "### 4.5.")
-    rule = _section(inventory, "- If a folder below the repository root has skill folders", "\n")
-    assert "re-run with `scope={folder}` to document them as a skills module." in rule
-    assert ("Name the module root with the most skill folders or, when the listing shows no module root, "
-            "the folder with the most.") in rule
+    rule = _section(inventory, "- If the sniff's `suggested_scope` is set", "\n")
+    assert "re-run with `--scope-hint {suggested_scope}` (a batch line's `scope={suggested_scope}`)" in rule
+    assert "to document them as a skills module." in rule
 
 
 def test_skills_module_exports_are_skill_names_then_menu_codes():
@@ -478,11 +448,10 @@ def test_skills_module_exports_are_skill_names_then_menu_codes():
     assert "the `module-help.csv` directly in the skills root (`<skills root>/module-help.csv`)" in fetch
     parse = _section(text, "### 3. Parse Manifest and Scan Exports", "### 4. ")
     branch = parse[parse.index("**Skills module** (`repo_shape: skills-module`)"):]
-    assert '`"entries": []`' in branch
-    assert branch.index('type: "skill"') < branch.index('type: "menu-code"')
-    assert "`brief_description` is the row's `description`, followed by its `display-name`" in branch
-    assert "its menu code, display name and `description`, the skill and action it runs" in branch
-    assert "(the `_meta` row)" in branch
+    assert "with that `--manifest-file` and no `--entry-file`" in branch
+    assert branch.index("one `skill` per skill folder") < branch.index("one `menu-code` per `module-help.csv` row")
+    assert "(the `_meta` row and rows with no skill left out)" in branch
+    assert "Do not read the `SKILL.md` files or the CSV yourself" in branch
     inventory = _section(text, "### 4. Build Extraction Inventory", "### 4.5.")
     assert "  repo_shape: " in inventory and "  skills_root: " in inventory
     assert ("**Skills module** (`repo_shape: skills-module`): Unless `{overrides.exports}` is set, "
@@ -491,6 +460,132 @@ def test_skills_module_exports_are_skill_names_then_menu_codes():
     template = _read(TEMPLATE)
     assert "then each menu code with its description, display name and the skill it runs" in template
     assert "`exports` lists the skill names, then the menu codes" in template
+
+
+def test_extractor_warnings_send_section_3_after_the_module_they_name():
+    """W3 handoff: a warning names a statement whose names the entry file alone cannot give."""
+    parse = _section(_read(QUICK_EXTRACT), "### 3. Parse Manifest and Scan Exports", "### 4. ")
+    [warnings] = [line for line in parse.splitlines() if line.startswith("- `warnings[]`")]
+    for form in ("`export * from`", "a star import from the package", "an `__all__` built from another module",
+                 "`pub use x::*`", "`module.exports = require(...)`", "an anonymous or conditional export"):
+        assert form in warnings, form
+    act = _section(parse, "**Act on the statements a warning names**", "\n\n")
+    for needle in ("fetch it with §2's call and run the extractor again with it as one more `--entry-file`",
+                   "Otherwise read the statement by eye", "`{run_dir}/extract-added.json`"):
+        assert needle in act, needle
+    assert "`{run_dir}/extract-added.json` when §3 staged it" in _read(COMPILE)
+
+
+def test_the_scripts_and_assets_note_reads_the_sniff():
+    [note] = [line for line in _read(COMPILE).splitlines() if line.startswith("**Scripts & Assets Note**")]
+    assert "`{run_dir}/sniff.json`" in note and "`asset_dir_count` is above 0" in note
+    sniff = _load(SKILLS_MODULE, "skf_skills_module_for_assets").sniff(["README.md", "src/templates/a.txt"], None, None)
+    assert sniff["asset_dir_count"] == 1
+
+
+def test_metadata_is_rendered_from_files_and_installed_by_the_atomic_writer():
+    """W1 re-check determinism-4: no re-typed payload, [E] re-renders, step 5 installs the rendered file."""
+    compile_md = _read(COMPILE)
+    render = _section(compile_md, "### 4. Generate Metadata JSON", "### 5. ")
+    block = _bash_block(render, "SKF_JSON")
+    assert block.startswith("cat > \"{run_dir}/metadata-input.json\" <<'SKF_JSON'\n")
+    assert block.rstrip("\n").endswith(
+        'uv run {quickMetadataRenderer} --input "{run_dir}/metadata-input.json" --extraction "{run_dir}/extract.json" '
+        '--skf-root "{project-root}/_bmad/skf" --output "{run_dir}/metadata.json"')
+    assert '"exports": <the --exports names as a JSON list, or null>' in block
+    assert '"dependencies"' not in block and "skf_version" not in block
+    [edit] = [line for line in compile_md.splitlines() if line.startswith("- **IF E**")]
+    assert "run §4's renderer command again" in edit and "Do not edit `metadata.json` by hand" in edit
+    write = _read(WRITE_AND_VALIDATE)
+    assert ("atomicWriteProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-atomic-write.py'\n") in write.split("---\n", 2)[1]
+    assert _bash_block(write, "metadata.json") == \
+        'uv run {atomicWriteHelper} write --target "{skill_package}/metadata.json" < "{run_dir}/metadata.json"\n'
+    assert "Resolve `{version}` ← the `version` of `{run_dir}/metadata.json`" in write
+    finalize = _read(FINALIZE)
+    removal = _bash_block(finalize, "rmdir")
+    assert removal.startswith('case "{run_dir}" in */.skf-run/skf-quick-skill-*) rm -rf "{run_dir}/src" && ')
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's command through a POSIX shell")
+def test_the_run_folder_removal_takes_the_fetched_files_and_nothing_else(tmp_path):
+    bash = _tool("bash")
+    removal = _bash_block(_read(FINALIZE), "rmdir")
+    run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-quick-skill-ab12cd34"
+    (run_dir / "src" / "skills" / "alpha").mkdir(parents=True)
+    for name in ("tree.json", "sniff.json", "warnings.jsonl", "skills-fetch.txt", "src/skills/alpha/SKILL.md"):
+        (run_dir / name).write_text("x", encoding="utf-8")
+    result = subprocess.run([bash, "-c", removal.replace("{run_dir}", run_dir.as_posix())], capture_output=True,
+                            text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert not run_dir.exists()
+    other = tmp_path / "elsewhere"
+    (other / "src").mkdir(parents=True)
+    subprocess.run([bash, "-c", removal.replace("{run_dir}", other.as_posix())], check=False)
+    assert (other / "src").is_dir(), "the guard deletes nothing outside a quick-skill run folder"
+
+
+# --------------------------------------------------------------------------
+# #594: the hint flags, the language pick and the hints the retry gates take
+# --------------------------------------------------------------------------
+
+
+def test_the_hint_flags_are_parsed_at_activation():
+    skill = _read(SKILL)
+    for flag, hint in (("--language-hint <lang>", "language_hint"), ("--scope-hint <path>", "scope_hint")):
+        [row] = [line for line in skill.splitlines() if line.startswith(f"   | `{flag}` |")]
+        assert f"Sets `{hint}`" in row and "Single-target runs only: batch mode refuses it." in row
+        assert f"{hint} [optional, `{flag.split()[0]}`]" in skill
+    [overrides] = [line for line in skill.splitlines() if line.startswith("| **Overrides** |")]
+    assert "`--language-hint`, `--scope-hint`" in overrides
+    accept = _section(_read(RESOLVE_TARGET), "### 1. Accept User Input", "### 1b. ")
+    assert ("when the invocation carried a target, take it, with `--language-hint` as `language_hint` and "
+            "`--scope-hint` as `scope_hint` when they were passed") in accept
+    assert "without the prompt below, in either mode" in accept
+    before = _section(_read(BATCH_MODE), "## Before the Batch Starts", "## Input format")
+    assert "`--language-hint` and `--scope-hint` are single-target flags too" in before
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row] = [line for line in codes.splitlines() if line.startswith("| 2 ")]
+    assert "`--language-hint` or `--scope-hint` passed with `--batch`" in row
+    # No step points at a flag activation does not parse.
+    for path in HALT_FILES:
+        for flag in re.findall(r"`(--[a-z-]+)", _read(path)):
+            if flag.endswith("-hint"):
+                assert flag in ("--language-hint", "--scope-hint"), (path.name, flag)
+
+
+def test_the_multi_language_gate_offers_every_language():
+    detect = _section(_read(RESOLVE_TARGET), "### 4. Detect Language", "### 5. ")
+    gate = _section(detect, "4. **Multi-language gate**", "\nKeep `language_resolution`")
+    assert "Select: [C] Continue with 1 · [2] to [n] Use that language · [A] Abort" in gate
+    assert "{and so on, one numbered line per entry of `detected_languages`}" in gate
+    [pick] = [line for line in gate.splitlines() if line.strip().startswith("- **IF 2 to n**")]
+    assert "set `language` to that entry of `detected_languages`" in pick
+    assert 'set `language_resolution: "user-confirmed"`' in pick
+    assert "abort and re-run" not in gate
+    [gates] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |")]
+    assert "multi-language disambiguation [C/n/A]" in gates
+
+
+@pytest.mark.parametrize("path,option", [(QUICK_EXTRACT, "- **IF R**"), (COMPILE, "- **IF S**")],
+                         ids=["zero-exports-retry", "review-rescope"])
+def test_a_new_language_hint_at_a_retry_gate_is_a_hint(path, option):
+    """W3 re-check architecture-1: the language a retry gate takes reaches step 3 and the summary as a hint."""
+    [line] = [line for line in _read(path).splitlines() if line.startswith(option)]
+    assert ("A non-empty new language hint sets `language` to it, `language_resolution` to `hint` and "
+            "`detected_languages` to `[]`") in line
+
+
+def test_a_package_id_on_another_host_tries_the_web_search_first():
+    """W3 re-check enhancement-5: a Go module path or a Maven coordinate is searched before the redirect."""
+    route = _section(_read(RESOLVE_TARGET), "### 2. Route by Kind", "### 3. ")
+    for needle in ("the Go module path `go.uber.org/zap`", "an `unparsed` Maven coordinate `<group>:<artifact>`",
+                   "run the web-search step of §3's `fallthrough` branch; show the redirect only when it finds no "
+                   "GitHub URL", "`bmad-workflow-builder`"):
+        assert needle in route, needle
+    parse = _resolver().parse_target
+    assert parse("go.uber.org/zap")["kind"] == "other-host"
+    assert parse("com.google.guava:guava")["kind"] == "unparsed"
 
 
 # --------------------------------------------------------------------------
@@ -513,7 +608,7 @@ def test_the_halt_contract_has_the_input_invalid_code():
     assert "input-invalid" in schema["properties"]["error"]["oneOf"][1]["properties"]["code"]["enum"]
     assert "on-activation" in schema["properties"]["phase"]["description"]
     assert ("`on-activation` for a halt before the run starts (SKILL.md On Activation, and batch mode's refusal "
-            "of `--description` and `--exports`)") in text
+            "of `--description` and `--exports` and of the hint flags)") in text
 
 
 def test_batch_mode_refuses_the_flags_before_the_batch_starts():
@@ -527,7 +622,7 @@ def test_batch_mode_refuses_the_flags_before_the_batch_starts():
     assert batch.index("## Before the Batch Starts") < batch.index("## Execution")
     halt = before.index("HARD HALT with **exit code 2 (input-invalid)**")
     assert halt < before.index("Otherwise `--batch` implies `--headless`")
-    assert "When either was passed" in before and "before any target runs" in before
+    assert "When any of the four was passed" in before and "before any target runs" in before
     assert '{"phase": "on-activation", "halt_reason": "input-invalid",' in before
     assert '"details": {"flags": [<the flags passed>], "batch_file": "<file>"}' in before
     assert "no batch summary is written" in before
@@ -822,8 +917,9 @@ def test_the_scan_finds_every_hard_halt():
     per_file = {}
     for name, _, _, _ in _halt_sites():
         per_file[name] = per_file.get(name, 0) + 1
+    # resolve-target.md gained the step 1 §4 halt for a file listing no probe could read.
     assert per_file == {"SKILL.md": 2, "batch-mode.md": 3, "compile.md": 1, "ecosystem-check.md": 2,
-                        "finalize.md": 1, "quick-extract.md": 2, "resolve-target.md": 9,
+                        "finalize.md": 1, "quick-extract.md": 2, "resolve-target.md": 10,
                         "write-and-validate.md": 3}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
 
@@ -838,11 +934,11 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(23), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(24), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
     """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names."""
     sites = _halt_sites()
-    assert len(sites) == 23
+    assert len(sites) == 24
     name, code, reason, segment = sites[site]
     assert EMIT_HALT in segment and "--target stderr" in segment, (name, reason)
     payload = _filled(_staged(segment, "halt.json"))
@@ -850,18 +946,18 @@ def test_every_hard_halt_emits_through_the_emitter(site):
     if payload["halt_reason"].startswith("<"):
         assert code == 9, "only the ownership halt leaves its reason to the refusal it runs"
         payload["halt_reason"] = "not-skf-output"
-        payload["error"]["code"] = "not-skf-output"
     assert payload["halt_reason"] in expected, (name, payload["halt_reason"])
     assert payload["phase"] in PHASES.get(name, (name[:-len(".md")],)), (name, payload["phase"])
-    if "error" in payload:
-        assert payload["error"]["code"] == payload["halt_reason"]
-        assert set(payload["error"]) == {"code", "message", "details"}
+    # A halt stages its details beside halt_reason and reason; the emitter builds error from them.
+    assert "error" not in payload, (name, "a hand-typed error object")
     emitter = _emitter()
     schema = json.loads(_read(ENVELOPE_SCHEMA))
     envelope = emitter.build_envelope(schema, payload, halt=True, decisions=[], warnings=[], stamps={
         "timestamp": "2026-10-01T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
     assert emitter.contract_errors(schema, envelope) == [], (name, payload)
     assert (envelope["status"], envelope["exit_code"]) == ("error", code), name
+    assert envelope["error"]["code"] == payload["halt_reason"] and envelope["error"]["message"] == payload["reason"]
+    assert envelope["error"].get("details") == payload.get("details"), name
     # Result files only beside metadata.json: never at the ownership halt or before step 5 writes.
     writes = '--result-dir "{skill_package}"' in segment
     assert writes == (name in ("write-and-validate.md", "finalize.md") and code != 9), (name, code)
@@ -982,10 +1078,14 @@ def test_the_success_payload_builds_the_schema_envelope():
     for placeholder, value in sample.items():
         assert placeholder in payload, placeholder
         payload = payload.replace(placeholder, value)
-    context = json.loads(payload.replace("{the same summary object}", "{}"))
-    # The result file keeps output-contract-schema.md's record shape; the emitter stamps the rest.
-    assert set(context["result_contract"]) == {"skill", "status", "outputs", "summary"}
+    context = json.loads(payload)
+    # The result file keeps output-contract-schema.md's record shape: the payload gives the skill and the
+    # outputs, and the emitter adds the payload's own status and summary and stamps the rest.
+    assert set(context["result_contract"]) == {"skill", "outputs"}
     assert all(set(entry) == {"type", "path"} for entry in context["result_contract"]["outputs"])
+    record = _emitter()._result_record(context, {}, "2026-10-01T00:00:00Z", "ab12cd34", [], [])
+    assert (record["status"], record["summary"]) == ("success", context["summary"])
+    assert "{the same summary object}" not in section
     schema = _schema()
     assert set(context["summary"]) == set(schema["properties"]["summary"]["properties"])
     assert set(context["outputs"]) == set(schema["properties"]["outputs"]["properties"])

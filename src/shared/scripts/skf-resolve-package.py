@@ -23,12 +23,17 @@ deterministic; web search is judgment, and stays in the LLM step.
 
 CLI:
 
-  uv run skf-resolve-package.py parse-target [--target <text>]
+  uv run skf-resolve-package.py parse-target [--target <text>] [--local-first]
   uv run skf-resolve-package.py resolve <package_name> \\
       [--registry npm|pypi|crates] [--language <hint>] [--timeout 10]
 
 parse-target reads the target from stdin when --target is not given, so a
-target holding quotes or `$` reaches it unchanged. The form earlier SKF
+target holding quotes or `$` reaches it unchanged. --local-first makes a
+target that names an existing file or folder (relative to the working
+folder, a leading `~` expanded) a local-path whatever its shape, before
+any other shape is tried: `skill-brief.yaml`, `briefs/skill-brief.yaml`,
+`libs/mylib` or a path with a space, which the shapes below read as a
+package, a github `<owner>/<repo>` or unparsed text. The form earlier SKF
 versions called, `skf-resolve-package.py <package_name> [--timeout 10]`,
 still runs resolve.
 
@@ -151,6 +156,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import socket
 import string
@@ -330,6 +336,12 @@ def _is_local_path(text: str) -> bool:
             or text[:7].lower() == "file://")
 
 
+def _on_disk(text: str) -> bool:
+    """True when `text` names an existing file or folder, relative to the working folder, `~` expanded."""
+    path = text[7:] if text[:7].lower() == "file://" else text
+    return os.path.exists(os.path.expanduser(path))  # False for a name the OS refuses
+
+
 def _url_host(text: str) -> Optional[tuple[str, str]]:
     """(host, path) of a URL-like target, else None."""
     m = _SCHEME_RE.match(text)
@@ -369,7 +381,7 @@ def _registry_page(host: str, path: str) -> Optional[tuple[str, str, Optional[st
     return registry, name, version
 
 
-def parse_target(text: str) -> dict:
+def parse_target(text: str, local_first: bool = False) -> dict:
     """Split a quick-skill target into its kind and parts (see the module docstring)."""
     raw = (text or "").strip()
     if len(raw) >= 2 and raw[0] in _PAIRS and raw[-1] == _PAIRS[raw[0]]:
@@ -377,6 +389,9 @@ def parse_target(text: str) -> dict:
     out = {"kind": "unparsed", "input": raw, "target_version": None, "dist_tag": None, "owner": None,
            "repo": None, "url": None, "ref": None, "subdir": None, "package_name": None, "registry": None,
            "skill_name": None, "host": None, "path": None}
+    if raw and local_first and _on_disk(raw):
+        out.update(kind="local-path", path=raw[7:] if raw[:7].lower() == "file://" else raw)
+        return out
     if not raw or any(ch.isspace() for ch in raw):
         return out
     if _is_local_path(raw):
@@ -628,6 +643,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_parse = sub.add_parser("parse-target", help="split a target into its kind, name, version and repository")
     p_parse.add_argument("--target", help="the target as typed (default: read from stdin)")
+    p_parse.add_argument("--local-first", action="store_true",
+                         help="a target that names an existing file or folder is a local-path, whatever its shape")
     p_resolve = sub.add_parser("resolve", help="resolve a package name to its GitHub repository")
     p_resolve.add_argument(
         "package_name",
@@ -652,7 +669,7 @@ def main(argv: list[str]) -> int:
     args = _build_parser().parse_args(argv)
     if args.cmd == "parse-target":
         text = args.target if args.target is not None else _read_stdin()
-        print(json.dumps(parse_target(text), indent=2))
+        print(json.dumps(parse_target(text, local_first=args.local_first), indent=2))
         return 0
     result = resolve_package(args.package_name, timeout=args.timeout, registry=args.registry,
                              language=args.language)

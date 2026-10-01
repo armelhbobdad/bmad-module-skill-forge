@@ -21,6 +21,12 @@ descriptionGuardProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §2 installs the metadata.json step 4 rendered with it.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. -->
@@ -41,7 +47,7 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ver
 
 ### 1. Check Ownership, Then Create Output Directory
 
-Resolve `{version}` from the extraction inventory's detected version, defaulting to `1.0.0` if not detected.
+Resolve `{version}` ← the `version` of `{run_dir}/metadata.json`, which step 4 §4 rendered: the version the target pinned, else the manifest's, else `1.0.0`. The version folder and the file's `version` are then one value.
 
 **Ownership check.** Run it before creating any directory and before the overwrite prompt below. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
 
@@ -58,7 +64,7 @@ Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_ch
 - The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
 - When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}".
 
-Each refusal is a HARD HALT with **exit code 9 (state-conflict)**: stage `{"phase": "write-and-validate", "halt_reason": "<the halt reason>", "reason": "<the message's first sentence>", "skill_package": null, "error": {"code": "<the halt reason>", "message": "<the same sentence>", "details": {"folder": "<the folder the message names>"}}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, with no `--result-dir` (`references/halt-contract.md`). This halt writes no result file on disk: `{skill_package}` would sit in a folder SKF did not generate. It is a HALT, not a gate, so it has no headless default.
+Each refusal is a HARD HALT with **exit code 9 (state-conflict)**: stage `{"phase": "write-and-validate", "halt_reason": "<the halt reason>", "reason": "<the message's first sentence>", "skill_package": null, "details": {"folder": "<the folder the message names>"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`, with no `--result-dir` (`references/halt-contract.md`). This halt writes no result file on disk: `{skill_package}` would sit in a folder SKF did not generate. It is a HALT, not a gate, so it has no headless default.
 
 Then create the skill output directories:
 
@@ -86,11 +92,17 @@ Write the three compiled artifacts to the skill package so that validation in se
 
 **File 1:** `{skill_package}/SKILL.md` — the compiled skill document
 **File 2:** `{skill_package}/context-snippet.md` — the compressed context snippet. **Skip this write** if `{overrides.skip_snippet}` was set; the artifact is omitted from `outputs`.
-**File 3:** `{skill_package}/metadata.json` — the machine-readable metadata
+**File 3:** `{skill_package}/metadata.json`: the machine-readable metadata, installed from the file step 4 §4 rendered, never typed again. Resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and run:
+
+```bash
+uv run {atomicWriteHelper} write --target "{skill_package}/metadata.json" < "{run_dir}/metadata.json"
+```
+
+It writes the file in place atomically, so an interrupted run never leaves half a `metadata.json`. If no candidate exists, copy it: `cp "{run_dir}/metadata.json" "{skill_package}/metadata.json"`.
 
 Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / "Written: metadata.json". When `--skip-snippet` is active, log "Skipped: context-snippet.md (--skip-snippet)" instead of the snippet write confirmation.
 
-**If any write fails, HARD HALT (exit code 4, write-failure):** stage `{"phase": "write-and-validate", "halt_reason": "write-failure", "reason": "Write failed: could not write <path>.", "skill_package": "{skill_package}", "outputs": {<each file that did write before the failure, as "metadata", "skill_md" or "context_snippet" with its path>}, "error": {"code": "write-failure", "message": "Write failed: could not write <path>.", "details": {"failed_path": "<path>", "error": "<details>"}}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`. When `metadata.json` itself failed to write, run it without `--result-dir "{skill_package}"`: the contract writes no result file on disk, because a package holding only result files would read as not SKF output to the next run's ownership check.
+**If any write fails, HARD HALT (exit code 4, write-failure):** stage `{"phase": "write-and-validate", "halt_reason": "write-failure", "reason": "Write failed: could not write <path>.", "skill_package": "{skill_package}", "outputs": {<each file that did write before the failure, as "metadata", "skill_md" or "context_snippet" with its path>}, "details": {"failed_path": "<path>", "error": "<details>"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`. When `metadata.json` itself failed to write, run it without `--result-dir "{skill_package}"`: the contract writes no result file on disk, because a package holding only result files would read as not SKF output to the next run's ownership check.
 
 "**Write failed:** Could not write to `{file_path}`.
 

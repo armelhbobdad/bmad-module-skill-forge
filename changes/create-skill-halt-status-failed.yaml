@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-create-skill
+summary: |
+  A HARD HALT after step 7 has promoted the skill package now reports `status: "failed"`, with the promoted files in `skill_package` and `outputs`, where the old halt contract reported `partial`. `partial` now means only a finished source brief whose extraction found no export (`summary.warning: "zero-exports"`). The run's auto-decisions are no longer written to the sidecar's `auto-decisions.jsonl`: each one is recorded in the brief's run folder as its gate decides, and reaches the result as `headless_decisions`.
+migration: |
+  A pipeline that read `status: "partial"` as "the package is on disk but the run stopped" now reads `status: "failed"` and checks `skill_package` and `outputs`, which are set once step 7 has promoted the package. A tool that read `auto-decisions.jsonl` reads `headless_decisions` instead, from the `SKF_CREATE_SKILL_RESULT_JSON` line or from `create-skill-result-latest.json` in the version's forge folder.
+prs: [634]
+issues: [593]

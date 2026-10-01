@@ -6,6 +6,10 @@ forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
+# §4 appends the T2 annotations to the extraction inventory through it.
+extractionInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -61,7 +65,7 @@ For each major exported function (the **top-level public API surface**, typicall
 
 **Search query construction:**
 
-For each function, derive the **module context** from the extraction inventory's source file path (e.g., `src/graph/neo4j/index.ts` → module context `graph neo4j`). This context improves search relevance by scoping results to the function's subsystem without adding extra queries.
+Read the functions and their source files from `{extraction_inventory}`, the extraction inventory step 3 §5 wrote. For each function, derive the **module context** from its source file path (e.g., `src/graph/neo4j/index.ts` → module context `graph neo4j`). This context improves search relevance by scoping results to the function's subsystem without adding extra queries.
 
 **Primary searches (BM25 — always runs, no GPU/VRAM dependency):**
 
@@ -92,19 +96,24 @@ For each function, derive the **module context** from the extraction inventory's
 
 ### 4. Annotate Extraction Inventory
 
-Add enrichment annotations to the extraction inventory without modifying extraction data:
+Add the enrichment annotations to `{extraction_inventory}` without modifying its extraction data, so compile reads them from disk. One annotation per finding, for each function that has one:
 
-**Per-function enrichment (if found):**
 - Related issues/PRs with summary
 - Changelog history (version changes, breaking changes)
 - Migration/deprecation context
 - T2 provenance citation for each annotation
 
-**Enrichment summary counts:**
-- Functions enriched: {count} of {total}
-- T2 annotations added: {count}
-- T2-past annotations: {count}
-- T2-future annotations: {count}
+Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and, from `{project-root}`, append them all in one call:
+
+```bash
+uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field t2_annotations <<'SKF_T2'
+[{"export_name": "...", "kind": "issue|pr|changelog|migration", "temporal": "T2-past|T2-future", "summary": "...", "citation": "[QMD:{collection}:{doc}]"}]
+SKF_T2
+```
+
+When it exits non-zero, fix the JSON and run it once more: an annotation the inventory already holds is not added twice. When it fails again, or no path resolves, warn "T2 annotations were not saved to the extraction inventory: {its message}" and continue without them: enrichment never halts the workflow.
+
+**Enrichment summary counts** come from the call's output, never counted by hand: `counts.functions_enriched` (the functions with at least one annotation), `counts.t2_annotations`, `counts.t2_past` and `counts.t2_future` (the annotations by their `temporal`). When the call failed, each is 0.
 
 ### 5. Report Enrichment (Deep Tier Only)
 
@@ -112,8 +121,8 @@ Display brief enrichment summary:
 
 "**Enrichment complete.**
 
-**Functions enriched:** {enriched_count} of {total_count}
-**T2 annotations:** {t2_count} ({t2_past} historical, {t2_future} forward-looking)
+**Functions enriched:** {counts.functions_enriched} of {the functions §3 searched}
+**T2 annotations:** {counts.t2_annotations} ({counts.t2_past} historical, {counts.t2_future} forward-looking)
 
 Proceeding to compilation..."
 

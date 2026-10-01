@@ -379,8 +379,8 @@ def test_entry_point_check_reads_the_runner_diff() -> None:
     assert "do not read the entry points or diff the sets yourself" in runner
     for name in ("public", "internal", "extraction_gaps", "outside_scope"):
         assert f"\n- `{name}`:" in runner, name
-    assert ("Record its `counts` (`exports_public_api`, `exports_internal`, `effective_denominator` and "
-            "`effective_denominator_basis`) and `arms` for step 5 §4") in runner
+    assert ("§5's `init` records its `counts` (`exports_public_api`, `exports_internal`, `effective_denominator` "
+            "and `effective_denominator_basis`) and `arms` for step 5 §4") in runner
     # the runner's reading of entry points is its own business: --help, not a copy here
     assert "`skf-extract-public-api.py --help` lists the entry points it reads" in runner
     assert "`__all__`" not in runner and "`pub use`" not in runner
@@ -394,24 +394,30 @@ def test_entry_point_check_reads_the_runner_diff() -> None:
     by_eye = four_b[four_b.index("**Otherwise**"):]
     assert ("Quick tier, extraction by source reading, a brief whose language no recipe reads included, or the "
             "protocol's fallback") in by_eye
-    assert ("when the runner's JSON has `status: no-ast-grep`, its `entry_points.files` lists them, and record its "
-            "`arms` for step 5 §4") in by_eye
-    assert "- **Python:** Read `{source_root}/__init__.py`" in by_eye
-    assert "so public_api_coverage drops (only effective_denominator, for the curated-subset shapes" in by_eye
+    assert ("when the runner's JSON has `status: no-ast-grep`, its `entry_points.files` lists them, and §5's "
+            "`init` records its `arms` for step 5 §4") in by_eye
+    # its per-language reads live in a reference only that branch loads, so extract.md stays in budget
+    assert "load `{entryPointsByHandData}`, which only this branch reads" in by_eye
+    assert _frontmatter(_read(EXTRACT))["entryPointsByHandData"] == "references/entry-points-by-hand.md"
+    by_hand = _read(EXTRACT.parent / "entry-points-by-hand.md")
+    assert "- **Python:** Read `{source_root}/__init__.py`" in by_hand
+    assert "so public_api_coverage drops (only effective_denominator, for the curated-subset shapes" in by_hand
+    assert "**Multi-entry packages (`exports` map / declaration-file entry points).**" in by_hand
+    assert "- **Python:** Read" not in four_b and "**Multi-entry packages" not in four_b
     assert "outside the coverage denominator" not in four_b and "excluded from the coverage denominator" not in four_b
 
 
 def test_inventory_counts_come_from_the_runner() -> None:
+    """§5's `init` (skf-extraction-inventory.py) copies the runner's records and counts into the inventory."""
     five = _section(EXTRACT, "5")
-    for token in ("the runner's `files_in_scope`", "`aggregates.exports`", "`aggregates.by_type`",
-                  "T1 is `aggregates.t1`", "the head-cap warning when `truncated` is true", "each `errors[]` item",
-                  "each `file_issues[]` file read by eye",
-                  "each extension `files_without_recipes` counts (\"{N} `{ext}` files in scope are in a language no "
-                  "recipe reads\")", "the runner's `recipe_set`", "`ast_grep.version`"):
+    for token in ("`files_scanned` (the runner's `files_in_scope`)", "its `aggregates`, `counts` and `arms`",
+                  "the head-cap warning (§4)", "each `errors[]` item", "each `file_issues[]` file",
+                  "each extension `files_without_recipes` counts", "its `recipe_set`", "`ast_grep.version`"):
         assert token in five, token
-    assert ("takes its name, `source_file`, `source_line`, `citation`, `ast_recipe`, `ast_node_type` and "
-            "`export_type` from the runner's record unchanged") in five
-    assert "{warnings: the runner warnings §5 kept, and any file skipped or degraded}" in _section(EXTRACT, "6")
+    assert ("`init` writes each export as the runner recorded it (T1, `ast-grep`, with its `source_file`, "
+            "`source_line`, `citation`, `ast_recipe`, `ast_node_type` and `export_type`)") in five
+    assert "The summary's `counts` give §6 its numbers" in five
+    assert "{warnings: the inventory's `warnings`}" in _section(EXTRACT, "6")
 
 
 # --------------------------------------------------------------------------
@@ -582,7 +588,8 @@ def test_validate_7a_fixes_through_the_verifier() -> None:
             "findings). When no JSON is there after the call") in seven_a
     assert "If that second run leaves no JSON at `{verify_json}`" in seven_a
     assert "Exit 2 writes no JSON" not in seven_a and "If that second run exits 2" not in seven_a
-    assert "Re-read each file in `files_written[]` into the in-context copy step 7 writes from" in seven_a
+    # step 7 promotes the staged files byte for byte: no in-context copy to keep in step
+    assert "in-context copy" not in seven_a and "step 7 writes from" not in seven_a
     for by_hand in ("Plan every move before making any", "A range citation shifts both ends",
                     "change its prefix to `expected_prefix`", "run the recipes `{extractionPatternsData}` gives",
                     "or a clone that is already deleted", "--no-line-moves"):
@@ -814,7 +821,7 @@ def test_every_runner_field_the_prose_reads_is_in_its_json(tmp_path: Path) -> No
     # `scope.*` names brief fields too (`scope.notes`), so the runner's `scope` is checked on its own
     named = {token for text in passages for token in TOKEN_RE.findall(text)
              if token.split(".")[0].removesuffix("[]") in out and not token.startswith("scope")}
-    assert {"files_in_scope", "files_without_recipes", "truncated", "status", "aggregates.by_type",
+    assert {"files_in_scope", "files_without_recipes", "truncated", "status",
             "counts.effective_denominator", "arms.multi_subpath_exports", "entry_points.unresolved",
             "entry_points.files", "ast_grep.version"} <= named, sorted(named)
     for token in sorted(named):

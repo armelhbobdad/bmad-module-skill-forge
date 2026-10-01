@@ -11,8 +11,9 @@ skillInventoryProbeOrder:
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves: the active-symlink flip below goes
-# through the atomic helper for concurrency safety.
+# path wins. HALT (exit code 3, helper-missing) if neither resolves: the
+# active-symlink flip (§4) goes through the atomic helper, so §2 resolves it
+# before anything is written.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -38,6 +39,18 @@ forgeTierRwProbeOrder:
 mergeCccExclusionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
+# Resolve `{extractionInventoryHelper}` to the first existing path; HALT
+# (exit code 3, helper-missing) if neither exists. §2 writes
+# extraction-rules.yaml from the extraction inventory through its `rules`.
+extractionInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
+# Resolve `{promoteStagedHelper}` to the first existing path; HALT (exit
+# code 3, helper-missing) if neither exists. §3 promotes the staged skill
+# through it.
+promoteStagedProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-promote-staged.py'
+  - '{project-root}/src/shared/scripts/skf-promote-staged.py'
 # Resolve `{sourceTreeHelper}` to the first existing path. §7 removes the
 # private tree step 3 read a remote source from; if neither path exists, the
 # tree stays until a later run removes it, seven days on.
@@ -52,17 +65,16 @@ sourceTreeProbeOrder:
 
 ## STEP GOAL:
 
-To write all compiled content to disk — 4 deliverable files to `{skill_package}` and 3 workspace artifacts to `{forge_version}`, creating directories as needed. Then create or update the `active` symlink.
+To publish the staged skill byte for byte: the deliverables to `{skill_package}` and the workspace artifacts to `{forge_version}`, through one helper that creates the folders it needs. Then create or update the `active` symlink.
 
 ## Rules
 
-- Focus only on writing files from compiled content — do not modify content during writing
-- All base artifact types must be written (4 deliverables + 3 workspace files + N reference files)
-- Create directories before writing files
+- Generate only `extraction-rules.yaml` (§2): every other file is promoted as steps 5 to 6 left it in the staging folder, never written again from what context holds
+- All base artifact types must be written (3 deliverables + N reference files + 3 workspace files)
 
 ## MANDATORY SEQUENCE
 
-### 1. Check Ownership, Then Create Directory Structure
+### 1. Check Ownership
 
 `{name}` is the skill name from the brief (kebab-case). `{version}` is the working version: the brief's `version`, unless step 3's source resolution replaced it with `target_version` or the detected source version (`source-resolution-protocols.md` "Version Reconciliation"), with build metadata stripped per `knowledge/version-paths.md`.
 
@@ -81,69 +93,47 @@ Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_ch
 - The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
 - When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}".
 
-Each refusal is a HARD HALT. Nothing was written, so under `{headless_mode}` emit the stderr envelope per `references/report.md` "Result Contract on HARD HALT" with `status: "failed"`, `phase: "generate-artifacts"`, `summary.halt_reason` as shown, `summary.evidence_report: null` and `skill_package: null`, and write no result file: `{forge_version}` does not exist yet. In `--batch` mode, before halting, update `{sidecar_path}/batch-state.yaml` as `references/report.md` §5 describes, with `current_index` set to the next brief and `{skill: "{name}", brief: "<brief path>", halt_reason: "<reason>"}` appended to `refused`; when this was the last brief, set `batch_active: false` instead. The next `--batch` run then resumes with the next brief instead of refusing this one again.
+Each refusal is a **HARD HALT** (exit code 5, `{halt_reason}`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with the `halt_reason` shown and `{write_folder}` as `"path"`. Nothing was written, and the command leaves out `--result-dir`: a result file would land in a folder SKF refuses to write. In `--batch` mode, before halting, update `{sidecar_path}/batch-state.yaml` as `references/report.md` §6 describes, with `current_index` set to the next brief and `{skill: "{name}", brief: "<brief path>", halt_reason: "<reason>"}` appended to `refused`; when this was the last brief, set `batch_active: false` instead. The next `--batch` run then resumes with the next brief instead of refusing this one again.
 
-Then create the following directories:
+The folders this step writes:
 
 ```
 {skill_group}                          # {skills_output_folder}/{name}/
 {skill_package}                        # {skills_output_folder}/{name}/{version}/{name}/
-{skill_package}/references/
 {forge_version}                        # {forge_data_folder}/{name}/{version}/
 ```
 
-If `scripts_inventory` is non-empty, also create: `{skill_package}/scripts/`
-If `assets_inventory` is non-empty, also create: `{skill_package}/assets/`
+The promotion (§3) creates them. An existing `{skill_package}` is replaced whole: the ownership check accepted it, and a package left half from an earlier compile of this version would mix two runs.
 
-Existing directories are fine: the ownership check accepted them, so the files below overwrite same-named files in them.
+### 2. Generate extraction-rules.yaml
 
-### 2. Write Deliverables to {skill_package}
+`extraction-rules.yaml` records the language and the ast-grep rules this extraction used, for reproducibility, and it is the one file this step generates. `{extractionInventoryHelper}` writes it from the extraction inventory step 3 §5 wrote, `{extraction_inventory}` (`{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`): its `extraction_rules` (`recipe_set`, the `recipes` ids the runner ran, its `scope` and `ast_grep_version`), its `tier` and extraction mode, and the brief's `language`. Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (§4's flip goes through it); if either has no path, **HARD HALT** (exit code 3, `helper-missing`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot generate the artifacts: {the missing script} is missing. Re-install SKF, then re-run create-skill." From `{project-root}`, write it into the staging folder, so the promotion carries it with the rest:
 
-Write File 3 (`metadata.json`) first, so a run interrupted mid-write leaves a package that carries the SKF marker, which the next run's ownership check accepts.
+```bash
+uv run {extractionInventoryHelper} rules --inventory "{extraction_inventory}" --language "{brief.language}" --target "<staging-skill-dir>/extraction-rules.yaml"
+```
 
-Write these 4 files from the compiled content:
+When it exits non-zero, **HARD HALT** (exit code 4, `write-failed`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staged `extraction-rules.yaml`: "Cannot write extraction-rules.yaml: {the helper's message}. Check permissions and disk space." Nothing has been promoted yet.
 
-**File 1:** `{skill_package}/SKILL.md`
-- The complete compiled skill document
-- agentskills.io-compliant format with all sections
-- [MANUAL] markers seeded
+### 3. Promote the Staged Skill
 
-**File 2:** `{skill_package}/context-snippet.md`
-- Compressed 2-line format for CLAUDE.md integration
+Resolve `{promoteStagedHelper}` ← first existing path in `{promoteStagedProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot promote the staged skill: skf-promote-staged.py is missing. Re-install SKF, then re-run create-skill." From `{project-root}`, run:
 
-**File 3:** `{skill_package}/metadata.json`
-- Machine-readable birth certificate with stats and provenance
+```bash
+uv run {promoteStagedHelper} promote --stage "<staging-skill-dir>" --package "{skill_package}" --forge-version "{forge_version}" [--inventory "{extraction_inventory}" --source-root "{source_root}"]
+```
 
-**File 4:** `{skill_package}/references/*.md`
-- One file per function group or type
-- Progressive disclosure detail files
+Pass `--inventory` and `--source-root` when the inventory's `scripts_inventory` or `assets_inventory` is not empty. The helper copies the staged bytes, never a copy from context:
 
-**Files 4b (conditional):** `{skill_package}/scripts/*`
-- One file per detected script, copied from source with content preserved
-- Only created when `scripts_inventory` is non-empty
+- **To `{skill_package}`:** `SKILL.md`, `context-snippet.md`, `metadata.json` (with the `doc_sources` step 5a wrote into it) and every file under the staged `references/` (the `references/full-*.md` files step 5b extracted included), plus `scripts/{name}` and `assets/{name}` for each inventory script and asset, copied from `{source_root}`. The package is built beside its target and swapped in, so a reader never sees half of it.
+- **To `{forge_version}`:** `{forge_version}/provenance-map.json`, `{forge_version}/evidence-report.md` and `{forge_version}/extraction-rules.yaml`, one atomic write each.
+- **Not copied:** a promoted authoritative doc (`file_entries[]` with `file_type: "doc"`, from step 3 §2a) stays at its source path; the provenance map tracks it for drift detection.
 
-**Files 4c (conditional):** `{skill_package}/assets/*`
-- One file per detected asset, copied from source with content preserved
-- Only created when `assets_inventory` is non-empty
+Bind `{promotion}` ← its JSON: `files[]` (each promoted file's `path`, `kind`, `bytes` and `sha256`, read back and checked against the staged bytes), `counts`, `ignored` (staged files it did not promote) and `warnings`; display each warning. Act on its exit code:
 
-**Note on `file_type: "doc"` entries** (promoted authoritative docs from step 3 §2a):
-
-Promoted docs are tracked in `file_entries[]` with `file_type: "doc"` for drift detection but are **not** copied into the skill package. The source file remains at its original location outside `{skill_package}`. Step-07 must skip any `file_entries[]` row where `file_type == "doc"` when iterating for file copy — these entries exist only for provenance tracking, not bundling. Step-07 verification (§5) also does not check for doc files in the skill package.
-
-### 3. Write Workspace Artifacts to {forge_version}
-
-Write these 3 files from the compiled content:
-
-**File 5:** `{forge_version}/provenance-map.json`
-- Per-claim source map with AST bindings and confidence tiers
-
-**File 6:** `{forge_version}/evidence-report.md`
-- Build artifact with extraction summary, validation results, warnings
-- Its `## Remaining Warnings` also lists, once each, the notices earlier steps kept for it: `{temporal_feeder_notice}` when step 5c set it (the Deep-tier temporal feeder held no files), and the skipped authoritative-files scan when step 3 §2a recorded `authoritative_files_scan.not_scanned` (a remote source that was never cloned; the `skipped` count of candidates the user skipped is not a warning)
-
-**File 7:** `{forge_version}/extraction-rules.yaml`
-- Language and ast-grep schema used for this extraction (for reproducibility)
-- Note: This file is generated here from extraction data collected during steps 3-4, not assembled in step 5
+- **0:** continue to §4.
+- **1** (a staged file it needs is missing, or the inventory names a script or asset it cannot copy; nothing was written): **HARD HALT** (exit code 4, `staging-unreadable`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --result-dir "{forge_version}" --target stderr < "{run_dir}/halt.json"`), with the message the helper printed on stderr.
+- **2** (a write failed; the earlier package stays in place when the swap itself failed): **HARD HALT** (exit code 4, `write-failed`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --result-dir "{forge_version}" --target stderr < "{run_dir}/halt.json"`): "Artifact generation failed: {the message the helper printed on stderr}. Check permissions and disk space." Once the swap succeeded, stage `"skill_package"` and `"outputs"` as the Workflow Rules say.
 
 ### 4. Create Active Symlink (atomic flip)
 
@@ -155,28 +145,15 @@ python3 {atomicWriteHelper} flip-link \
   --target {version}
 ```
 
-The helper returns non-zero (exit 2) if `{skill_group}/active` already exists as a real directory or file rather than a symlink — in that case, halt with: "Refusing to flip `{skill_group}/active` — existing path is not a symlink. Investigate manually; expected a symlink pointing at a version directory."
+The helper returns non-zero (exit 2) if `{skill_group}/active` already exists as a real directory or file rather than a symlink. In that case **HARD HALT** (exit code 5, `active-link-blocked`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --result-dir "{forge_version}" --target stderr < "{run_dir}/halt.json"`), with `"skill_package"`, `"outputs"` and `{skill_group}/active` as `"path"`: "Refusing to flip `{skill_group}/active`: the existing path is not a symlink. Investigate manually; expected a symlink pointing at a version directory."
 
 Do not `rm` + `ln -s` the active link by hand. The bare-rm pattern has two failure modes: (1) a concurrent reader sees a missing `active` mid-flip, and (2) a bug or typo that replaces `{skill_group}/active` with a plain directory turns the next manual `rm -rf {skill_group}/active` into data loss. The helper encapsulates both guards.
 
 ### 5. Verify Write Completion
 
-After all files are written, verify:
-- All 4 deliverable artifact types exist (SKILL.md, context-snippet.md, metadata.json, **and** either at least one file in `references/` **or** `references/` is empty AND Tier-2 content is inline in SKILL.md — see "Empty `references/` exception" below), all 3 workspace artifacts exist (provenance-map.json, evidence-report.md, extraction-rules.yaml), plus scripts/ and assets/ files when inventories are non-empty
-- The `active` symlink at `{skill_group}/active` resolves to `{version}`
-- Store `ref_count` = count of files written to `references/` for use in step 8 report
-- List each file with its path and size
+The promotion's exit 0 is the write check: it refused a missing staged file, script or asset before writing (§3, exit 1) and read back every file it wrote against the staged bytes (exit 2 on a mismatch), and the flip's exit 0 (§4) means `{skill_group}/active` points at `{version}`. From `{promotion}`, bind `ref_count` ← `counts.references` for the step 8 report, and list each file of its `files[]` with its `path` and `bytes`.
 
-**Empty `references/` exception (Tier-2 inline):** `ref_count == 0` is a valid completion state when step 6 kept Tier-2 content inline in SKILL.md — e.g., the body was already under the size limit, or `skill-check` was unavailable and the manual fallback (step 6 §3) skipped the split. In that case, append a single line to `{forge_version}/evidence-report.md` recording the inline state so downstream tooling and audits can distinguish "inline by design" from "split-body skipped due to error":
-
-```
-ref_count: 0  # Tier-2 kept inline in SKILL.md (no split performed in step 6)
-```
-
-When `ref_count > 0` is expected (because step 6 ran a split) but no files were written, halt with: "Split-body produced zero reference files. Investigate step 6 output before retrying — empty `references/` after a split is never a valid state."
-
-**If any write failed:**
-Halt with: "Artifact generation failed: could not write `{file_path}`. Check permissions and disk space."
+`ref_count` 0 is a valid state when step 6 kept Tier-2 content inline (its evidence report says so on the Body line). When step 5b or step 6 split the body (`sections_extracted` is not empty) and `ref_count` is 0 anyway, **HARD HALT** (exit code 5, `references-missing`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --result-dir "{forge_version}" --target stderr < "{run_dir}/halt.json"`), with `"skill_package"` and `"outputs"`: "Split-body produced zero reference files. Investigate step 6 output before retrying: empty `references/` after a split is never a valid state."
 
 **If all writes succeeded:**
 Display brief confirmation:
@@ -291,4 +268,4 @@ Deduplicates by `source_repo` + `skill_name`, not by the local `path`.
 
 **Remove the private source tree.** When step 3 bound `{source_tree}`, no later step reads the source: resolve `{sourceTreeHelper}` from `{sourceTreeProbeOrder}` and, from `{project-root}`, run `uv run {sourceTreeHelper} close --tree "{source_tree}"`. Go on whatever it prints. On `left` or `refused`, a command that fails or prints no JSON, or no candidate, display "This run's source tree `{source_tree}` was not removed; a later SKF run removes it once it is seven days old." Then set `{source_tree}` to null.
 
-No user interaction. Once all 7 files are written and verified (and optionally indexed into QMD), load `{nextStepFile}`, read it fully, then execute it. A QMD-indexing failure does not block; a file-write failure halts (§5) rather than proceeding with partial output.
+No user interaction. Once the skill is promoted and verified (and optionally indexed into QMD), load `{nextStepFile}`, read it fully, then execute it. A QMD-indexing failure does not block; a promotion failure halts (§3) rather than proceeding with partial output.

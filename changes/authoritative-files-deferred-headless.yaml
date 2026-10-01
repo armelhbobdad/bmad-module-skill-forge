@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-create-skill
+summary: |
+  A headless run that meets an authoritative AI documentation file outside the brief's scope (`llms.txt`, `AGENTS.md` and the like) now records it in the brief's `scope.amendments` with `action: "deferred-headless"` instead of `action: "skipped"`, and leaves the file out of that run without declining it: the next interactive run asks about it. It also records one auto-decision per file, with the gate `authoritative-file:<path>`, in the evidence report's Auto-Decisions table and the result's `headless_decisions`. A file the brief already defers is not recorded again. Every decision on such a file (promote, skip or defer) now reaches the brief through `skf-write-skill-brief.py amend`, which keeps the previous brief as `skill-brief.yaml.bak`, refuses an amendment that breaks the brief schema, and adds a promoted file to `scope.include` only when that list is not empty.
+migration: |
+  A tool that reads `scope.amendments` and treats `action: "skipped"` as the only headless outcome also reads `action: "deferred-headless"`, which means no person has decided the file yet. Existing briefs need no change: a `skipped` amendment an earlier headless run wrote already counts as deferred, and the next interactive run asks about its file.
+prs: [634]
+issues: [593]

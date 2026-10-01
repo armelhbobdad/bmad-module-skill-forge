@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  A docs-only brief now reaches the written brief, with the language `documentation` (or the `language_hint` given), instead of stopping at the repository analysis, which has no repository to read.
+prs: [634]
+issues: [603]

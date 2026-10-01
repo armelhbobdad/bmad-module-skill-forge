@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  A `target_version` now also finds its git tag among tags named after the repository, such as `astro@4.16.0` in withastro/astro, so the repository is analyzed at the pinned version; when no tag matches or the tags cannot be listed, the run warns and analyzes the default branch.
+prs: [634]
+issues: [592]

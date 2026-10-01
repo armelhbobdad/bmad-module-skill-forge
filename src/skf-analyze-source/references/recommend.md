@@ -22,6 +22,14 @@ To present each qualifying unit as a recommendation with evidence-based rational
 
 ## MANDATORY SEQUENCE
 
+Every HARD HALT in this step names its exit code, `halt_reason` and phase. When `{headless_mode}` is true it first prints its envelope on stderr through the shared emitter (`{emitEnvelopeHelper}` and `{run_dir}` come from SKILL.md On Activation): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "mode": "interactive", "report_path": "{outputFile as an absolute path}"}`, plus `"path"` when the halt names one, then run
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Load Context
 
 Read {outputFile} completely to obtain:
@@ -51,7 +59,7 @@ For each qualifying unit, prepare a recommendation card:
 - Coupling: {tight/loose/indirect}
 - Confidence: {high/medium/low}
 - Stack Skill: {yes — grouped with {units} / no}
-- Status: {new / already-skilled → recommend update-skill}
+- Status: {new / briefed: a brief from an earlier analysis at {its path}, rewritten if you confirm the unit / already-skilled → recommend update-skill}
 
 **Rationale:** {2-3 sentences explaining WHY this should be a skill, citing specific detection signals and file paths}
 
@@ -167,7 +175,7 @@ Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Disc
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF D: Accept a new repo path/URL from the user. Run a lightweight scan + classify (subset of steps 02-03) for the new source only. Merge new units into the existing report and update `project_paths[]` in frontmatter. Run export mapping for the new units (same logic as step 04 section 2). Generate recommendation cards for the new units and present them for confirmation. Then redisplay this menu.
 - IF C: Save recommendations to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the error envelope on stderr with `halt_reason: "user-cancelled"` and counts/paths reflecting state at cancellation (shape in `references/headless-contract.md`)
+- IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `recommend:8`, with `unit_counts` reflecting the decisions made so far in its payload): "Cancelled at the recommendations."
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#8-present-menu-options)
 
 **GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: accept all recommendations and auto-proceed, log: "headless: auto-accept all recommendations".

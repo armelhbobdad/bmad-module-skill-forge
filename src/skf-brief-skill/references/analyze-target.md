@@ -10,6 +10,12 @@ detectWorkspacesProbeOrder:
 detectLanguageProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
   - '{project-root}/src/shared/scripts/skf-detect-language.py'
+githubProbeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-github-probe.py'
+  - '{project-root}/src/shared/scripts/skf-github-probe.py'
+validatePinsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-pins.py'
+  - '{project-root}/src/shared/scripts/skf-validate-pins.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -20,62 +26,100 @@ detectLanguageProbeOrder:
 
 - Do not make scoping decisions or recommendations
 - Do not hallucinate or guess about repository contents
-- **Ratify run (`ratify_mode: true`):** this step runs only from step 4 `[R] Revise Scope`, to give step 3 an analysis of the brief's repository, and never replaces the hydrated `name`, `version` or `language`. §1 treats the hydrated `target_ref` and `target_version` as set in step 01, and a hydrated `version` without either as an implicit `target_version`: it matches the tag `{version}` or `v{version}`, and with no match analyzes `HEAD` without the zero-match warning. §1b selects, without asking, the workspace whose path begins the hydrated `scope.include` globs (the repo root when none does). §3 runs only to choose §4's path: the brief keeps the hydrated `language`, which the §5 summary shows with the hydrated `version`. Skip §4b. At §5, set `ratify_analyzed: true` in workflow context, so a later `[R]` goes straight to step 3.
+- **Staged inputs.** The helpers of this step read the repository from files in the run folder `{run_dir}` that step 1 §1 created, never from a list or a file's text typed into a command: `{run_dir}/tree.json` (the file list, §1), `{run_dir}/files/` (manifests and entry points fetched at `{analysis_ref}`, laid out like the repository) and `{run_dir}/snapshot.json` (the tree's counts and module candidates, §2). Step 3 reads the same files.
+- **Ratify run (`ratify_mode: true`):** this step runs only from step 4 `[R] Revise Scope`, to give step 3 an analysis of the brief's repository, and never replaces the hydrated `name`, `version` or `language`. §1 treats the hydrated `target_ref` and `target_version` as set in step 01, and a hydrated `version` without either as an implicit `target_version`: §1 resolves it to a tag the same way, and with no match analyzes `HEAD` without the zero-match warning. §1b selects, without asking, the workspace whose path begins the hydrated `scope.include` globs (the repo root when none does). §3 runs only to choose §4's path: the brief keeps the hydrated `language`, which the §5 summary shows with the hydrated `version`. Skip §4b. At §5, set `ratify_analyzed: true` in workflow context, so a later `[R]` goes straight to step 3.
 
 ## Sequence
 
+### 0. Docs-Only Target
+
+**If `source_type` is `docs-only`:** there is no repository to read, so skip §1 to §5 (no tree, manifests, extraction or version detection). Set `{language}` to the `language_hint` argument when one was supplied, else `documentation` (the language skf-analyze-source writes for a docs-only brief). Leave `detected_version` unset: the brief's version is `target_version` when step 1 collected one, else the `1.0.0` default (step 5's writer applies that precedence). Display:
+
+"**Docs-only target: no repository to analyze.**
+**Language:** {language}
+**Version:** {target_version, or 1.0.0 (default)}"
+
+Then load, read entire file, then execute {nextStepFile}.
+
+**If `source_type` is `source`:** continue to §1.
+
 ### 1. Resolve Target Location
+
+Display: "**Resolving target...**"
 
 **For GitHub URLs:**
 
-**Resolve the analysis ref first.** `{analysis_ref}` is the git ref every GitHub-API fetch in this step (tree, manifests, contents) reads from — resolve it before fetching anything so the analyzed structure matches the version being skilled:
-- If neither `target_ref` nor `target_version` was set in step 01: `{analysis_ref}` = `HEAD` (default branch). This is the common case — skip straight to the probes below with no extra call.
-- If `target_ref` is set (an explicit ref the user stated verbatim, highest priority): use it directly as `{analysis_ref}` — no tag lookup.
-- If `target_version` is set: resolve it to a tag via `gh api repos/{owner}/{repo}/git/refs/tags` (paginate if the repo has many tags), matching in priority order — exact `{target_version}`, then `v{target_version}`. This mirrors the clone-path tag matching in `skf-create-skill/references/source-resolution-protocols.md` (see that file for the full monorepo-tag priority if the simple forms miss). On a single match, set `{analysis_ref}` to that tag. On **multiple matches**, present them and ask which to use (headless: take the exact match, else the `v`-prefixed one). On **zero matches**, warn `"No git tag matches version {target_version}; analyzing the default branch (HEAD) instead — structure and exports may not match the pinned version."`, set `{analysis_ref}` = `HEAD`, and record the fallback in the §5 analysis summary.
+**Resolve the analysis ref first.** `{analysis_ref}` is the git ref every GitHub-API fetch in this step (tree, manifests, contents) reads from: resolve it before fetching anything so the analyzed structure matches the version being skilled.
+- If neither `target_ref` nor `target_version` was set in step 01: `{analysis_ref}` = `HEAD` (default branch). This is the common case: skip straight to the listing below with no extra call.
+- If `target_ref` is set (an explicit ref the user stated verbatim, highest priority): use it directly as `{analysis_ref}`, with no tag lookup.
+- If `target_version` is set: resolve it to a tag with `{validatePinsHelper}` (resolve it from `{validatePinsProbeOrder}`; first existing path wins), which tries every form a tag writes a version in and prints one JSON line:
 
-- Issue both probes in **one message with two parallel Bash calls** — they are independent:
-  - `gh api repos/{owner}/{repo}` (verify repo exists)
-  - `gh api repos/{owner}/{repo}/git/trees/{analysis_ref}?recursive=1` (fetch file tree at the resolved ref)
-- If the repo-existence probe fails, fall through to the failure-class triage below; the tree response from the parallel call is discarded in that case.
+  ```bash
+  uv run {validatePinsHelper} --repo-url "https://github.com/{owner}/{repo}" --pin "{target_version}" --format tag
+  ```
 
-**Truncation detection:** After receiving the tree response, check the `truncated` field in the JSON output. If `truncated: true`:
-- Display: "Note: GitHub API returned a truncated tree response ({count} items). Full analysis may require a local clone."
-- Record in analysis summary: "Tree listing is partial — some files may not appear in the analysis."
-- For very large repos (>1000 files in tree response): offer a recovery path instead of just warning. Interactive — present:
+  - Exit 0: set `{analysis_ref}` to its `resolved_ref`.
+  - Exit 1 (`status: "invalid"`) with tags in `suggestions`: no tag matches. Warn `"No git tag matches version {target_version}; analyzing the default branch (HEAD) instead: structure and exports may not match the pinned version."`, naming those nearest tags.
+  - Exit 1 with an empty `suggestions`: the repository has no tag, or its tags could not be listed. Warn `"Could not find or list the tags of {owner}/{repo}; analyzing the default branch (HEAD) instead: structure and exports may not match the pinned version."`
+  - Exit 2 (`gh` missing, or a URL it does not accept), or no candidate path: warn `"Could not check the tags of {owner}/{repo} ({the error it printed}); analyzing the default branch (HEAD) instead: structure and exports may not match the pinned version."`
+  - On any of these warnings, add it to `workflow_warnings[]`, set `{analysis_ref}` = `HEAD`, and record the fallback in the §5 analysis summary.
+
+**List the repository.** Resolve `{githubProbeHelper}` from `{githubProbeProbeOrder}`; first existing path wins. Write its listing to the run folder in one call:
+
+```bash
+uv run {githubProbeHelper} tree --repo "{owner}/{repo}" --ref "{analysis_ref}" --out "{run_dir}/tree.json"
+```
+
+`--out` writes the listing to `{run_dir}/tree.json`, where the helpers read it, and the call prints the rest as one JSON line: `status`, `cause`, `message`, `gh`, `count` and `truncated`. Branch on that line. Every branch below that halts emits its halt envelope first, per the SKILL.md Halt Contract:
+
+- **`status: "unavailable"`** (exit 3): the repository or the ref cannot be read, and `message` names the cause and the fix.
+  - `cause` `gh-missing` or `gh-unauthenticated`: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3): "**Error:** {message}"
+  - `cause` `repo-not-found`, `no-access` or `ref-not-found` (or `unreachable`, `invalid-repo`): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"`, then HALT (exit code 3): "**Error:** {message}"
+- **`status: "ok"` with `gh` `missing` or `unauthenticated`** (a public repository read without the GitHub CLI): §1b to §4 fetch files through `gh`, so emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3): "**Error:** Step 2 reads the repository's files through the GitHub CLI (gh), which is not installed or not logged in. Install it from <https://cli.github.com> or run `gh auth login`, then re-run, or brief a local clone instead."
+- **No candidate path, or no JSON** (the helper exits 1 or 2): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"`, then HALT (exit code 3): "**Error:** Cannot list `{url}`: {the first line of its stderr, or `skf-github-probe.py not found`}."
+
+**Truncation.** When `truncated` is true, GitHub cut the listing short:
+- Display: "Note: GitHub returned a truncated tree ({count} files). Full analysis may require a local clone." and add `tree listing truncated by GitHub ({count} files listed)` to `workflow_warnings[]`.
+- Interactive: present
   ```
   Tree is truncated. How would you like to proceed?
     [L] Clone locally and re-analyze (slower but complete)
     [P] Proceed with the partial tree (faster, may miss exports under deeper paths)
   ```
-  On `[L]`: shallow-clone (`git clone --depth 1 {url} {tmp_dir}`), restart this section against the local path, and keep `{tmp_dir}` for step 3 §2c, which reads it on every pass through scope definition; remove it once step 5 has written the brief, or when the run halts. On `[P]` (or under headless): record `tree_truncated: true` in the analysis summary and continue without HALT.
+  On `[L]`: shallow-clone the repository into the run folder at `{analysis_ref}`:
 
-**On API failure (non-200 from `gh api`):**
+  ```bash
+  git clone --depth 1 --branch "{analysis_ref}" "https://github.com/{owner}/{repo}.git" "{run_dir}/clone"
+  ```
 
-Distinguish the failure class before reporting. Every branch below is a HALT that emits its halt envelope first, per the SKILL.md Halt Contract:
-- Auto-run `gh auth status` and capture its output. If it reports an unauthenticated state or expired token: emit the halt envelope, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3): "**Error:** GitHub CLI is not authenticated. `gh auth status` says: `{captured output}`. Run `gh auth login` and retry."
-- If `gh auth status` reports authenticated but the call still failed (404/403): emit the halt envelope, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"`, then HALT (exit code 3): "**Error:** Cannot access repository at `{url}`. The CLI is authenticated but the API returned `{status}`. Check the URL and that the account has access to private repositories if applicable."
-- If `gh auth status` itself fails to run (binary missing): emit the halt envelope, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3): "**Error:** `gh` CLI not found on PATH. Install it from <https://cli.github.com> and re-run."
+  Leave `--branch` out when `{analysis_ref}` is `HEAD`. A commit SHA is no `--branch` value: clone it with `git clone --filter=blob:none --no-checkout "https://github.com/{owner}/{repo}.git" "{run_dir}/clone"`, then `git -C "{run_dir}/clone" checkout --quiet "{analysis_ref}"`. Set `{source_path}` ← `{run_dir}/clone` and restart this section for that local path: its listing replaces `{run_dir}/tree.json`, and every later `{source_path}`, in this step and in step 3, is the clone. Before any later HALT, remove the clone (`rm -rf "{run_dir}/clone"`): a halt keeps the files the run staged, never a copy of the repository. If a clone or checkout command fails, remove what it left (`rm -rf "{run_dir}/clone"`), warn `"Could not clone {owner}/{repo} at {analysis_ref} ({the first line of its stderr}); proceeding with the partial tree."`, add the warning to `workflow_warnings[]` and continue as `[P]`.
+  On `[P]` (or under headless): record `tree_truncated: true` in the analysis summary and continue without HALT.
 
-**For local paths:**
-- Verify the directory exists
-- List the directory tree
-- If the path does not exist: emit the halt envelope, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"` (SKILL.md Halt Contract), the failure class of a GitHub target the CLI cannot read, then HALT (exit code 3): "**Error:** Directory not found at {path}. Verify the path is correct."
+**For local paths:** `{source_path}` is the path.
+- If the directory does not exist (`test -d "{source_path}"` fails): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"` (the failure class of a GitHub target the CLI cannot read), then HALT (exit code 3): "**Error:** Directory not found at {path}. Verify the path is correct."
+- List its files into the run folder, the files git tracks and the untracked ones it does not ignore:
 
-Display: "**Resolving target...**"
+  ```bash
+  git -C "{source_path}" -c core.quotePath=false ls-files --cached --others --exclude-standard -- . ':(exclude,glob)**/.skf-run/**' > "{run_dir}/tree.json"
+  ```
+
+  Outside a git work tree (the command fails): `(cd "{source_path}" && find . -type f -not -path './.git/*' -not -path '*/node_modules/*' -not -path '*/.skf-run/*') > "{run_dir}/tree.json"`. Both leave out SKF's run folders (`.skf-run`), which a listing of the project root would otherwise hold.
 
 ### 1b. Detect Monorepo / Workspace Layout
 
 **Resolve `{detectWorkspacesHelper}`** from `{detectWorkspacesProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-Delegate workspace detection to `{detectWorkspacesHelper}` instead of reasoning through manifest rules in prose. Build a payload from the tree fetched in §1 plus the small set of root manifests the detector needs, then invoke the script:
+Delegate workspace detection to `{detectWorkspacesHelper}`: it reads the file list from `{run_dir}/tree.json` and the root manifests from a folder laid out like the repository. For a GitHub source, `--manifest-files` prints the root manifests the detectors read that the listing holds (`rush.json` among them; Nx needs only the tree), the loop fetches each into `{run_dir}/files` at `{analysis_ref}`, and the last line runs the detection:
 
 ```bash
-echo '{"tree": [<flat list of repo-relative file paths>], "manifests": {"package.json": "<raw text>", "Cargo.toml": "<raw text>", "pnpm-workspace.yaml": "<raw text>", "lerna.json": "<raw text>"}}' | \
-  uv run {detectWorkspacesHelper}
+uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --manifest-files | while IFS= read -r rel; do
+  mkdir -p "{run_dir}/files/$(dirname "$rel")"
+  gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$rel?ref={analysis_ref}" > "{run_dir}/files/$rel" || rm -f "{run_dir}/files/$rel"
+done
+uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --manifest-dir "{run_dir}/files"
 ```
 
-- **`tree`** — pass the flat list of repo-relative file paths already fetched in §1 (for GitHub: the `path` values from the `gh api .../git/trees/{analysis_ref}?recursive=1` response; for local: the equivalent listing).
-- **`manifests`** — only the root manifests need contents; child-workspace manifests are looked up from the tree by the script. Include any of `package.json`, `Cargo.toml`, `pnpm-workspace.yaml`, `lerna.json` that appears at the repo root. Fetch them in **one message with N parallel Bash calls** (`gh api .../contents/{path}?ref={analysis_ref}` for GitHub, file reads for local), then base64-decode together. Per-workspace manifest contents (e.g. `packages/foo/package.json`) are optional — including them populates the workspace `name` field with the manifest's declared package name; omitting them falls back to the directory basename.
+For a local source (or the `[L]` clone), drop the loop and pass the folder itself: `--manifest-dir "{source_path}"`. The manifest folder of this section is the one §2 and §4 pass again.
 
 The script returns a JSON envelope: `{is_monorepo, manifest_kind, workspaces[], warnings[]}`. Apply the result deterministically — see `src/shared/scripts/schemas/workspace-detection.v1.json` for the full contract.
 
@@ -95,23 +139,29 @@ Interactive: wait for the user choice. On a numbered choice, store `monorepo_wor
 
 Headless: if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root and log `"warn: monorepo detected ({manifest_kind}) but no workspace pre-selected — analyzing at repo root"`.
 
-Surface any non-empty `warnings[]` from the script to the operator log so a malformed root manifest is debuggable; the workflow does not HALT — falling back to repo-root analysis is always safe.
+Log each non-empty `warnings[]` entry from the script and add it to `workflow_warnings[]`, so a malformed or unfetched root manifest is debuggable; the workflow does not HALT, because falling back to repo-root analysis is always safe.
 
 **`cross-ecosystem workspace ignored` warning:** when a root workspace manifest from a different language ecosystem co-exists with the surfaced one (e.g. a root `Cargo.toml [workspace]` alongside a pnpm workspace), the script surfaces only the higher-priority kind and emits this warning naming the ignored kind and its member count. The ignored ecosystem's workspaces are **not** in `workspaces[]`, so the numbered menu above will not list them. When this warning is present, tell the operator both ecosystems exist and ask which the skill should cover; if they pick the ignored ecosystem, scope §2-§4b at its root (or the relevant member) rather than the surfaced workspace, and carry the ignored kind into §3 (see the `workspace_signal` note there).
 
 ### 2. Read Repository Structure
 
-List the top-level directory structure:
+Take the structure from the tree snapshot `{detectWorkspacesHelper}` computes, never from a count of the listing by hand. Add `--root "{monorepo_workspace}"` when §1b picked a workspace:
+
+```bash
+uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --manifest-dir "<§1b's manifest folder>" --snapshot > "{run_dir}/snapshot.json"
+```
+
+It holds `file_count`, `source_file_count`, `dir_count`, `top_level_files`, `top_level_dirs`, `truncated` (the counts are then lower bounds), the `workspaces` detection found, and the module candidates §4.3 picks from. Display:
 
 "**Repository Structure:**
 ```
 {repo-name}/
-├── {top-level files}
-├── {top-level directories}/
+├── {top_level_files}
+├── {top_level_dirs}/
 │   └── ...
 └── ...
 ```
-**Total:** {file count} files, {directory count} directories"
+**Total:** {file_count} files ({source_file_count} source files), {dir_count} directories"
 
 ### 3. Detect Primary Language
 
@@ -120,14 +170,14 @@ List the top-level directory structure:
 Delegate the rule walk to `{detectLanguageHelper}` instead of evaluating manifest presence and extension frequency in prose:
 
 ```bash
-echo '{"tree": [<flat list of repo-relative file paths from §1>], "workspace_signal": "<§1b manifest_kind, or omit when null>"}' | uv run {detectLanguageHelper}
+uv run {detectLanguageHelper} --tree-file "{run_dir}/tree.json" [--workspace-signal "<§1b manifest_kind>"]
 ```
 
-Pass the §1b `manifest_kind` as `workspace_signal` (omit the key when it is `null` / not a monorepo). This gives the workspace root precedence: for a `cargo-workspace` or `python-multi-package` root, the script returns the root language (rust/python) instead of being misled into `typescript` by a nested `package.json` + `tsconfig.json` in a non-workspace subdirectory (e.g. a `docs/` or `website/` site). JS-family workspace kinds (`npm-workspaces`/`pnpm-workspaces`/`lerna`) carry no override — their root `package.json` resolves js/ts normally.
+Pass the §1b `manifest_kind` as `--workspace-signal` (leave the flag out when it is `null` / not a monorepo). This gives the workspace root precedence: for a `cargo-workspace` or `python-multi-package` root, the script returns the root language (rust/python) instead of being misled into `typescript` by a nested `package.json` + `tsconfig.json` in a non-workspace subdirectory (e.g. a `docs/` or `website/` site). JS-family workspace kinds (`npm-workspaces`/`pnpm-workspaces`/`lerna`/`rush`/`nx`) carry no override: their root `package.json` resolves js/ts normally.
 
-**When §1b surfaced a `cross-ecosystem workspace ignored` warning and the operator chose the ignored ecosystem:** pass that ignored kind as `workspace_signal` (not the surfaced kind), so a co-located `cargo-workspace`/`python-multi-package` root resolves to rust/python instead of being pinned to the surfaced ecosystem's language by the workspace that won detection priority.
+**When §1b surfaced a `cross-ecosystem workspace ignored` warning and the operator chose the ignored ecosystem:** pass that ignored kind as `--workspace-signal` (not the surfaced kind), so a co-located `cargo-workspace`/`python-multi-package` root resolves to rust/python instead of being pinned to the surfaced ecosystem's language by the workspace that won detection priority.
 
-The script returns `{language, confidence, detection_source, fallback_to_extension_frequency}` after walking the documented rule table (the `workspace_signal` precedence above first, then manifest presence — package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln, Gemfile — then extension-frequency fallback over recognized source extensions). Use the returned values directly:
+The script returns `{language, confidence, detection_source, fallback_to_extension_frequency, source_language, detected_languages}` after walking the documented rule table: the `workspace_signal` precedence above first, then the manifests nearest the tree's root, by folder depth and then rule order (package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, Package.swift, Gemfile, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln), where a manifest in a docs, examples, tests or other non-core folder, or in a hidden one, decides only when no other exists, then extension-frequency fallback. With no manifest at the root, the nearest one decides at `medium` confidence and `source_language` names the language most source files are in. Use the returned values directly:
 
 "**Detected language:** {language}
 **Confidence:** {confidence}
@@ -149,7 +199,7 @@ This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) ba
 
 #### 4.1 Procedure — script-supported languages
 
-1. Read the relevant files into memory (no parsing yet — just collect content). For GitHub sources, issue **all N `gh api repos/{owner}/{repo}/contents/{file}?ref={analysis_ref}` calls in a single message with N parallel Bash calls** (one per manifest + each entry point), then base64-decode the responses together — these are 2-4 independent fetches per typical run. Carrying `{analysis_ref}` through here is what keeps the analyzed exports/version aligned with the pinned tag rather than HEAD. For local sources read directly (also parallelisable, but local reads are fast enough that serial Read tool calls are acceptable).
+1. Pick the manifest and the entry points the table names, as repo-relative paths (prefixed with `{monorepo_workspace}` when §1b picked a workspace):
 
    | Language | Manifest | Entry points (mode=quick) |
    |----------|----------|--------------------------|
@@ -160,39 +210,44 @@ This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) ba
    | java | `pom.xml` | (manifest alone is sufficient for the modules listing) |
    | kotlin | `build.gradle` / `build.gradle.kts` | (manifest alone) |
 
-2. Build a JSON payload matching the script contract:
-
-   ```json
-   {
-     "language": "<one of the supported values>",
-     "manifest": {"path": "<relative path>", "content": "<file contents>"},
-     "entries":  [{"path": "<relative path>", "content": "<file contents>"}, ...],
-     "mode":     "quick"
-   }
-   ```
-
-3. Invoke the script and parse its JSON stdout:
+2. For a GitHub source, fetch them into `{run_dir}/files` at `{analysis_ref}` in one call (carrying `{analysis_ref}` keeps the analyzed exports and version aligned with the pinned tag rather than HEAD); a candidate the repository lacks fails its fetch and is left out:
 
    ```bash
-   echo '<payload-json>' | uv run {extractPublicApiHelper} --mode quick
+   for rel in "<manifest path>" "<entry path>"; do
+     mkdir -p "{run_dir}/files/$(dirname "$rel")"
+     gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$rel?ref={analysis_ref}" > "{run_dir}/files/$rel" || rm -f "{run_dir}/files/$rel"
+   done
    ```
 
-   On a non-zero exit (codes 1 or 2 per the script's docstring), capture stderr, log it, and fall through to §4.2 (the prose-fallback path) — never HALT just because the script choked on an unusual manifest.
+   A local source needs no copy: its folder is the source root.
+
+3. Run the script on the files by path. `<source root>` is `{run_dir}/files` for a GitHub source and `{source_path}` for a local one; pass one `--entry-file` per entry file that is there:
+
+   ```bash
+   uv run {extractPublicApiHelper} --mode quick --language "<language>" --source-root "<source root>" --manifest-file "<manifest path>" --entry-file "<entry path>"
+   ```
+
+   On a non-zero exit (codes 1 or 2 per the script's docstring), capture stderr, log it, and fall through to §4.2 (the prose-fallback path): never HALT just because the script choked on an unusual manifest.
 
 4. Render the returned `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies`, and any `warnings` to the user. The script also returns `version` — feed that into §4b instead of re-deriving.
-
-5. The script does not enumerate directories under `src/`. The LLM still lists those as "Top-Level Modules/Directories" so the user sees structural context (Maven and Gradle are the exception — for those, the script returns a `modules` array which IS the list).
 
 #### 4.2 Procedure — fallback (not script-supported)
 
 Languages outside the script coverage (Ruby / C# / Swift / etc.) take this path. The §4.1 fall-through on script error also lands here.
 
-Fall back to ad-hoc inspection — `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. List top-level source directories as potential modules and note any obvious entry points. Flag the limitation in the analysis summary so the user knows scoping is on coarser signals.
+Fall back to ad-hoc inspection of `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. Read the files you inspect from `{run_dir}/files` (fetched as §4.1 step 2 fetches) or the local folder. Note any obvious entry points, and flag the limitation in the analysis summary so the user knows scoping is on coarser signals.
 
 #### 4.3 Output format (both paths)
 
-"**Top-Level Modules/Directories:**
-{numbered list of modules with brief description of each}
+**Pick the Top-Level Modules from `{run_dir}/snapshot.json`** (Maven and Gradle aside: there the §4.1 script's `modules` array is the list):
+- The snapshot's `workspaces`, when it lists some.
+- Else the `module_candidates` that hold the library's own code: not a folder with no source file (`source_file_count` 0), nor one of tests, docs, examples, scripts, build tooling or CI.
+- When one candidate holds most of the source files, it is the package itself (`pandas/` at the root of pandas): run the snapshot again for that folder, `uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --snapshot --root "<that folder>" > "{run_dir}/package-snapshot.json"`, and pick among its candidates.
+
+The number of modules picked is `module_count`, which step 3 §2c passes the scope-type recommender (0 when none qualifies).
+
+"**Top-Level Modules ({module_count}):**
+{numbered list of the picked modules, each with a brief description}
 
 **Detected Exports/Entry Points:**
 {numbered list of public-facing items found — from script output when available, ad-hoc inspection otherwise}"
@@ -239,7 +294,7 @@ If detection fails or returns a non-semver value: note that version will default
 
 ### 5. Report Analysis Summary
 
-Present the complete analysis:
+Present the complete analysis, the counts and notable files read from `{run_dir}/snapshot.json`:
 
 "**Analysis Complete**
 
@@ -247,24 +302,24 @@ Present the complete analysis:
 
 **Target:** {repo URL or path}
 **Language:** {detected language} ({confidence})
-**Structure:** {file count} files across {directory count} directories
+**Structure:** {file_count} files across {dir_count} directories
 
-**Key Modules ({count}):**
-{bulleted list of modules}
+**Key Modules ({module_count}):**
+{bulleted list of the §4.3 modules}
 
 **Public Exports/Entry Points ({count}):**
 {bulleted list of exports}
 
 **Notable Files:**
-- README: {found/not found}
-- Tests: {found/not found — location}
-- Docs: {found/not found — location}
-- Config: {list of config files found}
+- README: {a README file in `top_level_files`, or not found}
+- Tests: {a tests folder in `top_level_dirs` (`test`, `tests`, `__tests__`, `spec`), or not found}
+- Docs: {a docs folder in `top_level_dirs` (`docs`, `doc`, `documentation`), or not found}
+- Config: {the configuration files in `top_level_files`}
 - Version: {detected version or "Not detected — defaulting to 1.0.0"}
 {If the target was a GitHub URL:}
 - Analysis ref: {analysis_ref} {append " (resolved from target_version {target_version})" when a tag was matched, or " (no tag matched {target_version} — analyzed default branch)" on the zero-match fallback}
 
-Store `{analysis_ref}` in workflow context — step 03 (`scope-definition.md`) reuses it for any further `contents/` fetches so scope analysis reads the same ref as this step.
+Store `{analysis_ref}`, `module_count` and the export count in workflow context: step 03 (`scope-definition.md`) reuses them, with `{run_dir}/tree.json` and the fetched files, so scope analysis reads the same ref as this step.
 
 ---
 
@@ -290,4 +345,3 @@ Pause briefly for user input. If the user provides corrections or asks questions
 - This is a soft auto-proceed step — present the pause prompt, wait briefly for user input
 - If user provides corrections: address them, then proceed
 - If no user input after a brief pause: proceed directly to step 03
-

@@ -11,8 +11,8 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 | Code | Meaning                | Raised by                                                   |
 | ---- | ---------------------- | ----------------------------------------------------------- |
 | 0    | success                | step 7 (terminal)                                          |
-| 2    | input-invalid          | batch mode, before any target runs (`--description` or `--exports` passed with `--batch`; §1: a batch file it cannot read, or `skf-quick-batch.py` missing); step 1 §1 (a headless run with no target) |
-| 3    | resolution-failure     | step 1 (a target that is no GitHub repository or package §2, registry chain §3, version tag missing or not checkable §3a, language abort or no language found §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
+| 2    | input-invalid          | batch mode, before any target runs (`--description`, `--exports`, `--language-hint` or `--scope-hint` passed with `--batch`; §1: a batch file it cannot read, or `skf-quick-batch.py` missing); step 1 §1 (a headless run with no target) |
+| 3    | resolution-failure     | step 1 (a target that is no GitHub repository or package §2, registry chain §3, version tag missing or not checkable §3a, file listing unreadable, language abort or no language found §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
 | 4    | write-failure          | SKILL.md On Activation step 1 (the run folder cannot be created); batch mode §1 (the batch run folder cannot be written); step 5 §2 (deliverable write failed) |
 | 5    | overwrite-cancelled    | step 5 §1 (user selected [N])                              |
 | 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance) and §3 ([X] at the ambiguous-name gate); step 2 §3 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) |
@@ -31,12 +31,12 @@ SKF_JSON
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
 ```
 
-- `phase`: the step's slug (`resolve-target`, `ecosystem-check`, `quick-extract`, `compile`, `write-and-validate`, `finalize`), `on-activation` for a halt before the run starts (SKILL.md On Activation, and batch mode's refusal of `--description` and `--exports`), or `batch-mode` for batch mode §1.
+- `phase`: the step's slug (`resolve-target`, `ecosystem-check`, `quick-extract`, `compile`, `write-and-validate`, `finalize`), `on-activation` for a halt before the run starts (SKILL.md On Activation, and batch mode's refusal of `--description` and `--exports` and of the hint flags), or `batch-mode` for batch mode §1.
 - `halt_reason`: the failure class the halt names: the Meaning of its exit code in the table above, or `not-skf-output` or `flat-layout` for exit 9. The emitter derives `exit_code` from it.
 - `reason`: the message the step displayed, as one line (its first sentence when it runs longer); it becomes `error.message`. Escape `"` and `\` in it as JSON requires.
 - `skill_package`: the absolute `{skill_package}` once step 5 §1 computed it, else `null`.
 - `outputs` (optional): the files already on disk, as `{"skill_md": ..., "context_snippet": ..., "metadata": ...}` paths.
-- `error` (only when the halt names `details`): `{"code": "<the halt_reason>", "message": "<the reason>", "details": {...}}`. The emitter takes it as the envelope's `error` whole.
+- `details` (only when the halt names them): the halt's context as an object, such as the folder a refusal names or the file a failed write named. The emitter puts it in the envelope's `error.details`, beside the `code` and `message` it builds from `halt_reason` and `reason`, so no halt types an `error` object.
 
 The emitter prints one line on stderr, `SKF_QUICK_SKILL_RESULT_JSON: {...}`: display it verbatim. If it exits non-zero, fix `halt.json` once (its `message` names the problem) and run it again; if it still fails, or no path resolved for `{emitEnvelopeHelper}`, display the halt message alone.
 

@@ -18,7 +18,7 @@ CLI:
       [--version <version> [--name <name>]] [--limit <n>] \\
       [--timeout <seconds>]
   uv run skf-github-probe.py tree --repo <repo> [--ref <ref>] \\
-      [--timeout <seconds>]
+      [--out <file>] [--timeout <seconds>]
 
 --repo takes a github.com repository as skf-resolve-package.py (the
 sibling in this folder, which must sit beside this script) reads one:
@@ -81,9 +81,13 @@ Output (one ASCII JSON line; every key of the command is always present):
          and `<name>-v<v>`, where <v> drops a leading `v` of the version.
          A monorepo's package tags (`astro@4.16.0`) match through --name.
   tree:  ref (as given; "HEAD", the default branch, for an empty, `null`,
-         `none` or `head` --ref in any letter case), tree (file paths:
-         `echo` the JSON into skf-detect-language.py as it is), count,
-         truncated (GitHub cut the list short)
+         `none` or `head` --ref in any letter case), tree (file paths;
+         hand the listing to skf-detect-language.py or another --tree-file
+         reader as a file, through --out, never through echo), count,
+         truncated (GitHub cut the list short). With --out <file>, the
+         whole line goes to <file>, which every --tree-file reader takes,
+         and stdout carries it without `tree`, so a caller reads the
+         status, count and truncated of a listing of any size.
 
 cause:
   repo-not-found      an authenticated probe (gh, or git with the user's
@@ -620,6 +624,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tree = sub.add_parser("tree", help="list the repository's files at a ref")
     common(p_tree)
     p_tree.add_argument("--ref", default="HEAD", help="branch, tag or commit (default: the default branch)")
+    p_tree.add_argument("--out", metavar="FILE",
+                        help="write the whole listing to FILE and print it without `tree`")
     return parser
 
 
@@ -641,6 +647,9 @@ def main(argv: list[str] | None = None) -> int:
             out = probe_tags(*parsed, args.want, args.limit, args.version, args.name)
         else:
             out = probe_tree(*parsed, args.ref)
+        if args.cmd == "tree" and args.out:
+            Path(args.out).write_bytes((json.dumps(out) + "\n").encode("utf-8"))
+            out = {key: value for key, value in out.items() if key != "tree"}
     except Exception as e:  # noqa: BLE001 - one JSON error line, never a traceback
         print(json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"}), file=sys.stderr)
         return 1

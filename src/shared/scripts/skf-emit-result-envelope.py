@@ -86,11 +86,12 @@ Building an envelope (every workflow but skf-setup). Each payload key is an
 envelope field of the same name, except `result_contract` and
 `customization_resolver_unavailable` (below). Then:
 
-  - A halt payload's phase, reason, halt_reason, exit_code and path become
-    the fields of the same name the schema declares, and fill its `error`
-    object: phase, reason and path by name, `code` from halt_reason,
-    `message` from reason, and '<n/a>' for a required path the halt has
-    none for. A key the schema has no place for is dropped.
+  - A halt payload's phase, reason, halt_reason, exit_code, path and
+    details become the fields of the same name the schema declares, and
+    fill its `error` object: phase, reason, path and details by name,
+    `code` from halt_reason, `message` from reason, and '<n/a>' for a
+    required path the halt has none for. A key the schema has no place for
+    is dropped. A payload that gives `error` itself keeps it whole.
   - exit_code, when the payload has none, is exit_codes[halt_reason], or
     for a finished run with a null halt_reason success_exit_code (else 0);
     a halt without a mapped halt_reason must give its exit_code. A status
@@ -135,8 +136,9 @@ folder), the call writes `<result_file>-<YYYYMMDD-HHmmss>.json` (UTC; `-2`,
 the copy `<result_file>-latest.json`, each atomically. The file holds the
 payload's `result_contract` object (see
 `shared/references/output-contract-schema.md`) with `timestamp`, `run_id`,
-`headless_decisions` and `warnings` stamped in, or the envelope itself
-when the payload has none. When --result-dir names no folder, nothing is
+`headless_decisions` and `warnings` stamped in, and the payload's own
+`status` and `summary` where the contract leaves them out, or the envelope
+itself when the payload has none. When --result-dir names no folder, nothing is
 written: a halt before the version folder exists reports on stdout only.
 A write that fails adds the warning `result_file_write_failed: <path>:
 <reason>`, and a failed per-run record leaves `result_path` null. A
@@ -299,12 +301,15 @@ META_FIELDS = ("workflow", "prefix", "wrapper", "halt_status", "exit_codes",
 SINK_DECISIONS = "headless-decisions.jsonl"
 SINK_WARNINGS = "warnings.jsonl"
 # The halt payload's own keys; each lands only where the schema has a place for it.
-HALT_KEYS = ("phase", "reason", "halt_reason", "exit_code", "path")
+HALT_KEYS = ("phase", "reason", "halt_reason", "exit_code", "path", "details")
 # Payload keys the emitter reads and never copies into the envelope.
 PAYLOAD_ONLY_KEYS = ("result_contract", "customization_resolver_unavailable")
 # The fields of a schema's `error` object a halt fills, and the halt key each reads.
 ERROR_FIELDS = {"phase": "phase", "reason": "reason", "path": "path", "code": "halt_reason",
-                "message": "reason", "halt_reason": "halt_reason", "exit_code": "exit_code"}
+                "message": "reason", "halt_reason": "halt_reason", "exit_code": "exit_code",
+                "details": "details"}
+# The record fields a result_contract may leave out, taken from the payload's own.
+CONTRACT_DEFAULTS = ("status", "summary")
 # Every JSON Schema keyword _validate_against_schema enforces, and the ones
 # it may skip: annotations, and `$defs`, which holds only the emitter's
 # settings (no envelope schema has a `$ref`). An envelope schema uses no
@@ -1521,6 +1526,9 @@ def _result_record(payload: dict, envelope: dict, timestamp, run_id, decisions: 
     if contract is None:
         return envelope
     record = dict(contract)
+    for key in CONTRACT_DEFAULTS:
+        if key not in record and key in payload:
+            record[key] = payload[key]
     record["timestamp"] = timestamp
     if run_id is not None:
         record["run_id"] = run_id
