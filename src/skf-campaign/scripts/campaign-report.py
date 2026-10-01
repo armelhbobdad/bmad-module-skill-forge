@@ -10,7 +10,15 @@ CLI:
 
 Output (JSON on stdout):
   {"status":"success","report_path":"...","skills_completed":N,"skills_failed":N,
-   "quality_scores":{"skill":score,...},"duration":"..."}
+   "quality_scores":{"skill":score,...},"duration":"...",
+   "export_verdicts":{"skill":"pass|fallback|fail",...},"skills_excluded":["skill",...]}
+
+`export_verdicts` holds each completed skill's quality-gate verdict at Export
+and `skills_excluded` the completed skills the gate kept from export, both
+from campaign-quality-gate.py classify (the rule step-10 applies, the state's
+directive included), so a headless caller sees which completed skills were
+not exported. Both are null when the gate cannot be applied (an invalid gate
+or an unreadable directive), and the report says so.
 
 Exit codes:
   0  success
@@ -20,6 +28,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
@@ -28,6 +37,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+
+GATE_SCRIPT = Path(__file__).resolve().with_name("campaign-quality-gate.py")
 
 
 def _emit_error(message: str, code: str) -> None:
@@ -65,7 +76,41 @@ def _format_duration(start: Optional[datetime], end: Optional[datetime]) -> str:
     return f"{seconds}s"
 
 
-def _compute_aggregates(state: Dict[str, Any]) -> Dict[str, Any]:
+def _export_classification(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """campaign-quality-gate.py classify for the state, or None when the gate cannot be applied."""
+    spec = importlib.util.spec_from_file_location("campaign_quality_gate", GATE_SCRIPT)
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    campaign = state.get("campaign") or {}
+    try:
+        return gate.classify(state, gate.read_directive(campaign.get("directive_path")))
+    except (gate.GateError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def _export_gate_section(classification: Optional[Dict[str, Any]]) -> str:
+    if classification is None:
+        return "The quality gate could not be applied to the completed skills (see the decision log)."
+    rows = classification["skills"]
+    if not rows:
+        return "No completed skills."
+    lines = ["| Skill | Quality Score | Gate |", "|-------|---------------|------|"]
+    for row in rows:
+        score = row["quality_score"] if row["quality_score"] is not None else "N/A"
+        lines.append(f"| {row['name']} | {score} | {row['verdict']} |")
+    excluded = classification["excluded"]
+    if excluded:
+        listed = ", ".join(
+            f"{e['name']} ({e['quality_score'] if e['quality_score'] is not None else 'N/A'}: {e['reason']})"
+            for e in excluded
+        )
+        lines += ["", f"**Not exported (below the quality gate):** {listed}"]
+    return "\n".join(lines)
+
+
+def _compute_aggregates(
+    state: Dict[str, Any], classification: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     campaign = state.get("campaign", {})
     skills: List[Dict[str, Any]] = state.get("skills", [])
 
@@ -141,6 +186,8 @@ def _compute_aggregates(state: Dict[str, Any]) -> Dict[str, Any]:
             failed_skipped_lines.append("No skills in campaign.")
 
     quality_gate = campaign.get("quality_gate", {})
+    if classification is None:
+        classification = _export_classification(state)
 
     return {
         "campaign_name": campaign.get("name", ""),
@@ -163,6 +210,7 @@ def _compute_aggregates(state: Dict[str, Any]) -> Dict[str, Any]:
         "workarounds_list": "\n".join(workarounds_list_items),
         "duration_table": "\n".join(duration_table_rows),
         "failed_skipped_section": "\n".join(failed_skipped_lines),
+        "export_gate_section": _export_gate_section(classification),
     }
 
 
@@ -196,7 +244,8 @@ def run(state_file: str, template_file: str, output_file: str) -> int:
         return 2
 
     try:
-        aggregates = _compute_aggregates(state)
+        classification = _export_classification(state)
+        aggregates = _compute_aggregates(state, classification)
     except Exception as exc:
         _emit_error(f"Failed to compute report aggregates: {exc}", "AGGREGATE_ERROR")
         return 2
@@ -228,6 +277,12 @@ def run(state_file: str, template_file: str, output_file: str) -> int:
         "skills_failed": failed_count,
         "quality_scores": quality_scores,
         "duration": aggregates["duration"],
+        "export_verdicts": (
+            None if classification is None else {r["name"]: r["verdict"] for r in classification["skills"]}
+        ),
+        "skills_excluded": (
+            None if classification is None else [e["name"] for e in classification["excluded"]]
+        ),
     }
     json.dump(result, sys.stdout, separators=(",", ":"))
     sys.stdout.write("\n")

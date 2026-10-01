@@ -44,13 +44,13 @@ Run these steps once, in order, before dispatching to Mode Routing.
    If it fails or is missing, fall back to `{skill-root}/customize.toml` directly. Resolve each scalar now (so step files never repeat the conditional) and stash as workflow-context variables:
 
    - `{campaignWorkspacePath}` ← `workflow.campaign_workspace_path` if non-empty, else `{forge_data_folder}/_campaign`
-   - `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}` ← the `quality_gate_*` scalars (defaults `zero-critical-high` / `90` / `80`)
+   - `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}` ← the `quality_gate_*` scalars (defaults `zero-critical-high` / `90` / `80`): the base gate, which step-01 §2 and `scripts/campaign-quality-gate.py` adjust with the brief and the directive
    - `{reportTemplatePath}` ← `workflow.report_template_path` if non-empty, else `templates/campaign-report-template.md`
    - `{kickoffTemplatePath}` ← `workflow.kickoff_template_path` if non-empty, else `templates/kickoff-template.md`
    - `{briefTemplatePath}` ← `workflow.brief_template_path` if non-empty, else `templates/campaign-brief-template.yaml`
    - `{onComplete}` ← `workflow.on_complete` (empty = no-op)
 
-   Load `workflow.persistent_facts` (literal sentences and `file:` references, globs expanded) and keep them in mind for the whole campaign — they are injected into every per-skill kickoff. Run any `activation_steps_prepend` before step 1 and any `activation_steps_append` after this step.
+   Load `workflow.persistent_facts` (literal sentences and `file:` references, globs expanded) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, once the CLI overrides are parsed.
 
 4. **Parse CLI overrides** into the workflow context:
 
@@ -61,11 +61,9 @@ Run these steps once, in order, before dispatching to Mode Routing.
    | `--manifest <file>` | Seed step-01 targets from a plain-text `name,repo_url,tier,pin` manifest. Implies `--headless`. |
    | `--from <skill>` | Resume override — see Mode Routing. |
 
-   If `--brief` or `--manifest` is set, force `{headless_mode} = true` (log "headless: coerced by --brief/--manifest" if it was false).
+   If `--brief` or `--manifest` is set, force `{headless_mode} = true` (log "headless: coerced by --brief/--manifest" if it was false). This is deliberate: a seeded run is an unattended run (CI), so it takes the default at every gate. To review the plan and the export, give the same file at the Setup question instead, which stays interactive. step-01 §1 documents the manifest format and validates every target.
 
-   **`--manifest` format:** one `name,repo_url,tier,pin` target per line (empty `pin` = latest); a trailing `;dep1,dep2` segment sets `depends_on`; blank and `#` lines are skipped. A malformed line HALTs step-01 with the offending line numbers — never a partial target set.
-
-5. **Dispatch** per Mode Routing below.
+5. Run any `activation_steps_append`, then **dispatch** per Mode Routing below.
 
 ## Workflow Rules
 
@@ -75,7 +73,7 @@ These rules apply to every step in this workflow:
 - Read-backup-modify-write for all state mutations (State Contract in `references/campaign-contracts.md`)
 - Validate `_campaign-state.yaml` on every load by running `uv run scripts/campaign-validate-state.py --state-file {stateFile}` and HALT (exit code 3, `invalid-state`) on non-zero — never hand-validate the schema
 - Zero memory dependency — campaign state is 100% recoverable from disk; never rely on conversation context for progress tracking
-- Treat a missing or unparseable `SKF_*_RESULT_JSON` envelope from any sub-skill as a sub-skill failure; never write partial state from an unparsed envelope
+- A sub-skill's result is what the step that runs it reads (an `SKF_*_RESULT_JSON` envelope or a verdict): a missing, unparseable or error result is a sub-skill failure, and never write partial state from an unparsed envelope
 - Append a one-line entry to the campaign decision log (`{campaignWorkspacePath}/_campaign-decision-log.md`, append-only) at every operator or auto-decision (skip/force, overwrite, export cancel/proceed, `.bak` recovery, user-cancel) so rationale survives compaction and resume
 - **Universal cancel affordance** — at any interactive gate between Setup and the Export gate, `cancel`/`exit`/`:q` triggers a HARD HALT with **exit code 12 (`user-cancelled`)**: log it and leave state intact and resumable. Exception: the Export gate's own `[C]ancel` stays exit code 11 (`export-cancelled`) — never also emit 12 there, so an automator's exit-code branch stays deterministic. These keywords count only as a response *to a prompt*; a skill or campaign named `cancel`/`exit` supplied as data is never treated as a cancel.
 - Always communicate in `{communication_language}`

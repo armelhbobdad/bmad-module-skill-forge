@@ -21,7 +21,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CAMPAIGN_DIR = REPO_ROOT / "src" / "skf-campaign"
 SCHEMA_PATH = CAMPAIGN_DIR / "assets" / "campaign-state-schema.json"
 SKILL_MD_PATH = CAMPAIGN_DIR / "SKILL.md"
-MANIFEST_PATH = CAMPAIGN_DIR / "manifest.yaml"
+MODULE_HELP_PATH = REPO_ROOT / "src" / "module-help.csv"
 
 
 @pytest.fixture(scope="module")
@@ -113,11 +113,6 @@ class TestDirectoryStructure:
     def test_skill_md_exists(self) -> None:
         assert SKILL_MD_PATH.is_file(), (
             f"SKILL.md not found at {SKILL_MD_PATH.as_posix()}"
-        )
-
-    def test_manifest_yaml_exists(self) -> None:
-        assert MANIFEST_PATH.is_file(), (
-            f"manifest.yaml not found at {MANIFEST_PATH.as_posix()}"
         )
 
     def test_assets_dir_exists(self) -> None:
@@ -329,26 +324,41 @@ class TestAdditionalPropertiesRejected:
 
 
 # ---------------------------------------------------------------------------
-# Review fix — manifest.yaml content validation
+# One settings surface: customize.toml. The workspace file names are a fixed
+# contract of the step files, and the capability row lives in module-help.csv
 # ---------------------------------------------------------------------------
 
 
-class TestManifestContent:
-    @pytest.fixture(scope="class")
-    def manifest(self) -> dict:
-        return yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
+def _frontmatter(path: pathlib.Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    return yaml.safe_load(text.split("---", 2)[1]) or {}
 
-    def test_manifest_metadata(self, manifest: dict) -> None:
-        assert manifest["code"] == "CA"
-        assert manifest["name"] == "skf-campaign"
-        assert manifest["trigger"] == "campaign"
-        assert manifest["parent_module"] == "skf"
 
-    def test_manifest_config_surface(self, manifest: dict) -> None:
-        config = manifest["config"]
-        assert "state_file" in config
-        assert "backup_file" in config
-        assert "directive_file" in config
+class TestWorkspaceContract:
+    def test_no_second_settings_file(self) -> None:
+        assert not (CAMPAIGN_DIR / "manifest.yaml").exists()
+
+    def test_state_and_backup_names_agree_everywhere(self) -> None:
+        declared = 0
+        for path in sorted((CAMPAIGN_DIR / "references").glob("*.md")):
+            fm = _frontmatter(path)
+            if "stateFile" in fm:
+                declared += 1
+                assert fm["stateFile"] == "{campaignWorkspacePath}/_campaign-state.yaml", path.name
+            if "backupFile" in fm:
+                assert fm["backupFile"] == "{campaignWorkspacePath}/_campaign-state.yaml.bak", path.name
+        assert declared >= 11
+
+    def test_directive_name(self) -> None:
+        fm = _frontmatter(CAMPAIGN_DIR / "references" / "campaign-directive-spec.md")
+        assert fm["directiveFile"] == "_campaign-directive.md"
+
+    def test_capability_row_in_module_help(self) -> None:
+        rows = [line.split(",") for line in MODULE_HELP_PATH.read_text(encoding="utf-8").splitlines()]
+        campaign = [row for row in rows if len(row) > 3 and row[1] == "skf-campaign"]
+        assert len(campaign) == 1
+        assert campaign[0][0] == "skf"
+        assert campaign[0][3] == "CA"
 
 
 # ---------------------------------------------------------------------------

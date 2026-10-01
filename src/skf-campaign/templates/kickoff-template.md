@@ -4,7 +4,6 @@
 
 - **Campaign:** {{campaign_name}}
 - **Current Stage:** {{current_stage}}
-- **Quality Gate:** {{quality_gate_summary}}
 
 ## Skill Identity
 
@@ -33,16 +32,3 @@
 ## Workarounds Applied
 
 {{workarounds_list}}
-
-## Pipeline Instructions
-
-Execute the standard forge pipeline for **{{skill_name}}**:
-
-1. **AN** (Analyze) — scope and source intelligence
-2. **BS** (Brief Synthesis) — generate or validate the skill brief
-3. **CS** (Compile Skill) — compile the SKILL.md artifact
-4. **TS** (Test Skill) — run health-check validation
-
-**Parameters:**
-- Pin: {{pin}}
-- Quality target: {{quality_gate_summary}}

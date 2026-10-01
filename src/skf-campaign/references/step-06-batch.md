@@ -5,6 +5,7 @@ stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 batchFile: '{campaignWorkspacePath}/_batch-input.txt'
+batchMapFile: '{campaignWorkspacePath}/_batch-map.json'
 batchScript: 'scripts/campaign-render-batch.py'
 validateScript: 'scripts/campaign-validate-state.py'
 ---
@@ -27,35 +28,31 @@ Batch all Tier B skills through QS `--batch` mode, recording per-skill results i
 
 ## TASKS
 
-### §1 — Read + Validate State
+### §1: Read + Validate State
 
 Load `{stateFile}`. Run `uv run {validateScript} --state-file {stateFile}`; on non-zero, HALT (exit 3) with the script's `errors[]`.
 
-### §2 — Read Directive
+### §2: Read Directive
 
-If `campaign.directive_path` is set in state, load the file at that path and apply its contents as campaign-wide context for this stage's processing, per the directive contract in `references/campaign-directive-spec.md`. If the file is not found, continue without error (directive is optional).
+If `campaign.directive_path` is set in state, the batch script applies its `## Skip List` itself (§3), so do not filter skills by hand. Read any other section as campaign-wide context, per the directive contract in `references/campaign-directive-spec.md`. If the file is not found, continue without error (directive is optional).
 
-### §3 — Identify Tier B Skills
+### §3: Select Tier B Skills and Write the Batch File
 
-Filter `skills[]` for entries where `tier == "B"` and `status == "pending"`. Skip skills with status `"completed"`, `"failed"`, or `"skipped"` (resume support — a previous run may have partially completed the batch).
-
-If no Tier B skills need processing, skip to §7 (Stage Completion) — the batch stage completes immediately when all Tier B skills are already handled.
-
-### §4 — Generate Batch File
-
-Generate the QS `--batch` input file deterministically:
+The batch script selects the Tier B skills (pending ones, and active ones an interrupted batch left behind), leaves out the ones the directive's Skip List names, and writes the batch file and its line-to-skill map: select and format nothing by hand. Pass `--directive-file` when state sets `campaign.directive_path`:
 
 ```
-uv run {batchScript} --state-file {stateFile} --brief-file {briefFile} -o {batchFile}
+uv run {batchScript} --state-file {stateFile} --brief-file {briefFile} -o {batchFile} --map {batchMapFile} [--directive-file <campaign.directive_path>]
 ```
 
-The script filters `skills[]` for `tier == "B" && status == "pending"`, looks up each skill's `repo_url` from the brief's `targets[]` (repo URLs live in the brief, not the state schema), and writes one line per skill at `{batchFile}` in the exact single-target shape QS parses (see `src/skf-quick-skill/references/batch-mode.md`) — the line format is owned once by the script, not re-derived here. It emits a JSON summary (`written`, `count`, `skipped_non_tierB`, `skipped_non_pending`) on stderr.
+Its JSON summary on stderr gives `count`, the skill of each line in order (`skills`), the skills the Skip List left out (`skipped_by_directive`, each with its `reason`) and the hints left off a line (`dropped_hints`: a language or scope hint quick-skill could not read as one word).
 
-HALT on non-zero exit: exit code 8 (`missing-brief`) when the brief is missing/unreadable **or** a pending Tier B skill has no matching brief target; exit code 2 (`invalid-input`) on a state file/parse error.
+HALT on non-zero exit: exit code 8 (`missing-brief`) when the brief is missing/unreadable **or** a selected Tier B skill has no matching brief target; exit code 2 (`invalid-input`) on a state file/parse error or a directive that cannot be read.
 
-### §5 — Execute QS Batch
+Mark each `skipped_by_directive` skill `"skipped"` and log "directive Skip List: {name} ({reason})" to the decision log. Log each `dropped_hints` entry as "batch: {skill} built without its {hint} `{value}` (quick-skill reads a hint as one word)". If `count` is 0, backup `{stateFile}` to `{backupFile}`, write the updated state and skip to §6 (Stage Completion): the batch stage completes at once when every Tier B skill is already handled.
 
-Set each pending Tier B skill to `status: "active"` and `started_at` to current ISO-8601 with timezone. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
+### §4: Execute QS Batch
+
+Set each skill the §3 summary names in `skills` to `status: "active"`, and `started_at` to current ISO-8601 with timezone unless an interrupted batch already set it. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
 
 Invoke QS in `--batch` mode with the generated batch file:
 
@@ -63,23 +60,24 @@ Invoke QS in `--batch` mode with the generated batch file:
 skf-quick-skill --batch {batchFile}
 ```
 
-QS `--batch` implies `--headless`. Capture per-skill results from the QS batch output — each target reports success/failure, skill path, and quality score.
+QS `--batch` implies `--headless`. When the batch ends it prints a `batch_summary` event on stderr: keep its `summary_path`, the batch summary file that holds each target's result.
 
-### §6 — Record Results
+### §5: Record Results
 
-For each Tier B skill in the batch:
+Join the batch summary to the skills by line number, never by matching QS output to skills by hand:
 
-1. If QS reports success:
-   - Set `status` to `"completed"`
-   - Set `completed_at` to current ISO-8601 with timezone
-   - Record `quality_score` from QS output
-   - Record `skill_path` from QS output
-2. If QS reports failure:
-   - Set `status` to `"failed"`
+```
+uv run {batchScript} --record <summary_path> --map {batchMapFile}
+```
 
-After all updates: backup `{stateFile}` to `{backupFile}`, then write the updated state.
+For each entry of its `results[]`:
 
-### §7 — Stage Completion
+1. `status` `completed`: set `status` to `"completed"`, `completed_at` to current ISO-8601 with timezone, `quality_score` to its `quality_score` (the skill-check score QS records, not a test-skill score) and `skill_path` to its `skill_path`.
+2. `status` `failed`: set `status` to `"failed"`, and log its `error_code` (`no-batch-result` when the summary holds no result for its line) to the decision log.
+
+When QS printed no `batch_summary` event, or the record call exits 2 (a missing summary or map, or a summary that belongs to another batch file), set every skill the map lists (`lines[].skill` in `{batchMapFile}`) to `"failed"` and log why: never guess which target built which skill. After all updates: backup `{stateFile}` to `{backupFile}`, then write the updated state.
+
+### §6: Stage Completion
 
 Set `campaign.current_stage` to `5`. Update `campaign.last_updated` to current ISO-8601 with timezone. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
 
