@@ -29,8 +29,9 @@ Highest-value tests:
   ccc reads globs) is left to cover it, a bare `- **/x` item an earlier edit
   left is quoted again, and the setup flags are refused.
 
-No test runs a real `ccc`: subprocess CLI tests always pass --no-ccc-init,
-and in-process tests replace `run_ccc_init` with fakes.
+No test runs a real `ccc`: subprocess CLI tests always pass --no-ccc-init
+(and run --build-index only where index_action is fail), and in-process
+tests replace `run_ccc_init` and `_run_ccc` with fakes.
 """
 
 from __future__ import annotations
@@ -2952,38 +2953,242 @@ def test_docstring_says_where_the_project_root_placeholder_applies():
         assert sentence in doc, sentence
 
 
+# ─── Index build (--build-index) and the result file (--result-to) ─────────
+
+
+class _FakeCcc:
+    """Stand-in for _run_ccc: each `ccc status` call returns the next output."""
+
+    def __init__(self, statuses, index_ok=True, index_output="Index stats:"):
+        self.statuses = list(statuses)
+        self.index_ok = index_ok
+        self.index_output = index_output
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, root, args, timeout):
+        self.calls.append(args)
+        if args == ("index",):
+            return self.index_ok, self.index_output
+        status = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
+        return (True, status) if isinstance(status, str) else status
+
+
+def _status(files: int | None, in_progress=False) -> str:
+    lines = ["Project: /p", "Settings: /p/.cocoindex_code/settings.yml"]
+    if in_progress:
+        lines.append("Indexing in progress: 3 files listed | 3 added, 0 deleted, 0 reprocessed, 0 unchanged, error: 0")
+    lines.append("")
+    lines += ["Index not created yet."] if files is None else ["Index stats:", "  Chunks: 9", f"  Files:  {files}",
+                                                             "  Languages:", "    python: 9 chunks"]
+    return "\n".join(lines) + "\n"
+
+
+@pytest.mark.parametrize("output,count", [
+    (_status(12), 12), (_status(0), 0), (_status(None), None), ("", None),
+    ("Index stats:\n  Chunks: 2\n  Files:  2\n", 2),
+], ids=["twelve", "zero", "not-created", "empty", "index-output"])
+def test_parse_status_file_count(output, count):
+    assert mod.parse_status_file_count(output) == count
+
+
+def test_build_index_runs_ccc_index_and_stamps_the_clock(monkeypatch, tmp_path):
+    fake = _FakeCcc([_status(12)])
+    monkeypatch.setattr(mod, "_run_ccc", fake)
+    before = mod.datetime.now(mod.timezone.utc).replace(microsecond=0)
+    warnings: list[str] = []
+    index = mod.build_index(tmp_path, "/raw/root/", "index", None, None, warnings)
+    assert fake.calls == [("index",), ("status",)]
+    assert index["status"] == "created" and index["file_count"] == 12 and index["failed_reason"] is None
+    assert index["indexed_path"] == "/raw/root/"
+    stamped = mod.datetime.fromisoformat(index["last_indexed"])
+    assert stamped.utcoffset().total_seconds() == 0
+    assert before <= stamped <= mod.datetime.now(mod.timezone.utc)
+    assert warnings == []
+
+
+def test_build_index_waits_out_a_running_pass(monkeypatch, tmp_path):
+    fake = _FakeCcc([_status(5, in_progress=True), _status(7, in_progress=True), _status(9)])
+    monkeypatch.setattr(mod, "_run_ccc", fake)
+    warnings: list[str] = []
+    index = mod.build_index(tmp_path, "/p", "index", None, None, warnings)
+    assert fake.calls == [("index",), ("status",), ("index",), ("status",), ("index",), ("status",)]
+    assert (index["status"], index["file_count"], warnings) == ("created", 9, [])
+
+
+def test_build_index_stops_rerunning_after_three_passes(monkeypatch, tmp_path):
+    fake = _FakeCcc([_status(5, in_progress=True)])
+    monkeypatch.setattr(mod, "_run_ccc", fake)
+    warnings: list[str] = []
+    index = mod.build_index(tmp_path, "/p", "index", None, None, warnings)
+    assert fake.calls.count(("index",)) == 1 + mod.CCC_INDEX_RERUNS
+    assert (index["status"], index["file_count"]) == ("created", 5)
+    assert warnings and "in progress" in warnings[0]
+
+
+@pytest.mark.parametrize("fake,reason", [
+    (_FakeCcc([_status(3)], index_ok=False, index_output="ccc index exited 1: it's broken"),
+     "ccc index exited 1: it`s broken"),
+    (_FakeCcc([(False, "ccc status exited 2: daemon down")]), "ccc status exited 2: daemon down"),
+    (_FakeCcc([_status(None)]), "ccc index finished, but ccc status shows no index"),
+    (_FakeCcc([_status(0)]), "ccc index finished, but ccc status counts no indexed file"),
+], ids=["index-fails", "status-fails", "no-index", "zero-files"])
+def test_build_index_failures_carry_a_payload_safe_reason(monkeypatch, tmp_path, fake, reason):
+    monkeypatch.setattr(mod, "_run_ccc", fake)
+    index = mod.build_index(tmp_path, "/p", "index", None, None, [])
+    assert index == {"status": "failed", "indexed_path": None, "last_indexed": None, "file_count": None,
+                     "failed_reason": reason}
+
+
+def test_build_index_acts_on_the_other_actions_without_running_ccc(monkeypatch, tmp_path):
+    def forbid(*args, **kwargs):
+        raise AssertionError("ccc must not run for keep, skip or fail")
+
+    monkeypatch.setattr(mod, "_run_ccc", forbid)
+    prior = _write_yaml(tmp_path / "forge-tier.yaml", {"ccc_index": {
+        "status": "created", "indexed_path": "/p", "last_indexed": "2026-10-01T10:00:00+00:00", "file_count": 42}})
+    keep = mod.build_index(tmp_path, "/p", "keep", None, prior, [])
+    assert keep == {"status": "fresh", "indexed_path": "/p", "last_indexed": "2026-10-01T10:00:00+00:00",
+                    "file_count": 42, "failed_reason": None}
+    # An unquoted timestamp that YAML reads as a datetime, and a count that is no integer.
+    (tmp_path / "forge-tier.yaml").write_text(
+        "ccc_index:\n  last_indexed: 2026-10-01 10:00:00+00:00\n  file_count: true\n", encoding="utf-8")
+    keep = mod.build_index(tmp_path, "/p", "keep", None, prior, [])
+    assert keep["last_indexed"] == "2026-10-01T10:00:00+00:00" and keep["file_count"] is None
+    assert mod.build_index(tmp_path, "/p", "keep", None, tmp_path / "missing.yaml", [])["file_count"] is None
+    assert mod.build_index(tmp_path, "/p", "skip", None, prior, [])["status"] == "skipped"
+    failed = mod.build_index(tmp_path, "/p", "fail", "no settings.yml", prior, [])
+    assert (failed["status"], failed["failed_reason"]) == ("failed", "no settings.yml")
+
+
+def test_cli_build_index_and_result_to_hold_the_same_result(tmp_project, tmp_path):
+    """No settings.yml and --no-ccc-init: index_action fail, so no ccc runs."""
+    result_to = tmp_path / "run" / "ccc-exclusions.json"
+    rc, payload, stderr = _run(tmp_project, extra_args=("--build-index", "--result-to", str(result_to)))
+    assert rc == 0, stderr
+    assert set(payload) == V2_KEYS | {"index"}
+    assert payload["index_action"] == "fail"
+    assert payload["index"]["status"] == "failed"
+    assert payload["index"]["failed_reason"] == payload["not_ready_reason"]
+    assert json.loads(result_to.read_text(encoding="utf-8")) == payload
+
+
+def test_cli_result_to_holds_the_error_of_a_failed_run(tmp_path):
+    result_to = tmp_path / "ccc-exclusions.json"
+    rc, payload, stderr = _run(tmp_path / "missing", extra_args=("--build-index", "--result-to", str(result_to)))
+    assert rc == 1 and payload is None
+    error = json.loads(result_to.read_text(encoding="utf-8"))
+    assert error == json.loads(stderr)
+    assert error["status"] == "error" and "--project-root is not a directory" in error["message"]
+
+
+def test_cli_config_reads_both_folder_values(tmp_project, tmp_path):
+    config = _write_yaml(tmp_path / "config.yaml", {"skills_output_folder": "{project-root}/skills",
+                                                     "forge_data_folder": "{project-root}/forge-data"})
+    _seed_ccc_settings(tmp_project)
+    argv = [sys.executable, str(SCRIPT_PATH), "--project-root", str(tmp_project), "--config", str(config),
+            "--no-ccc-init"]
+    result = subprocess.run(argv, capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    by_flags = _run(tmp_project, skills="{project-root}/skills", forge_data="{project-root}/forge-data")[1]
+    assert payload["effective_patterns"] == by_flags["effective_patterns"]
+    assert {"skills", "forge-data"} <= set(payload["effective_patterns"])
+
+
+@pytest.mark.parametrize("extra,code,needle", [
+    (("--config", "{config}", "--skills-output-folder", "skills"), 2, "--config replaces"),
+    (("--config", "{missing}"), 1, "--config does not exist"),
+    (("--config", "{list}"), 1, "--config is not a YAML mapping"),
+], ids=["with-folder-flag", "missing", "not-a-mapping"])
+def test_cli_config_errors(tmp_project, tmp_path, extra, code, needle):
+    config = _write_yaml(tmp_path / "config.yaml", {"skills_output_folder": "skills"})
+    listed = tmp_path / "list.yaml"
+    listed.write_text("- skills\n", encoding="utf-8")
+    names = {"{config}": str(config), "{missing}": str(tmp_path / "nope.yaml"), "{list}": str(listed)}
+    argv = [sys.executable, str(SCRIPT_PATH), "--project-root", str(tmp_project), "--no-ccc-init",
+            *(names.get(a, a) for a in extra)]
+    result = subprocess.run(argv, capture_output=True, timeout=60)
+    assert result.returncode == code
+    assert needle in json.loads(result.stderr)["message"]
+
+
+def test_cli_clone_root_refuses_build_index(tmp_path):
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    result = subprocess.run([sys.executable, str(SCRIPT_PATH), "--clone-root", str(clone), "--build-index"],
+                            capture_output=True, timeout=60)
+    assert result.returncode == 2
+    assert "--build-index" in json.loads(result.stderr)["message"]
+
+
+def test_main_records_the_project_root_as_given(tmp_project, monkeypatch, capsys):
+    """skf-detect-tools.py compares the next run's --project-root with the
+    recorded indexed_path by exact string, so the value is kept as given."""
+    _seed_ccc_settings(tmp_project)
+    monkeypatch.setattr(mod, "_run_ccc", _FakeCcc([_status(4)]))
+    raw = str(tmp_project) + os.sep
+    monkeypatch.setattr(sys, "argv", ["merge", "--project-root", raw, "--skills-output-folder", "skills",
+                                      "--forge-data-folder", "forge-data", "--index-fresh", "false",
+                                      "--no-ccc-init", "--build-index"])
+    mod.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["index_action"] == "index"
+    assert payload["index"]["indexed_path"] == raw and payload["index"]["file_count"] == 4
+
+
 # ─── Prose pins on the step files that consume the helper output ────────────
 
 
-CCC_INDEX_BINDINGS = [
-    ("ccc_index_action", "index_action"),
-    ("settings_yml_written", "written"),
-    ("settings_yml_patterns_added", "patterns_added"),
-    ("settings_yml_patterns_removed", "patterns_removed"),
-    ("gitignore_updated", "gitignore_updated"),
-    ("ccc_exclude_patterns", "effective_patterns"),
-    ("ccc_exclusion_warnings", "warnings"),
-    ("ccc_settings_error", "not_ready_reason"),
-]
+# What step 1b's result file feeds, and the consumer that reads each field:
+# no step binds or re-types any of them (W2 handoff, #592).
+RESULT_CONSUMERS = {
+    "written": "emit", "patterns_added": "emit", "patterns_removed": "emit", "gitignore_updated": "emit",
+    "warnings": "emit", "index": "emit and write-tools", "effective_patterns": "write-tools",
+}
+FORGE_TIER_RW = REPO_ROOT / "src" / "shared" / "scripts" / "skf-forge-tier-rw.py"
+_rw_spec = importlib.util.spec_from_file_location("skf_forge_tier_rw", FORGE_TIER_RW)
+forge_tier_rw = importlib.util.module_from_spec(_rw_spec)
+assert _rw_spec.loader is not None
+_rw_spec.loader.exec_module(forge_tier_rw)
 
 
 def _bash_blocks(text: str) -> list[str]:
     return re.findall(r"```bash\n(.*?)```", text, flags=re.DOTALL)
 
 
-def test_ccc_index_step_binds_every_consumed_field():
+def test_ccc_index_step_stages_every_consumed_field_by_file(tmp_path):
+    """Step 1b writes the helper's result to the run folder and binds none of
+    its fields; the emitter and write-tools read each one from that file."""
     text = CCC_INDEX_STEP.read_text(encoding="utf-8")
-    for flag, field in CCC_INDEX_BINDINGS:
-        binding = f"`{{{flag}}}` ← `{field}`"
-        assert binding in text, f"missing binding {binding}"
+    assert "\u2190" not in text
+    for field in RESULT_CONSUMERS:
+        assert f"`{{{field}}}`" not in text and f"← `{field}`" not in text, field
+    result = {"status": "ok", "written": True, "patterns_added": 2, "patterns_removed": 1, "gitignore_updated": True,
+              "warnings": ["a note"], "effective_patterns": ["**/_bmad", "skills/[[]x[]]"], "index_action": "index",
+              "index": {"status": "created", "indexed_path": "/p", "last_indexed": "2026-10-01T10:00:00+00:00",
+                        "file_count": 7, "failed_reason": None}}
+    folded = emit.fold_staged({}, {emit.STAGED_CCC: result})
+    assert (folded["settings_yml_written"], folded["settings_yml_patterns_added"],
+            folded["settings_yml_patterns_removed"], folded["gitignore_updated"],
+            folded["ccc_exclusion_warnings"]) == (True, 2, 1, True, ["a note"])
+    assert folded["ccc_index"] == {"status": "created", "indexed_path": "/p", "file_count": 7}
+    staged = tmp_path / "ccc-exclusions.json"
+    staged.write_text(json.dumps(result), encoding="utf-8")
+    ccc_index = forge_tier_rw._staged_ccc_index(staged)
+    # The ownership record passes verbatim, character classes included.
+    assert ccc_index["exclude_patterns"] == ["**/_bmad", "skills/[[]x[]]"]
+    assert (ccc_index["status"], ccc_index["last_indexed"], ccc_index["file_count"]) == (
+        "created", "2026-10-01T10:00:00+00:00", 7)
 
 
 def test_ccc_index_step_invocation_passes_record_and_index_flags():
     text = CCC_INDEX_STEP.read_text(encoding="utf-8")
     [invocation] = [b for b in _bash_blocks(text) if "{mergeCccExclusionsHelper}" in b]
-    for flag in ("--prior-state-from", "--index-fresh", "--skip-index"):
-        assert flag in invocation
-    assert "--no-ccc-init" not in invocation
+    for flag in ("--config", "--prior-state-from", "--index-fresh", "--skip-index", "--build-index",
+                 '--result-to "{run_dir}/ccc-exclusions.json"'):
+        assert flag in invocation, flag
+    for gone in ("--no-ccc-init", "--skills-output-folder", "--forge-data-folder"):
+        assert gone not in invocation, gone
 
 
 def test_ccc_index_step_never_runs_ccc_init():
@@ -2994,26 +3199,93 @@ def test_ccc_index_step_never_runs_ccc_init():
         assert "ccc init" not in block
 
 
-def test_ccc_index_step_record_binding_copies_every_entry():
-    text = CCC_INDEX_STEP.read_text(encoding="utf-8")
-    [line] = [line for line in text.splitlines()
-              if line.startswith("- `{ccc_exclude_patterns}` ← `effective_patterns`")]
-    assert "exactly" in line
-    assert "character class" in line
+def test_ccc_index_step_runs_no_ccc_command_itself():
+    """The helper runs `ccc index`, reads `ccc status` and stamps the time."""
+    for block in _bash_blocks(CCC_INDEX_STEP.read_text(encoding="utf-8")):
+        assert not re.search(r"(^|&&\s*)ccc ", block, re.MULTILINE), block
 
 
-def test_ccc_index_step_lists_every_index_action():
-    text = CCC_INDEX_STEP.read_text(encoding="utf-8")
+def test_index_build_documents_every_index_action():
+    doc = mod.__doc__[mod.__doc__.index("Index build (--build-index)"):mod.__doc__.index("Output (single JSON")]
     for action in mod.INDEX_ACTIONS:
-        assert f'`"{action}"`' in text, action
+        assert re.search(rf"^  {action} ", doc, re.MULTILINE), action
 
 
 def test_record_kept_when_step_does_not_reconcile():
-    lines = [line for line in CCC_INDEX_STEP.read_text(encoding="utf-8").splitlines()
-             if "ccc_exclude_patterns:" in line]
-    assert len(lines) >= 2
-    for line in lines:
-        assert "ccc_exclude_patterns: null" in line, line
+    """Without ccc the step stages nothing, and write-tools keeps the record:
+    the step no longer restates step 2's handling of a missing file."""
+    first = CCC_INDEX_STEP.read_text(encoding="utf-8").split("### 1. Check Eligibility", 1)[1]
+    assert "step 2 records" not in first.split("###", 1)[0]
+    assert forge_tier_rw._staged_ccc_index(None) == {
+        "indexed_path": None, "last_indexed": None, "file_count": None, "exclude_patterns": None,
+        "status": "none"}
+    # With ccc available the helper ran, so a missing file is a failed preparation.
+    assert forge_tier_rw._staged_ccc_index(None, True)["status"] == "failed"
+    assert forge_tier_rw._staged_ccc_index(None, True)["exclude_patterns"] is None
+
+
+def test_a_stopped_index_still_leaves_this_runs_record(tmp_project, tmp_path, monkeypatch):
+    """settings.yml is rewritten before `ccc index` runs, which can take an
+    hour: --result-to already holds this run's record when a host stops the
+    call there, so write-tools records the patterns settings.yml now holds,
+    and the index as failed."""
+    _seed_ccc_settings(tmp_project)
+    result_to = tmp_path / "run" / "ccc-exclusions.json"
+
+    def stopped(root, args, timeout):
+        if args == ("index",):
+            raise KeyboardInterrupt  # the host stops the call during `ccc index`
+        raise AssertionError(f"ccc {args} must not run")
+
+    monkeypatch.setattr(mod, "_run_ccc", stopped)
+    monkeypatch.setattr(sys, "argv", ["merge", "--project-root", str(tmp_project), "--skills-output-folder",
+                                      "skills", "--forge-data-folder", "forge-data", "--index-fresh", "false",
+                                      "--no-ccc-init", "--build-index", "--result-to", str(result_to)])
+    with pytest.raises(KeyboardInterrupt):
+        mod.main()
+    staged = json.loads(result_to.read_text(encoding="utf-8"))
+    assert staged["status"] == "ok" and staged["index_action"] == "index"
+    assert staged["index"] == {"status": "failed", "indexed_path": None, "last_indexed": None,
+                               "file_count": None, "failed_reason": mod.INDEX_UNFINISHED}
+    patterns = staged["effective_patterns"]
+    assert patterns and set(patterns) <= set(yaml.safe_load(_settings_path(tmp_project).read_text(
+        encoding="utf-8"))["exclude_patterns"])
+    detect = tmp_path / "run" / "detect-tools.json"
+    detect.write_text(json.dumps({"tools": {"ccc": {"available": True, "daemon": "healthy"}},
+                                  "tier": {"calculated": "Forge+"}}), encoding="utf-8")
+    target = tmp_path / "forge-tier.yaml"
+    done = subprocess.run([sys.executable, str(FORGE_TIER_RW), "write-tools", "--target", str(target),
+                           "--detect-from", str(detect), "--ccc-from", str(result_to)],
+                          stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    recorded = yaml.safe_load(target.read_text(encoding="utf-8"))["ccc_index"]
+    assert (recorded["status"], recorded["exclude_patterns"]) == ("failed", patterns)
+    folded = emit.fold_staged({}, {emit.STAGED_CCC: staged})
+    assert folded["ccc_index"]["status"] == "failed"
+    assert folded["ccc_indexing_failed_reason"] == mod.INDEX_UNFINISHED
+
+
+def test_a_finished_index_replaces_the_interim_result(tmp_project, tmp_path, monkeypatch, capsys):
+    _seed_ccc_settings(tmp_project)
+    result_to = tmp_path / "ccc-exclusions.json"
+    seen: list[dict] = []
+    fake = _FakeCcc([_status(4)])
+
+    def watching(root, args, timeout):
+        if args == ("index",):
+            seen.append(json.loads(result_to.read_text(encoding="utf-8")))
+        return fake(root, args, timeout)
+
+    monkeypatch.setattr(mod, "_run_ccc", watching)
+    monkeypatch.setattr(sys, "argv", ["merge", "--project-root", str(tmp_project), "--skills-output-folder",
+                                      "skills", "--forge-data-folder", "forge-data", "--index-fresh", "false",
+                                      "--no-ccc-init", "--build-index", "--result-to", str(result_to)])
+    mod.main()
+    assert [s["index"]["failed_reason"] for s in seen] == [mod.INDEX_UNFINISHED]
+    final = json.loads(result_to.read_text(encoding="utf-8"))
+    assert final == json.loads(capsys.readouterr().out)
+    assert (final["index"]["status"], final["index"]["file_count"]) == ("created", 4)
+    assert final["effective_patterns"] == seen[0]["effective_patterns"]
 
 
 def _setup_banner(**over) -> list[str]:
@@ -3024,7 +3296,7 @@ def _setup_banner(**over) -> list[str]:
         "tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": {"available": True, "daemon": "healthy"}},
         "previous_tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": True},
         "ccc_index": {"status": "fresh", "indexed_path": "/p", "file_count": 3},
-        "preferences_yaml_created": False, "settings_yml_written": False,
+        "settings_yml_written": False,
         "qmd_status": "absent", "hygiene_result": "skipped", "error": None,
     }
     payload.update(over)
@@ -3050,7 +3322,6 @@ def test_report_shows_removed_count_notes_and_gitignore():
 
 # What a same-tier closing line may claim, and the payload value that backs it.
 CLOSING_CLAIMS = {
-    "your preferences": lambda run: run["preferences_yaml_created"] is False,
     "ccc settings were left untouched": lambda run: run["settings_yml_written"] is False,
     "the ccc index was already current": lambda run: run["ccc_index"]["status"] == "fresh",
     "the ccc index was not checked (--ccc-skip-index)": lambda run: run["ccc_index"]["status"] == "skipped",
@@ -3081,8 +3352,8 @@ def test_report_calls_the_index_current_only_after_checking_it(status, prior_fre
 
 def test_report_same_tier_closing_lines_claim_only_what_they_check():
     shown = set()
-    for prefs, settings, status in itertools.product((False, True), (False, True), INDEX_STATUSES):
-        run = {"preferences_yaml_created": prefs, "settings_yml_written": settings, "ccc_index": _index(status)}
+    for settings, status in itertools.product((False, True), INDEX_STATUSES):
+        run = {"settings_yml_written": settings, "ccc_index": _index(status)}
         closing = _same_tier_closing_lines(_setup_banner(**run))
         for line in closing:
             text = line.lower()
@@ -3096,7 +3367,8 @@ def test_report_same_tier_closing_lines_claim_only_what_they_check():
                 assert "index" not in text, line
         if closing:
             shown.add(status)
-    assert shown == {"fresh", "skipped", "none"}
+    # Setup never writes preferences.yaml, so no line says it left them alone.
+    assert shown == {"fresh", "skipped"}
 
 
 def test_report_skip_lane_and_exclusion_notes_wording():
@@ -3114,23 +3386,20 @@ def test_report_skip_lane_and_exclusion_notes_wording():
 
 
 def test_report_envelope_forwards_exclusion_warnings_verbatim():
-    # The banner resolves an SKF-worded {project-root}; the envelope keeps it,
-    # and report.md stages each entry as step 1b bound it (read by content,
-    # not by section number, so the step can move it).
+    # The banner resolves an SKF-worded {project-root}; the envelope keeps it.
+    # report.md no longer stages the notes: the emitter reads them from step
+    # 1b's result file, so no hand copy can resolve or drop the placeholder.
     note = "add /.cocoindex_code/ to {project-root}/.gitignore"
+    folded = emit.fold_staged({}, {emit.STAGED_CCC: {"status": "ok", "warnings": [note], "index": {
+        "status": "fresh", "indexed_path": "/p", "file_count": 3}}})
     envelope = emit.assemble_envelope({
         "tier": "Forge+", "previous_tier": "Forge+", "config_path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
-        "tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": True}, "ccc_exclusion_warnings": [note],
-        "error": None,
+        "tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": True}, "error": None, **folded,
     })
     assert note in envelope["skf_setup"]["warnings"]
-    text = " ".join(REPORT_STEP.read_text(encoding="utf-8").split())
-    for needle in (
-        "`{ccc_exclusion_warnings_list}` is `{ccc_exclusion_warnings}` as a JSON list of strings",
-        "each entry exactly as step 1b bound it",
-        "do not resolve the `{project-root}` inside an entry",
-    ):
-        assert needle in text, needle
+    text = REPORT_STEP.read_text(encoding="utf-8")
+    for gone in ("ccc_exclusion_warnings", "exclusion notes"):
+        assert gone not in text, gone
 
 
 # ─── Clone mode: a workspace clone's settings.yml (create-skill) ────────────

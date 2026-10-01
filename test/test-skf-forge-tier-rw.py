@@ -414,50 +414,148 @@ def test_read_existing_file_emits_full_data(tmp_target):
     assert len(payload["data"]["qmd_collections"]) == 2
 
 
-# ─── init-prefs subcommand ───────────────────────────────────────────────────
+# ─── write-tools from a setup run's staged outputs ──────────────────────────
 
 
-def test_init_prefs_creates_when_missing(tmp_target):
-    target = tmp_target.parent / "preferences.yaml"
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT_PATH), "init-prefs", "--target", str(target)],
-        capture_output=True, text=True, timeout=10,
-    )
-    assert result.returncode == 0
-    payload = json.loads(result.stdout)
-    assert payload["wrote"] is True
-    assert payload["first_run"] is True
-    assert target.exists()
-    parsed = _read_yaml_file(target)
-    assert parsed["tier_override"] is None
-    assert parsed["headless_mode"] is False
-    assert "tessl_review_workspace" in parsed and parsed["tessl_review_workspace"] is None
+DETECT_SCRIPT = SCRIPT_PATH.parent / "skf-detect-tools.py"
 
 
-def test_preferences_template_matches_the_installer_copy():
-    """The installer copies src/forger/preferences.yaml; setup's init-prefs writes PREFERENCES_TEMPLATE."""
-    import importlib.util
-    spec_ = importlib.util.spec_from_file_location("skf_forge_tier_rw_template", SCRIPT_PATH)
-    module = importlib.util.module_from_spec(spec_)
-    spec_.loader.exec_module(module)
-    installer_copy = SCRIPT_PATH.parents[2] / "forger" / "preferences.yaml"
-    assert module.PREFERENCES_TEMPLATE == installer_copy.read_text(encoding="utf-8")
+def _write_staged(target: Path, detect: Path, ccc: Path | None = None) -> subprocess.CompletedProcess:
+    """write-tools with --detect-from (and --ccc-from), nothing on stdin."""
+    argv = [sys.executable, str(SCRIPT_PATH), "write-tools", "--target", str(target), "--detect-from", str(detect)]
+    if ccc is not None:
+        argv += ["--ccc-from", str(ccc)]
+    return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
 
 
-def test_init_prefs_preserves_existing(tmp_target):
-    """Running init-prefs against an existing file MUST NOT overwrite user customization."""
-    target = tmp_target.parent / "preferences.yaml"
-    custom = "tier_override: Deep\nheadless_mode: true\n"
-    target.write_text(custom, encoding="utf-8")
+def _detect_fixture(tmp_path: Path, tier="Forge+", ccc=True, daemon="healthy") -> Path:
+    """A detect-tools.json shaped like skf-detect-tools.py's output."""
+    path = tmp_path / "detect-tools.json"
+    path.write_text(json.dumps({
+        "status": "ok", "version": "v1",
+        "tools": {"ast_grep": {"available": True, "version": "ast-grep 0.45.3"},
+                  "gh_cli": {"available": False, "version": None},
+                  "qmd": {"available": False, "status": "absent", "version": None},
+                  "ccc": {"available": ccc, "daemon": daemon if ccc else None, "version": "0.2.41"},
+                  "git": {"available": True, "version": "git version 2.47.3"},
+                  "uv": {"available": True, "version": "uv 0.12.15"},
+                  "security_scan": {"available": True}},
+        "tier": {"calculated": tier, "detected": tier},
+        "prior": {},
+    }), encoding="utf-8")
+    return path
 
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT_PATH), "init-prefs", "--target", str(target)],
-        capture_output=True, text=True, timeout=10,
-    )
-    assert result.returncode == 0
-    payload = json.loads(result.stdout)
-    assert payload["wrote"] is False
-    assert target.read_text(encoding="utf-8") == custom
+
+def _ccc_result(tmp_path: Path, index: dict | None, patterns=None, status="ok") -> Path:
+    path = tmp_path / "ccc-exclusions.json"
+    body = {"status": status, "version": "v2", "effective_patterns": patterns, "index_action": "index"}
+    if index is not None:
+        body["index"] = index
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path
+
+
+def test_write_tools_reads_real_detector_output(tmp_path):
+    """The handoff test: real skf-detect-tools.py output, staged as setup step 1
+    stages it, gives write-tools its tools and tier with nothing typed back."""
+    detect = tmp_path / "detect-tools.json"
+    proc = subprocess.run([sys.executable, str(DETECT_SCRIPT), "--project-root", str(tmp_path)],
+                          capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    detect.write_text(proc.stdout, encoding="utf-8")
+    probed = json.loads(proc.stdout)
+    target = tmp_path / "sidecar" / "forge-tier.yaml"
+    done = _write_staged(target, detect)
+    assert done.returncode == 0, done.stderr
+    written = _read_yaml_file(target)
+    assert written["tier"] == probed["tier"]["calculated"]
+    for key in ("ast_grep", "gh_cli", "qmd", "ccc"):
+        assert written["tools"][key] is probed["tools"][key]["available"], key
+    assert written["tools"]["ccc_daemon"] == probed["tools"]["ccc"].get("daemon")
+    assert written["tools"]["security_scan"] is probed["tools"]["security_scan"]["available"]
+    # No ccc result staged: the run did not prepare ccc, or, with ccc on
+    # this machine, step 1b's helper wrote nothing.
+    assert written["ccc_index"]["status"] == ("failed" if probed["tools"]["ccc"]["available"] else "none")
+    assert written["ccc_index"]["exclude_patterns"] == []
+
+
+def test_write_tools_takes_the_index_and_the_record_from_the_ccc_result(tmp_path):
+    target = tmp_path / "forge-tier.yaml"
+    index = {"status": "created", "indexed_path": "/p", "last_indexed": "2026-10-01T10:00:00+00:00",
+             "file_count": 42, "failed_reason": None}
+    record = ["**/_bmad", "skills/[[]x[]]", "skills/caf\u00e9"]
+    done = _write_staged(target, _detect_fixture(tmp_path), _ccc_result(tmp_path, index, record))
+    assert done.returncode == 0, done.stderr
+    written = _read_yaml_file(target)
+    assert written["tools"] == {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": True,
+                                "ccc_daemon": "healthy", "security_scan": True}
+    assert written["tier"] == "Forge+"
+    assert written["ccc_index"] == {"indexed_path": "/p", "last_indexed": "2026-10-01T10:00:00+00:00",
+                                    "status": "created", "staleness_threshold_hours": 24, "file_count": 42,
+                                    "exclude_patterns": record}
+
+
+@pytest.mark.parametrize("content,ccc,status", [
+    (None, False, "none"),
+    (None, True, "failed"),
+    ("", True, "failed"),
+    ('{"status": "error", "message": "settings.yml is not a mapping"}', True, "failed"),
+], ids=["not-staged-no-ccc", "not-staged-with-ccc", "empty", "helper-error"])
+def test_write_tools_keeps_the_record_when_ccc_was_not_prepared(tmp_path, content, ccc, status):
+    """No result (ccc unavailable: none; ccc available, so the helper wrote
+    nothing: failed) or a failed one: the SKF exclusion record already in
+    forge-tier.yaml survives."""
+    target = tmp_path / "forge-tier.yaml"
+    recorded = ["**/_bmad", "skills"]
+    first = _write_staged(target, _detect_fixture(tmp_path), _ccc_result(
+        tmp_path, {"status": "created", "indexed_path": "/p", "last_indexed": "2026-10-01T10:00:00+00:00",
+                   "file_count": 3}, recorded))
+    assert first.returncode == 0, first.stderr
+    ccc_path = tmp_path / "ccc-exclusions.json"
+    ccc_path.unlink()
+    if content is not None:
+        ccc_path.write_text(content, encoding="utf-8")
+    done = _write_staged(target, _detect_fixture(tmp_path, ccc=ccc), ccc_path)
+    assert done.returncode == 0, done.stderr
+    written = _read_yaml_file(target)["ccc_index"]
+    assert written["status"] == status
+    assert written["indexed_path"] is None and written["last_indexed"] is None and written["file_count"] is None
+    assert written["exclude_patterns"] == recorded
+
+
+@pytest.mark.parametrize("detect,ccc,needle", [
+    ("missing", None, "holds no skf-detect-tools.py output"),
+    ('{"status": "ok"}', None, "has no `tools` and `tier.calculated`"),
+    ("good", '{"status": "ok", "effective_patterns": null}', "holds no `index` result"),
+], ids=["no-detector-output", "no-tier", "no-index"])
+def test_write_tools_refuses_staged_outputs_it_cannot_read(tmp_path, detect, ccc, needle):
+    detect_path = _detect_fixture(tmp_path) if detect == "good" else tmp_path / "detect-tools.json"
+    if detect not in ("good", "missing"):
+        detect_path.write_text(detect, encoding="utf-8")
+    ccc_path = None
+    if ccc is not None:
+        ccc_path = tmp_path / "ccc-exclusions.json"
+        ccc_path.write_text(ccc, encoding="utf-8")
+    done = _write_staged(tmp_path / "forge-tier.yaml", detect_path, ccc_path)
+    assert done.returncode == 1
+    assert needle in json.loads(done.stderr)["message"]
+    assert not (tmp_path / "forge-tier.yaml").exists()
+
+
+def test_write_tools_ccc_from_needs_detect_from(tmp_path):
+    done = subprocess.run([sys.executable, str(SCRIPT_PATH), "write-tools", "--target", str(tmp_path / "f.yaml"),
+                           "--ccc-from", str(tmp_path / "ccc.json")],
+                          input=json.dumps(_baseline_payload()), capture_output=True, text=True, timeout=10)
+    assert done.returncode == 1
+    assert "--ccc-from needs --detect-from" in json.loads(done.stderr)["message"]
+
+
+def test_init_prefs_is_gone():
+    """The installer writes preferences.yaml (setupSidecar); setup no longer does."""
+    assert not hasattr(mod, "PREFERENCES_TEMPLATE") and not hasattr(mod, "cmd_init_prefs")
+    done = subprocess.run([sys.executable, str(SCRIPT_PATH), "init-prefs", "--target", "x.yaml"],
+                          capture_output=True, text=True, timeout=10)
+    assert done.returncode == 2
 
 
 # ─── clean-stale subcommand ─────────────────────────────────────────────────
@@ -548,6 +646,49 @@ def test_clean_stale_missing_target_is_user_error(tmp_target):
         capture_output=True, text=True, timeout=10,
     )
     assert result.returncode == 1
+
+
+def _clean_from(target: Path, staged: Path) -> dict:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "clean-stale", "--target", str(target), "--qmd-live-from", str(staged)],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_clean_stale_reads_the_live_names_from_the_staged_classification(tmp_target):
+    _write_tools(tmp_target, _payload_with_arrays())  # foo-brief, foo-extraction
+    staged = tmp_target.parent / "qmd-classify.json"
+    staged.write_text(json.dumps({"status": "ok", "live_names": ["foo-brief", "memory-root-1"],
+                                  "healthy": ["foo-brief"]}), encoding="utf-8")
+    response = _clean_from(tmp_target, staged)
+    assert response["qmd_removed"] == ["foo-extraction"]
+    assert [c["name"] for c in _read_yaml_file(tmp_target)["qmd_collections"]] == ["foo-brief"]
+
+
+@pytest.mark.parametrize("content", [None, "", '{"status": "ok"}', '{"live_names": "foo-brief"}'],
+                         ids=["not-staged", "classifier-failed", "no-live-names", "not-a-list"])
+def test_clean_stale_skips_qmd_cleanup_without_a_classification(tmp_target, content):
+    """An empty list would mean nothing is live and empty the registry: a
+    classifier that did not run or failed must leave it as it is."""
+    _write_tools(tmp_target, _payload_with_arrays())
+    before = tmp_target.read_bytes()
+    staged = tmp_target.parent / "qmd-classify.json"
+    if content is not None:
+        staged.write_text(content, encoding="utf-8")
+    response = _clean_from(tmp_target, staged)
+    assert response["qmd_removed"] == [] and response["wrote"] is False
+    assert tmp_target.read_bytes() == before
+
+
+def test_clean_stale_live_sources_are_mutually_exclusive(tmp_target):
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "clean-stale", "--target", str(tmp_target),
+         "--qmd-live-from", "x.json", "--qmd-live-names", "foo-brief"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 2
 
 
 # ─── End-to-end: register-qmd-collection subcommand via subprocess ──────────

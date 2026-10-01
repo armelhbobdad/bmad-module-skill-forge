@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-setup
+summary: |
+  Setup no longer creates `preferences.yaml`: the SKF installer already writes it, and setup reads it when it is there and uses the defaults when it is not. Setup's write step loses its `step 2:init-prefs` halt, so a `blocked` `SKF_SETUP_RESULT_JSON` envelope never carries that `error.phase` again, and `files_written` no longer lists `preferences.yaml`: the value is gone from the envelope schema.
+migration: |
+  To create a missing `preferences.yaml`, re-run the installer (`npx bmad-module-skill-forge install`). In a pipeline, drop any check for `error.phase` `step 2:init-prefs` (write failures are `step 2:write-tools` and `step 2:forge-data-dir`) and stop reading `preferences.yaml` in `files_written` as a sign of a first run: read `previous_tier`, which is null on a first run.
+issues: [596]

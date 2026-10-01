@@ -542,10 +542,11 @@ def test_getting_started_names_the_statuses_the_tool_report_prints():
 
 def test_setup_flag_lines_name_the_halts_setup_raises():
     """#594: a mistyped tier or orphan action halts, and `--quiet` is an alias of `--headless`."""
-    skill = _read(SRC / "skf-setup" / "SKILL.md")
-    for token in ("`--quiet` (an alias of `--headless`", "`--require-tier <tier>`", "`step 1:detect-tools`",
-                  "on-activation:orphan-action-invalid"):
-        assert token in skill, token
+    # The flag rows moved to the lifted Invocation Contract (#600); the halt stays in SKILL.md.
+    contract = _read(SRC / "skf-setup" / "references" / "invocation-contract.md")
+    for token in ("`--quiet` (an alias of `--headless`", "`--require-tier <tier>`", "`step 1:detect-tools`"):
+        assert token in contract, token
+    assert "on-activation:orphan-action-invalid" in _read(SRC / "skf-setup" / "SKILL.md")
     lines = _slice(_read(WORKFLOWS), "### Setup Forge (SF)", "**Agent:**").splitlines()
     require = next(line for line in lines if line.startswith("- `--require-tier="))
     for token in ("(or `--require-tier <tier>`)", "one of the four tier names exactly", "is no miss",

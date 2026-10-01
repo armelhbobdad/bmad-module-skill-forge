@@ -143,7 +143,7 @@ Then append/replace the registry entry in forge-tier.yaml. Failures never block 
 
 **Context:** Setup-forge verifies QMD health on every run.
 
-**Implementation:** Cross-reference live QMD collections against registry. Classify as healthy (in both), orphaned (in QMD only), or stale (in registry only). Prompt user before removing orphans. Silently clean stale registry entries.
+**Implementation:** Cross-reference live QMD collections against registry. Classify as healthy (in both), orphaned (in QMD only, and indexed from a folder inside this project: QMD's index is shared by every project on the machine, so another project's collections never count), or stale (in registry only). Prompt user before removing orphans, and check each one's folder again just before removing it. Silently clean stale registry entries.
 
 ## Related Fragments
 

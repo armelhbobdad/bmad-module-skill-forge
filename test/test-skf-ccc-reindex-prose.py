@@ -68,7 +68,6 @@ UPDATE_WRITE = SRC / "skf-update-skill" / "references" / "write.md"
 AUDIT_INIT = SRC / "skf-audit-skill" / "references" / "init.md"
 TROUBLESHOOTING = REPO_ROOT / "docs" / "troubleshooting.md"
 HYGIENE_HELPER = SRC / "shared" / "scripts" / "skf-ccc-git-hygiene.py"
-SETUP_REFS = SRC / "skf-setup" / "references"
 SETUP_ENVELOPE_SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-setup-result-envelope.v1.json"
 STEP_FILES = sorted(SRC.glob("skf-*/references/**/*.md"))
 # Every markdown file a workflow can load: SKILL.md files, step files and the
@@ -349,12 +348,22 @@ def test_generate_6b_indexes_the_workspace_clone_never_the_tree():
     assert "{source_tree}" not in _generate_6b()
 
 
+def _function_text(path: Path, name: str) -> str:
+    text = _read(path)
+    start = text.index(f"def {name}(")
+    end = text.find("\ndef ", start + 1)
+    return text[start:end if end > 0 else len(text)]
+
+
 def _setup_written_statuses() -> set[str]:
-    """Every `ccc_index.status` value the setup steps bind (write-config stores it as is)."""
-    found: set[str] = set()
-    for path in sorted(SETUP_REFS.glob("*.md")):
-        found.update(re.findall(r'ccc_index_result: "([a-z]+)"', _read(path)))
-    assert found, "no ccc_index_result binding found in the setup steps"
+    """Every `ccc_index.status` value setup records (#592: helpers, not step prose, set it):
+    the merge helper's index result, and the none and failed write-tools records."""
+    scripts = SRC / "shared" / "scripts"
+    found = set(re.findall(r'"status": "([a-z]+)"', _function_text(scripts / "skf-merge-ccc-exclusions.py",
+                                                                   "build_index")))
+    found |= set(re.findall(r'"status": "([a-z]+)"', _function_text(scripts / "skf-forge-tier-rw.py",
+                                                                    "_staged_ccc_index")))
+    assert found, "no ccc_index status found in the setup helpers"
     return found
 
 

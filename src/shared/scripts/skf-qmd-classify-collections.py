@@ -5,25 +5,36 @@
 """SKF QMD Classify Collections — Set arithmetic over QMD collection names.
 
 Replaces the prose-driven classification logic in `src/skf-setup/references/
-auto-index.md` §3 with one Python invocation. Compares the live
+auto-index.md` §2 with one Python invocation. Compares the live
 QMD collections (from `qmd collection list`) against the forge registry
 (`qmd_collections` array in forge-tier.yaml) and classifies each name as
 Healthy / Orphaned / Stale, applying the forge-namespace suffix filter
 added in PR #244 to silently exclude collections owned by unrelated
 tools sharing the QMD daemon.
 
-Classification rules (per step 3 §3):
+Classification rules (per step 3 §2):
 
-  Healthy   — name in {forge-suffix-matched live} AND in registry.
+  Healthy:  name in {forge-suffix-matched live} AND in registry.
               No action needed.
-  Orphaned  — name in {forge-suffix-matched live} but NOT in registry.
-              Flagged for user-prompted removal in step 3 §4.
-  Stale     — name in registry but NOT in {all live}. Registry entry
+  Orphaned: name in {forge-suffix-matched live}, NOT in registry, and
+              `qmd collection show <name>` reports a Path inside
+              --project-root. Offered for removal in step 3 §3.
+  Stale:    name in registry but NOT in {all live}. Registry entry
               should be removed.
-  Foreign   — name in live but does NOT match a forge suffix. Silently
-              excluded from every classification — never displayed,
-              never proposed for removal. Reported as a count for
-              telemetry only.
+  Foreign:  name in live that does NOT match a forge suffix, or a
+              forge-suffixed name missing from the registry whose Path
+              lies outside --project-root (or that qmd cannot show).
+              Silently excluded from every classification: never
+              displayed, never proposed for removal. Reported as a count
+              for telemetry only.
+
+QMD's index is shared by every project on the machine, and every SKF
+project names its collections with the same suffixes, so a suffix alone
+cannot tell this project's orphan from another project's healthy
+collection. SKF adds each collection from a folder inside its project
+(the forge data folder, the skills folder or `_bmad-output/`), so the
+collection's Path names its owner. A Path that resolves outside the
+project root, or none at all, never makes a collection removable here.
 
 Forge suffixes (the only suffixes a forge-managed collection can have,
 set by producers `skf-brief-skill` and `skf-create-skill` per
@@ -31,33 +42,66 @@ src/knowledge/qmd-registry.md § Collection Types):
 
   -brief, -temporal, -docs, -extraction
 
-Inputs:
+Subcommands:
 
-  --live-names    Comma-separated list of collection names currently
-                  in QMD (caller obtains this from `qmd collection list`
-                  before invoking the script). Empty string → no live
-                  collections, which is a valid first-run state.
+  classify        Classify the live collections against the registry.
 
-  --registry-from-yaml <path>
+    --registry-from-yaml <path>
                   Path to forge-tier.yaml. The script reads the file's
                   `qmd_collections` array and extracts the `name` field
                   from each entry. Missing file or missing array → empty
                   registry, which is a valid first-run state.
 
-Output (single JSON document on stdout):
+    --project-root <path>
+                  The project whose orphans may be offered for removal.
+
+    --live-names  Comma-separated list of collection names currently
+                  in QMD. If omitted, the script invokes `qmd collection
+                  list` itself. Empty string → no live collections, which
+                  is a valid first-run state.
+
+  remove-orphans  Remove the orphans a classification found.
+
+    --classification-from <path>
+                  The classify output step 3 staged (`qmd-classify.json`);
+                  its `orphaned` list names the collections to remove.
+
+    --project-root <path>
+                  Each collection's Path is read again with `qmd
+                  collection show` just before `qmd collection remove`
+                  runs, and a collection whose Path no longer lies inside
+                  this root is not removed (it is listed under `failed`).
+
+Output of classify (single JSON document on stdout):
 
   {
     "status": "ok",
     "version": "v1",
+    "live_names":       ["bar-extraction", "foo-brief", "memory-root-1"],
     "healthy":          ["foo-brief", "foo-extraction"],
     "orphaned":         ["bar-extraction"],
+    "orphaned_paths":   {"bar-extraction": "/abs/project/skills/bar"},
     "stale":            ["baz-docs"],
     "foreign_filtered_count": 4,
     "foreign_filtered_sample": ["memory-root-1", "sessions-2"]
   }
 
+Output of remove-orphans (single JSON document on stdout):
+
+  {
+    "status": "ok",
+    "version": "v1",
+    "removed": ["bar-extraction"],
+    "failed":  ["old-docs"],
+    "errors":  {"old-docs": "its Path no longer lies inside the project root"}
+  }
+
+A collection that could not be removed is a hygiene note, not an error:
+remove-orphans exits 0 whatever it removed.
+
 `foreign_filtered_sample` is capped at 5 names (telemetry; the full list
-is never useful — if it were forge-relevant it would have a forge suffix).
+is never useful: if it were forge-relevant it would have a forge suffix
+and a Path inside the project).
 
 CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
 above is auto-resolved on first call and cached. `docs/getting-started.md`
@@ -65,14 +109,15 @@ documents uv as the runtime prerequisite for exactly this. Bare
 `python3` will fail with `ModuleNotFoundError: No module named 'yaml'`
 on a fresh interpreter:
 
-  uv run skf-qmd-classify-collections.py \\
-      --live-names foo-brief,foo-extraction,memory-root-1 \\
-      --registry-from-yaml /path/forge-tier.yaml
+  uv run skf-qmd-classify-collections.py classify \\
+      --registry-from-yaml /path/forge-tier.yaml --project-root /path/project
+  uv run skf-qmd-classify-collections.py remove-orphans \\
+      --classification-from /run/qmd-classify.json --project-root /path/project
 
 Exit codes:
   0 success
-  1 user error (bad args, malformed registry file)
-  2 internal error
+  1 user error (bad args, malformed registry or classification file)
+  2 internal error (qmd collection list failed)
 """
 
 from __future__ import annotations
@@ -163,11 +208,36 @@ def load_registry_names(path: Path) -> list[str]:
     return names
 
 
-def classify(live: list[str], registry: list[str]) -> dict:
+def is_inside(path: str | None, root) -> bool:
+    """True when `path` resolves to `root` or a folder below it.
+
+    Both sides go through realpath and normcase, so a symlinked project
+    root or a Windows drive letter in another case still matches. A path
+    on another drive, or none at all, is never inside.
+    """
+    if not path or not root:
+        return False
+    try:
+        target = os.path.normcase(os.path.realpath(path))
+        base = os.path.normcase(os.path.realpath(str(root)))
+        return os.path.commonpath([target, base]) == base
+    except (OSError, ValueError):
+        return False
+
+
+def classify(live: list[str], registry: list[str], project_root=None,
+             paths: dict | None = None) -> dict:
     """Pure function: classify live vs registry into healthy/orphaned/stale/foreign.
+
+    With `project_root`, a forge-suffixed live name missing from the
+    registry is orphaned only when `paths` maps it to a Path inside that
+    root; the rest count as foreign. Without it every such name is
+    orphaned: only a caller that already knows they all belong to this
+    project may leave it out (the CLI always passes it).
 
     Returns the classification payload (without status/version envelope).
     """
+    paths = paths or {}
     forge_live = [n for n in live if is_forge_owned(n)]
     foreign_live = [n for n in live if not is_forge_owned(n)]
 
@@ -176,7 +246,14 @@ def classify(live: list[str], registry: list[str]) -> dict:
     all_live_set = set(live)
 
     healthy = sorted(forge_live_set & registry_set)
-    orphaned = sorted(forge_live_set - registry_set)
+    candidates = sorted(forge_live_set - registry_set)
+    if project_root is None:
+        orphaned = candidates
+    else:
+        orphaned = [n for n in candidates if is_inside(paths.get(n), project_root)]
+        # Another project's collection, or one qmd could not show, is no
+        # orphan of this one: it counts the way a name with no forge suffix does.
+        foreign_live += [n for n in candidates if n not in orphaned]
     # Stale uses the full live set, NOT just the forge-filtered set, so a
     # registry entry whose name happens to match a non-forge live collection
     # would still count as stale. Registry entries always have forge suffixes
@@ -187,6 +264,7 @@ def classify(live: list[str], registry: list[str]) -> dict:
         "live_names": sorted(all_live_set),
         "healthy": healthy,
         "orphaned": orphaned,
+        "orphaned_paths": {n: paths[n] for n in orphaned if paths.get(n)},
         "stale": stale,
         "foreign_filtered_count": len(foreign_live),
         "foreign_filtered_sample": foreign_live[:FOREIGN_SAMPLE_CAP],
@@ -249,6 +327,30 @@ def _resolve_outside_cwd(command: str) -> str | None:
     return resolved
 
 
+def _run_qmd(*args: str) -> tuple[int | None, str, str]:
+    """Run `qmd <args>`; return (exit code, stdout, stderr), exit code None when it could not run."""
+    import subprocess
+    # Resolve before spawning: on Windows qmd ships from npm as a .CMD
+    # shim, which a bare-name subprocess.run cannot launch (WinError 2).
+    qmd = _resolve_outside_cwd("qmd")
+    if qmd is None:
+        return None, "", "qmd not found on PATH"
+    try:
+        # qmd emits UTF-8; a locale-default decode (cp1252 on Windows)
+        # mojibakes names or raises UnicodeDecodeError on unmapped bytes.
+        result = subprocess.run(
+            [qmd, *args],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return None, "", f"qmd {' '.join(args[:2])} failed: {e}"
+    return result.returncode, result.stdout or "", result.stderr or ""
+
+
 def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
     """Invoke `qmd collection list` and return (names, error).
 
@@ -257,51 +359,112 @@ def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
     same-process invocation here is the single source of truth for what
     counts as a "live collection name".
     """
-    import subprocess
-    # Resolve before spawning: on Windows qmd ships from npm as a .CMD
-    # shim, which a bare-name subprocess.run cannot launch (WinError 2).
-    qmd = _resolve_outside_cwd("qmd")
-    if qmd is None:
-        return [], "qmd not found on PATH"
+    code, out, err = _run_qmd("collection", "list")
+    if code is None:
+        return [], err
+    if code != 0:
+        return [], f"qmd collection list exited {code}: {err.strip() or '<no stderr>'}"
+    return parse_collection_list_output(out), None
+
+
+def parse_collection_path(raw: str) -> str | None:
+    """The folder a `qmd collection show` output names on its `Path:` line, or None."""
+    for line in raw.splitlines():
+        key, sep, value = line.strip().partition(":")
+        if sep and key == "Path" and value.strip():
+            return value.strip()
+    return None
+
+
+def fetch_collection_path(name: str) -> tuple[str | None, str | None]:
+    """Run `qmd collection show <name>`; return (its Path, error)."""
+    code, out, err = _run_qmd("collection", "show", name)
+    if code is None:
+        return None, err
+    if code != 0:
+        return None, f"qmd collection show exited {code}: {(err or out).strip() or '<no output>'}"
+    path = parse_collection_path(out)
+    return (path, None) if path else (None, "qmd collection show printed no Path line")
+
+
+def remove_orphans(names: list[str], project_root) -> dict:
+    """Remove each orphan whose Path still lies inside `project_root`.
+
+    The Path is read again just before each removal, so a collection that
+    another project re-created under the same name since the classification
+    is left alone. Returns {"removed", "failed", "errors"}.
+    """
+    removed: list[str] = []
+    failed: list[str] = []
+    errors: dict[str, str] = {}
+    for name in names:
+        path, error = fetch_collection_path(name)
+        if error is None and not is_inside(path, project_root):
+            error = "its Path no longer lies inside the project root"
+        if error is None:
+            code, out, err = _run_qmd("collection", "remove", name)
+            if code is None:
+                error = err
+            elif code != 0:
+                error = f"qmd collection remove exited {code}: {(err or out).strip() or '<no output>'}"
+        if error is None:
+            removed.append(name)
+        else:
+            failed.append(name)
+            errors[name] = " ".join(error.split())
+    return {"removed": removed, "failed": failed, "errors": errors}
+
+
+def load_orphaned_names(path: Path) -> list[str]:
+    """The `orphaned` list of a staged classification, or exit 1 when there is none."""
     try:
-        # qmd emits UTF-8; a locale-default decode (cp1252 on Windows)
-        # mojibakes names or raises UnicodeDecodeError on unmapped bytes.
-        result = subprocess.run(
-            [qmd, "collection", "list"],
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        return [], f"qmd collection list failed: {e}"
-    if result.returncode != 0:
-        return [], f"qmd collection list exited {result.returncode}: {result.stderr.strip() or '<no stderr>'}"
-    return parse_collection_list_output(result.stdout), None
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        _die(1, f"remove-orphans: cannot read the classification {path}: {e}")
+    orphaned = data.get("orphaned") if isinstance(data, dict) else None
+    if not isinstance(orphaned, list) or not all(isinstance(n, str) for n in orphaned):
+        _die(1, f"remove-orphans: {path} holds no `orphaned` list of names")
+    return orphaned
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Classify QMD collections vs forge registry.",
+        description="Classify QMD collections vs forge registry, and remove the orphans.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    p_classify = sub.add_parser("classify", help="Classify live collections against the registry")
+    p_classify.add_argument(
         "--live-names",
         default=None,
         help="Comma-separated list of collection names currently in QMD. "
              "If omitted, the script invokes `qmd collection list` itself. "
              "Empty string → no live collections.",
     )
-    parser.add_argument(
+    p_classify.add_argument(
         "--registry-from-yaml",
         type=Path,
         required=True,
         help="Path to forge-tier.yaml. Script reads qmd_collections array. "
              "Missing file → empty registry (first-run state).",
     )
+    p_classify.add_argument(
+        "--project-root",
+        required=True,
+        help="The project whose orphans may be offered for removal: a collection "
+             "outside the registry is orphaned only when its Path lies inside it.",
+    )
+    p_remove = sub.add_parser("remove-orphans",
+                              help="Remove the orphans a staged classification lists")
+    p_remove.add_argument("--classification-from", type=Path, required=True,
+                          help="The classify output (qmd-classify.json).")
+    p_remove.add_argument("--project-root", required=True,
+                          help="Each Path is checked against this root again before its removal.")
     args = parser.parse_args()
 
+    if args.cmd == "remove-orphans":
+        _ok(remove_orphans(load_orphaned_names(args.classification_from), args.project_root))
+        return
     if args.live_names is None:
         names, error = fetch_live_names_from_qmd()
         if error is not None:
@@ -310,7 +473,9 @@ def main() -> None:
     else:
         live = parse_live_names(args.live_names)
     registry = load_registry_names(args.registry_from_yaml)
-    _ok(classify(live, registry))
+    candidates = sorted({n for n in live if is_forge_owned(n)} - set(registry))
+    paths = {name: fetch_collection_path(name)[0] for name in candidates}
+    _ok(classify(live, registry, args.project_root, paths))
 
 
 def _force_utf8(*streams) -> None:
