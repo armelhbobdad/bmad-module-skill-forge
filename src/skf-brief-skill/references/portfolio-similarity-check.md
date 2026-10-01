@@ -10,7 +10,7 @@ This check catches **semantic near-duplicates** that exact-name collision misses
 
 ## Procedure
 
-The brief portfolio is already indexed in QMD collections — one `{skill-name}-brief` collection per existing brief, registered by step 5 §5 of every prior Deep-tier run. The qmd CLI does not support glob-style collection selection, so enumerate first (capping the sweep), then query the capped set per collection in **bounded parallel batches (≈4 concurrent Bash calls at a time)** — each `qmd query` cold-starts an embedding model, so issuing all of them at once on a large portfolio thrashes memory and stalls:
+The brief portfolio is already indexed in QMD collections, one `{skill-name}-brief` collection per existing brief, registered by step 5 §3b of every prior Deep-tier run. The qmd CLI does not support glob-style collection selection, so enumerate first (capping the sweep), then query the capped set per collection in **bounded parallel batches (≈4 concurrent Bash calls at a time)**, because each `qmd query` cold-starts an embedding model and issuing all of them at once on a large portfolio thrashes memory and stalls:
 
 ```bash
 # 1. Enumerate brief collections (one per existing brief), capping the sweep.

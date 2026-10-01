@@ -5,9 +5,6 @@ nextStepFile: 'health-check.md'
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
-emitBriefEnvelopeProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
-  - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
@@ -65,7 +62,7 @@ Overwrite it with the brief you just approved? [Y/N]"
 If the file exists:
 
 - If `force` was supplied as a headless argument: log `"headless: force-overwriting existing brief at {path}"` and proceed to §3.
-- Otherwise: emit the error envelope per §4b with `halt_reason: "overwrite-cancelled"`, then HALT with exit code 5.
+- Otherwise: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "overwrite-cancelled"` (SKILL.md Halt Contract), then HALT with exit code 5.
 
 If the file does not exist, proceed normally.
 
@@ -92,6 +89,9 @@ Assemble the brief context as a **flat** JSON object — every approved value is
   "scope_rationale":  null | {"recommended":"...","chosen":"...","accepted_recommendation":true|false,"heuristic":"...","reason":"...","recorded":"YYYY-MM-DD"},
   "scope_tier_a_include": null | ["{tier-A authoring-surface patterns — from step 03 §3c capture, or hydrated on a ratify run}"],
   "scope_amendments":     null | [{"path":"...","action":"...","reason":"...","date":"YYYY-MM-DD","workflow":"..."}],
+  "scope_registry_path":  null | "{a component library's registry file, from step 03's component-library flow or hydrated on a ratify run}",
+  "scope_ui_variants":    null | [{"name": "...", "package": "..."}],
+  "scope_demo_patterns":  null | ["{demo globs}"],
   "doc_urls":         null | [{"url": "...", "label": "...", "source": "{optional: language-registry|readme-detection|homepage|pages-api|docs-folder}"}],
   "scripts_intent":   null | "{detect|none|free-text}",
   "assets_intent":    null | "{detect|none|free-text}",
@@ -101,7 +101,7 @@ Assemble the brief context as a **flat** JSON object — every approved value is
 }
 ```
 
-**Ratify mode (`ratify_mode: true`):** this path never ran step 2, so the version was not re-derived — it was hydrated from the upstream brief at step 1 §3.1a (interactive) or the §8 GATE `from_brief` route (headless). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds. Likewise carry `target_ref`/`source_ref` and `scope_tier_a_include`/`scope_amendments` from the hydrated brief (all null on a derive run) so the writer round-trips the monorepo git ref, the stratified tier-A surface, and the amendment audit log instead of dropping them.
+**Ratify mode (`ratify_mode: true`):** step 2 never re-derives the version on a ratify run (an [R] pass analyzes the brief's ref but keeps the hydrated version): the version was hydrated from the upstream brief at step 1 §3.1a (interactive) or the §8 GATE `from_brief` route (headless). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds. Likewise carry `target_ref`/`source_ref`, `scope_tier_a_include`/`scope_amendments` and `scope_registry_path`/`scope_ui_variants`/`scope_demo_patterns` from the hydrated brief (all null on a derive run) so the writer round-trips the monorepo git ref, the stratified tier-A surface, the amendment audit log, and a component library's registry file, design system variants and demo globs instead of dropping them.
 
 Pipe it into the writer script with the `--from-flat` flag:
 
@@ -122,52 +122,36 @@ The script:
 **On script failure (non-zero exit):**
 - Exit 1 (validation/invariant): The error JSON on stderr names the offending field. This indicates a context-assembly bug, not a user error — surface the message to the user, log it, then HALT.
   - Interactive: **HALT** — display the error JSON's `message` field.
-  - Headless: emit the error envelope per §4b with `halt_reason: "input-invalid"`, then `exit 2`.
+  - Headless: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HALT (exit code 2).
 - Exit 2 (I/O failure): The atomic write failed (target unwritable, disk full, etc.).
   - Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Check that the directory is writable and try again."
-  - Headless: emit the error envelope per §4b with `halt_reason: "write-failed"`, then `exit 4`.
+  - Headless: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "write-failed"` (SKILL.md Halt Contract), then HALT (exit code 4).
 
-**On success:** capture `brief_path` and `version` from the response envelope — both are needed for §4b and §6.
+**On success:** capture `brief_path` and `version` from the response envelope (§4b, §6 and §6b need them), and add each entry of its `warnings[]` to `workflow_warnings[]`.
 
 **Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f` — silent on absent). The draft was a step 1 §7 checkpoint covering the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
 
-### 4b. Headless Result Envelope (Canonical)
+### 3b. QMD Collection Registration (Deep Tier Only)
 
-**Resolve `{emitBriefEnvelopeHelper}`** from `{emitBriefEnvelopeProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**IF forge tier is Deep AND QMD tool is available:** resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` (first existing path wins), then load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry. If neither path exists, do not HALT: the brief is already written, and a QMD problem never fails the run. Index the brief all the same, skip the procedure's registry update, and add `QMD registry not updated: skf-forge-tier-rw.py not found` to `workflow_warnings[]`. A warning the procedure logs goes on `workflow_warnings[]` too, which is why this runs before §4b prints the envelope.
 
-This section is the canonical envelope-emission reference for the workflow. Every headless emission — the success terminal here and every HARD HALT in step 1/02/05 — uses this contract. Remote sites point here instead of restating it.
+**IF forge tier is NOT Deep OR QMD is not available:** skip this section silently: do not load `{qmdRegistrationFile}`. No messaging.
 
-**Success (this call site only — emitted from §3 directly):**
+### 4b. Result Envelope (Headless)
 
-```bash
-echo '{"status":"success","brief_path":"<from §3 response>","skill_name":"<name>","version":"<from §3 response>","language":"<language>","scope_type":"<scope.type>","halt_reason":null}' | \
-  uv run {emitBriefEnvelopeHelper} emit
-```
-
-**Error (used by every HARD HALT site):**
+When `{headless_mode}` is true, print the run's `SKF_BRIEF_RESULT_JSON` line now, after the write (§3) and the QMD registration (§3b), so `workflow_warnings[]` holds every warning the run raised. `{emitBriefEnvelopeHelper}` was resolved at SKILL.md On Activation step 4, and `references/invocation-contract.md` defines each field. Display the line it prints verbatim:
 
 ```bash
-echo '{"status":"error","skill_name":"<name>","halt_reason":"<reason>"}' | \
-  uv run {emitBriefEnvelopeHelper} emit --target stderr
+uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'
+{"status":"success","brief_path":"<brief_path from §3>","skill_name":"<name>","version":"<version from §3>","language":"<language>","scope_type":"<scope.type>","halt_reason":null,"mode":null,"warnings":[<workflow_warnings[] as JSON strings>]}
+SKF_BRIEF_RESULT
 ```
 
-When the HALT fires before `skill_name` has been resolved (step 1 §1 pre-flight write probe, step 1 §8 input-missing on a malformed args bundle), pass the partially-gathered value or the literal `"unknown"` — the script accepts any non-empty string at this position.
+The helper derives `exit_code`, checks the line against the envelope schema and prints it on stdout. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, display its error: the brief is already written, so the run goes on to §6.
 
-The script derives `exit_code` deterministically from `halt_reason` (null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5, user-cancelled→6 [interactive-only — headless never raises this]), validates against `src/shared/scripts/schemas/skf-brief-result-envelope.v1.json`, and prints the prefixed `SKF_BRIEF_RESULT_JSON: {…}` line.
+A HALT in this step, or in steps 1 and 2, does not use this section: it emits the error envelope through the SKILL.md Halt Contract, which also gives the `unknown` placeholder for a halt before the skill name is resolved.
 
-The script enforces the success/error halt_reason invariant (success requires null halt_reason; error requires non-null). The `user-cancelled` halt_reason is accepted for completeness (interactive `[X]` Cancel sites in step 1/03/04) but never appears on the headless code path.
-
-Invocation sites (each pointed at this block, not duplicated): step 1 §1 (write-failed pre-resolution; forge-tier-missing), step 1 §8 (input-missing/input-invalid GATE), step 2 §1 (target-inaccessible/gh-auth-failed), step 5 §2b (overwrite-cancelled), step 5 §3 (input-invalid/write-failed from script). The step 1 §1 forge-tier-missing and step 2 §1 target-inaccessible/gh-auth-failed sites emit through this block too, so every headless HALT class surfaces a `SKF_BRIEF_RESULT_JSON` envelope — there are no envelope-silent failure classes.
-
-When `{headless_mode}` is false, skip this section silently — no envelope is emitted.
-
-### 5. QMD Collection Registration (Deep Tier Only)
-
-**Resolve `{forgeTierRwHelper}`** from `{forgeTierRwProbeOrder}`; first existing path wins. HALT if no candidate exists.
-
-**IF forge tier is Deep AND QMD tool is available:** load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry.
-
-**IF forge tier is NOT Deep OR QMD is not available:** skip this section silently — do not load `{qmdRegistrationFile}`. No messaging.
+When `{headless_mode}` is false, skip this section silently: no envelope is emitted.
 
 ### 6. Display Success Summary
 
@@ -199,7 +183,7 @@ After compilation, you can:
 
 ### 6b. On-Complete Hook (pipeline integration)
 
-If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it now — after the brief has been written (§3) and the result contract finalized (§4b) — as:
+If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it now, after the brief has been written (§3) and, in a headless run, the result envelope printed (§4b):
 
 ```bash
 {onCompleteCommand} --result-path={brief_path}
@@ -207,11 +191,10 @@ If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 fr
 
 where `{brief_path}` is the absolute path captured from the §3 response envelope (the freshly written `skill-brief.yaml`, the stable artifact a downstream consumer chains from).
 
-- On success: log to `workflow_warnings[]` as informational only if the hook emitted stderr (`on_complete hook stderr: …`); otherwise no entry.
-- On non-zero exit / process error: log to `workflow_warnings[]` (`on_complete hook failed (exit {code}): {stderr_snippet}`).
-- **Never fail the workflow on hook errors** — the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production.
+- **Never fail the workflow on hook errors:** the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production. On a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. A headless run printed its envelope at §4b, so the envelope does not carry this line.
+- On success, add nothing: the hook's own output is its report.
 
-When `{onCompleteCommand}` is empty (bundled default), skip this section entirely — no hook is invoked.
+When `{onCompleteCommand}` is empty (bundled default), skip this section entirely: no hook is invoked. On the `[auto]` approve paths, which never load this file, step-auto-validate.md §4 runs the same hook right after its envelope.
 
 ### 7. Chain to Health Check
 

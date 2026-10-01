@@ -1,0 +1,6 @@
+type: changed
+scope: skf-brief-skill
+summary: |
+  Brief Skill now runs your `on_complete` command when an `[auto]` brief is approved (the path the `forge-auto` pipeline takes), right after its `SKF_BRIEF_RESULT_JSON` line; before, only a brief written through the interactive, headless or ratify path called it. The envelope's `warnings` list now carries the run's warnings (a failed doc detection, a doc URL that did not answer, a partial repository listing, the warnings a helper returned). In a headless or `[auto]` run, every halt that has a `halt_reason` prints its error envelope before it stops, the halts of the first two steps included; in `[auto]` mode this holds even when the run is not headless. A failing `on_complete` command still never fails the run: the run shows one `on_complete hook failed` line after the envelope.
+prs: [628]
+issues: [585, 593]

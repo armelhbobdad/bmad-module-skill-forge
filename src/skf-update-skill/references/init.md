@@ -24,6 +24,11 @@ runLockProbeOrder:
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
+# `{findTestReportHelper}`: §1 and §4b find the test report. If neither
+# exists, §1 warns and keeps normal mode and §4b offers nothing.
+findTestReportProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-find-test-report.py'
+  - '{project-root}/src/shared/scripts/skf-find-test-report.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -70,21 +75,25 @@ Provide either:
 
 Resolve the path to an absolute skill folder location.
 
-**If `--from-test-report` was provided (or user references a test report):**
+**If `--from-test-report` was provided (or user references a test report):** find the newest finished test report of the resolved skill with `{findTestReportHelper}` (resolve it ← first existing path in `{findTestReportProbeOrder}`). From `{project-root}`, run:
 
-`skf-test-skill` writes timestamped test-report filenames (`test-report-{skill_name}-{ISO-TIMESTAMP}-{HASH}.md`) — there is no exact-name `test-report-{skill_name}.md` on disk. Locate the most recent report by glob, mirroring `skf-export-skill/references/load-skill.md §4b`:
+```bash
+uv run {findTestReportHelper} find \
+    --forge-data-folder "{forge_data_folder}" \
+    --skill-name "{skill_name}" \
+    [--version "{active_version}"]
+```
 
-1. Glob `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}-*.md` (i.e. `{forge_version}/test-report-{skill_name}-*.md`). Sort matches descending by the parsed ISO-timestamp segment in the filename (`YYYYMMDDTHHMMSSZ` between the skill name and the hash — `sort -r` on the filename works because the timestamp is the first variable component). Take the first match.
-2. If the versioned glob returns nothing, fall back to the same glob at the flat path `{forge_data_folder}/{skill_name}/test-report-{skill_name}-*.md`. Pick the newest by parsed timestamp.
-3. If neither glob returns anything, look for the stable companion `skf-test-skill-result-latest.json` in the same two directories (versioned first, then flat). Read the report path from `outputs[]` per the canonical contract documented at `shared/references/output-contract-schema.md` (resolved by skf-test-skill step 6 §4c) and load that file.
+Pass `--version` only when steps 1-3 above bound `{active_version}` (the flat fallback in step 4 has none). Never glob, sort or read a report's frontmatter by hand.
 
-If a report is located, set `test_report_path` in context to the resolved absolute path and set `update_mode: gap-driven`. Surface the actual file picked in the message (e.g. `test-report-{skill_name}-20260507T050917Z-487606-9b2f.md`) so an operator can navigate to the report from the log. If all three lookups fail, warn and continue with normal source drift mode.
+- **`status` is `found` and `report_exists` is true:** set `test_report_path` ← `path`, `{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`. Name the report the helper picked (its file name, such as `test-report-{skill_name}-20260507T050917Z-487606-9b2f.md`, with its `testResult`, `score` and `source`) and each newer one it passed over as unfinished (`skipped[]`), so an operator can find them from the log, and add each of its `warnings[]` to `warnings[]` as `test-report: <entry>`.
+- **Otherwise** (`not-found`; `found` with `report_exists` false, a result file naming a report that is gone; no candidate resolves; or the command fails or prints no JSON): warn that no test report was found, with the cause, and continue in normal source drift mode.
 
 **If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by step 3 §0.a's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
 
 **If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by §4 below when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown) or when a provenance map is present.
 
-**If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; §6b passes it to `{sourceTreeHelper}`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect — gap-driven mode repairs the skill at its pinned commit — so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report` — gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}`.
+**If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; §6b passes it to `{sourceTreeHelper}`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect, since gap-driven mode repairs the skill at its pinned commit, so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report`: gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}`; when §4b switches a run to gap-driven mode, it unsets it with the same warning.
 
 **If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes, jump directly to step 7 (report) — skip re-extract, merge, validate, and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before §0.a runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only` — workspace drift guard runs in step 3 §0.a, which is skipped").
 
@@ -135,7 +144,7 @@ It prints one JSON line. Dispatch on its exit code:
 
 **Check metadata.json exists:**
 - Load `{resolved_skill_package}/metadata.json`
-- Extract: `name`, `skill_type` (single or stack), `version`, `generation_date`, `confidence_tier`, `source_type` (when present), `source_repo`, `source_root`, `source_ref`, `source_commit`
+- Extract: `name`, `skill_type` (single or stack), `version`, `generation_date`, `confidence_tier`, `source_type`, `scope_type` and `language` (when present), `source_repo`, `source_root`, `source_ref`, `source_commit`
 - If missing: **ABORT** — "No metadata.json found. This skill may have been created manually. Run create-skill to generate provenance data."
 
 **Detect skill type from metadata:**
@@ -171,7 +180,7 @@ After loading metadata.json, check `skill_type`:
 
 ### 4. Load Provenance Map
 
-**Load `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`:
+**Load `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path it loaded, which step 2's helpers read:
 - Extract: export list, file mappings, extraction timestamps, confidence tiers
 - Calculate provenance age (days since last extraction)
 
@@ -192,6 +201,34 @@ Select: [D] Degraded / [X] Abort"
 **In `{headless_mode}` without `--allow-degraded` (default):** do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction: choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. Halt instead: run §1b's release (the read-only modes took no lock), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:load-provenance-map", path: "{forge_version}/provenance-map.json", reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"}`, and exit. No `headless_decisions[]` entry: this is a hard halt, not an auto-resolved gate.
 
 **In `{headless_mode}` with `--allow-degraded` (`allow_degraded: true`):** the operator pre-authorized the lossy rebuild for this run, so treat it as an auto-resolved [D] rather than a halt. Set `degraded_mode = true`, proceed with full extraction scope, and append to in-context `headless_decisions[]`: `{gate: "init.degraded-rebuild", default_action: "X", taken_action: "D", reason: "headless: --allow-degraded pre-authorized degraded full re-extraction", evidence: "no provenance map at {forge_version}/provenance-map.json or flat fallback"}`. Continue to step 2.
+
+### 4b. Offer an Unconsumed Test Report
+
+**Run this section only when `--from-test-report` was not given and `degraded_mode` is false** (a repair reads the provenance map): a user who follows a failing test often runs a plain update. Resolve `{findTestReportHelper}` as §1 does and, from `{project-root}`, run:
+
+```bash
+uv run {findTestReportHelper} find \
+    --forge-data-folder "{forge_data_folder}" \
+    --skill-name "{skill_name}" \
+    [--version "{active_version}"] \
+    --newer-than "{generation_date}" \
+    --provenance-map "{provenance_map_path}"
+```
+
+The report is **unconsumed** when `status` is `found`, `report_exists` is true, `testResult` is `fail` or `pass-with-drift` (the two verdicts test-skill sends to update-skill), `newer` is not `false` (`null`, a time that cannot be read, offers the report rather than hiding it) and `applied` is not `true` (write.md §3 records the report a gap-driven repair applied). Otherwise, or when no candidate resolves or the command fails or prints no JSON, continue to §5. For an unconsumed report, bind `{unconsumed_test_report}` ← `path` and `{unconsumed_test_result}` ← `testResult`, then:
+
+- **Interactive:** present the choice below. Its default follows the verdict: [G] for `fail`; [S] for `pass-with-drift`, which test-skill reached against a workspace HEAD other than the pinned commit, so a repair would read that same tree and halt `halted-for-workspace-drift`, while a normal update reads a fresh tree and records its commit.
+
+  "**Test report `{its file name}` ({testResult}, score {score}) is newer than this skill and has not been applied.**
+
+  [G] Repair the gaps it lists (gap-driven mode, as `--from-test-report` runs it)
+  [S] Check the source for changes (normal mode)"
+
+  - **[G]:** set `test_report_path` ← `{unconsumed_test_report}`, `{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`, then unbind `{unconsumed_test_report}`. When `{target_ref_override}` is set, give §1's `--target-ref` warning and unset it.
+  - **[S]:** keep normal mode and add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`.
+- **Headless (`{headless_mode}` true):** keep normal mode, the mode the caller asked for, and add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`. It is a notice, not a gate the run resolves: no `headless_decisions[]` entry.
+
+While `{unconsumed_test_report}` stays bound, step 7's no-change report points to it instead of saying no action is required.
 
 ### 5. Load [MANUAL] Section Inventory
 

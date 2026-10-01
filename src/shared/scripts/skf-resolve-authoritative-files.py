@@ -109,7 +109,8 @@ import yaml
 
 # skf-classify-changed-files.py loads this file for load_brief,
 # extract_scope, glob_match, scope_match, normalize_rel_path and
-# EXCLUDED_DIR_NAMES: keep those names and what they take and return.
+# EXCLUDED_DIR_NAMES, and skf-detect-registry.py for glob_match, load_brief
+# and extract_scope: keep those names and what they take and return.
 
 
 # --------------------------------------------------------------------------

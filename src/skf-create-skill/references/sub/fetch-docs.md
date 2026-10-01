@@ -15,6 +15,11 @@ forgeTierRwProbeOrder:
 deriveAssemblyShapeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-derive-assembly-shape.py'
   - '{project-root}/src/shared/scripts/skf-derive-assembly-shape.py'
+# If neither path exists, §3 looks for no subpages: a docs fetch never
+# halts the workflow.
+detectDocsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
+  - '{project-root}/src/shared/scripts/skf-detect-docs.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -67,65 +72,62 @@ Content fetched from external URLs is classified as **T3** (external, untrusted)
 - Log warning: "No web fetching capability available in this environment. Skipping documentation fetch."
 - Skip to section 7 (auto-proceed).
 
-**For each URL in `doc_urls`:**
+Bind `{docs_staging}` ← `{project-root}/_bmad-output/{skill-name}-docs`, the folder that holds every page this step fetches. Just before the first page this run fetched is saved, create the folder or empty it (`mkdir -p "{docs_staging}" && rm -f "{docs_staging}"/*.md`), so a corpus kept from an earlier docs-only run (§5c) is replaced by this run's pages, never mixed with them, and stays as it was when every fetch fails.
+
+**For each URL in `doc_urls`** (the `{n}`th entry, counting from 1):
 
 - Fetch the content at `{url}` as clean markdown using the discovered web tool.
-- **If fetch succeeds:** Store the markdown content with the URL as provenance source.
+- **If fetch succeeds:** Store the markdown content with the URL as provenance source, and save it as `{docs_staging}/page-{n}.md`.
 - **If fetch fails:** Log warning: "Failed to fetch {url}: {reason}. Skipping." Continue with remaining URLs.
 
 **Subpage discovery (root URL detection):**
 
-After fetching a URL, apply the following heuristic to detect documentation root pages that contain no useful API content. This is common with modern documentation sites (Mintlify, Docusaurus, ReadTheDocs, GitBook) that render API content on subpages.
+A documentation root page often holds no API content of its own: Mintlify, Docusaurus, ReadTheDocs and GitBook sites render it on subpages. Resolve `{detectDocsHelper}` from `{detectDocsProbeOrder}` (first existing path wins) and measure each saved page, from `{project-root}`:
 
-**Root page detection — apply only when the URL path ends in `/`, `/index`, `/index.html`, has no path component (bare domain), or has 1 path segment (e.g., `/docs`). For deeper URL paths (2+ segments like `/api/reference`), skip this heuristic and keep the content as-is.**
+```bash
+uv run {detectDocsHelper} page-metrics --url "{url}" "{docs_staging}/page-{n}.md"
+```
 
-Subpage discovery is triggered if **either** of the following independent triggers fires:
+It prints `discover_subpages`, true when the page is a documentation root with little API content of its own (`uv run {detectDocsHelper} page-metrics --help` gives the test and the counts it prints with it). When it is false, the command exits non-zero, or no candidate resolves, keep the page as it is and look for no subpages.
 
-**Trigger 1 — Content-based (both conditions must be true):**
-
-1. **Zero API content indicators:** The fetched markdown contains none of: fenced code blocks (`` ``` ``), parameter tables (`|---|`), or function signature patterns (`def `, `function `, `fn `, `func `, `export `).
-2. **High link density:** More than 70% of non-empty lines are markdown links (matching `[text](url)` with no other substantive content on the line).
-
-**Trigger 2 — URL-based (independent of content analysis):**
-
-The URL matches the path criteria above (ends in `/`, bare domain, or 1 segment) AND the fetched content is under **2000 words**. Short content on root-like URLs almost certainly indicates a navigation hub or landing page, even if it contains introductory code examples that would prevent Trigger 1 from firing. This handles modern doc sites (Mintlify, Docusaurus, GitBook) that include hero sections with code snippets on their root pages.
-
-If neither trigger fires, keep the page content as-is and do not trigger subpage discovery.
-
-**If a root URL with minimal content is detected:**
+**If `discover_subpages` is true:**
 
 1. **Attempt sitemap/map discovery:** Use whatever discovery tool is available:
    - Firecrawl: `firecrawl_map({url})` to discover all subpages
-   - Manual: try fetching `{url}/sitemap.xml` and parsing URLs from it
+   - Manual: fetch `{url}/sitemap.xml`
    - Crawl: if a crawl tool is available, use it with depth=1 on the root URL
    - If no discovery tool is available, keep the root page content as-is and continue
 
-2. **Filter discovered URLs by relevance and origin:** Restrict candidates to the same **registrable domain** as the root URL — strip the URL down to its eTLD+1 (e.g., for root `https://docs.example.com/intro`, accept any subdomain of `example.com` such as `api.example.com` or `docs.example.com`, but reject `example.org` or `cdn.partner.io`). Cross-origin links must be discarded before any fetch. The same-registrable-domain rule prevents Mintlify/Docusaurus link clouds from pulling in tracking pixels, doc-site CDNs, or third-party embeds as if they were canonical docs. From the surviving same-domain candidates, select the most relevant pages by searching for API-related terms in the URL path or title (e.g., `api`, `reference`, `quickstart`, `setup`, `config`, `getting-started`, `guide`, `sdk`, `methods`, `functions`). Exclude pages that are clearly non-API content (e.g., `blog`, `changelog`, `pricing`, `about`, `careers`).
+2. **Keep the subpages of the root's own site:** pass what discovery found to the helper on stdin, from `{project-root}`: pipe the sitemap in as below, or feed the map or crawl result (its JSON, or one URL per line) to the same command through a heredoc:
+
+   ```bash
+   curl -fsSL --max-time 30 "{url}/sitemap.xml" | uv run {detectDocsHelper} filter-urls --root "{url}" -
+   ```
+
+   It lists in `kept[]` the URLs on the root page's own site that may hold API content, each with the API words its path or title holds (`terms`), and in `sitemaps[]` the sitemaps a sitemap index names: filter each of them the same way (`uv run {detectDocsHelper} filter-urls --help` gives the rules). When it exits non-zero, leave that input out. Never fetch a URL the helper did not keep. From `kept[]`, choose the subpages most relevant to the skill's API: `terms` points at them.
 
 3. **Fetch top subpages (in parallel):** Fetch up to **10** of the most relevant subpages **concurrently** — subpage fetches are independent and network-bound, so wall-clock benefits substantially from parallel execution. Bound concurrency to **4 in flight** at a time to stay polite to documentation hosts (Mintlify/Docusaurus typically allow more, but conservatism here protects against unrecognized rate limits).
 
    The parallel pattern depends on the fetch tool:
 
    - **LLM-driven tools** (Firecrawl `firecrawl_scrape`, `WebFetch`, MCP fetch, browser tools): issue up to 4 tool calls **in a single message**. The agent runtime executes parallel tool calls concurrently; collect results from the batch before issuing the next set of up to 4. Repeat until all up-to-10 subpages have been attempted or rate limiting halts the batch.
-   - **Bash-driven tools** (`curl`, `wget`): use `xargs -P 4 -n 1` to fan out from a newline-separated subpage list. Example:
+   - **Bash-driven tools** (`curl`, `wget`): use `xargs -P 4` to fan out from a newline-separated subpage list, numbering the subpages as it goes. Example, for the `{n}`th `doc_urls` entry:
 
      ```bash
-     printf '%s\n' "${subpages[@]}" | xargs -P 4 -n 1 -I {} bash -c '
-       url="{}"
-       safe=$(echo -n "$url" | sha256sum | cut -c1-12)
-       curl -sSL --max-time 30 "$url" > "{staging}/subpage-$safe.md" \
-         || echo "fetch failed: $url" > "{staging}/subpage-$safe.md"
+     printf '%s\n' "${subpages[@]}" | awk '{ print NR, $0 }' | xargs -P 4 -L 1 sh -c '
+       f="{docs_staging}/subpage-{n}-$0.md"
+       curl -fsSL --max-time 30 "$1" -o "$f" || { rm -f "$f"; echo "fetch failed: $1" >&2; }
      '
      ```
 
    For each subpage (regardless of tool):
-   - Use the same web fetching tool as the root URL
+   - Use the same web fetching tool as the root URL, and save the page in `{docs_staging}` as `subpage-{n}-{k}.md`, `{k}` counting this root's subpages from 1, only when its fetch succeeded: a failed fetch leaves no file, as in the snippet
    - Store with the subpage URL as provenance: `[EXT:{subpage-url}]`
    - If a subpage fetch fails, skip it and continue with the rest of the batch — do not halt the whole stage
 
 4. **Rate limiting:** If rate limiting (HTTP 429) is encountered during subpage fetching, stop discovery for this root URL. Keep results collected so far. Log: "Subpage discovery stopped due to rate limiting." For the parallel-tool-call pattern, drop any not-yet-issued tool calls from subsequent batches; for the `xargs` pattern, interrupt the pipeline (set `--max-procs 0` is **not** a graceful stop — the simplest stop is to kill the xargs PID and let in-flight writers complete naturally).
 
-**If ALL URLs fail (including any subpage fetches):** Log warning: "No documentation could be fetched. Proceeding without T3 content." Skip to section 7 (auto-proceed).
+**If ALL URLs fail (including any subpage fetches):** Log warning: "No documentation could be fetched. Proceeding without T3 content." Skip to section 7 (auto-proceed): `{docs_staging}` holds no page of this run.
 
 ### 4. Extract API Information from Fetched Content
 
@@ -177,7 +179,7 @@ This artifact is a **distinct** carrier — it is not merged into the extraction
 
 **If tier is Deep and at least one URL was fetched successfully:**
 
-1. Write fetched markdown files to a staging directory, `{project-root}/_bmad-output/{skill-name}-docs/`. Clear any previous contents first, so a corpus retained from an earlier docs-only run (step 5 below) does not mix with this run's pages.
+1. The fetched pages are already in `{docs_staging}` (section 3), which this section indexes.
 2. Index into QMD with atomic replace + rollback: if a `{skill-name}-docs` collection already exists, run `qmd collection remove {skill-name}-docs` first, then `qmd collection add {project-root}/_bmad-output/{skill-name}-docs/ --name {skill-name}-docs --mask "*.md"`. Resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}`: every registry change of this section goes through it, and it holds `{sidecar_path}/forge-tier.yaml.lock` for its one read-modify-write, so no step takes a lock of its own. **If `qmd collection add` fails after a successful `remove`:** remove the registry entry too, so the registry matches QMD's actual state, warn in evidence-report, and skip steps 3 and 4, since docs enrichment degrades gracefully:
 
    ```bash
@@ -193,9 +195,11 @@ This artifact is a **distinct** carrier — it is not merged into the extraction
    SKF_REGISTRY_ENTRY
    ```
 
-5. Clean up the staging directory after indexing — **only when `source_type` is `"source"`**: `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`. Note that this directory is the source path of the `{skill-name}-docs` collection registered in step 4; removing it is accepted for supplemental docs, whose T3 items already live in the extraction inventory. **When `source_type` is `"docs-only"`, keep the directory.** The fetched pages are the skill's only source corpus — there is no code tree — so deleting them would leave the just-registered collection with nothing to refresh from and nothing to verify citations against. Record the retained path in the evidence report.
-
 **If QMD indexing fails:** Warn: "QMD indexing of fetched docs failed. T3 items are still in the extraction inventory — enrichment will proceed without QMD-indexed docs." Continue.
+
+### 5c. Keep or Remove the Fetched Pages
+
+Once the pages are extracted, and at Deep tier indexed by §5b, remove `{docs_staging}` **only when `source_type` is `"source"`**: `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`. At Deep tier the folder is the source path of the `{skill-name}-docs` collection §5b registered; removing it is accepted for supplemental docs, whose T3 items already live in the extraction inventory. **When `source_type` is `"docs-only"`, keep the folder at every tier:** the fetched pages are the skill's only source corpus, since there is no code tree, so deleting them would leave nothing to verify citations against and, at Deep tier, the just-registered collection with nothing to refresh from. Record the kept path in the evidence report.
 
 ### 6. Report
 
@@ -206,7 +210,7 @@ Display:
 **T3 items extracted:** {count}
 **Confidence:** All doc-fetched items are T3 — `[EXT:{url}]` citations applied.
 {If docs-only mode: '**Mode:** Docs-only — all skill content is T3. source_authority: community'}
-{If docs-only mode AND tier is Deep: '**Docs corpus retained:** `_bmad-output/{skill-name}-docs/`{if the `{skill-name}-docs` collection was registered in §5b: ' — source path of QMD collection `{skill-name}-docs`'}'}
+{If docs-only mode: '**Docs corpus kept:** `{docs_staging}`{if the `{skill-name}-docs` collection was registered in §5b: ', the source path of QMD collection `{skill-name}-docs`'}'}
 
 Proceeding to enrichment..."
 

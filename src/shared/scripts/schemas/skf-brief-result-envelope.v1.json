@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-brief-result-envelope.v1.json",
   "title": "SKF_BRIEF_RESULT_JSON envelope (v1)",
-  "description": "Single-line JSON document emitted by skf-brief-skill step 5 §4b when {headless_mode} is true, prefixed with the literal 'SKF_BRIEF_RESULT_JSON: '. Pipelines grep one line out of the workflow log to branch on the brief outcome without parsing prose. Schema mirrors the contract in src/skf-brief-skill/SKILL.md Result Contract section.",
+  "description": "Single-line JSON document skf-brief-skill prints when {headless_mode} is true or the run is in [auto] mode, at the end of a successful run and at every HARD HALT, prefixed with the literal 'SKF_BRIEF_RESULT_JSON: '. Pipelines grep one line out of the workflow log to branch on the brief outcome without parsing prose. Schema mirrors the contract in src/skf-brief-skill/references/invocation-contract.md (Result Contract).",
   "$defs": {
     "skf-envelope": {
       "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
@@ -33,7 +33,7 @@
     "status": {
       "type": "string",
       "enum": ["success", "error"],
-      "description": "'success' on the terminal happy path (after step 5 wrote the brief and step 6 returned). 'error' on any HARD HALT."
+      "description": "'success' once the run has written the brief (step 5) or, in [auto] mode, the user or a headless run approved it (step 1b). 'error' on any HARD HALT."
     },
     "brief_path": {
       "type": ["string", "null"],
@@ -42,7 +42,7 @@
     "skill_name": {
       "type": "string",
       "minLength": 1,
-      "description": "Brief's skill_name field — present in every envelope (success and error) since it is captured at step 1 §6 before any of the other failure branches."
+      "description": "Brief's skill_name field, present in every envelope (success and error): the literal 'unknown' on a halt that fires before step 1 resolves the name."
     },
     "version": {
       "type": ["string", "null"],
@@ -60,7 +60,7 @@
     "exit_code": {
       "type": "integer",
       "enum": [0, 2, 3, 4, 5, 6],
-      "description": "Process exit code matching the SKILL.md Exit Codes table. Derived deterministically from halt_reason: null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5, user-cancelled→6."
+      "description": "Process exit code matching the Exit Codes table in src/skf-brief-skill/references/invocation-contract.md. Derived deterministically from halt_reason: null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5, user-cancelled→6."
     },
     "halt_reason": {
       "type": ["string", "null"],

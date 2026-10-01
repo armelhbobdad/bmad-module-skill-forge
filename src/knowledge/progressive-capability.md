@@ -24,7 +24,7 @@ With progressive capability:
 | --- | --- | --- | --- |
 | Quick | No tools required | Fast, template-driven, package-name resolution | Speed-first skill creation |
 | Forge | ast-grep available | AST-backed structural analysis, line-level citations | Precision-focused compilation |
-| Forge+ | ast-grep + ccc | Semantic discovery + AST verification, pre-ranked extraction | Intelligent precision compilation |
+| Forge+ | ast-grep + ccc | Semantic discovery + AST verification | Intelligent precision compilation |
 | Deep | ast-grep + gh + qmd | AST + GitHub exploration + QMD synthesis, maximum provenance | Full intelligence pipeline |
 
 ## Pattern Examples
@@ -81,7 +81,7 @@ Deep:   "Full intelligence pipeline — AST verification plus GitHub exploration
 **Implementation:**
 - **Quick:** Reads source files, applies pattern matching for exports and signatures, produces T1-low citations. Uses `gh_bridge` for file structure when available as a convenience, not a requirement.
 - **Forge:** Uses `ast_bridge.scan_definitions()` for structural parsing, produces T1 citations with exact AST node types. Falls back to source reading for files ast-grep cannot parse.
-- **Forge+:** Identical extraction to Forge, plus ccc semantic pre-discovery narrows the file set before ast-grep runs. For large codebases, `ccc_bridge.search()` produces a ranked candidate list. ast-grep operates on that list rather than the full tree. Labels follow the tool exactly as at Forge (ccc is upstream, not in the extraction chain): an ast-grep match is T1 (AST-verified), an export read by eye is T1-low.
+- **Forge+:** Identical extraction to Forge, plus ccc semantic pre-discovery: `ccc_bridge.search()` ranks the source files, and the files a step reads by eye follow that order, while the recipe runner reads every file in scope. Labels follow the tool exactly as at Forge (ccc is upstream, not in the extraction chain): an ast-grep match is T1 (AST-verified), an export read by eye is T1-low.
 - **Deep:** Identical extraction to Forge, plus QMD enrichment in a separate step. T2 annotations layer on top of the extracted T1 and T1-low base without replacing it.
 
 *Bridge names (`gh_bridge`, `ast_bridge`, `ccc_bridge`, `qmd_bridge`) are conceptual interfaces. See [tool-resolution.md](tool-resolution.md) for concrete tool resolution per IDE.*
@@ -99,7 +99,7 @@ Deep:   "Full intelligence pipeline — AST verification plus GitHub exploration
 - **Forge/Deep (Naive mode — individual skill):** Coherence weight (18%) redistributed to remaining categories: Export Coverage 45%, Signature Accuracy 25%, Type Coverage 20%, External Validation 10%. All four active categories are scored with AST-backed data.
 - **Quick (any mode):** Signature Accuracy and Type Coverage are skipped (no AST available). Their weights redistribute proportionally to remaining active categories. For a Quick-tier individual skill (naive mode): after both adjustments (coherence removal + AST-dependent category removal), only Export Coverage and External Validation remain active — approximate redistributed weights: Export Coverage ~82%, External Validation ~18% (exact values depend on proportional redistribution; see scoring-rules.md for the calculation). When the external validators (skill-check, and Tessl Review when the user opted in) also produce no score, their weight is further redistributed, leaving Export Coverage as the sole scoring axis.
 - **Forge (Contextual mode):** Export Coverage 36%, Signature Accuracy 22%, Type Coverage 14%, Coherence 18%, External Validation 10%. Full AST-backed verification. When external validation tools are unavailable, their 10% is redistributed proportionally.
-- **Forge+ (Contextual mode):** Same weights as Forge. The improved extraction coverage (from ccc pre-ranking) may increase T1 count and reduce gaps, but the scoring weights themselves do not change.
+- **Forge+ (Contextual mode):** Same weights as Forge.
 - **Deep (Contextual mode):** Same weights as Forge, plus cross-repo verification and QMD coherence checks feed into the coherence score.
 
 **Key Points:**

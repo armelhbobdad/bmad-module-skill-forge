@@ -27,6 +27,9 @@
 | `source_authority` | string | `official` / `community` / `internal`            | Default `community`. Set to `official` only when the skill creator is the library maintainer. Forced to `community` when `source_type: "docs-only"`.                                                                           |
 | `source_ref`       | string | Git ref (tag/branch/HEAD)                        | Resolved git ref used for source access. Set automatically during tag resolution — do not set manually.                                                                                                                        |
 | `scope.tier_a_include` | array | Glob patterns (min 1, non-empty)              | Optional. Narrower tier-A include list for a curated-subset skill — stratified monorepo packages, single-crate `specific-modules` scopes, and multi-entry exports-map packages. When present, `skf-test-skill` re-derives the coverage denominator from this list instead of the coarse `scope.include`, so the denominator reflects the authoring surface rather than incidentally-matched internal infrastructure. **It also exempts the brief from the denominator deflation guard**, so supply it only when it genuinely narrows the surface — never as an empty list, and never as a way to widen (listing files outside `scope.include` inverts its meaning). See `skf-test-skill/references/source-access-protocol.md` stratified-scope resolution. |
+| `scope.registry_path` | string | Path from the source root (non-empty) | Optional, for `scope.type: "component-library"`. The component registry file. `skf-create-skill` step 3d reads it instead of detecting a registry, and writes it back, with a `demo-and-registry` amendment, when the user confirms a detected registry or gives its path. |
+| `scope.ui_variants` | array | `{name, package?}` objects (`name` non-empty) | Optional, for `scope.type: "component-library"`. The design system variants, the first one primary. |
+| `scope.demo_patterns` | array | Glob patterns (non-empty strings) | Optional, for `scope.type: "component-library"`. The demo and example files `skf-create-skill` step 3d leaves out. Step 3d reads them instead of detecting demo files, and writes them back, with a `demo-and-registry` amendment per glob, when the user confirms or adjusts the detected ones. |
 
 When `source_type: "docs-only"`:
 - `source_repo` becomes optional (set to doc site URL for reference)
@@ -77,13 +80,14 @@ scope:
   #   reason: "user overrode full-library->public-api: only documented API ships"
   #   recorded: "2026-05-18"
   # Optional: amendment log for scope decisions made during create-skill §2a,
-  # update-skill §1b (auth-doc), and update-skill §1c (scope-expansion).
+  # update-skill §1b (auth-doc), update-skill §1c (scope-expansion) and
+  # create-skill step 3d (demo-and-registry).
   # amendments:
   #   - path: "apps/docs/public/llms.txt"
-  #     action: "promoted"          # "promoted" | "skipped" | "demoted-include" | "demoted-exclude"
-  #     category: "auth-doc"        # "auth-doc" (default for legacy entries) | "scope-expansion"
+  #     action: "promoted"          # "promoted" | "skipped" | "excluded" | "demoted-include" | "demoted-exclude" | "demo-excluded" | "registry-confirmed"
+  #     category: "auth-doc"        # "auth-doc" (default for legacy entries) | "scope-expansion" | "demo-and-registry"
   #     reason: "authoritative AI docs — only source for canonical install command"
-  #     heuristic: "llms.txt"        # required for auth-doc; absent for scope-expansion
+  #     heuristic: "llms.txt"        # required for auth-doc; absent for scope-expansion and demo-and-registry
   #     date: "2026-04-11"
   #     workflow: "skf-create-skill"
   #   - path: "python/cocoindex/_internal/api.py"
@@ -93,6 +97,13 @@ scope:
   #     evidence: "~70 new exports flagged out-of-scope by audit"
   #     date: "2026-04-25"
   #     workflow: "skf-update-skill"
+  #   - path: "registry/index.ts"
+  #     action: "registry-confirmed"
+  #     category: "demo-and-registry"
+  #     reason: "user confirmed the detected registry at create-skill step 3d"
+  #     evidence: "score 8/9, 52 entries"
+  #     date: "2026-10-01"
+  #     workflow: "skf-create-skill"
   # Additional fields when scope.type is "component-library":
   # registry_path: "path/to/registry.ts"  # Optional — auto-detected if omitted
   # ui_variants:                           # Optional — design system variants
@@ -127,21 +138,22 @@ scope:
 
 ### Scope Amendments (Optional)
 
-`scope.amendments[]` is an additive, optional audit log of scope decisions made by workflows after the brief was first authored. Two writer paths exist today:
+`scope.amendments[]` is an additive, optional audit log of scope decisions made by workflows after the brief was first authored. Three writer paths exist today:
 
 - **Auth-doc promotions** (`category: "auth-doc"`) — `skf-create-skill` §2a and its mirror `skf-update-skill` §1b append entries when extraction discovers authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) that the original scope patterns excluded.
 - **Scope-expansion promotions** (`category: "scope-expansion"`) — `skf-update-skill` §1c appends entries when an audit drift report flags out-of-scope new public API paths (typically a major-version restructure where the brief's `scope.include` no longer reflects the real surface).
+- **Demo-and-registry decisions** (`category: "demo-and-registry"`): `skf-create-skill` step 3d appends one entry per demo glob and one for the registry file when the user confirms or gives them at its component-library gates, and writes the values to `scope.demo_patterns` and `scope.registry_path`. A headless run never writes one: its automatic decisions stay in the run's audit trail.
 
 **Entry fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Relative path (or glob, for `category: "scope-expansion"`) from source root to the file or tree being amended. For `promoted` actions this matches the literal entry added to `scope.include`. |
-| `action` | string | yes | One of: `promoted` (path added to `scope.include`), `skipped` (user declined promotion; decision recorded to prevent re-prompting), `excluded` (path added to `scope.exclude` — only valid with `category: "scope-expansion"`; used by gap-driven rescope to remove an internal / `#[doc(hidden)]` / out-of-scope export from the public surface), `demoted-include` (path removed from `scope.include` — only valid with `category: "scope-expansion"`), `demoted-exclude` (path removed from `scope.exclude` — only valid with `category: "scope-expansion"`). |
-| `category` | string | no | One of: `auth-doc` (default for entries without this field — the historical sole use case), `scope-expansion`. Distinguishes which workflow path wrote the entry and which writer-rules apply on re-runs. |
+| `path` | string | yes | Relative path (or glob, for `category: "scope-expansion"` and a `demo-and-registry` demo pattern) from source root to the file or tree being amended. For `promoted` actions this matches the literal entry added to `scope.include`. |
+| `action` | string | yes | One of: `promoted` (path added to `scope.include`), `skipped` (user declined promotion; decision recorded to prevent re-prompting), `excluded` (path added to `scope.exclude`, only valid with `category: "scope-expansion"`; used by gap-driven rescope to remove an internal / `#[doc(hidden)]` / out-of-scope export from the public surface), `demoted-include` (path removed from `scope.include`, only valid with `category: "scope-expansion"`), `demoted-exclude` (path removed from `scope.exclude`, only valid with `category: "scope-expansion"`), `demo-excluded` (the glob is written to `scope.demo_patterns`: only valid with `category: "demo-and-registry"`), `registry-confirmed` (the file is written to `scope.registry_path`: only valid with `category: "demo-and-registry"`). |
+| `category` | string | no | One of: `auth-doc` (default for entries without this field: the historical sole use case), `scope-expansion`, `demo-and-registry`. Distinguishes which workflow path wrote the entry and which writer-rules apply on re-runs. |
 | `reason` | string | yes | Human-readable sentence explaining the decision. Either user-provided at prompt time or auto-generated. |
 | `heuristic` | string | conditional | Required for `category: "auth-doc"` — the basename that matched (`llms.txt`, `AGENTS.md`, etc.). Omit for `category: "scope-expansion"`. |
-| `evidence` | string | conditional | Required for `category: "scope-expansion"` — short rationale from the source signal (e.g., a drift-report finding's evidence one-liner). Omit for `category: "auth-doc"`. |
+| `evidence` | string | conditional | Required for `category: "scope-expansion"` and `category: "demo-and-registry"`: short rationale from the source signal (a drift-report finding's evidence one-liner; the files a demo glob matched, or the registry's score and entry count). Omit for `category: "auth-doc"`. |
 | `date` | string | yes | ISO date (`YYYY-MM-DD`) when the amendment was recorded. |
 | `workflow` | string | yes | Workflow name that wrote the amendment (`skf-create-skill`, `skf-update-skill`). Identifies which workflow made the decision. |
 
@@ -160,6 +172,7 @@ scope:
 - `skf-create-skill` §2a consults it to avoid re-prompting on decided auth-doc files.
 - `skf-update-skill` §1b (mirror of §2a) consults it for the same auth-doc reason.
 - `skf-update-skill` §1c consults it to avoid re-prompting on decided scope-expansion candidates and to honor prior `demoted-*` decisions.
+- `skf-create-skill` step 3d does not read the log: it reads `scope.demo_patterns` and `scope.registry_path`, which the same write sets. The auth-doc and scope-expansion readers act only on their own actions, so a `demo-and-registry` entry on the same path never stands in for one of their decisions.
 - `skf-audit-skill` may optionally report on stale promotions (promoted paths that no longer exist in source) as a future enhancement — not currently implemented.
 - Humans reading the brief see the audit trail of non-obvious scope decisions.
 
@@ -169,6 +182,7 @@ scope:
 - `skf-update-skill` §1b (mirror of §2a applied during change detection) — `category: "auth-doc"`
 - `skf-update-skill` §1c (Major-Version Scope Reconciliation) — `category: "scope-expansion"`
 - `skf-update-skill` gap-driven rescope (detect-changes §0 rule R1) — `category: "scope-expansion"`, `action: "excluded"`
+- `skf-create-skill` step 3d (component-library demo exclusion and registry detection): `category: "demo-and-registry"`, `action: "demo-excluded"` or `"registry-confirmed"`, only for an answer a user gave
 - Manual edits by the brief author are permitted but should include all required fields above (and `category` when the entry is not an auth-doc decision).
 
 ## YAML Template

@@ -10,9 +10,6 @@ detectWorkspacesProbeOrder:
 detectLanguageProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
   - '{project-root}/src/shared/scripts/skf-detect-language.py'
-emitBriefEnvelopeProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
-  - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -54,15 +51,15 @@ emitBriefEnvelopeProbeOrder:
 
 **On API failure (non-200 from `gh api`):**
 
-Distinguish the failure class before reporting. In headless mode, every branch below emits the error envelope per **step 5 §4b** with its stated `halt_reason` before the HALT (pass the resolved `{skill_name}`, or the `"unknown"` placeholder documented in §4b if it is not yet set):
-- Auto-run `gh auth status` and capture its output. If it reports an unauthenticated state or expired token: emit the error envelope per **step 5 §4b** with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** GitHub CLI is not authenticated. `gh auth status` says: `{captured output}`. Run `gh auth login` and retry."
-- If `gh auth status` reports authenticated but the call still failed (404/403): emit the error envelope per **step 5 §4b** with `halt_reason: "target-inaccessible"`, then HALT (exit code 3, `halt_reason: "target-inaccessible"`) — "**Error:** Cannot access repository at `{url}`. The CLI is authenticated but the API returned `{status}`. Check the URL and that the account has access to private repositories if applicable."
-- If `gh auth status` itself fails to run (binary missing): emit the error envelope per **step 5 §4b** with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** `gh` CLI not found on PATH. Install it from <https://cli.github.com> and re-run."
+Distinguish the failure class before reporting. Every branch below is a HALT that emits its halt envelope first, per the SKILL.md Halt Contract:
+- Auto-run `gh auth status` and capture its output. If it reports an unauthenticated state or expired token: emit the halt envelope, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3): "**Error:** GitHub CLI is not authenticated. `gh auth status` says: `{captured output}`. Run `gh auth login` and retry."
+- If `gh auth status` reports authenticated but the call still failed (404/403): emit the halt envelope, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"`, then HALT (exit code 3): "**Error:** Cannot access repository at `{url}`. The CLI is authenticated but the API returned `{status}`. Check the URL and that the account has access to private repositories if applicable."
+- If `gh auth status` itself fails to run (binary missing): emit the halt envelope, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3): "**Error:** `gh` CLI not found on PATH. Install it from <https://cli.github.com> and re-run."
 
 **For local paths:**
 - Verify the directory exists
 - List the directory tree
-- If the path does not exist: HALT (exit code 3, `halt_reason: "target-inaccessible"`) — "**Error:** Directory not found at {path}. Verify the path is correct." In headless mode, emit the error envelope per **step 5 §4b** with `halt_reason: "target-inaccessible"` before the HALT (pass the resolved `{skill_name}`, or the `"unknown"` placeholder documented in §4b if it is not yet set), matching the GitHub-target failure branches above so a missing local path surfaces the same `SKF_BRIEF_RESULT_JSON` failure class.
+- If the path does not exist: emit the halt envelope, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"` (SKILL.md Halt Contract), the failure class of a GitHub target the CLI cannot read, then HALT (exit code 3): "**Error:** Directory not found at {path}. Verify the path is correct."
 
 Display: "**Resolving target...**"
 

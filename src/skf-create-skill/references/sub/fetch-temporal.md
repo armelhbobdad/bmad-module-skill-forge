@@ -9,6 +9,11 @@ forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
+# If neither path exists, §1 skips the step: temporal enrichment never
+# halts the workflow.
+fetchTemporalProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-fetch-temporal.py'
+  - '{project-root}/src/shared/scripts/skf-fetch-temporal.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -33,25 +38,15 @@ To fetch temporal context (issues, PRs, changelogs, release notes) from the sour
 Set `{temporal_feeder}` to null first, so that in a `--batch` run one brief's feeder never carries into the next. Then evaluate the following conditions sequentially. **If ANY condition fails, leave `{temporal_feeder}` null and skip silently to section 5 (auto-proceed) with no output:**
 
 1. **Tier is Deep:** If tier is Quick, Forge, or Forge+, skip silently.
-2. **Source is GitHub:** Verify `source_repo` is a GitHub URL (`https://github.com/...`) or `owner/repo` format. If the source is a local path, a non-GitHub URL, or any other format, attempt GitHub remote detection (section 1b) before skipping.
-3. **`gh` CLI is available:** Run `timeout 10s gh auth status` to verify the CLI is installed and authenticated (the short timeout protects against a misconfigured network or hung auth helper blocking the workflow). If it fails or times out, skip silently.
+2. **The source is a GitHub repository `gh` can read:** resolve `{fetchTemporalHelper}` from `{fetchTemporalProbeOrder}` and, from `{project-root}`, run:
 
-All three conditions must pass to proceed to section 2. Then bind `{temporal_feeder}` ← `{forge_data_folder}/{skill-name}/.skf-temporal`: the folder where this step keeps what it fetched (sections 3 and 4). Step 5c's doc-rot scan reads the files in it, and a null `{temporal_feeder}` tells step 5c that no temporal feeder was expected.
+   ```bash
+   uv run {fetchTemporalHelper} repo --source-repo "{source_repo}"
+   ```
 
-### 1b. GitHub Remote Detection for Local Sources
+   Skip silently when the command exits non-zero, when its `skip_reason` is not null, and when no candidate resolves. Otherwise bind `{temporal_repo}` ← its `repo`, and when its `via` is `origin`, log: "**Local source with GitHub remote detected:** {temporal_repo}. Fetching temporal context."
 
-**Only runs when condition 2 above fails because `source_repo` is a local path.**
-
-Local repositories that are clones of GitHub repos contain temporal context (issues, PRs, releases) accessible via `gh`. Detect this automatically:
-
-1. Check if the local path is a git repository: `git -C "{source_repo}" rev-parse --is-inside-work-tree`
-2. If not a git repo: skip silently to section 5 (current behavior).
-3. Extract the origin remote: `git -C "{source_repo}" remote get-url origin`
-4. If the remote URL contains `github.com`:
-   - Extract `owner/repo` from the remote URL (strip `.git` suffix, handle both HTTPS and SSH formats)
-   - Log: "**Local source with GitHub remote detected:** {owner}/{repo} — fetching temporal context."
-   - Use the extracted `owner/repo` for all `gh` API calls in sections 3-4. Continue to condition 3 (gh CLI check).
-5. If no remote, or remote is not GitHub: skip silently to section 5 (current behavior).
+Both conditions must pass to proceed to section 2. Then bind `{temporal_feeder}` ← `{forge_data_folder}/{skill-name}/.skf-temporal`: the folder where this step keeps what it fetched (sections 3 and 4). Step 5c's doc-rot scan reads the files in it, and a null `{temporal_feeder}` tells step 5c that no temporal feeder was expected.
 
 ### 2. Check Cache (Skip If Fresh)
 
@@ -75,129 +70,21 @@ Skip to section 5 (auto-proceed).
 
 ### 3. Fetch Temporal Context
 
-Fetch into a fresh folder beside the feeder: bind `{temporal_fetch}` ← `{forge_data_folder}/{skill-name}/.skf-temporal.new`. It replaces `{temporal_feeder}` only once it holds a fetched file (the end of this section), so a refresh that fails outright (network down, rate limit) leaves step 5c the files of the last good fetch, and a file this fetch does not write (a changelog removed upstream, a targeted search for an export the skill no longer has) is never read as current. The fetch folder starts with a `.gitignore` holding `*`, which moves with it, so the feeder keeps itself out of git. The rest of the temporal cache (the QMD collection and its `forge-tier.yaml` registry entry in the sidecar) stays on this machine, and a committed copy would only add upstream issue and PR text to the project's history. The commands that delete the fetch folder or the feeder spell out their `.skf-temporal` path instead of a variable, so a wrongly bound variable can never make them delete more.
-
-Resolve the `owner` and `repo` from `source_repo` (e.g., `acme/toolkit` from `https://github.com/acme/toolkit`).
-
-Execute the four fetches below **in parallel** — they are independent and the network round-trips dominate wall-clock. Background each, then `wait` for the batch. **If any individual fetch fails, log a warning and continue with the others.** The 4-concurrent fan-out is well under GitHub's authenticated REST rate limit (5000/hr); no bounded-concurrency guard is needed for this set.
+Fetch through the helper, from `{project-root}`. Pass the extraction inventory's `top_exports[]` as a JSON list for the targeted issue searches; when it is empty or missing (docs-only mode, or a source extraction with no public exports), leave out `--exports -` and the heredoc:
 
 ```bash
-rm -rf "{forge_data_folder}/{skill-name}/.skf-temporal.new"  # left by an interrupted fetch
-mkdir -p "{temporal_fetch}"
-printf '*\n' > "{temporal_fetch}/.gitignore"
-# 1. Issues (last 100)
-( gh issue list -R {owner}/{repo} --state all --limit 100 \
-    --json number,title,state,labels,createdAt,closedAt,body \
-    | jq -r '...' > "{temporal_fetch}/issues.md" ) &
-# 2. Merged PRs (last 100)
-( gh pr list -R {owner}/{repo} --state merged --limit 100 \
-    --json number,title,mergedAt,labels,body \
-    | jq -r '...' > "{temporal_fetch}/prs.md" ) &
-# 3. Release tags only (the per-tag fetch loop runs sequentially below to
-#    preserve append-immediately crash-resume semantics for releases.md)
-( gh release list -R {owner}/{repo} --limit 10 \
-    --json tagName,name,publishedAt > "{temporal_fetch}/.release-tags.json" ) &
-# 4. Changelog (404 is silent skip — note `set +e` so the subshell doesn't
-#    propagate `gh api`'s non-zero exit on missing file)
-( set +e
-  gh api repos/{owner}/{repo}/contents/CHANGELOG.md --jq '.content' \
-    | base64 -d > "{temporal_fetch}/changelog.md" 2>/dev/null
-  [ -s "{temporal_fetch}/changelog.md" ] || rm -f "{temporal_fetch}/changelog.md" ) &
-wait
+uv run {fetchTemporalHelper} fetch --repo "{temporal_repo}" --feeder "{temporal_feeder}" --exports - <<'SKF_TOP_EXPORTS'
+{top_exports as a JSON list}
+SKF_TOP_EXPORTS
 ```
 
-Per-call rationale:
+It fetches into a fresh folder beside `{temporal_feeder}` and replaces the feeder with it only when the fetch returned something (`uv run {fetchTemporalHelper} --help` describes the files it writes and the swap).
 
-1. **Issues (last 100):** 100 is `gh issue list`'s default max-per-page; one paginated call captures recent activity without extra round trips or rate-limit pressure. Output → `{temporal_fetch}/issues.md` formatted as a markdown document with one section per issue.
+Show each of its `warnings`. Then:
 
-2. **Merged PRs (last 100):** Same 100-per-page convention as issues: one API call captures the most recent merges. Output → `{temporal_fetch}/prs.md`.
-
-3. **Release tags + per-release fetches (last 10):** Release notes accumulate slowly relative to issues/PRs; the most recent 10 tags cover roughly the last 6-18 months of changelog-relevant history for typical OSS projects, which is enough context for T2-past annotations without fanning out to dozens of `gh release view` calls.
-
-   **Note:** `gh release list --json` does **not** support the `body` field. The parallel block above fetches tags only (Step 1). After `wait`, run **Step 2 sequentially** to preserve the append-immediately crash-resume contract:
-
-   If `{temporal_fetch}/.release-tags.json` is empty (no releases), skip Step 2 and omit the releases section entirely. Otherwise:
-
-   ```bash
-   # Sequential per-tag loop. Iterate the JSON tag array verbatim so a
-   # crash mid-loop leaves a partial-but-well-formed releases.md on disk.
-   echo "# Releases (partial if interrupted)" > "{temporal_fetch}/releases.md"
-   ERR_FILE="{temporal_fetch}/.gh-release-err"  # per-run stderr capture inside the fetch folder
-   jq -r '.[].tagName' "{temporal_fetch}/.release-tags.json" | while IFS= read -r tag; do
-     if gh release view "$tag" -R {owner}/{repo} \
-          --json tagName,name,publishedAt,body 2>"$ERR_FILE"; then
-       jq -r '...' >> "{temporal_fetch}/releases.md"  # one ## {tag} block per release
-     else
-       echo "## $tag (fetch failed: $(cat "$ERR_FILE"))" \
-         >> "{temporal_fetch}/releases.md"
-     fi
-   done
-   rm -f "$ERR_FILE"
-   ```
-
-   Failed individual fetches get a one-line placeholder; the loop continues with remaining tags. If a rate limit (HTTP 429) is hit, stop the release loop, keep the partial `releases.md` file in place (do not delete it), and log: "Release fetch stopped at tag {N}/{total} due to rate limiting — partial releases.md retained."
-
-   **Why sequential here when the rest is parallel:** the append-per-release pattern guarantees that a mid-loop abort (rate limit, network drop, user interrupt) leaves a partial but well-formed `releases.md` with every release fetched so far. Parallel writers appending to the same file would need file locking and per-writer ordering — the simpler sequential loop is robust for free, and 10 release fetches contribute only ~5-10s of the total wall-clock.
-
-4. **Changelog:** `CHANGELOG.md` or `RELEASES.md` at the repository root. The parallel block above writes to `{temporal_fetch}/changelog.md` only when the file exists; non-existence (404 from `gh api`) leaves no file behind.
-
-#### 3b. Targeted Function Searches (Uses Extraction Inventory)
-
-After the generic fetches above, perform **targeted searches** using the top-level public API function names from `extraction_inventory.top_exports[]`. This produces high-signal results that generic list fetches miss.
-
-**Short-circuit on empty `top_exports`:** If `extraction_inventory.top_exports` is missing or `== []` (docs-only mode, or a source extraction that produced zero public exports), skip this sub-section entirely with a one-line log: "No exports in inventory — skipping targeted function searches." The generic fetches from §3 remain in place and continue to provide baseline temporal context.
-
-**Limit:** Search the top **10 function names** maximum to control API call volume and avoid `gh` rate limiting. (rationale: 10 targeted searches + generic fetches from §3 stays well under GitHub's unauthenticated search rate limit of 10 requests/minute and authenticated 30/minute; matches the `top_exports[]` size emitted by step 3 §5 so every tracked export gets one search.)
-
-For each function name in `top_exports[]` (up to 10), **sanitize first**: strip every character that is not in `[A-Za-z0-9_]` from `function_name` to produce `safe_name`. This prevents shell injection and `gh` query parser errors when an export name contains punctuation (e.g., `<T>`, `.method`, `::namespace`, quotes). If `safe_name` is empty after sanitization (the original was entirely punctuation — rare but possible for symbol exports), fall back to piping the original name through stdin via `--query-from-file -`-style indirection if your `gh` version supports it; otherwise skip that one entry with a log line — never substitute the unsanitized name back into the shell command.
-
-**Parallel fan-out (bounded concurrency = 5):** sanitized searches are independent and benefit from parallelism. Use `xargs -P 5` so at most 5 `gh search` calls are in flight at once — this stays well under GitHub's authenticated search rate limit (30/min) while saving ~5-8s of wall-clock on a top-10 export list compared to fully sequential.
-
-```bash
-# 1. Sanitize and write one safe_name per line; skip empties.
-#    Python is the canonical sanitizer because awk/sed regex semantics
-#    vary across platforms.
-jq -r '.top_exports[]' {extraction_inventory.json} \
-  | python3 -c 'import sys,re
-for line in sys.stdin:
-  s = re.sub(r"[^A-Za-z0-9_]", "", line.strip())
-  if s: print(s)' > "{temporal_fetch}/.safe-names.txt"
-
-# 2. Fan out to gh search, 5 in flight. Each writer emits a self-contained
-#    section to its own per-name file; we concatenate after the wait.
-# --limit 5: top-5 issues per function keeps signal-to-noise high and caps
-#    total response size across 10 fan-outs at 50 issues.
-mkdir -p "{temporal_fetch}/targeted"
-cat "{temporal_fetch}/.safe-names.txt" | xargs -P 5 -I {} bash -c '
-  gh search issues --repo {owner}/{repo} "{}" --limit 5 \
-      --json number,title,state,body 2>/dev/null \
-    | jq -r ". | \"## {}\\n\" + (...)" > "{temporal_fetch}/targeted/{}.md" \
-  || echo "## {} (fetch failed)" > "{temporal_fetch}/targeted/{}.md"
-'
-
-# 3. Concatenate in stable order (alpha by safe_name) into the single
-#    aggregated file the rest of the workflow expects, then delete the
-#    per-name files: the feeder keeps only the aggregate.
-sort "{temporal_fetch}/.safe-names.txt" | while IFS= read -r name; do
-  cat "{temporal_fetch}/targeted/$name.md"
-done > "{temporal_fetch}/targeted-issues.md"
-rm -rf "{temporal_fetch}/targeted" "{temporal_fetch}/.safe-names.txt"
-```
-
-Aggregate all targeted search results into a single file: `{temporal_fetch}/targeted-issues.md`. The per-name folder `targeted/` and `.safe-names.txt` exist only to give each parallel writer its own output file, so the snippet deletes them after the concat: `{temporal_fetch}` keeps only the feeder files.
-
-**If `gh search` is unavailable** (older `gh` CLI versions): skip targeted searches silently. The generic fetches from section 3 still provide baseline temporal context.
-
-**If rate limiting occurs** (HTTP 429 or similar): stop targeted searches immediately, keep results collected so far. Log: "Targeted search stopped at function {N}/{total} due to rate limiting."
-
-**After all fetching,** delete `{temporal_fetch}/.release-tags.json` and check that at least one `.md` file was written to `{temporal_fetch}`. If one was, replace the feeder with the fetch folder:
-
-```bash
-rm -rf "{forge_data_folder}/{skill-name}/.skf-temporal"
-mv "{forge_data_folder}/{skill-name}/.skf-temporal.new" "{forge_data_folder}/{skill-name}/.skf-temporal"
-```
-
-If none was (all fetches failed), delete the fetch folder (`rm -rf "{forge_data_folder}/{skill-name}/.skf-temporal.new"`), log a warning, and skip to section 5. `{temporal_feeder}` stays bound and keeps what the last good fetch left in it: step 5c scans those files, or reports the missing feeder in the evidence report when there are none.
+- **Exit 0** (`status: "replaced"`): `{temporal_feeder}` now holds this fetch, and `files` lists it. Continue to section 4.
+- **Exit 3** (`status: "kept"`: no fetch returned anything): log a warning and skip to section 5. `{temporal_feeder}` stays bound and keeps what the last good fetch left in it: step 5c scans those files, or reports the missing feeder in the evidence report when there are none.
+- **Exit 1 or 2:** as for exit 3, with the helper's error (its stderr) in the warning.
 
 ### 4. Index Into QMD & Register
 

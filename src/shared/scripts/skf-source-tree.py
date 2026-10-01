@@ -450,8 +450,10 @@ def _resolve_outside_cwd(command: str) -> str | None:
 # skf-check-workspace-drift.py (upstream), skf-github-probe.py and
 # skf-classify-changed-files.py load this file for split_version, match_tags,
 # nearest_tags, _run,
-# _resolve_outside_cwd, _last_error, _stat_dir, SHA40_RE and REF_RE: keep
-# those names and what they take and return.
+# _resolve_outside_cwd, _last_error, _stat_dir, SHA40_RE and REF_RE, and
+# skf-fetch-temporal.py for parse_remote, _run, _resolve_outside_cwd, _rmtree
+# and _is_link_or_junction, and skf-detect-registry.py for _git: keep those
+# names and what they take and return.
 def split_version(name: str) -> tuple[str, tuple] | None:
     """(prefix, sort key) of a tag name that ends in a version, else None.
 

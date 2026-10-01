@@ -38,11 +38,10 @@ Structural extraction via ast-grep — verified exports with line-level citation
 
 ### Strategy
 
-1. Detect language from brief or file extensions
-2. Use ast-grep to extract all exports from `path` for the given `language` (scan definitions)
-3. For each export: function name, full signature, parameter types, return type, line number
-4. Use ast-grep to detect co-imported symbols in `path` for the given `libraries[]`
-5. Build extraction rules YAML for reproducibility
+1. Run the AST Extraction Protocol below: the recipe runner finds every export in the files in scope, each with its file, `$NAME`'s line, recipe and node kind
+2. For each export: read its full signature, parameter types and return type from the source at that line
+3. Use ast-grep to detect co-imported symbols in `path` for the given `libraries[]`
+4. Record the recipe set, the recipes and the ast-grep version the runner reports, for reproducibility
 
 ### Confidence
 - Each entry is labeled by the tool that produced it, not by the tier:
@@ -83,7 +82,7 @@ Each export shape below is matched by one recipe from the YAML Rule Recipes furt
 
 ## Forge+ Tier (AST + CCC)
 
-Identical extraction to Forge tier. CCC adds an upstream semantic discovery step that pre-ranks the file extraction queue.
+Identical extraction to Forge tier. CCC adds an upstream semantic discovery step that ranks the files extraction reads one at a time.
 
 ### When CCC Pre-Discovery Applies
 
@@ -92,20 +91,19 @@ CCC pre-discovery runs in ccc-discover (before this extraction step) when ALL of
 - `tools.ccc: true` in forge-tier.yaml
 - The source index is available: step 2b searches with `--refresh` when `ccc_index.status` is `"fresh"`, `"created"`, `"skipped"` or a status it does not know (such as a `"stale"` an older SKF recorded), and first attempts lazy indexing when it is `"none"` or `"failed"`
 
-The discovery step stores `{ccc_discovery: [{file, score, snippet}]}` in context. This extraction step consumes those results to pre-rank the file list.
+The discovery step stores `{ccc_discovery: [{file, score, snippet}]}` in context. This extraction step ranks by those results the files it reads one at a time.
 
 ### CCC Pre-Ranking Strategy
 
-When `{ccc_discovery}` is present and non-empty:
+When `{ccc_discovery}` is present and non-empty, rank the files extraction reads one at a time: those the recipe runner leaves to source reading (its `file_issues`, its extraction gaps and the files of a language no recipe reads), or the filtered file list when extraction runs without the runner.
 
-1. Files appearing in `{ccc_discovery}` results move to the front of the extraction queue, sorted by relevance score descending
-2. Files not in CCC results remain in the queue — they are not excluded, only deprioritized
+1. Files appearing in `{ccc_discovery}` results come first, sorted by relevance score descending
+2. Files not in CCC results follow them: they are not excluded, only deprioritized
 3. If the CCC intersection with scoped files produces <10 files: include all scoped files (CCC results too narrow)
-4. Proceed with the AST Extraction Protocol on the pre-ranked list
 
 ### ast-grep Patterns
 
-Same patterns as Forge tier — see Forge tier section above. CCC pre-ranking does not change which AST patterns are used, only which files are processed first.
+Same patterns as Forge tier: see the Forge tier section above. CCC pre-ranking changes no AST pattern.
 
 ### Confidence
 
@@ -134,7 +132,22 @@ Same extraction as Forge tier. Deep tier adds enrichment in step 4, not extracti
 
 ## AST Extraction Protocol
 
-When AST tools are available (Forge/Deep tier), follow this deterministic protocol to prevent output overflow on large codebases.
+When AST tools are available (Forge, Forge+ and Deep tiers) and the step that runs this protocol gives the recipe runner's command, the runner extracts: `skf-extract-public-api.py --mode full` runs the recipes below over the files in scope in one call and writes every export, with its exact file, line, name and node kind, as JSON. The command names `--source-root` and either the brief (`--brief`, for its scope globs, scope type and language) or the files to read (`--files-from`, one path per line relative to the source root), and `-o` for the JSON, a file the step removes before the call, so that a JSON there after the call is this call's. While the runner can run, never run the recipes one at a time, batch them, or merge and dedupe their matches by hand.
+
+### Recipe Runner
+
+- **Files in scope:** a file is in scope when an include glob matches it (every file, when there is none) and no exclude glob does. `**` spans any number of path segments, none included, and `*` and `?` stay inside one, so `src/**/*.ts` matches `src/index.ts` and `**/test_*` matches a top-level `test_x.py`. The runner reads those a recipe reads (`.vue` files included) and counts them in `files_in_scope`, the filtered file count; `files_without_recipes` counts by extension those it leaves, in a language no recipe reads. `skf-extract-public-api.py --help` gives the rest of its rules.
+- **Recipes:** the recipes below, which SKF's shared recipe file, `ast-grep-recipes.yaml`, holds too: the `standard` set, or the `component-library` set for that scope type.
+- **Head cap:** each recipe keeps at most as many matches as Head cap selection below gives for the tier and scope type, in file and line order. `truncated` is true, and so is that recipe's `truncated` in `recipes[]`, when a recipe matched more: the matches past the cap are missing, so warn about them.
+- **Each export** is one name in one file, and gives `export_name`, `source_file`, `source_line` (`$NAME`'s line), `signature_line` (the source line holding it), `citation` (`[AST:{file}:L{line}]`), `ast_recipe`, `ast_node_type` (the `kind` its recipe declares), `export_type`, `from` (a re-export's module), `confidence: T1` and `extraction_method: ast-grep`. Record them as they are.
+- **Entry points:** `entry_point_diff` diffs the names the package's entry points export with the recipe matches (`public`, `internal`, `extraction_gaps`, `outside_scope`), `counts` gives `exports_public_api`, `exports_internal` and `effective_denominator`, and `arms` the monorepo, specific-modules and multi-subpath `exports` flags.
+- **Read by eye (T1-low)** only what it leaves: each file in `file_issues` (a syntax error where a recipe can miss an export, or a file that is not UTF-8, unreadable or missing), the files `files_without_recipes` counts that hold public API (by the Quick tier Strategy), the forms the Known ast-grep Limitations below leave to source reading (#3, #8's `impl` methods, #11), and the `extraction_gaps` names.
+
+Act on its `status`, not its exit code: `ok`, every file in scope was read; `incomplete`, an ast-grep run failed or timed out: keep its exports and warn that the files of each `errors[]` item (how many, and the first) may be unread; `no-ast-grep`, no ast-grep it can run, so no recipe ran.
+
+### When the Runner Cannot Run
+
+There is no runner result when the step gives no runner command, no runner path resolves, or no JSON is at the `-o` path after the call (`uv` missing or failing, an input error, which prints one line on stderr, a crash, or a shell timeout that stopped it). Then, and when its `status` is `no-ast-grep`, run the recipes as the rest of this section says, on the filtered file list. When no ast-grep can run them either (no `ast-grep` CLI and no ast-grep MCP tool), extraction degrades to source reading: see `tier-degradation-rules.md` "AST Tool Unavailable". When the runner's `scope.languages` is empty, whatever its `status`, no recipe reads the brief's language (the runner warns `no recipe reads {language} files` and reads no file): extract by the Quick tier Strategy (source reading, T1-low).
 
 **"Files in scope"** = files remaining after applying `include_patterns` and `exclude_patterns` from the brief, filtered by the target language extension. This is not the total repository file count from step 1's tree listing. Use the filtered count from step 3 section 2 as the decision tree input.
 
@@ -212,6 +225,8 @@ For full-library skills at higher tiers, the larger cap prevents silently droppi
 # For .vue files add -c {scratch}/sgconfig.yml (see the Vue note under the recipes).
 # {exclude_patterns} = Python list from brief's scope.exclude, e.g. ['tests/**', '**/test_*']
 # If scope.exclude is absent or empty in the brief, inject [] as the default.
+# fnmatch is not the Files in scope rule above: its `*` also crosses `/`, and `**/x`
+# needs a folder before x, so add x too for a top-level file ('test_*' beside '**/test_*').
 # Patterns are matched against the full file path as emitted by ast-grep.
 # Ensure paths are relative to the same root as the patterns (strip ./ prefix if needed).
 # {HEAD_CAP} = 200 (default) or 500 (Forge+/Deep full-library) — see head cap selection above.
@@ -940,4 +955,19 @@ When using ast-grep for extraction, be aware of these documented limitations:
 See `extraction-patterns-tracing.md` for:
 - **Re-export tracing protocol** — resolving module imports through `__init__.py`, barrel files, `pub use`
 - **Script/asset extraction patterns** — detection heuristics, inclusion rules, provenance, inventory structure
+
+---
+
+## Relabel Rule
+
+A provenance entry's labels follow its `extraction_method`, never the reverse. compile.md §4 and validate.md §7 apply this rule to each `provenance.entries[<i>].*` violation `skf-render-metadata-stats.py` reports, and validate.md §7a takes a node kind from its second part.
+
+1. **Labels.** Set the entry's `confidence`, `signature_source` and `ast_node_type` to the violation's `expected` value, and where `expected` is `non-null`, record the node kind part 2 gives. Leave a known `extraction_method` as it is. When the violation is on `extraction_method` itself (unknown or missing), set it to the method of the tool that produced the entry, `ast-grep` or `source-read` (so `direct-read` becomes `source-read`), and relabel what the next check reports. When the run cannot tell which tool produced the entry, set `source-read`: T1 needs evidence that an ast-grep rule matched.
+2. **Node kind.** Take the `kind` that the recipe this run's extraction record names for the export (`ast_recipe`) declares in this file (the ast-grep Patterns table gives the kind of a `find_code` pattern). When the record names no recipe, or for an entry this run did not extract (one carried over from an earlier map), look the kind up at the entry's `source_file` and `source_line` (the values below are the entry's): from `{project-root}`, run
+
+   ```bash
+   uv run {verifyProvenanceCompletenessHelper} kind-at --source-root "{source_root}" --file "{source_file}" --line {source_line} --name "{export_name}" --recipes "{extractionPatternsData}"
+   ```
+
+   and record the `kind` it prints when `status` is `found`. On any other status (`ambiguous`, `no-match`, `incomplete` or a `skipped-` one), an exit 2, no resolved verifier or no local source tree, never invent a kind: leave that finding in place and list it as a WARN with the reason.
 

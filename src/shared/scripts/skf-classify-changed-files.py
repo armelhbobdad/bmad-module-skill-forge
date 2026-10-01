@@ -14,17 +14,27 @@ in one call, with the tested `glob_match` of
 skf-resolve-authoritative-files.py.
 
 Subcommand:
-  classify --source-root <path> --provenance-map <provenance-map.json>
-           --brief <skill-brief.yaml>
+  classify --source-root <path> [--provenance-map <provenance-map.json>]
+           [--brief <skill-brief.yaml>] [--language <language>]...
            [--tree-status <status>] [--diff-status <status>]
            [--changed-files <changed-files.json>] [--exclude <path>]...
+           [--lists-dir <dir>]
 
   --tree-status, --diff-status and --changed-files take the values the
   update-skill init step bound from skf-source-tree.py (`status`,
   `diff_status`, `changed_files`); an empty, `null` or `none` value counts
   as not given. --exclude (repeatable) names a path to leave out entirely:
   the change-detection excludes, such as a document the authoritative-files
-  mirror just promoted.
+  mirror just promoted. Without --brief (a skill built without one, such
+  as a quick skill) the scope is empty. --language (repeatable) is the
+  skill's language, metadata.json `language`. Without --provenance-map
+  (update-skill's degraded mode) the mode is `full`.
+
+  --lists-dir writes two JSON arrays of paths into that folder for the
+  steps that read the files next: modified-files.json (category_a's
+  modified files, the ones whose exports are diffed) and extract-files.json
+  (the modified and added files and each moved file's new path, whose
+  current exports are extracted).
 
 The files it sorts:
   tracked   a file a provenance-map `entries[].source_file` names
@@ -33,8 +43,8 @@ The files it sorts:
             Category D's, never ADDED here)
   in scope  a `scope.include` glob matches it and no `scope.exclude` glob
             does. With an empty `scope.include`, a file whose extension one
-            of the tracked files has, and that no `scope.exclude` glob
-            matches.
+            of the tracked files has, or --language's language uses, and
+            that no `scope.exclude` glob matches.
   promoted  a file a promoted glob matches: the path of a
             `scope.amendments[]` entry whose latest action is `promoted`
             with category `scope-expansion`, when no tracked file matches
@@ -72,9 +82,9 @@ Modes, from the statuses:
         time, the later of its `generated_at` and, when its top-level
         `update_type` is `incremental` or `full` (an update that read the
         source), its top-level `last_update`. A time with a zone is that
-        instant. A date alone (update-skill writes `last_update` as the
-        date) or a time without a zone is the earliest instant it can
-        name, 14 hours before its UTC reading (the day starts first at
+        instant. A date alone (update-skill wrote `last_update` as a date
+        before v3.0.0) or a time without a zone is the earliest instant it
+        can name, 14 hours before its UTC reading (the day starts first at
         UTC+14): a baseline too early only re-checks a few files, while
         one too late would miss a file edited after the update.
           MODIFIED  a tracked file modified at or after that time
@@ -85,12 +95,19 @@ Modes, from the statuses:
         MODIFIED and every unnamed, in-scope file ADDED, with a
         `no-baseline-time` warning. No MOVED: a deleted file's contents
         are gone.
+  full  no --provenance-map: with no map to compare against, every
+        in-scope file the walk finds is MODIFIED, and none is ADDED,
+        DELETED or MOVED. A run with nothing to scope the walk by (no
+        `scope.include` glob and no --language this helper knows) is an
+        input error rather than an empty list.
+
+An unknown --language value adds an `unknown-language` warning.
 
 Output JSON (stdout):
 
   {
     "status": "ok",
-    "mode": "diff" | "tree-without-diff" | "local",
+    "mode": "diff" | "tree-without-diff" | "local" | "full",
     "category_a": {"modified": [...], "added": [...], "deleted": [...]},
     "moved_files": [{"old_path": "...", "new_path": "..."}],
     "summary": {"tracked": N, "modified": N, "added": N, "deleted": N,
@@ -98,7 +115,7 @@ Output JSON (stdout):
     "baseline_time": "<YYYY-MM-DDTHH:MM:SSZ>" | null,
     "baseline_source": "last_update" | "generated_at" | null,
     "warnings": ["file-diff-unavailable: ..." | "no-baseline-time: ..." |
-                 "moved-check-skipped: ..."]
+                 "moved-check-skipped: ..." | "unknown-language: ..."]
   }
 
 category_a is the slice skf-build-change-manifest.py build reads, and each
@@ -113,8 +130,9 @@ unchanged is those neither MODIFIED, DELETED nor moved.
 Exit codes:
   0  classified
   1  input error: a missing source root, provenance map, brief or
-     changed-files file, one that cannot be parsed, or --diff-status ok
-     without --changed-files (message on stderr)
+     changed-files file, one that cannot be parsed, --diff-status ok
+     without --changed-files, a full mode with nothing to scope the walk
+     by, or a --lists-dir it cannot write (message on stderr)
   2  usage error (argparse, usage on stderr)
 """
 
@@ -135,6 +153,30 @@ _SOURCE_READING_UPDATES = ("incremental", "full")
 # The easternmost zone (UTC+14): a day there starts 14 hours before UTC's.
 _EARLIEST_ZONE_OFFSET = timedelta(hours=14)
 _GIT_TIMEOUT_SEC = 60.0
+# --language (metadata.json `language`) -> the source file extensions a skill
+# in that language reads: the recipe runner's language families
+# (skf-extract-public-api.py EXTENSION_LANGUAGES) and the languages it has
+# no recipe for, which are read by eye.
+_JS_EXTENSIONS = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue")
+_C_EXTENSIONS = (".c", ".h")
+_CPP_EXTENSIONS = (".cpp", ".cc", ".cxx", ".hpp", ".hh", ".h")
+LANGUAGE_EXTENSIONS = {
+    **dict.fromkeys(("javascript", "js", "jsx", "typescript", "ts", "tsx", "vue"), _JS_EXTENSIONS),
+    "python": (".py", ".pyi"),
+    "rust": (".rs",),
+    "go": (".go",),
+    "golang": (".go",),
+    "java": (".java",),
+    "kotlin": (".kt", ".kts"),
+    "swift": (".swift",),
+    "csharp": (".cs",),
+    "c#": (".cs",),
+    "php": (".php",),
+    "ruby": (".rb",),
+    "c": _C_EXTENSIONS,
+    "cpp": _CPP_EXTENSIONS,
+    "c++": _CPP_EXTENSIONS,
+}
 _RESOLVER = None
 _SOURCE_TREE = None
 
@@ -173,6 +215,27 @@ def _given(value: str | None) -> str:
     """value stripped; "" for an empty, `null` or `none` value."""
     value = (value or "").strip()
     return "" if value.lower() in ("null", "none") else value
+
+
+def language_extensions(languages: list[str]) -> tuple[set[str], list[str]]:
+    """(the extensions the --language values use, the values none is known for).
+
+    An empty or `null` value is no language.
+
+    >>> sorted(language_extensions(["Python", "null"])[0]), language_extensions(["cobol"])[1]
+    (['.py', '.pyi'], ['cobol'])
+    """
+    extensions: set[str] = set()
+    unknown = []
+    for value in languages:
+        if not _given(value):
+            continue
+        known = LANGUAGE_EXTENSIONS.get(_given(value).lower())
+        if known is None:
+            unknown.append(value)
+        else:
+            extensions.update(known)
+    return extensions, unknown
 
 
 # --------------------------------------------------------------------------
@@ -238,20 +301,21 @@ def baseline_time(provenance: dict) -> tuple[datetime | None, str | None]:
 
 
 def promoted_globs(brief: dict, tracked: set[str]) -> list[str]:
-    """The scope-expansion globs the latest amendment promoted and no tracked
-    file matches yet."""
+    """The scope-expansion globs the latest scope-expansion amendment promoted
+    and no tracked file matches yet. An entry of another category on the same
+    path (an auth-doc or a demo-and-registry decision) never stands in for it."""
     resolver = _resolver()
     scope = brief.get("scope") if isinstance(brief.get("scope"), dict) else {}
     amendments = scope.get("amendments") if isinstance(scope.get("amendments"), list) else []
     latest: dict[str, dict] = {}
     for amend in amendments:
-        if isinstance(amend, dict) and isinstance(amend.get("path"), str) and amend["path"].strip():
+        if (isinstance(amend, dict) and amend.get("category") == "scope-expansion"
+                and isinstance(amend.get("path"), str) and amend["path"].strip()):
             latest[resolver.normalize_rel_path(amend["path"])] = amend
     return sorted(
         glob
         for glob, amend in latest.items()
         if amend.get("action") == "promoted"
-        and amend.get("category") == "scope-expansion"
         and not any(resolver.glob_match(path, glob) for path in tracked)
     )
 
@@ -365,7 +429,7 @@ def _changed_rows(data: object, path: Path) -> tuple[dict[str, str], str, str]:
 
 def classify(
     source_root: Path,
-    provenance: dict,
+    provenance: dict | None,
     brief: dict,
     *,
     tree_status: str = "",
@@ -373,24 +437,28 @@ def classify(
     changed: object = None,
     changed_path: Path | None = None,
     excludes: list[str] | None = None,
+    languages: list[str] | None = None,
 ) -> dict:
     """Run Category A. See the module docstring for the output shape.
 
+    provenance is None in full mode, and brief {} for a skill without one.
     changed is the parsed changed-files.json in diff mode (None otherwise).
+    Raises ValueError for a full mode with nothing to scope the walk by.
     """
     resolver = _resolver()
     norm = resolver.normalize_rel_path
     left_out = {norm(p) for p in excludes or [] if isinstance(p, str) and p.strip()}
-    tracked = _source_files(provenance, "entries") - left_out
-    named = tracked | _source_files(provenance, "file_entries")
+    tracked = _source_files(provenance or {}, "entries") - left_out
+    named = tracked | _source_files(provenance or {}, "file_entries")
     includes, scope_excludes, _ = resolver.extract_scope(brief)
     includes = [norm(p) for p in includes]
     scope_excludes = [norm(p) for p in scope_excludes]
-    extensions = {PurePosixPath(p).suffix for p in tracked if PurePosixPath(p).suffix}
+    spoken, unknown_languages = language_extensions(languages or [])
+    extensions = {PurePosixPath(p).suffix for p in tracked if PurePosixPath(p).suffix} | spoken
     promoted = promoted_globs(brief, tracked)
 
     def candidate(rel: str) -> bool:
-        """An unnamed, in-scope file this run may list as ADDED."""
+        """An unnamed, in-scope file: ADDED when it changed, MODIFIED in full mode."""
         return (
             rel not in named
             and rel not in left_out
@@ -404,14 +472,24 @@ def classify(
     def present(rel: str) -> bool:
         return (source_root / rel).is_file()
 
-    warnings: list[str] = []
+    warnings: list[str] = [
+        f"unknown-language: no source file extension is known for {value!r}" for value in unknown_languages
+    ]
     moved: list[dict] = []
     modified: set[str] = set()
     added: set[str] = set()
     deleted: set[str] = set()
     baseline, baseline_source = None, None
 
-    if diff_status == "ok" or (not diff_status and changed is not None):
+    if provenance is None:
+        mode = "full"
+        if not includes and not extensions:
+            raise ValueError(
+                "nothing scopes the walk without a provenance map: give a --brief whose scope.include "
+                "names the source files, or the skill's --language"
+            )
+        modified.update(rel for rel, _ in walk_source(source_root) if candidate(rel))
+    elif diff_status == "ok" or (not diff_status and changed is not None):
         mode = "diff"
         rows, base, target = _changed_rows(changed, changed_path or Path("changed-files.json"))
         for rel in tracked:
@@ -506,28 +584,43 @@ def classify(
 # --------------------------------------------------------------------------
 
 
+def write_lists(result: dict, folder: Path) -> None:
+    """--lists-dir: modified-files.json and extract-files.json. Raises
+    ValueError when a list cannot be written."""
+    category_a = result["category_a"]
+    extract = set(category_a["modified"]) | set(category_a["added"])
+    extract.update(move["new_path"] for move in result["moved_files"])
+    for name, paths in (("modified-files.json", category_a["modified"]), ("extract-files.json", sorted(extract))):
+        try:
+            (folder / name).write_text(json.dumps(paths, indent=2) + "\n", encoding="utf-8")
+        except OSError as exc:
+            raise ValueError(f"cannot write {name} in {folder}: {exc}") from exc
+
+
 def _cmd_classify(args: argparse.Namespace) -> int:
     source_root = Path(args.source_root)
     if not source_root.is_dir():
         print(f"error: source-root not a directory: {source_root}", file=sys.stderr)
         return 1
     for label, value in (("provenance map", args.provenance_map), ("brief", args.brief)):
-        if not Path(value).is_file():
+        if value is not None and not Path(value).is_file():
             print(f"error: {label} not found: {value}", file=sys.stderr)
             return 1
     tree_status = _given(args.tree_status).lower()
     diff_status = _given(args.diff_status).lower()
     changed_files = _given(args.changed_files)
-    if diff_status == "ok" and not changed_files:
+    if diff_status == "ok" and not changed_files and args.provenance_map is not None:
         print("error: --diff-status ok needs --changed-files", file=sys.stderr)
         return 1
     try:
-        provenance = _read_json(Path(args.provenance_map), "provenance map")
-        if not isinstance(provenance, dict):
-            raise ValueError(f"provenance map at {args.provenance_map} must be a JSON object")
-        brief = _resolver().load_brief(Path(args.brief))
+        provenance = None
+        if args.provenance_map is not None:
+            provenance = _read_json(Path(args.provenance_map), "provenance map")
+            if not isinstance(provenance, dict):
+                raise ValueError(f"provenance map at {args.provenance_map} must be a JSON object")
+        brief = _resolver().load_brief(Path(args.brief)) if args.brief is not None else {}
         changed = None
-        if changed_files and diff_status in ("ok", ""):
+        if provenance is not None and changed_files and diff_status in ("ok", ""):
             changed = _read_json(Path(changed_files), "changed-files list")
         result = classify(
             source_root,
@@ -538,7 +631,10 @@ def _cmd_classify(args: argparse.Namespace) -> int:
             changed=changed,
             changed_path=Path(changed_files) if changed_files else None,
             excludes=args.exclude or [],
+            languages=args.language or [],
         )
+        if args.lists_dir is not None:
+            write_lists(result, Path(args.lists_dir))
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -562,8 +658,14 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--source-root", required=True, help="path to the source tree the run reads")
-    p.add_argument("--provenance-map", required=True, help="path to provenance-map.json")
-    p.add_argument("--brief", required=True, help="path to skill-brief.yaml")
+    p.add_argument("--provenance-map", help="path to provenance-map.json (none: full mode)")
+    p.add_argument("--brief", help="path to skill-brief.yaml (none: an empty scope)")
+    p.add_argument(
+        "--language",
+        action="append",
+        metavar="LANG",
+        help="the skill's language, whose extensions an empty scope.include takes (repeatable)",
+    )
     p.add_argument("--tree-status", help="skf-source-tree.py status (ready, offline, ...)")
     p.add_argument("--diff-status", help="skf-source-tree.py diff_status (ok or unavailable)")
     p.add_argument("--changed-files", help="path to skf-source-tree.py's changed-files.json")
@@ -572,6 +674,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="append",
         metavar="PATH",
         help="a path to leave out entirely (repeatable)",
+    )
+    p.add_argument(
+        "--lists-dir",
+        metavar="DIR",
+        help="write modified-files.json and extract-files.json into this folder",
     )
     p.set_defaults(func=_cmd_classify)
     return parser

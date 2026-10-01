@@ -4,6 +4,9 @@
 Covers two subcommands:
   - build: aggregate category A/B/C/D into unified manifest
   - deletion-ratio: §2.2 trigger computation
+and the helper files both take in place of typed slices: the classify
+output (Category A and its same-content moves), the structural diff mapped
+onto Category B, and Category C's renames taken out of both.
 """
 
 from __future__ import annotations
@@ -316,6 +319,123 @@ class TestDeletionRatioComputation:
 # --------------------------------------------------------------------------
 # CLI integration
 # --------------------------------------------------------------------------
+
+
+# --------------------------------------------------------------------------
+# Helper files: classify output, structural diff, Category C renames
+# --------------------------------------------------------------------------
+
+DIFF = {
+    "removed": [{"name": "old_fn", "file": "pkg/api.py", "line": 10}, {"name": "gone", "file": "pkg/api.py",
+                                                                      "line": 30}],
+    "added": [{"name": "new_fn", "file": "pkg/api.py", "line": 12}, {"name": "fresh", "file": "pkg/api.py",
+                                                                    "line": 40}],
+    "changed": [
+        {"name": "search", "field": "line", "baseline_value": 5, "current_value": 7, "file": "pkg/api.py",
+         "line": 7},
+        {"name": "search", "field": "params", "baseline_value": ["q"], "current_value": ["q", "limit: int"],
+         "file": "pkg/api.py", "line": 7},
+        {"name": "shifted", "field": "line", "baseline_value": 20, "current_value": 22, "file": "pkg/api.py",
+         "line": 22},
+        {"name": "retyped", "field": "type", "baseline_value": "class", "current_value": "function",
+         "file": "pkg/api.py", "line": 50},
+    ],
+    "moved": [{"name": "relocated", "previous_file": "pkg/a.py", "current_file": "pkg/b.py", "previous_line": 1,
+               "line": 3}],
+    "signature_unverified": [{"name": "opaque", "file": "pkg/api.py", "baseline": ["params"],
+                              "current": ["signature"]}],
+    "label_changes": [{"name": "search", "file": "pkg/api.py"}],
+}
+CLASSIFY = {
+    "status": "ok", "mode": "diff",
+    "category_a": {"modified": ["pkg/api.py"], "added": ["pkg/new.py", "pkg/renamed.py"],
+                   "deleted": ["pkg/gone.py", "pkg/old.py"]},
+    "moved_files": [{"old_path": "pkg/m1.py", "new_path": "pkg/m2.py"}],
+}
+
+
+class TestHelperFiles:
+    def test_the_diff_maps_onto_category_b(self) -> None:
+        b = mod.category_b_from_diff(DIFF)
+        assert b["deleted_exports"] == [{"name": "old_fn", "file": "pkg/api.py", "old_line": 10},
+                                        {"name": "gone", "file": "pkg/api.py", "old_line": 30}]
+        assert b["new_exports"] == [{"name": "new_fn", "file": "pkg/api.py", "line": 12},
+                                    {"name": "fresh", "file": "pkg/api.py", "line": 40}]
+        # a field other than line, or an unverified signature: modified, with its line in the map and now
+        assert b["modified_exports"] == [
+            {"name": "search", "file": "pkg/api.py", "old_line": 5, "new_line": 7},
+            {"name": "retyped", "file": "pkg/api.py", "old_line": 50, "new_line": 50},
+            {"name": "opaque", "file": "pkg/api.py", "old_line": None, "new_line": None},
+        ]
+        # a line alone, or a move to another modified file: moved
+        assert b["moved_exports"] == [
+            {"name": "shifted", "file": "pkg/api.py", "old_line": 20, "new_line": 22},
+            {"name": "relocated", "file": "pkg/b.py", "old_line": 1, "new_line": 3},
+        ]
+
+    def test_a_moved_export_that_also_changed_is_modified_only(self) -> None:
+        diff = {"removed": [], "added": [], "moved": [
+            {"name": "f", "previous_file": "a.py", "current_file": "b.py", "previous_line": 1, "line": 2}],
+            "changed": [{"name": "f", "field": "params", "baseline_value": [], "current_value": ["x"],
+                         "file": "b.py", "line": 2}]}
+        b = mod.category_b_from_diff(diff)
+        assert [e["name"] for e in b["modified_exports"]] == ["f"] and b["moved_exports"] == []
+
+    def test_assemble_takes_category_a_and_its_moves_from_the_classify_output(self) -> None:
+        payload = mod.assemble({"category_a": {"modified": ["typed.py"]}, "degraded_mode": False},
+                               category_a_doc=CLASSIFY)
+        assert payload["category_a"] == CLASSIFY["category_a"]
+        assert payload["category_c"]["renamed_files"] == CLASSIFY["moved_files"]
+        assert payload["degraded_mode"] is False
+
+    def test_category_c_renames_leave_the_lists_they_were_found_in(self) -> None:
+        payload = mod.assemble(
+            {"category_c": {"renamed_files": [{"old_path": "pkg/old.py", "new_path": "pkg/renamed.py"}],
+                            "renamed_exports": [{"old_name": "old_fn", "new_name": "new_fn", "file": "pkg/api.py"}]}},
+            category_a_doc=CLASSIFY, diff=DIFF)
+        assert payload["category_a"] == {"modified": ["pkg/api.py"], "added": ["pkg/new.py"],
+                                         "deleted": ["pkg/gone.py"]}
+        assert [e["name"] for e in payload["category_b"]["deleted_exports"]] == ["gone"]
+        assert [e["name"] for e in payload["category_b"]["new_exports"]] == ["fresh"]
+        counts = mod.build_manifest(payload)["counts"]
+        assert (counts["files_moved"], counts["exports_renamed"], counts["exports_deleted"]) == (2, 1, 1)
+
+    def test_a_rename_across_files_names_its_old_file(self) -> None:
+        payload = mod.assemble({
+            "category_b": {"deleted_exports": [{"name": "f", "file": "a.py"}, {"name": "f", "file": "c.py"}],
+                           "new_exports": [{"name": "g", "file": "b.py"}]},
+            "category_c": {"renamed_exports": [{"old_name": "f", "new_name": "g", "file": "b.py",
+                                                "old_file": "c.py"}]}})
+        assert payload["category_b"]["deleted_exports"] == [{"name": "f", "file": "a.py"}]
+        assert payload["category_b"]["new_exports"] == []
+
+    def test_the_cli_reads_the_helper_files(self, tmp_path: Path) -> None:
+        (tmp_path / "category-a.json").write_bytes(json.dumps(CLASSIFY).encode("utf-8"))
+        (tmp_path / "category-b-diff.json").write_bytes(json.dumps(DIFF).encode("utf-8"))
+        (tmp_path / "categories.json").write_bytes(json.dumps({"update_mode": "normal"}).encode("utf-8"))
+        prov = tmp_path / "prov.json"
+        prov.write_bytes(json.dumps({"entries": [{"export_name": "x", "source_file": "pkg/gone.py"},
+                                                 {"export_name": "y", "source_file": "pkg/api.py"}]}).encode("utf-8"))
+        files = ["--input", str(tmp_path / "categories.json"), "--category-a", str(tmp_path / "category-a.json"),
+                 "--category-b-diff", str(tmp_path / "category-b-diff.json")]
+        build = _run_cli("build", *files)
+        assert build.returncode == 0, build.stderr
+        counts = json.loads(build.stdout)["counts"]
+        assert (counts["files_changed"], counts["files_moved"], counts["exports_new"]) == (1, 1, 2)
+        ratio = _run_cli("deletion-ratio", "--provenance-map", str(prov), *files)
+        assert ratio.returncode == 0, ratio.stderr
+        # gone.py's one export and the diff's two removed ones, of two map entries
+        assert json.loads(ratio.stdout)["deleted_export_count"] == 3
+
+    @pytest.mark.parametrize(("flag", "content"), [("--category-a", b"[]"), ("--category-b-diff", b'{"x": 1}'),
+                                                    ("--category-a", b"{nope")],
+                             ids=["a-not-classify", "b-not-a-diff", "a-invalid-json"])
+    def test_a_file_that_is_not_the_helper_output_exits_1(self, tmp_path: Path, flag: str, content: bytes) -> None:
+        bad = tmp_path / "bad.json"
+        bad.write_bytes(content)
+        result = _run_cli("build", flag, str(bad), stdin="{}")
+        assert result.returncode == 1
+        assert result.stderr.startswith("error: ")
 
 
 def _run_cli(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:

@@ -17,7 +17,7 @@ Bridge names (`ast_bridge`, `ccc_bridge`, `qmd_bridge`, `gh_bridge`) and subproc
 | `gh_bridge`  | `list_tree(owner, repo, branch)` | `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1`     | gh CLI         | `gh api ...`                                       | Direct file listing if local     |
 | `gh_bridge`  | `read_file(owner, repo, path)`   | `gh api repos/{owner}/{repo}/contents/{path}`                    | gh CLI         | `gh api ...`                                       | Direct file read if local        |
 
-`scan_definitions()` follows the AST Extraction Protocol in create-skill's `extraction-patterns.md`, which holds the recipes: its decision tree, not the priority order below, picks between the MCP call and the CLI template, and `find_code` serves only as its Known Limitation #4 fallback.
+`scan_definitions()` follows the AST Extraction Protocol in create-skill's `extraction-patterns.md`, which holds the recipes: where the step gives the recipe runner's command (`skf-extract-public-api.py --mode full`), it runs them all in one call; otherwise, and when the runner cannot run, the protocol's decision tree, not the priority order below, picks between the MCP call and the CLI template, and `find_code` serves only as its Known Limitation #4 fallback.
 
 ## Subprocess Pattern Definitions
 

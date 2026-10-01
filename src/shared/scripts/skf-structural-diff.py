@@ -18,6 +18,7 @@ CLI:
   python3 skf-structural-diff.py provenance-map.json snapshot.json --reexport-map map.json
   python3 skf-structural-diff.py provenance-map.json snapshot.json --group-by source_library
   python3 skf-structural-diff.py provenance-map.json snapshot.json --files category-a.json
+  python3 skf-structural-diff.py provenance-map.json extraction.json --current-extra details.json
 
 Input:
   Two JSON files. Each file may be either:
@@ -74,6 +75,16 @@ File scope (--files FILE):
   diff pairs the moves a diff of the whole inventories would. The current
   inventory must hold the exports of every named file the source still has,
   or they read as removed.
+
+Extra current entries (--current-extra FILE):
+  For a caller that adds to a recipe runner's output what the recipes do
+  not record (update-skill's Category B: each export's params and
+  return_type, read at its line, and the exports read by eye), FILE is an
+  inventory in any input format above, merged into the current one before
+  the diff: an entry with the name and file of a current entry fills each
+  field that entry lacks (null or absent), and any other entry is added as
+  an export of its own. Names and files compare as written, the file in the
+  form Matching describes.
 
 Canonicalization (applied symmetrically to BOTH sides before matching):
   The baseline extractor (skf-create-skill) and the re-extractor (audit step 2)
@@ -298,6 +309,48 @@ def load_inventory(path: Path) -> tuple[list[dict], str | None]:
     if err:
         return [], err
     return entries_from_data(data, str(path))
+
+
+# The keys one field may be written under (see Input): an entry lacks the
+# field only when it has none of them.
+_ALIAS_GROUPS = {
+    key: group
+    for group in (("name", "export_name"), ("type", "export_type"), ("file", "source_file"),
+                  ("line", "source_line"))
+    for key in group
+}
+
+
+def merge_extra(entries: list[dict], extra: list[dict]) -> list[dict]:
+    """The current entries with --current-extra's merged in by name and file:
+    an extra entry fills each field the entry of its name and file lacks,
+    and one with no such entry is added.
+
+    >>> merge_extra([{"export_name": "f", "source_file": "a.py", "source_line": 3}],
+    ...             [{"export_name": "f", "source_file": "./a.py", "params": ["x: int"]},
+    ...              {"name": "g", "file": "a.py", "line": 9}])
+    [{'export_name': 'f', 'source_file': 'a.py', 'source_line': 3, 'params': ['x: int']}, {'name': 'g', 'file': 'a.py', 'line': 9}]
+    """
+    merged = [dict(entry) if isinstance(entry, dict) else entry for entry in entries]
+    by_key: dict[tuple, dict] = {}
+    for entry in merged:
+        if isinstance(entry, dict):
+            name = _first(entry, "name", "export_name")
+            if isinstance(name, str):
+                by_key.setdefault((name.strip(), _file_key(_first(entry, "file", "source_file"))), entry)
+    for item in extra:
+        if not isinstance(item, dict):
+            continue
+        name = _first(item, "name", "export_name")
+        target = by_key.get((name.strip(), _file_key(_first(item, "file", "source_file")))) \
+            if isinstance(name, str) else None
+        if target is None:
+            merged.append(dict(item))
+            continue
+        for field, value in item.items():
+            if value is not None and all(target.get(key) is None for key in _ALIAS_GROUPS.get(field, (field,))):
+                target[field] = value
+    return merged
 
 
 def files_from_data(data: object, source: str = "") -> tuple[list[str], str | None]:
@@ -888,6 +941,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--current-extra",
+        metavar="FILE",
+        help=(
+            "an inventory merged into the current one by name and file: it fills "
+            "the fields a current entry lacks, and adds the entries no current "
+            "one has"
+        ),
+    )
+    parser.add_argument(
         "-o",
         "--output",
         metavar="FILE",
@@ -912,6 +974,11 @@ def main(argv: list[str] | None = None) -> int:
     current_entries, err = entries_from_data(current_data, str(current_path))
     if err:
         return _fail(err)
+    if args.current_extra:
+        extra_entries, err = load_inventory(Path(args.current_extra))
+        if err:
+            return _fail(err)
+        current_entries = merge_extra(current_entries, extra_entries)
 
     if args.reexport_map:
         reexport_map, err = load_reexport_map(Path(args.reexport_map))

@@ -54,11 +54,32 @@ And they pin the helpers update-skill hands its deterministic work to:
   applies §6a's citation and line fixes, and §6a skips the export set diff
   for a reference app, both through the helper and in the by-hand fallback;
 - every path a documented helper call passes sits in double quotes;
-- re-extract's Forge tier runs the AST Extraction Protocol over the changed
-  files, and its per-file workers take their matches from those runs;
+- re-extract's Forge tier runs the recipe runner (skf-extract-public-api.py
+  --mode full) over the changed files, and §0a over its file set without the
+  brief's scope; the per-file workers take their exports from its output;
 - under the drift override, write.md §2 keeps the public API counts
   metadata.json records, and a rescope halts at the drift gate, naming the
   amendment step 2 left in the skill brief.
+
+And how a run reads a test report and detects drift through scripts:
+
+- init.md finds the test report with skf-find-test-report.py (a result file
+  naming a deleted report is no input), and a normal run offers a FAIL or
+  PASS_WITH_DRIFT report newer than the skill and not yet applied ([G]/[S],
+  the default by verdict, an `unconsumed-test-report` warning headless),
+  which the no-change report then points to; write.md stamps
+  generation_date to the second and records the report a repair applied;
+- detect-changes §0 reads the gaps through skf-parse-gaps.py, a hard-gate
+  blocked report through its ledger, and routes each by its ledger category,
+  every category exactly once, warning for each gap it does not route;
+  re-extract §0a scans the paths the helper resolved, and a Medium missing
+  export gets targeted re-extraction without halting the run;
+- Category A comes from skf-classify-changed-files.py (no brief and no
+  provenance map included), Category B from one recipe runner run, which
+  step 3 reuses, and skf-structural-diff.py, in order A, B, C, and §3's
+  build maps them; §1b comes from skf-resolve-authoritative-files.py resolve
+  --provenance-map; the helpers pass their JSON through one run folder,
+  which step 8 removes, and every documented call runs as written.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -354,8 +375,11 @@ def test_init_target_ref_flag():
            "`{target_ref_override}`" in flag
     assert "With `--from-test-report` it has no effect" not in flag
     report = text.index("**If `--from-test-report` was provided")
-    assert report < text.index("If all three lookups fail, warn and continue with normal source drift mode") \
+    assert report < text.index("warn that no test report was found") < text.index("continue in normal source drift mode") \
         < text.index("**If `--target-ref` was provided:**")
+    # init §4b can still switch a normal run to gap-driven mode, and unsets the ref then
+    assert "when §4b switches a run to gap-driven mode, it unsets it with the same warning" in flag
+    assert "give §1's `--target-ref` warning and unset it" in _slice(text, "### 4b.", "### 5.")
 
 
 def test_version_detection_moved_to_init():
@@ -391,14 +415,23 @@ def test_detect_changes_uses_git_file_list():
     text = _read(DETECT)
     one = _slice(text, "### 1. Scan Current Source State", "### 1b.")
     assert "detect-changes:source-tree-missing" in one
-    launch = _slice(text, "#### 2.1 — Launch Category Subprocesses", "**Category B")
-    assert "the Category A worker also receives" in launch and "`{source_changed_files}`" in launch
-    assert "never from timestamps or sizes" in launch and "file-diff-unavailable" in launch
+    # the hand-built inventory is gone: the helpers walk the source themselves (#589)
+    assert "§2.1's helpers walk `{source_root}` themselves: build no file inventory here." in one
+    assert "record path, file size, last modified timestamp" not in text
+    category_a = _slice(text, "**Category A: file-level changes.**", "**Category B")
+    assert ("In a tree it takes the changed files from git's list at `{source_changed_files}`, never from file "
+            "times or sizes, which a checkout rewrites") in category_a
+    assert "Add each of its `warnings[]` to `warnings[]`" in category_a  # file-diff-unavailable among them
     assert "Files in both but with different timestamps/sizes → MODIFIED" not in text
-    assert "the brief's `scope.include` and `scope.exclude` globs" in launch
-    assert "Category A takes added, modified and deleted files from `{source_changed_files}`" in one
-    assert "the Category C worker `{source_tree_status}`" in launch
-    rename = _slice(text, "**Category C — Rename detection:**", "**Subprocess return contract.**")
+    call = _fence(category_a, "uv run {classifyChangedFilesHelper} classify")
+    for token in ('--tree-status "{source_tree_status}"', '--diff-status "{source_diff_status}"',
+                  '--changed-files "{source_changed_files}"', '[--provenance-map "{provenance_map_path}"]',
+                  '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"]', '--lists-dir "{run_dir}"',
+                  '> "{run_dir}/category-a.json"'):
+        assert token in call, token
+    # it reads the brief §1c may just have amended, and a skill without one has none to pass
+    assert "`--brief` (as §1c left it) when that file exists" in category_a
+    rename = _slice(text, "**Category C: rename detection.**", "**Category D")
     ccc = rename[rename.index("Forge+/Deep: use CCC semantic similarity"):]
     assert "except when `{source_tree_status}` is `ready` or `offline`" in ccc
     assert "keep the ast-grep comparison" in ccc
@@ -406,37 +439,99 @@ def test_detect_changes_uses_git_file_list():
     assert "so it runs no ccc search there" in bridge and "rename detection keeps its ast-grep comparison" in bridge
 
 
-def test_category_a_takes_every_file_change_from_git_in_a_tree():
-    """A live run read an unchanged in-scope `__init__.py` as ADDED: it exports nothing, so the map never named it."""
-    category_a = _slice(_read(DETECT), "**Category A — File-level changes:**", "**Category B")
-    tree = _slice(category_a, "- **When `{source_diff_status}` is `ok`**", "\n- **When `{source_tree_status}`")
-    for rule in ("- DELETED: a tracked file with a `D` row, or one `{source_root}` does not hold",
-                 "- MODIFIED: a tracked file with an `M` or `A` row", "- Every other file is unchanged."):
-        assert rule in tree, rule
-    assert "never from the provenance map alone" in tree
-    added_rule = _slice(tree, "- ADDED:", "\n")
-    assert ("a file the provenance map does not name, inside the brief's scope (a `scope.include` glob matches it "
-            "and no `scope.exclude` glob does)") in added_rule
-    # An untracked in-scope file that exported nothing gets an M row when it gains an export.
-    assert "that has an `A` or `M` row" in added_rule and "a row with `status` `A` whose path" not in added_rule
-    # With no include glob, create-skill reads auto-detected folders: no git row may narrow that.
-    assert "When the brief's `scope.include` is empty, take ADDED as for a local source below instead." in added_rule
-    # §1c promotes an out-of-scope glob whose files exist unchanged at source_commit, and says Category A adds them.
+CLASSIFY_HELPER = SRC / "shared" / "scripts" / "skf-classify-changed-files.py"
+
+
+def _run_script(script: Path, argv: list[str]) -> tuple[int, dict]:
+    """Run a helper as the step files do, in a process of its own, and parse its JSON."""
+    proc = subprocess.run([sys.executable, str(script), *argv], capture_output=True, encoding="utf-8")
+    assert proc.stdout.strip(), proc.stderr
+    return proc.returncode, json.loads(proc.stdout)
+
+
+def _call_args(call: str, helper: str, values: dict, placeholders: dict | None = None,
+               optional: bool = True) -> list[str]:
+    """A documented call's arguments, cut at its first redirection and filled in, `<...>` values included."""
+    call = re.split(r"\s>\s", call.replace("\\\n", " "), maxsplit=1)[0]
+    for text, value in (placeholders or {}).items():
+        call = call.replace(text, value)
+    return _argv(call, helper, values, optional)
+
+
+def _without(argv: list[str], flag: str) -> list[str]:
+    """argv less one `flag value` pair: the call as made when the step passes no such flag."""
+    i = argv.index(flag)
+    return argv[:i] + argv[i + 2:]
+
+
+def test_category_a_takes_every_file_change_from_git_in_a_tree(tmp_path):
+    """A live run read an unchanged in-scope `__init__.py` as ADDED: it exports nothing, so the map never named it.
+
+    Category A is the classify helper's (#589): run the documented call on git's file list, with the brief and
+    without one (a quick skill after its degraded update), and with no provenance map (degraded mode).
+    """
+    category_a = _slice(_read(DETECT), "**Category A: file-level changes.**", "**Category B")
     one_c = _slice(_read(DETECT), "### 1c. Major-Version Scope Reconciliation", "### 2. Compare Against")
     assert "§2 Category A will pick up matching files as ADDED" in one_c and "`category: \"scope-expansion\"`" in one_c
-    assert ("or that a glob matches which a `scope.amendments[]` entry with `action` `promoted` and `category` "
-            "`scope-expansion` names while no tracked file matches that glob yet") in added_rule
-    launch = _slice(_read(DETECT), "#### 2.1 — Launch Category Subprocesses", "**Category A")
-    assert "the brief's `scope.include` and `scope.exclude` globs and its `scope.amendments[]`" in launch
-    assert "as §1c left it" in launch
-    unavailable = _slice(category_a, "- **When `{source_tree_status}` is `ready` or `offline` and "
-                         "`{source_diff_status}` is `unavailable`:**", "\n- **Otherwise")
-    assert "take ADDED and DELETED as for a local source below" in unavailable
-    local = _slice(category_a, "- **Otherwise (a local source):**", "\n- Files with same content")
-    added = "Files in source but not in provenance map AND not in `change_detection_excludes` → ADDED"
-    assert added in local and category_a.count(added) == 1
-    assert category_a.count("Files in provenance map but missing from source → DELETED") == 1
-    assert "Files in `change_detection_excludes`: skip entirely" in category_a.split("- **When", 1)[0]
+    assert "no `--exclude`" in one_c
+    excludes = _slice(_read(DETECT), "#### 2.0 Change-Detection Excludes", "#### 2.1")
+    assert "Category A leaves each of them out with `--exclude`" in excludes
+    assert "change_detection_excludes" not in _read(DETECT)  # one input the helper reads, no set built by hand
+    for rule in ("The categories by hand", "A tracked file with an `M` or `A` row is MODIFIED"):
+        assert rule not in category_a, rule  # the helper's rules, never restated
+
+    src = tmp_path / "source tree"
+    for rel, body in (("pkg/api.py", b"def search(q):\n    return q\n"), ("pkg/__init__.py", b""),
+                      ("pkg/new.py", b"def fresh():\n    pass\n"), ("plugins/extra.py", b"def x():\n    pass\n"),
+                      ("pkg/hidden.py", b"def rescoped():\n    pass\n"),
+                      ("docs/AGENTS.md", b"# agents\n"), ("tests/test_api.py", b"def test():\n    pass\n")):
+        (src / rel).parent.mkdir(parents=True, exist_ok=True)
+        (src / rel).write_bytes(body)
+    forge = tmp_path / "forge"
+    (forge / "lib").mkdir(parents=True)
+    provenance = forge / "lib" / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"generated_at": "2026-01-01T00:00:00Z", "entries": [
+        {"export_name": "search", "source_file": "pkg/api.py", "source_line": 1},
+        {"export_name": "kept", "source_file": "pkg/hidden.py", "source_line": 1},
+        {"export_name": "gone", "source_file": "pkg/gone.py", "source_line": 1}]}).encode("utf-8"))
+    # rule R1 excluded a rescoped export's file, while the file's other exports stay tracked
+    (forge / "lib" / "skill-brief.yaml").write_bytes(yaml.safe_dump({"scope": {
+        "include": ["pkg/**", "docs/**", "plugins/**"], "exclude": ["tests/**", "pkg/hidden.py"],
+        "amendments": [{"action": "promoted", "category": "scope-expansion", "path": "plugins/**"}]}}).encode("utf-8"))
+    changed = tmp_path / "changed-files.json"
+    changed.write_bytes(json.dumps({"base": "", "target": "", "files": [
+        {"status": "M", "path": "pkg/api.py"}, {"status": "D", "path": "pkg/gone.py"},
+        {"status": "A", "path": "pkg/new.py"}, {"status": "A", "path": "docs/AGENTS.md"},
+        {"status": "M", "path": "pkg/hidden.py"}, {"status": "A", "path": "tests/test_api.py"}]}).encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    call = _fence(category_a, "uv run {classifyChangedFilesHelper} classify")
+    argv = _call_args(call, "classifyChangedFilesHelper", {
+        "source_root": str(src), "provenance_map_path": str(provenance), "forge_data_folder": str(forge),
+        "skill_name": "lib", "language": "python", "source_tree_status": "ready", "source_diff_status": "ok",
+        "source_changed_files": str(changed), "run_dir": str(run_dir)}, {"<promoted document path>": "docs/AGENTS.md"})
+    code, out = _run_script(CLASSIFY_HELPER, argv)
+    assert code == 0 and out["mode"] == "diff", out
+    # the unchanged `__init__.py` is not ADDED; the promoted glob's file is, changed or not; the excluded
+    # document and the out-of-scope test file are not; a tracked file the scope now excludes is still MODIFIED
+    assert out["category_a"] == {"modified": ["pkg/api.py", "pkg/hidden.py"],
+                                 "added": ["pkg/new.py", "plugins/extra.py"], "deleted": ["pkg/gone.py"]}, out
+    assert json.loads((run_dir / "modified-files.json").read_bytes()) == ["pkg/api.py", "pkg/hidden.py"]
+    assert json.loads((run_dir / "extract-files.json").read_bytes()) == [
+        "pkg/api.py", "pkg/hidden.py", "pkg/new.py", "plugins/extra.py"]
+    # no brief (a quick skill after its degraded update): the tracked files' extensions scope the walk
+    code, out = _run_script(CLASSIFY_HELPER, _without(argv, "--brief"))
+    assert code == 0 and out["category_a"]["added"] == ["pkg/new.py", "tests/test_api.py"], out
+    # degraded mode, no provenance map: every in-scope file is modified, for step 3 to re-extract
+    code, out = _run_script(CLASSIFY_HELPER, _without(argv, "--provenance-map"))
+    assert code == 0 and out["mode"] == "full", out
+    assert out["category_a"] == {"modified": ["pkg/__init__.py", "pkg/api.py", "pkg/new.py", "plugins/extra.py"],
+                                 "added": [], "deleted": []}, out
+    degraded = _slice(_read(DETECT), "**In degraded mode (no provenance map),**", "\n")
+    for token in ("run Category A without `--provenance-map`", "lists every in-scope file as MODIFIED",
+                  "Run Category B's step 1 only", "Category D and §2.2"):
+        assert token in degraded, token
+    assert "All source files are treated as MODIFIED" not in _read(DETECT)
 
 
 def test_re_extract_reads_only_the_tree():
@@ -1197,29 +1292,111 @@ def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
     assert "(removals, provenance line fixes" not in summary
 
 
+EXTRACT_PUBLIC_API = SRC / "shared" / "scripts" / "skf-extract-public-api.py"
+EXTRACT_PUBLIC_API_PATHS = [
+    "{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py",
+    "{project-root}/src/shared/scripts/skf-extract-public-api.py",
+]
+
+
 def test_forge_tier_follows_the_ast_extraction_protocol():
-    """The #556 pre-release fix for the AST extraction protocol, update part: re-extract §1b runs the protocol over
-    the changed files and states only the wiring the protocol does not carry, and §2's workers take its matches."""
+    """The #556 pre-release fix for the AST extraction protocol, update part, through the recipe runner (W2
+    handoff): detect-changes Category B runs skf-extract-public-api.py --mode full once over the files to extract,
+    re-extract reads its output and never runs it again, §0a runs it over its own file set, and the workers read by
+    eye only the forms the recipes leave out."""
     text = _read(RE_EXTRACT)
+    assert yaml.safe_load(_frontmatter(text))["extractPublicApiProbeOrder"] == EXTRACT_PUBLIC_API_PATHS
+    category_b = _slice(_read(DETECT), "**Category B: export-level changes.**", "**Category C")
+    call = _fence(category_b, "uv run {extractPublicApiHelper} --mode full")
+    for token in ('--source-root "{source_root}"', '--files-from "{run_dir}/extract-files.json"',
+                  '[--language "{language}"]', '[--scope-type "{scope_type}"]', "--head-cap 0",
+                  '-o "{run_dir}/extraction.json"'):
+        assert token in call, token
+    # Category A applied the scope: with --brief the runner would skip a tracked file the scope now leaves out
+    assert "--brief" not in call and "It takes no `--brief`" in category_b
+    for token in ("`--head-cap 0` keeps every match", "Step 3 reads this file and never runs the runner again",
+                  "**Exit 1** (`incomplete`): run it once more",
+                  "**Exit 2 or 3, no JSON, no candidate resolves, or Quick tier:**",
+                  "Tell the user which files were read by eye"):
+        assert token in category_b, token
     one_b = _slice(text, "### 1b. Determine Extraction Strategy by Tier", "### 2. Extract Changed Files")
     forge = _slice(one_b, "**Forge tier (AST structural extraction):**", "**Tier degradation handling")
-    for token in ("Run the **AST Extraction Protocol** in `{extractionPatternsData}` with §2's changed files "
-                  "(in §0a, its resolved file set) as its files in scope",
-                  "the per-file workers (§2, §0a) take their file's matches from those runs",
-                  "A run that returns as many matches as its cap is incomplete, and an export it dropped would read "
-                  "as deleted"):
+    assert "uv run {extractPublicApiHelper}" not in forge and "never run it again here" in forge
+    for token in ("take their file's exports from its `exports[]`", "copied, never inferred",
+                  "an export a file defines in a form Known Limitation #11 in `{extractionPatternsData}` lists",
+                  "a file `file_issues[]` names", "`entry_point_diff.extraction_gaps[]`",
+                  "Step 2 already read those of the modified and added files into `{run_dir}/export-details.json`",
+                  "its parameter types and return type unless `{run_dir}/export-details.json` holds them"):
         assert token in forge, token
-    # the protocol's thresholds, line rule and Known Limitations live in extraction-patterns.md only
-    for gone in ("500", "find_code", ".vue", "metaVariables", "range.start.line", "Known Limitation", "--json",
-                 "forward slashes", "the decision tree based on the number of changed files"):
+    # the hand-run protocol and its cap dance are gone: the runner runs every recipe
+    for gone in ("Run the **AST Extraction Protocol**", "run it again with a higher cap", "500", "metaVariables",
+                 "range.start.line", "--json", "the decision tree based on the number of changed files"):
         assert gone not in forge, gone
     tool = _slice(one_b, "**Tool resolution:**", "\n")
+    assert "`{extractPublicApiHelper}` `--mode full` (step 2 and §0a)" in tool
     assert "`find_code` only as the fallback of Known Limitation #4" in tool
-    assert "ast-grep MCP tools (`find_code`, `find_code_by_rule`)" not in tool
+    assert "find_code_by_rule" not in tool
+    two = _slice(text, "### 2. Extract Changed Files", "### 2b.")
+    assert 'cat > "{run_dir}/extract-files.json"' not in two  # step 2's helper wrote the list
+    assert ("For each file `{run_dir}/extract-files.json` lists (step 2 wrote it: the MODIFIED and ADDED files and "
+            "each MOVED file's new path)") in two
     worker = _slice(text, "launch a subprocess that:", "3. Extract each export")
-    assert ("2. At Forge tier and above, takes this file's matches from §1b's recipe runs; at Quick tier, matches "
-            "the file's text as §1b says") in worker
-    assert "Performs tier-appropriate extraction" not in worker
+    assert ("2. At Forge tier and above, takes this file's exports from step 2's `{run_dir}/extraction.json` and "
+            "`export-details.json` (§1b); at Quick tier, matches the file's text as §1b says") in worker
+    zero_a = _slice(text, "### 0a. Targeted Re-Extraction Branch", "### 1. Check for Docs-Only Mode")
+    own = _fence(zero_a, "uv run {extractPublicApiHelper} --mode full")
+    for token in ('--files-from "{run_dir}/remediation-files.json"', '[--scope-type "{scope_type}"]', "--head-cap 0"):
+        assert token in own, token
+    # a test report may name a file the brief's scope leaves out as an export's home
+    assert "--brief" not in own and "It takes no `--brief`" in zero_a
+    assert "On exit 1 (`incomplete`) run it once more" in zero_a
+    init = _slice(_read(INIT), "**Check metadata.json exists:**", "**Detect skill")
+    assert "`scope_type` and `language` (when present)" in init
+    assert "Follow the AST Extraction Protocol in" not in zero_a
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
+def test_the_documented_runner_calls_run(tmp_path):
+    """detect-changes Category B's runner call and re-extract §0a's run as written (W2 handoff).
+
+    Category B passes no brief: a tracked file the brief's scope now excludes (rule R1's rescope) keeps its
+    exports, which a run with the brief would drop and the diff would then read as deleted.
+    """
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    (src / "pkg" / "hidden.py").write_bytes(b"def kept():\n    return 1\n")
+    (src / "internal").mkdir()
+    (src / "internal" / "impl.py").write_bytes(b"def hidden_home():\n    return 1\n")
+    forge = tmp_path / "forge"
+    (forge / "lib").mkdir(parents=True)
+    (forge / "lib" / "skill-brief.yaml").write_bytes(yaml.safe_dump(
+        {"language": "python", "scope": {"include": ["pkg/**"], "exclude": ["pkg/hidden.py"]}}).encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "extract-files.json").write_bytes(json.dumps(["pkg/api.py", "pkg/hidden.py"]).encode("utf-8"))
+    (run_dir / "remediation-files.json").write_bytes(json.dumps(["internal/impl.py"]).encode("utf-8"))
+    values = {"source_root": str(src), "forge_data_folder": str(forge), "skill_name": "lib",
+              "run_dir": str(run_dir), "scope_type": "full-library", "language": "python"}
+    calls = {
+        "extraction.json": _fence(_slice(_read(DETECT), "**Category B: export-level changes.**", "**Category C"),
+                                  "uv run {extractPublicApiHelper}"),
+        "remediation-exports.json": _fence(_slice(_read(RE_EXTRACT), "### 0a.", "### 1. Check"),
+                                           "uv run {extractPublicApiHelper}"),
+    }
+    expected = {
+        # the line of the name, not of the decorator above it; the excluded file's export is kept
+        "extraction.json": {("search", "pkg/api.py", 5), ("kept", "pkg/hidden.py", 1)},
+        # out of the brief's scope, and still read: §0a passes no --brief
+        "remediation-exports.json": {("hidden_home", "internal/impl.py", 1)},
+    }
+    for output, call in calls.items():
+        proc = subprocess.run([sys.executable, str(EXTRACT_PUBLIC_API),
+                               *_call_args(call, "extractPublicApiHelper", values)],
+                              capture_output=True, encoding="utf-8")
+        assert proc.returncode == 0, (output, proc.stderr)
+        exports = json.loads((run_dir / output).read_text(encoding="utf-8"))["exports"]
+        assert {(e["export_name"], e["source_file"], e["source_line"]) for e in exports} == expected[output]
 
 
 # --------------------------------------------------------------------------
@@ -1623,30 +1800,31 @@ def test_blocking_gap_without_a_path_halts_in_step_3_before_merge():
     assert "go on to the branches below as if the entry had no `source_citation`" in cited
     assert not_found.index(cited) < not_found.index(blocking) < not_found.index(unknown)
     for token in ("the rule R3 branch above did not take it",
-                  "Route this entry to §0a (Targeted Re-Extraction Branch), whatever its `remediation_paths[]`",
+                  "Route this entry to §0a (Targeted Re-Extraction Branch), whatever its `resolved_paths[]`",
                   "With an empty list it has nothing to scan and lists the entry in `unresolved[]` with "
                   "`files_scanned: 0`",
                   "halts the workflow with `halted-for-remediation-path` before merge, `--dry-run` included"):
         assert token in blocking, token
-    assert "a blocking gap never gets here, whatever its `remediation_paths[]`" in unknown
+    assert "a blocking gap never gets here, whatever its `resolved_paths[]`" in unknown
     assert "`remediation_paths[]` is empty OR" not in text  # the empty-paths way into `unknown` is gone
     zero_a = _slice(text, "### 0a. Targeted Re-Extraction Branch", "### 1. Check for Docs-Only Mode")
     used_by = _slice(zero_a, "**Used by:** §0 bullet 2", "**Purpose:**")
     assert ("an empty one leaves nothing to scan, so step 4 puts the entry straight into `unresolved[]` with "
             "`files_scanned: 0`") in used_by
-    assert "that the second case below does not take" in used_by
+    assert "that the rule R3 case below does not take" in used_by
     assert "gap-driven runs in which §0 bullet 2 routes no entry here, skip this section entirely" in zero_a
     match = _slice(zero_a, "4. **Match by name**", "\n")
-    # a rule R3 gap scans its documented `source` reference, so an empty `remediation_paths[]` alone skips nothing
-    assert ("An entry with no path set to scan (a blocking gap with an empty `remediation_paths[]`, or a rule R3 gap "
-            "with neither a documented `source` reference nor remediation paths) is not matched") in match
+    assert "An entry with no path set to scan (an empty `resolved_paths[]`) is not matched" in match
+    assert "search the extraction results of its own `resolved_paths[]`" in match
+    # a rule R3 gap scans the source file its documentation cites, which step 2 resolved through the helper
     r3 = _slice(used_by, "- a provenance-completeness gap (rule R3", "\n")
-    assert ("treat the export's documented `source` reference (or `remediation_paths[]` when present) as the path "
-            "set") in r3
+    assert ("Its `resolved_paths[]` is the path set to scan: step 2 §0 filled them from the source file its "
+            "documentation cites when its remediation named none") in r3
     failures = _slice(zero_a, "5. **Track failures across all qualifying entries.**", "\n")
     assert "every entry step 4 had nothing to scan for (`files_scanned: 0`)" in failures
     template = _fence(zero_a, "Targeted re-extraction failed for {N} gap(s).")
     for token in ('- {name} ({severity or "no severity"})', 'remediation_paths: {paths, or "none named"}',
+                  'rejected_paths:    {each refused path (its reason), or "none"}',
                   "files_scanned:     {count}", "a) Add a `file:line` citation", "b) Edit the Remediation text",
                   "c) Downgrade the gap(s) to Medium/Low/Info"):
         assert token in template, token
@@ -1654,13 +1832,11 @@ def test_blocking_gap_without_a_path_halts_in_step_3_before_merge():
     for token in ("under `--dry-run` too", "Step-04 merge has not run; no partial writes",
                   'phase: "re-extract:targeted-reextraction"'):
         assert token in exit_, token
-    # detect-changes describes the same route
-    paths = _slice(_read(DETECT), "   - **`remediation_paths: [path, ...]`**", "\n")
-    for token in ("a blocking one still goes to §0a, which has nothing to scan", "`files_scanned: 0`",
-                  "halts the run with `halted-for-remediation-path` before merge",
-                  "a `Medium`, `Low` or `Info` one records `unknown`"):
-        assert token in paths, token
-    assert "depending on severity" not in paths
+    # detect-changes lists the fields the route reads; re-extract states the route once, where it acts
+    paths = _slice(_read(DETECT), "   - **`remediation_paths`**, **`resolved_paths`** and **`rejected_paths`**", "\n")
+    assert "Step 3's §0a scans only `resolved_paths`" in paths
+    for gone in ("depending on severity", "halts the run with `halted-for-remediation-path`", "records `unknown`"):
+        assert gone not in paths, gone
 
 
 def test_gap_driven_dry_run_stops_after_step_3():
@@ -1706,17 +1882,18 @@ def test_split_body_findings_route_to_a_structural_fix():
     zero = _slice(_read(DETECT), "### 0. Check for Test Report Input", "### 1. Scan Current Source State")
     rows = [line for line in zero.splitlines() if line.startswith("| ")]
     split = next(i for i, row in enumerate(rows) if "Split-body inconsistency" in row)
-    signature = next(i for i, row in enumerate(rows) if "| Signature mismatch |" in row)
+    signature = next(i for i, row in enumerate(rows) if "`signature-mismatch`" in row)
     assert split < signature  # read top-down, the split-body row comes first
-    assert rows[split].startswith("| High | Split-body inconsistency:")
+    assert rows[split].startswith("| `split-body-mismatch` | Split-body inconsistency:")
     assert "with a `Source:` inside the skill package" in rows[split]
-    assert ("STRUCTURAL_FIX, see rule R2 (this row takes precedence over the Signature mismatch row below)"
-            in rows[split])
+    assert ("STRUCTURAL_FIX, see rule R2 (for an older report, this row takes precedence over the Signature mismatch "
+            "row below)") in rows[split]
     assert "MODIFIED_EXPORT" not in rows[split]
     r2 = _slice(zero, "- **R2: STRUCTURAL_FIX.**", "\n- **R3")
     for token in ("a coherence finding from `skf-scan-skill-md-structure.py`",
                   "a split-body consistency finding (test-skill coverage-check §1b `cross_check_mismatches`)",
-                  "Recognize it by its `Source:`, which points inside the skill package",
+                  "Its `category` is `split-body-mismatch`; in a report older than the ledger, recognize it by its "
+                  "`Source:`, which points inside the skill package",
                   "at the skill's own `SKILL.md` or at one of its `references/*.md` files",
                   "while its issue sets the SKILL.md body against a `references/*.md` file",
                   "Test for it before the High \"Signature mismatch\" row",
@@ -1727,7 +1904,7 @@ def test_split_body_findings_route_to_a_structural_fix():
         assert token in r2, token
     assert "\u2014" not in r2
     cite = _slice(zero, "   - **`source_citation: {file, line}`**", "\n")
-    assert "or a line inside the skill package (a split-body finding's `SKILL.md:42`, rule R2)" in cite
+    assert "or names a line inside the skill package (a split-body finding's `SKILL.md:42`, rule R2)" in cite
     # a STRUCTURAL_FIX needs nothing from the tree: forwarded as is, and the drift gate lets it through
     forward = _slice(_read(RE_EXTRACT), "   - **`STRUCTURAL_FIX`** (detect-changes §0 rule R2)", "\n")
     assert "No spot-check, no provenance lookup, no `entries[]` change." in forward
@@ -1776,8 +1953,15 @@ def test_update_bookkeeping_has_one_home():
     assert '"confidence_tier": "{Quick|Forge|Forge+|Deep}"' in _read(SRC / "skf-create-skill" / "assets" /
                                                                      "skill-sections.md")
     fields = json.loads(_fence(block, '"last_update"').replace("{count}", "0"))
-    assert list(fields) == ["last_update", "update_type", "files_changed", "exports_affected", "confidence_tier",
-                            "manual_sections_preserved"]
+    assert list(fields) == ["last_update", "update_type", "test_report_run_id", "files_changed", "exports_affected",
+                            "confidence_tier", "manual_sections_preserved"]
+    # the time to the second, read from the clock, and the report a gap-driven repair applied (#583): step 1 §4b
+    # never offers that report again, even on the day of the test
+    assert "read from the clock (`date -u +%Y-%m-%dT%H:%M:%SZ`), never typed" in generation
+    for token in ("`last_update` is the `generation_date` §2 wrote",
+                  "`test_report_run_id` the `{test_report_run_id}` of the test report a gap-driven run applied "
+                  "(null in the other modes), which step 1 §4b then never offers again"):
+        assert token in block, token
     values = dict(re.findall(r"([a-z-]+) if ([a-z-]+)", fields["update_type"]))
     assert values == {"incremental": "normal", "gap-driven": "gap-driven", "full": "degraded"}
     # one value for each mode the report names, and the prose names the same pairs
@@ -1879,3 +2063,515 @@ def test_docs_and_knowledge():
     assert "`init:source-tree`" in _slice(tier, "- **update-skill:**", "\n")
     audit = _read(SRC / "skf-audit-skill" / "references" / "report.md")
     assert "`--target-ref {latest_tag}`" in audit and "`--target-ref HEAD`" in audit
+
+
+# --------------------------------------------------------------------------
+# Gap reports through the shared helpers (#583, #546) and drift through
+# scripts (#589)
+# --------------------------------------------------------------------------
+
+PARSE_GAPS = SRC / "shared" / "scripts" / "skf-parse-gaps.py"
+FIND_TEST_REPORT = SRC / "shared" / "scripts" / "skf-find-test-report.py"
+STRUCTURAL_DIFF = SRC / "shared" / "scripts" / "skf-structural-diff.py"
+RESOLVER = SRC / "shared" / "scripts" / "skf-resolve-authoritative-files.py"
+BUILD_MANIFEST = SRC / "shared" / "scripts" / "skf-build-change-manifest.py"
+GAP_LEDGER = SRC / "skf-test-skill" / "scripts" / "gap-ledger.py"
+RUN_ID = "20260930T101010Z-4242-ab12"
+
+
+def _probe(name: str) -> list[str]:
+    return [f"{{project-root}}/_bmad/skf/shared/scripts/{name}", f"{{project-root}}/src/shared/scripts/{name}"]
+
+
+def _zero() -> str:
+    return _slice(_read(DETECT), "### 0. Check for Test Report Input", "### 1. Scan Current Source State")
+
+
+def _routing_table() -> dict[str, str]:
+    """detect-changes §0's table: each ledger category slug -> the Change Category its row names."""
+    routes = {}
+    for row in _zero().splitlines():
+        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+        if len(cells) != 3 or not cells[0].startswith("`") or cells[2] == "Change Category":
+            continue
+        change = re.match(r"(NEW_EXPORT|MODIFIED_EXPORT|MOVED_EXPORT|STRUCTURAL_FIX|metadata update)", cells[2])
+        assert change, row
+        for slug in re.findall(r"`([a-z][a-z0-9-]*)`", cells[0]):
+            assert slug not in routes, slug
+            routes[slug] = change.group(1)
+    return routes
+
+
+def test_gap_routing_keys_on_the_ledger_category():
+    """Every ledger category is routed by one row or listed as not routed, never both (#583)."""
+    ledger = _module(GAP_LEDGER, "skf_gap_ledger_prose")
+    routes = _routing_table()
+    not_routed = set(re.findall(r"`([a-z][a-z0-9-]*)`", _slice(_zero(), "**Not routed:**", "\n")))
+    assert set(routes) | not_routed == set(ledger.CATEGORIES), set(ledger.CATEGORIES) ^ (set(routes) | not_routed)
+    assert not set(routes) & not_routed
+    assert routes["missing-export"] == routes["missing-type"] == routes["provenance-completeness"] == "NEW_EXPORT"
+    assert routes["signature-mismatch"] == routes["fabricated-signature"] == "MODIFIED_EXPORT"
+    assert routes["split-body-mismatch"] == routes["broken-reference"] == "STRUCTURAL_FIX"
+    assert routes["provenance-line"] == "MOVED_EXPORT" and routes["metadata-drift"] == "metadata update"
+    translate = _slice(_zero(), "2. **Translate each gap by its `category`**", "\n")
+    assert "never by its severity" in translate
+    # the old severity column is gone: a Medium missing export no longer falls to `unknown` by its severity
+    assert "| Gap Severity |" not in _zero() and "| Critical | Missing export documentation |" not in _zero()
+    # step 3 routes a missing export or type to targeted re-extraction whatever its severity, and never halts on one
+    route = _slice(_not_found(), "     - **If the manifest entry has no `source_citation` (or one whose spot-check "
+                   "above pinned no line), the branches above did not take it, and it asks to document a missing "
+                   "export or type**", "\n")
+    for token in ("its `category` is `missing-export` or `missing-type`", "route it to §0a when its "
+                  "`resolved_paths[]` is not empty, whatever its severity", "The route follows the gap's category, "
+                  "not its severity", "record it `unknown` as the bullet below does", "so it does not halt"):
+        assert token in route, token
+    # step 3 routes on the category alone: detect-changes chose it, for an older report too
+    assert "title names a missing export or type" not in route
+    category = _slice(_zero(), "   - **`gap_id`** and **`category`**", "\n")
+    for token in ("For a report older than the ledger, `category` is the slug of the row step 2 chose",
+                  "so step 3 routes on `category` alone"):
+        assert token in category, token
+    # the route is stated where it acts: §0 bullet 2, §0a's Used by and its no-halt exception, nowhere else
+    zero_a = _slice(_read(RE_EXTRACT), "### 0a. Targeted Re-Extraction Branch", "### 1. Check for Docs-Only Mode")
+    used_by = _slice(zero_a, "**Used by:** §0 bullet 2", "**Purpose:**")
+    assert "that §0 bullet 2 routes here by its `category` (a missing export or type)" in used_by
+    failures = _slice(zero_a, "5. **Track failures across all qualifying entries.**", "\n")
+    assert "except a `Medium`, `Low` or `Info` missing export or type" in failures
+    rules = _slice(_read(RE_EXTRACT), "**Exception (gap-driven mode):**", "\n")
+    assert "the `resolved_paths[]` of each entry §0 bullet 2 routes to it" in rules
+    for prose in (rules, _slice(zero_a, "**Purpose:**", "\n")):
+        assert "missing export or type" not in prose
+    # a gap no row routes is reported, headless included
+    four = _slice(_zero(), "4. Set `gap_count`", "\n")
+    assert "Add each gap the table does not route to `warnings[]` as `test-report: not routed: {id} ({category})`" \
+        in four
+    assert "`test-report: not routed: {id} ({category})`" in _slice(_read(REPORT), "### 5b.", "### 6.")
+    assert "**Not repaired by this run:**" in _slice(_read(REPORT), "### 2. Present Change Summary", "### 3.")
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    assert "test-report: not routed:" in warnings
+
+
+def _ledger_record(severity, category, title, source, remediation, export=None) -> dict:
+    record = {"severity": severity, "category": category, "title": title, "source": source,
+              "remediation": remediation}
+    if export:
+        record["export"] = export
+    return record
+
+
+def test_a_hard_gate_blocked_report_is_read_through_its_ledger(tmp_path):
+    """#546: a blocked run's Gap Report holds only its placeholder; parse-gaps reads the ledger beside it."""
+    zero = _zero()
+    assert yaml.safe_load(_frontmatter(_read(DETECT)))["parseGapsProbeOrder"] == _probe("skf-parse-gaps.py")
+    read = _slice(zero, "1. **Read the gaps through `{parseGapsHelper}`**", "2. **Translate each gap")
+    for token in ("It reads the gap ledger test-skill wrote beside the report (`test-findings-{run_id}.json`), "
+                  "which holds every gap of a run test-skill's hard gate blocked (its `stepsCompleted` ends at "
+                  "`hard-gate`)", "Never read gaps from the report by eye", "`test-report: <entry>`",
+                  'phase: "detect-changes:parse-gaps"', "`LEDGER_INVALID`",
+                  "`--provenance-map` whenever init.md §4 loaded one"):
+        assert token in read, token
+    assert "--ext" not in read  # the helper takes the map's extensions itself, none collected by eye
+    for gone in ("1. Read the **Gap Report** section", "Read the **Coverage Analysis** section",
+                 "any substring matching a recognized source file extension"):
+        assert gone not in _read(DETECT), gone
+    forge_version = tmp_path / "forge data" / "lib" / "1.0.0"
+    forge_version.mkdir(parents=True)
+    report = forge_version / f"test-report-lib-{RUN_ID}.md"
+    report.write_bytes((
+        "---\nworkflowType: 'test-skill'\nskillName: 'lib'\n"
+        f"runId: '{RUN_ID}'\ntestResult: 'fail'\n"
+        "stepsCompleted: ['step-01-init', 'step-03-coverage-check', 'step-04-coherence-check', 'hard-gate']\n"
+        "---\n\n# Test Report: lib\n\n## Gap Report\n\n"
+        "<!-- Populated by report §3-§4b (includes Discovery Quality subsection) -->\n").encode("utf-8"))
+    records = [
+        _ledger_record("Critical", "signature-mismatch", "search signature", "pkg/api.py:5",
+                       "Update SKILL.md to match `pkg/api.py:5`.", "search"),
+        _ledger_record("High", "broken-reference", "Link to a missing reference file", "SKILL.md:12",
+                       "Create `references/api.md` or remove the link."),
+        _ledger_record("Medium", "missing-export", "fresh undocumented", "pkg/__init__.py",
+                       "Document `fresh` from `pkg/new.py`; see also ../outside/secret.py.", "fresh"),
+    ]
+    ledger = forge_version / f"test-findings-{RUN_ID}.json"
+    proc = subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",
+                           "coverage-check"], input=json.dumps(records), capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    (src / "pkg" / "new.py").write_bytes(b"def fresh():\n    return 1\n")
+    provenance = forge_version / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"entries": [{"export_name": "search", "source_file": "pkg/api.py"}]})
+                           .encode("utf-8"))
+    call = _fence(read, "uv run {parseGapsHelper} parse")
+    argv = _call_args(call, "parseGapsHelper", {"test_report_path": str(report), "source_root": str(src),
+                                                "provenance_map_path": str(provenance)})
+    code, out = _run_script(PARSE_GAPS, argv)
+    assert code == 0 and out["read_from"] == "ledger", out
+    gaps = {gap["category"]: gap for gap in out["gaps"]}
+    assert out["gap_count"] == 3 and set(gaps) == {"signature-mismatch", "broken-reference", "missing-export"}
+    assert gaps["signature-mismatch"]["source_citation"] == {"file": "pkg/api.py", "line": 5}
+    assert gaps["signature-mismatch"]["severity"] == "Critical" and gaps["broken-reference"]["severity"] == "High"
+    missing = gaps["missing-export"]
+    assert missing["export"] == "fresh" and missing["source_citation"] is None
+    assert missing["resolved_paths"] == ["pkg/new.py"]
+    assert {"path": "../outside/secret.py", "reason": "outside-root"} in missing["rejected_paths"]
+    routes = _routing_table()
+    assert [routes[gap["category"]] for gap in out["gaps"]] == ["MODIFIED_EXPORT", "STRUCTURAL_FIX", "NEW_EXPORT"]
+    fields = _slice(zero, "3. Build the change manifest from the translated gaps", "4. Set `gap_count`")
+    for token in ("**`name`**: the gap's `export`, else the export its `title` names",
+                  "**`remediation_paths`**, **`resolved_paths`** and **`rejected_paths`**",
+                  "(`outside-root`, `symlink-outside-root`, `not-found`, `no-match`)", "never from the report by eye"):
+        assert token in fields, token
+
+
+def test_zero_a_scans_the_resolved_paths_never_a_hand_expansion(tmp_path):
+    """re-extract §0a takes parse-gaps' resolved files; every root check is the helper's, a rule R3 gap's cited
+    source file included (#583)."""
+    zero_a = _slice(_read(RE_EXTRACT), "### 0a. Targeted Re-Extraction Branch", "### 1. Check for Docs-Only Mode")
+    files = _slice(zero_a, "2. **The file set**", "\n")
+    for token in ("is the `resolved_paths[]` of every entry routed here, as they are",
+                  "step 2 §0's `{parseGapsHelper}` resolved them under `{source_root}`",
+                  "never scan a refused path, and never expand or check a path by hand",
+                  "`outside-root`", "`symlink-outside-root`", "`not-found`", "`no-match`"):
+        assert token in files, token
+    for gone in ("**Expand `remediation_paths[]`**", "using the provenance map's file patterns",
+                 "Deduplicate the resolved file set", "no `..` part", "each file once"):
+        assert gone not in zero_a, gone
+    paths = _slice(_zero(), "   - **`remediation_paths`**, **`resolved_paths`** and **`rejected_paths`**", "\n")
+    call = re.search(r"`(uv run \{parseGapsHelper\} paths [^`]*)`", paths)
+    assert call, "detect-changes §0 runs no root check for a rule R3 gap's cited file"
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    (tmp_path / "outside.py").write_bytes(b"def x():\n    pass\n")
+    for cited, resolved, rejected in (("pkg/api.py", ["pkg/api.py"], []),
+                                      ("../outside.py", [], [{"path": "../outside.py", "reason": "outside-root"}])):
+        argv = _call_args(call.group(1), "parseGapsHelper", {"source_root": str(src)},
+                          {"<the cited source file>": cited})
+        code, out = _run_script(PARSE_GAPS, argv)
+        assert code == 0 and (out["resolved_paths"], out["rejected_paths"]) == (resolved, rejected), out
+
+
+def _report_fixture(folder: Path, run_id: str, result: str, test_date: str) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"test-report-lib-{run_id}.md"
+    path.write_bytes((f"---\nrunId: '{run_id}'\ntestResult: '{result}'\nscore: '72'\ntestDate: '{test_date}'\n"
+                      "---\n\n# Test Report: lib\n").encode("utf-8"))
+    return path
+
+
+def _gone_report_fixture(folder: Path) -> None:
+    """A result file that names a report someone deleted: the helper finds it, from its summary only."""
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "skf-test-skill-result-latest.json").write_bytes(json.dumps({
+        "runId": "20260930T101010Z-2-bbbb", "timestamp": "2026-09-30T10:10:10Z",
+        "outputs": [{"type": "report", "path": "gone/test-report-lib-20260930T101010Z-2-bbbb.md"}],
+        "summary": {"result": "FAIL", "score": 61}}).encode("utf-8"))
+
+
+def test_the_test_report_is_found_by_the_shared_helper(tmp_path):
+    """init §1 finds the report with skf-find-test-report.py, never by glob and sort (#583)."""
+    init = _read(INIT)
+    assert yaml.safe_load(_frontmatter(init))["findTestReportProbeOrder"] == _probe("skf-find-test-report.py")
+    lookup = _slice(init, "**If `--from-test-report` was provided", "**If `--allow-workspace-drift` was provided:**")
+    for gone in ("sort -r", "Glob `{forge_data_folder}", "Read the report path from `outputs[]`",
+                 "picks the newest report by the run id"):
+        assert gone not in lookup, gone
+    for token in ("Never glob, sort or read a report's frontmatter by hand",
+                  "**`status` is `found` and `report_exists` is true:** set `test_report_path` ← `path`, "
+                  "`{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`",
+                  "with its `testResult`, `score` and `source`", "(`skipped[]`)",
+                  "`found` with `report_exists` false, a result file naming a report that is gone",
+                  "Pass `--version` only when steps 1-3 above bound `{active_version}`"):
+        assert token in lookup, token
+    forge = tmp_path / "forge data"
+    newest = _report_fixture(forge / "lib" / "1.0.0", "20260930T101010Z-2-bbbb", "fail", "2026-09-30T10:10:10Z")
+    _report_fixture(forge / "lib" / "1.0.0", "20260901T080000Z-1-aaaa", "pass", "2026-09-01T08:00:00Z")
+    values = {"forge_data_folder": str(forge), "skill_name": "lib", "active_version": "1.0.0"}
+    call = _fence(lookup, "uv run {findTestReportHelper} find")
+    code, out = _run_script(FIND_TEST_REPORT, _call_args(call, "findTestReportHelper", values))
+    assert code == 0 and (out["status"], out["path"], out["testResult"]) == ("found", str(newest), "fail"), out
+    assert out["report_exists"] is True and out["source"] == "versioned-glob"
+    # a report a result file names but someone deleted: found, from its summary, and not a gap-driven input
+    gone = tmp_path / "gone forge"
+    _gone_report_fixture(gone / "lib" / "1.0.0")
+    code, out = _run_script(FIND_TEST_REPORT, _call_args(call, "findTestReportHelper", {**values,
+                                                                                         "forge_data_folder": str(gone)}))
+    assert code == 0 and out["status"] == "found" and out["report_exists"] is False, out
+
+
+REPORT_RUN = "20260930T101010Z-2-bbbb"
+
+
+@pytest.mark.parametrize(("result", "generation_date", "applied", "unconsumed"), [
+    ("fail", "2026-09-29T12:00:00Z", False, True),
+    ("pass-with-drift", "2026-09-29T12:00:00Z", False, True),
+    ("fail", "2026-10-02T00:00:00Z", False, False),  # the skill was regenerated or repaired after the test
+    ("pass", "2026-09-29T12:00:00Z", False, False),
+    ("fail", "", False, True),  # no generation_date: offered rather than hidden
+    # a repair the same day: write.md stamps generation_date to the second, so the report it applied reads older
+    ("fail", "2026-09-30T10:42:07Z", False, False),
+    # the map's update block names the report the last gap-driven repair applied, whatever a date alone says
+    ("fail", "2026-09-30", True, False),
+    ("gone", "2026-09-29T12:00:00Z", False, False),  # a result file naming a deleted report: nothing to repair
+], ids=["fail-newer", "drift-newer", "fail-older", "pass", "no-date", "repaired-same-day", "applied", "report-gone"])
+def test_a_normal_run_offers_an_unconsumed_failing_report(tmp_path, result, generation_date, applied, unconsumed):
+    """init §4b: a FAIL or PASS_WITH_DRIFT report newer than the skill, not yet applied, is offered (#583)."""
+    init = _read(INIT)
+    four_b = _slice(init, "### 4b. Offer an Unconsumed Test Report", "### 5. Load [MANUAL] Section Inventory")
+    # after §4 binds the provenance map the offer reads, before §6 skips the source tree in gap-driven mode
+    assert init.index("### 4. Load Provenance Map") < init.index("### 4b.") < init.index("### 6. Resolve the Source")
+    assert "### 2b." not in init
+    call = _fence(four_b, "uv run {findTestReportHelper} find")
+    assert '--newer-than "{generation_date}"' in call and '--provenance-map "{provenance_map_path}"' in call
+    forge = tmp_path / "forge data"
+    if result == "gone":
+        _gone_report_fixture(forge / "lib" / "1.0.0")
+    else:
+        _report_fixture(forge / "lib" / "1.0.0", REPORT_RUN, result, "2026-09-30T10:10:10Z")
+    provenance = tmp_path / "provenance-map.json"
+    block = {"update_type": "gap-driven", "test_report_run_id": REPORT_RUN} if applied else {}
+    provenance.write_bytes(json.dumps({"entries": [], **block}).encode("utf-8"))
+    values = {"forge_data_folder": str(forge), "skill_name": "lib", "active_version": "1.0.0",
+              "generation_date": generation_date, "provenance_map_path": str(provenance)}
+    code, out = _run_script(FIND_TEST_REPORT, _call_args(call, "findTestReportHelper", values))
+    assert code == 0 and out["status"] == "found", out
+    # the rule §4b states, applied to the helper's output
+    offered = (out["report_exists"] is True and out["testResult"] in ("fail", "pass-with-drift")
+               and out["newer"] is not False and out["applied"] is not True)
+    assert offered is unconsumed, out
+    for token in ("**Run this section only when `--from-test-report` was not given and `degraded_mode` is false**",
+                  "`report_exists` is true", "`testResult` is `fail` or `pass-with-drift`", "`newer` is not `false`",
+                  "offers the report rather than hiding it", "`applied` is not `true`",
+                  "[G] Repair the gaps it lists", "[S] Check the source for changes",
+                  "Its default follows the verdict: [G] for `fail`; [S] for `pass-with-drift`",
+                  "so a repair would read that same tree and halt `halted-for-workspace-drift`",
+                  "set `test_report_path` ← `{unconsumed_test_report}`, `{test_report_run_id}` ← `run_id` and "
+                  "`update_mode: gap-driven`",
+                  "add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`",
+                  "It is a notice, not a gate the run resolves: no `headless_decisions[]` entry"):
+        assert token in four_b, token
+    gates = _slice(_read(SKILL), "| **Gates** |", "\n")
+    assert "init.md §4b's [G]/[S] test-report offer, interactive only (headless warns `unconsumed-test-report`)" \
+        in gates
+
+
+def test_the_no_change_report_points_at_the_unconsumed_report():
+    """report §1 names --from-test-report, or for a drift pass a test against the pinned commit, instead of 'No
+    action required' when a test report stands (#583)."""
+    one = _slice(_read(REPORT), "### 1. Handle No-Change Shortcut", "### 1a.")
+    pointer = _slice(one, "When `{unconsumed_test_report}` is bound", "\n\nIn gap-driven mode")
+    for token in ("replace that recommendation by its `{unconsumed_test_result}`",
+                  "- `fail`:", "`@Ferris US {skill_name} --from-test-report`", "has not been applied to this skill",
+                  # test-skill's own advice for a drift pass: the repair would read the same drifted tree
+                  "- `pass-with-drift`:", "Once the workspace holds the pinned commit, re-run test-skill without "
+                  "`--allow-workspace-drift`"):
+        assert token in pointer, token
+    assert "In gap-driven mode (step 2 §0 translated none of the report's gaps)" in one
+    five_b = _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
+    for token in ("`unconsumed-test-report` (init.md §4b)", "`test-report:` entries", "`no-baseline-time`",
+                  "`moved-check-skipped`", "`unknown-language`"):
+        assert token in five_b, token
+    # the flag's cell stays the flag's: the offer is listed with the gates
+    flags = _slice(_read(SKILL), "| **Flags** |", "\n")
+    assert "`--from-test-report` (gap-driven mode);" in flags and "§2b" not in flags and "§4b" not in flags
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    for token in ("unconsumed-test-report (init.md §4b", "test-report:", "no-baseline-time", "moved-check-skipped",
+                  "unknown-language"):
+        assert token in warnings, token
+
+
+def test_category_b_diffs_through_the_structural_diff_helper(tmp_path, capsys):
+    """Category B: the runner's exports plus what the workers read, diffed by skf-structural-diff.py, and mapped
+    onto the manifest by skf-build-change-manifest.py, never by eye (#589)."""
+    detect = _read(DETECT)
+    frontmatter = yaml.safe_load(_frontmatter(detect))
+    assert frontmatter["structuralDiffProbeOrder"] == _probe("skf-structural-diff.py")
+    assert frontmatter["classifyChangedFilesProbeOrder"] == _probe("skf-classify-changed-files.py")
+    assert frontmatter["extractPublicApiProbeOrder"] == EXTRACT_PUBLIC_API_PATHS
+    assert "Run §2.1's categories in order, A, then B, then C" in _slice(detect, "## Rules", "## Steps")
+    two_one = _slice(detect, "#### 2.1 Categories A, B and C, in Order", "**Category D")
+    assert "Launch subprocesses in parallel" not in detect
+    order = [two_one.index(mark) for mark in ("**Category A:", "**Category B:", "**Category C:")]
+    assert order == sorted(order)
+    category_b = _slice(two_one, "**Category B: export-level changes", "**Category C")
+    for token in ("`export_name` and `source_file` as it wrote them", "`params` (each parameter as the source "
+                  "writes it, `name: type`", "a name `entry_point_diff.extraction_gaps[]` lists",
+                  "a form Known Limitation #11 in `{extractionPatternsData}` lists",
+                  "`confidence: T1-low` and `extraction_method: source-read`",
+                  "Write the union of their `exports` arrays to `{run_dir}/export-details.json`",
+                  "which §3's helper maps onto Category B: never re-diff by eye"):
+        assert token in category_b, token
+    # the mapping table and the renamed keys are the helper's now, not the prompt's
+    for gone in ("| `removed[]` | `deleted_exports` |", "copied from the runner's", "current-exports.json",
+                 "modified and added lists, as one JSON array"):
+        assert gone not in detect, gone
+    assert "Exports in provenance but not in source → DELETED_EXPORT" not in detect
+    call = _fence(category_b, "uv run {structuralDiffHelper}")
+    for token in ('"{run_dir}/extraction.json"', '--current-extra "{run_dir}/export-details.json"',
+                  '--files "{run_dir}/modified-files.json"', '-o "{run_dir}/category-b-diff.json"'):
+        assert token in call, token
+    forge_version = tmp_path / "forge"
+    forge_version.mkdir()
+    provenance = forge_version / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"entries": [
+        {"export_name": "search", "export_type": "function", "source_file": "pkg/api.py", "source_line": 5,
+         "params": ["q"], "return_type": None},
+        {"export_name": "old_fn", "export_type": "function", "source_file": "pkg/api.py", "source_line": 10,
+         "params": [], "return_type": None},
+        {"export_name": "by_eye", "export_type": "function", "source_file": "pkg/api.py", "source_line": 20,
+         "params": [], "return_type": None},
+        {"export_name": "stable", "export_type": "function", "source_file": "pkg/util.py", "source_line": 1,
+         "params": [], "return_type": None}]}).encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    # the runner's records, as it writes them, and what the workers added: params, and an export read by eye
+    (run_dir / "extraction.json").write_bytes(json.dumps({"exports": [
+        {"export_name": "search", "export_type": "function", "source_file": "pkg/api.py", "source_line": 7,
+         "confidence": "T1", "extraction_method": "ast-grep"},
+        {"export_name": "helper", "export_type": "function", "source_file": "pkg/api.py", "source_line": 12,
+         "confidence": "T1", "extraction_method": "ast-grep"}]}).encode("utf-8"))
+    (run_dir / "export-details.json").write_bytes(json.dumps({"exports": [
+        {"export_name": "search", "source_file": "pkg/api.py", "params": ["q", "limit: int"], "return_type": None},
+        {"export_name": "helper", "source_file": "pkg/api.py", "params": [], "return_type": None},
+        {"export_name": "by_eye", "export_type": "function", "source_file": "pkg/api.py", "source_line": 20,
+         "params": [], "return_type": None, "confidence": "T1-low",
+         "extraction_method": "source-read"}]}).encode("utf-8"))
+    (run_dir / "modified-files.json").write_bytes(json.dumps(["pkg/api.py"]).encode("utf-8"))
+    diff_module = _module(STRUCTURAL_DIFF, "skf_structural_diff_prose")
+    code = diff_module.main(_call_args(call, "structuralDiffHelper", {"provenance_map_path": str(provenance),
+                                                                       "run_dir": str(run_dir)}))
+    capsys.readouterr()
+    assert code == 1  # differences found, and the diff written
+    diff = json.loads((run_dir / "category-b-diff.json").read_text(encoding="utf-8"))
+    assert [e["name"] for e in diff["removed"]] == ["old_fn"] and [e["name"] for e in diff["added"]] == ["helper"]
+    assert sorted(c["field"] for c in diff["changed"] if c["name"] == "search") == ["line", "params"]
+    assert diff["file_scope"]["baseline_left_out"] == 1  # `stable` is outside --files: unchanged, in no list
+    # §3's helper maps the diff: search modified (its params), helper new, old_fn deleted, by_eye unchanged
+    (run_dir / "category-a.json").write_bytes(json.dumps({"category_a": {
+        "modified": ["pkg/api.py"], "added": [], "deleted": []}, "moved_files": []}).encode("utf-8"))
+    (run_dir / "categories.json").write_bytes(json.dumps({"degraded_mode": False,
+                                                          "update_mode": "normal"}).encode("utf-8"))
+    build = _fence(_slice(detect, "### 3. Build Change Manifest", "### 4."), "uv run {buildChangeManifestHelper} build")
+    manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_category_b")
+    assert manifest.main(_call_args(build, "buildChangeManifestHelper", {"run_dir": str(run_dir)})) == 0
+    affected = json.loads(capsys.readouterr().out)["per_file"][0]["exports_affected"]
+    assert sorted((e["name"], e["change_type"]) for e in affected) == [
+        ("helper", "NEW_EXPORT"), ("old_fn", "DELETED_EXPORT"), ("search", "MODIFIED_EXPORT")]
+
+
+def test_the_documented_resolver_call_classifies_the_mirror(tmp_path, capsys):
+    """§1b runs skf-resolve-authoritative-files.py resolve --provenance-map, never a walk by eye (#589)."""
+    detect = _read(DETECT)
+    assert yaml.safe_load(_frontmatter(detect))["resolveAuthoritativeFilesProbeOrder"] == \
+        _probe("skf-resolve-authoritative-files.py")
+    one_b = _slice(detect, "### 1b. Discovered Authoritative Files Protocol", "### 1c.")
+    call = _fence(one_b, "uv run {resolveAuthoritativeFilesHelper} resolve")
+    assert '--provenance-map "{provenance_map_path}"' in call
+    for token in ("**`already_tracked[]`:**", "**`already_in_scope[]`:**", "with no prompt, as create-skill §2a does",
+                  "**`pre_decided[]` with `prior_action: \"promoted\"`:**", "**`unresolved[]`:**",
+                  "except for a candidate whose `prior_action` is `deferred-headless`, which a headless run already "
+                  "recorded: write no second amendment for it", "as the helper reported them",
+                  "Never walk, match or hash these files by hand"):
+        assert token in one_b, token
+    for gone in ("1. **Walk the source tree.**", "uv run {hashContentHelper} hash"):
+        assert gone not in one_b, gone
+    src = tmp_path / "src tree"
+    (src / "docs").mkdir(parents=True)
+    for name in ("AGENTS.md", "llms.txt", "CLAUDE.md"):
+        (src / "docs" / name).write_bytes(b"# guide\n")
+    forge = tmp_path / "forge"
+    (forge / "lib").mkdir(parents=True)
+    provenance = forge / "lib" / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"entries": [], "file_entries": [
+        {"file_type": "doc", "source_file": "docs/AGENTS.md"}]}).encode("utf-8"))
+    (forge / "lib" / "skill-brief.yaml").write_bytes(yaml.safe_dump({"scope": {
+        "include": ["docs/*.txt"], "amendments": [
+            {"action": "skipped", "path": "docs/CLAUDE.md", "reason": "headless: no user to prompt"}]}}).encode("utf-8"))
+    resolver = _module(RESOLVER, "skf_resolve_authoritative_files_prose")
+    code = resolver.main(_call_args(call, "resolveAuthoritativeFilesHelper", {
+        "source_root": str(src), "forge_data_folder": str(forge), "skill_name": "lib",
+        "provenance_map_path": str(provenance)}))
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert [r["path"] for r in out["already_tracked"]] == ["docs/AGENTS.md"]
+    assert [r["path"] for r in out["already_in_scope"]] == ["docs/llms.txt"]
+    assert [(r["path"], r["prior_action"]) for r in out["unresolved"]] == [("docs/CLAUDE.md", "deferred-headless")]
+
+
+def test_the_run_folder_carries_the_helper_files_and_step_8_removes_it(tmp_path, capsys):
+    """The helpers pass JSON through one run folder; §2.2 and §3 read the helper files and the category JSON from it,
+    with no echo and no list typed by hand."""
+    detect = _read(DETECT)
+    steps = _slice(detect, "## Steps", "### 0. Check for Test Report Input")
+    assert ('mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d '
+            '"{project-root}/_bmad-output/.skf-run/skf-update-skill-XXXXXXXX"') in _fence(steps, "mktemp -d")
+    assert "Bind `{run_dir}` ← the path it prints" in steps and 'phase: "detect-changes:run-folder"' in steps
+    # a run that bound the folder earlier keeps it
+    assert "Unless `{run_dir}` is already bound, first create this run's folder" in steps
+    health = _read(HEALTH)
+    one_c = _slice(health, "1c. **Remove this update's run folder**", "\n")
+    assert 'rm -rf "{run_dir}"' in one_c and "in every mode" in one_c
+    marks = [health.index("1b. **Remove the private source tree**"), health.index("1c. **Remove this update's"),
+             health.index("2. Load `{nextStepFile}`")]
+    assert marks == sorted(marks)
+    assert "_bmad-output/.skf-run/` that step 8 removes" in _slice(_read(SKILL), "| **Outputs** |", "\n")
+    assert 'echo "{category JSON}"' not in detect
+    write = _fence(detect, 'cat > "{run_dir}/categories.json"')
+    assert "category_a" not in write and "category_b" not in write  # A and B stay in the helpers' files
+    ratio = _fence(_slice(detect, "#### 2.2", "### 3."), "uv run {buildChangeManifestHelper} deletion-ratio")
+    build = _fence(_slice(detect, "### 3. Build Change Manifest", "### 4."), "uv run {buildChangeManifestHelper} build")
+    forge = tmp_path / "forge"
+    forge.mkdir()
+    provenance = forge / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"entries": [{"export_name": "a", "source_file": "a.py"},
+                                                   {"export_name": "b", "source_file": "b.py"}]}).encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "category-a.json").write_bytes(json.dumps({
+        "status": "ok", "mode": "diff", "category_a": {"modified": ["a.py"], "added": ["c.py"], "deleted": ["b.py"]},
+        "moved_files": []}).encode("utf-8"))
+    (run_dir / "category-b-diff.json").write_bytes(json.dumps({
+        "removed": [], "added": [], "moved": [], "signature_unverified": [],
+        "changed": [{"name": "a", "field": "params", "baseline_value": [], "current_value": ["x"], "file": "a.py",
+                     "line": 2}]}).encode("utf-8"))
+    # Category C found b.py renamed to c.py
+    (run_dir / "categories.json").write_bytes(json.dumps({
+        "category_c": {"renamed_files": [{"old_path": "b.py", "new_path": "c.py"}], "renamed_exports": []},
+        "degraded_mode": False, "update_mode": "normal"}).encode("utf-8"))
+    manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_prose")
+    values = {"provenance_map_path": str(provenance), "run_dir": str(run_dir)}
+    assert manifest.main(_call_args(ratio, "buildChangeManifestHelper", values)) == 0
+    ratio_out = json.loads(capsys.readouterr().out)
+    assert ratio_out["deletion_ratio"] == 0.0 and ratio_out["renamed_or_moved_count"] == 1  # a rename, not a loss
+    assert manifest.main(_call_args(build, "buildChangeManifestHelper", values)) == 0
+    counts = json.loads(capsys.readouterr().out)["counts"]
+    assert (counts["files_deleted"], counts["files_added"], counts["files_moved"], counts["exports_modified"]) == \
+        (0, 0, 1, 1)
+
+
+def test_the_new_helper_calls_quote_every_path():
+    """Every path the new helper calls pass sits in double quotes, as the earlier calls' do."""
+    detect, init, re_extract = _read(DETECT), _read(INIT), _read(RE_EXTRACT)
+    calls = [
+        (_fence(detect, "uv run {parseGapsHelper} parse"), "parseGapsHelper"),
+        (re.search(r"`(uv run \{parseGapsHelper\} paths [^`]*)`", detect).group(1), "parseGapsHelper"),
+        (_fence(detect, "uv run {resolveAuthoritativeFilesHelper} resolve"), "resolveAuthoritativeFilesHelper"),
+        (_fence(detect, "uv run {classifyChangedFilesHelper} classify"), "classifyChangedFilesHelper"),
+        (_fence(_slice(detect, "**Category B", "**Category C"), "uv run {extractPublicApiHelper}"),
+         "extractPublicApiHelper"),
+        (_fence(detect, "uv run {structuralDiffHelper}"), "structuralDiffHelper"),
+        (_fence(detect, "uv run {buildChangeManifestHelper} deletion-ratio"), "buildChangeManifestHelper"),
+        (_fence(detect, "uv run {buildChangeManifestHelper} build"), "buildChangeManifestHelper"),
+        (_fence(_slice(init, "**If `--from-test-report` was provided", "### 1b."), "uv run {findTestReportHelper}"),
+         "findTestReportHelper"),
+        (_fence(_slice(init, "### 4b.", "### 5."), "uv run {findTestReportHelper}"), "findTestReportHelper"),
+        (_fence(_slice(re_extract, "### 0a.", "### 1. Check"), "uv run {extractPublicApiHelper}"),
+         "extractPublicApiHelper"),
+        (_fence(detect, "uv run {hashContentHelper} compare"), "hashContentHelper"),
+        # Category D's two piped calls, each on its own side of the pipe
+        (_fence(detect, "uv run {detectScriptsAssetsHelper} detect").split("|")[0], "detectScriptsAssetsHelper"),
+        (_fence(detect, "uv run {detectScriptsAssetsHelper} detect"), "newFileDiffHelper"),
+    ]
+    for call, helper in calls:
+        assert _unquoted_placeholders(call, helper) == [], call

@@ -7,9 +7,6 @@ validateBriefSchemaProbeOrder:
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
-emitBriefEnvelopeProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
-  - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -18,7 +15,7 @@ emitBriefEnvelopeProbeOrder:
 
 ## STEP GOAL:
 
-To present the user with a concise summary of the auto-generated brief and offer three actions — approve, edit, or reject — before the pipeline continues. On approve or edit, the result envelope is emitted and the pipeline chains to the health check. On reject, the pipeline falls back to the interactive brief review cycle with pre-populated fields.
+To present the user with a concise summary of the auto-generated brief and offer three actions (approve, edit, or reject) before the pipeline continues. On approve, directly or after edits, the result envelope is emitted, the `on_complete` hook runs, and the pipeline chains to the health check. On reject, the pipeline falls back to the interactive brief review cycle with pre-populated fields.
 
 ## Rules
 
@@ -44,11 +41,10 @@ uv run {validateBriefSchemaHelper} {forge_data_folder}/{skill_name}/skill-brief.
 
 The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}`.
 
-- **`valid: false`** — HARD HALT with exit code 2 (`input-invalid`): "**Auto-brief at `{forge_data_folder}/{skill_name}/skill-brief.yaml` is invalid: {first error message}.**" Emit error envelope per §7 with `halt_reason: "input-invalid"`.
-- **`valid: true`** — proceed with the parsed `brief` payload. Surface any non-empty `warnings[]` to the log.
+- **`valid: false`**: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Auto-brief at `{forge_data_folder}/{skill_name}/skill-brief.yaml` is invalid: {first error message}.**"
+- **`valid: true`**: proceed with the parsed `brief` payload. Log any non-empty `warnings[]` and add each to `workflow_warnings[]` as `<field>: <message>`.
 
-**IF the file does not exist:**
-- HARD HALT with exit code 2 (`input-missing`): "**Auto-brief not found at `{forge_data_folder}/{skill_name}/skill-brief.yaml` — step-auto-brief must write the brief before this step runs.**" Emit error envelope per §7 with `halt_reason: "input-missing"`.
+**IF the file does not exist:** emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Auto-brief not found at `{forge_data_folder}/{skill_name}/skill-brief.yaml`: step-auto-brief must write the brief before this step runs.**"
 
 Extract from the parsed brief:
 - `skill_name` ← `brief.name`
@@ -103,18 +99,25 @@ Wait for user response. Branch on the response:
 
 ### 4. [A]pprove Path
 
-**Resolve `{emitBriefEnvelopeHelper}`** from `{emitBriefEnvelopeProbeOrder}`; first existing path wins. HALT if no candidate exists.
-
-Emit the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`:
+Print the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`, through the `{emitBriefEnvelopeHelper}` SKILL.md On Activation step 4 resolved (`references/invocation-contract.md` defines each field), and display the line it prints verbatim:
 
 ```bash
-echo '{"status":"success","brief_path":"{brief_path}","skill_name":"{skill_name}","version":"{version}","language":"{language}","scope_type":"{scope_type}","halt_reason":null,"mode":"auto"}' | \
-  uv run {emitBriefEnvelopeHelper} emit
+uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'
+{"status":"success","brief_path":"{brief_path}","skill_name":"{skill_name}","version":"{version}","language":"{language}","scope_type":"{scope_type}","halt_reason":null,"mode":"auto","warnings":[<workflow_warnings[] as JSON strings>]}
+SKF_BRIEF_RESULT
 ```
 
-Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`.
+Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, display its error: the brief is already written, so the run goes on.
 
-Chain to {nextStepFile} (health-check.md) — load, read fully, then execute.
+**On-complete hook.** Right after the envelope, if `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), run it:
+
+```bash
+{onCompleteCommand} --result-path={brief_path}
+```
+
+A hook error never fails the run: on a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. The envelope is already printed, so it does not carry this line. When `{onCompleteCommand}` is empty, skip the hook.
+
+Chain to {nextStepFile} (health-check.md): load, read fully, then execute. The health check only relays to the shared check: the envelope and the hook of this path run here.
 
 ### 5. [E]dit Path
 
@@ -163,7 +166,7 @@ Re-present the 10-line summary (§2 format) with updated values so the user can 
 
 "Updated brief written. **Select:** [A] Approve and continue · [E] Edit more · [R] Reject"
 
-- `[A]` → emit envelope per §4, chain to {nextStepFile}
+- `[A]` → §4: the envelope, then the on_complete hook, then the chain to {nextStepFile}
 - `[E]` → repeat §5 edit loop
 - `[R]` → §6 ([R]eject path)
 
@@ -179,27 +182,17 @@ Hydrate brief context variables from the auto-brief on disk, using the same fiel
 - `language` ← `brief.language`; `description` ← `brief.description`; `forge_tier` ← `brief.forge_tier`
 - `created` ← `brief.created`; `created_by` ← `brief.created_by`
 - `scope.type` / `scope.include` / `scope.exclude` / `scope.tier_a_include` / `scope.notes` / `scope.rationale` / `scope.amendments` ← `brief.scope.*` (preserve `tier_a_include` and the `amendments` log verbatim — do not re-derive or drop them)
+- `scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*` (a component library's registry file, design system variants and demo globs: preserve all three verbatim)
 - `scripts_intent` ← `brief.scripts_intent`; `assets_intent` ← `brief.assets_intent`
 
 Set `ratify_mode: true` and `ratify_source_path: {forge_data_folder}/{skill_name}/skill-brief.yaml` in workflow context.
 
-Chain to {rejectTargetFile} (confirm-brief.md) — load, read fully, then execute. The user gets the full interactive review experience: view, adjust fields inline, revise scope via [R], or approve via [C] → write-brief.md → health-check.md.
+The user chose to leave auto mode, so set `{auto_mode}` to false as well: from here on the run follows the interactive rules. write-brief.md prints its envelope only when `{headless_mode}` is true, with `mode: null`, and its §6b runs the on_complete hook.
 
-The interactive chain's write-brief.md handles its own envelope emission with `mode: null` (interactive), which is correct since the user explicitly chose to leave auto mode.
+Chain to {rejectTargetFile} (confirm-brief.md): load, read fully, then execute. The user gets the full interactive review experience: view, adjust fields inline, revise scope via [R], or approve via [C] → write-brief.md → health-check.md.
 
-### 7. Error Envelope (Canonical)
+### 7. Chain
 
-Every HARD HALT in this step emits the error envelope on stderr:
-
-**Resolve `{emitBriefEnvelopeHelper}`** from `{emitBriefEnvelopeProbeOrder}`; first existing path wins.
-
-```bash
-echo '{"status":"error","skill_name":"{skill_name or unknown}","halt_reason":"{reason}","mode":"auto"}' | \
-  uv run {emitBriefEnvelopeHelper} emit --target stderr
-```
-
-### 8. Chain
-
-Load, read fully, then execute the appropriate next step file — only after the user has made their choice and the corresponding action has been taken (envelope emitted or context hydrated):
+Load, read fully, then execute the appropriate next step file, only after the user has made their choice and the corresponding action has been taken (envelope emitted and hook run, or context hydrated):
 - [A]pprove or [E]dit (after final approve): {nextStepFile} (health-check.md)
 - [R]eject: {rejectTargetFile} (confirm-brief.md)

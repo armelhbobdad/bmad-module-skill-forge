@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  At Quick tier, Test Skill counts the exports of a skill that Quick Skill built from a local source with the parser that built the skill's export list, `skf-extract-public-api.py --mode quick`, instead of scanning the entry points for `export` keywords by eye, so both sides count the same surface and such a skill's Export Coverage score can shift. Export forms the parser does not read are still read by eye, and the report names them as read by eye.
+prs: [624, 628]
+issues: [584]

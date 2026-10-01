@@ -951,6 +951,52 @@ class TestGroupBySourceLibrary:
         assert all("source_library" not in e for e in r["added"] + r["removed"])
 
 
+class TestCurrentExtra:
+    """--current-extra adds to a recipe runner's records what the recipes do not record (update-skill Category B)."""
+
+    def _runner(self):
+        return {"exports": [{"export_name": "search", "export_type": "function", "source_file": "pkg/api.py",
+                             "source_line": 5, "confidence": "T1", "extraction_method": "ast-grep"}]}
+
+    def test_merge_fills_what_an_entry_lacks_and_adds_the_rest(self):
+        merged = mod.merge_extra(self._runner()["exports"], [
+            {"export_name": "search", "source_file": "./pkg/api.py", "params": ["q: str"], "return_type": None,
+             "source_line": 99},
+            {"export_name": "by_eye", "export_type": "function", "source_file": "pkg/api.py", "source_line": 20,
+             "params": [], "confidence": "T1-low", "extraction_method": "source-read"},
+        ])
+        assert merged[0]["params"] == ["q: str"] and merged[0]["source_line"] == 5  # filled, never overwritten
+        assert "return_type" not in merged[0]
+        assert [m["export_name"] for m in merged] == ["search", "by_eye"]
+
+    def test_an_alias_counts_as_the_field(self):
+        merged = mod.merge_extra([{"name": "f", "file": "a.py", "line": 3}],
+                                 [{"export_name": "f", "source_file": "a.py", "source_line": 8}])
+        assert merged == [{"name": "f", "file": "a.py", "line": 3}]
+
+    def test_the_cli_diffs_the_merged_inventory(self, tmp_path):
+        base = _write(tmp_path / "provenance-map.json", {"entries": [
+            {"export_name": "search", "export_type": "function", "source_file": "pkg/api.py", "source_line": 5,
+             "params": ["q: str"], "return_type": None},
+            {"export_name": "by_eye", "export_type": "function", "source_file": "pkg/api.py", "source_line": 20}]})
+        curr = _write(tmp_path / "extraction.json", self._runner())
+        extra = _write(tmp_path / "details.json", {"exports": [
+            {"export_name": "search", "source_file": "pkg/api.py", "params": ["q: str", "limit: int"]},
+            {"export_name": "by_eye", "export_type": "function", "source_file": "pkg/api.py", "source_line": 20}]})
+        res = _run([str(base), str(curr), "--current-extra", str(extra)])
+        assert res.returncode == 1, res.stdout + res.stderr
+        out = json.loads(res.stdout)
+        # the params the extra file gave are compared, and the export read by eye is not removed
+        assert [(c["name"], c["field"]) for c in out["changed"]] == [("search", "params")]
+        assert out["removed"] == [] and out["added"] == []
+
+    def test_an_unreadable_extra_file_exits_2(self, tmp_path):
+        base = _write(tmp_path / "b.json", {"entries": []})
+        res = _run([str(base), str(base), "--current-extra", str(tmp_path / "absent.json")])
+        assert res.returncode == 2
+        assert json.loads(res.stdout)["status"] == "error"
+
+
 # --------------------------------------------------------------------------
 # CLI exit codes
 # --------------------------------------------------------------------------

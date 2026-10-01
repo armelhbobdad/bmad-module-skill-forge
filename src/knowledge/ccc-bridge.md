@@ -37,7 +37,7 @@ With ccc available, `ccc_index.status` decides how a step reaches the project in
 
 Returns: list of `{file, score, snippet}` entries ranked by semantic relevance to the query. These are **candidates** for ast-grep extraction — not verified exports.
 
-**Usage context:** Called before ast-grep in Forge+ and Deep tier extraction steps to discover semantically relevant source regions. Results pre-rank the file extraction queue so ast-grep processes the most relevant files first.
+**Usage context:** Called before extraction in Forge+ and Deep tier steps to discover semantically relevant source regions. The ranking orders the files a step reads by hand; the recipe runner reads every file in scope, so its result does not depend on it.
 
 ### `ccc_bridge.ensure_index(path)`
 

@@ -144,7 +144,7 @@ Proceeding to ecosystem check..."
 Where tier_description follows positive capability framing:
 - Quick: "Source reading and spec validation"
 - Forge: "AST-backed structural extraction"
-- Forge+: "Semantic-guided precision — ccc pre-ranks files before AST extraction"
+- Forge+: "AST-backed structural extraction plus ccc semantic discovery"
 - Deep: "Full intelligence — structural + contextual + QMD knowledge synthesis"
 
 ### 6. Auto-Proceed

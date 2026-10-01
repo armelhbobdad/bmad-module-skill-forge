@@ -13,11 +13,9 @@ feeder reaches the evidence report as a notice.
 from __future__ import annotations
 
 import importlib.util
-import os
 import pathlib
 import re
 import shlex
-import shutil
 import subprocess
 
 import pytest
@@ -202,9 +200,8 @@ class TestJudgmentPass:
             "An issue (`issues.md`, `targeted-issues.md`) is a report anyone can open, so it can "
             "only corroborate such an announcement: drop a candidate that comes from one."
         ) in judgment
-        fetch = _read(FETCH_TEMPORAL)
         for name in ("issues.md", "targeted-issues.md"):
-            assert f'"{{temporal_fetch}}/{name}"' in fetch, f"step 3b no longer writes {name}"
+            assert name in _fetch_helper().FEEDER_FILES, f"step 3b no longer writes {name}"
 
     def test_keeps_one_correction_per_change(self) -> None:
         """A line with keywords of two kinds is a candidate for each, and release
@@ -659,13 +656,13 @@ class TestReadOnlyFeederArtifacts:
 FEEDER_BINDING_RE = re.compile(
     r"bind `\{temporal_feeder\}` ← `\{forge_data_folder\}/\{skill-name\}/([^`/]+)`"
 )
-FETCH_BINDING_RE = re.compile(
-    r"bind `\{temporal_fetch\}` ← `\{forge_data_folder\}/\{skill-name\}/([^`/]+)`"
-)
 NOTICE_BINDING_RE = re.compile(r"bind `\{temporal_feeder_notice\}` ← `([^`]+)`")
 FEEDER_FILES = ("issues.md", "prs.md", "releases.md", "changelog.md", "targeted-issues.md")
-POSIX_SHELL = pytest.mark.skipif(
-    os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell"
+FETCH_TEMPORAL_PY = REPO_ROOT / "src" / "shared" / "scripts" / "skf-fetch-temporal.py"
+# One issue, as `gh issue list --json` prints it.
+ONE_ISSUE = (
+    '[{"number": 1, "title": "t", "state": "OPEN", "labels": [], '
+    '"createdAt": "2026-01-01T00:00:00Z", "closedAt": null, "body": ""}]'
 )
 
 
@@ -676,11 +673,29 @@ def _feeder_name() -> str:
     return names[0]
 
 
+def _fetch_helper():
+    """skf-fetch-temporal.py, which step 3b fetches through."""
+    return _load_script(FETCH_TEMPORAL_PY, "skf_fetch_temporal_feeder")
+
+
 def _fetch_name() -> str:
-    """The folder beside the feeder that step 3b fetches into before it replaces the feeder."""
-    names = FETCH_BINDING_RE.findall(_read(FETCH_TEMPORAL))
-    assert len(names) == 1, f"fetch-temporal.md must bind {{temporal_fetch}} once, found {names}"
-    return names[0]
+    """The folder beside the feeder that step 3b's helper fetches into before it replaces the feeder."""
+    helper = _fetch_helper()
+    assert helper.FEEDER_NAME == _feeder_name()
+    return helper.FEEDER_NAME + helper.FETCH_SUFFIX
+
+
+def _fetch_into(feeder: pathlib.Path, monkeypatch, issues: bool) -> tuple[dict, int]:
+    """Run step 3b's fetch on `feeder` with a gh that lists one issue (or nothing) and fails every other call."""
+    helper = _fetch_helper()
+
+    def gh(args: list[str], _timeout: float) -> tuple[str, str, str]:
+        if issues and args[:2] == ["issue", "list"]:
+            return "ok", ONE_ISSUE, ""
+        return "failed", "", "error connecting to api.github.com"
+
+    monkeypatch.setattr(helper, "_gh", gh)
+    return helper.fetch("acme/lib", feeder, None, 5.0)
 
 
 def _write_feeder(group: pathlib.Path, name: str | None = None,
@@ -692,13 +707,6 @@ def _write_feeder(group: pathlib.Path, name: str | None = None,
     for file_name in files:
         (feeder / file_name).write_text(f"# {file_name}\n", encoding="utf-8")
     return feeder
-
-
-def _run_documented(command: str, forge: pathlib.Path) -> None:
-    """Run a fetch-temporal.md command through bash, as an agent would, for skill `mylib`."""
-    script = command.replace("{forge_data_folder}", forge.as_posix()).replace("{skill-name}", "mylib")
-    proc = subprocess.run(["bash", "-euc", script], capture_output=True, text=True)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def _write_forge_group(root: pathlib.Path) -> pathlib.Path:
@@ -735,12 +743,12 @@ class TestTemporalFeederLocation:
                 assert "_bmad-output/{skill-name}-temporal" not in _read(path), path
 
     def test_skipped_step_expects_no_feeder(self) -> None:
-        eligibility = _section(_read(FETCH_TEMPORAL), "### 1. Check Eligibility", "### 1b.")
+        eligibility = _section(_read(FETCH_TEMPORAL), "### 1. Check Eligibility", "### 2.")
         assert "**If ANY condition fails, leave `{temporal_feeder}` null" in eligibility
 
     def test_each_brief_starts_without_a_feeder(self) -> None:
         """A --batch run comes back through step 3b for the next brief in the same context."""
-        eligibility = _section(_read(FETCH_TEMPORAL), "### 1. Check Eligibility", "### 1b.")
+        eligibility = _section(_read(FETCH_TEMPORAL), "### 1. Check Eligibility", "### 2.")
         reset = eligibility.index("Set `{temporal_feeder}` to null first")
         assert "in a `--batch` run one brief's feeder never carries into the next" in eligibility
         assert reset < eligibility.index("1. **Tier is Deep:**")
@@ -751,32 +759,44 @@ class TestTemporalFeederLocation:
             "If `{temporal_feeder}` holds no `.md` file, continue to section 3 even when that entry is fresh"
         ) in cache
 
-    def test_each_fetch_starts_a_fresh_fetch_folder(self) -> None:
+    def test_each_fetch_starts_a_fresh_fetch_folder(self, tmp_path: pathlib.Path, monkeypatch) -> None:
+        """Step 3b hands the feeder to the helper, which fetches into a fresh folder beside it."""
         fetch = _section(_read(FETCH_TEMPORAL), "### 3. Fetch Temporal Context", "### 4.")
-        clear = fetch.index(f'rm -rf "{{forge_data_folder}}/{{skill-name}}/{_fetch_name()}"')
-        assert clear < fetch.index('mkdir -p "{temporal_fetch}"\n') < fetch.index("gh issue list")
-        writes = _section(fetch, "```bash", "**After all fetching,**")
-        assert "{temporal_feeder}" not in writes, "every fetch writes the fetch folder, never the feeder"
+        assert '--feeder "{temporal_feeder}"' in fetch
+        group = tmp_path / "forge-data" / "mylib"
+        _write_feeder(group, _fetch_name(), ("partial.md",))  # left by an interrupted fetch
+        result, code = _fetch_into(group / _feeder_name(), monkeypatch, issues=True)
+        assert code == 0, result
+        assert not (group / _fetch_name()).exists()
+        assert sorted(p.name for p in (group / _feeder_name()).iterdir()) == [".gitignore", "issues.md"]
 
     def test_fetch_folder_has_an_skf_name_beside_the_feeder(self) -> None:
         assert ".skf-" in _fetch_name() and _fetch_name() != _feeder_name()
 
-    def test_feeder_is_replaced_only_by_a_fetch_that_wrote_a_file(self) -> None:
-        after = _section(_read(FETCH_TEMPORAL), "**After all fetching,**", "### 4.")
-        assert (
-            "check that at least one `.md` file was written to `{temporal_fetch}`. "
-            "If one was, replace the feeder with the fetch folder"
-        ) in after
-        assert "If none was (all fetches failed), delete the fetch folder" in after
-        assert "`{temporal_feeder}` stays bound and keeps what the last good fetch left in it" in after
+    def test_feeder_is_replaced_only_by_a_fetch_that_wrote_a_file(self, tmp_path: pathlib.Path,
+                                                                   monkeypatch) -> None:
+        """A Deep run passes --exports: with every call failing, the "(fetch
+        failed)" search sections are no fetched content, so the feeder stays."""
+        fetch = " ".join(_section(_read(FETCH_TEMPORAL), "### 3. Fetch Temporal Context", "### 4.").split())
+        assert "`{temporal_feeder}` stays bound and keeps what the last good fetch left in it" in fetch
+        group = tmp_path / "forge-data" / "mylib"
+        feeder = _write_feeder(group)
+        before = {p.name: p.read_bytes() for p in feeder.iterdir()}
+        helper = _fetch_helper()
+        monkeypatch.setattr(helper, "_gh", lambda args, timeout: ("failed", "", "error connecting to api.github.com"))
+        result, code = helper.fetch("acme/lib", feeder, ["parse", "draw"], 5.0)
+        assert (code, result["status"]) == (3, "kept")
+        assert {p.name: p.read_bytes() for p in feeder.iterdir()} == before
 
-    def test_folder_deletions_spell_out_their_path(self) -> None:
-        """A wrongly bound variable must never widen an `rm -rf` of a whole folder."""
-        text = _read(FETCH_TEMPORAL)
-        assert re.findall(r'rm -rf "\{[^}"]+\}"(?![^\s`])', text) == []
-        group = "{forge_data_folder}/{skill-name}"
-        assert text.count(f'rm -rf "{group}/{_fetch_name()}"') == 2
-        assert text.count(f'rm -rf "{group}/{_feeder_name()}"\n') == 1
+    def test_folder_deletions_spell_out_their_path(self, tmp_path: pathlib.Path) -> None:
+        """A wrongly bound variable must never widen a deletion: the step deletes
+        no folder itself, and the helper deletes only a feeder named
+        .skf-temporal and the fetch folder beside it."""
+        assert "rm -rf" not in _read(FETCH_TEMPORAL)
+        group = tmp_path / "forge-data" / "mylib"
+        _write_feeder(group, "temporal")
+        assert _fetch_helper().main(["fetch", "--repo", "acme/lib", "--feeder", str(group / "temporal")]) == 2
+        assert sorted(p.name for p in (group / "temporal").iterdir()) == sorted((".gitignore", *FEEDER_FILES))
 
     def test_indexing_keeps_the_feeder(self) -> None:
         index = _section(_read(FETCH_TEMPORAL), "### 4. Index Into QMD", "### 5.")
@@ -829,15 +849,13 @@ class TestTemporalFeederOnDisk:
         result = inventory.classify_forge_group(group, "mylib")
         assert (result["ownership"], result["foreign_entries"]) == ("skf", []), result
 
-    def test_feeder_keeps_itself_out_of_git(self, tmp_path: pathlib.Path) -> None:
-        fetch = _section(_read(FETCH_TEMPORAL), "### 3. Fetch Temporal Context", "### 4.")
-        assert "printf '*\\n' > \"{temporal_fetch}/.gitignore\"" in fetch
+    def test_feeder_keeps_itself_out_of_git(self, tmp_path: pathlib.Path, monkeypatch) -> None:
         project = tmp_path / "project"
         group = project / "forge-data" / "mylib"
-        group.mkdir(parents=True)
+        _fetch_into(group / _feeder_name(), monkeypatch, issues=True)
+        assert (group / _feeder_name() / ".gitignore").read_bytes() == b"*\n"
         (group / "skill-brief.yaml").write_text("name: mylib\n", encoding="utf-8")
-        _write_feeder(group)
-        _write_feeder(group, _fetch_name())
+        _write_feeder(group, _fetch_name())  # an interrupted fetch starts with the same .gitignore
         subprocess.run(["git", "init", "-q", str(project)], check=True, capture_output=True)
         status = subprocess.run(
             ["git", "-C", str(project), "status", "--porcelain", "--untracked-files=all"],
@@ -847,29 +865,23 @@ class TestTemporalFeederOnDisk:
         ).stdout
         assert status.splitlines() == ["?? forge-data/mylib/skill-brief.yaml"], status
 
-    @POSIX_SHELL
-    def test_fetch_that_wrote_a_file_replaces_the_feeder(self, tmp_path: pathlib.Path) -> None:
-        after = _section(_read(FETCH_TEMPORAL), "**After all fetching,**", "### 4.")
-        swap = _section(after, "```bash\n", "\n```")[len("```bash\n"):]
-        forge = tmp_path / "forge-data"
-        _write_feeder(forge / "mylib", files=("changelog.md", "stale.md"))
-        _write_feeder(forge / "mylib", _fetch_name(), ("issues.md",))
-        _run_documented(swap, forge)
-        feeder = forge / "mylib" / _feeder_name()
+    def test_fetch_that_wrote_a_file_replaces_the_feeder(self, tmp_path: pathlib.Path, monkeypatch) -> None:
+        group = tmp_path / "forge-data" / "mylib"
+        _write_feeder(group, files=("changelog.md", "stale.md"))
+        result, code = _fetch_into(group / _feeder_name(), monkeypatch, issues=True)
+        assert (code, result["status"]) == (0, "replaced")
+        feeder = group / _feeder_name()
         assert sorted(p.name for p in feeder.iterdir()) == [".gitignore", "issues.md"]
-        assert not (forge / "mylib" / _fetch_name()).exists()
+        assert not (group / _fetch_name()).exists()
 
-    @POSIX_SHELL
-    def test_failed_refresh_keeps_the_last_good_feeder(self, tmp_path: pathlib.Path) -> None:
-        after = _section(_read(FETCH_TEMPORAL), "**After all fetching,**", "### 4.")
-        [command] = re.findall(r"`(rm -rf [^`]+)`", _section(after, "If none was", "\n"))
-        forge = tmp_path / "forge-data"
-        _write_feeder(forge / "mylib")
-        _write_feeder(forge / "mylib", _fetch_name(), ())
-        _run_documented(command, forge)
-        feeder = forge / "mylib" / _feeder_name()
+    def test_failed_refresh_keeps_the_last_good_feeder(self, tmp_path: pathlib.Path, monkeypatch) -> None:
+        group = tmp_path / "forge-data" / "mylib"
+        _write_feeder(group)
+        result, code = _fetch_into(group / _feeder_name(), monkeypatch, issues=False)
+        assert (code, result["status"]) == (3, "kept")
+        feeder = group / _feeder_name()
         assert sorted(p.name for p in feeder.iterdir()) == sorted((".gitignore", *FEEDER_FILES))
-        assert not (forge / "mylib" / _fetch_name()).exists()
+        assert not (group / _fetch_name()).exists()
 
 
 def _feeder_notice() -> str:
@@ -943,3 +955,34 @@ class TestTemporalCorrectionCitation:
         collection = re.search(r'qmd collection add "\{temporal_feeder\}" --name (\S+)', index).group(1)
         annotate = _section(_read(STEP_DOC_ROT), "### §3.", "### §4.")
         assert f"`[QMD:{collection}:{{file name}}]`" in annotate
+
+
+class TestCitationRule:
+    """#605 architecture-4: the always-loaded rule names every citation the
+    stages write, so a docs-only skill (T3 only) is citable."""
+
+    FORMS = ("[AST:]", "[SRC:]", "[QMD:]", "[EXT:]")
+
+    def test_overview_states_the_rule_in_provenance_terms(self) -> None:
+        overview = _section(_read(CS_SKILL_MD), "## Overview", "\n## ")
+        assert "must trace to source code" not in overview
+        assert "every statement in the output carries a provenance citation" in overview
+        # The forms are listed once, in the Workflow Rules.
+        assert not any(f"`{form}`" in overview for form in self.FORMS)
+
+    def test_workflow_rule_matches_compile(self) -> None:
+        rules = _section(_read(CS_SKILL_MD), "## Workflow Rules", "\n## ")
+        assert "cannot be cited to source code" not in rules
+        [rule] = [line for line in rules.splitlines() if "provenance citation" in line]
+        assert all(f"`{form}`" in rule for form in self.FORMS), rule
+        assert "Do not include any content without a provenance citation" in _read(CS_DIR / "references" / "compile.md")
+
+    def test_every_form_is_one_a_stage_writes(self) -> None:
+        """Each form the rule names is a row of the citation table compile
+        follows, and the rule names no form that table lacks."""
+        rules = _section(_read(CS_SKILL_MD), "## Workflow Rules", "\n## ")
+        [rule] = [line for line in rules.splitlines() if "provenance citation" in line]
+        table = _section(_read(SKILL_SECTIONS), "### Provenance Citation Format", "\n### ")
+        for form in re.findall(r"`(\[[A-Z]+:\])`", rule):
+            assert f"`{form[:-1]}" in table, form
+        assert sorted(re.findall(r"`(\[[A-Z]+:\])`", rule)) == sorted(self.FORMS)

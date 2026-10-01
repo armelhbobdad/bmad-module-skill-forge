@@ -16,13 +16,21 @@ seams (key order, YAML formatting, conditional field inclusion rules,
 atomic-write behaviour) that the LLM cannot fully close on every
 invocation. This script is the single source of truth.
 
-Subcommand:
+Subcommands:
 
   write   Read brief context as JSON on stdin, validate against
           src/shared/scripts/schemas/skill-brief.v1.json, apply
           version-precedence rules, render the canonical YAML, and
           atomically write to --target. Emits a JSON success envelope
           on stdout.
+
+  amend   Read answers as JSON on stdin and apply them to the brief
+          already at --target: set scope.registry_path and
+          scope.demo_patterns, append the entries to scope.amendments,
+          check those fields as write does, copy the brief to
+          <target>.bak, and write it atomically. Every other field keeps
+          its value and its place; comments are not kept (the .bak copy
+          holds them). create-skill step 3d records its answers so.
 
 Context payload shape (consumed by `write`):
 
@@ -47,7 +55,12 @@ Context payload shape (consumed by `write`):
       "notes":   "",
       # Conditionally present (preserved verbatim on a ratify/re-write):
       "tier_a_include": ["code/core/src/**"],   # stratified-scope monorepos
-      "amendments":     [{...}]                 # post-authoring audit log
+      "amendments":     [{...}],                # post-authoring audit log
+      # component-library scopes (create-skill step 3d writes the first
+      # two back when the user confirms them):
+      "registry_path":  "registry/index.ts",
+      "ui_variants":    [{"name": "shadcnui", "package": "packages/ui"}],
+      "demo_patterns":  ["**/demo/**", "**/*.stories.*"]
     },
 
     # Conditionally present:
@@ -98,6 +111,9 @@ Flat input form (`--from-flat`):
     "scope_notes":          "",
     "scope_tier_a_include": null | ["code/core/src/**"],
     "scope_amendments":     null | [{...}],
+    "scope_registry_path":  null | "registry/index.ts",
+    "scope_ui_variants":    null | [{"name": "...", "package": "..."}],
+    "scope_demo_patterns":  null | ["**/demo/**"],
     "doc_urls":             null | [{"url": "...", "label": "...", "source": "..."}],
     "scripts_intent":       null | "detect" | "none" | "...",
     "assets_intent":        null | "detect" | "none" | "...",
@@ -116,6 +132,30 @@ Output (success):
     "warnings":   ["string", ...]
   }
 
+Answers payload (consumed by `amend`), each key optional, one at least:
+
+  {
+    "registry_path": "registry/index.ts",
+    "demo_patterns": ["**/examples/**"],
+    "amendments":    [{"path": "...", "action": "...", "category": "...",
+                       "reason": "...", "evidence": "...",
+                       "date": "2026-10-01", "workflow": "..."}]
+  }
+
+  Each amendment needs a non-empty path, action, reason and workflow and
+  an ISO date; category, when given, is a non-empty string.
+
+Output of `amend` (success):
+
+  {
+    "status":     "ok",
+    "brief_path": "/abs/path/skill-brief.yaml",
+    "backup":     "/abs/path/skill-brief.yaml.bak",
+    "set":        ["registry_path", "demo_patterns"],   # the fields given
+    "appended":   <integer>,                            # amendment entries
+    "bytes":      <integer>
+  }
+
 Errors emit `{"status": "error", "message": "...", "field": "..."|null}`
 to stderr and exit non-zero.
 
@@ -123,7 +163,10 @@ Exit codes:
   0  — success
   1  — validation failure (bad context, schema violation, invariant
        violation, version-precedence underflow with no fallback path)
+       or, for amend, a bad payload or a brief with no scope mapping
   2  — I/O failure (atomic write failed, parent directory not writable)
+       or, for amend, a brief that cannot be read or a backup that
+       cannot be written
 
 Cross-platform: pure stdlib + PyYAML. Atomic write via temp + fsync +
 rename, mirroring skf-atomic-write.py and the helper in
@@ -333,6 +376,8 @@ def validate_context(ctx: dict[str, Any]) -> list[str]:
             if not isinstance(entry, dict):
                 _die(f"scope.amendments[{i}] must be an object", field="scope.amendments")
 
+    _check_component_fields(scope)
+
     # target_ref / source_ref — optional git refs (top-level). target_ref is a
     # remote-monorepo tag escape hatch; source_ref is the auto-resolved ref.
     # Both must round-trip on a ratify/re-write rather than being dropped.
@@ -359,6 +404,36 @@ def validate_context(ctx: dict[str, Any]) -> list[str]:
         )
 
     return warnings
+
+
+def _check_component_fields(scope: dict[str, Any]) -> None:
+    """scope.registry_path / scope.ui_variants / scope.demo_patterns: optional
+    component-library fields. A brief can author them, and create-skill
+    step 3d writes a confirmed registry path and demo patterns back (amend),
+    so a ratify/re-write preserves them verbatim. Light checks mirror the
+    schema."""
+    registry_path = scope.get("registry_path")
+    if registry_path is not None and (not isinstance(registry_path, str) or not registry_path):
+        _die("scope.registry_path must be a non-empty string when present", field="scope.registry_path")
+    demo_patterns = scope.get("demo_patterns")
+    if demo_patterns is not None:
+        if not isinstance(demo_patterns, list):
+            _die("scope.demo_patterns must be an array of glob strings", field="scope.demo_patterns")
+        for i, pat in enumerate(demo_patterns):
+            if not isinstance(pat, str) or not pat:
+                _die(f"scope.demo_patterns[{i}] must be a non-empty glob string", field="scope.demo_patterns")
+    ui_variants = scope.get("ui_variants")
+    if ui_variants is not None:
+        if not isinstance(ui_variants, list):
+            _die("scope.ui_variants must be an array of variant objects", field="scope.ui_variants")
+        for i, variant in enumerate(ui_variants):
+            if not isinstance(variant, dict):
+                _die(f"scope.ui_variants[{i}] must be an object", field="scope.ui_variants")
+            for key in ("name", "package"):
+                value = variant.get(key)
+                if value is not None and (not isinstance(value, str) or not value):
+                    _die(f"scope.ui_variants[{i}].{key} must be a non-empty string when present",
+                         field="scope.ui_variants")
 
 
 def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]:
@@ -415,6 +490,13 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
     scope_amendments = ctx["scope"].get("amendments")
     if scope_amendments is not None:
         brief["scope"]["amendments"] = scope_amendments
+
+    # Conditional: the component-library fields, verbatim, after amendments
+    # and in the schema doc's order. Absent -> keys omitted.
+    for field in ("registry_path", "ui_variants", "demo_patterns"):
+        value = ctx["scope"].get(field)
+        if value is not None:
+            brief["scope"][field] = value
 
     # Conditional: target_version (must equal version)
     tv = ctx.get("target_version")
@@ -528,6 +610,9 @@ _FLAT_SCOPE_KEYS = (
     "scope_rationale",
     "scope_tier_a_include",
     "scope_amendments",
+    "scope_registry_path",
+    "scope_ui_variants",
+    "scope_demo_patterns",
 )
 
 
@@ -589,6 +674,10 @@ def flat_to_nested(flat: dict[str, Any]) -> dict[str, Any]:
             scope["tier_a_include"] = flat["scope_tier_a_include"]
         if "scope_amendments" in flat and flat["scope_amendments"] is not None:
             scope["amendments"] = flat["scope_amendments"]
+        # Optional component-library fields: the same null-drop semantics.
+        for field in ("registry_path", "ui_variants", "demo_patterns"):
+            if flat.get(f"scope_{field}") is not None:
+                scope[field] = flat[f"scope_{field}"]
         nested["scope"] = scope
     return nested
 
@@ -631,6 +720,82 @@ def cmd_write(target: Path, from_flat: bool = False) -> int:
     return 0
 
 
+AMEND_FIELDS = ("registry_path", "demo_patterns", "amendments")
+
+
+def _check_amendments(entries: Any) -> list[dict[str, Any]]:
+    """The amendment entries of an amend payload, checked (see the docstring)."""
+    if not isinstance(entries, list):
+        _die("amend: amendments must be an array of amendment objects", field="scope.amendments")
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            _die(f"amend: amendments[{i}] must be an object", field="scope.amendments")
+        for key in ("path", "action", "reason", "workflow"):
+            if not isinstance(entry.get(key), str) or not entry[key]:
+                _die(f"amend: amendments[{i}].{key} must be a non-empty string", field="scope.amendments")
+        if not isinstance(entry.get("date"), str) or not ISO_DATE_RE.match(entry["date"]):
+            _die(f"amend: amendments[{i}].date must be an ISO date (YYYY-MM-DD)", field="scope.amendments")
+        category = entry.get("category")
+        if category is not None and (not isinstance(category, str) or not category):
+            _die(f"amend: amendments[{i}].category must be a non-empty string when present",
+                 field="scope.amendments")
+    return entries
+
+
+def cmd_amend(target: Path) -> int:
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw) if raw.strip() else None
+    except json.JSONDecodeError as e:
+        _die(f"amend: invalid JSON on stdin: {e}")
+    if not isinstance(payload, dict):
+        _die("amend: stdin must be a JSON object holding registry_path, demo_patterns or amendments")
+    unknown = sorted(set(payload) - set(AMEND_FIELDS))
+    if unknown:
+        _die(f"amend: unknown field(s) {unknown}; expected some of {list(AMEND_FIELDS)}")
+    given = [field for field in AMEND_FIELDS if payload.get(field) not in (None, [])]
+    if not given:
+        _die("amend: nothing to amend")
+    entries = _check_amendments(payload["amendments"]) if "amendments" in given else []
+
+    try:
+        original = target.read_bytes()
+    except OSError as e:
+        _die(f"amend: cannot read {target}: {e}", code=2)
+    try:
+        brief = yaml.safe_load(original.decode("utf-8-sig"))
+    except (UnicodeDecodeError, yaml.YAMLError) as e:
+        _die(f"amend: {target} is not a YAML brief: {e}")
+    if not isinstance(brief, dict) or not isinstance(brief.get("scope"), dict):
+        _die(f"amend: {target} holds no scope mapping", field="scope")
+    scope = brief["scope"]
+    if entries:
+        existing = scope.get("amendments")
+        if existing is not None and not isinstance(existing, list):
+            _die("amend: the brief's scope.amendments is not an array", field="scope.amendments")
+        scope["amendments"] = [*(existing or []), *entries]
+    for field in ("registry_path", "demo_patterns"):
+        if field in given:
+            scope[field] = payload[field]
+    _check_component_fields(scope)
+
+    backup = target.with_name(target.name + ".bak")
+    try:
+        backup.write_bytes(original)
+    except OSError as e:
+        _die(f"amend: cannot write {backup}: {e}", code=2)
+    bytes_written = atomic_write(target, render_yaml(brief))
+    print(json.dumps({
+        "status": "ok",
+        "brief_path": str(target.resolve()),
+        "backup": str(backup.resolve()),
+        "set": [field for field in given if field != "amendments"],
+        "appended": len(entries),
+        "bytes": bytes_written,
+    }))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="skf-write-skill-brief",
@@ -651,11 +816,39 @@ def main() -> int:
         ),
     )
 
+    p_amend = sub.add_parser(
+        "amend",
+        help=(
+            "Apply answers (JSON on stdin) to an existing brief: set scope.registry_path and "
+            "scope.demo_patterns, append scope.amendments entries, keep a .bak copy, atomic write"
+        ),
+    )
+    p_amend.add_argument("--target", type=Path, required=True, help="Path to the skill-brief.yaml to amend")
+
     args = parser.parse_args()
     if args.cmd == "write":
         return cmd_write(args.target, from_flat=args.from_flat)
+    if args.cmd == "amend":
+        return cmd_amend(args.target)
     return 2
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdin, stdout and stderr to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which would garble a payload's
+    non-ASCII text (a description, an amendment's reason) read from stdin
+    (reconfigured here, before the first read).
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdin, sys.stdout, sys.stderr)
     sys.exit(main())

@@ -34,6 +34,13 @@ Source code matches provenance map exactly. The skill `{skill_name}` is current 
 
 **Recommendation:** No action required. Run audit-skill periodically to monitor for drift."
 
+When `{unconsumed_test_report}` is bound (step 1 §4b found a test report newer than the skill that this normal run did not apply), replace that recommendation by its `{unconsumed_test_result}`:
+
+- `fail`: "**Recommendation:** The source has not changed, but test report `{its file name}` (fail) has not been applied to this skill. Run `@Ferris US {skill_name} --from-test-report` to repair the gaps it lists, then re-run test-skill."
+- `pass-with-drift`: "**Recommendation:** The source has not changed, but test report `{its file name}` passed only under `--allow-workspace-drift`: test-skill read a workspace HEAD other than the commit this skill is pinned to. Once the workspace holds the pinned commit, re-run test-skill without `--allow-workspace-drift` before exporting."
+
+In gap-driven mode (step 2 §0 translated none of the report's gaps), replace the sentence that starts "Source code matches provenance map exactly" with "Test report `{its file name}` lists no gap update-skill repairs.", followed by each gap §0 did not route (`{id}: {title} ({category})`), and the recommendation with "Repair the listed gaps by hand, or re-run test-skill once the skill changes."
+
 When `{source_moved}` is true, add before the recommendation: "Upstream moved to `{target_commit}`, but no file this skill tracks changed, so nothing was written and the skill stays pinned at `{source_commit}`." When `{target_ref_override}` is set and `{target_ref}` differs from `{source_ref}`, also add "**The re-pin to `{target_ref}` was not recorded** — an update records a new ref only when it writes, and `{target_ref}` changes no file this skill tracks." and add `target-ref-not-recorded: {target_ref} changes no file {skill_name} tracks; the skill still records {source_ref}` to `warnings[]`.
 
 The headless envelope (`SKF_UPDATE_RESULT_JSON`, §5b shape) carries `status: "no-changes"`, `files_written: []` and `warnings[]`.
@@ -109,7 +116,7 @@ The headless envelope carries `status: "dry-run"`, `files_written: []`, the `hea
 
 **`{mode_fallback_note}`** surfaces weak-signal fallbacks the workflow took silently and would otherwise be buried in the evidence report. Render it inline after the mode value when any of these conditions fire; render the empty string when none did:
 
-- `--from-test-report` was passed but the test report was missing at the expected path, so step 1 fell back to `normal` mode → ` (gap-driven requested; test report missing — fell back to normal)`
+- `--from-test-report` was passed but no test report was found, or the one a result file named is gone, so step 1 fell back to `normal` mode → ` (gap-driven requested; test report missing, fell back to normal)`
 - `re-extract.md §0.a` skipped the workspace-drift guard because `source_root` is not a git working tree (or HEAD was unreadable) → ` (workspace-drift check skipped: {skip_reason})` where `{skip_reason}` is the helper's `skip_reason` field (`not-a-git-tree` or `HEAD unreadable`)
 - `re-extract.md §0.a` accepted a drifted workspace under `--allow-workspace-drift` (`{workspace_drift_status}` is `overridden`; this row is where the report shows §0.a's override warning) → ` (workspace drift accepted: spot-checks read HEAD {head_short_sha}, not pinned {pinned_short_sha}; no provenance line moved or pinned)`
 - init.md §6b could not reach upstream and compared the pinned commit (`{source_tree_status}` is `offline`) → ` (upstream not reached: compared the pinned commit only)`
@@ -128,6 +135,8 @@ These signals also appear in `warnings[]` on the headless envelope; the Mode row
 | Files deleted | {count} |
 | Files moved/renamed | {count} |
 | **Total exports affected** | {count} |
+
+{in gap-driven mode, when step 2 §0 left gaps unrouted: **Not repaired by this run:** each `{id}: {title} ({category})`}
 
 ### Export Changes
 
@@ -225,7 +234,7 @@ SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|detect-only|
 - `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation and §4 degraded-rebuild, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
 - `status` — single-field outcome for pipeline branching. `"success"` when the run wrote artifacts and produced no halts; `"no-changes"` when §1 short-circuited; `"detect-only"` / `"dry-run"` for the §1a/§1b read-only exits; one of the documented `halted-for-*` codes when a halt fired; `"blocked"` as the catch-all. The full enum lives in the schema (this step emits the value already resolved in context).
 - `error` — null on success or no-changes. Object `{phase, path?, reason}` describing the failure when a halt or write error fired. Pipelines branch on `error !== null` for non-zero exit semantics.
-- `warnings[]`: every entry the run added, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `source-version-lower`, `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (re-extract.md §0.a) and `provenance:` entries (write.md §6a: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
+- `warnings[]`: every entry the run added, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category})` for each gap detect-changes.md §0 did not route), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (re-extract.md §0.a) and `provenance:` entries (write.md §6a: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
 
 The headless envelope is the structured channel; the per-run JSON written above is the audit trail. Both coexist — the envelope is one line on stdout for grep-friendly consumption, the per-run JSON is the full record on disk.
 

@@ -6,9 +6,6 @@ validateBriefSchemaProbeOrder:
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
-emitBriefEnvelopeProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
-  - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 mergeDocUrlsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-doc-urls.py'
   - '{project-root}/src/shared/scripts/skf-merge-doc-urls.py'
@@ -40,9 +37,7 @@ To enrich an upstream skill brief (produced by AN auto-scope) with documentation
 
 Read the upstream brief path from `{brief_path}` (passed by the forger from AN's `SKF_ANALYZE_RESULT_JSON` `brief_paths[]`).
 
-**IF `{brief_path}` is not set or the file does not exist:**
-- HARD HALT with exit code 2 (`input-missing`): "**Auto-brief requires an upstream brief — `brief_path` is missing or the file does not exist at `{brief_path}`.**"
-- Emit error envelope per §6 with `halt_reason: "input-missing"`.
+**IF `{brief_path}` is not set or the file does not exist:** emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Auto-brief requires an upstream brief: `brief_path` is missing or the file does not exist at `{brief_path}`.**"
 
 **Resolve `{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
@@ -54,8 +49,8 @@ uv run {validateBriefSchemaHelper} {brief_path}
 
 The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}`.
 
-- **`valid: false`** — the upstream brief is malformed. HARD HALT with exit code 2 (`input-invalid`): "**Upstream brief at `{brief_path}` is invalid: {first error message}.**" Emit error envelope per §6 with `halt_reason: "input-invalid"`.
-- **`valid: true`** — proceed with the parsed `brief` payload. Surface any non-empty `warnings[]` to the log.
+- **`valid: false`**: the upstream brief is malformed. Emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Upstream brief at `{brief_path}` is invalid: {first error message}.**"
+- **`valid: true`**: proceed with the parsed `brief` payload. Log any non-empty `warnings[]` and add each to `workflow_warnings[]` as `<field>: <message>`.
 
 Extract from the parsed brief:
 - `skill_name` ← `brief.name`
@@ -88,7 +83,7 @@ uv run {detectDocsHelper} --repo-url {source_repo}
 
 - **Exit 0 (found docs):** Parse the JSON output array. Each entry has `{url, detected_via, content_hash, content_type}`. Proceed to §3 with the detected docs.
 - **Exit 1 (none found):** Log: "No external documentation found — brief generated from source analysis only." Proceed to §4 with no doc enrichment.
-- **Exit 2 (error):** Log warning: "Doc detection failed — proceeding without doc enrichment." Do NOT halt — doc enrichment is best-effort. Proceed to §4 with no doc enrichment.
+- **Exit 2 (error):** Log the warning "Doc detection failed: proceeding without doc enrichment." and add it to `workflow_warnings[]`. Do NOT halt: doc enrichment is best-effort. Proceed to §4 with no doc enrichment.
 
 ### 3. Enrich Brief with Detected Docs
 
@@ -163,22 +158,11 @@ echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {forge_dat
 ```
 
 **On script failure (non-zero exit):**
-- Exit 1 (validation/invariant): Emit error envelope per §6 with `halt_reason: "input-invalid"`, then HARD HALT.
-- Exit 2 (I/O failure): Emit error envelope per §6 with `halt_reason: "write-failed"`, then HARD HALT.
+- Exit 1 (validation/invariant): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2).
+- Exit 2 (I/O failure): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "write-failed"` (SKILL.md Halt Contract), then HARD HALT (exit code 4).
 
-**On success:** Capture `brief_path` and `version` from the response envelope for step-auto-validate's envelope emission.
+**On success:** Capture `brief_path` and `version` from the response envelope for step-auto-validate's envelope emission, and add each entry of its `warnings[]` to `workflow_warnings[]`.
 
-### 6. Error Envelope (Canonical)
-
-Every HARD HALT in this step emits the error envelope on stderr:
-
-**Resolve `{emitBriefEnvelopeHelper}`** from `{emitBriefEnvelopeProbeOrder}`; first existing path wins. HALT if no candidate exists.
-
-```bash
-echo '{"status":"error","skill_name":"{skill_name or unknown}","halt_reason":"{reason}","mode":"auto"}' | \
-  uv run {emitBriefEnvelopeHelper} emit --target stderr
-```
-
-### 7. Chain to Auto-Validate
+### 6. Chain to Auto-Validate
 
 Load, read fully, then execute {nextStepFile} to present the auto-brief validation gate, where the user can approve, edit, or reject the brief before the pipeline continues. Do this only after the enriched brief has been written and validated.
