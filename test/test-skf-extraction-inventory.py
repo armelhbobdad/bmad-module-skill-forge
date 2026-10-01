@@ -6,9 +6,12 @@ the script/asset detector's JSON, then sends only what it produced: `patch`
 co-imports, the authoritative-files records, a free-text intent's
 mapping). Step 3c appends its T3 items and step 4 its T2 annotations
 through `add`, `summary` counts it (step 3c's zero-content check reads
-`items`, step 5 its `t2_future`), and step 7 writes extraction-rules.yaml
-with `rules`. A T3 item never overrides an export the inventory already
-holds, and an entry added twice is kept once.
+`items`, step 5 its `t2_future`), step 5 writes the provenance map with
+`provenance` (an entry per inventory export, T1 and T1-low, the runner's
+params as the map's typed strings, per language) and merges its T2, T3 and
+file entries with `provenance --add-entries`, and step 7 writes
+extraction-rules.yaml with `rules`. A T3 item never overrides an export the
+inventory already holds, and an entry added twice is kept once.
 """
 
 from __future__ import annotations
@@ -320,6 +323,228 @@ def test_init_reads_what_the_runner_writes(tmp_path):
     assert data["files_scanned"] == 2
     assert data["extraction_rules"]["recipe_set"] == "standard" and data["extraction_rules"]["ast_grep_version"]
     assert data["counts"]["exports_public_api"] == 1
+
+
+# --------------------------------------------------------------------------
+# provenance: the provenance map, written from the inventory, never typed by hand
+# --------------------------------------------------------------------------
+
+HEADER = {"source_repo": "https://github.com/o/r", "source_commit": "0123abcd", "source_ref": "v2.3.0",
+          "generated_at": "2026-10-01T12:00:00Z"}
+
+
+def _provenance(path: Path, target: Path, header: dict = HEADER) -> dict:
+    return _ok(_run("provenance", "--inventory", str(path), "--target", str(target), stdin=json.dumps(header)))
+
+_runner_spec = importlib.util.spec_from_file_location("skf_extract_public_api_for_inventory", RUNNER)
+runner = importlib.util.module_from_spec(_runner_spec)
+_runner_spec.loader.exec_module(runner)
+
+
+def _t1(name: str, language: str, signature: str, export_type: str = "function", **extra) -> dict:
+    """A runner export record, its params and return_type read as the runner reads them."""
+    params, returns = (runner.signature_parts(signature, language, name) if export_type == "function"
+                       else (None, None))
+    return {"export_name": name, "export_type": export_type, "language": language, "source_file": f"src/{name}",
+            "source_line": 3, "signature": signature, "params": params, "return_type": returns,
+            "ast_recipe": "r", "ast_node_type": "export_statement", "confidence": "T1",
+            "extraction_method": "ast-grep", **extra}
+
+
+@pytest.mark.parametrize(
+    ("language", "signature", "name", "params", "return_type"),
+    [
+        ("python", "def fetch(url: str, *, retries: int = 3, **kw) -> bytes:", "fetch",
+         ["url: str", "retries: int = 3", "**kw"], "bytes"),
+        ("typescript", "export function getToken(userId: string, options?: TokenOptions): Token {", "getToken",
+         ["userId: string", "options?: TokenOptions"], "Token"),
+        ("tsx", "export const Card = ({ title }: CardProps, ref?: Ref<HTMLDivElement>) => {", "Card",
+         ["{ title }: CardProps", "ref?: Ref<HTMLDivElement>"], None),
+        ("javascript", "export function label(text, sep = '-', ...rest) {", "label",
+         ["text", "sep = '-'", "...rest"], None),
+        ("rust", "pub fn parse(&self, input: &str) -> Result<Ast, Error> {", "parse",
+         ["&self", "input: &str"], "Result<Ast, Error>"),
+        ("go", "func New(a, b int, opts ...Option) (*Client, error) {", "New",
+         ["a: int", "b: int", "opts: ...Option"], "(*Client, error)"),
+    ],
+    ids=["python", "typescript", "tsx", "javascript", "rust", "go"],
+)
+def test_provenance_writes_each_language_as_the_maps_typed_strings(tmp_path, language, signature, name, params,
+                                                                   return_type):
+    """skill-sections.md's form: 'userId: string', 'options?: TokenOptions'."""
+    path = _write(tmp_path, {**INVENTORY, "exports": [_t1(name, language, signature)]})
+    target = tmp_path / "provenance-map.json"
+    out = _provenance(path, target)
+    assert (out["entries"], out["unsigned"]) == (1, [])
+    assert _load(target)["entries"] == [{
+        "export_name": name, "export_type": "function", "params": params, "return_type": return_type,
+        "source_file": f"src/{name}", "source_line": 3, "confidence": "T1", "extraction_method": "ast-grep",
+        "ast_node_type": "export_statement", "signature_source": "T1"}]
+
+
+def test_provenance_writes_an_entry_for_every_inventory_export(tmp_path):
+    """The map's entries[] are the inventory's exports, T1 and T1-low alike,
+    each labeled by the tool that found it; a function nobody read the
+    signature of is listed, and a class carries no params."""
+    exports = [
+        _t1("run", "python", "def run(a: int) -> str:"),
+        _t1("Engine", "python", "class Engine(Base):", export_type="class"),
+        _t1("cut", "python", "def cut(a: int,"),
+        {**_t1("patched", "python", "def patched("), "params": ["text: str"], "return_type": "Node"},
+        {"export_name": "by_eye", "export_type": "function", "source_file": "src/b.py", "source_line": 7,
+         "confidence": "T1-low", "extraction_method": "source-read", "ast_node_type": None, "params": ["x"],
+         "return_type": None},
+        # a by-eye entry that claims T1 is labeled by its method, never the reverse
+        {"export_name": "mislabeled", "export_type": "const", "source_file": "src/c.py", "confidence": "T1",
+         "extraction_method": "source-read", "ast_node_type": "expression_statement"},
+    ]
+    path = _write(tmp_path, {**INVENTORY, "exports": exports})
+    before = path.read_bytes()
+    target = tmp_path / "provenance-map.json"
+    out = _provenance(path, target)
+    assert (out["entries"], out["unsigned"]) == (6, ["cut (src/cut)"])
+    written = _load(target)
+    assert [(e["export_name"], e["source_file"]) for e in written["entries"]] == [
+        (e["export_name"], e["source_file"]) for e in exports]
+    entries = {e["export_name"]: e for e in written["entries"]}
+    assert (entries["run"]["params"], entries["run"]["return_type"]) == (["a: int"], "str")
+    assert (entries["Engine"]["params"], entries["Engine"]["return_type"]) == (None, None)
+    assert (entries["cut"]["params"], entries["cut"]["return_type"]) == (None, None)
+    assert (entries["patched"]["params"], entries["patched"]["return_type"]) == (["text: str"], "Node")
+    t1 = ("T1", "ast-grep", "export_statement", "T1")
+    t1_low = ("T1-low", "source-read", None, "T1-low")
+    labels = {name: (e["confidence"], e["extraction_method"], e["ast_node_type"], e["signature_source"])
+              for name, e in entries.items()}
+    assert labels == {"run": t1, "Engine": t1, "cut": t1, "patched": t1, "by_eye": t1_low, "mislabeled": t1_low}
+    assert entries["by_eye"]["params"] == ["x"] and entries["by_eye"]["source_line"] == 7
+    assert path.read_bytes() == before, "the inventory is not changed"
+
+
+def test_provenance_writes_the_maps_header(tmp_path):
+    """skill-sections.md's header: stdin gives the source, the rest defaults."""
+    path = _write(tmp_path)
+    target = tmp_path / "provenance-map.json"
+    _provenance(path, target, {"source_repo": "https://github.com/o/r", "source_commit": None})
+    written = _load(target)
+    assert list(written) == ["provenance_version", "skill_name", "skill_type", "source_repo", "source_commit",
+                             "source_ref", "generated_at", "entries"]
+    assert (written["provenance_version"], written["skill_name"], written["skill_type"]) == ("2.0", "demo", "single")
+    assert (written["source_commit"], written["source_ref"]) == (None, None)
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", written["generated_at"])
+    _provenance(path, target)
+    assert {k: _load(target)[k] for k in HEADER} == HEADER
+
+
+@pytest.mark.parametrize(
+    "header",
+    [None, [], {"source_repo": "r"}, {**HEADER, "entries": []}],
+    ids=["none", "not-an-object", "no-commit", "unknown-key"],
+)
+def test_provenance_refuses_a_bad_header(tmp_path, header):
+    path = _write(tmp_path)
+    target = tmp_path / "provenance-map.json"
+    proc = _run("provenance", "--inventory", str(path), "--target", str(target),
+                stdin="" if header is None else json.dumps(header))
+    assert proc.returncode == 1 and not target.exists()
+
+
+def test_provenance_adds_the_entries_compile_writes(tmp_path):
+    """T2 and T3 entries and the file entries go through the same helper; an
+    entry the map holds (an inventory export's) is never replaced."""
+    path = _write(tmp_path)
+    target = tmp_path / "provenance-map.json"
+    _provenance(path, target)
+    inventory_entries = _load(target)["entries"]
+    t3 = {"export_name": "configure", "export_type": "function", "params": None, "return_type": None,
+          "source_file": None, "source_line": None, "confidence": "T3", "extraction_method": "doc-fetch",
+          "ast_node_type": None, "signature_source": "T3"}
+    clash = {"export_name": "parse", "source_file": "src/a.py", "confidence": "T2", "signature_source": "T2"}
+    script = {"file_name": "scripts/run.sh", "file_type": "script", "source_file": "bin/run.sh",
+              "content_hash": "sha256:00", "confidence": "T1-low", "extraction_method": "file-copy"}
+    payload = {"entries": [t3, clash], "file_entries": [script]}
+    out = _ok(_run("provenance", "--inventory", str(path), "--target", str(target), "--add-entries",
+                   stdin=json.dumps(payload)))
+    assert (out["entries"], out["file_entries"], out["added"], out["duplicates"]) == (3, 1, 2, 1)
+    written = _load(target)
+    assert written["entries"] == [*inventory_entries, t3] and written["file_entries"] == [script]
+    again = _ok(_run("provenance", "--inventory", str(path), "--target", str(target), "--add-entries",
+                     stdin=json.dumps(payload)))
+    assert (again["added"], again["duplicates"]) == (0, 3)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    ["", "[]", json.dumps({"entries": [{"source_file": "x"}]}), json.dumps({"rows": []}),
+     json.dumps({"file_entries": [{"file_type": "script"}]})],
+    ids=["empty", "a-list", "no-export-name", "unknown-key", "no-file-name"],
+)
+def test_provenance_add_entries_refuses_a_bad_payload(tmp_path, payload):
+    path = _write(tmp_path)
+    target = tmp_path / "provenance-map.json"
+    _provenance(path, target)
+    before = target.read_bytes()
+    proc = _run("provenance", "--inventory", str(path), "--target", str(target), "--add-entries", stdin=payload)
+    assert proc.returncode == 1 and target.read_bytes() == before
+
+
+def test_provenance_add_entries_needs_the_map(tmp_path):
+    path = _write(tmp_path)
+    proc = _run("provenance", "--inventory", str(path), "--target", str(tmp_path / "none.json"), "--add-entries",
+                stdin=json.dumps({"entries": []}))
+    assert proc.returncode == 1 and "provenance map" in proc.stderr
+
+
+COMPILE = REPO / "src" / "skf-create-skill" / "references" / "compile.md"
+
+
+def test_compile_writes_the_map_through_the_helper(tmp_path):
+    """compile.md §6 never types an entry the inventory holds: the helper
+    writes the staged map, an unsigned function goes back through extract's
+    patch, and the T2, T3 and file entries go through --add-entries. Each
+    documented payload is one the helper takes."""
+    text = COMPILE.read_text(encoding="utf-8")
+    six = text[text.index("### 6. Build provenance-map.json Content"):text.index("### 7. ")]
+    write, add = re.findall(r"```bash\n(.*?)```", six, re.S)
+    target = '--target "{project-root}/_bmad-output/.skf-stage/{skill-name}/provenance-map.json"'
+    assert target in write and "--add-entries" not in write
+    assert target in add and "--add-entries <<'SKF_JSON'" in add
+    assert "never type an entry the inventory holds" in six and "Start `entries[]`" not in six
+    assert "send them through that `patch` call as extract.md §5 says, and run the command above again" in six
+    payloads = [json.loads(block.split("<<'SKF_JSON'\n")[1].split("\nSKF_JSON")[0]) for block in (write, add)]
+    path = _write(tmp_path)
+    map_path = tmp_path / "provenance-map.json"
+    _provenance(path, map_path, payloads[0])
+    out = _ok(_run("provenance", "--inventory", str(path), "--target", str(map_path), "--add-entries",
+                   stdin=json.dumps(payloads[1])))
+    assert (out["added"], out["file_entries"]) == (2, 1)
+
+
+def test_provenance_refuses_a_missing_inventory(tmp_path):
+    proc = _run("provenance", "--inventory", str(tmp_path / "none.json"), "--target", str(tmp_path / "e.json"),
+                stdin=json.dumps(HEADER))
+    assert proc.returncode == 1 and not (tmp_path / "e.json").exists()
+
+
+@pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
+def test_provenance_reads_what_the_runner_writes(tmp_path):
+    """The runner's -o JSON, through init, gives entries with the signature parts."""
+    src = tmp_path / "src"
+    src.mkdir(parents=True)
+    (src / "api.py").write_bytes(b"def fetch(\n    url: str,\n    retries: int = 3,\n) -> bytes:\n    return b''\n")
+    (src / "client.ts").write_bytes(b"export function connect(host: string, port?: number): Client {\n  return c;\n}\n")
+    runner_json = tmp_path / "demo.extraction.json"
+    ran = subprocess.run([sys.executable, str(RUNNER), "--mode", "full", "--source-root", str(tmp_path),
+                          "--tier", "Forge", "-o", str(runner_json)],
+                         capture_output=True, text=True, encoding="utf-8", timeout=300, check=False)
+    assert ran.returncode == 0, ran.stderr
+    path = tmp_path / "demo.inventory.json"
+    _ok(_run("init", "--inventory", str(path), "--skill", "demo", "--mode", "source", "--tier", "Forge",
+             "--extraction", str(runner_json)))
+    target = tmp_path / "provenance-map.json"
+    _provenance(path, target)
+    entries = {e["export_name"]: (e["params"], e["return_type"]) for e in _load(target)["entries"]}
+    assert entries == {"fetch": (["url: str", "retries: int = 3"], "bytes"),
+                       "connect": (["host: string", "port?: number"], "Client")}
 
 
 # --------------------------------------------------------------------------

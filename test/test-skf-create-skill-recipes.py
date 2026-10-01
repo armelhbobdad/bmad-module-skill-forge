@@ -46,6 +46,8 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 REFS = REPO / "src" / "skf-create-skill" / "references"
 PATTERNS = REFS / "extraction-patterns.md"
+# Each recipe's notes and the find_code_by_rule example, loaded only when the runner cannot run
+BY_HAND = REFS / "extraction-patterns-by-hand.md"
 COMPONENT_EXTRACTION = REFS / "component-extraction.md"
 DATA_FILE = REPO / "src" / "shared" / "data" / "ast-grep-recipes.yaml"
 RUNNER = REPO / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
@@ -1583,8 +1585,7 @@ def test_data_file_metadata_matches_the_prose() -> None:
     patterns = PATTERNS.read_text(encoding="utf-8")
     by_language = _fenced_ids(_slice(patterns, "### YAML Rule Recipes by Language",
                                      "### Component Library YAML Rule Recipes"))
-    components = _fenced_ids(_slice(patterns, "### Component Library YAML Rule Recipes",
-                                    "### Known ast-grep Limitations"))
+    components = _fenced_ids(patterns[patterns.index("### Component Library YAML Rule Recipes"):])
     named = set().union(*(_named_ids(step) for step in _component_steps().values()))
     languages: dict[str, set[str]] = {}
     for doc in DATA_RECIPES:
@@ -1603,17 +1604,18 @@ def test_data_file_metadata_matches_the_prose() -> None:
 
 
 def test_runner_rules_match_the_prose() -> None:
-    """The runner restates three rules of extraction-patterns.md: the head
-    cap selection (HEAD_CAPS), the dedupe priority (prefer_over) and the
-    language selection note (metadata.languages). Each copy agrees with the
-    prose it restates."""
+    """The runner restates three rules of the prose: the head cap (HEAD_CAPS)
+    of extraction-patterns.md's Recipe Runner, and the dedupe priority
+    (prefer_over) and the language selection note (metadata.languages) of
+    extraction-patterns-by-hand.md, which holds each recipe's notes. Each
+    copy agrees with the prose it restates."""
     runner = _runner()
-    text = PATTERNS.read_text(encoding="utf-8")
-    flat = " ".join(text.split())
-    default = re.search(r"\*\*Default \(Quick/Forge, any scope\):\*\* `N = (\d+)`", flat)
-    assert default is not None and int(default.group(1)) == runner.DEFAULT_HEAD_CAP
-    caps = {(tier, scope): int(cap) for tiers, scope, cap in re.findall(
-        r"\*\*(Forge\+/Deep) with `scope\.type: \"([a-z-]+)\"`:\*\* `N = (\d+)`", flat) for tier in tiers.split("/")}
+    flat = " ".join(PATTERNS.read_text(encoding="utf-8").split())
+    bullet = re.search(r"- \*\*Head cap:\*\* each recipe keeps at most (\d+) matches, or at Forge\+ and Deep "
+                       r"(.*?), in file and line order\.", flat)
+    assert bullet is not None and int(bullet.group(1)) == runner.DEFAULT_HEAD_CAP
+    caps = {(tier, scope): int(cap) for cap, scope in re.findall(r"(\d+) for `scope\.type: \"([a-z-]+)\"`",
+                                                                 bullet.group(2)) for tier in ("Forge+", "Deep")}
     assert caps == runner.HEAD_CAPS
 
     prefer: dict[str, set[str]] = {}
@@ -1625,7 +1627,8 @@ def test_runner_rules_match_the_prose() -> None:
         forms.setdefault(doc["id"], set()).add(doc["language"])
     words = {"arrow function match": "js-exported-arrow-functions",
              "function declaration match": "js-exported-functions", "constant match": "js-exported-constants"}
-    priority = re.search(r"Priority when deduplicating: ([^.]+)\.", flat)
+    text = BY_HAND.read_text(encoding="utf-8")
+    priority = re.search(r"Priority when deduplicating: ([^.]+)\.", " ".join(text.split()))
     assert priority is not None
     ranked = [words[part.strip()] for part in priority.group(1).split(">")]
     for i, winner in enumerate(ranked):
@@ -1633,7 +1636,7 @@ def test_runner_rules_match_the_prose() -> None:
     # the two of them that match one name on one line: `export const f = () => ...`
     assert "js-exported-constants" in prefer["js-exported-arrow-functions"]
 
-    note = re.search(r"> \*\*Language selection:\*\*(.*?)\n\n", text, re.S)
+    note = re.search(r"^\*\*Language selection:\*\*(.*?)\n\n", text, re.S | re.M)
     assert note is not None
     unchanged = _named_ids(_slice(note.group(1), "`language: javascript`:", "run unchanged"))
     js_forms = _named_ids(_slice(note.group(1), "run unchanged", "have `javascript` forms"))
@@ -1698,7 +1701,7 @@ def test_component_extraction_step_4_finds_the_types() -> None:
 
 
 def test_inline_find_code_by_rule_example_matches_the_python_recipe() -> None:
-    (inline,) = INLINE_RULE_RE.findall(PATTERNS.read_text(encoding="utf-8"))
+    (inline,) = INLINE_RULE_RE.findall(BY_HAND.read_text(encoding="utf-8"))
     doc = yaml.safe_load(json.loads(f'"{inline}"'))
     assert doc["rule"]["kind"] == "function_definition"
     (python,) = [d for f, _, d in RECIPES if d["id"] == "python-public-functions"]

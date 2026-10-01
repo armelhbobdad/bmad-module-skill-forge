@@ -3,10 +3,13 @@
 
 Covers the case-insensitive substring scan against the 13-row keyword table,
 the per-(line, pattern) candidate record shape (`candidate_category`, never a
-verdict), the `## Migration & Deprecation Warnings` and frontmatter positional
-exclusions, duplicate collapse and the candidate cap the feeders share (the
-compiled SKILL.md's own lines last), missing/empty-feeder skipping, and the
-subprocess CLI (exit codes + JSON-on-stdout).
+verdict), the export mentions --provenance adds from the changelog, release
+and pull request feeders with the release and section headings above each
+line, the `## Migration & Deprecation Warnings` and frontmatter positional
+exclusions, duplicate collapse and the candidate cap the feeders share
+(keyword hits and change sections first, the compiled SKILL.md's own lines
+last), missing/empty-feeder skipping, and the subprocess CLI (exit codes +
+JSON-on-stdout).
 """
 
 from __future__ import annotations
@@ -84,7 +87,233 @@ def test_records_full_field_shape():
         "candidate_category": "Removal",
         "context_line": "foo removed in v2",
         "line_number": 1,
+        "exports": [],
+        "release": None,
+        "section": None,
     }
+
+
+# --------------------------------------------------------------------------
+# --provenance: the export mentions of the project's own announcements
+# --------------------------------------------------------------------------
+
+# #582's Keep a Changelog sample: only `### Deprecated` holds a keyword.
+KEEP_A_CHANGELOG = (
+    "# Changelog\n\n## [Unreleased]\n\n## [2.3.0] - 2024-05-01\n\n"
+    "### Deprecated\n- `parse_legacy` is deprecated; use `parse`.\n\n"
+    "### Removed\n- `Client.close_all`, use `Client.close` per client.\n\n"
+    "### Changed\n- Renamed `load` to `read`.\n- Dropped support for Python 3.8.\n"
+)
+SAMPLE_EXPORTS = frozenset({"parse_legacy", "parse", "Client.close_all", "Client.close", "load", "read"})
+
+
+def _lines(matches):
+    return [(m["line_number"], m["pattern"], m["section"]) for m in matches]
+
+
+def test_a_change_bullet_naming_an_export_is_a_candidate():
+    matches = scan_text(KEEP_A_CHANGELOG, "changelog.md", SAMPLE_EXPORTS, True)
+    assert _lines(matches) == [
+        (7, "deprecated", None),  # the heading line itself
+        (8, "deprecated", "### Deprecated"),
+        (11, None, "### Removed"),
+        (14, None, "### Changed"),
+    ]
+    assert {m["release"] for m in matches} == {"## [2.3.0] - 2024-05-01"}
+    by_line = {m["line_number"]: m for m in matches}
+    assert by_line[8]["exports"] == ["parse", "parse_legacy"]
+    assert by_line[11]["exports"] == ["Client.close", "Client.close_all"]
+    assert by_line[14]["exports"] == ["load", "read"]
+    assert by_line[11]["candidate_category"] is None
+
+
+def test_without_provenance_only_keywords_are_candidates():
+    """The scan as it was: the sample gives only `### Deprecated`'s lines."""
+    assert [m["line_number"] for m in scan_text(KEEP_A_CHANGELOG, "changelog.md")] == [7, 8]
+
+
+@pytest.mark.parametrize(
+    "feeder",
+    ["issues.md", "targeted-issues.md", "evidence-report.md", "provenance-map.json", "SKILL.md"],
+    ids=["issues", "targeted-issues", "evidence-report", "provenance-map", "skill-md"],
+)
+def test_only_the_announcement_feeders_give_export_mentions(tmp_path, feeder):
+    """Every entries[] line of the map names an export, and an issue is a
+    report anyone can open: neither is an announcement."""
+    path = tmp_path / ".skf-temporal" / feeder
+    path.parent.mkdir()
+    path.write_text("- Renamed `load` to `read`.\n", encoding="utf-8")
+    provenance = tmp_path / "map.json"
+    provenance.write_text(json.dumps({"entries": [{"export_name": "load"}, {"export_name": "read"}]}),
+                          encoding="utf-8")
+    out = scan_files([str(path)], None, provenance=str(provenance))
+    assert (out["match_count"], out["exports_known"]) == (0, 2)
+    path.rename(path.with_name("prs.md"))
+    out = scan_files([str(path.with_name("prs.md"))], None, provenance=str(provenance))
+    assert out["match_count"] == 1 and out["matches"][0]["exports"] == ["load", "read"]
+
+
+def test_headings_in_a_code_fence_and_the_default_export_do_not_count(tmp_path):
+    """A `# comment` in a fence is no heading, and the map's `default` (an
+    anonymous default export) is no name a line means when it says it."""
+    text = ("## v2.0.0\n\n### Removed\n```bash\n# Migration\n```\n- `old_api` and the default value.\n")
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_text(json.dumps({"entries": [{"export_name": "old_api"}, {"export_name": "default"}]}),
+                          encoding="utf-8")
+    exports = mod.load_exports(str(provenance))
+    assert exports == frozenset({"old_api"})
+    [hit] = scan_text(text, "releases.md", exports, True)
+    assert (hit["release"], hit["section"], hit["exports"]) == ("## v2.0.0", "### Removed", ["old_api"])
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["", "not json", json.dumps({"entries": "x"}), json.dumps([1, 2])],
+    ids=["empty", "not-json", "entries-not-a-list", "not-a-map"],
+)
+def test_an_unreadable_provenance_map_knows_no_export(tmp_path, content):
+    path = tmp_path / "provenance-map.json"
+    path.write_bytes(content.encode("utf-8"))
+    assert mod.load_exports(str(path)) == frozenset()
+    assert mod.load_exports(str(tmp_path / "missing.json")) == frozenset()
+    assert mod.load_exports(None) == frozenset()
+
+
+def _deep_feeders(tmp_path: Path) -> tuple[list[str], str, str]:
+    """The full Deep feeder set: a provenance map of 44 exports, a changelog
+    whose `### Added` section names 40 of them (more than one feeder's share
+    of the cap) before its Deprecated, Removed and Changed sections, release
+    notes, merged pull requests and issues naming exports, the evidence
+    report and the compiled SKILL.md."""
+    names = [f"fn_{i:02d}" for i in range(40)]
+    exports = [*names, "parse_legacy", "Client.close_all", "load", "read"]
+    temporal = tmp_path / ".skf-temporal"
+    stage = tmp_path / "stage"
+    temporal.mkdir()
+    stage.mkdir()
+    (stage / "provenance-map.json").write_text(
+        json.dumps({"entries": [{"export_name": n, "source_file": "src/a.py"} for n in exports]}, indent=2),
+        encoding="utf-8")
+    (stage / "evidence-report.md").write_text("# Evidence\n\n- `fn_03` signature changed upstream.\n",
+                                              encoding="utf-8")
+    (stage / "SKILL.md").write_text("---\nname: demo\n---\n\n- `load` was removed in 2.3.\n", encoding="utf-8")
+    (temporal / "changelog.md").write_text(
+        "# Changelog\n\n## [2.3.0] - 2024-05-01\n\n### Added\n"
+        + "".join(f"- `{n}` helper.\n" for n in names)
+        + "\n### Deprecated\n- `parse_legacy` is deprecated; use `parse`.\n"
+        "\n### Removed\n- `Client.close_all`, use `Client.close`.\n"
+        "\n### Changed\n- Renamed `load` to `read`.\n", encoding="utf-8")
+    (temporal / "releases.md").write_text(
+        "# Releases: o/r\n\n## v2.3.0: v2.3.0\n\n- Published: 2024-05-01\n\n### New Features\n"
+        + "".join(f"* `{n}` gained an option by @dev in #1{i:02d}\n" for i, n in enumerate(names[:20]))
+        + "* BREAKING: `fn_02` now returns a tuple\n", encoding="utf-8")
+    (temporal / "prs.md").write_text(
+        "# Merged pull requests: o/r\n\n"
+        + "".join(f"## #{200 + i}: Tidy {n}\n\n- Merged: 2024-04-01\n\nTouches `{n}`.\n\n"
+                  for i, n in enumerate(names[20:40])), encoding="utf-8")
+    (temporal / "issues.md").write_text(
+        "# Issues: o/r\n\n" + "".join(f"## #{i}: `{n}` crashes\n\n" for i, n in enumerate(names[:10])),
+        encoding="utf-8")
+    feeders = [str(stage / "evidence-report.md"), str(stage / "provenance-map.json")] + sorted(
+        str(p) for p in temporal.glob("*.md"))
+    return feeders, str(stage / "SKILL.md"), str(stage / "provenance-map.json")
+
+
+def test_the_full_feeder_set_keeps_the_changes_inside_the_cap(tmp_path):
+    """#582: with the export mentions in, the cap of 50 is reached, and the
+    Added bullets alone would fill the changelog's share of it. Keyword hits
+    and change sections rank first, so the Deprecated, Removed and Changed
+    bullets and the release notes' keyword line all survive."""
+    feeders, skill_md, provenance = _deep_feeders(tmp_path)
+    out = scan_files(feeders, skill_md, provenance=provenance)
+    assert out["exports_known"] == 44 and out["capped_count"] > 0
+    assert out["match_count"] == DEFAULT_MAX_CANDIDATES
+    kept = {(Path(m["source"]).name, m["context_line"]) for m in out["matches"]}
+    for line in ("- `parse_legacy` is deprecated; use `parse`.", "- `Client.close_all`, use `Client.close`.",
+                 "- Renamed `load` to `read`."):
+        assert ("changelog.md", line) in kept, line
+    assert ("releases.md", "* BREAKING: `fn_02` now returns a tuple") in kept
+    # the plain mentions share what is left in turns, and no issue line is one
+    plain = [m for m in out["matches"] if mod.rank(m) == 1]
+    assert {Path(m["source"]).name for m in plain} == {"changelog.md", "releases.md", "prs.md"}
+    assert not any(Path(m["source"]).name == "issues.md" and m["pattern"] is None for m in out["matches"])
+    # a flat turn order, as the cap had before, loses the Deprecated bullet to the Added ones
+    flat = [dict(m, pattern="x") for m in scan_files(feeders, skill_md, provenance=provenance,
+                                                       max_candidates=0)["matches"]]
+    kept_flat, _ = apply_cap(flat, DEFAULT_MAX_CANDIDATES, skill_md)
+    assert "- `parse_legacy` is deprecated; use `parse`." not in {m["context_line"] for m in kept_flat}
+
+
+def test_the_cap_puts_plain_mentions_after_every_keyword_hit():
+    matches = ([dict(_candidate("changelog.md", i, None, None), section="### Added") for i in range(1, 5)]
+               + [_candidate("changelog.md", 9)]
+               + [dict(_candidate("prs.md", 3, None, None), section="### Removed")]
+               + [_candidate("SKILL.md", 40, "replaced by", "Supersession")])
+    kept, dropped = apply_cap(matches, 4, "SKILL.md")
+    assert dropped == 3
+    assert _kept(kept) == [("changelog.md", 1), ("changelog.md", 9), ("prs.md", 3), ("SKILL.md", 40)]
+
+
+@pytest.mark.parametrize(
+    "section,expected",
+    [
+        ("### Deprecated", True),
+        ("### Removed", True),
+        ("### Changed", True),
+        ("## Breaking Changes", True),
+        ("### \u26a0 BREAKING CHANGES", True),
+        ("## [Removed]", True),
+        ("### Migration Guide", True),
+        ("## What's Changed", False),
+        ("## Type of change", False),
+        ("## Changes in this PR", False),
+        ("## #4: Remove the legacy client", False),
+        ("### Added", False),
+        (None, False),
+    ],
+    ids=["deprecated", "removed", "changed", "breaking-changes", "conventional-breaking", "bracketed",
+         "migration-guide", "github-whats-changed", "pr-template-type-of-change", "changes-in-this-pr",
+         "pr-title", "added", "none"],
+)
+def test_a_change_section_is_a_whole_heading(section, expected):
+    """A heading ranks its export mentions with the keyword hits only when
+    its whole text names a change: GitHub's generated release notes and pull
+    request templates carry `Changed` and `change` inside headings that head
+    every line of their feeder."""
+    assert mod.change_section(section) is expected
+    assert mod.rank({"pattern": None, "section": section}) == (0 if expected else 1)
+
+
+def test_github_release_notes_keep_their_keyword_lines_inside_the_cap(tmp_path):
+    """A release body as `gh release view` gives it (`## What's Changed`, then
+    one bullet per pull request, more of them naming an export than the
+    release notes' share of the cap) and pull request bodies under a
+    template's `## Type of change`: their plain mentions rank after every
+    keyword line, so the deprecation and the removal survive the cap."""
+    names = [f"fn_{i:02d}" for i in range(60)]
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_text(json.dumps({"entries": [{"export_name": n} for n in names]}), encoding="utf-8")
+    temporal = tmp_path / ".skf-temporal"
+    temporal.mkdir()
+    (temporal / "changelog.md").write_bytes(b"# Changelog\n\n## [2.3.0] - 2024-05-01\n\n### Fixed\n- A typo.\n")
+    (temporal / "releases.md").write_bytes((
+        "# Releases: o/r\n\n## v2.3.0\n\n## What's Changed\n"
+        + "".join(f"* Improve `{n}` output by @dev in https://github.com/o/r/pull/{i}\n" for i, n in enumerate(names))
+        + "* `fn_02` is deprecated, use `fn_03` by @dev in https://github.com/o/r/pull/99\n").encode("utf-8"))
+    (temporal / "prs.md").write_bytes((
+        "# Merged pull requests: o/r\n\n"
+        + "".join(f"## #{100 + i}: Tidy the {i}th helper\n\n## Type of change\n\n- [x] Refactor of `{n}`\n\n"
+                  for i, n in enumerate(names[:30]))
+        + "## #200: Drop a helper\n\n## Type of change\n\n- [x] `fn_40` was removed in 2.3\n").encode("utf-8"))
+    feeders = [str(temporal / name) for name in ("changelog.md", "prs.md", "releases.md")]
+    out = scan_files(feeders, None, provenance=str(provenance))
+    assert out["capped_count"] > 0 and out["match_count"] == DEFAULT_MAX_CANDIDATES
+    kept = {m["context_line"] for m in out["matches"]}
+    assert "* `fn_02` is deprecated, use `fn_03` by @dev in https://github.com/o/r/pull/99" in kept
+    assert "- [x] `fn_40` was removed in 2.3" in kept
+    plain = [m for m in out["matches"] if m["pattern"] is None]
+    assert plain and {m["section"] for m in plain} == {"## What's Changed", "## Type of change"}
+    assert all(mod.rank(m) == 1 for m in plain)
 
 
 @pytest.mark.parametrize(
@@ -565,6 +794,19 @@ def test_cli_max_candidates_flag(tmp_path):
     assert data["cap"] == 2
     assert data["match_count"] == 2
     assert data["capped_count"] == 3
+
+
+def test_cli_provenance_flag_adds_the_export_mentions(tmp_path):
+    changelog = tmp_path / "changelog.md"
+    changelog.write_bytes(KEEP_A_CHANGELOG.encode("utf-8"))
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_text(json.dumps({"entries": [{"export_name": n} for n in sorted(SAMPLE_EXPORTS)]}),
+                          encoding="utf-8")
+    proc = _run(["--provenance", str(provenance), str(changelog)])
+    assert proc.returncode == 0
+    data = json.loads(proc.stdout)
+    assert [m["line_number"] for m in data["matches"]] == [7, 8, 11, 14]
+    assert data["exports_known"] == 6
 
 
 def test_cli_default_cap_is_the_candidate_pool(tmp_path):

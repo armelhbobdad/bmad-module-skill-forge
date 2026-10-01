@@ -31,9 +31,11 @@ These tests keep the steps on the scripts:
   describes it says;
 - validate §7a removes the JSON an earlier run left, runs `verify -o` and
   then `fix` on that JSON, and triages every `why` the fix can leave;
-- the relabel rule is written once, in extraction-patterns.md, and its node
-  kind lookup is a `kind-at` call that fits the verifier, given a patterns
-  path that resolves from {project-root} in every step that binds it.
+- the relabel rule is written once, in relabel-rule.md, which only a label
+  violation loads (extraction-patterns.md keeps a one-line Relabel Rule
+  section naming it, so every pointer at the rule still resolves), and its
+  node kind lookup is a `kind-at` call that fits the verifier, given a
+  patterns path that resolves from {project-root} in every step that binds it.
 
 The documented verify and fix calls repair a staged skill. The documented
 runner call that fails on its input leaves no JSON, so a stale one is never
@@ -69,6 +71,7 @@ EXTRACT = REFS / "extract.md"
 COMPILE = REFS / "compile.md"
 VALIDATE = REFS / "validate.md"
 PATTERNS = REFS / "extraction-patterns.md"
+RELABEL = REFS / "relabel-rule.md"
 KNOWLEDGE = SRC / "knowledge"
 SCRIPTS = SRC / "shared" / "scripts"
 RUNNER = SCRIPTS / "skf-extract-public-api.py"
@@ -97,7 +100,7 @@ KIND_AT_CALL = "uv run {verifyProvenanceCompletenessHelper} kind-at"
 FENCE_RE = re.compile(r"^[ \t]*```bash\n(.*?)^[ \t]*```", re.M | re.S)
 PLACEHOLDER_RE = re.compile(r"\{[A-Za-z][\w-]*\}|<[a-z][\w-]*>")
 TOKEN_RE = re.compile(r"`([a-z_]+(?:\[\])?(?:\.[a-z_0-9]+(?:\[\])?)*)`")
-# The relabel rule's own sentences: each is written once, in extraction-patterns.md.
+# The relabel rule's own sentences: each is written once, in relabel-rule.md.
 RELABEL_RULE = (
     "follow its `extraction_method`, never the reverse",
     "so `direct-read` becomes `source-read`",
@@ -228,7 +231,7 @@ def _run(words: list[str], script: Path, cwd: Path) -> subprocess.CompletedProce
 
 def _cannot_run() -> str:
     """The protocol's When the Runner Cannot Run section."""
-    return _slice(_read(PATTERNS), "### When the Runner Cannot Run", "### Decision Tree")
+    return _slice(_read(PATTERNS), "### When the Runner Cannot Run", "### Known ast-grep Limitations")
 
 
 # --------------------------------------------------------------------------
@@ -245,7 +248,7 @@ def test_extract_binds_the_runner() -> None:
     assert "extractionPatternsData" not in frontmatter
     assert frontmatter["extractionPatternsDataProbeOrder"] == PATTERNS_PROBE
     assert ("Resolve `{extractionPatternsData}` ← first existing path in `{extractionPatternsDataProbeOrder}` "
-            "and load it completely") in _section(EXTRACT, "1")
+            f"and load it up to its `{CUT}` heading") in _section(EXTRACT, "1")
 
 
 def test_section_4_runs_the_protocol_through_the_runner() -> None:
@@ -427,7 +430,7 @@ def test_inventory_counts_come_from_the_runner() -> None:
 
 def test_protocol_runs_the_recipes_through_the_runner() -> None:
     patterns = _read(PATTERNS)
-    protocol = _slice(patterns, "## AST Extraction Protocol", "### Decision Tree")
+    protocol = _slice(patterns, "## AST Extraction Protocol", "### Known ast-grep Limitations")
     assert ("`skf-extract-public-api.py --mode full` runs the recipes below over the files in scope in one "
             "call") in protocol
     assert "never run the recipes one at a time, batch them, or merge and dedupe their matches by hand" in protocol
@@ -450,7 +453,8 @@ def test_protocol_runs_the_recipes_through_the_runner() -> None:
     assert ("There is no runner result when the step gives no runner command, no runner path resolves, or no JSON "
             "is at the `-o` path after the call (`uv` missing or failing, an input error, which prints one line on "
             "stderr, a crash, or a shell timeout that stopped it). Then, and when its `status` is `no-ast-grep`, "
-            "run the recipes as the rest of this section says") in fallback
+            f"run the recipes as **{CUT.removeprefix('## ')}** below says, on the filtered file list: read this "
+            "file on from that heading (a run the runner serves stops there)") in fallback
     assert "`tier-degradation-rules.md` \"AST Tool Unavailable\"" in fallback
     assert "## AST Tool Unavailable" in _read(REFS / "tier-degradation-rules.md")
     strategy = _slice(patterns, "## Forge Tier (AST Available)", "### Confidence")
@@ -527,10 +531,19 @@ def test_compile_counts_come_from_the_runner() -> None:
 def test_relabel_rule_is_written_once() -> None:
     for sentence in RELABEL_RULE:
         homes = [path.name for path in sorted(REFS.rglob("*.md")) if sentence in _read(path)]
-        assert homes == ["extraction-patterns.md"], (sentence, homes)
+        assert homes == ["relabel-rule.md"], (sentence, homes)
+    # extraction-patterns.md keeps the section every pointer names, and it names the rule's file
+    pointer_section = _slice(_read(PATTERNS), "\n## Relabel Rule\n", "\n---\n")
     assert _read(PATTERNS).count("\n## Relabel Rule\n") == 1
-    pointer = "relabel it by the Relabel Rule in `{extractionPatternsData}`"
+    assert "is in `relabel-rule.md`, beside this file" in pointer_section
+    assert "kind-at" not in pointer_section and RELABEL.is_file()
+    # the readers load the rule's file itself, never the patterns file for a pointer to it
+    pointer = "relabel it by the Relabel Rule in `{relabelRuleData}`"
     assert pointer in _section(COMPILE, "4") and pointer in _section(VALIDATE, "7")
+    assert "the Relabel Rule in `{relabelRuleData}` gives" in _section(VALIDATE, "7a")
+    for path in (COMPILE, VALIDATE):
+        assert _frontmatter(_read(path))["relabelRuleData"] == "references/relabel-rule.md", path.name
+        assert "Relabel Rule in `{extractionPatternsData}`" not in _read(path), path.name
     for path in (EXTRACT, COMPILE, VALIDATE):
         text = _read(path)
         frontmatter = _frontmatter(text)
@@ -541,8 +554,68 @@ def test_relabel_rule_is_written_once() -> None:
         assert "run the ast-grep recipes for its language" not in text, path.name
 
 
+BY_HAND = REFS / "extraction-patterns-by-hand.md"
+# #600: extract §1 reads extraction-patterns.md on every source run, up to this
+# heading; what follows serves only a run without the recipe runner.
+CUT = "## Running the Recipes Without the Runner"
+# The whole file stays under the 9,000-token budget of a single-purpose
+# reference (tiktoken cl100k_base) and what every run reads under the 4,500 of
+# a multi-branch one: about 4 characters a token, so 36,000 and 18,500
+# characters stand in for them here.
+PATTERNS_CHAR_BUDGET = 36_000
+EVERY_RUN_CHAR_BUDGET = 18_500
+
+
+def test_the_patterns_file_keeps_only_what_every_run_reads() -> None:
+    """#600 carve: the recipes (which the runner's data file mirrors and
+    `kind-at` reads) and Known Limitations #4 and #11 stay; each recipe's
+    notes, the shape table and the other limitations load only when the
+    runner cannot run, and the relabel rule only on a label violation.
+    Every run reads the file only up to the cut: the decision tree, the
+    CLI streaming template, the line-number rule and the recipe fences come
+    after it, and only a run without the runner reads on."""
+    patterns = _read(PATTERNS)
+    assert len(patterns) < PATTERNS_CHAR_BUDGET, len(patterns)
+    assert patterns.count(f"\n{CUT}\n") == 1
+    every_run, by_hand_run = patterns.split(f"\n{CUT}\n")
+    assert len(every_run) < EVERY_RUN_CHAR_BUDGET, len(every_run)
+    for part in ("### Decision Tree", "### CLI Streaming Fallback", "**Line numbers are 0-based in ast-grep JSON**",
+                 "### YAML Rule Recipes by Language", "### Component Library YAML Rule Recipes", "```yaml"):
+        assert part in by_hand_run and part not in every_run, part
+    for part in ("### Recipe Runner", "### When the Runner Cannot Run", "### Known ast-grep Limitations",
+                 "\n## Relabel Rule\n"):
+        assert part in every_run, part
+    # the head cap the runner applies is in the Recipe Runner, read on every run
+    assert "keeps at most 200 matches, or at Forge+ and Deep 500 for" in _slice(every_run, "### Recipe Runner", "### When")
+    cannot_run = _cannot_run()
+    assert ("first load `extraction-patterns-by-hand.md`, beside this file, completely: it holds each recipe's "
+            "notes and the limitations of patterns run by hand") in cannot_run
+    loads = [line for line in patterns.splitlines() if "load `extraction-patterns-by-hand.md`" in line]
+    assert loads and all(line in cannot_run for line in loads), "the by-hand file loads on that branch only"
+    hand = _read(BY_HAND)
+    assert "```yaml" not in hand, "every recipe stays in extraction-patterns.md"
+    for note in ("**Language selection:**", "**JS/TS Pattern Merging:**", "**Vue note:**", "| Export shape |",
+                 "\n7. **Python class patterns", "\n10. **Generic class declarations"):
+        assert note in hand and note not in patterns, note
+    limitations = _slice(patterns, "### Known ast-grep Limitations", "### Re-Export Tracing")
+    assert "\n4. **Fallback protocol:**" in limitations and "\n11. **Forms the recipes deliberately" in limitations
+    # #4 is the by-hand run's fallback, #11 every run's, and neither file says otherwise
+    assert "Limitation #11 applies to every run" in limitations and "#4 is the fallback of a recipe run by hand" in limitations
+    assert "#4, the `find_code` fallback of a recipe run by hand" in hand
+    for text in (patterns, hand):
+        assert "#4 and #11 apply to every run" not in text
+    # the by-hand notes point at the recipes where they are, and say each thing once
+    assert "forms below" not in hand and "form below" not in hand and "Limitation #4 is in" not in hand
+    assert hand.count("never reports the kind") == 1
+    relabel = _slice(patterns, "\n## Relabel Rule\n", "\n---\n")
+    assert "which compile.md §4 and validate.md §7 and §7a load themselves" in relabel
+    assert "load it when another reader, such as update-skill's write.md, meets a" in relabel
+    # the qmd CLI forms enrich.md runs, never a subcommand qmd lacks
+    assert "`qmd search` / `qmd vsearch`" in patterns and "vector-search" not in patterns + hand
+
+
 def test_relabel_rule_looks_the_kind_up_with_kind_at() -> None:
-    rule = _read(PATTERNS)[_read(PATTERNS).index("\n## Relabel Rule\n"):]
+    rule = _read(RELABEL)
     call = _call(rule, KIND_AT_CALL)
     assert call == ('uv run {verifyProvenanceCompletenessHelper} kind-at --source-root "{source_root}" '
                     '--file "{source_file}" --line {source_line} --name "{export_name}" '
@@ -595,7 +668,7 @@ def test_validate_7a_fixes_through_the_verifier() -> None:
                     "or a clone that is already deleted", "--no-line-moves"):
         assert by_hand not in seven_a, by_hand
     kinds = _slice(seven_a, "2. **Node kinds.**", "\n")
-    assert "the node kind the Relabel Rule in `{extractionPatternsData}` gives" in kinds
+    assert "the node kind the Relabel Rule in `{relabelRuleData}` gives" in kinds
     assert "never change `extraction_method` to clear the finding" in kinds
     # item 1's fix may have moved the line, so the entry is confirmed without it and looked up where it is now
     assert ("(its `export_name` and `source_file` confirm it; item 1's `fix` may have moved its `source_line`)"
@@ -817,7 +890,7 @@ def test_every_runner_field_the_prose_reads_is_in_its_json(tmp_path: Path) -> No
     passages = [_section(EXTRACT, number) for number in ("2", "4", "4b", "5", "6")]
     passages.append(_section(COMPILE, "4"))
     patterns = _read(PATTERNS)
-    passages.append(_slice(patterns, "### Recipe Runner", "### Decision Tree"))
+    passages.append(_slice(patterns, "### Recipe Runner", "### Known ast-grep Limitations"))
     # `scope.*` names brief fields too (`scope.notes`), so the runner's `scope` is checked on its own
     named = {token for text in passages for token in TOKEN_RE.findall(text)
              if token.split(".")[0].removesuffix("[]") in out and not token.startswith("scope")}
@@ -845,7 +918,7 @@ def test_every_runner_field_the_prose_reads_is_in_its_json(tmp_path: Path) -> No
 @needs_ast_grep
 def test_relabel_rule_kind_at_call_finds_the_recipe_kind(tmp_path: Path) -> None:
     _staged_skill(tmp_path)
-    rule = _read(PATTERNS)[_read(PATTERNS).index("\n## Relabel Rule\n"):]
+    rule = _read(RELABEL)
     # {extractionPatternsData} as validate.md binds it, in this checkout as the project root
     patterns = _frontmatter(_read(VALIDATE))["extractionPatternsDataProbeOrder"][1]
     words = _fill(_call(rule, KIND_AT_CALL), {

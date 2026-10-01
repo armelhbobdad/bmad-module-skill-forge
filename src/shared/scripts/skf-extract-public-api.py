@@ -195,7 +195,14 @@ so a parameter list a formatter split one per line reads as its one-line
 form; at most 40 lines; otherwise `signature_line`), `ast_node_type` the
 kind the recipe declares, and
 `export_type` its metadata.export_type (for a list, the declaration
-keyword before the name picks one). An item of a local `export { ... }`
+keyword before the name picks one). A function (export_type `function`)
+also gets `params`, each parameter read from `signature` as {name, type,
+default, optional} (Python's through its own parser; a rest or variadic
+parameter, `...rest`, `*args`, `**kwargs` or Go's `...T`, is optional, and
+a Go name shares the type written after it), and `return_type`, the type
+the declaration states, null when it states none. Both are null for any
+other export, and for a signature the reader does not parse (one cut at
+the line cap, say), which the caller then reads by eye. An item of a local `export { ... }`
 list takes instead the type of the top-level binding it names in its file:
 what the recipes record for that declaration exported in place (a const
 bound to an arrow function or a function expression is a function), or
@@ -267,7 +274,9 @@ Output JSON (stdout, or -o):
     "truncated": bool,
     "recipes": [{"id", "languages": [...], "matches": N, "truncated": bool}, ...],
     "exports": [{"export_name", "source_file", "source_line", "signature_line",
-                 "signature", "citation": "[AST:<file>:L<line>]", "ast_recipe",
+                 "signature", "params": [{"name", "type", "default",
+                 "optional"}, ...] | null, "return_type": "<type>" | null,
+                 "citation": "[AST:<file>:L<line>]", "ast_recipe",
                  "ast_node_type", "export_type", "language",
                  "from": "<module>" | null, "from_file": "<file>" | null,
                  "confidence": "T1", "extraction_method": "ast-grep"}, ...],
@@ -1222,7 +1231,7 @@ TIERS = ("Quick", "Forge", "Forge+", "Deep")
 # A file's extension -> its language here: the ast-grep language its
 # recipes run in, or `vue`, a file ast-grep reads as HTML through the
 # scratch sgconfig.yml, where the typescript and tsx recipes run in its
-# <script> blocks (extraction-patterns.md's Vue note).
+# <script> blocks (the Vue note in extraction-patterns-by-hand.md).
 EXTENSION_LANGUAGES = {
     ".py": "python",
     ".pyi": "python",
@@ -1895,12 +1904,16 @@ def _export_record(match: dict, form: dict) -> dict:
     export_type = form["metadata"]["export_type"]
     if isinstance(export_type, list):
         export_type = _keyword_type(match["text"], match["name"], export_type)
+    params, return_type = (signature_parts(match["signature"], match["language"], match["name"])
+                           if export_type == "function" else (None, None))
     return {
         "export_name": match["name"],
         "source_file": match["file"],
         "source_line": match["line"],
         "signature_line": match["signature_line"],
         "signature": match["signature"],
+        "params": params,
+        "return_type": return_type,
         "citation": f"[AST:{match['file']}:L{match['line']}]",
         "ast_recipe": match["rule"],
         "ast_node_type": form["rule"]["kind"],
@@ -1911,6 +1924,260 @@ def _export_record(match: dict, form: dict) -> dict:
         "confidence": "T1",
         "extraction_method": "ast-grep",
     }
+
+
+# --------------------------------------------------------------------------
+# A function's parameters and return type, read from its one-line signature
+# --------------------------------------------------------------------------
+
+_OPENERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+
+
+def _split_top(text: str, sep: str, angle: bool = True, quotes: str = "'\"`") -> list[str]:
+    """`text` split at each `sep` outside brackets and strings (`<` counts
+    as a bracket when `angle`, and the `>` of `=>` or `->` closes none).
+    `quotes` are the characters that open a string: only `"` in Rust, whose
+    `'a` is a lifetime."""
+    parts, depth, quote, start, i = [], 0, None, 0, 0
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                i += 1
+            elif ch == quote:
+                quote = None
+        elif ch in quotes:
+            quote = ch
+        elif ch in "([{" or (angle and ch == "<"):
+            depth += 1
+        elif ch in ")]}" or (angle and ch == ">" and text[i - 1:i] not in ("=", "-")):
+            depth -= 1
+        elif depth == 0 and text.startswith(sep, i) and not (sep == "=" and text[i + 1:i + 2] in ("=", ">")):
+            parts.append(text[start:i])
+            start = i + len(sep)
+            i = start
+            continue
+        i += 1
+    parts.append(text[start:])
+    return parts
+
+
+def _close(text: str, start: int, angle: bool = True, quotes: str = "'\"`") -> int | None:
+    """The index of the bracket that closes the one at `start`, else None
+    (strings as _split_top reads them)."""
+    depth, quote, i = 0, None, start
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                i += 1
+            elif ch == quote:
+                quote = None
+        elif ch in quotes:
+            quote = ch
+        elif ch in "([{" or (angle and ch == "<"):
+            depth += 1
+        elif ch in ")]}" or (angle and ch == ">" and text[i - 1:i] not in ("=", "-")):
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def _param(name: str | None, type_: str | None, default: str | None, optional: bool) -> dict:
+    return {"name": name or None, "type": type_ or None, "default": default or None, "optional": optional}
+
+
+def _python_parts(signature: str) -> tuple[list[dict] | None, str | None]:
+    """A Python def's parameters and return annotation, through its own
+    parser, each as the source writes it."""
+    head = signature.strip()
+    if head.endswith(":"):
+        head = head[:-1]
+    source = head + ": pass"
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None, None
+    node = tree.body[0] if tree.body else None
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return None, None
+    a = node.args
+    positional = a.posonlyargs + a.args
+    defaults = [None] * (len(positional) - len(a.defaults)) + list(a.defaults)
+    params = []
+
+    def text(value):
+        # the source's own text (`"x"`, `0x10`), never ast.unparse's normal form (`'x'`, `16`)
+        return (ast.get_source_segment(source, value) or ast.unparse(value)) if value is not None else None
+
+    for arg, default in zip(positional, defaults):
+        params.append(_param(arg.arg, text(arg.annotation), text(default), default is not None))
+    if a.vararg is not None:
+        params.append(_param("*" + a.vararg.arg, text(a.vararg.annotation), None, True))
+    for arg, default in zip(a.kwonlyargs, a.kw_defaults):
+        params.append(_param(arg.arg, text(arg.annotation), text(default), default is not None))
+    if a.kwarg is not None:
+        params.append(_param("**" + a.kwarg.arg, text(a.kwarg.annotation), None, True))
+    return params, text(node.returns)
+
+
+def _js_param(part: str) -> dict | None:
+    """One JS/TS parameter: `name`, `name?: T`, `name: T = d`, `...rest: T[]`
+    or a destructuring pattern; None for TypeScript's `this` parameter."""
+    part = part.strip()
+    default = None
+    pieces = _split_top(part, "=")
+    if len(pieces) > 1:
+        part, default = pieces[0].strip(), "=".join(pieces[1:]).strip()
+    typed = _split_top(part, ":")
+    name, type_ = typed[0].strip(), (":".join(typed[1:]).strip() if len(typed) > 1 else None)
+    optional = default is not None or name.startswith("...")
+    if name.endswith("?"):
+        name, optional = name[:-1].rstrip(), True
+    if name == "this":
+        return None
+    return _param(name, type_, default, optional)
+
+
+def _js_parts(signature: str, name: str) -> tuple[list[dict] | None, str | None]:
+    """An exported JS/TS function's parameters and return type: a function
+    declaration (`function name<T>(...): R {`), or a const bound to an arrow
+    function (`const name = async <T>(...): R => ...`, `const name = x => ...`)."""
+    # `$` is an identifier character in JS, so `\b` would never bound `$fetch`
+    at = re.search(r"(?<![\w$])" + re.escape(name) + r"(?![\w$])", signature)
+    if at is None:
+        return None, None
+    rest = signature[at.end():]
+    arrow = re.match(r"\s*(?::[^=]*?)?=\s*(?:async\s+)?", rest)
+    if arrow and not re.match(r"\s*\(", rest):
+        rest = rest[arrow.end():]
+        bare = re.match(r"([A-Za-z_$][\w$]*)\s*=>", rest)
+        if bare:
+            return [_param(bare.group(1), None, None, False)], None
+    else:
+        arrow = None
+    rest = rest.lstrip()
+    if rest.startswith("<"):
+        end = _close(rest, 0)
+        if end is None:
+            return None, None
+        rest = rest[end + 1:].lstrip()
+    if not rest.startswith("("):
+        return None, None
+    end = _close(rest, 0)
+    if end is None:
+        return None, None
+    inner = rest[1:end].strip()
+    params = [p for p in (_js_param(part) for part in _split_top(inner, ",") if part.strip()) if p is not None]
+    tail = rest[end + 1:].strip()
+    if not tail.startswith(":"):
+        return params, None
+    tail = tail[1:].strip()
+    if arrow is not None:
+        pieces = _split_top(tail, "=>")
+        if len(pieces) < 2:
+            return None, None
+        returns = pieces[0].strip()
+    else:
+        returns = tail[:-1].rstrip() if tail.endswith(("{", ";")) else tail
+    return (params, returns) if returns else (None, None)
+
+
+def _rust_parts(signature: str, name: str) -> tuple[list[dict] | None, str | None]:
+    """A Rust fn's parameters (`self` forms included) and its `->` type."""
+    at = re.search(r"\bfn\s+" + re.escape(name) + r"\b", signature)
+    if at is None:
+        return None, None
+    rest = signature[at.end():].lstrip()
+    if rest.startswith("<"):
+        end = _close(rest, 0, quotes='"')
+        if end is None:
+            return None, None
+        rest = rest[end + 1:].lstrip()
+    if not rest.startswith("("):
+        return None, None
+    end = _close(rest, 0, angle=False, quotes='"')
+    if end is None:
+        return None, None
+    params = []
+    for part in _split_top(rest[1:end], ",", quotes='"'):
+        part = part.strip()
+        if not part:
+            continue
+        typed = _split_top(part, ":", quotes='"')
+        if len(typed) == 1:
+            params.append(_param(part, None, None, False))  # self, &self, &mut self
+        else:
+            params.append(_param(typed[0].strip(), ":".join(typed[1:]).strip(), None, False))
+    tail = rest[end + 1:].strip()
+    if not tail.startswith("->"):
+        return params, None
+    returns = re.split(r"\s+where\s+", tail[2:].strip(), maxsplit=1)[0].strip()
+    returns = returns[:-1].rstrip() if returns.endswith(("{", ";")) else returns
+    return (params, returns) if returns else (None, None)
+
+
+_GO_TYPE_WORDS = frozenset({"chan", "func", "map", "struct", "interface"})
+
+
+def _go_parts(signature: str, name: str) -> tuple[list[dict] | None, str | None]:
+    """A Go func's parameters (a type shared by the names before it, as in
+    `a, b int`, given to each) and its result list or type."""
+    at = re.search(r"\bfunc\s+" + re.escape(name) + r"\b", signature)
+    if at is None:
+        return None, None
+    rest = signature[at.end():].lstrip()
+    if rest.startswith("["):
+        end = _close(rest, 0, angle=False, quotes='"`')
+        if end is None:
+            return None, None
+        rest = rest[end + 1:].lstrip()
+    if not rest.startswith("("):
+        return None, None
+    end = _close(rest, 0, angle=False, quotes='"`')
+    if end is None:
+        return None, None
+    parts = [p.strip() for p in _split_top(rest[1:end], ",", angle=False, quotes='"`') if p.strip()]
+    # `a, b int` names its parameters; `chan int` alone is a type
+    named = any(re.match(r"[A-Za-z_]\w*\s+\S", p) and p.split(None, 1)[0] not in _GO_TYPE_WORDS for p in parts)
+    params: list[dict] = []
+    pending: list[str] = []
+    for part in parts:
+        if not named:
+            params.append(_param(None, part, None, part.startswith("...")))
+            continue
+        words = part.split(None, 1)
+        if len(words) == 1:
+            pending.append(words[0])
+            continue
+        type_ = words[1].strip()
+        for waiting in pending + [words[0]]:
+            params.append(_param(waiting, type_, None, type_.startswith("...")))
+        pending = []
+    if pending:
+        return None, None
+    tail = rest[end + 1:].strip()
+    tail = tail[:-1].rstrip() if tail.endswith("{") else tail
+    return params, (tail or None)
+
+
+def signature_parts(signature: str, language: str, name: str) -> tuple[list[dict] | None, str | None]:
+    """(params, return_type) of an exported function, read from the
+    one-line `signature` its recipe matched: each parameter as {name, type,
+    default, optional}, and the declared return type, null when the
+    declaration states none. (None, None) when the signature is a form this
+    reader does not parse, such as a declaration cut at its line cap."""
+    if language == "python":
+        return _python_parts(signature)
+    if language in ("typescript", "tsx", "javascript"):
+        return _js_parts(signature, name)
+    if language == "rust":
+        return _rust_parts(signature, name)
+    if language == "go":
+        return _go_parts(signature, name)
+    return None, None
 
 
 def _preferred(at_line: list[dict], forms: dict, order: dict[str, int]) -> dict:

@@ -637,10 +637,17 @@ def test_create_skill_swaps_the_whole_package_in():
 
 
 def test_create_skill_batch_advances_past_a_refused_brief():
+    """A refused brief ends only itself: the batch helper records it as failed
+    and hands out the next brief, so a later batch never refuses it again.
+    The SKILL.md Workflow Rule says so for every HARD HALT of steps 1 to 7,
+    so the refusal repeats no copy of it."""
     first = _section(_read(CS_GENERATE), "### 1. Check Ownership", "### 2. ")
-    assert "`refused`" in first and "`current_index` set to the next brief" in first
-    batch = _section(_read(CS_REPORT), "### 6. Batch Mode Status", "### 7. ")
-    assert "refused" in batch
+    assert "--batch" not in first and "batch-state.yaml" not in first
+    rules = _read("src/skf-create-skill/SKILL.md")
+    assert "under `--batch` the halt ends only its brief: go to `references/batch-mode.md` §3" in rules
+    batch = _read("src/skf-create-skill/references/batch-mode.md")
+    record = _section(batch, "### 3. Record the Brief", "### 4. ")
+    assert "every HARD HALT of steps 1 to 7 returns here after its envelope" in record
 
 
 def test_stack_gate_runs_in_two_phases():

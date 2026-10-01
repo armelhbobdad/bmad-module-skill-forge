@@ -1673,6 +1673,101 @@ class TestMerge:
 # --------------------------------------------------------------------------
 
 
+def _p(name, type_=None, default=None, optional=False) -> dict:
+    return {"name": name, "type": type_, "default": default, "optional": optional}
+
+
+class TestSignatureParts:
+    """A function's params and return_type come from the one-line
+    signature its recipe matched, so step 3 reads a signature by eye only
+    where the runner leaves params null (#605)."""
+
+    @pytest.mark.parametrize(
+        ("signature", "language", "name", "params", "return_type"),
+        [
+            ("def fetch(url: str, *, retries: int = 3) -> bytes:", "python", "fetch",
+             [_p("url", "str"), _p("retries", "int", "3", True)], "bytes"),
+            ("async def run(a, /, b: Opts = None, *args: int, k: str, **kw) -> list[str]:", "python", "run",
+             [_p("a"), _p("b", "Opts", "None", True), _p("*args", "int", None, True), _p("k", "str"),
+              _p("**kw", None, None, True)], "list[str]"),
+            ("def plain():", "python", "plain", [], None),
+            ('def tag(b: str = "x", mask: int = 0x10, *, sep: "Sep"=None) -> Dict[str,int]:', "python", "tag",
+             [_p("b", "str", '"x"', True), _p("mask", "int", "0x10", True), _p("sep", '"Sep"', "None", True)],
+             "Dict[str,int]"),
+            ("export function connect(host: string, port?: number, ...rest: string[]): Promise<Client> {",
+             "typescript", "connect",
+             [_p("host", "string"), _p("port", "number", None, True), _p("...rest", "string[]", None, True)],
+             "Promise<Client>"),
+            ("export declare function on(this: Bus, cb: (x: number) => void, opts: { once: boolean } = {}): void;",
+             "typescript", "on", [_p("cb", "(x: number) => void"), _p("opts", "{ once: boolean }", "{}", True)],
+             "void"),
+            ("export function useThing<T extends Base, U>(a: T): U {", "typescript", "useThing", [_p("a", "T")], "U"),
+            ("export default function Button({ size, tone }: ButtonProps): JSX.Element {", "tsx", "Button",
+             [_p("{ size, tone }", "ButtonProps")], "JSX.Element"),
+            ("export const add = async <T,>(a: T, b = 1): Promise<T> => {", "tsx", "add",
+             [_p("a", "T"), _p("b", None, "1", True)], "Promise<T>"),
+            ("export const twice = x => x * 2", "javascript", "twice", [_p("x")], None),
+            ("export async function $fetch(url: string): Promise<Response> {", "typescript", "$fetch",
+             [_p("url", "string")], "Promise<Response>"),
+            ("export const use$ = (a$: number) => a$", "typescript", "use$", [_p("a$", "number")], None),
+            ("export function label(text, sep = ', ') {", "javascript", "label",
+             [_p("text"), _p("sep", None, "', '", True)], None),
+            ("pub fn parse<'a, F: Fn(u8) -> bool>(input: &'a str, keep: F) -> Result<Ast, Error> where F: Copy {",
+             "rust", "parse", [_p("input", "&'a str"), _p("keep", "F")], "Result<Ast, Error>"),
+            ("pub async fn close(&mut self, code: u16) {", "rust", "close", [_p("&mut self"), _p("code", "u16")],
+             None),
+            ("func New(a, b int, opts ...Option) (*Client, error) {", "go", "New",
+             [_p("a", "int"), _p("b", "int"), _p("opts", "...Option", None, True)], "(*Client, error)"),
+            ("func Map[T any, U any](xs []T, f func(T) U) []U {", "go", "Map",
+             [_p("xs", "[]T"), _p("f", "func(T) U")], "[]U"),
+            ("func Write(chan int, string) error {", "go", "Write", [_p(None, "chan int"), _p(None, "string")],
+             "error"),
+        ],
+        ids=["python-keyword-only", "python-every-kind", "python-none", "python-source-text", "ts-optional-rest",
+             "ts-this-and-callback", "ts-generic", "tsx-destructured", "tsx-async-arrow", "js-bare-arrow",
+             "ts-dollar-name", "ts-dollar-suffix", "js-string-default",
+             "rust-lifetime-and-where", "rust-self", "go-shared-type", "go-generic", "go-unnamed"],
+    )
+    def test_a_function_signature_gives_its_parameters(self, signature, language, name, params,
+                                                        return_type) -> None:
+        assert mod.signature_parts(signature, language, name) == (params, return_type)
+
+    @pytest.mark.parametrize(
+        ("signature", "language", "name"),
+        [
+            ("export function shape(): {", "typescript", "shape"),  # an object return type on the lines after
+            ("def f(a: int,", "python", "f"),  # cut at the line cap
+            ("export const handler = makeHandler(options)", "typescript", "handler"),
+            ("pub fn open(", "rust", "open"),
+            ("func Open(a int", "go", "Open"),
+            ("defineProps<Props>()", "html", "Props"),
+        ],
+        ids=["ts-split-return", "python-cut", "ts-not-an-arrow", "rust-cut", "go-cut", "other-language"],
+    )
+    def test_a_form_it_cannot_read_gives_none(self, signature, language, name) -> None:
+        assert mod.signature_parts(signature, language, name) == (None, None)
+
+    def test_an_export_record_carries_them_for_a_function_only(self) -> None:
+        match = {"name": "run", "file": "a.py", "line": 1, "signature_line": "def run(a: int) -> str:",
+                 "signature": "def run(a: int) -> str:", "rule": "python-public-functions", "language": "python",
+                 "source": None, "text": "def run(a: int) -> str:\n    return ''"}
+        form = {"metadata": {"export_type": "function"}, "rule": {"kind": "function_definition"}}
+        record = mod._export_record(match, form)
+        assert (record["params"], record["return_type"]) == ([_p("a", "int")], "str")
+        klass = dict(match, name="Run", signature="class Run(Base):", text="class Run(Base):\n    pass")
+        record = mod._export_record(klass, {"metadata": {"export_type": "class"}, "rule": {"kind": "class_definition"}})
+        assert (record["params"], record["return_type"]) == (None, None)
+
+    def test_the_documented_export_fields_are_the_records(self) -> None:
+        documented = mod.__doc__.split('"exports": [{', 1)[1].split("}, ...],", 1)[0]
+        record = mod._export_record(
+            {"name": "f", "file": "a.go", "line": 1, "signature_line": "func F() {", "signature": "func F() {",
+             "rule": "go-exported-functions", "language": "go", "source": None, "text": "func F() {}"},
+            {"metadata": {"export_type": "function"}, "rule": {"kind": "function_declaration"}})
+        for field in ("params", "return_type", "signature"):
+            assert f'"{field}"' in documented and field in record, field
+
+
 class TestTextReaders:
     def test_blank_keeps_the_lines_and_the_code(self) -> None:
         js = "a // c\nb = '// x' /* y\nz */ c\n"
@@ -1894,6 +1989,34 @@ class TestFullRuns:
         assert by_name["fetch"]["signature"] == "def fetch(url: str, *, retries: int = 3) -> bytes:"
         assert by_name["fetch"]["signature_line"] == "def fetch("
         assert by_name["connect"]["signature"] == "export function connect(host: string, port: number): Client {"
+
+    def test_each_language_records_params_and_return_type(self, tmp_path, capsys) -> None:
+        """Through ast-grep, each language's function export carries the
+        parameters and return type its signature states, a split one
+        included, and a class none."""
+        root = _tree(tmp_path, {
+            "pkg/api.py": ("def fetch(\n    url: str,\n    *,\n    retries: int = 3,\n) -> bytes:\n    return b''\n"
+                           "\n\nclass Session:\n    pass\n"),
+            "src/client.ts": ("export function connect(\n  host: string,\n  port?: number,\n): Promise<Client> {\n"
+                              "  return x;\n}\n\nexport const close = async (code: number): Promise<void> => {};\n"),
+            "web/util.js": "export function label(text, sep = '-') {\n  return text;\n}\n",
+            "src/lib.rs": "pub fn parse(input: &str) -> Result<Ast, Error> {\n    todo!()\n}\n",
+            "cmd/main.go": "package cmd\n\nfunc New(a, b int) (*Client, error) {\n\treturn nil, nil\n}\n",
+        })
+        list_file = _tree(tmp_path / "lists", {"files.json": json.dumps(
+            ["pkg/api.py", "src/client.ts", "web/util.js", "src/lib.rs", "cmd/main.go"])})
+        code, out = _full(capsys, root, "--files-from", str(list_file / "files.json"), "--head-cap", "0")
+        assert (code, out["status"]) == (0, "ok")
+        got = {e["export_name"]: (e["params"], e["return_type"]) for e in out["exports"]}
+        assert got == {
+            "fetch": ([_p("url", "str"), _p("retries", "int", "3", True)], "bytes"),
+            "Session": (None, None),
+            "connect": ([_p("host", "string"), _p("port", "number", None, True)], "Promise<Client>"),
+            "close": ([_p("code", "number")], "Promise<void>"),
+            "label": ([_p("text"), _p("sep", None, "'-'", True)], None),
+            "parse": ([_p("input", "&str")], "Result<Ast, Error>"),
+            "New": ([_p("a", "int"), _p("b", "int")], "(*Client, error)"),
+        }
 
     def test_python_rust_and_go(self, tmp_path, capsys) -> None:
         root = _tree(tmp_path, POLYGLOT)

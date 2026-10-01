@@ -282,7 +282,7 @@ t2_future_count: {N}
 ## Validation Results
 - Schema: {pass/fail} (quality score: {score}/100)
 - Frontmatter: {pass/fail}
-- Body: {pass/fail} {split-body applied if applicable}
+- Body: {pass/fail} {body split applied if applicable}
 - Security: {pass/warn/skipped}
 - Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}
 - Tessl Review: {tessl_summary}
@@ -315,4 +315,4 @@ t2_future_count: {N}
 
 **Frontmatter — pinned detection contract:** the `t2_future_count` field is the authoritative forward-looking-annotation count for downstream gate checks (e.g. skf-test-skill §2b migration-section rule). Emit **always**, even when 0 — omission is indistinguishable from "no T2-future data" and silently flips the gate into Case 2/3 for a Case-1 skill. `generated` and `forge_tier` mirror the narrative header for consumers that read only the frontmatter. Downstream gate rules parse `t2_future_count` from frontmatter, not prose — prose drift (heading renames, alternate phrasings like "forward-looking annotations") silently breaks grep-based detection.
 
-**Description Guard slot:** populated by step 6 §0 (create-skill) and §0 (update-skill) when the guard protocol fires. `Restored: true` indicates that an external tool (typically `skill-check --fix` or `split-body`) rewrote the frontmatter `description` and the guard restored the pre-tool value. When `Restored: false`, leave `Triggering tool`, `Original description preserved`, and `Notes` as `—`. When `Restored: true`, fill all four fields: tool name, whether the original was successfully written back, and a one-sentence note describing what the tool had changed (e.g., "replaced with generic summary", "truncated at 80 chars", "angle-bracket tokens re-introduced"). Downstream test-skill assertions can grep for `Restored: true` to detect unintended tool rewrites without parsing free-form warning prose.
+**Description Guard slot:** populated by step 6 §0 (create-skill) and §0 (update-skill) when the guard protocol fires. `Restored: true` indicates that an external tool (typically `skill-check --fix`, create-skill's `skf-shard-body.py` body split or update-skill's `split-body`) rewrote the frontmatter `description` and the guard restored the pre-tool value. When `Restored: false`, leave `Triggering tool`, `Original description preserved`, and `Notes` as the no-fire dash the template above shows. When `Restored: true`, fill all four fields: tool name, whether the original was successfully written back, and a one-sentence note describing what the tool had changed (e.g., "replaced with generic summary", "truncated at 80 chars", "angle-bracket tokens re-introduced"). Downstream test-skill assertions can grep for `Restored: true` to detect unintended tool rewrites without parsing free-form warning prose.

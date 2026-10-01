@@ -28,55 +28,25 @@ Source reading via gh_bridge — infer exports from file structure and content.
 
 Structural extraction via ast-grep — verified exports with line-level citations.
 
-> **Note:** `ast_bridge.*`, `qmd_bridge.*`, and `ccc_bridge.*` references below are **conceptual interfaces**, not callable functions. Resolve them as follows:
-> - `ast_bridge.*` → ast-grep MCP tools (`mcp__ast-grep__find_code`, `mcp__ast-grep__find_code_by_rule`) or `ast-grep` CLI
-> - `qmd_bridge.*` → QMD MCP `query` tool (`mcp__plugin_qmd-plugin_qmd__query`) taking `searches=[{type:'lex'|'vec'|'hyde', query, intent}]`, or `qmd` CLI (`qmd search` / `qmd vector-search`). The legacy `vector_search` MCP tool has been removed; if a client surfaces a tool-not-found error, degrade gracefully per the QMD step 4 tool-probe note — do not retry the stale name.
-> - `ccc_bridge.*` → `/ccc` skill (Claude Code), ccc MCP server (Cursor), or `ccc` CLI
-> - `gh_bridge.*` → `gh api` commands or direct file I/O for local sources
->
-> See `knowledge/tool-resolution.md` for the complete resolution table. Also see the AST Extraction Protocol section below and the TOOL/SUBPROCESS FALLBACK rule for dispatch details.
+> **Note:** `ast_bridge.*`, `qmd_bridge.*`, `ccc_bridge.*` and `gh_bridge.*` below are **conceptual interfaces**, not callable functions: `ast_bridge.*` is the ast-grep MCP tools (`find_code`, `find_code_by_rule`) or the `ast-grep` CLI; `qmd_bridge.*` the QMD MCP `query` tool or the `qmd` CLI (`qmd search` / `qmd vsearch`), whose tool-not-found error is non-fatal, as step 4's tool probe says; `ccc_bridge.*` the `/ccc` skill, the ccc MCP server or the `ccc` CLI; `gh_bridge.*` `gh api` or direct file reads of a local source. `knowledge/tool-resolution.md` has the full table.
 
 ### Strategy
 
-1. Run the AST Extraction Protocol below: the recipe runner finds every export in the files in scope, each with its file, `$NAME`'s line, recipe and node kind
-2. For each export: read its full signature, parameter types and return type from the source at that line
+1. Run the AST Extraction Protocol below: the recipe runner finds every export in the files in scope, each with its file, `$NAME`'s line, recipe and node kind, and a function's signature, parameters and return type
+2. For each export: take its `signature`, `params` and `return_type` from the runner's record; read them from the source at its line only for a function whose `params` is null
 3. Use ast-grep to detect co-imported symbols in `path` for the given `libraries[]`
 4. Record the recipe set, the recipes and the ast-grep version the runner reports, for reproducibility
 
 ### Confidence
 - Each entry is labeled by the tool that produced it, not by the tier:
-  - An export an ast-grep rule matched (a function with its full signature, a type definition, an interface): T1 (AST-verified), an `[AST:...]` citation, `extraction_method: ast-grep` and `ast_node_type` set to the `kind` the matching pattern or recipe declares (see the patterns below)
+  - An export an ast-grep rule matched (a function with its full signature, a type definition, an interface): T1 (AST-verified), an `[AST:...]` citation, `extraction_method: ast-grep` and `ast_node_type` set to the `kind` the matching recipe declares (see the recipes below)
   - An export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched): T1-low, a `[SRC:...]` citation, `extraction_method: source-read` and `ast_node_type: null`
 - Co-import patterns ast-grep detected: T1
 - Internal/private functions: excluded (not part of public API)
 
 ### ast-grep Patterns
 
-Each export shape below is matched by one recipe from the YAML Rule Recipes further down: its `id` is what the entry records as `ast_recipe`, and the `kind` it declares is what the entry records as `ast_node_type`. ast-grep's output never reports the kind of a match, so an export never records a kind guessed from the source.
-
-| Export shape | Recipe (`ast_recipe`) | Kind (`ast_node_type`) |
-|---|---|---|
-| Python: a module-level `def` or `async def` | `python-public-functions` | `function_definition` |
-| Python: a module-level `class` | `python-public-classes` | `class_definition` |
-| JS/TS: a top-level `export function` (async, generator, generic, each overload signature, `export default function Name`, `export declare function`) | `js-exported-functions` | `export_statement` |
-| JS/TS: `export const NAME = ...` | `js-exported-constants` | `export_statement` |
-| JS/TS: `export const NAME = (...) => ...` | `js-exported-arrow-functions` | `export_statement` |
-| JS/TS: `export class` | `js-exported-classes` | `export_statement` |
-| TypeScript: a top-level `export interface`, `export type` alias or `export enum` (generic, `extends`, `const enum` and `export declare` forms included) | `ts-exported-types` | `export_statement` |
-| JS/TS: each name of `export { a, b as c } from '...'` | `js-reexports` | `export_specifier` |
-| JS/TS: `export * as ns from '...'` | `js-namespace-reexports` | `export_statement` |
-| JS/TS: each name of a local `export { a, b as c }` with no `from` | `js-local-exports` | `export_specifier` |
-| Rust: a top-level `pub fn`, outside `impl` blocks | `rust-public-functions` | `function_item` |
-| Go: an exported function, not a method | `go-exported-functions` | `function_declaration` |
-| React: `export interface NameProps` | `react-props-interfaces` | `export_statement` |
-| React: a PascalCase `export function` | `react-component-functions` | `export_statement` |
-| React: a PascalCase `export const Name = (...) => ...` | `react-component-arrow-functions` | `export_statement` |
-| React: a PascalCase `export const Name = memo(...)`, `forwardRef(...)` or `lazy(...)`, with or without `React.` | `react-wrapped-components` | `export_statement` |
-| Vue: a top-level `defineProps<T>()` | `vue-define-props` (`vue-define-props-tsx` for `<script setup lang="tsx">`) | `call_expression` |
-
-- Python: decorated or not, generic or not, including under a module-level `if` / `try` / `with` / `for` / `while` / `match`, never a method or a nested `def`, and only names that do not start with `_`. A definition directly under an `if __name__ == "__main__":` guard does not match, but one under `elif __name__ == "__main__":` or a compound guard still does (Known Limitation #11). A decorated `def` matches at its `def` line, not as `decorated_definition`. The recipes do not read `__all__`.
-- Rust: a pattern such as `pub fn $NAME($$$PARAMS)` parses as a bodyless `function_signature_item` and finds no function definition (Known Limitation #8): only the recipe finds them.
-- A `find_code` pattern is only the fallback of Known Limitation #4: an export it matched records the pattern as `ast_recipe` and the kind of its shape from this table.
+One recipe matches each export shape: the recipes are under **YAML Rule Recipes by Language** below, and the table that gives each shape its recipe and kind, a `find_code` pattern's included, is in `extraction-patterns-by-hand.md`.
 
 ---
 
@@ -103,7 +73,7 @@ When `{ccc_discovery}` is present and non-empty, rank the files extraction reads
 
 ### ast-grep Patterns
 
-Same patterns as Forge tier: see the Forge tier section above. CCC pre-ranking changes no AST pattern.
+Same recipes as Forge tier. CCC pre-ranking changes no recipe.
 
 ### Confidence
 
@@ -138,18 +108,60 @@ When AST tools are available (Forge, Forge+ and Deep tiers) and the step that ru
 
 - **Files in scope:** a file is in scope when an include glob matches it (every file, when there is none) and no exclude glob does. `**` spans any number of path segments, none included, and `*` and `?` stay inside one, so `src/**/*.ts` matches `src/index.ts` and `**/test_*` matches a top-level `test_x.py`. The runner reads those a recipe reads (`.vue` files included) and counts them in `files_in_scope`, the filtered file count; `files_without_recipes` counts by extension those it leaves, in a language no recipe reads. `skf-extract-public-api.py --help` gives the rest of its rules.
 - **Recipes:** the recipes below, which SKF's shared recipe file, `ast-grep-recipes.yaml`, holds too: the `standard` set, or the `component-library` set for that scope type.
-- **Head cap:** each recipe keeps at most as many matches as Head cap selection below gives for the tier and scope type, in file and line order. `truncated` is true, and so is that recipe's `truncated` in `recipes[]`, when a recipe matched more: the matches past the cap are missing, so warn about them.
-- **Each export** is one name in one file, and gives `export_name`, `source_file`, `source_line` (`$NAME`'s line), `signature_line` (the source line holding it), `citation` (`[AST:{file}:L{line}]`), `ast_recipe`, `ast_node_type` (the `kind` its recipe declares), `export_type`, `from` (a re-export's module), `confidence: T1` and `extraction_method: ast-grep`. Record them as they are.
+- **Head cap:** each recipe keeps at most 200 matches, or at Forge+ and Deep 500 for `scope.type: "full-library"` and 300 for `scope.type: "component-library"`, in file and line order. `truncated` is true, and so is that recipe's `truncated` in `recipes[]`, when a recipe matched more: the matches past the cap are missing, so warn about them.
+- **Each export** is one name in one file, and gives `export_name`, `source_file`, `source_line` (`$NAME`'s line), `signature_line` (the source line holding it), `citation` (`[AST:{file}:L{line}]`), `ast_recipe`, `ast_node_type` (the `kind` its recipe declares), `export_type`, `from` (a re-export's module), `signature` (the declaration on one line), `params`, `return_type`, `confidence: T1` and `extraction_method: ast-grep`. Record them as they are.
+- **Signatures:** a function's `params` lists each parameter (its name, type, default and whether it is optional), and is null for any other export and for a declaration the runner does not parse; `return_type` is null when the declaration states none.
 - **Entry points:** `entry_point_diff` diffs the names the package's entry points export with the recipe matches (`public`, `internal`, `extraction_gaps`, `outside_scope`), `counts` gives `exports_public_api`, `exports_internal` and `effective_denominator`, and `arms` the monorepo, specific-modules and multi-subpath `exports` flags.
-- **Read by eye (T1-low)** only what it leaves: each file in `file_issues` (a syntax error where a recipe can miss an export, or a file that is not UTF-8, unreadable or missing), the files `files_without_recipes` counts that hold public API (by the Quick tier Strategy), the forms the Known ast-grep Limitations below leave to source reading (#3, #8's `impl` methods, #11), and the `extraction_gaps` names.
+- **Read by eye (T1-low)** only what it leaves: each file in `file_issues` (a syntax error where a recipe can miss an export, or a file that is not UTF-8, unreadable or missing), the files `files_without_recipes` counts that hold public API (by the Quick tier Strategy), the forms Known Limitation #11 below lists, and the `extraction_gaps` names.
 
 Act on its `status`, not its exit code: `ok`, every file in scope was read; `incomplete`, an ast-grep run failed or timed out: keep its exports and warn that the files of each `errors[]` item (how many, and the first) may be unread; `no-ast-grep`, no ast-grep it can run, so no recipe ran.
 
 ### When the Runner Cannot Run
 
-There is no runner result when the step gives no runner command, no runner path resolves, or no JSON is at the `-o` path after the call (`uv` missing or failing, an input error, which prints one line on stderr, a crash, or a shell timeout that stopped it). Then, and when its `status` is `no-ast-grep`, run the recipes as the rest of this section says, on the filtered file list. When no ast-grep can run them either (no `ast-grep` CLI and no ast-grep MCP tool), extraction degrades to source reading: see `tier-degradation-rules.md` "AST Tool Unavailable". When the runner's `scope.languages` is empty, whatever its `status`, no recipe reads the brief's language (the runner warns `no recipe reads {language} files` and reads no file): extract by the Quick tier Strategy (source reading, T1-low).
+There is no runner result when the step gives no runner command, no runner path resolves, or no JSON is at the `-o` path after the call (`uv` missing or failing, an input error, which prints one line on stderr, a crash, or a shell timeout that stopped it). Then, and when its `status` is `no-ast-grep`, run the recipes as **Running the Recipes Without the Runner** below says, on the filtered file list: read this file on from that heading (a run the runner serves stops there), and first load `extraction-patterns-by-hand.md`, beside this file, completely: it holds each recipe's notes and the limitations of patterns run by hand. When no ast-grep can run them either (no `ast-grep` CLI and no ast-grep MCP tool), extraction degrades to source reading: see `tier-degradation-rules.md` "AST Tool Unavailable". When the runner's `scope.languages` is empty, whatever its `status`, no recipe reads the brief's language (the runner warns `no recipe reads {language} files` and reads no file): extract by the Quick tier Strategy (source reading, T1-low).
 
-**"Files in scope"** = files remaining after applying `include_patterns` and `exclude_patterns` from the brief, filtered by the target language extension. This is not the total repository file count from step 1's tree listing. Use the filtered count from step 3 section 2 as the decision tree input.
+**"Files in scope"** are the files the brief's include and exclude globs keep, filtered by the language's extensions, never the repository's whole file count: use the filtered count from step 3 section 2 as the decision tree input.
+
+### Known ast-grep Limitations
+
+Limitation #11 applies to every run: the runner reads with the same recipes. #4 is the fallback of a recipe run by hand, which `find_code` serves; #1 to #3 and #5 to #10 concern patterns run by hand too, and are in `extraction-patterns-by-hand.md`.
+
+4. **Fallback protocol:** If an ast-grep pattern returns errors or zero results when results are expected:
+   - First: retry with `find_code()` using a simpler pattern (drop type annotations, use broader match)
+   - Second: if `find_code()` also fails, fall back to source reading for that pattern category (T1-low confidence)
+   - Never silently accept zero results for a pattern category that the source language commonly uses
+
+Read the forms #11 lists by eye whether or not the runner ran:
+
+11. **Forms the recipes deliberately do not cover (ast-grep 0.45.3):** read these by eye at T1-low when the source uses them, or follow them with the Re-Export Tracing protocol in `extraction-patterns-tracing.md` where noted.
+    - **Every JS/TS `export_statement` recipe:** `export` followed by a line break before the declaration (tree-sitter reads the bare `export` as a statement of its own, so there is no `export_statement` to match; formatters never write it); an export nested in a `namespace`, `declare module` or `declare global` block, a `.d.ts` file's `declare module "pkg" { ... }` included, since it is a member, not a module export.
+    - **`js-exported-functions`, `react-component-functions`:** an anonymous `export default function () {}` (#3); a function exported through a list (`export { f }` and `export { f as g }`, which `js-local-exports` finds at the list's line), `export default f;` or `export = f`; a function bound to a `const` (the constants and arrow-function recipes find it); a wrapped default such as `export default memo(function Name() {})` or `forwardRef(...)`, whose value is a call, not a declaration; class, object-literal and interface methods; the implementation of an overloaded function (its signatures match instead). The React recipes also skip generator functions (an overload signature of one still matches, since a signature does not show it) and class components and keep a PascalCase function that is not a component (such as a Next.js `GET` handler).
+    - **`js-exported-constants`, `js-exported-arrow-functions`, `react-component-arrow-functions`, `react-wrapped-components`:** every declarator after the first one a recipe accepts in `export const a = 1, b = () => 2` (one match per statement); destructuring (`export const { x } = obj`, which has no identifier name); `let`, `var` and `export declare const`. The arrow-function recipes also skip an arrow wrapped in parentheses, `as`, `satisfies` or a call, and a `function` expression; the constants recipe reports them, and `react-wrapped-components` reports a PascalCase `memo`, `forwardRef` or `lazy` call. `react-wrapped-components` skips any other wrapper (`observer(...)`, `styled.div`, `connect(...)(Component)`), a wrapped call cast with `as` or `satisfies`, and `export default memo(...)`, whose exposed name is `default`.
+    - **`js-exported-classes`, `react-props-interfaces`:** `export default class` and `export default interface` (their exposed name is `default`); `export declare class`, and `export declare interface` (`ts-exported-types` finds it); a class expression bound to a `const` (the constants recipe reports it); a props type written as a type alias (`export type XProps = {...}`, which `ts-exported-types` finds); a type exported through a list (`export type { T }`, which `js-local-exports` or `js-reexports` finds).
+    - **`ts-exported-types`:** `export default interface` (its exposed name is `default`); an interface, type alias or enum inside a `namespace`, `declare module` or `declare global` block, a member rather than a module export; a type exported through a list (`export type { T }`, `export { type T }`), which `js-local-exports` finds, or `js-reexports` when the list has a `from`.
+    - **`js-reexports`, `js-namespace-reexports`, `js-local-exports`:** a bare `export * from '...'`, which exposes no name of its own; an `export { a } from '...' with { type: 'json' }` statement, or the legacy `export { a } from '...' assert { type: 'json' }`, which parse as ERROR nodes; `export default x;` and `export = x`; a list inside a `namespace`, `declare module` or `declare global` block, a member rather than a module export; in a `.js` file, `default` as a list item's name or alias (`export { default } from '...'`, `export { x as default }`), a keyword token there that no `$NAME` captures (TypeScript parses it as a name). Follow these with the Re-Export Tracing protocol.
+    - **`rust-public-functions`:** a `pub fn` in an `impl` block (#8); trait methods, which carry no `pub`; `pub fn` imports in an `extern "C" { }` block; functions a macro generates (`macro_rules!` and `cfg_if!` bodies are token trees, which ast-grep does not parse). One file cannot show reachability across files: a `pub fn` at the top of `foo.rs` matches whether or not `mod foo;` is `pub`, so check `pub use` re-exports with the Re-Export Tracing protocol. `#[cfg]`-gated and `#[doc(hidden)]` functions still match, and a raw identifier keeps its prefix (`r#match`).
+    - **`go-exported-functions`:** methods; an exported function-typed variable (`var F = func() {}`). `Test*`, `Benchmark*` and `Example*` functions in `_test.go` files, and the exported functions of `package main` or an `internal/` package, match but are not importable API: exclude them through `scope.exclude`.
+    - **`python-public-functions`, `python-public-classes`:** a definition under `elif __name__ == "__main__":` or a compound condition (`__name__ == "__main__" or DEBUG`), which still matches; a function made by `lambda`, `partial(...)` or `exec`, or declared `global` inside another function; a class made by `type(...)`, `NamedTuple(...)`, `TypedDict(...)` or `Enum(...)`, and an alias (`X = Other`); names created at runtime (`globals()`, `setattr`); names imported into the module (`from .x import name`: Re-Export Tracing). The recipes do not read `__all__`: a public-looking name it leaves out still matches, and a name it lists but imports from elsewhere is found by Re-Export Tracing.
+    - **`vue-define-props`, `vue-define-props-tsx`:** a call with two type arguments (`defineProps<A, B>()`); runtime `defineProps({ ... })` and `defineProps([...])`, which carry no type; the Options API `props:` option; `defineProps?.<X>()` and `(defineProps)<X>()`; `defineProps` inside a function, an arrow function, a class, a block, or an `if`, `for`, `while` or `switch` statement; a `<script setup>` with no `lang` (plain JavaScript, no type argument). `find_code_by_rule` never reaches a `.vue` file, and the CLI does only with a scratch `sgconfig.yml` (see the Vue note in `extraction-patterns-by-hand.md`).
+
+### Re-Export Tracing and Script/Asset Extraction
+
+See `extraction-patterns-tracing.md` for:
+- **Re-export tracing protocol:** resolving module imports through `__init__.py`, barrel files, `pub use`
+- **Script/asset extraction patterns:** detection heuristics, inclusion rules, provenance, inventory structure
+
+---
+
+## Relabel Rule
+
+The rule that sets a provenance entry's labels from its `extraction_method` is in `relabel-rule.md`, beside this file, which compile.md §4 and validate.md §7 and §7a load themselves: load it when another reader, such as update-skill's write.md, meets a `provenance.entries[<i>].*` violation.
+
+---
+
+## Running the Recipes Without the Runner
+
+Read this part only when **When the Runner Cannot Run** sends you here: a run the recipe runner serves stops reading this file at this heading. It holds how to run the recipes one at a time, the CLI streaming template, and the recipes themselves, which the runner's recipe file, `ast-grep-recipes.yaml`, mirrors and `kind-at` reads here.
 
 ### Decision Tree
 
@@ -157,7 +169,7 @@ Apply the first matching condition:
 
 ```
 .vue files (the Vue recipes), at any scope size
-  → CLI streaming with -c {scratch}/sgconfig.yml (find_code_by_rule cannot read them; see the Vue note)
+  → CLI streaming with -c {scratch}/sgconfig.yml (find_code_by_rule cannot read them; see the Vue note in extraction-patterns-by-hand.md)
 
 Files in scope ≤ 500
   → Use ast-grep MCP tool: find_code_by_rule(yaml=<recipe>, max_results=150, output_format="json")
@@ -171,67 +183,22 @@ Files in scope > 500
   → Merge batch results into extraction inventory
 ```
 
-### Safety Valve
-
-If any ast-grep operation (MCP or CLI) visibly causes a timeout, returns an error related to output size, or produces unexpectedly large output: immediately switch to the CLI streaming template (`ast-grep scan -r {recipe_file} --json=stream`, in directory batches). Do not retry the same approach. When falling back to the CLI streaming template, inject the brief's `scope.exclude` patterns into the `EXCLUDES` list (use `[]` if absent); this applies regardless of which path triggered the fallback. Note: `max_results` in the MCP tool and `| head -N` in the CLI path provide hard caps, but this safety valve covers cases where the upstream tool itself fails before returning results (e.g., OOM during JSON serialization).
-
-### MCP Tool Usage (Preferred)
-
-**Recipe search (up to 500 files in scope):**
-
-```
-find_code_by_rule(
-  project_folder="{source_path}",
-  yaml="id: public-api\nlanguage: python\nrule:\n  pattern: 'def $NAME'\n  kind: function_definition\n  inside:\n    kind: module\n    stopBy:\n      any:\n        - kind: function_definition\n        - kind: class_definition\n  not:\n    inside:\n      kind: block\n      stopBy: end\n      inside:\n        kind: if_statement\n        has:\n          field: condition\n          regex: '^\\(?\\s*(__name__\\s*==\\s*[''\"]__main__[''\"]|[''\"]__main__[''\"]\\s*==\\s*__name__)\\s*\\)?$'\nconstraints:\n  NAME:\n    regex: '^[^_]'",
-  max_results=150,
-  output_format="json"
-)
-```
-
-The `yaml` string carries the rule and constraints of the `python-public-functions` recipe below as a JSON string: `\n` for each line break, `\"` for each quote and `\\` for each backslash. Ask for `output_format="json"`: each match then carries `metaVariables.single.NAME` (and `SOURCE` for the re-export recipes), and its line is `$NAME`'s line (see the line-number rule below). `output_format="text"` gives only the match's text and first line, which loses `$NAME` and `$SOURCE` for a re-exported name (`js-reexports`, `js-namespace-reexports`) and cites the wrong line when `$NAME` is not on the match's first line: a decorated class (the match starts at the decorator), or an `export default` or `export function` split over lines.
-
-**Simple pattern search (fallback only):**
-
-```
-find_code(
-  project_folder="{source_path}",
-  pattern="async def $NAME($$$PARAMS)",
-  language="python",
-  max_results=100,
-  output_format="text"
-)
-```
-
-`find_code` takes a pattern and no `kind` or relational clauses, so it cannot keep a recipe's scope: methods, nested and private definitions come back too. Use it only as Known Limitation #4's fallback, and record the kind of the pattern's shape from the ast-grep Patterns table above (`function_definition` here, since an `async def` is a `function_definition`).
+`extraction-patterns-by-hand.md`'s MCP Tool Usage shows the call with a recipe as its `yaml`.
 
 ### CLI Streaming Fallback
 
-When MCP tools are unavailable or the repo exceeds 500 files in scope, use `--json=stream` (not `--json` or `--json=pretty`, which load the whole result set into memory) with line-by-line Python processing:
+When MCP tools are unavailable or more than 500 files are in scope, stream the matches (`--json=stream`, never `--json`, which loads them all into memory) through line-by-line Python:
 
-**Head cap selection:** The `| head -N` cap at the end of the pipeline controls how many exports are captured. Select `N` based on scope and tier:
-- **Default (Quick/Forge, any scope):** `N = 200`
-- **Forge+/Deep with `scope.type: "full-library"`:** `N = 500`
-- **Forge+/Deep with `scope.type: "component-library"`:** `N = 300` (components have fewer but richer exports; props interfaces are the primary API surface)
-
-For full-library skills at higher tiers, the larger cap prevents silently dropping internal module exports that maintainers need. The cap is applied AFTER exclude-pattern filtering, so useful results are not wasted on excluded files.
+The `| head -N` at the end of the pipeline caps the exports kept, after the exclude filter, at the Recipe Runner's head cap for the tier and scope type (`{HEAD_CAP}` below).
 
 ```bash
-# {recipe_file} = a file holding one recipe's YAML, written in a scratch folder, never in
-# the source tree. Do not pass a recipe inline in single quotes: its regexes are quoted.
-# {recipe_id} = the recipe's `id`, recorded as each printed export's ast_recipe.
-# {node_kind} = the `kind` the recipe declares (such as 'function_definition' for
-# python-public-functions). ast-grep's JSON never reports the kind of a match, so the
-# template prints this one, and each printed export records it as its ast_node_type.
-# For .vue files add -c {scratch}/sgconfig.yml (see the Vue note under the recipes).
-# {exclude_patterns} = Python list from brief's scope.exclude, e.g. ['tests/**', '**/test_*']
-# If scope.exclude is absent or empty in the brief, inject [] as the default.
+# {recipe_file}: one recipe's YAML in a scratch file (never inline: its regexes are quoted).
+# {recipe_id}, {node_kind}: its id and declared kind, each export's ast_recipe and ast_node_type.
+# .vue files: add -c {scratch}/sgconfig.yml (the by-hand file's Vue note). {HEAD_CAP}: the Recipe Runner's head cap.
+# {exclude_patterns}: the brief's scope.exclude as a Python list, [] when it has none.
 # fnmatch is not the Files in scope rule above: its `*` also crosses `/`, and `**/x`
 # needs a folder before x, so add x too for a top-level file ('test_*' beside '**/test_*').
-# Patterns are matched against the full file path as emitted by ast-grep.
-# Ensure paths are relative to the same root as the patterns (strip ./ prefix if needed).
-# {HEAD_CAP} = 200 (default) or 500 (Forge+/Deep full-library) — see head cap selection above.
-# L{ln} is $NAME's line, not the match's first line (a decorated class starts at its
-# decorator), and {sig} is the line of the match that holds $NAME.
+# The patterns match ast-grep's file paths, relative to the root they name (no ./).
 ast-grep scan -r {recipe_file} --json=stream {path} | python3 -c "
 import sys, json, fnmatch, signal
 if hasattr(signal, 'SIGPIPE'):  # POSIX only; Windows has no SIGPIPE
@@ -260,20 +227,13 @@ for line in sys.stdin:
 " | head -{HEAD_CAP}
 ```
 
-**Streaming constraints (these prevent OOM on large result sets):**
+Past 500 files, run the template per top-level source folder, 20 to 50 files a batch, with the same head cap, then merge the results by export name and file, keeping the first line (overloads and a definition in both branches of an `if` repeat a name in one file).
 
-- Use `--json=stream`, not `--json` — the latter loads the entire array into memory
-- Process line-by-line (`for line in sys.stdin`), not `json.load(sys.stdin)`
-- Cap output with `| head -N` as a safety valve
-- For repos > 500 files, process in directory batches of 20-50 files each: split by top-level source directory, run the CLI streaming template per batch with the same head cap, then merge results and deduplicate by export name and file, keeping the first line (overload signatures and definitions in both branches of an `if` repeat a name within one file)
-
-**Line numbers are 0-based in ast-grep JSON.** `range.start.line` counts from 0 in the CLI's `--json` and `--json=stream` output and in the JSON the MCP tools `find_code` / `find_code_by_rule` return with `output_format="json"`, so the template adds 1 to it to get the 1-based line an editor shows. Take the line from `$NAME`: every `[AST:{file}:L{line}]` citation and every provenance `source_line` is `metaVariables.single.NAME.range.start.line + 1`, the line that names the export, not the match's own `range.start.line`, which for a decorated class is the decorator's line and for an `export default` split over two lines is the `export` line. A line taken from the JSON without the `+1` points one line above it. The text output of the CLI and of the MCP tools is already 1-based, but gives only the match's first line.
+**Line numbers are 0-based in ast-grep JSON** (the CLI's and the MCP tools'), and the line to cite is `$NAME`'s: every `[AST:{file}:L{line}]` citation and provenance `source_line` is `metaVariables.single.NAME.range.start.line + 1`, never the match's own first line, which for a decorated class is the decorator's.
 
 ### YAML Rule Recipes by Language
 
-Every recipe's `rule` declares `kind`, the kind of the node it matches, and captures the export's own name as `$NAME`; each was verified on ast-grep 0.45.3 against fixtures holding the forms it must find and the forms it must skip. A JS/TS export recipe matches the whole `export_statement`, not the declaration inside it, except `js-reexports` and `js-local-exports`, which match each `export_specifier`; a pattern without `export`, such as the type-alias workaround `type $NAME = $T` (#9), matches the declaration itself (`type_alias_declaration`), even inside an `export type`. A decorated Python `def` matches the inner `function_definition`, not `decorated_definition`. ast-grep's JSON output never reports the kind of a match, so an export a recipe matched records the recipe's `kind` as its `ast_node_type`.
-
-Most recipes are relational rules (`inside`, `has`, `not`) rather than one pattern, so pass a recipe whole: to `find_code_by_rule`, or as the CLI streaming template's `{recipe_file}`. Never drop the `kind`: without it, ast-grep rejects a pattern that is not a whole statement on its own, such as `def $NAME`. A recipe can match one name more than once (each overload signature, a `def` in both branches of an `if`), so merge its matches by name and file. Known Limitation #11 lists the forms each recipe deliberately does not cover.
+Each recipe declares the `kind` of the node it matches (an export it matched records it as its `ast_node_type`) and captures the export's name as `$NAME`; each was verified on ast-grep 0.45.3. The runner's recipe file, `ast-grep-recipes.yaml`, holds the same rules, and `kind-at` reads them here. To run one without the runner, `extraction-patterns-by-hand.md` gives each recipe's notes, and Known Limitation #11 above lists the forms each recipe deliberately does not cover.
 
 **Python — public functions:**
 
@@ -303,8 +263,6 @@ constraints:
     regex: '^[^_]'
 ```
 
-> **Scope note:** Both Python recipes match module-level definitions only. Their `inside: module` clause stops at the first enclosing `def` or `class`, so a method, a nested `def` and a nested class never match, while a definition under a module-level `if`, `try`, `with`, `for`, `while` or `match` (`if TYPE_CHECKING:` included) does. The `not:` clause drops a definition under `if __name__ == "__main__":` (or `"__main__" == __name__`, with or without parentheses), which exists only when the file runs as a script; the `else:` branch of that `if` still matches, and so does a definition under an `elif __name__ == "__main__":` or a compound guard (#11). The function pattern is `def $NAME`, not `def $NAME($$$PARAMS)`: in a PEP 695 generic `def name[T](...)` the type parameters sit between the name and the parameters, so the longer pattern misses it (#7). Neither recipe reads `__all__`.
-
 **Python — public classes:**
 
 ```yaml
@@ -333,11 +291,7 @@ constraints:
     regex: '^[^_]'
 ```
 
-> **Pattern note:** The minimal `class $NAME` pattern, with `kind: class_definition`, matches every class, with or without bases, keywords, decorators or PEP 695 type parameters. The `class $NAME($$$BASES)` and `class $NAME($$$BASES):` variants return zero (see Known Limitations #7). A bare `ast-grep run -p 'class $NAME' -l python` also returns classes nested in a class or a function, since a pattern alone cannot carry the module-level scope: run the recipe as a rule file instead.
-
 **JavaScript/TypeScript — exported functions:**
-
-> **Language selection:** Use `language: typescript` for `.ts`, `.mts`, `.cts` and `.d.ts` files and `language: tsx` for `.tsx` files. They use different tree-sitter parsers, and a rule scans only the files of its own language, so for a mixed codebase run each recipe once per language, changing only `language`, and merge the results. For `.js`, `.jsx`, `.mjs` and `.cjs` files use `language: javascript`: `js-exported-constants`, `js-exported-arrow-functions`, `js-exported-classes`, `js-reexports`, `js-namespace-reexports`, `js-local-exports`, `react-component-arrow-functions` and `react-wrapped-components` run unchanged, `js-exported-functions` and `react-component-functions` have `javascript` forms below (ast-grep rejects their TypeScript forms there, since `function_signature` and `ambient_declaration` are not JavaScript kinds), and `react-props-interfaces` and `ts-exported-types` are TypeScript only.
 
 ```yaml
 id: js-exported-functions
@@ -379,8 +333,6 @@ rule:
         field: declaration
         kind: function_signature
 ```
-
-> **Overloads, defaults and scope:** Each overload signature matches, all with the same `$NAME`, and the implementation after them does not, since callers see only the signatures: the `not:` clause looks at the nearest statement before the implementation that is not a comment. Async, generator and generic functions match, and so do `export default function Name` (with `Name` as `$NAME`) and `export declare function`. The `inside: program` clause keeps the recipe to top-level exports, so an `export function` inside a `namespace`, `declare module` or `declare global` block does not match.
 
 **JavaScript: exported functions (`.js`, `.jsx`, `.mjs`, `.cjs`):**
 
@@ -458,8 +410,6 @@ rule:
                 pattern: $VALUE
 ```
 
-> **JS/TS Pattern Merging:** Modern TypeScript codebases often use `export const` exclusively for all exports (arrow functions, objects, constants). Run all the JS/TS recipes (functions, arrow functions, constants, classes, interfaces, type aliases and enums, re-exports and local export lists) and merge results by `$NAME`. Priority when deduplicating: arrow function match > function declaration match > constant match. Both `const` recipes bind the declarator's value as `$VALUE`: for an arrow-function match that is the whole arrow, typed, `async` or generic, with its parameters and return type in it; a constant match needs `$VALUE` inspected to extract a signature. Both take `const` declarations only, with a plain identifier as the name.
-
 **JavaScript/TypeScript — exported classes:**
 
 ```yaml
@@ -482,8 +432,6 @@ rule:
           field: body
           kind: class_body
 ```
-
-> **Important:** The recipe matches an `export_statement` whose declaration has a name and a `class_body`, so plain, generic, `extends`, `implements`, `abstract` and decorated classes all match, with the class name as `$NAME`. A decorated class matches from its first decorator, so the match, and its line, start at the decorator. `export default class` does not match (its exposed name is `default`), and neither does `export declare class`. The `find_code` patterns are narrower: the bare `export class $NAME` returns zero with a `Pattern contains an ERROR node` warning, and `export class $NAME { $$$ }` matches only a class with no type parameters and no `extends` (see Known Limitations #9 and #10). Either way a match is the whole `export_statement`, the kind the recipe declares, not the `class_declaration` inside it.
 
 **TypeScript: exported interfaces, type aliases and enums:**
 
@@ -517,8 +465,6 @@ rule:
             field: name
             pattern: $NAME
 ```
-
-> **Types note:** The recipe matches a top-level `export interface`, `export type` alias or `export enum` as an `export_statement`, with the declared name as `$NAME`: generic and `extends` interfaces, generic type aliases, `const enum`, and the `export declare` form of each, on the name's own line when the name follows its keyword on the next line. It skips `export default interface`, whose exposed name is `default`, and an interface, type alias or enum inside a `namespace`, `declare module` or `declare global` block, a member rather than a module export. A type exported through a list (`export type { T }`, `export { type T }`) is found by `js-local-exports`, or by `js-reexports` when the list has a `from`. The recipe is TypeScript only: ast-grep rejects it under `language: javascript`, whose grammar has no interface, type alias or enum.
 
 **JavaScript/TypeScript: re-exported names:**
 
@@ -629,8 +575,6 @@ rule:
             pattern: $NAME
 ```
 
-> **Re-export note:** `js-reexports` matches each name of `export { a, b as c } from '...'` on its own, as an `export_specifier`: `$NAME` is the name the module exposes (the alias when there is one, without quotes when it is a string) and `$SOURCE` the module path without quotes. Type-only re-exports (`export type { T } from`, `export { type T } from`) match too, since their names are exported. `js-local-exports` matches each name of a local list with no `from` the same way, such as the `export { Button, buttonVariants }` that ends a shadcn/ui component file, type-only lists included: these two are the JS/TS recipes whose kind is `export_specifier`, not `export_statement`. A local list names a binding the file defines or imports, and the line cited is the list's. Both record the exposed name, so `export { x as default }` records `default`. `js-namespace-reexports` matches `export * as ns from '...'` as an `export_statement`, with `ns` as `$NAME`. None of them covers a bare `export * from '...'`, which exposes no name of its own: follow it, and the module each `$SOURCE` names, with the Re-Export Tracing protocol in `extraction-patterns-tracing.md`.
-
 **Rust — public functions:**
 
 ```yaml
@@ -665,8 +609,6 @@ rule:
           stopBy: end
 ```
 
-> **Scope note:** The recipe matches a `function_item` with a bare `pub` (async, `const`, `unsafe`, `extern "C"` and generic functions included) at the top of the file or inside a chain of `pub mod` blocks. It does not match a `pub(crate)`, `pub(super)`, `pub(self)` or `pub(in ...)` function, a `pub fn` under a private or `pub(crate)` inline `mod`, inside a function body or a `const` block, or a `pub fn` in an `impl` block (see Known Limitation #8).
-
 **Go — exported functions (capitalized):**
 
 ```yaml
@@ -685,8 +627,6 @@ constraints:
   NAME:
     regex: '^\p{Lu}'
 ```
-
-> **Scope note:** The recipe matches every function declaration with a capitalized name, generic and bodyless (assembly-backed) ones included, whatever comments sit between the name and its parameters. Methods (`func (r T) Name()`) never match.
 
 ### Component Library YAML Rule Recipes
 
@@ -715,11 +655,7 @@ constraints:
     regex: '.*Props$'
 ```
 
-The recipe matches plain, generic and `extends` interfaces whose name ends in `Props`, but not `export default interface`, `export declare interface` or a props type written as a type alias (`export type XProps = {...}`).
-
 **React/TypeScript — Component function exports (PascalCase):**
-
-> **Language note:** Use `language: tsx` for `.tsx` files and `language: typescript` for `.ts` files; the rule body is the same. The rule is `js-exported-functions` without generator functions (React cannot render one) plus a PascalCase `$NAME`, so async, generic and default-exported components match, and so does each overload signature. For `.js` and `.jsx` files use the `javascript` form below. `^\p{Lu}` accepts any uppercase first letter, non-ASCII ones included.
 
 ```yaml
 id: react-component-functions
@@ -815,11 +751,7 @@ constraints:
     regex: '^\p{Lu}'
 ```
 
-The name's `regex` sits inside the declarator's `has` as well as under `constraints`: a constraint is checked after the match, so on its own it would drop `export const helper = () => 1, Card = () => null` instead of matching `Card`.
-
 **React: wrapped component exports (`memo`, `forwardRef`, `lazy`):**
-
-> **Language note:** Use `language: tsx` for `.tsx` files, `language: typescript` for `.ts` files and `language: javascript` for `.js` and `.jsx` files; the rule body is the same.
 
 ```yaml
 id: react-wrapped-components
@@ -853,8 +785,6 @@ constraints:
   NAME:
     regex: '^\p{Lu}'
 ```
-
-The recipe matches a top-level `export const` whose PascalCase name is bound to a call of `memo`, `forwardRef` or `lazy`, with or without `React.` and with type arguments (`React.forwardRef<HTMLDivElement, Props>(...)`): the wrapped components `react-component-arrow-functions` skips, which `js-exported-constants` reports as constants. Like the arrow-function recipe, it finds a later declarator of an `export const` list when the first one does not match.
 
 **Vue — defineProps extraction:**
 
@@ -899,75 +829,3 @@ rule:
         - kind: while_statement
         - kind: switch_case
 ```
-
-> **Vue note:** ast-grep reads a `.vue` file only when an `sgconfig.yml` maps it to HTML (`languageGlobs:` with `html: ["*.vue"]`); without one it skips every `.vue` file silently, with exit code 0. `find_code_by_rule` takes no config, so it never reaches a `.vue` file: run the Vue recipes with the CLI streaming template and add `-c {scratch}/sgconfig.yml`, a file holding those two lines that you write in a scratch folder, never in the user's source tree. With it, a `language: typescript` rule runs inside each `<script lang="ts">` block and a `language: tsx` rule inside each `<script lang="tsx">` block, at the `.vue` file's own line numbers, which is why the tsx block needs its own recipe. Both recipes match a top-level `defineProps<T>()` call, with the props type as `$NAME` whatever its form (a type name, an inline type literal, `Types.Props`, `Props<T>`, a union); the `not:` clause skips a call inside a function, an arrow function, a class, a block, or an `if`, `for`, `while` or `switch` statement, which Vue's compiler rejects anyway.
-
-### Known ast-grep Limitations
-
-When using ast-grep for extraction, be aware of these documented limitations:
-
-1. **`export class $NAME` needs a body on 0.42.x; `find_code_by_rule` takes the recipe's `kind`:** The bare `export class $NAME` pattern returns zero through **both** `find_code()` and the CLI on ast-grep 0.42.x: add the body, `export class $NAME { $$$ }` (see #9). With `find_code_by_rule`, pass the `js-exported-classes` recipe with its `kind: export_statement`: the recipe matches the whole export, so a rule naming the inner `class_declaration` finds nothing.
-
-2. **A re-export statement holds several names:** `export { A, B as C } from './module'` is one `export_statement` with one `export_specifier` per name. The `js-reexports` recipe matches each specifier, with the name the module exposes as `$NAME` (`A`, `C`), so no splitting is needed. The pattern `export { $$$NAMES } from $SOURCE` is rejected on 0.42.2 and 0.45.3 (`Multiple AST nodes are detected`); `export { $$$NAMES } from "$SOURCE"` and `export { $$$NAMES } from '$SOURCE'` each match one quote style, as an `export_statement`.
-
-3. **Default anonymous exports capture no name:** `export default function $NAME` works, but `export default $EXPR` (anonymous default export) captures no name in `$NAME`. Fall back to source reading (T1-low) for anonymous defaults.
-
-4. **Fallback protocol:** If an ast-grep pattern returns errors or zero results when results are expected:
-   - First: retry with `find_code()` using a simpler pattern (drop type annotations, use broader match)
-   - Second: if `find_code()` also fails, fall back to source reading for that pattern category (T1-low confidence)
-   - Never silently accept zero results for a pattern category that the source language commonly uses
-
-5. **The `export function $NAME($$$PARAMS)` pattern returns zero in `.tsx` files:** on ast-grep 0.41.x and still on 0.45.3 (with plain `typescript` too, #9), through both the MCP tools and the CLI. The recipes do not use it: `js-exported-functions` with `language: tsx` and `react-component-functions` match every `export function` form their notes list in `.tsx` files, so run them instead of reading `export function` declarations by eye. Read by eye (T1-low) only the forms Known Limitation #11 lists. When a TSX codebase shows zero recipe matches for `export function` while its source clearly holds some, log it in the evidence report as an extraction gap.
-
-6. **CLI `--json=stream` may produce no output (ast-grep 0.41.x):** On 0.41.x, `--json=stream` could produce empty output for certain patterns, and it needed the explicit `run` subcommand (`ast-grep run -p '{pattern}' --json=stream`, not `ast-grep -p '{pattern}' --json=stream`). On 0.45.3 it works with `scan`, as the CLI streaming template runs it (`ast-grep scan -r {recipe_file} --json=stream`), and with `run`. If streaming still produces no output where matches are expected, fall back to `find_code_by_rule` or source reading.
-
-7. **Python class patterns with bases/colon return zero (ast-grep 0.42.x); `def $NAME($$$PARAMS)` misses generic functions (0.45.3):** The patterns `class $NAME($$$BASES)` and `class $NAME($$$BASES):` return zero matches on real Python sources with ast-grep 0.42.0, even on files containing dozens of subclassed public classes. `find_code_by_rule` also rejects the bare inline rule without `kind` as `Rule must specify a set of AST kinds to match. Try adding \`kind\` rule.`, and so does the function pattern `def $NAME($$$PARAMS)`. With `kind: function_definition`, `def $NAME($$$PARAMS)` matches every `def` and `async def` on 0.45.3 except a PEP 695 generic `def name[T](...)`, whose type parameters sit between the name and the parameters. **Workaround:** the recipes use the prefix patterns `class $NAME` and `def $NAME` with their `kind` (`class_definition`, `function_definition`), which match every class and every `def` / `async def`, generic or not, a decorated one at its `class` / `def` line. Their `inside: module` clause stops at the first enclosing `def` or `class`, so they return module-level definitions only, never methods or nested definitions, and their `^[^_]` constraint keeps the public names. A bare CLI `ast-grep run -p 'class $NAME' -l python` (or `'def $NAME'`) cannot carry that scope and returns nested definitions too, so run the recipes as rule files. See the Python public classes and public functions recipes above.
-
-8. **Rust `pub fn` patterns find no function definitions (ast-grep 0.42.x and 0.45.3):** `pub fn $NAME($$$PARAMS)` and `pub fn $NAME($$$PARAMS) -> $RET` parse as a `function_signature_item` (a `fn` with no body, as in an `extern` block), so they return "No matches found" on real crates, even on crates containing 200+ public functions, and with `kind: function_item` they match nothing at all. `pub fn $NAME($$$PARAMS) { $$$ }` matches, but it also matches `pub(crate)` and `pub(super)` functions, methods, and functions in private modules, which are **not** public API. **The `rust-public-functions` recipe** has no pattern: it matches `function_item` nodes with a bare `pub` at the top of the file or in a chain of `pub mod` blocks (see the scope note under the recipe). It leaves out every `pub fn` in an `impl` block on purpose: whether a method is reachable depends on whether its type is, which one file cannot show, and a method's `$NAME` alone loses its type (every type's `new` would merge into one). Take public methods from the `impl` blocks of the public types by source reading, at T1-low confidence. Never silently accept zero results for Rust public functions.
-
-9. **Plain `language: typescript` declaration patterns without a body return zero (ast-grep 0.42.x and 0.45.3):** The incomplete-statement patterns `export class $NAME`, `export function $NAME($$$PARAMS)`, `export type $NAME`, and `export enum $NAME` all return **zero** matches against real `.ts` sources on ast-grep 0.42.2 and 0.45.3; `export class` / `export type` / `export enum` additionally print `Pattern contains an ERROR node`. This affects the CLI (`ast-grep run -p ... -l typescript`) and the MCP `find_code()` API **identically**: `find_code()` is not a workaround. The cause is that a declaration pattern missing its body or initializer does not parse as a complete statement. The recipes do not use these patterns: `js-exported-functions`, `js-exported-classes`, `ts-exported-types` and `react-props-interfaces` match the `export_statement` and test its `declaration` node, so they find every function, class, interface, type alias and enum form their notes list. Run them, not a `find_code` pattern. The complete patterns match (verified on 0.42.2 and 0.45.3 via both CLI and `find_code`), but on 0.45.3 each misses forms the recipes find, and each also returns the members of an `export namespace` block, which are not module exports:
-   - **enum:** `export enum $NAME { $$$ }` (with the body) matches, `const enum` included, but not `export declare enum`.
-   - **type alias:** `type $NAME = $T` (no `export`, with the initializer) matches `export type` and bare `type` declarations alike, but not a generic alias (`type $NAME<T> = ...`).
-   - **class, interface, function:** `export class $NAME { $$$ }` and `export interface $NAME { $$$ }` carry a body and match, but miss generic and `extends` forms (#10), and `export function $NAME($$$PARAMS) { $$$ }` misses every function with a return-type annotation (and, on 0.42.2, every `async` one).
-
-   Never silently accept zero results for a declaration form the source language commonly uses.
-
-   Kinds (verified on 0.45.3): each `export ...` pattern above matches an `export_statement`. The type-alias workaround `type $NAME = $T` has no `export`, so it matches the `type_alias_declaration`, inside an `export type` too, and an export it matched records `type_alias_declaration`.
-
-10. **Generic class declarations do not match non-generic class patterns (ast-grep 0.42.x and 0.45.3):** The non-generic `find_code` patterns `export class $NAME { $$$ }` and `export class $NAME extends $BASE { $$$ }` silently skip every generic form. On ast-grep 0.42.2, verified via both the CLI (`ast-grep run -p ... -l typescript`) and `find_code()`, the first matched only a plain `Plain` and the second only a plain `PlainExtends` on a fixture of `Plain` / `Generic<T>` / `GenericExtends<T> extends Base<T>` / `abstract AbstractGeneric<T>` / `PlainExtends`, and 0.45.3 does the same. The per-shape generic patterns `export class $NAME<$$$P> { $$$ }`, `export class $NAME<$$$P> extends $BASE { $$$ }`, and `export abstract class $NAME<$$$P> { $$$ }` each match exactly **one** shape. **The `js-exported-classes` recipe** has no pattern: it matches an `export_statement` whose declaration has a name and a `class_body`, so it finds all five shapes, and `implements` and decorated classes too. Use it rather than the patterns. When only `find_code` is available, run a source-read fallback `^export (abstract )?class` over the in-scope `.ts` sources (T1-low) and merge by name+file with the AST results. Never accept a class inventory that omits generic classes when the source uses them.
-
-    Kinds (verified on 0.45.3): the recipe, and each `export class` pattern above, generic, `extends` and `abstract` forms included, match an `export_statement`. The bare `class $NAME` pattern matches the declaration itself: a `class_declaration`, or an `abstract_class_declaration` for an `abstract` class.
-
-11. **Forms the recipes deliberately do not cover (ast-grep 0.45.3):** read these by eye at T1-low when the source uses them, or follow them with the Re-Export Tracing protocol in `extraction-patterns-tracing.md` where noted.
-    - **Every JS/TS `export_statement` recipe:** `export` followed by a line break before the declaration (tree-sitter reads the bare `export` as a statement of its own, so there is no `export_statement` to match; formatters never write it); an export nested in a `namespace`, `declare module` or `declare global` block, a `.d.ts` file's `declare module "pkg" { ... }` included, since it is a member, not a module export.
-    - **`js-exported-functions`, `react-component-functions`:** an anonymous `export default function () {}` (#3); a function exported through a list (`export { f }` and `export { f as g }`, which `js-local-exports` finds at the list's line), `export default f;` or `export = f`; a function bound to a `const` (the constants and arrow-function recipes find it); a wrapped default such as `export default memo(function Name() {})` or `forwardRef(...)`, whose value is a call, not a declaration; class, object-literal and interface methods; the implementation of an overloaded function (its signatures match instead). The React recipes also skip generator functions (an overload signature of one still matches, since a signature does not show it) and class components and keep a PascalCase function that is not a component (such as a Next.js `GET` handler).
-    - **`js-exported-constants`, `js-exported-arrow-functions`, `react-component-arrow-functions`, `react-wrapped-components`:** every declarator after the first one a recipe accepts in `export const a = 1, b = () => 2` (one match per statement); destructuring (`export const { x } = obj`, which has no identifier name); `let`, `var` and `export declare const`. The arrow-function recipes also skip an arrow wrapped in parentheses, `as`, `satisfies` or a call, and a `function` expression; the constants recipe reports them, and `react-wrapped-components` reports a PascalCase `memo`, `forwardRef` or `lazy` call. `react-wrapped-components` skips any other wrapper (`observer(...)`, `styled.div`, `connect(...)(Component)`), a wrapped call cast with `as` or `satisfies`, and `export default memo(...)`, whose exposed name is `default`.
-    - **`js-exported-classes`, `react-props-interfaces`:** `export default class` and `export default interface` (their exposed name is `default`); `export declare class`, and `export declare interface` (`ts-exported-types` finds it); a class expression bound to a `const` (the constants recipe reports it); a props type written as a type alias (`export type XProps = {...}`, which `ts-exported-types` finds); a type exported through a list (`export type { T }`, which `js-local-exports` or `js-reexports` finds).
-    - **`ts-exported-types`:** `export default interface` (its exposed name is `default`); an interface, type alias or enum inside a `namespace`, `declare module` or `declare global` block, a member rather than a module export; a type exported through a list (`export type { T }`, `export { type T }`), which `js-local-exports` finds, or `js-reexports` when the list has a `from`.
-    - **`js-reexports`, `js-namespace-reexports`, `js-local-exports`:** a bare `export * from '...'`, which exposes no name of its own; an `export { a } from '...' with { type: 'json' }` statement, or the legacy `export { a } from '...' assert { type: 'json' }`, which parse as ERROR nodes; `export default x;` and `export = x`; a list inside a `namespace`, `declare module` or `declare global` block, a member rather than a module export; in a `.js` file, `default` as a list item's name or alias (`export { default } from '...'`, `export { x as default }`), a keyword token there that no `$NAME` captures (TypeScript parses it as a name). Follow these with the Re-Export Tracing protocol.
-    - **`rust-public-functions`:** a `pub fn` in an `impl` block (#8); trait methods, which carry no `pub`; `pub fn` imports in an `extern "C" { }` block; functions a macro generates (`macro_rules!` and `cfg_if!` bodies are token trees, which ast-grep does not parse). One file cannot show reachability across files: a `pub fn` at the top of `foo.rs` matches whether or not `mod foo;` is `pub`, so check `pub use` re-exports with the Re-Export Tracing protocol. `#[cfg]`-gated and `#[doc(hidden)]` functions still match, and a raw identifier keeps its prefix (`r#match`).
-    - **`go-exported-functions`:** methods; an exported function-typed variable (`var F = func() {}`). `Test*`, `Benchmark*` and `Example*` functions in `_test.go` files, and the exported functions of `package main` or an `internal/` package, match but are not importable API: exclude them through `scope.exclude`.
-    - **`python-public-functions`, `python-public-classes`:** a definition under `elif __name__ == "__main__":` or a compound condition (`__name__ == "__main__" or DEBUG`), which still matches; a function made by `lambda`, `partial(...)` or `exec`, or declared `global` inside another function; a class made by `type(...)`, `NamedTuple(...)`, `TypedDict(...)` or `Enum(...)`, and an alias (`X = Other`); names created at runtime (`globals()`, `setattr`); names imported into the module (`from .x import name`: Re-Export Tracing). The recipes do not read `__all__`: a public-looking name it leaves out still matches, and a name it lists but imports from elsewhere is found by Re-Export Tracing.
-    - **`vue-define-props`, `vue-define-props-tsx`:** a call with two type arguments (`defineProps<A, B>()`); runtime `defineProps({ ... })` and `defineProps([...])`, which carry no type; the Options API `props:` option; `defineProps?.<X>()` and `(defineProps)<X>()`; `defineProps` inside a function, an arrow function, a class, a block, or an `if`, `for`, `while` or `switch` statement; a `<script setup>` with no `lang` (plain JavaScript, no type argument). `find_code_by_rule` never reaches a `.vue` file, and the CLI does only with a scratch `sgconfig.yml` (see the Vue note above).
-
-### Re-Export Tracing and Script/Asset Extraction
-
-See `extraction-patterns-tracing.md` for:
-- **Re-export tracing protocol** — resolving module imports through `__init__.py`, barrel files, `pub use`
-- **Script/asset extraction patterns** — detection heuristics, inclusion rules, provenance, inventory structure
-
----
-
-## Relabel Rule
-
-A provenance entry's labels follow its `extraction_method`, never the reverse. compile.md §4 and validate.md §7 apply this rule to each `provenance.entries[<i>].*` violation `skf-render-metadata-stats.py` reports, and validate.md §7a takes a node kind from its second part.
-
-1. **Labels.** Set the entry's `confidence`, `signature_source` and `ast_node_type` to the violation's `expected` value, and where `expected` is `non-null`, record the node kind part 2 gives. Leave a known `extraction_method` as it is. When the violation is on `extraction_method` itself (unknown or missing), set it to the method of the tool that produced the entry, `ast-grep` or `source-read` (so `direct-read` becomes `source-read`), and relabel what the next check reports. When the run cannot tell which tool produced the entry, set `source-read`: T1 needs evidence that an ast-grep rule matched.
-2. **Node kind.** Take the `kind` that the recipe this run's extraction record names for the export (`ast_recipe`) declares in this file (the ast-grep Patterns table gives the kind of a `find_code` pattern). When the record names no recipe, or for an entry this run did not extract (one carried over from an earlier map), look the kind up at the entry's `source_file` and `source_line` (the values below are the entry's): from `{project-root}`, run
-
-   ```bash
-   uv run {verifyProvenanceCompletenessHelper} kind-at --source-root "{source_root}" --file "{source_file}" --line {source_line} --name "{export_name}" --recipes "{extractionPatternsData}"
-   ```
-
-   and record the `kind` it prints when `status` is `found`. On any other status (`ambiguous`, `no-match`, `incomplete` or a `skipped-` one), an exit 2, no resolved verifier or no local source tree, never invent a kind: leave that finding in place and list it as a WARN with the reason.
-

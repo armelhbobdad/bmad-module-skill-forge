@@ -19,9 +19,9 @@ To display the final compilation summary (skill name, version, source, export co
 
 ## Rules
 
-- Write only the brief's result files (through the emitter, §5), the batch checkpoint in `--batch` (§6) and the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when `{emitEnvelopeHelper}` resolved no path: `validation_status` in `{skill_package}/metadata.json` and one warning appended to `{forge_version}/evidence-report.md`
+- Write only the brief's result files (through the emitter, §5) and, outside `--batch`, the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when `{emitEnvelopeHelper}` resolved no path: `validation_status` in `{skill_package}/metadata.json` and one warning appended to `{forge_version}/evidence-report.md`
 - Deliver structured report with confidence breakdown
-- The user-facing report is not the end of the run: §5, §6 and §7 follow it in order, and §7 chains to the health check via `{nextStepFile}` once the last brief is done
+- The user-facing report is not the end of the run: §5 and §6 follow it in order, and §6 chains to the health check via `{nextStepFile}`, or under `--batch` back to `references/batch-mode.md`, which runs it once the last brief is recorded
 
 ## MANDATORY SEQUENCE
 
@@ -116,37 +116,10 @@ The evidence report in `outputs` carries the `## Auto-Decisions` audit table: a 
 
 The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}" and go on. When the emitter wrote no result contract for this brief (no `{emitEnvelopeHelper}`, or `emit` failed twice), `--result-path` would name a missing file or an earlier compile's: skip the hook and display "on_complete skipped for `{name}`: no result contract was written ({the reason})". When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
-**Remove the run folder.** The brief finished, so delete `{run_dir}` (`rm -rf "{run_dir}"`). A halted brief keeps its folder, with the decisions it recorded and its staged payloads.
+**Remove the run folder.** The brief finished, so outside `--batch` delete `{run_dir}` (`rm -rf "{run_dir}"`); under `--batch`, batch-mode.md §3 reads the staged `result-context.json` there and removes the folder itself. A halted brief keeps its folder, with the decisions it recorded and its staged payloads.
 
-### 6. Batch Mode Status (If Applicable)
+### 6. Chain to the Next Step
 
-**If running in --batch mode:**
+**Under `--batch`:** go to `references/batch-mode.md` §3, which records this brief from the `result-context.json` §5 staged and hands out the next one. The health check waits for the batch summary.
 
-"**Batch progress:** {completed_count} of {total_count} skills compiled.
-
-{If more remaining:} Proceeding to next brief: {next_skill_name}..."
-
-Update the batch checkpoint in `{sidecar_path}/batch-state.yaml` with:
-
-```yaml
-batch_active: true
-brief_list: [{full list of brief paths}]
-current_index: {index of next brief to process, 0-based}
-completed: [{list of completed skill names}]
-refused: [{skill, brief, halt_reason} for each brief the generate-artifacts §1 ownership check refused, carrying earlier entries over unchanged]
-last_updated: {ISO timestamp}
-```
-
-**Before writing:** validate the same two invariants that step 1 re-checks on resume: `0 <= current_index < len(brief_list)` AND `os.path.exists(brief_list[current_index])`. If either fails (e.g., the next brief file was deleted mid-batch, or arithmetic pushed the index off the end), set `batch_active: false` and write `batch_halt_reason: "invalid checkpoint at write time: index or file missing"` instead of the active record. The next run will re-discover rather than resume a broken index.
-
-**If all batch briefs complete:**
-
-Set `batch_active: false` in `{sidecar_path}/batch-state.yaml` to prevent stale state. Display: "Batch complete. {completed_count} skills compiled." then, when `refused` is non-empty, " Refused before writing (not SKF output or flat layout): {the `skill` of each `refused` entry}."
-
-**If not batch mode:** nothing to record; continue to §7.
-
-### 7. Chain to the Next Brief or the Health Check
-
-**If batch mode with remaining briefs:** load and execute `references/load-brief.md` for the next brief. Step 1 detects the active batch through `batch-state.yaml` and loads the brief at `current_index` only after re-validating the same invariants (belt and braces: the checkpoint may have been edited between runs). The health check waits for the last brief.
-
-**Otherwise** (not batch mode, or the final batch brief is done): load `{nextStepFile}`, read it fully, and execute it. The health check runs once per run, after every brief's result contract and hook.
+**Otherwise:** load `{nextStepFile}`, read it fully, and execute it. The health check runs once per run, after the brief's result contract and hook.

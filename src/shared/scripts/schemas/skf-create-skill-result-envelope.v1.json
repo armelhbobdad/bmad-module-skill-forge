@@ -66,7 +66,7 @@
     "phase": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The step slug where the HARD HALT fired: load-brief, extract, component-extraction, fetch-docs, compile, doc-sources, auto-shard, validate or generate-artifacts. Null on a finished run."
+      "description": "The step slug where the HARD HALT fired: load-brief, extract, component-extraction, fetch-docs, compile, doc-sources, auto-shard, validate or generate-artifacts, or batch-mode for a --batch run whose batch could not start or go on. Null on a finished run."
     },
     "halt_reason": {
       "type": ["string", "null"],

@@ -2,6 +2,8 @@
 nextStepFile: 'step-doc-sources.md'
 skillSectionsData: 'assets/skill-sections.md'
 assemblyRulesData: 'assets/compile-assembly-rules.md'
+# Loaded only when §4's stats helper reports a provenance label violation.
+relabelRuleData: 'references/relabel-rule.md'
 # Resolve `{renderMetadataStatsHelper}` by probing `{renderMetadataStatsProbeOrder}`
 # in order (installed SKF module path first, src/ dev-checkout fallback); first
 # existing path wins. HALT (exit code 3, helper-missing) if neither
@@ -18,12 +20,14 @@ verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # Resolve `{extractionInventoryHelper}` to the first existing path. §1 reads
-# the inventory's counts through its `summary`; step 3 §5 already halted
-# when neither path exists.
+# the inventory's counts through its `summary`, and §6 writes the
+# provenance map through its `provenance`; step 3 §5 already halted when
+# neither path exists.
 extractionInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
   - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
-# Resolve `{extractionPatternsData}` to the first existing path, as step 3 did.
+# Resolve `{extractionPatternsData}` to the first existing path, as step 3
+# did: the Relabel Rule's `kind-at` reads the recipes there.
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
   - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
@@ -167,7 +171,7 @@ Following the structure from the skill-sections data file:
 
   Write the returned `stats` and `confidence_distribution` verbatim. The helper derives `exports_documented` (the documented-export count = provenance `entries[]` count), `exports_total` = `exports_public_api` + `exports_internal`, `public_api_coverage` = documented / public_api (`null` if public_api is 0), `total_coverage` = documented / total (`null` if total is 0), and bins `confidence_distribution.{t1, t1_low, t2, t3}` by each entry's `signature_source`, **each entry counted exactly once**, so the four bins provably sum to the documented-export count. This structurally prevents the recurring miscount where binning ~8 T2 annotations + ~80 T3 doc items on top of 59 exports produced a distribution summing to 147 ≠ 59 (`skf-test-skill` coverage-check §4b flags that sum as an internal-consistency defect). If the helper reports `coherence.ok: false`, fix the provenance map and re-run the helper; never hand-edit the stats. A `confidence_distribution` violation means some provenance entries carry a missing or unrecognized `signature_source`, and a `stats.scripts_count` / `stats.assets_count` violation means a file-entry count disagrees.
 
-  **Label violations.** A violation whose `field` is `provenance.entries[<i>].<field>` means entry `<i>` (its `export_name` is in the violation) carries a label its `extraction_method` does not allow: relabel it by the Relabel Rule in `{extractionPatternsData}` (labels follow the method, a node kind comes from the recipe that matched, never invented, and a violation the rule cannot settle stays as a WARN), resolving `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` for its `kind-at` lookup. Write the relabeled map back to `<staging-skill-dir>/provenance-map.json`, the copy step 7 promotes, re-run the helper, and write the `stats` and `confidence_distribution` it returns: a relabeled `signature_source` moves the distribution, and a violation left as a WARN does not block the write. Note the relabeled export names, and each WARN left, in the evidence report's Remaining Warnings (§7).
+  **Label violations.** A violation whose `field` is `provenance.entries[<i>].<field>` means entry `<i>` (its `export_name` is in the violation) carries a label its `extraction_method` does not allow: relabel it by the Relabel Rule in `{relabelRuleData}` (labels follow the method, a node kind comes from the recipe that matched, never invented, and a violation the rule cannot settle stays as a WARN), resolving `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` for its `kind-at` lookup. Write the relabeled map back to `<staging-skill-dir>/provenance-map.json`, the copy step 7 promotes, re-run the helper, and write the `stats` and `confidence_distribution` it returns: a relabeled `signature_source` moves the distribution, and a violation left as a WARN does not block the write. Note the relabeled export names, and each WARN left, in the evidence report's Remaining Warnings (§7).
 - Set `description` from the SKILL.md frontmatter `description` field (already assembled in section 2)
 - Set `language` from source analysis (e.g., `"typescript"`, `"python"`) — use the primary language of the entry point file
 - Set `ast_node_count` to the number of exports ast-grep matched (the recipe runner's `aggregates.exports`) when ast-grep ran, otherwise omit
@@ -201,16 +205,34 @@ Group functions logically by module, file, or functional area.
 
 ### 6. Build provenance-map.json Content
 
-One entry per export of the inventory's `exports[]`: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type, signature_source ("T1"|"T1-low"|"T2"|"T3", the tier that contributed the structural signature).
+The map holds one entry per export of the inventory's `exports[]` (export_name, export_type, params[] as typed strings, return_type, source_file, source_line, confidence, extraction_method, ast_node_type, and signature_source, the tier that contributed the structural signature: "T1", "T1-low", "T2" or "T3"), then the entries and file entries the inventory does not hold. `{extractionInventoryHelper}` writes it: never type an entry the inventory holds. From `{project-root}`, run it with the source fields §4 set in metadata.json (`null` for one that is unavailable):
 
-Label each entry by the tool that produced it, at every forge tier:
+```bash
+uv run {extractionInventoryHelper} provenance --inventory "{extraction_inventory}" --target "{project-root}/_bmad-output/.skf-stage/{skill-name}/provenance-map.json" <<'SKF_JSON'
+{"source_repo": "<source_repo>", "source_commit": "<source_commit>", "source_ref": "<source_ref>"}
+SKF_JSON
+```
 
-- `extraction_method: "ast-grep"` (an ast-grep rule matched the export): `confidence: "T1"`, an `[AST:...]` citation, and `ast_node_type` set to the `kind` the matching recipe declares in extraction-patterns.md, copied from the recipe, never inferred from the source (validate.md §7a asks ast-grep whether it is a real kind).
-- `extraction_method: "source-read"` (the export was read by eye): `confidence: "T1-low"`, a `[SRC:...]` citation, `ast_node_type: null`, and a `signature_source` other than `"T1"`.
+It writes the map's header (`provenance_version` `"2.0"`, the skill's name, `skill_type` `"single"` and `generated_at`) and every export's entry, labeled by the tool that produced it, at every forge tier:
+
+- `extraction_method: "ast-grep"` (an ast-grep rule matched the export): `confidence: "T1"`, `signature_source: "T1"`, an `[AST:...]` citation, and `ast_node_type` the `kind` the matching recipe declares in extraction-patterns.md, copied from the recipe, never inferred from the source (validate.md §7a asks ast-grep whether it is a real kind).
+- `extraction_method: "source-read"` (the export was read by eye): `confidence: "T1-low"`, `signature_source: "T1-low"`, a `[SRC:...]` citation and `ast_node_type: null`.
+
+Its `unsigned` lists the functions whose signature nobody read, which extract.md §5's `patch` left: read each one's parameters and return type from the source at its `source_line`, send them through that `patch` call as extract.md §5 says, and run the command above again, which rewrites the map.
+
+**Then add what the inventory does not hold**, in one call, leaving out a list that is empty and the call when both are: the T2 and T3 entries (a docs-only skill's exports, from the inventory's `t3_items`), each with the fields above, and the file entries below.
+
+```bash
+uv run {extractionInventoryHelper} provenance --inventory "{extraction_inventory}" --target "{project-root}/_bmad-output/.skf-stage/{skill-name}/provenance-map.json" --add-entries <<'SKF_JSON'
+{"entries": [{"export_name": "...", "export_type": "...", "params": null, "return_type": null, "source_file": "...", "source_line": null, "confidence": "T3", "extraction_method": "...", "ast_node_type": null, "signature_source": "T3"}], "file_entries": [{"file_name": "...", "file_type": "...", "source_file": "...", "content_hash": "...", "confidence": "...", "extraction_method": "..."}]}
+SKF_JSON
+```
+
+The helper appends them and skips an entry whose `export_name` and `source_file` the map already holds (its `duplicates`): T2 and T3 content never replaces an inventory export's entry. If either call exits non-zero, fix what its `message` names and run it again; when it fails twice, **HARD HALT** (exit code 4, `write-failed`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staged `provenance-map.json`: "Cannot write the provenance map: {the helper's message}. Check permissions and disk space."
 
 `{renderMetadataStatsHelper}` (§4) checks these pairings on every T1 or T1-low entry, and the `signature_source` of an entry read by eye at any other confidence too (T2, T3 or none): the distribution bins every entry by its `signature_source`, so a `source-read` entry that claims `"T1"` is a violation whatever its `confidence`. Besides the two values above it accepts only the stack-map values `ast_bridge` (pairs with T1), `source_reading` (pairs with T1-low and a `signature_source` other than T1), `qmd_bridge` and `compose-from-skill` (no pairing); any other `extraction_method` on a T1 or T1-low entry is a violation.
 
-**File entries** — emit one `file_entries[]` row per tracked non-code file when any of these inventories are non-empty:
+**File entries:** one `file_entries[]` row, sent in the `--add-entries` call above, per tracked non-code file when any of these inventories are non-empty:
 
 - `scripts_inventory` → `file_type: "script"`, `extraction_method: "file-copy"`, stored in `{skill_package}/scripts/` by step 7
 - `assets_inventory` → `file_type: "asset"`, `extraction_method: "file-copy"`, stored in `{skill_package}/assets/` by step 7

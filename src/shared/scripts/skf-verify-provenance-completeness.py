@@ -569,7 +569,7 @@ NODE_KIND_TIMEOUT_SEC = 20  # per ast-grep call; each parses one tiny rule
 _MD_YAML_FENCE_RE = re.compile(r"^```yaml[ \t]*\n(.*?)^```", re.M | re.S)
 # file language -> the recipe languages whose form of a recipe it runs, with
 # `language:` rewritten, when the recipe has no form of its own for it (the
-# language selection note in extraction-patterns.md): typescript and tsx
+# language selection note in extraction-patterns-by-hand.md): typescript and tsx
 # share their recipes, and javascript runs a TypeScript recipe with no
 # javascript form (one whose kinds the grammar lacks is skipped).
 RECIPE_LANGUAGE_FALLBACKS = {
