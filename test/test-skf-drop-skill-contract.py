@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Drop Skill contract: the halt on a failed manifest write (#585), the envelope
 the shared emitter builds (#593), the version input and the helpers resolved
-before the first prompt (#594), and the version counts from the inventory
-helper (#597).
+before the first prompt (#594), the version counts from the inventory
+helper (#597), the customization surface without `default_mode` and with a
+fail-closed purge guard (#596), the headless contract in one file outside
+SKILL.md (#600), and a whole-skill deprecate that keeps the manifest entry.
 
 Step prose is not executed by any test, so these checks run the commands the
 drop steps document, filled in as an agent fills them, against fixtures:
@@ -22,7 +24,10 @@ drop steps document, filled in as an agent fills them, against fixtures:
   the report; `skill_name` and `version` answer their gates in both modes; the
   helpers resolve before the first prompt and no step keeps a fallback for
   them; no stage reads version-paths.md, types an envelope or makes up a
-  timestamp.
+  timestamp; the mode comes only from the `mode` argument or the prompt.
+- skf-manifest-ops.py runs the skill-level manifest calls execute.md documents:
+  a whole-skill deprecate marks every version deprecated and keeps the entry,
+  and only a purge removes it.
 """
 
 from __future__ import annotations
@@ -45,13 +50,15 @@ SKILL = "src/skf-drop-skill/SKILL.md"
 SELECT = "src/skf-drop-skill/references/select.md"
 EXECUTE = "src/skf-drop-skill/references/execute.md"
 REPORT = "src/skf-drop-skill/references/report.md"
-HEADLESS = "src/skf-drop-skill/references/headless-contract.md"
-# The contract files: the headless contract today, and the invocation contract
-# the Invocation Contract, Exit Codes and Result Contract may move to.
-CONTRACTS = (HEADLESS, "src/skf-drop-skill/references/invocation-contract.md")
+CUSTOMIZE = "src/skf-drop-skill/customize.toml"
+# The one contract file: the Invocation Contract, Exit Codes, Result Contract
+# and Halt Envelope lifted out of SKILL.md (the old headless-contract.md).
+CONTRACT = "src/skf-drop-skill/references/invocation-contract.md"
+CONTRACTS = (CONTRACT,)
 SCRIPTS = SRC / "shared" / "scripts"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 INVENTORY = SCRIPTS / "skf-skill-inventory.py"
+MANIFEST_OPS = SCRIPTS / "skf-manifest-ops.py"
 SCHEMA_PATH = SCRIPTS / "schemas" / "skf-drop-skill-result-envelope.v1.json"
 SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 SETTINGS = SCHEMA["$defs"]["skf-envelope"]["const"]
@@ -77,14 +84,14 @@ def _section(text: str, start: str, end: str | None) -> str:
 
 
 def _contract_text(*, with_skill: bool) -> str:
-    """The contract files that exist, SKILL.md first when `with_skill`."""
+    """The contract file, SKILL.md first when `with_skill`."""
     rels = ((SKILL,) if with_skill else ()) + CONTRACTS
-    return "\n".join(_read(rel) for rel in rels if (REPO / rel).is_file())
+    return "\n".join(_read(rel) for rel in rels)
 
 
 def _exit_codes_table() -> str:
-    """The Exit Codes table, in SKILL.md or in the file it moved to."""
-    text = _contract_text(with_skill=True)
+    """The Exit Codes table of the invocation contract."""
+    text = _read(CONTRACT)
     m = re.search(r"^#+ Exit Codes\n(.*?)(?=^#+ |\Z)", text, flags=re.M | re.S)
     assert m, "no Exit Codes section"
     return m.group(1)
@@ -108,16 +115,17 @@ def _one_command(text: str, needle: str) -> str:
 
 
 def _argv(command: str, values: dict) -> list[str]:
-    """Fill a documented `uv run {helper} ...` command in and split it, without a shell.
+    """Fill a documented `uv run {helper} ...` or `python3 {helper} ...` command in and split it, without a shell.
 
     Placeholders become sentinels before the words are split, so a Windows path
-    keeps its backslashes; `uv run` becomes this interpreter.
+    keeps its backslashes; `uv run` or `python3` becomes this interpreter.
     """
     words = []
     for word in shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", command)):
         words.append(re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], word))
-    assert words[:2] == ["uv", "run"], words
-    return [sys.executable, *words[2:]]
+    prefix = 1 if words[0] == "python3" else 2
+    assert words[:prefix] in (["python3"], ["uv", "run"]), words
+    return [sys.executable, *words[prefix:]]
 
 
 def _run(command: str, values: dict, stdin: bytes | None = None) -> subprocess.CompletedProcess:
@@ -221,8 +229,8 @@ def test_every_emitting_halt_names_its_phase(rel, start):
 def test_every_stage_runs_the_same_halt_command():
     """The contract's Halt Envelope (for the activation HALTs), select.md and execute.md
     state the halt rule each; the command and the JSON rule never drift."""
-    halt = _section(_read(HEADLESS), "## Halt Envelope", None)
-    rules = {HEADLESS: halt,
+    halt = _section(_read(CONTRACT), "## Halt Envelope", None)
+    rules = {CONTRACT: halt,
              SELECT: _section(_read(SELECT), "### 1. Halt Envelope", "### 2. "),
              EXECUTE: _section(_read(EXECUTE), "### 1. Halt Envelope", "### 2. ")}
     commands = {rel: _one_command(rule, "emit-halt --workflow skf-drop-skill --run-dir")
@@ -235,13 +243,13 @@ def test_every_stage_runs_the_same_halt_command():
         assert ("Write the payload as valid JSON: in the halt message and `path`, replace each backslash "
                 "with / and each double quote with a backtick.") in rule, rel
     activation = _section(_read(SKILL), "## On Activation", None)
-    assert "the Halt Envelope section of `references/headless-contract.md`" in activation
+    assert "the Halt Envelope section of `references/invocation-contract.md`" in activation
     assert "emit-halt" not in activation and "halt.json" not in activation, "SKILL.md names the section, once"
 
 
 def test_the_json_rule_keeps_a_windows_halt_printable():
     """A raw Windows path makes the payload invalid JSON; the rule's rewrite emits."""
-    [block] = [b for b in _fenced(_section(_read(HEADLESS), "## Halt Envelope", None), "bash")
+    [block] = [b for b in _fenced(_section(_read(CONTRACT), "## Halt Envelope", None), "bash")
                if "<<'SKF_DROP_HALT'" in b]
     command = next(line for line in block.split("\n") if "<<'SKF_DROP_HALT'" in line).partition(" <<")[0]
     raw = ('{"phase": "on-activation:run-folder", "reason": "SKF cannot create its run folder under '
@@ -303,7 +311,7 @@ def test_run_folder_halt_emits_without_a_run_folder():
     """The one activation halt with no run folder passes its payload inline."""
     activation = _section(_read(SKILL), "## On Activation", None)
     assert 'HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:run-folder`)' in activation
-    [block] = [b for b in _fenced(_section(_read(HEADLESS), "## Halt Envelope", None), "bash")
+    [block] = [b for b in _fenced(_section(_read(CONTRACT), "## Halt Envelope", None), "bash")
                if "<<'SKF_DROP_HALT'" in b]
     lines = block.strip("\n").split("\n")
     start = next(i for i, line in enumerate(lines) if "<<'SKF_DROP_HALT'" in line)
@@ -402,8 +410,7 @@ def test_headless_decisions_reach_the_result_record(tmp_path):
     assert "--workflow" not in command, "the drop schema has no headless_decisions to check a decision against"
     assert "run the §8 `record` command" in confirm
     run_dir = _run_dir(tmp_path)
-    decisions = [_decision(mode, "select.mode", {"drop_mode": "purge",
-                                                 "mode_source": "customize.toml.workflow.default_mode"}),
+    decisions = [_decision(mode, "select.mode", {"drop_mode": "purge", "mode_source": "--mode argument"}),
                  _decision(confirm, "select.confirm", {})]
     for decision in decisions:
         (run_dir / "decision.json").write_bytes(json.dumps(decision).encode("utf-8"))
@@ -546,8 +553,162 @@ def test_the_mode_argument_answers_the_mode_gate():
     gates = next(line for line in _contract_text(with_skill=True).splitlines() if line.startswith("| **Gates** |"))
     assert "Mode Gate [use args] (§8 mode)" in gates
     mode = _section(_read(SELECT), "### 8. Ask Mode", "### 8b. ")
-    gate = "**GATE [default: use args]:** a `mode` argument answers this section in either mode, then `{defaultMode}`"
+    gate = ("**GATE [default: use args]:** a `mode` argument answers this section in either mode, "
+            "and an interactive run with none asks")
     assert gate in mode and mode.index(gate) < mode.index("**If `target_in_manifest = false`:**")
+    # #596: no setting picks the mode, so a headless run without `mode` halts on both branches.
+    exported = _section(mode, "**If `target_in_manifest = true`:**", None)
+    assert ('If `{headless_mode}` is true (no `mode` arg), there is no input to prompt for: HALT (exit code 2, '
+            '`halt_reason: "input-missing"`, phase `select:mode`)') in exported
+    assert '"headless mode requires `--mode deprecate|purge` to set the drop mode."' in exported
+    draft = _section(mode, "**If `target_in_manifest = false`:**", "**If `target_in_manifest = true`:**")
+    assert ('2. `{headless_mode}` is true and no `mode` argument was passed: HALT (exit code 2, '
+            '`halt_reason: "input-missing"`') in draft
+
+
+# --------------------------------------------------------------------------
+# #596: the customization surface: no default mode, a fail-closed purge
+# guard, and hook comments that match when the hooks run
+# --------------------------------------------------------------------------
+
+def _drop_files():
+    return [path for path in sorted(DROP.rglob("*")) if path.suffix in (".md", ".toml")]
+
+
+def _comment(toml: str, start: str, end: str) -> str:
+    """A customize.toml comment block as one line of prose, its `#` markers dropped."""
+    return " ".join(line.lstrip("#").strip() for line in _section(toml, start, end).splitlines()).strip()
+
+
+def test_no_drop_file_reads_a_default_mode():
+    """`default_mode` is gone: the mode is the `mode` argument or the interactive answer."""
+    for path in _drop_files():
+        text = path.read_text(encoding="utf-8")
+        for gone in ("default_mode", "{defaultMode}", "effective drop mode",
+                     "customize.toml.workflow.default_mode"):
+            assert gone not in text, f"{path.name}: {gone}"
+    assert not re.search(r"^\s*default_mode\s*=", _read(CUSTOMIZE), flags=re.M)
+    sources = _section(_read(REPORT), "- `headless_provenance` persists", "\n")
+    assert '(`"--mode argument"` / `"interactive-prompt"` / `"draft-skill-forced-purge"`)' in sources
+    stored = _section(_read(SELECT), "### 11. Store Decisions in Context", "### 12. ")
+    assert "(one of the three sources named there)" in stored
+
+
+def test_any_non_empty_forbid_value_turns_the_purge_guard_on():
+    """A mistyped forbid_purge_in_headless blocks the purge instead of allowing it."""
+    activation = _section(_read(SKILL), "## On Activation", None)
+    binding = next(line for line in activation.splitlines() if "`{forbidPurgeInHeadless}` ←" in line)
+    assert "on when `workflow.forbid_purge_in_headless` holds any value other than the empty string" in binding
+    assert 'non-`"true"`' not in binding
+    guard = _section(activation, "Last, the headless-purge guard.", "5. Load")
+    assert ('If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, '
+            'HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`') in guard
+    assert "empty the setting in the team or personal override that sets it" in guard, "never the base file"
+    comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", "forbid_purge_in_headless = ")
+    assert "Any value other than the empty string turns the guard on" in comment
+    assert re.search(r'^forbid_purge_in_headless = ""$', _read(CUSTOMIZE), flags=re.M)
+    headless = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Headless** |"))
+    assert "Any non-empty `forbid_purge_in_headless`" in headless
+    assert "never in the bundled `customize.toml`" in headless, "an edit to the DO-NOT-EDIT base file is lost on update"
+
+
+def test_hook_comments_match_when_the_hooks_run():
+    toml = _read(CUSTOMIZE)
+    prepend = _comment(toml, "# Steps to run once On Activation", "activation_steps_prepend = []")
+    assert "uv probe" not in prepend and "before its pre-flight" in prepend
+    append = _comment(toml, "# Steps to run right after the prepend steps", "activation_steps_append = []")
+    assert "still before the pre-flight" in append and "once activation completes" not in append
+    # SKILL.md runs both in On Activation section 3, before the section 4 pre-flight.
+    activation = _section(_read(SKILL), "## On Activation", None)
+    assert (activation.index("run `workflow.activation_steps_prepend` now")
+            < activation.index("then run `workflow.activation_steps_append` after")
+            < activation.index("**Pre-flight: helpers"))
+    on_complete = _comment(toml, "# Optional post-drop hook", 'on_complete = ""')
+    assert "`<command> --result-path=<path>`" in on_complete
+    assert "a dry run, a HALT or a failed record write never calls it" in on_complete
+    hook = _section(_read(REPORT), "### Post-drop hook", "### 3. ")
+    assert "`{result_json_path}` is not null" in hook
+    assert 'display "on_complete hook failed (exit {code}): {its first stderr line}"' in hook
+    for text in (toml, hook):
+        assert "workflow_warnings" not in text, "nothing reads that list"
+
+
+# --------------------------------------------------------------------------
+# #600: the headless contract lives in references/invocation-contract.md
+# --------------------------------------------------------------------------
+
+def test_skill_md_points_at_the_one_contract_file():
+    skill = _read(SKILL)
+    assert not (DROP / "references" / "headless-contract.md").exists()
+    for gone in ("| **Inputs** |", "| **Flags** |", "| **Gates** |", "## Exit Codes", "| Code | Meaning"):
+        assert gone not in skill, gone
+    pointer = _section(skill, "## Invocation Contract", "## On Activation")
+    assert "live in `references/invocation-contract.md`. Interactive runs do not need it." in pointer
+    contract = _read(CONTRACT)
+    headings = re.findall(r"^## (.+)$", contract, flags=re.M)
+    assert headings == ["Invocation Contract", "Exit Codes", "Result Contract (Headless)", "Halt Envelope"]
+    assert "per the Exit Codes table above" in contract
+    for path in [*_drop_files(), SCHEMA_PATH]:
+        text = path.read_text(encoding="utf-8")
+        assert "headless-contract.md" not in text and "SKILL.md Exit Codes" not in text, path.name
+
+
+def test_the_description_triggers_name_their_object():
+    """A bare "drop" would also match dropping a table, a column or a commit."""
+    front = _read(SKILL).split("\n---\n", 1)[0]
+    description = next(line for line in front.splitlines() if line.startswith("description: "))
+    triggers = re.findall(r'"([^"]+)"', description)
+    assert triggers == ["drop a skill", "remove a skill"]
+
+
+# --------------------------------------------------------------------------
+# A whole-skill deprecate keeps the manifest entry, so it stays reversible
+# --------------------------------------------------------------------------
+
+def _skill_level_calls() -> dict:
+    """execute.md section 2's skill-level manifest command for each drop mode."""
+    manifest = _section(_read(EXECUTE), "### 2. Update Export Manifest", "### 3. ")
+    level = _section(manifest, "**If `is_skill_level == true` (skill-level drop):**", "When the helper exits 0")
+    return {"deprecate": _one_command(_section(level, "- **Deprecate (`drop_mode == \"deprecate\"`):**",
+                                               "- **Purge:**"), "{manifestOpsHelper}"),
+            "purge": _one_command(_section(level, "- **Purge:**", None), "{manifestOpsHelper}")}
+
+
+@pytest.mark.parametrize("drop_mode", ["deprecate", "purge"])
+def test_the_skill_level_manifest_call_follows_the_drop_mode(tmp_path, drop_mode):
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    _write_manifest(skills, "cognee", "0.6.0", {"0.6.0": "active", "0.5.0": "archived", "0.1.0": "deprecated"})
+    manifest = json.loads((skills / ".export-manifest.json").read_text(encoding="utf-8"))
+    manifest["exports"]["other"] = {"active_version": "1.0.0",
+                                    "versions": {"1.0.0": {"ides": [], "last_exported": "2026-01-01",
+                                                           "status": "active"}}}
+    (skills / ".export-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
+    command = _skill_level_calls()[drop_mode]
+    proc = subprocess.run(_argv(command, {"manifestOpsHelper": str(MANIFEST_OPS),
+                                          "skills_output_folder": str(skills), "target_skill": "cognee"}),
+                          capture_output=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    exports = json.loads((skills / ".export-manifest.json").read_text(encoding="utf-8"))["exports"]
+    assert exports["other"]["versions"]["1.0.0"]["status"] == "active", "other entries are untouched"
+    if drop_mode == "deprecate":
+        entry = exports["cognee"]
+        assert {v["status"] for v in entry["versions"].values()} == {"deprecated"}
+        assert entry["active_version"] == "0.6.0"
+    else:
+        assert "cognee" not in exports
+
+
+def test_the_whole_skill_deprecate_is_checked_and_reported_as_kept():
+    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
+    assert ('Skill-level deprecate: every version in `entry.versions` has `status` `"deprecated"`. '
+            'Skill-level purge: `status` is `"not_found"`.') in verify
+    remaining = _section(_read(REPORT), "### 1. Determine Remaining Versions", "### 2. ")
+    assert '**If `is_skill_level == true` and `drop_mode == "purge"`:**' in remaining
+    assert "a whole-skill deprecate, which keeps every version in the manifest" in remaining
+    # The refusals that offer --mode deprecate no longer say it removes the entry.
+    assert "to remove the manifest entry only" not in _read(SELECT)
+    assert "Use `--mode deprecate` to mark it deprecated in the manifest only" in _read(SELECT)
 
 
 def test_the_purge_option_names_the_folders_the_purge_check_bound():

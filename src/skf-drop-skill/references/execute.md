@@ -73,11 +73,17 @@ The helper sets `exports.{target_skill}.versions.{version}.status = "deprecated"
 
 **If `is_skill_level == true` (skill-level drop):**
 
-```bash
-python3 {manifestOpsHelper} {skills_output_folder} remove {target_skill}
-```
+- **Deprecate (`drop_mode == "deprecate"`):** mark every version deprecated and keep the entry, so the soft drop stays reversible. With no version, the helper sets the `status` of every version under `exports.{target_skill}.versions` to `"deprecated"` and leaves `active_version` as it is:
 
-The helper deletes the `exports.{target_skill}` key entirely; other entries are untouched.
+  ```bash
+  python3 {manifestOpsHelper} {skills_output_folder} deprecate {target_skill}
+  ```
+
+- **Purge:** the helper deletes the `exports.{target_skill}` key entirely; other entries are untouched:
+
+  ```bash
+  python3 {manifestOpsHelper} {skills_output_folder} remove {target_skill}
+  ```
 
 When the helper exits 0 (`status: "ok"`), set context flag `manifest_updated = true`.
 
@@ -106,7 +112,7 @@ A target's file is `{context_path}`, its `{context_file}` in `{project-root}`, a
      [--skill-root-override "{snippet_skill_root_override}"]
    ```
 
-   Add `--skill-root-override` only when `snippet_skill_root_override` is set in `config.yaml`. The helper builds the body export-skill would write for the manifest section 2 left, with the rows of skills the manifest does not know (orphan rows) kept verbatim; `--dropped {target_skill}` keeps the dropped skill's old rows from staying as orphan rows. It writes the body to `{context_path}.skf-content` and prints its result as JSON: show each `warnings[]` line and each `skipped_*` entry as a warning. On a non-zero exit, bind `{context_error}` ← `error` and take item 4.
+   Add `--skill-root-override` only when `snippet_skill_root_override` is set in `config.yaml`. The helper builds the body export-skill would write for the manifest section 2 left, with the rows of skills the manifest does not know (orphan rows) kept verbatim; `--dropped {target_skill}` keeps the dropped skill's old rows from staying as orphan rows. It writes the body to `{context_path}.skf-content` and prints its result as JSON: show each `warnings[]` line and each `skipped_*` entry as a warning, except a `skipped_deprecated` entry for `{target_skill}`, which the drop itself deprecated. On a non-zero exit, bind `{context_error}` ← `error` and take item 4.
 
 3. **Replace the section.** Feed the staged body to the helper by stdin redirection. Never pass the body inline as `--content "…"` or through `echo`: snippets carry backticks, `$` and quotes, which the shell expands, and the helper checks the text it received, so it would report success on corrupted bytes.
 
@@ -181,7 +187,7 @@ Run these verification checks:
    python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}
    ```
 
-   Version-level drop: `entry.versions.{version}.status` is `"deprecated"` for each version in `target_versions`. Skill-level drop: `status` is `"not_found"`.
+   Version-level drop: `entry.versions.{version}.status` is `"deprecated"` for each version in `target_versions`. Skill-level deprecate: every version in `entry.versions` has `status` `"deprecated"`. Skill-level purge: `status` is `"not_found"`.
 
 2. **Context files check** (skip it when `context_files_updated` is empty): list every row of the files in `context_files_updated`:
 

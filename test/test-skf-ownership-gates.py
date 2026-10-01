@@ -63,6 +63,7 @@ DROP_SKILL = "src/skf-drop-skill/SKILL.md"
 RENAME_SELECT = "src/skf-rename-skill/references/select.md"
 RENAME_EXECUTE = "src/skf-rename-skill/references/execute.md"
 DROP_REPORT = "src/skf-drop-skill/references/report.md"
+DROP_CONTRACT = "src/skf-drop-skill/references/invocation-contract.md"
 CS_GENERATE = "src/skf-create-skill/references/generate-artifacts.md"
 CS_REPORT = "src/skf-create-skill/references/report.md"
 CS_SKILL = "src/skf-create-skill/SKILL.md"
@@ -80,8 +81,7 @@ WRITER_SITES = {
 }
 WRITER_SKILLS = ("src/skf-create-skill/SKILL.md", "src/skf-quick-skill/SKILL.md", SS_SKILL)
 CONTRACT_FILES = {
-    "src/skf-drop-skill/references/headless-contract.md": ("not-skf-output",),
-    "src/skf-drop-skill/SKILL.md": ("not-skf-output",),
+    "src/skf-drop-skill/references/invocation-contract.md": ("not-skf-output",),
     "src/skf-rename-skill/SKILL.md": ("not-skf-output", "flat-layout"),
     "src/skf-rename-skill/references/exit-codes.md": ("not-skf-output", "flat-layout"),
     "src/skf-export-skill/references/result-envelope.md": ("not-skf-output",),
@@ -250,17 +250,19 @@ def test_drop_forced_purge_is_guarded():
     for needle in ('"input-invalid"', '"input-missing"', "{forbidPurgeInHeadless}", "apply §8b",
                    "On-Activation guard"):
         assert needle in draft, needle
-    # A headless purge of a draft is reached only with mode=purge or default_mode purge, which the
-    # On-Activation guard already checks, so a second forbid HALT here could never run.
+    # A headless purge of a draft is reached only with mode=purge, which the On-Activation guard
+    # already checks, so a second forbid HALT here could never run.
     assert '"headless-purge-forbidden"' not in draft
-    assert "when `{headless_mode}` is true, no `mode` argument while `{defaultMode}` is `\"deprecate\"`" in draft, (
-        "an interactive run confirms the forced purge at §10; only headless refuses a deprecate default")
+    assert "1. A `mode` argument other than `purge`: HALT" in draft
+    assert "2. `{headless_mode}` is true and no `mode` argument was passed: HALT" in draft, (
+        "an interactive run confirms the forced purge at §10; only headless needs the argument")
+    assert "{defaultMode}" not in draft and "default_mode" not in draft
     assert "leave out **[P]**" in ask_mode
 
 
 def test_drop_contract_describes_the_draft_purge_guard():
     text = _read(DROP_SKILL)
-    exit_6 = next(line for line in text.splitlines() if line.startswith("| 6 "))
+    exit_6 = next(line for line in _read(DROP_CONTRACT).splitlines() if line.startswith("| 6 "))
     assert "§8" not in exit_6, "select.md §8 no longer raises headless-purge-forbidden"
     assert "cannot see the purge" not in text
     assert "cannot be deprecated" in _section(text, "## On Activation", None)
