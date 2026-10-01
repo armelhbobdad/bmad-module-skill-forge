@@ -1,7 +1,6 @@
 ---
 nextStepFile: 'sub/fetch-temporal.md'
 componentExtractionStepFile: 'component-extraction.md'
-extractionPatternsData: 'references/extraction-patterns.md'
 extractionPatternsTracingData: 'references/extraction-patterns-tracing.md'
 tierDegradationRulesData: 'references/tier-degradation-rules.md'
 sourceResolutionData: 'references/source-resolution-protocols.md'
@@ -50,6 +49,18 @@ sourceTreeProbeOrder:
 mergeCccExclusionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
+# Resolve `{extractPublicApiHelper}` to the first existing path. §4 runs it
+# in --mode full: it is the recipe runner of the AST Extraction Protocol in
+# `{extractionPatternsData}`. If neither path exists, §4 follows the
+# protocol's fallback.
+extractPublicApiProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+# Resolve `{extractionPatternsData}` to the first existing path; HALT if
+# neither exists. Steps 5 and 6 bind it the same way.
+extractionPatternsDataProbeOrder:
+  - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
+  - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -63,14 +74,14 @@ To extract all public exports, function signatures, type definitions, and co-imp
 ## Rules
 
 - Focus only on extracting exports, signatures, types from source code — do not compile SKILL.md
-- Do not write any output files — extraction stays in context
+- Do not write any output files: extraction stays in context, apart from the JSON the recipe runner writes beside the staging folder (§4)
 - Every extracted item must have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
 
 ## MANDATORY SEQUENCE
 
 ### 1. Load Extraction Patterns
 
-Load `{extractionPatternsData}` completely. Identify the strategy for the current forge tier.
+Resolve `{extractionPatternsData}` ← first existing path in `{extractionPatternsDataProbeOrder}` and load it completely. Identify the strategy for the current forge tier.
 
 ### 2. Apply Scope Filters
 
@@ -80,7 +91,7 @@ From the brief, apply scope and pattern filters:
 - `scope.include` — file globs to include
 - `scope.exclude` — file globs to exclude
 
-Build the filtered file list from the source tree resolved in step 1. Record the result: "**Filtered file count: {N} files in scope**". This count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file. For a remote source at Forge tier or above, §2b builds the list again from the tree it reads, and extraction uses that list and its count.
+At Forge tier and above the recipe runner (§4) applies these globs to the source tree itself, and its `files_in_scope` is the filtered file count. Build the filtered file list by hand only where a step reads it: at Quick tier, for a `component-library` brief (§2c), and in a §4 branch that extracts without the runner. Build it from the source tree resolved in step 1 (for a remote source at Forge tier or above, §2b builds it again from the tree it reads), matching the globs by the **Files in scope** rule of the Recipe Runner section in `{extractionPatternsData}`, and record the result: "**Filtered file count: {N} files in scope**".
 
 Sections 2b and 2a follow in that order: §2b resolves the source to a local tree, and §2a scans that tree for authoritative files.
 
@@ -113,7 +124,7 @@ Bind from its JSON `source_ref` ← `source_ref`, `source_commit` ← `source_co
 
 Dispatch on `{source_resolve_status}`:
 
-- **`ready`** (exit 0): bind `{source_root}` ← `{source_tree}`. Every later read of the source reads this tree: the §2 file list, the §2a scan, extraction, step 6's citation check and step 7's script and asset copies. Build the §2 filtered file list again from `{source_root}`, since step 1 listed the remote's default branch, which need not hold `source_commit`. Bind `{resolved-source-path}` ← `{workspace_clone}`, or ← `{source_repo}` when `{workspace_clone}` is null (the folder at `{workspace_path}` is not SKF's clone of the repository): it is the `source_root` metadata.json records (`{sourceResolutionData}` "Source Commit Capture"). When `{clone_status}` is `advanced` or `ok`, SKF's clone now holds `source_commit`: bind `{remote_clone_path}` ← `{workspace_clone}`, the folder the deferred ccc discovery below and step 7 §6b index. Otherwise leave it null and display "SKF's clone of `{source_repo}` at `{workspace_path}` was not moved ({clone_skip_reason}), so this run skips ccc discovery and the ccc index registration. Extraction reads this run's own tree." Then report the outcome of `tag_resolution` as `{sourceResolutionData}` "Tag Resolution" says.
+- **`ready`** (exit 0): bind `{source_root}` ← `{source_tree}`. Every later read of the source reads this tree: the §2 file list, the §2a scan, extraction, step 6's citation check and step 7's script and asset copies. Build the §2 filtered file list again from `{source_root}` when §2 builds one (a `component-library` brief), since step 1 listed the remote's default branch, which need not hold `source_commit`. Bind `{resolved-source-path}` ← `{workspace_clone}`, or ← `{source_repo}` when `{workspace_clone}` is null (the folder at `{workspace_path}` is not SKF's clone of the repository): it is the `source_root` metadata.json records (`{sourceResolutionData}` "Source Commit Capture"). When `{clone_status}` is `advanced` or `ok`, SKF's clone now holds `source_commit`: bind `{remote_clone_path}` ← `{workspace_clone}`, the folder the deferred ccc discovery below and step 7 §6b index. Otherwise leave it null and display "SKF's clone of `{source_repo}` at `{workspace_path}` was not moved ({clone_skip_reason}), so this run skips ccc discovery and the ccc index registration. Extraction reads this run's own tree." Then report the outcome of `tag_resolution` as `{sourceResolutionData}` "Tag Resolution" says.
 - **`ambiguous`** (exit 0): several tags match, and nothing was read. Make the choice in `{sourceResolutionData}` "Several Matching Tags", run the command again with `--target-ref "{chosen tag}"` (`HEAD` for the default branch) in place of `--version`, `--name`, `--implicit` and any `--target-ref` from the brief, and dispatch on that result.
 - **`skipped`** (exit 0): the helper does not read `{source_repo}` as a remote repository (`skip_reason` is `not-remote`), so treat it as a local source, above.
 - **`unavailable`** (exit 3): no commit could be read, and no tree was left behind (`{source_resolve_reason}` is `invalid-ref`, `git-unavailable`, `upstream-unreachable`, `ref-not-found`, `fetch-failed`, `checkout-failed`, `tree-folder-failed` or `timed-out`). ⚠️ Warn the user explicitly: "Could not read `{source_repo}`: {source_resolve_message}. Degrading to source reading (T1-low) for this run. For T1 (AST-verified) confidence, clone the repository locally and update `source_repo` in your brief to the local path." Keep `{source_root}` the remote URL, bind `source_ref` ← `source_ref` when it is not null and `HEAD` otherwise, and extract with the Quick tier strategy in §4. Note the degradation reason in context for the evidence report.
@@ -152,10 +163,7 @@ Then index SKF's clone and search it. The clone persists across forges, so an in
 
 **CCC Discovery Integration (Forge+ and Deep with ccc only):**
 
-If `{ccc_discovery}` is in context and non-empty (populated by step 2b or deferred discovery above):
-- Sort the filtered file list by CCC relevance score: files appearing in `{ccc_discovery}` results move to the front of the extraction queue, sorted by their relevance score descending
-- Files not in CCC results remain in the queue after ranked files — they are not excluded, only deprioritized
-- Display: "**CCC discovery: {N} files pre-ranked by semantic relevance** — extraction will prioritize these first."
+If `{ccc_discovery}` is in context and non-empty (populated by step 2b or deferred discovery above), §4 and §4b read the files they read one at a time in its order, as the CCC Pre-Ranking Strategy in `{extractionPatternsData}` says. Display: "**CCC discovery: {N} files ranked by semantic relevance.** Files read one at a time follow this order."
 
 If `{ccc_discovery}` is empty or not in context: proceed with existing file ordering (no change to current behavior).
 
@@ -197,53 +205,53 @@ Build an empty extraction inventory with zero exports. **Set `top_exports = []` 
 
 ### 4. Execute Tier-Dependent Extraction
 
-Source resolution, version reconciliation, and CCC discovery were completed in section 2b. Proceed with the tier-specific extraction strategy below.
+Source resolution, version reconciliation, and CCC discovery were completed in section 2b. Run the Strategy for the current tier from `{extractionPatternsData}` (loaded in §1): source reading at Quick tier (and for a remote source §2b could not read into a tree), and at Forge, Forge+ and Deep the **AST Extraction Protocol** there, whose recipe runner reads `{source_root}` itself. A branch that extracts without the runner (source reading, or the protocol's fallback) reads the §2 filtered file list: build it first, from `{source_root}`, when §2 did not. Label each export by the tool that produced it, as that file's Confidence sections say.
 
-**Quick Tier (No AST tools):**
+**The recipe runner (Forge, Forge+ and Deep):** resolve `{extractPublicApiHelper}` ← first existing path in `{extractPublicApiProbeOrder}` and bind `{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json` (beside the staging folder step 5 creates, never inside the skill). From `{project-root}`, create that folder (the runner creates no folder) and remove the JSON an earlier run left there, then call the runner with the longest timeout your shell tool takes, since a large tree takes minutes:
 
-1. Use `gh_bridge.list_tree(owner, repo, branch)` to map source structure (if remote)
-2. Identify entry points: index files, main exports, public modules
-3. Use `gh_bridge.read_file(owner, repo, path)` to read each entry point
-4. Extract from source text: exported function names, parameter lists, return types
-5. Infer types from JSDoc, docstrings, type annotations
-6. Label every export read this way T1-low: cite it `[SRC:{file}:L{line}]` and record `extraction_method: source-read` and `ast_node_type: null`, since no ast-grep rule matched it
+```bash
+mkdir -p "{project-root}/_bmad-output/.skf-stage"
+rm -f "{extraction_json}"
+uv run {extractPublicApiHelper} --mode full \
+    --source-root "{source_root}" \
+    --brief "{brief_path}" \
+    --tier "{tier}" \
+    -o "{extraction_json}"
+```
 
-**Tool resolution for gh_bridge:** Use `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` for list_tree, `gh api repos/{owner}/{repo}/contents/{path}` for read_file. If source is local, use direct file listing/reading instead. See `knowledge/tool-resolution.md`.
+`{brief_path}` is the `skill-brief.yaml` step 1 loaded: the runner takes its `scope.include`, `scope.exclude`, `scope.tier_a_include`, `scope.type` and `language` from it, and the head cap from `--tier`. A JSON at `{extraction_json}` after the call is this call's: read it, in parts when it is large, and act on its `status` and fields as the protocol's **Recipe Runner** section says, never on the exit code. Each export it returns is T1 as it stands (its `source_line`, `citation`, `ast_recipe` and `ast_node_type` included), so read from the source only each export's full signature, parameter types and return type, at its `source_line`, and read by eye (T1-low) only what the runner leaves. When no path resolves, or a case the protocol's **When the Runner Cannot Run** lists applies, such as no JSON at `{extraction_json}` after the call or an empty `scope.languages` (no recipe reads the brief's language), follow that section.
 
-**Forge/Forge+/Deep Tier (AST available):**
+**When `truncated` is true,** a recipe matched more exports than its head cap keeps, and the matches past the cap are missing: a public name among them comes back as an extraction gap (§4b), read by eye, and the others are left out. Warn, and keep the warning for §6 and the evidence report: "**Extraction hit the head cap:** {each `recipes[]` id whose `truncated` is true} matched more than {head_cap} exports, so some exports were read by eye or left out. Narrow `scope.include` in the brief until no recipe reaches the cap."
 
-Before executing AST extraction, load the **AST Extraction Protocol** section from `{extractionPatternsData}`. Follow the decision tree based on the §2 filtered file count (rebuilt in §2b for a remote source): it determines whether to use the MCP tool, scoped YAML rules, or CLI streaming. Do not use `ast-grep --json` (without `=stream`), which loads the entire result set into memory and fails on large codebases. Use the explicit `run` subcommand with streaming: `ast-grep run -p '{pattern}' --json=stream`.
+**Co-import detection (Forge tier and above):** use `ast_bridge.detect_co_imports(path, libraries[])` to find integration points: `find_code_by_rule` with a co-import YAML rule scoped to the libraries list, or `ast-grep scan -r {rule_file} --json=stream` (see `knowledge/tool-resolution.md`).
 
-1. Detect language from brief or file extensions
-2. Follow the AST Extraction Protocol decision tree from `{extractionPatternsData}`:
-   - ≤100 files: use `find_code()` MCP tool with `max_results` and `output_format="text"`
-   - ≤500 files: use `find_code_by_rule()` MCP tool with scoped YAML rules
-   - >500 files: use CLI `--json=stream` with line-by-line streaming Python — inject the brief's `scope.exclude` patterns into the Python filter's `EXCLUDES` list (use `[]` if absent) so excluded files are discarded before consuming `head -N` slots (see template in extraction patterns data)
-3. For each export: extract function name, full signature, parameter types, return type, line number
-4. Use `ast_bridge.detect_co_imports(path, libraries[])` to find integration points
-5. Build extraction rules YAML data for reproducibility
-6. Label each export by the tool that produced it, not by the tier:
-   - **An ast-grep rule matched it:** T1, cite it `[AST:{file}:L{line}]`, record `extraction_method: ast-grep`, and copy the `kind` of the recipe or pattern that matched it in `{extractionPatternsData}` into `ast_node_type` (such as `function_definition` or `class_definition` in Python, `export_statement` for a TypeScript `export ...` recipe): ast-grep's output does not report a match's kind, so never infer one from the source
-   - **You read it by eye** (ast-grep could not parse its file, the rules missed it, or you read the file instead of running a rule): T1-low, cite it `[SRC:{file}:L{line}]`, record `extraction_method: source-read` and `ast_node_type: null`. An export read by eye is T1-low at every tier.
+**If AST tools are unavailable at Forge, Forge+ or Deep tier** (no ast-grep can run the recipes: see `{tierDegradationRulesData}` for full rules):
 
-**Tool resolution for ast_bridge:** Use ast-grep MCP tools (`mcp__ast-grep__find_code`, `mcp__ast-grep__find_code_by_rule`) as specified in the AST Extraction Protocol above, or `ast-grep` CLI. For `detect_co_imports`, use `find_code_by_rule` with a co-import YAML rule scoped to the libraries list. See `knowledge/tool-resolution.md`.
-
-**If AST tool is unavailable at Forge/Deep tier** (see `{tierDegradationRulesData}` for full rules):
-
-⚠️ **Warn the user explicitly:** "AST tools are unavailable — extraction will use source reading (T1-low). Run [SF] Setup Forge to detect and configure AST tools for T1 confidence."
+⚠️ **Warn the user explicitly:** "AST tools are unavailable, so extraction will use source reading (T1-low). Run [SF] Setup Forge to detect and configure AST tools for T1 confidence."
 
 Degrade to Quick tier extraction. Note the degradation reason in context for the evidence report.
 
-**For each file — handle failures gracefully:**
+**For each file, handle failures gracefully:**
 
 - If a file cannot be read: log warning, skip file, continue with remaining files
-- If AST parsing fails on a file: fall back to source reading for that file, continue
+- If AST parsing fails on a file (the runner lists each one in `file_issues`): fall back to source reading for that file, continue
 
-**Re-export tracing (Forge/Deep only):** After the initial AST scan, check for unresolved public exports from entry points (`__init__.py`, `index.ts`, `lib.rs`). Follow the **Re-Export Tracing** protocol in `{extractionPatternsTracingData}` to resolve them to their definition files.
+**Re-export tracing (Forge tier and above):** the runner follows each entry point's re-exports to the file that defines each name. Follow the **Re-Export Tracing** protocol in `{extractionPatternsTracingData}` for what it could not follow: each `entry_points.unresolved` chain, and each `entry_point_diff.extraction_gaps` name with no `file`. Without the runner, check for unresolved public exports from entry points (`__init__.py`, `index.ts`, `lib.rs`) and follow the same protocol to resolve them to their definition files.
 
 ### 4b. Validate Exports Against Package Entry Point
 
-After extraction, validate the collected exports against the package's actual public API surface:
+After extraction, validate the collected exports against the package's actual public API surface.
+
+**When the recipe runner extracted (§4: its JSON's `status` is `ok` or `incomplete`, and `scope.languages` is not empty),** its `entry_point_diff` is this check: do not read the entry points or diff the sets yourself. It read each package's entry points, traced each re-exported name to the file that defines it, and diffed those names with the recipe matches (`skf-extract-public-api.py --help` lists the entry points it reads):
+
+- `public`: the package's public names, which `metadata.json`'s `exports[]` lists. In a language with no entry point, or only empty ones (`entry_points.by_language`), every export the recipes found is public.
+- `internal`: exports the recipes found that no entry point exports or makes reachable: mark them internal and keep them out of `metadata.json`'s `exports[]`.
+- `extraction_gaps`: names an entry point exports that no recipe found: read each by eye at its `file` and `line` (T1-low), or trace it (§4) when it has no `file`.
+- `outside_scope`: names an entry point exports that are defined in files outside the brief's scope. Display each of the runner's `warnings` (one names each `package.json` `exports` subpath whose entry point is outside the files in scope) and list these names with them: widen `scope.include` before extraction, or this surface stays undocumented while `exports_public_api` still counts it, so `public_api_coverage` drops (only `effective_denominator`, for the curated-subset shapes, leaves it out).
+
+Record its `counts` (`exports_public_api`, `exports_internal`, `effective_denominator` and `effective_denominator_basis`) and `arms` for step 5 §4. Files you read by eye because no recipe reads their language (`files_without_recipes`) are outside this diff and these counts: read their entry points as **Otherwise** says and add their names to the counts.
+
+**Otherwise** (Quick tier, extraction by source reading, a brief whose language no recipe reads included, or the protocol's fallback), read the entry points yourself (when the runner's JSON has `status: no-ast-grep`, its `entry_points.files` lists them, and record its `arms` for step 5 §4) and compare them with the extracted exports, then count `exports_public_api` (the entry points' public names) and `exports_internal` (every other non-underscore export) for step 5 §4:
 
 - **Python:** Read `{source_root}/__init__.py` — extract imports to build the public export list. Compare against AST results:
   - In AST but not entry point → mark as internal (exclude from `metadata.json` exports)
@@ -254,7 +262,7 @@ After extraction, validate the collected exports against the package's actual pu
 **Multi-entry packages (`exports` map / declaration-file entry points).** A single per-language entry-point read misses public surface that a package ships through its `package.json` `exports` map — especially committed `.d.ts` / `.d.mts` declaration files that resolve **outside** the conventional source dir (e.g. a monorepo package whose `./macro` subpath maps to `macro/index.d.mts`, listed in `files[]` but not under `src/`). When the in-scope package declares an `exports` map:
 
 - Resolve each `exports` subpath to its target file and treat that file — and any committed `.d.ts` / `.d.mts` declaration it resolves to — as an authoritative public entry point, reading it the same way as the primary barrel above even when it lives outside `src/`.
-- If a resolved `exports` subpath target falls **outside** the brief's `scope.include` globs, surface a note: `"warn: public entry point {path} (exports subpath '{subpath}') resolves outside scope.include — widen scope.include before extraction, or this surface stays undocumented and excluded from the coverage denominator."` Widening `scope.include` here keeps the documented surface aligned with the `effective_denominator` that compile.md §4 derives from those same globs, without mid-run scope surgery.
+- If a resolved `exports` subpath target falls **outside** the brief's `scope.include` globs, surface a note: `"warn: public entry point {path} (exports subpath '{subpath}') resolves outside scope.include: widen scope.include before extraction, or this surface stays undocumented while exports_public_api still counts it, so public_api_coverage drops (only effective_denominator, for the curated-subset shapes, leaves it out)."` Widening `scope.include` here keeps the documented surface aligned with the `effective_denominator` that compile.md §4 derives from those same globs, without mid-run scope surgery.
 
 Use the entry point as the authoritative source for `metadata.json`'s `exports[]` array.
 
@@ -304,12 +312,18 @@ Compile all extracted data into a structured inventory:
 - `ast_node_type`: the `kind` the matching recipe or pattern declares, or `null` for an export read by eye
 - `ast_recipe`: the recipe that matched it (its `id` in `{extractionPatternsData}`, or the pattern of a `find_code` call), or `null` for an export read by eye. validate.md §7a reads it to repair a node kind ast-grep does not know
 
-**Aggregate counts:**
-- Total files scanned
-- Total exports found
-- Exports by type (functions, types/interfaces, constants)
-- Confidence breakdown (T1 count, T1-low count)
+An export the recipe runner returned takes its name, `source_file`, `source_line`, `citation`, `ast_recipe`, `ast_node_type` and `export_type` from the runner's record unchanged.
+
+**Aggregate counts:** when the runner ran, take them from its JSON and add the exports read by eye; otherwise count the inventory:
+- Total files scanned: the runner's `files_in_scope` (else §2's filtered file count)
+- Total exports found: `aggregates.exports`, plus the exports read by eye
+- Exports by type (functions, types/interfaces, constants): `aggregates.by_type`, plus the exports read by eye
+- Confidence breakdown: T1 is `aggregates.t1`, the runner's exports; T1-low counts the exports read by eye
 - `top_exports[]` — sorted list of the top 10-20 public API function names by prominence (import frequency or documentation position). This named field is consumed by step 3b for targeted temporal fetching and cache fingerprinting.
+
+**Runner warnings (when it ran):** keep for §6 and the evidence report the head-cap warning when `truncated` is true (§4), each `errors[]` item ("ast-grep did not finish on {files} files from `{first_file}` ({detail}): exports in them may be missing"), each `file_issues[]` file read by eye, each extension `files_without_recipes` counts ("{N} `{ext}` files in scope are in a language no recipe reads"), and each entry of its `warnings`.
+
+**Extraction rules (for step 7's `extraction-rules.yaml`):** the runner's `recipe_set`, the `recipes[]` ids it ran, its `scope` and `ast_grep.version`.
 
 **Script/asset counts (when detected):**
 - `scripts_found`: count of scripts detected
@@ -346,7 +360,7 @@ Display the extraction findings for user confirmation:
 **Top exports:**
 {list top 10 exports with signatures}
 
-{warnings if any files skipped or degraded}
+{warnings: the runner warnings §5 kept, and any file skipped or degraded}
 
 Review the extraction summary above, then confirm to continue."
 

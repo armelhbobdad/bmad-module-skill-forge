@@ -15,7 +15,7 @@ cccGitHygieneProbeOrder:
 
 ## STEP GOAL:
 
-If tier is Forge+ or Deep AND ccc is available, perform a semantic discovery pass over the source code to identify the most relevant files for the skill being created. Store ranked discovery results in context to pre-rank the file extraction queue in step 3.
+If tier is Forge+ or Deep AND ccc is available, perform a semantic discovery pass over the source code to identify the most relevant files for the skill being created. Store the ranked results in context: step 3 reads the files it reads one at a time in their order.
 
 For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed.
 

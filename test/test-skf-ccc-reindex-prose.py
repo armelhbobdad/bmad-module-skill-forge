@@ -653,8 +653,10 @@ def test_only_the_ccc_steps_name_the_workspace_clone():
         for line in text.splitlines():
             if "remote_clone_path" in line:
                 assert line in allowed.get(path.name, ""), (path.relative_to(REPO_ROOT), line[:100])
-    extraction = _slice(_read(EXTRACT), "**Forge/Forge+/Deep Tier (AST available):**", "1. Detect language")
-    assert "the §2 filtered file count (rebuilt in §2b for a remote source)" in extraction
+    # extraction reads the tree §2b resolved: the runner itself, a branch without it through its list
+    extraction = _slice(_read(EXTRACT), "### 4. Execute Tier-Dependent Extraction", "### 4b.")
+    assert "whose recipe runner reads `{source_root}` itself" in extraction
+    assert "reads the §2 filtered file list: build it first, from `{source_root}`, when §2 did not" in extraction
     assert "step 1's file tree" not in extraction
     # the demo scan reads the list extraction reads, not SKF's clone
     component = _read(SRC / "skf-create-skill" / "references" / "component-extraction.md")
