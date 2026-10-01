@@ -24,6 +24,14 @@ To map the complete project structure by scanning directory trees, detecting ser
 
 ## MANDATORY SEQUENCE
 
+Every HARD HALT in this step names its exit code, `halt_reason` and phase. When `{headless_mode}` is true it first prints its envelope on stderr through the shared emitter (`{emitEnvelopeHelper}` and `{run_dir}` come from SKILL.md On Activation): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "mode": "interactive", "report_path": "{outputFile as an absolute path}"}`, plus `"path"` when the halt names one, then run
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Load Context
 
 Read {outputFile} frontmatter to obtain:
@@ -36,7 +44,7 @@ Load {heuristicsFile} for reference on detection signals.
 
 ### 2. Scan Directory Structure
 
-**Resolve `{scanManifestsHelper}`** from `{scanManifestsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{scanManifestsHelper}`** from `{scanManifestsProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `scan-project:2`): "`skf-scan-manifests.py` is missing. Re-install SKF."
 
 **For each path in `project_paths[]`**, resolve the constituent ref (if any) and launch a subprocess that scans the project directory structure (aggregate results across all repos with clear repo-level grouping):
 
@@ -149,7 +157,7 @@ Display: "**Select:** [C] Continue to Unit Identification | [X] Cancel and exit"
 #### Menu Handling Logic:
 
 - IF C: Save scan results to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the error envelope on stderr with `halt_reason: "user-cancelled"` and counts/paths reflecting state at cancellation (shape in `references/headless-contract.md`)
+- IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `scan-project:7`): "Cancelled at the project scan."
 - IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
 
 **GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past scan results".

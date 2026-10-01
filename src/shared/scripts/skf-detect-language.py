@@ -30,15 +30,33 @@ Detection rules (apply in order, first match wins):
   4. go.mod              → go (high)
   5. pom.xml             → java (high)
   6. build.gradle.kts    → kotlin (high)
-  7. build.gradle (Groovy) — check tree:
+  7. Package.swift       → swift (high)
+  8. Gemfile             → ruby (high)
+  9. build.gradle (Groovy), the tree decides:
        src/main/kotlin/  → kotlin (medium)
        else              → java (medium)
-  8. Package.swift       → swift (high)
-  9. *.csproj | *.sln    → csharp (high)
- 10. Gemfile             → ruby (high)
+ 10. *.csproj | *.sln    → csharp (high)
  11. Extension-frequency fallback over the full tree.
        dominant extension >= 50% of code files → that language (medium)
        no clear winner                        → unknown (low)
+
+Which manifests decide (rules 1-10). The tree's root is the deepest folder
+that holds every path: the repository root for a whole listing, a unit's
+own folder for the files of one unit. A manifest in a hidden folder or in
+a folder _NON_CORE_PATH_SEGMENTS names (docs, examples, tests, fixtures,
+benchmarks, scripts, tools, ...) below that root is not the project's own
+package, so it decides only when no other manifest exists. The rules then
+run over the shallowest of the remaining manifests first: the manifests of
+the least deep folder that holds one decide, in rule order, so a root
+pyproject.toml beats docs/package.json and pydantic-core/Cargo.toml. A
+manifest at the root decides at its rule's confidence. When none sits at
+the root (CPython's listing holds only Platforms/ and PCbuild/ ones), the
+shallowest manifest below it decides at medium confidence, and
+detected_languages ends with source_language, the language most of the
+tree's source files are written in, so the caller sees both answers. The
+tsconfig.json check reads every core folder (every folder when no
+manifest is core), so a docs site's tsconfig.json does not make a root
+package.json typescript.
 
 CLI:
   echo '{"tree": ["path1", "path2", ...]}' | uv run skf-detect-language.py
@@ -82,17 +100,24 @@ Output (JSON on stdout):
                        | unknown
   confidence        — "high" | "medium" | "low"
   detection_source  — human-readable string naming what fired (manifest
-                       basename, extension share, etc.)
-  fallback_to_extension_frequency — bool (true when rule 10 fired)
+                       basename, extension share, etc.); a manifest below
+                       the root is named by its path
+  fallback_to_extension_frequency: bool (true when rule 11 fired)
+  source_language:  the extension-frequency answer over the full tree
+                       (rule 11's language, or unknown), whatever decided
+                       `language`: the language most source files are in
   detected_languages — ordered, deduplicated list of EVERY manifest-level
-                       match in the same priority order the winner walk uses.
+                       match, ranked as the winner walk ranks them (folder
+                       depth, then rule order), then the languages of the
+                       manifests that never decide (non-core folders), then
+                       source_language when no manifest sits at the root.
                        language == detected_languages[0] whenever the manifest
                        table fired, so a caller can auto-pick detected_languages[0]
                        and gate multi-language disambiguation on
                        len(detected_languages) > 1. Special cases: a
                        workspace_signal override (rule 0) is decisive and returns
                        a single-element [language]; the extension-frequency
-                       fallback (rule 10) contributes [language] for a best guess
+                       fallback (rule 11) contributes [language] for a best guess
                        or [] when language is "unknown".
 
 Exit codes:
@@ -174,6 +199,19 @@ _EXTENSION_TO_LANGUAGE: dict[str, str] = {
 
 _DOMINANCE_THRESHOLD = 0.50
 
+# Folders whose manifests are not the project's own package: a docs or
+# website site, an example, a test fixture, a benchmark, a script or a tool.
+# A copy of skf-shape-detect.py's _NON_CORE_PATH_SEGMENTS, which cannot be
+# imported from there: skf-shape-detect.py loads this script. A hidden folder
+# (.github/, .devcontainer/) is non-core too.
+_NON_CORE_PATH_SEGMENTS = frozenset({
+    "example", "examples", "demo", "demos", "sample", "samples",
+    "playground", "playgrounds", "e2e", "benchmark", "benchmarks", "bench",
+    "fixture", "fixtures", "website", "websites", "www",
+    "docs", "doc", "scripts", "tools", "tooling", "devtools", "dev-tools",
+    "test", "tests", "__tests__", "integration", "smoke",
+})
+
 
 def _die(message: str, code: int = 2) -> None:
     sys.stderr.write(f"skf-detect-language: {message}\n")
@@ -251,18 +289,119 @@ def _frequency_fallback(tree: list[str]) -> dict[str, Any]:
     }
 
 
+def _parts(path: str) -> list[str]:
+    """The segments of a repo-relative path, without empty and `.` ones."""
+    return [p for p in path.split("/") if p and p != "."]
+
+
+def _tree_root(tree: list[str]) -> list[str]:
+    """The folder segments every path of the tree sits under (the tree's root)."""
+    root: list[str] | None = None
+    for path in tree:
+        folders = _parts(path)[:-1]
+        if root is None:
+            root = folders
+            continue
+        depth = 0
+        while depth < min(len(root), len(folders)) and root[depth] == folders[depth]:
+            depth += 1
+        root = root[:depth]
+        if not root:
+            break
+    return root or []
+
+
+def _is_core(folders: list[str]) -> bool:
+    """Whether no folder below the tree's root is hidden or a non-core folder."""
+    return not any(seg.startswith(".") or seg.lower() in _NON_CORE_PATH_SEGMENTS for seg in folders)
+
+
+def _rule_of(basename: str) -> int | None:
+    """The rank of the table rule a manifest basename fires, in rule order
+    (package.json first, the suffix rules last), or None."""
+    if basename == "package.json":
+        return 0
+    for i, (name, _language, _source) in enumerate(_MANIFEST_RULES):
+        if basename == name:
+            return 1 + i
+    if basename == "build.gradle":
+        return 1 + len(_MANIFEST_RULES)
+    for i, (suffix, _language, _source) in enumerate(_SUFFIX_RULES):
+        if basename.endswith(suffix):
+            return 2 + len(_MANIFEST_RULES) + i
+    return None
+
+
+def _rule_result(rank: int, context: dict[str, bool]) -> dict[str, Any]:
+    """The result a table rule gives; `context` says whether the paths its
+    checks read hold a tsconfig.json and a src/main/kotlin/ folder."""
+    if rank == 0:
+        if context["tsconfig"]:
+            return {"language": "typescript", "confidence": "high",
+                    "detection_source": "package.json + tsconfig.json present"}
+        return {"language": "javascript", "confidence": "high",
+                "detection_source": "package.json present (no tsconfig.json)"}
+    if rank <= len(_MANIFEST_RULES):
+        _name, language, source = _MANIFEST_RULES[rank - 1]
+        return {"language": language, "confidence": "high", "detection_source": source}
+    if rank == 1 + len(_MANIFEST_RULES):
+        # build.gradle (Groovy DSL): build.gradle.kts, earlier in the table,
+        # already decided when both sit in the same folder depth.
+        if context["kotlin"]:
+            return {"language": "kotlin", "confidence": "medium",
+                    "detection_source": "build.gradle (Groovy) + src/main/kotlin/ present"}
+        return {"language": "java", "confidence": "medium",
+                "detection_source": "build.gradle (Groovy) present without src/main/kotlin/ \u2014 defaulting to java"}
+    _suffix, language, source = _SUFFIX_RULES[rank - 2 - len(_MANIFEST_RULES)]
+    return {"language": language, "confidence": "high", "detection_source": source}
+
+
+def _ranked_manifests(tree: list[str]) -> dict[str, Any]:
+    """The tree's manifests, ranked for the winner walk (see the module
+    docstring): `deciding` and `other` list (depth, rule rank, path, result)
+    tuples in rank order, `deciding` the manifests that may decide and
+    `other` the non-core ones that may not."""
+    root = _tree_root(tree)
+    core: list[tuple[int, int, str]] = []
+    rest: list[tuple[int, int, str]] = []
+    tsconfig = {True: False, False: False}  # a tsconfig.json in a core / non-core folder
+    for path in tree:
+        parts = _parts(path)
+        if not parts:
+            continue
+        folders = parts[len(root):-1]
+        is_core = _is_core(folders)
+        if parts[-1] == "tsconfig.json":
+            tsconfig[is_core] = True
+        rank = _rule_of(parts[-1])
+        if rank is not None:
+            (core if is_core else rest).append((len(folders), rank, path))
+    # A source path such as src/main/kotlin/com/example/App.kt is the
+    # project's own whatever its folder names: the Kotlin check reads them all.
+    kotlin = _has_path_segment(tree, "src/main/kotlin/")
+    whole = {"tsconfig": tsconfig[True] or tsconfig[False], "kotlin": kotlin}
+    context = {"tsconfig": tsconfig[True], "kotlin": kotlin} if core else whole
+    deciding, other = (core, rest) if core else (rest, [])
+    return {
+        "deciding": [(d, r, p, _rule_result(r, context)) for d, r, p in sorted(deciding)],
+        "other": [(d, r, p, _rule_result(r, whole)) for d, r, p in sorted(other)],
+    }
+
+
 def _detected_languages(payload: dict[str, Any], winner: dict[str, Any]) -> list[str]:
     """Accumulate every manifest-level match into an ordered, deduplicated list.
 
-    The walk mirrors the winner-selection priority order exactly, so
-    winner["language"] == detected_languages[0] whenever the manifest table
-    fired. Two decisive short-circuits diverge from a full walk on purpose:
+    The walk follows the winner walk's ranking exactly (folder depth, then
+    rule order), so winner["language"] == detected_languages[0] whenever the
+    manifest table fired; the non-core manifests follow, then, when no
+    manifest sits at the root, the tree's source language. Two decisive
+    short-circuits diverge from a full walk on purpose:
 
       * A workspace_signal override (rule 0) is authoritative — the workspace
         root language wins over any nested package.json, so this returns a
         single-element [winner_language] and never surfaces a spurious
         multi-language gate for what workspace detection already resolved.
-      * When no manifest matched (rule 10 fired), the list carries the
+      * When no manifest matched (rule 11 fired), the list carries the
         extension-frequency best guess as a single element, or [] when the
         guess was "unknown".
     """
@@ -272,35 +411,21 @@ def _detected_languages(payload: dict[str, Any], winner: dict[str, Any]) -> list
     if isinstance(workspace_signal, str) and workspace_signal in _WORKSPACE_SIGNAL_LANGUAGE:
         return [winner["language"]]
 
+    ranked = _ranked_manifests(tree)
     langs: list[str] = []
-
-    def add(lang: str) -> None:
-        if lang not in langs:
-            langs.append(lang)
-
-    # Rule 1 — package.json (tsconfig.json disambiguation)
-    if _has_basename(tree, "package.json"):
-        add("typescript" if _has_basename(tree, "tsconfig.json") else "javascript")
-
-    # Rules 2-6 / 8 / 10 — single-basename manifests (same order as _MANIFEST_RULES)
-    for basename, language, _source in _MANIFEST_RULES:
-        if _has_basename(tree, basename):
-            add(language)
-
-    # Rule 7b — build.gradle (Groovy) Java/Kotlin disambiguation
-    if _has_basename(tree, "build.gradle"):
-        add("kotlin" if _has_path_segment(tree, "src/main/kotlin/") else "java")
-
-    # Rules 8-9 — suffix-based (csproj, sln)
-    for suffix, language, _source in _SUFFIX_RULES:
-        if _has_suffix(tree, suffix):
-            add(language)
+    for _depth, _rank, _path, result in ranked["deciding"] + ranked["other"]:
+        if result["language"] not in langs:
+            langs.append(result["language"])
 
     if langs:
+        no_root_manifest = ranked["deciding"][0][0] > 0
+        source = winner["source_language"]
+        if no_root_manifest and source != "unknown" and source not in langs:
+            langs.append(source)
         return langs
 
     # No manifest matched — the winner came from the extension-frequency
-    # fallback (rule 10). Carry its best guess, or [] when it was "unknown".
+    # fallback (rule 11). Carry its best guess, or [] when it was "unknown".
     fallback_language = winner["language"]
     return [] if fallback_language == "unknown" else [fallback_language]
 
@@ -309,11 +434,13 @@ def detect(payload: dict[str, Any]) -> dict[str, Any]:
     """Apply the documented rule walk and annotate the full manifest match set.
 
     Returns the single-winner envelope (language/confidence/detection_source/
-    fallback_to_extension_frequency) unchanged, plus detected_languages[] — the
-    ordered, deduplicated set of every manifest-level match — so a caller can
-    both auto-pick and gate multi-language disambiguation off one JSON shape.
+    fallback_to_extension_frequency) plus source_language, the
+    extension-frequency answer, and detected_languages[] (the ordered,
+    deduplicated set of every manifest-level match), so a caller can both
+    auto-pick and gate multi-language disambiguation off one JSON shape.
     """
     winner = _winner(payload)
+    winner["source_language"] = _frequency_fallback(payload["tree"])["language"]
     winner["detected_languages"] = _detected_languages(payload, winner)
     return winner
 
@@ -338,65 +465,23 @@ def _winner(payload: dict[str, Any]) -> dict[str, Any]:
             "fallback_to_extension_frequency": False,
         }
 
-    # Rule 1 — package.json (with tsconfig.json disambiguation)
-    if _has_basename(tree, "package.json"):
-        if _has_basename(tree, "tsconfig.json"):
-            return {
-                "language": "typescript",
-                "confidence": "high",
-                "detection_source": "package.json + tsconfig.json present",
-                "fallback_to_extension_frequency": False,
-            }
-        return {
-            "language": "javascript",
-            "confidence": "high",
-            "detection_source": "package.json present (no tsconfig.json)",
-            "fallback_to_extension_frequency": False,
-        }
-
-    # Rules 2-6 — single-basename manifests walked in priority order. Note
-    # that build.gradle (Groovy DSL) is NOT in this table; it requires
-    # tree-aware Java/Kotlin disambiguation handled in Rule 7b below.
-    # build.gradle.kts IS in the table (returns kotlin high) and fires
-    # here before the Groovy variant is considered.
-    for basename, language, source in _MANIFEST_RULES:
-        if _has_basename(tree, basename):
-            return {
-                "language": language,
-                "confidence": "high",
-                "detection_source": source,
-                "fallback_to_extension_frequency": False,
-            }
-
-    # Rule 7b — build.gradle (Groovy DSL): check src/main/kotlin/ to disambiguate.
-    # This rule sits *after* the basename loop because build.gradle.kts is
-    # already covered by the loop and we don't want it to pre-empt that match.
-    if _has_basename(tree, "build.gradle"):
-        if _has_path_segment(tree, "src/main/kotlin/"):
-            return {
-                "language": "kotlin",
+    # Rules 1-10: the manifest table, over the manifests nearest the
+    # tree's root (the non-core folders left out unless nothing else holds
+    # a manifest): the first ranked manifest decides.
+    deciding = _ranked_manifests(tree)["deciding"]
+    if deciding:
+        depth, _rank, path, result = deciding[0]
+        if depth > 0:
+            # No manifest at the root: one below it is a guess about the
+            # whole tree, never a high-confidence answer.
+            result = {
+                "language": result["language"],
                 "confidence": "medium",
-                "detection_source": "build.gradle (Groovy) + src/main/kotlin/ present",
-                "fallback_to_extension_frequency": False,
+                "detection_source": f"{result['detection_source']} at {path} (no manifest at the tree's root)",
             }
-        return {
-            "language": "java",
-            "confidence": "medium",
-            "detection_source": "build.gradle (Groovy) present without src/main/kotlin/ — defaulting to java",
-            "fallback_to_extension_frequency": False,
-        }
+        return {**result, "fallback_to_extension_frequency": False}
 
-    # Rules 8-9 — suffix-based (csproj, sln)
-    for suffix, language, source in _SUFFIX_RULES:
-        if _has_suffix(tree, suffix):
-            return {
-                "language": language,
-                "confidence": "high",
-                "detection_source": source,
-                "fallback_to_extension_frequency": False,
-            }
-
-    # Rule 10 — extension-frequency fallback
+    # Rule 11: extension-frequency fallback
     return _frequency_fallback(tree)
 
 

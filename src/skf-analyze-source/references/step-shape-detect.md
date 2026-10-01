@@ -10,13 +10,11 @@ Reference document for invoking `skf-shape-detect.py` — the shared shape class
 
 ## Invocation Contract
 
-**Resolve `{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`; first existing path wins; HALT if neither resolves.
+**Resolve `{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`; first existing path wins. If neither resolves, step-auto-scope.md §3 HARD HALTs with exit code 3 (`resolution-failure`).
 
-**Command:**
-```
-uv run {shapeDetectHelper} --repo-url <url> \
-  --manifests <path1,path2,...> \
-  --grammar-files <g1,g2,...> --tree-paths <d1/,d2/,file,...>
+**Command** (step-auto-scope.md §3 runs it on the file list §2 wrote to `{run_dir}/tree.txt`):
+```bash
+uv run {shapeDetectHelper} --repo-url "<url>" --manifests "<path1,path2,...>" --tree-file "{run_dir}/tree.txt"
 ```
 
 **Arguments:**
@@ -25,8 +23,8 @@ uv run {shapeDetectHelper} --repo-url <url> \
 |-----|----------|-------------|
 | `--repo-url` | Yes | Repository URL (context only — no cloning performed) |
 | `--manifests` | Yes | Comma-separated local file paths to manifest files (may be empty when a tree-level signal carries the classification) |
-| `--grammar-files` | No | Comma-separated repo-relative grammar files (`*.y`, `*.g4`, `*.pest`, `Grammar/python.gram`, ...) — a whole-language signal |
-| `--tree-paths` | No | Comma-separated repo-relative directory (trailing `/`) and structural file signals harvested from the clone (a `compiler/` dir, a lexer+parser+ast triad) |
+| `--tree-file` | No | The repository's whole file list, one path per line (`git ls-tree -r --name-only HEAD`, `git ls-files` or `find` output) or JSON. The script finds the tree-level signals in it itself (grammar files such as `*.y`, `*.g4`, `Grammar/python.gram` or a root `grammar.js`; a `compiler/` folder or a lexer+parser+ast triad), with its own gates, so no caller filters the list first |
+| `--grammar-files`, `--tree-paths` | No | The older way to pass the same signals, harvested by the caller; not with `--tree-file` |
 
 **Supported manifests:** `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Package.swift`
 
@@ -47,7 +45,7 @@ JSON object on stdout:
 | Code | Meaning | Consumer Action |
 |------|---------|-----------------|
 | 0 | Shape classified (not unknown) | Use shape result for scope mapping |
-| 1 | Unknown shape (no heuristic matched) | Fall back to interactive mode |
+| 1 | Unknown shape (no heuristic matched) | Fall back to interactive mode: set the report's `mode: 'interactive'` first, so a resumed session takes the interactive chain |
 | 2 | Error (invalid args, missing/unreadable files, parse failure) | HARD HALT with `resolution-failure` |
 
 On exit code 2, error details are written to stderr as JSON: `{"error": "message", "code": "ERROR_CODE"}`

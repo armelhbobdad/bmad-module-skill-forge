@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-analyze-result-envelope.v1.json",
+  "title": "SKF_ANALYZE_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-analyze-source prints, prefixed with the literal 'SKF_ANALYZE_RESULT_JSON: ': on stdout when a run ends (briefs written, zero units confirmed, a coexistence redirect or skip), and on stderr at every HARD HALT of a headless run. The shared emitter builds each line from the payload a step stages, so pipelines branch on status, halt_reason and unit_counts without parsing the human-readable report. src/skf-analyze-source/references/headless-contract.md describes each field.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-analyze-source",
+        "prefix": "SKF_ANALYZE_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-missing": 2,
+          "resolution-failure": 3,
+          "pin-invalid": 3,
+          "write-failed": 4,
+          "user-cancelled": 6
+        },
+        "success_exit_code": 0,
+        "result_file": "analyze-source-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "report_path", "brief_paths", "unit_counts", "exit_code", "halt_reason", "mode", "result_path"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error", "redirect", "skipped"],
+      "description": "'success' when a run ends with its briefs written, or with none because no unit was confirmed. 'redirect' when the auto coexistence gate routes the target to an update of an existing skill ([M]erge). 'skipped' when it skips the target ([S]kip). 'error' at every HARD HALT."
+    },
+    "report_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "Absolute path of the analysis report. Null on a redirect, a skip and a HALT before the report was written."
+    },
+    "brief_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": [],
+      "description": "Absolute path of every skill-brief.yaml the run wrote. A brief is written only after it passed the brief writer and, outside the docs-only branch, the schema gate. Empty when no unit was confirmed, when the user chose not to write the briefs, and on a redirect, a skip and a HALT."
+    },
+    "unit_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confirmed", "skipped", "maybe"],
+      "properties": {
+        "confirmed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Units approved for a brief (step 5, or the units step 1a confirmed)."
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Units rejected in step 5, or 1 for the target a coexistence [S]kip passed over."
+        },
+        "maybe": { "type": "integer", "minimum": 0, "description": "Reserved, always 0." }
+      },
+      "default": { "confirmed": 0, "skipped": 0, "maybe": 0 },
+      "description": "The unit counts. A run that confirms no unit reports confirmed 0, which the forger's AN circuit breaker reads as no skillable unit."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 6],
+      "description": "Process exit code, derived from halt_reason: null gives 0 (success, redirect and skipped), input-missing 2, resolution-failure and pin-invalid 3, write-failed 4, user-cancelled 6."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [null, "input-missing", "resolution-failure", "pin-invalid", "write-failed", "user-cancelled"],
+      "description": "Null unless the run halted. One of the documented HALT classes on error; write-failed also covers a brief the writer or the schema gate rejects."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["interactive", "auto"],
+      "default": "interactive",
+      "description": "'auto' when the invocation carries [auto], from activation through step 1a and its docs-only branch; 'interactive' otherwise, also in the step-by-step chain an [auto] run falls back to when shape detection cannot classify the repository."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "description": "The per-run result file the emitter wrote, {forge_data_folder}/analyze-source-result-<YYYYMMDD-HHmmss>.json (UTC), beside its analyze-source-result-latest.json copy. Stamped by the emitter, never typed. Null for a HALT, which writes no result file, and when the write failed (warnings say why)."
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["phase", "reason"],
+          "properties": {
+            "phase": { "type": "string", "minLength": 1, "description": "The step and section that halted, such as 'step-auto-scope:8'." },
+            "reason": { "type": "string", "minLength": 1, "description": "The halt's one-line message." },
+            "path": { "type": "string", "description": "The file or folder the failed operation targeted, when the halt names one." }
+          }
+        }
+      ],
+      "description": "Optional. On a HALT, the step that halted and its message; absent when the run ended."
+    },
+    "coexistence": {
+      "type": "string",
+      "enum": ["alongside", "merge", "skip"],
+      "description": "Optional, auto mode only: the coexistence decision of step 1a section 0c when a skill already matched the target ('alongside' writes a -wiki skill beside it)."
+    },
+    "pinned_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional, auto mode only: the git ref the run pinned (the --pin value, or the latest release tag). Absent when no pin resolved."
+    },
+    "pinned_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional, auto mode only: the version of pinned_ref. Absent when no pin resolved, and for a pin with no version (a branch, or a latest release whose tag is not a version)."
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["docs-only"],
+      "description": "Optional: 'docs-only' when the target was a documentation URL, so brief-skill skips repo-based enrichment."
+    },
+    "redirect_to": {
+      "type": "string",
+      "enum": ["US"],
+      "description": "Optional, on a redirect only: the workflow the forger routes to (update-skill)."
+    },
+    "skill_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional, on a redirect only: the existing skill to update."
+    },
+    "skill_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional, on a redirect only: the existing skill's active version folder."
+    },
+    "skipped_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional, on a skip only: why the target was skipped."
+    },
+    "headless_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "default_action", "taken_action", "reason"],
+        "properties": {
+          "gate": {
+            "type": "string",
+            "enum": ["auto-scope.cohesion", "auto-scope.language"],
+            "description": "The decision step 1a took with no one to ask: section 3b's merge-or-split decision for a monorepo, and section 5's choice of the documented language when the language helper found more than one."
+          },
+          "default_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The documented default: 'merge' for the cohesion check, the helper's first language for the language choice."
+          },
+          "taken_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the run decided: 'merge' or 'split', or the language the brief records."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One line on why, such as the cohesion trigger that held."
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional decision data: the package count and the members, or the languages the helper listed."
+          }
+        }
+      },
+      "description": "Optional. Each auto-decision the run recorded in its sink the moment it decided, so a halt still reports the decisions taken before it. Present only when there is at least one."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each (for example result_file_write_failed). Present only when there is at least one."
+    }
+  }
+}

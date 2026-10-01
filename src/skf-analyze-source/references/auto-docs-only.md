@@ -13,9 +13,17 @@ skillInventoryProbeOrder:
 
 # Step 1a §0a: Docs-Only Short-Circuit
 
-Reached from `step-auto-scope.md` §0c when the target is a documentation URL (not a GitHub repo or local path). It validates the URL, writes a minimal brief and analysis report, emits the result envelope, and chains directly to health-check — the standard auto-scope body (§1 through §11 in `step-auto-scope.md`) never runs for a docs-only target. `{coexistence_suffix}`, `{forge_tier}`, `{user_name}`, `{current_date}`, and the classification set upstream in §0/§0c carry into this file.
+Reached from `step-auto-scope.md` §0c when the target is a documentation URL (not a GitHub repo or local path). It validates the URL, writes a minimal brief and analysis report, emits the result envelope, and chains directly to health-check: the standard auto-scope body (§1 through §9 in `step-auto-scope.md`) never runs for a docs-only target. `{coexistence_suffix}`, `{forge_tier}`, `{user_name}`, `{current_date}`, and the classification set upstream in §0/§0c carry into this file.
 
 ## MANDATORY SEQUENCE — §0a
+
+Every HARD HALT in this file names its exit code, `halt_reason` and phase. When `{headless_mode}` is true it first prints its envelope on stderr through the shared emitter (`{emitEnvelopeHelper}` and `{run_dir}` come from SKILL.md On Activation): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "mode": "auto", "source_type": "docs-only"}`, plus `"path"` when the halt names one, then run
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
 ### 1. Validate URL reachability
 
@@ -24,11 +32,11 @@ curl -sI --max-time 5 {url}
 ```
 
 - On **2xx/3xx** response: URL is reachable. Continue.
-- On **4xx/5xx**, DNS failure, or timeout: HARD HALT with exit code 3 (`resolution-failure`). Emit error message: `"Documentation URL unreachable: {url} — {status or error}"`, then the error envelope (shape in `references/headless-contract.md`) with `exit_code: 3`, `halt_reason: "resolution-failure"`, `mode: "auto"`, `source_type: "docs-only"`.
+- On **4xx/5xx**, DNS failure, or timeout: HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `auto-docs-only:1`, path `{url}`): "Documentation URL unreachable: {url}: {status or error}".
 
 ### 2. Derive skill name from URL domain
 
-**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT with exit code 3 (`resolution-failure`) and the error envelope on stderr (shape in `references/headless-contract.md`), with `source_type: "docs-only"`.
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `auto-docs-only:2`): "`skf-skill-inventory.py` is missing. Re-install SKF."
 
 Name the skill with the helper that names every brief. It names a documentation URL after its host (`https://docs.example.com/guide/intro` gives `docs-example-com`), the name §0c's coexistence check compared:
 
@@ -40,7 +48,7 @@ uv run {skillInventoryHelper} derive-name --target "{url}"
 
 ### 3. Write analysis report
 
-Update {outputFile} with docs-only results. If the write fails, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md` (applies equally to the brief write in §4 and the result contract in §6).
+Update {outputFile} with docs-only results. If the write fails, HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `auto-docs-only:3`, path `{outputFile}`): "The analysis report could not be written: {the error}."
 
 **Update frontmatter:**
 ```yaml
@@ -67,11 +75,9 @@ confirmed_units:
 
 ### 4. Write skill brief via canonical writer
 
-**Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins; HALT if neither resolves.
+**Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `auto-docs-only:4`): "`skf-write-skill-brief.py` is missing. Re-install SKF."
 
-Create directory `{forge_data_folder}/{skill_name}/` if it does not exist.
-
-Pipe the flat context JSON below into the resolved writer with the `--from-flat` flag:
+Write the flat context below as `{run_dir}/brief-{skill_name}.json`, a file and never an echo'd string:
 
 ```json
 {
@@ -102,26 +108,45 @@ Pipe the flat context JSON below into the resolved writer with the `--from-flat`
 }
 ```
 
+Then hand it to the writer, which checks it, creates the folder and writes the brief atomically:
+
 ```bash
-echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --from-flat
+uv run {writeSkillBriefHelper} write --target "{forge_data_folder}/{skill_name}/skill-brief.yaml" --from-flat < "{run_dir}/brief-{skill_name}.json"
 ```
 
-### 5. Emit success envelope
+Keep the `brief_path` it prints for §5. If it exits non-zero, the brief is rejected or unwritten: HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `auto-docs-only:4`, path `{forge_data_folder}/{skill_name}/skill-brief.yaml`): "The brief for {skill_name} was rejected or could not be written: {its `message`}."
 
+### 5. End the run
+
+The shared emitter writes the result files and prints the envelope; this section stages their content, in every mode. Write `{run_dir}/result-context.json`:
+
+```json
+{
+  "status": "success",
+  "report_path": "{outputFile as an absolute path}",
+  "brief_paths": ["{the brief_path §4 printed}"],
+  "unit_counts": {"confirmed": 1, "skipped": 0, "maybe": 0},
+  "mode": "auto",
+  "source_type": "docs-only",
+  "result_contract": {
+    "skill": "skf-analyze-source",
+    "status": "success",
+    "outputs": [{"type": "report", "path": "{outputFile as an absolute path}"}, {"type": "brief", "path": "{the brief_path §4 printed}"}],
+    "summary": {"mode": "auto", "source_type": "docs-only", "brief_count": 1, "units": ["{skill_name}"]}
+  }
+}
 ```
-SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","brief_paths":["{brief_path}"],"unit_counts":{"confirmed":1,"skipped":0,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto","source_type":"docs-only"}
+
+Add `"coexistence": "alongside"` when `{coexistence_suffix}` is non-empty ([A]longside was selected in §0c). The `source_type` field signals downstream consumers (BS) to skip repo-based enrichment. Then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit --workflow skf-analyze-source --run-dir "{run_dir}" --result-dir "{forge_data_folder}" < "{run_dir}/result-context.json"
 ```
 
-If `{coexistence_suffix}` is non-empty (i.e., [A]longside was selected in §0c), include `"coexistence":"alongside"` in the envelope.
+The emitter stamps the UTC time and the run id into the record, writes `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` and its `analyze-source-result-latest.json` copy, and prints the `SKF_ANALYZE_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, display the line verbatim. A result file that could not be written leaves the line's `result_path` null and a `result_file_write_failed` warning in it, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `auto-docs-only:5`, path `{forge_data_folder}`): "The result contract could not be written: {its message}."
 
-The `source_type` field signals downstream consumers (BS) to skip repo-based enrichment.
+If `{onCompleteCommand}` is non-empty and the line's `result_path` is not null, invoke it now: `{onCompleteCommand} --result-path={forge_data_folder}/analyze-source-result-latest.json`. Display a hook failure; it never fails the run.
 
-### 6. Write result contract
+### 6. Chain to health check
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record and latest copy, same as `step-auto-scope.md` §10.
-
-If `{onCompleteCommand}` is non-empty, invoke it now with `--result-path={result_json_path}`.
-
-### 7. Chain to health check
-
-Load, read fully, then execute {nextStepFile} to run the shared workflow health check.
+Delete the run folder, whose payloads the emitter has read: `rm -rf "{run_dir}"`. Then load, read fully, and execute {nextStepFile} to run the shared workflow health check.
