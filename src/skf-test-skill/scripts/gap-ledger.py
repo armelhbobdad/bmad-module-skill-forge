@@ -115,6 +115,11 @@ SCHEMA_VERSION = 1
 # tool calls, not a writer that hangs.
 LOCK_TIMEOUT_SECONDS = 30.0
 _LOCK_POLL_SECONDS = 0.02
+# Windows refuses to replace a file another process holds open, and a virus
+# scanner or the search indexer may open a just-written ledger for a moment:
+# save_ledger retries the rename there for up to this long before failing.
+_IS_WINDOWS = os.name == "nt"
+_REPLACE_WAIT_SECONDS = 5.0
 
 SEVERITIES = ("Critical", "High", "Medium", "Low", "Info")
 BLOCKING = frozenset({"Critical", "High"})
@@ -363,7 +368,15 @@ def save_ledger(path: Path, data: dict) -> None:
             fh.write(payload)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        deadline = time.monotonic() + _REPLACE_WAIT_SECONDS
+        while True:
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if not _IS_WINDOWS or time.monotonic() >= deadline:
+                    raise
+                time.sleep(_LOCK_POLL_SECONDS)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp.unlink()
