@@ -49,9 +49,9 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | target (GitHub URL, package name or npm, PyPI or crates.io page URL) [required for single-target mode], language_hint [optional], scope_hint [optional] |
-| **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer`, `--batch <file>`, `--fail-fast` — see On Activation step 4 |
-| **Gates** | step 1: target input, ambiguous package name [C/n/U/X] (if another registry also holds the name; headless keeps the first registry's pick), multi-language disambiguation [C/A]; step 2: ecosystem match [P/I/A] (if match); step 3: repo-shape [C/A] + zero-exports rescue [R/P/A]; step 4: review [C/E/S/Q]; step 5: overwrite [Y/N] |
+| **Inputs** | target (GitHub URL, package name or npm, PyPI or crates.io page URL) [required for single-target mode], language_hint [optional, `--language-hint`], scope_hint [optional, `--scope-hint`] |
+| **Overrides** | `--language-hint`, `--scope-hint`, `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer`, `--batch <file>`, `--fail-fast`: see On Activation step 4 |
+| **Gates** | step 1: target input, ambiguous package name [C/n/U/X] (if another registry also holds the name; headless keeps the first registry's pick), multi-language disambiguation [C/n/A] (pick any detected language); step 2: ecosystem match [P/I/A] (if match); step 3: repo-shape [C/A] + zero-exports rescue [R/P/A]; step 4: review [C/E/S/Q]; step 5: overwrite [Y/N] |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy), one `SKF_QUICK_SKILL_RESULT_JSON` line (stdout when the run finishes, stderr at a HARD HALT), and under `--batch` the batch summary. Snippet and active pointer can be skipped per overrides. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true; each auto-decision is recorded in the envelope's `headless_decisions` |
 | **Exit codes** | See `references/halt-contract.md`: the exit-code map, and the emit command every HARD HALT runs, with the on-disk `-latest.json` write once `{skill_package}` holds `metadata.json` (never at the step 5 §1 ownership halt) |
@@ -110,13 +110,15 @@ These rules apply to every step in this workflow:
 
    | Flag | Effect |
    | --- | --- |
+   | `--language-hint <lang>` | Sets `language_hint`: step 1 §4 takes it as the language (no detection, no multi-language gate), and step 1 §3 hands it to the registry lookup. Same as a batch line's `language=`. Single-target runs only: batch mode refuses it. |
+   | `--scope-hint <path>` | Sets `scope_hint`: the folder step 3 reads the entry points and skill folders from. Same as a batch line's `scope=`. Single-target runs only: batch mode refuses it. |
    | `--description "<string>"` | Override the LLM-derived description in step 4 §2 (used in SKILL.md frontmatter and metadata.json). Subject to the same agentskills.io length (1–1024 chars) and voice (third-person) checks as extracted descriptions. Single-target runs only: batch mode refuses it. |
    | `--exports "<name1,name2,...>"` | Override the extracted export list. Parse as comma-separated; trim whitespace per item; skip empty items. Used in step 4 §2 Key Exports and the count-derived metadata stats. Single-target runs only: batch mode refuses it. |
    | `--skip-snippet` | Skip context-snippet.md generation in step 4 §3 and its write in step 5 §2. Artifact omitted from `outputs`; step 5 §5 advisory snippet validation reports a "skipped" entry. |
    | `--no-active-pointer` | Skip the active-pointer flip in step 6 §1. Deliverables still land in `{skill_package}` but `{skill_group}/active` is not updated. Useful for batch automators that flip pointers in a separate stage. |
-   | `--batch <file>` | Run the workflow against a list of targets from a text file rather than a single argument. Implies `--headless` (gates cannot be human-driven across N targets). See `references/batch-mode.md` for input format and summary contract. `--skip-snippet` and `--no-active-pointer` apply to every target in the batch; `--description` and `--exports` do not combine with it (batch mode halts with exit code 2). |
+   | `--batch <file>` | Run the workflow against a list of targets from a text file rather than a single argument. Implies `--headless` (gates cannot be human-driven across N targets). See `references/batch-mode.md` for input format and summary contract. `--skip-snippet` and `--no-active-pointer` apply to every target in the batch; `--description`, `--exports`, `--language-hint` and `--scope-hint` do not combine with it (batch mode halts with exit code 2; a batch line's `language=` and `scope=` give one target its hints). |
    | `--fail-fast` | Only meaningful with `--batch`. Abort the whole batch on the first per-target failure instead of recording the failure in the summary and proceeding to the next target. |
 
-5. **If `--batch` is set**, load and read `references/batch-mode.md` in full before anything else and follow it: it refuses `--description` and `--exports`, starts the batch from the file, runs steps 1 to 6 for each target, and runs step 7 once, after the batch summary.
+5. **If `--batch` is set**, load and read `references/batch-mode.md` in full before anything else and follow it: it refuses the single-target flags, starts the batch from the file, runs steps 1 to 6 for each target, and runs step 7 once, after the batch summary.
 
 6. Load, read the full file, and then execute `references/resolve-target.md` to begin the workflow; when `{headless_mode}` is true, print step 1's `start` event first (`references/halt-contract.md`). In batch mode, `references/batch-mode.md` loads it for each target instead.

@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-quick-skill
+summary: |
+  `--language-hint` and `--scope-hint` no longer combine with `--batch`. A batch run given either flag now stops before its first target with exit code `2` (`error.code` `input-invalid`, `phase` `on-activation`) and writes no batch summary; before, the run did not read the two flags, so the batch went on without them and could exit `0`.
+migration: |
+  Drop `--language-hint` and `--scope-hint` from `--batch` runs and move the hint onto each batch line that needs it, as `language=<lang>` or `scope=<path>`.
+issues: [594]

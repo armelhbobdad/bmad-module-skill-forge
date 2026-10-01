@@ -49,7 +49,7 @@ uv run {emitEnvelopeHelper} emit --workflow <workflow> --run-dir "{run_dir}" --r
 ```
 
 - The file name's stem comes from the workflow's envelope schema (`result_file` in the emitter settings its `$defs` holds under `skf-envelope`), and the emitter chooses the per-run name, suffix included. A workflow whose settings name no result file writes none, and ignores `--result-dir` with a `result_dir_ignored` warning.
-- The record is the payload's `result_contract` object with the stamped fields above. A payload without one records the envelope itself, the error variant several workflows write on a HARD HALT (`emit-halt` takes `--result-dir` too).
+- The record is the payload's `result_contract` object with the stamped fields above, and with the payload's own `status` and `summary` when the contract leaves them out, so a workflow lists its summary once. A payload without one records the envelope itself, the error variant several workflows write on a HARD HALT (`emit-halt` takes `--result-dir` too).
 - Each file is written atomically, the per-run record first and then its `-latest.json` copy. A write that fails adds a `result_file_write_failed` warning to the envelope, and a failed per-run record also leaves its `result_path` null; the envelope line still prints.
 - When `--result-dir` names no folder that exists, nothing is written: a halt before the version folder exists reports through the envelope line alone.
 

@@ -1,0 +1,5 @@
+type: added
+scope: skf-quick-skill
+summary: |
+  Quick Skill now takes `--language-hint <lang>` and `--scope-hint <path>` on a single-target run, the hints a batch line gives with `language=` and `scope=`: the gates that told a user to re-run with `--language-hint` now point at a flag the run parses, and a target passed as an argument skips the target prompt in an interactive run too. The multi-language gate now offers every detected language to pick from, where it offered only the first one or an abort, and a language hint given at the zero-exports retry or at the review's rescope is reported as `language_resolution` `hint`. Step 1 lists the repository once through the GitHub probe, which falls back to GitHub's unauthenticated API when gh is missing or logged out, and step 3 fetches the files it reads from that listing into the run folder (from `raw.githubusercontent.com`, or through gh for a private repository) and hands them to the extractor by path; a repository no probe can list stops in step 1 with exit code `3` (`resolution-failure`) and the probe's message.
+issues: [592, 594]

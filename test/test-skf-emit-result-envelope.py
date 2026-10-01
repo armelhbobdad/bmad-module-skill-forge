@@ -862,6 +862,38 @@ def test_halt_envelope_maps_the_halt_and_fills_placeholders():
     assert mod.contract_errors(schema, env) == []
 
 
+def test_halt_details_fill_the_error_object_that_declares_them():
+    """A halt stages `details` beside its halt_reason and reason, never a hand-typed `error` object."""
+    schema = _demo_schema()
+    error = schema["properties"]["error"]["oneOf"][1]
+    error["properties"]["details"] = {"description": "phase-specific context"}
+    halt = {"phase": "step-2:write", "reason": "Write failed: could not write /p/out.", "halt_reason": "write-failed",
+            "skill_name": "demo", "details": {"failed_path": "/p/out", "error": "it's full"}}
+    env = mod.build_envelope(schema, halt, halt=True, stamps=STAMPS, decisions=[], warnings=[])
+    assert env["error"] == {"code": "write-failed", "message": "Write failed: could not write /p/out.",
+                            "phase": "step-2:write", "details": {"failed_path": "/p/out", "error": "it's full"}}
+    assert "details" not in env
+    assert mod.contract_errors(schema, env) == []
+    # A schema whose error object has no place for details drops them, as any halt key.
+    plain = mod.build_envelope(_demo_schema(), halt, halt=True, stamps=STAMPS, decisions=[], warnings=[])
+    assert "details" not in plain and "details" not in plain["error"]
+    assert mod.contract_errors(_demo_schema(), plain) == []
+    # An error object the payload gives itself stays whole.
+    given = {"code": "write-failed", "message": "typed", "details": {"kept": True}}
+    env = mod.build_envelope(schema, {**halt, "error": given}, halt=True, stamps=STAMPS, decisions=[], warnings=[])
+    assert env["error"] == given
+
+
+def test_quick_skill_halt_details_land_in_error_details():
+    schema = json.loads((SCHEMA_PATH.parent / "skf-quick-skill-result-envelope.v1.json").read_text(encoding="utf-8"))
+    halt = {"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "Tag 0.5.0 not found in acme/lib.",
+            "skill_package": None, "details": {"requested_version": "0.5.0", "available_tags": ["v0.4.0"]}}
+    env = mod.build_envelope(schema, halt, halt=True, stamps=STAMPS, decisions=[], warnings=[])
+    assert env["error"] == {"code": "resolution-failure", "message": "Tag 0.5.0 not found in acme/lib.",
+                            "details": {"requested_version": "0.5.0", "available_tags": ["v0.4.0"]}}
+    assert mod.contract_errors(schema, env) == []
+
+
 def test_halt_payload_may_name_its_status_and_exit_code():
     schema = _demo_schema()
     schema["properties"]["status"]["enum"].append("halted-for-review")
@@ -1100,6 +1132,29 @@ def test_result_contract_gets_the_run_stamps(demo, monkeypatch, capsys):
                       "outputs": [], "summary": {"n": 2}, "run_id": "20260930T120000Z-7-beef",
                       "headless_decisions": [{"gate": "g1", "taken_action": "C"}], "warnings": ["w1"]}
     assert "result_contract" not in env
+
+
+def test_result_contract_takes_the_payloads_summary_and_status_when_it_leaves_them_out(demo, monkeypatch, capsys):
+    """A workflow lists its summary once: the record defaults to the payload's own."""
+    tmp_path, run_dir = demo
+    version = tmp_path / "v"
+    version.mkdir()
+    ctx = {"status": "success", "skill_name": "demo", "count": 2, "files": [], "halt_reason": None, "error": None,
+           "summary": {"n": 2, "note": "it's done"},
+           "result_contract": {"skill": "skf-demo-workflow", "outputs": [{"type": "skill", "path": "/p/SKILL.md"}]}}
+    schema = _demo_schema()
+    schema["properties"]["summary"] = {"type": "object"}
+    (tmp_path / "schemas" / "skf-demo-result-envelope.v1.json").write_text(json.dumps(schema), encoding="utf-8")
+    env = _run_in_process(monkeypatch, capsys, ctx, run_dir=str(run_dir), result_dir=str(version))
+    record = json.loads((version / "demo-result-latest.json").read_text(encoding="utf-8"))
+    assert record["status"] == "success" and record["summary"] == {"n": 2, "note": "it's done"}
+    assert record["outputs"] == [{"type": "skill", "path": "/p/SKILL.md"}]
+    assert env["summary"] == record["summary"]
+    # A contract's own status and summary win over the payload's.
+    ctx["result_contract"] = {**ctx["result_contract"], "status": "partial", "summary": {"n": 1}}
+    _run_in_process(monkeypatch, capsys, ctx, run_dir=str(run_dir), result_dir=str(version))
+    record = json.loads((version / "demo-result-latest.json").read_text(encoding="utf-8"))
+    assert (record["status"], record["summary"]) == ("partial", {"n": 1})
 
 
 def test_no_result_files_when_the_folder_does_not_exist(demo, monkeypatch, capsys):

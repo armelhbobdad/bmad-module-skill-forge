@@ -14,7 +14,7 @@ When `--batch <file>` is supplied, quick-skill processes a list of targets from 
 
 ## Before the Batch Starts
 
-SKILL.md On Activation step 5 loads this file before anything else. `--skip-snippet` and `--no-active-pointer` apply to every target. `--description` and `--exports` are single-target overrides: one description or export list cannot fit every target. When either was passed, HARD HALT with **exit code 2 (input-invalid)** before any target runs: "**`--description` and `--exports` do not combine with `--batch`.** They would write the same description or export list into every skill in the batch. Run each target that needs its own description or export list on its own, or drop the flag and let each target's extraction supply it." Stage `{"phase": "on-activation", "halt_reason": "input-invalid", "reason": "<the message's first sentence>", "skill_package": null, "error": {"code": "input-invalid", "message": "<the same sentence>", "details": {"flags": [<the flags passed>], "batch_file": "<file>"}}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`; no batch summary is written.
+SKILL.md On Activation step 5 loads this file before anything else. `--skip-snippet` and `--no-active-pointer` apply to every target. `--description` and `--exports` are single-target overrides: one description or export list cannot fit every target. `--language-hint` and `--scope-hint` are single-target flags too: a batch line gives its own target a hint with `language=` and `scope=` (Input format below). When any of the four was passed, HARD HALT with **exit code 2 (input-invalid)** before any target runs: "**`{the flags passed}` do not combine with `--batch`.** They would apply the same description, export list or hint to every skill in the batch. Run each target that needs its own description or export list on its own, give a batch line its own `language=` or `scope=`, or drop the flag and let each target's extraction supply it." Stage `{"phase": "on-activation", "halt_reason": "input-invalid", "reason": "<the message's first sentence>", "skill_package": null, "details": {"flags": [<the flags passed>], "batch_file": "<file>"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`; no batch summary is written.
 
 Otherwise `--batch` implies `--headless`: set `{headless_mode}` to true (log "headless: coerced by --batch" if it was false) and go on to Execution.
 
@@ -39,8 +39,8 @@ Recognised per-line modifiers:
 
 | Modifier | Effect (this target only) |
 | --- | --- |
-| `language=<lang>` | Sets `language_hint` for this target — same effect as the optional `language_hint` input on a single-target run. |
-| `scope=<path>` | Sets `scope_hint` for this target — same effect as the optional `scope_hint` input on a single-target run. |
+| `language=<lang>` | Sets `language_hint` for this target: the same effect as `--language-hint` on a single-target run. |
+| `scope=<path>` | Sets `scope_hint` for this target: the same effect as `--scope-hint` on a single-target run. |
 
 The target stays whole, its version included (`cognee@0.5.0`, `requests==2.31.0`): step 1 §1b reads the version as it reads a single target's. A modifier key may be in any letter case; its value must not be empty, and each modifier may appear once. A line with any other word after its target is taken whole as the target, so step 1 cannot parse it and that target fails while the rest of the batch runs.
 
@@ -56,7 +56,7 @@ uv run {quickBatchHelper} start "{batch_file}" --run-dir "{batch_dir}" [--fail-f
 
 Pass `--fail-fast` when it was given. The helper parses the file and writes the batch file `{batch_dir}/batch.jsonl`, status running and every target pending; run again on the same file, after a compaction for example, it changes nothing. If it exits non-zero, the `halt_reason` of its stderr JSON names the halt; no target runs and no batch summary is written (`references/halt-contract.md`):
 
-- **`input-invalid`** (a batch file it cannot read, or a run folder that holds another batch), or no path in `{quickBatchProbeOrder}` exists (an incomplete install): HARD HALT with **exit code 2 (input-invalid)**: display "**The batch cannot start:** {its `message`, or: skf-quick-batch.py is missing, re-install SKF}", stage `{"phase": "batch-mode", "halt_reason": "input-invalid", "reason": "The batch cannot start: <that message>", "skill_package": null, "error": {"code": "input-invalid", "message": "The batch cannot start: <that message>", "details": {"batch_file": "{batch_file}"}}}` as `{batch_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{batch_dir}" --target stderr < "{batch_dir}/halt.json"`.
+- **`input-invalid`** (a batch file it cannot read, or a run folder that holds another batch), or no path in `{quickBatchProbeOrder}` exists (an incomplete install): HARD HALT with **exit code 2 (input-invalid)**: display "**The batch cannot start:** {its `message`, or: skf-quick-batch.py is missing, re-install SKF}", stage `{"phase": "batch-mode", "halt_reason": "input-invalid", "reason": "The batch cannot start: <that message>", "skill_package": null, "details": {"batch_file": "{batch_file}"}}` as `{batch_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{batch_dir}" --target stderr < "{batch_dir}/halt.json"`.
 - **`write-failure`** (the batch run folder cannot be written, so it cannot hold `halt.json` either): HARD HALT with **exit code 4 (write-failure)**: display "**The batch cannot start:** {its `message`}" and emit with nothing to stage in:
 
   ```bash
@@ -154,4 +154,4 @@ Batch mode emits per-target boundary events on stderr in addition to the per-ste
 
 Without `--fail-fast`, the batch runs every target, whatever an earlier target's outcome, and exits with the batch summary's `exit_code`: `0` when `failed == 0`, otherwise the highest exit code among the failed targets. Automators that branch on the single-target exit-code map read each target's own code in `results[]`. With `--fail-fast`, the batch stops at the first failed target and exits with that target's code.
 
-A batch refused before its first target writes no batch summary. It exits with code `2` when `--description` or `--exports` was passed with `--batch`, §1 cannot read the batch file or `skf-quick-batch.py` is missing, and with code `4` when §1 cannot write the batch run folder.
+A batch refused before its first target writes no batch summary. It exits with code `2` when `--description` or `--exports` was passed with `--batch` (or `--language-hint` or `--scope-hint`), §1 cannot read the batch file or `skf-quick-batch.py` is missing, and with code `4` when §1 cannot write the batch run folder.

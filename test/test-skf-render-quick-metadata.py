@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Tests for skf-render-quick-metadata.py.
 
-The renderer is pure (no I/O beyond stdin/stdout) so tests call
-render_metadata() directly and assert on the returned envelope.
-A frozen `now_fn` injects a deterministic timestamp.
+render_metadata() is pure, so most tests call it directly and assert on
+the returned envelope; a frozen `now_fn` injects a deterministic
+timestamp. The file mode (--input, --extraction, --skf-root, --output)
+runs through main() over files in a temporary folder, a description with
+an apostrophe included (#592: the staged file replaces a single-quoted
+echo that broke on one).
 """
 
 from __future__ import annotations
@@ -306,3 +309,113 @@ class TestCli:
         monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
         rc = mod.main([])
         assert rc == 1
+
+
+# --------------------------------------------------------------------------
+# File mode: the staged fields, the extraction files and the SKF version
+# --------------------------------------------------------------------------
+
+
+EXTRACT = {"language": "python", "package_name": "foo-pkg", "version": "2.0.0", "description": "From the manifest.",
+           "exports": [{"name": "fn", "type": "def", "source_file": "foo/__init__.py"},
+                       {"name": "Cls", "type": "class", "source_file": "foo/__init__.py"}],
+           "dependencies": ["requests", "pydantic"], "modules": [], "extra": {}, "warnings": []}
+STAGED = {"name": "foo", "description": "Lodash's \"utilities\" for `$HOME`", "version": None,
+          "language": "python", "source_repo": "https://github.com/x/foo", "source_root": "", "source_commit": "",
+          "source_package": "", "compatibility": "", "language_hint": None, "scope_hint": "src/",
+          "exports": None}
+
+
+def _write(path: Path, value) -> str:
+    path.write_text(json.dumps(value), encoding="utf-8")
+    return str(path)
+
+
+def _render_files(tmp_path, staged=STAGED, extractions=(EXTRACT,), skf_root=None):
+    args = ["--input", _write(tmp_path / "metadata-input.json", staged),
+            "--output", str(tmp_path / "metadata.json")]
+    for i, extraction in enumerate(extractions):
+        args += ["--extraction", _write(tmp_path / f"extract-{i}.json", extraction)]
+    if skf_root is not None:
+        args += ["--skf-root", str(skf_root)]
+    return mod.main(args)
+
+
+class TestFileMode:
+    def test_the_description_reaches_metadata_as_staged(self, tmp_path, capsys):
+        assert _render_files(tmp_path) == 0
+        written = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+        assert written["description"] == "Lodash's \"utilities\" for `$HOME`"
+        assert json.loads(capsys.readouterr().out) == written
+
+    def test_exports_dependencies_and_version_come_from_the_extraction(self, tmp_path, capsys):
+        assert _render_files(tmp_path) == 0
+        m = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+        assert m["exports"] == ["fn", "Cls"] and m["stats"]["exports_documented"] == 2
+        assert m["dependencies"] == ["requests", "pydantic"]
+        assert (m["version"], m["source_package"]) == ("2.0.0", "foo-pkg")
+        assert m["provenance"] == {"language_hint": None, "scope_hint": "src/"}
+
+    def test_modules_aggregate_in_order_each_name_once(self, tmp_path, capsys):
+        child = {"package_name": "foo-core", "version": "9.9.9", "exports": [{"name": "Core"}, {"name": "fn"}],
+                 "dependencies": ["requests", "attrs"]}
+        assert _render_files(tmp_path, extractions=(EXTRACT, child)) == 0
+        m = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+        assert m["exports"] == ["fn", "Cls", "Core"]
+        assert m["dependencies"] == ["requests", "pydantic", "attrs"]
+        assert m["version"] == "2.0.0", "the parent manifest's version"
+
+    def test_the_staged_fields_win(self, tmp_path, capsys):
+        staged = {**STAGED, "version": "0.5.0", "exports": ["only", "these"], "source_package": "@x/foo"}
+        assert _render_files(tmp_path, staged=staged) == 0
+        m = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+        assert (m["version"], m["exports"], m["source_package"]) == ("0.5.0", ["only", "these"], "@x/foo")
+
+    def test_no_extraction_falls_back_to_the_defaults(self, tmp_path, capsys):
+        assert _render_files(tmp_path, staged={**STAGED, "description": ""}, extractions=()) == 0
+        m = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+        assert (m["version"], m["exports"], m["source_package"], m["description"]) == ("1.0.0", [], "foo", "")
+
+    def test_a_skills_module_extraction_renders_like_a_library(self, tmp_path, capsys):
+        module = {"package_name": "demo", "exports": [
+            {"name": "alpha", "type": "skill", "brief_description": "Builds.", "source_file": "skills/alpha/SKILL.md"},
+            {"name": "BA", "type": "menu-code", "brief_description": "x", "source_file": "skills/module-help.csv"}]}
+        assert _render_files(tmp_path, staged={**STAGED, "language": "markdown"}, extractions=(module,)) == 0
+        m = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+        assert m["exports"] == ["alpha", "BA"] and m["confidence_distribution"]["t1_low"] == 2
+
+
+class TestSkfVersion:
+    def test_package_json_first(self, tmp_path):
+        (tmp_path / "package.json").write_text('{"version": "3.0.0"}', encoding="utf-8")
+        (tmp_path / "VERSION").write_text("2.9.0\n", encoding="utf-8")
+        assert mod.probe_skf_version(tmp_path) == "3.0.0"
+
+    def test_then_the_version_file(self, tmp_path):
+        (tmp_path / "VERSION").write_text("3.0.0-rc.2\n", encoding="utf-8")
+        assert mod.probe_skf_version(tmp_path) == "3.0.0-rc.2"
+
+    def test_else_unknown(self, tmp_path):
+        assert mod.probe_skf_version(tmp_path / "missing") == "unknown"
+        assert mod.probe_skf_version(None) == "unknown"
+
+    def test_the_render_carries_it(self, tmp_path, capsys):
+        root = tmp_path / "skf"
+        root.mkdir()
+        (root / "VERSION").write_text("3.0.0\n", encoding="utf-8")
+        assert _render_files(tmp_path, skf_root=root) == 0
+        assert json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))["tool_versions"]["skf"] == "3.0.0"
+
+
+class TestFileModeErrors:
+    def test_an_unreadable_input_returns_2(self, tmp_path, capsys):
+        assert mod.main(["--input", str(tmp_path / "missing.json")]) == 2
+        assert "cannot read --input" in capsys.readouterr().err
+
+    def test_a_bad_extraction_returns_2(self, tmp_path, capsys):
+        (tmp_path / "bad.json").write_text("[1]", encoding="utf-8")
+        assert mod.main(["--input", _write(tmp_path / "in.json", STAGED), "--extraction", str(tmp_path / "bad.json")]) == 2
+        assert "must hold a JSON object" in capsys.readouterr().err
+
+    def test_a_missing_required_field_returns_1(self, tmp_path, capsys):
+        assert mod.main(["--input", _write(tmp_path / "in.json", {**STAGED, "source_repo": ""})]) == 1
