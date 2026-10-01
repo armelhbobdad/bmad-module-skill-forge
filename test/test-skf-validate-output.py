@@ -1209,6 +1209,79 @@ class TestSkfValidateOutputExportGate:
             assert missing == ["assets/t.json", "scripts/run.py"]
             assert orphans == []
 
+    def test_section_7b_decoy_heading_before_the_real_section(self):
+        """A level-3 heading that mentions assets (JavaScript holds "script") is not Section 7b."""
+        skill_md = (
+            "---\nname: demo\ndescription: A demo skill with a scripts manifest\n---\n\n"
+            "# demo\n\n## Usage\n\n### Loading assets from JavaScript\n\n"
+            "Load `assets/bunny.png` from your own app at runtime.\n\n"
+            "## Scripts & Assets\n\n"
+            "| `scripts/build.sh` | builds the demo | [SRC:build.sh:L1] |\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_export_gate_package(tmp, skill_md=skill_md)
+            (pkg / "scripts").mkdir()
+            (pkg / "scripts" / "build.sh").write_bytes(b"echo build\n")
+            r = validate_skill_package(str(pkg), export_gate=True)
+            cr = r["validation"]["crossref_7b"]
+            assert (cr["missing"], cr["orphans"]) == ([], [])
+            assert (cr["heading"], cr["heading_line"]) == ("## Scripts & Assets", 14)
+            assert (r["export_status"], r["result"]) == ("READY", "PASS")
+
+    def test_a_shell_comment_in_a_fence_is_not_section_7b(self):
+        """A package with no Section 7b whose bash fence names scripts and assets in a comment."""
+        skill_md = (
+            "---\nname: demo\ndescription: A demo skill without a scripts manifest\n---\n\n"
+            "# demo\n\n## Quick Start\n\n```bash\n"
+            "# Copy the starter scripts and assets\n"
+            "cp ./assets/logo.svg public/\n```\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_export_gate_package(tmp, skill_md=skill_md)
+            r = validate_skill_package(str(pkg), export_gate=True)
+            cr = r["validation"]["crossref_7b"]
+            assert (cr["missing"], cr["orphans"], cr["heading"], cr["heading_line"]) == ([], [], None, None)
+            assert (r["export_status"], r["result"]) == ("READY", "PASS")
+            proc = subprocess.run([sys.executable, str(SCRIPT), str(pkg), "--export-gate"],
+                                  capture_output=True, text=True, encoding="utf-8", timeout=60)
+            assert proc.returncode == 0, proc.stdout + proc.stderr
+            assert json.loads(proc.stdout)["export_status"] == "READY"
+
+    @pytest.mark.parametrize("heading", ["## 7b. Scripts & Assets", "## 7b Scripts & Assets",
+                                         "## Scripts & Assets ##"],
+                             ids=["numbered-dot", "numbered", "closing-hashes"])
+    def test_section_7b_heading_forms(self, heading):
+        skill_md = f"# demo\n\n{heading}\n\n`scripts/run.py`\n\n## Next\n\n`scripts/later.py`\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "demo"
+            (pkg / "scripts").mkdir(parents=True)
+            (pkg / "scripts" / "run.py").write_bytes(b"x")
+            missing, orphans = crossref_section_7b(skill_md, str(pkg))
+            assert (missing, orphans) == ([], []), "the section ends at the next level-2 heading"
+            assert mod.section_7b_heading(skill_md) == (heading, 3)
+
+    def test_a_fenced_heading_neither_opens_nor_ends_section_7b(self):
+        skill_md = (
+            "# demo\n\n```markdown\n## Scripts & Assets\n`assets/example.png`\n```\n\n"
+            "## Scripts & Assets\n\n```bash\n## not a heading\n```\n`scripts/run.py`\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "demo"
+            (pkg / "scripts").mkdir(parents=True)
+            (pkg / "scripts" / "run.py").write_bytes(b"x")
+            missing, orphans = crossref_section_7b(skill_md, str(pkg))
+            assert (missing, orphans) == ([], [])
+            assert mod.section_7b_heading(skill_md) == ("## Scripts & Assets", 8)
+
+    def test_a_missing_file_names_the_heading_and_its_line(self):
+        skill_md = "# demo\n\n## Overview\n\nDemo.\n\n## Scripts & Assets\n\n`scripts/run.py`\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_export_gate_package(tmp, skill_md=skill_md)
+            r = validate_skill_package(str(pkg), export_gate=True)
+            [issue] = [i for i in r["validation"]["crossref_7b"]["issues"] if i["severity"] == "high"]
+            assert "'## Scripts & Assets' at line 7" in issue["message"] and "scripts/run.py" in issue["message"]
+            assert r["export_status"] == "NOT_READY"
+
 
 class TestExportGateConfidenceTier:
     """--export-gate: the confidence_tier scale depends on skill_type (#552)."""

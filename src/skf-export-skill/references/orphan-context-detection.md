@@ -51,7 +51,7 @@ SKF_JSON
 
 ### (a) clear
 
-The marker excision is deterministic surgery with one correct answer per input: a mis-parsed boundary silently corrupts the user's surrounding content. Delegate it to the tested `clear` action of `skf-rebuild-managed-sections.py`, the same helper `update-context.md` §9 writes the section with; do not excise markers in-prompt. `{rebuildManagedSectionsHelper}` is the path `update-context.md` §2 resolved, and §2 halts (exit code 4, `halt_reason: "context-rebuild-failed"`) when no candidate exists: falling through to an in-prompt excision would regress the atomic-write + post-clear verify guarantee.
+The marker excision is deterministic surgery with one correct answer per input: a mis-parsed boundary silently corrupts the user's surrounding content. Delegate it to the tested `clear` action of `skf-rebuild-managed-sections.py`, the same helper `update-context.md` §9 writes the section with; do not excise markers in-prompt. `{rebuildManagedSectionsHelper}` is the path SKILL.md's On Activation resolved, and activation halts (exit code 4, `halt_reason: "context-rebuild-failed"`) when no candidate exists: falling through to an in-prompt excision would regress the atomic-write + post-clear verify guarantee.
 
 For each file in `orphaned_context_files`:
 

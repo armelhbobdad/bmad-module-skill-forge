@@ -438,14 +438,82 @@ class TestRootProbe:
         return str(fp)
 
     def test_mismatch_against_reference(self, tmp_path):
-        a = self._write(tmp_path, "a.md", "[foo v1.0]|root: skills/foo/\n|IMPORTANT: x\n")
-        b = self._write(tmp_path, "b.md", "[bar v2.1]|root: skills/bar/\n")
+        a = self._write(tmp_path, "a.md", "[foo v1.0]|root: my-skills/foo/\n|IMPORTANT: x\n")
+        b = self._write(tmp_path, "b.md", "[bar v2.1]|root: my-skills/bar/\n")
         proc = _run("root-probe", a, b, "--reference-root", ".claude/skills/")
         assert proc.returncode == 0, proc.stderr
         out = json.loads(proc.stdout)
-        assert out["observed_prefixes"] == ["skills/"]
+        assert out["observed_prefixes"] == ["my-skills/"]
         assert out["reference_root"] == ".claude/skills/"
         assert out["mismatch"] is True
+        assert out["mismatched_skills"] == ["bar", "foo"]
+        assert "disk_root" not in out, "without --project-root the helper reads no folder"
+
+    def test_draft_roots_are_no_evidence(self, tmp_path):
+        """The root every build writes before an export chooses one says nothing about the layout."""
+        draft = self._write(tmp_path, "a.md", "[foo v1.0]|root: skills/foo/\n|IMPORTANT: x\n")
+        legacy = self._write(tmp_path, "b.md", "[bar v2.1]|root: skills/bar/active/bar/\n")
+        chosen = self._write(tmp_path, "c.md", "[baz v3.0]|root: .claude/skills/baz/\n")
+        proc = _run("root-probe", draft, legacy, chosen, "--reference-root", ".claude/skills/")
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["draft_roots"] == ["bar", "foo"]
+        assert out["observed_prefixes"] == [".claude/skills/"]
+        assert (out["mismatch"], out["mismatched_skills"]) == (False, [])
+        proc = _run("root-probe", draft, "--reference-root", ".claude/skills/")
+        out = json.loads(proc.stdout)
+        assert (out["observed_prefixes"], out["mismatch"]) == ([], False), "drafts alone: no export chose a root"
+
+    def test_a_draft_root_of_another_skill_is_evidence(self, tmp_path):
+        """Only `skills/<its own name>/` is the draft form."""
+        other = self._write(tmp_path, "a.md", "[foo v1.0]|root: skills/bar/\n")
+        out = json.loads(_run("root-probe", other, "--reference-root", ".claude/skills/").stdout)
+        assert out["draft_roots"] == [] and out["mismatch"] is True
+
+    @staticmethod
+    def _skill(project, prefix, name, *, versioned=False):
+        folder = project / prefix / name
+        if versioned:  # SKF's layout, with a real `active` folder so Windows needs no link
+            folder = folder / "active" / name
+        folder.mkdir(parents=True)
+        (folder / "SKILL.md").write_bytes(b"# skill\n")
+
+    @pytest.mark.parametrize("held, expected", [
+        ({".claude/skills/": ["foo", "bar"]}, ".claude/skills/"),
+        ({".claude/skills/": ["foo", "bar"], "my-skills/": ["foo", "bar"]}, ".claude/skills/"),
+        ({"my-skills/": ["foo", "bar"]}, "my-skills/"),
+        ({".claude/skills/": ["foo"], "my-skills/": ["foo"]}, None),
+        ({}, None),
+    ], ids=["reference-holds", "both-hold", "observed-holds", "partial", "nothing-installed"])
+    def test_disk_root_names_the_folder_that_holds_the_mismatched_skills(self, tmp_path, held, expected):
+        project = tmp_path / "project"
+        for prefix, names in held.items():
+            for name in names:
+                self._skill(project, prefix, name, versioned=prefix == "my-skills/")
+        a = self._write(tmp_path, "a.md", "[foo v1.0]|root: my-skills/foo/\n")
+        b = self._write(tmp_path, "b.md", "[bar v2.1]|root: my-skills/bar/\n")
+        proc = _run("root-probe", a, b, "--reference-root", ".claude/skills/", "--project-root", str(project))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["disk_root"] == expected
+
+    def test_disk_root_is_null_when_earlier_exports_disagree(self, tmp_path):
+        """With two observed prefixes there is no one earlier root to keep."""
+        project = tmp_path / "project"
+        self._skill(project, "my-skills/", "foo")
+        self._skill(project, "other/", "bar")
+        a = self._write(tmp_path, "a.md", "[foo v1.0]|root: my-skills/foo/\n")
+        b = self._write(tmp_path, "b.md", "[bar v2.1]|root: other/bar/\n")
+        out = json.loads(_run("root-probe", a, b, "--reference-root", ".claude/skills/",
+                              "--project-root", str(project)).stdout)
+        assert out["observed_prefixes"] == ["my-skills/", "other/"] and out["disk_root"] is None
+
+    def test_disk_root_is_null_without_a_mismatch(self, tmp_path):
+        project = tmp_path / "project"
+        self._skill(project, ".claude/skills/", "foo")
+        a = self._write(tmp_path, "a.md", "[foo v1.0]|root: .claude/skills/foo/\n")
+        out = json.loads(_run("root-probe", a, "--reference-root", ".claude/skills/",
+                              "--project-root", str(project)).stdout)
+        assert out["mismatch"] is False and out["disk_root"] is None
 
     def test_match_no_mismatch(self, tmp_path):
         c = self._write(tmp_path, "c.md", "[foo v1.0]|root: .claude/skills/foo/\n")

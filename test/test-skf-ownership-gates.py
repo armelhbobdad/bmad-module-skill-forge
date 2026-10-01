@@ -85,7 +85,7 @@ CONTRACT_FILES = {
     "src/skf-rename-skill/SKILL.md": ("not-skf-output", "flat-layout"),
     "src/skf-rename-skill/references/exit-codes.md": ("not-skf-output", "flat-layout"),
     "src/skf-export-skill/references/result-envelope.md": ("not-skf-output",),
-    "src/skf-export-skill/SKILL.md": ("not-skf-output",),
+    "src/skf-export-skill/references/invocation-contract.md": ("not-skf-output",),
     "src/skf-audit-skill/references/headless-contract.md": ("not-skf-output",),
     "src/skf-test-skill/SKILL.md": ("not-skf-output",),
     QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
@@ -97,6 +97,9 @@ PROBE_ORDER = (
     "  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'\n"
     "  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'\n"
 )
+# A migrate site whose SKILL.md resolves the inventory helper On Activation,
+# which halts before any prompt when it is missing.
+ACTIVATION_INVENTORY = {"src/skf-export-skill/references/load-skill.md": "src/skf-export-skill/SKILL.md"}
 
 
 def _read(rel: str) -> str:
@@ -150,14 +153,19 @@ def test_auto_migrate_sites_are_exactly_the_four():
 def test_migrate_site_gates_before_migrating(rel):
     text = _read(rel)
     frontmatter = text.split("\n---\n", 1)[0] + "\n"
-    assert PROBE_ORDER in frontmatter, "installed path first, then the src/ path"
     rung = _flat_rung(text)
+    if rel in ACTIVATION_INVENTORY:
+        assert ("`{skillInventoryHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py`, "
+                "else `{project-root}/src/shared/scripts/skf-skill-inventory.py`") in _read(ACTIVATION_INVENTORY[rel])
+        assert "skillInventoryProbeOrder" not in frontmatter and "no helper candidate" not in rung
+    else:
+        assert PROBE_ORDER in frontmatter, "installed path first, then the src/ path"
+        assert "no helper candidate resolves" in rung, "a missing helper must fail closed"
     binding = "`{group_flat_skf}` ← `skills[0].flat_skf`"
     assert binding in rung
     assert "--skill" in rung
     assert rung.index(binding) < rung.index("migration rules"), "the gate must come before migrating"
     assert 'halt_reason: "not-skf-output"' in rung or '"halt_reason":"not-skf-output"' in rung
-    assert "no helper candidate resolves" in rung, "a missing helper must fail closed"
     assert "`{group_errors}` ← `skills[0].errors`" in rung, "a link is not a missing marker"
     assert "in place of the marker sentence" in rung
     assert "`skills_output_folder`" in rung and "/skf-setup" in rung
@@ -209,7 +217,8 @@ def test_export_discovery_keeps_only_skf_skills():
         "a flat SKF skill can have no active_version; filtering on it alone drops the skill silently")
     assert "Skipped (not SKF output)" in discovery
     assert "`{not_skf_output}` ← `not_skf_output`" in discovery
-    assert "skip the flat path" in discovery, "without the helper, no flat folder is discovered"
+    # On Activation halts when the helper is missing, so discovery has no scan without it.
+    assert "no helper candidate" not in discovery and "skip the flat path" not in discovery
     halt = _section(_read("src/skf-export-skill/references/multi-skill-mode.md"), "## Halt semantics", None)
     assert "not-skf-output" in halt
 
@@ -1105,7 +1114,7 @@ def test_a_known_context_file_that_no_ide_names_is_checked_with_the_helper():
         assert "`<!-- SKF:BEGIN -->` marker" not in _read(rel), rel
     # The gate it loads names the sections update-context.md has now.
     gate = _read("src/skf-export-skill/references/orphan-context-detection.md")
-    assert "`{rebuildManagedSectionsHelper}` is the path `update-context.md` §2 resolved" in gate
+    assert "`{rebuildManagedSectionsHelper}` is the path SKILL.md's On Activation resolved" in gate
     assert "§9a" not in gate and gate.count("§4 to §9") == 3
     assert "updated ({case})" in _read("src/skf-export-skill/references/summary.md")
 
@@ -1126,7 +1135,7 @@ def test_export_records_the_manifest_with_passive_context_off():
                   "confirm the final state matches expectations", "{skills_output_folder} get {skill-name}",
                   "confirmed when `get` returns", "or `get` does not confirm"):
         assert stale not in text, stale
-    assert "also when `passive_context` is off" in _read(EXPORT_SKILL)
+    assert "also when `passive_context` is off" in _read("src/skf-export-skill/references/invocation-contract.md")
     exit_codes = _section(_read("src/skf-export-skill/references/result-envelope.md"), "## Exit Codes", None)
     exit_4 = next(line for line in exit_codes.splitlines() if line.startswith("| 4 "))
     assert "step 4 §9b manifest write → `manifest-write-failed`" in exit_4
@@ -1165,8 +1174,9 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
     assert "until `{count}` is 300 or below" in count
     assert "stays in-prompt" not in text
     assert "by hand" not in count, "no count in the prompt: §2.8 already needs Python for the stage folder"
-    assert ('When no `{countTokensProbeOrder}` candidate exists, or the helper exits non-zero, delete the '
+    assert ('When the helper exits non-zero, delete the '
             '`{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`)') in count
+    assert "`{countTokensHelper}` ←" in _read(EXPORT_SKILL), "On Activation resolves the counter before any prompt"
     stage = _section(text, "### 2.8. Stage Folder", "### 3. ")
     assert "so a dry run leaves nothing beside a skill package or a context file" in stage
     assert "Step 4 deletes the folder on every exit, cancels and halts included." in stage
@@ -1180,7 +1190,7 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
 
 def test_export_step_4_deletes_the_stage_folder_on_every_exit():
     """A halted or cancelled export leaves no skf-export-* folder behind in the OS temp folder."""
-    helpers = _section(_read(EXPORT_UPDATE), "### 2. Resolve the Helpers", "### 3. ")
+    helpers = _section(_read(EXPORT_UPDATE), "### 2. Stage Folder", "### 3. ")
     assert ("deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) "
             "Cancel and every HALT in this step") in helpers
     cancel = _section(_read("src/skf-export-skill/references/orphan-row-detection.md"), "### (c) Cancel",

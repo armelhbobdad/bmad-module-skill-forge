@@ -36,21 +36,38 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Optional post-export hook. When non-empty, invoked with
-# `--result-path=<path>` after step 6 writes the per-run result JSON
-# (before the terminal health-check step); a --dry-run writes none and
-# never invokes it. Useful for downstream distribution, notification, or
-# pipeline chaining. A failure shows as a warning line in the run's output
-# and never fails the workflow. Empty = no-op (default).
+# Optional post-export hook: a shell command, not an instruction. When
+# non-empty, step 6 runs `<value> --result-path="<per-run result JSON>"`
+# after it writes that file (before the terminal health-check step); a
+# --dry-run writes none and never invokes it. Example:
+# on_complete = "scripts/publish-skill.sh". Useful for downstream
+# distribution, notification, or pipeline chaining. A failure shows as a
+# warning line in the run's output and never fails the workflow.
+# Empty = no-op (default).
 
 on_complete = ""
 
 # --- Optional asset override ---
 #
-# Lift the canonical snippet template path so orgs can substitute a
-# house-style copy without forking the skill. Empty string = use the bundled
-# default. The managed-section format and the IDE mapping have no override:
-# drop-skill and rename-skill rebuild the same section through the shared
-# helper, so a copy only export read would put them out of step.
+# The snippet template step 3 fills for each skill. Empty string = the
+# bundled default, assets/snippet-format.md. Override it to restyle the free
+# lines or add one (an owner or license line, for example). Scripts parse
+# the rest, so a copy keeps these as they are:
+#   - line 1, `[{skill-name} v{version}]|root: {skill_root}{skill-name}/`
+#     (for a stack, `[{project}-stack v{version}]|root: ...`): assemble
+#     builds each managed-section row from it and leaves out a snippet whose
+#     first line differs (skipped_malformed_snippet);
+#   - line 2, which starts `|IMPORTANT:` with the skill name as its first
+#     word (a single skill's also says `writing {skill-name} code`):
+#     skf-validate-output.py checks the start, and rename-skill rewrites the
+#     name in each place;
+#   - the `|gotchas:` label and its `[CARRIED]` marker, which step 3 reads
+#     to carry gotchas forward for one export;
+#   - no line that is a bare `|`, which splits rows in the managed section.
+# The quick-start, api and key-types lines, and the stack and integrations
+# lines, are free to change. The managed-section format and the IDE mapping
+# have no override: drop-skill and rename-skill rebuild the same section
+# through the shared helper, so a copy only export read would put them out
+# of step.
 
 snippet_format_path = ""

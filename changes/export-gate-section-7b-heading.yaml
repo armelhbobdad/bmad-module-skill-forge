@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-export-skill
+summary: |
+  The export gate finds Section 7b by its `## Scripts & Assets` heading, with or without a section number, outside fenced code. A heading that only mentions scripts or assets, such as `### Loading assets from JavaScript`, or a shell comment in a code block no longer halts a valid skill with `NOT_READY`. `validation.crossref_7b` gains `heading` and `heading_line`, the heading the gate matched and its line in `SKILL.md`, and the halt message names both, with the fix to make in the package.
+issues: [582]

@@ -60,12 +60,14 @@ SNIPPET = "references/generate-snippet.md"
 UPDATE = "references/update-context.md"
 SUMMARY = "references/summary.md"
 ENVELOPE = "references/result-envelope.md"
+CONTRACT = "references/invocation-contract.md"
 PROBE = "references/preflight-snippet-root-probe.md"
 ORPHAN_CONTEXT = "references/orphan-context-detection.md"
 ORPHAN_ROWS = "references/orphan-row-detection.md"
 
 # The file each headless gate lives in, by the gate id it records.
 GATE_FILES = {
+    "load-skill.snippet-root-layout": PROBE,
     "load-skill.snippet-root-probe": PROBE,
     "load-skill.confirmation": LOAD,
     "update-context.orphan-context-files": ORPHAN_CONTEXT,
@@ -199,10 +201,12 @@ def test_the_schema_names_the_workflow_and_its_exit_codes():
     for reason, code in META["exit_codes"].items():
         assert f"`{reason}`" in rows[str(code)], (reason, code)
     assert "step 4 §9c (a snippet write fails) → `write-failed`" in rows["4"]
-    # The table sits beside the halt command, so the always-loaded SKILL.md keeps a pointer only.
+    # The table sits beside the halt command, and the headless contract in its own
+    # reference, so the always-loaded SKILL.md keeps a pointer only.
     skill = _read(SKILL_MD)
     assert "## Exit Codes" not in skill and "## Result Contract" not in skill
-    row = next(line for line in skill.splitlines() if line.startswith("| **Exit codes** |"))
+    assert "| **Exit codes** |" not in skill
+    row = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Exit codes** |"))
     assert "`not-skf-output`" in row and "`references/result-envelope.md` maps every halt site to its code" in row
     halt_reasons = {r for r in SCHEMA["properties"]["halt_reason"]["enum"] if r is not None}
     assert halt_reasons == set(META["exit_codes"])
@@ -242,8 +246,9 @@ def test_every_heredoc_command_starts_and_ends_at_column_0():
 
 def _decision_values(body: str) -> str:
     """A documented decision body with its placeholders filled in."""
-    return (body.replace("{observed_prefixes}", '["skills/"]')
-                .replace("{target_context_files[0].skill_root}", ".claude/skills/")
+    return (body.replace("{observed_prefixes}", '["my-skills/"]')
+                .replace("{reference_root}", ".claude/skills/")
+                .replace("{choice}", "d").replace("{disk_root}", "my-skills/")
                 .replace("{file_path}", "/project/CLAUDE.md")
                 .replace("{skill_name} v{version}", "zod v1.4.0"))
 
@@ -382,12 +387,14 @@ def test_a_dry_run_writes_no_result_file_and_fires_no_hook():
     assert hook.startswith("### 6b. Post-Export Hook (Optional)\n\nSkip this section on a dry run")
     assert '{onCompleteCommand} --result-path="{result_path}"' in hook, "a path with a space stays one argument"
     assert "when `{result_path}` is null" in hook
-    flags = next(line for line in _read(SKILL_MD).splitlines() if line.startswith("| **Flags** |"))
+    flags = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Flags** |"))
     assert "no result file is written and no `on_complete` hook runs" in flags
     assert "write nothing other than a headless run's scratch run folder" in flags, (
         "a headless dry run still creates and deletes its run folder")
     toml = (EXPORT / "customize.toml").read_text(encoding="utf-8")
-    assert "a --dry-run writes none and\n# never invokes it" in toml
+    hook_comment = toml[toml.index("# Optional post-export hook"):toml.index("\non_complete = ")]
+    assert "a --dry-run writes none and never invokes it" in " ".join(
+        line.lstrip("#").strip() for line in hook_comment.splitlines())
 
 
 def test_manifest_path_is_bound_only_once_the_manifest_is_written():
@@ -406,10 +413,8 @@ def test_a_step_4_halt_reports_the_batch_and_what_it_wrote():
     assert "Always pass `skills`, the resolved batch (`[]` only before step 1 bound `skill_batch`)" in halt
     update = _read(UPDATE)
     manifest = _section(update, "### 9b. Update Export Manifest", "### 9c. ")
-    helper = next(line for line in manifest.splitlines() if line.startswith("Resolve `{manifestOpsHelper}`"))
-    assert 'when no candidate exists, HALT (exit code 4, `halt_reason: "manifest-write-failed"`)' in helper
-    assert ("emit the error envelope per `references/result-envelope.md` with the resolved `skills`, "
-            "the `context_files_updated` list and `manifest_path: null`") in helper
+    assert ("emit the error envelope per `references/result-envelope.md` with `manifest_path: null` and the "
+            "`context_files_updated` list") in manifest
     snippets = _section(update, "### 9c. Write the Snippets", None)
     assert 'On a failed copy, HALT (exit code 4, `halt_reason: "write-failed"`)' in snippets
     assert ("with the resolved `skills`, the `context_files_updated` list and `manifest_path` as §9b bound it"
@@ -473,7 +478,7 @@ def test_step_4_writes_the_snippets_last_after_the_gate():
     assert "delete the `{export_stage_dir}` folder" in cancel and "§9c" not in cancel
     last = _section(update, "### 9c. Write the Snippets", None)
     assert last.rstrip().endswith("Once every snippet is written, delete the `{export_stage_dir}` folder.")
-    assert "the end of §9c" in _section(update, "### 2. Resolve the Helpers", "### 3. ")
+    assert "the end of §9c" in _section(update, "### 2. Stage Folder", "### 3. ")
     rules = _section(_read(SKILL_MD), "## Workflow Rules", "## Stages")
     decision = next(line for line in rules.splitlines() if line.startswith("- **Snippet timing:**"))
     assert "after its [C] gate, as step 4's last write" in decision and "`[CARRIED]`" in decision
@@ -544,7 +549,8 @@ def test_load_skill_resolves_the_version_through_the_inventory_helper():
     for rung in ("1. `manifest-and-link`, `manifest` or `link`:", "2. `manifest-lags-link`",
                  "3. `flat-layout`: fall back to the flat path", "4. `missing`, `newest-on-disk`,"):
         assert rung in step, rung
-    assert "take item 3's **Otherwise** branch (the `not-skf-output` HALT)" in step
+    # On Activation resolves the helper, so no rung handles it missing.
+    assert "no helper candidate" not in step and "`skf-skill-inventory.py` is missing" not in step
 
 
 def test_the_test_report_comes_from_the_shared_helper_for_the_resolved_version():

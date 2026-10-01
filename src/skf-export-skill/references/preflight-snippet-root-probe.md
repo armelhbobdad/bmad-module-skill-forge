@@ -1,110 +1,79 @@
 ---
-# Static reference loaded by load-skill.md §1b only when
-# `snippet_skill_root_override` is UNSET in config.yaml. When the
-# override is set, every existing snippet's on-disk prefix is ground
-# truth by contract — no probe needed and the entire authoring-repo
-# escape hatch is already configured. Loaded once per export run, not
-# per skill.
-# Resolve `{rebuildManagedSectionsHelper}` by probing
-# `{rebuildManagedSectionsProbeOrder}` in order (installed SKF module
-# path first, src/ dev-checkout fallback); first existing path wins.
-# The `root-probe` action reads each candidate snippet's first line,
-# parses/strips the `root:` prefix, and returns `observed_prefixes` +
-# `mismatch` — deterministic prefix comparison the LLM must not re-derive.
-rebuildManagedSectionsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
-  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
-# Resolve `{manifestOpsHelper}` similarly. Step 1 of the probe reads the
-# export manifest through its `read` action, which returns the v2 shape
-# whatever is on disk.
-manifestOpsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
-  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# Loaded by load-skill.md §1b, once per run, only when config.yaml sets no
+# `snippet_skill_root_override`.
 ---
 
-<!-- Config: communicate in {communication_language}. Render the warning and gate prompt in {document_output_language}. -->
+<!-- Config: communicate in {communication_language}. Render the question, the warning and the gate prompt in {document_output_language}. -->
 
-# Snippet Root Prefix Mismatch — Pre-flight Probe
+# Snippet Root Probe
 
 ## Purpose
 
-Catch the authoring-repo case before step 4 silently rewrites root paths. In an authoring repo, skills typically live under a single shared directory (`skills/`) that does not match any per-IDE `skill_root` (`.claude/skills/`, `.cursor/skills/`, etc.). Without this probe, step 4's root-rewrite algorithm would replace the on-disk prefix with an IDE-mapped one that the snippet files do not actually reside under.
+Decide where the managed section points each skill before step 3 writes a `root:` path. A consuming project points at its IDE's skill folder (`.claude/skills/`, `.cursor/skills/` and so on), where `npx skills add` installs each skill. An authoring repo keeps its skills in one shared folder, such as `skills/`, and sets `snippet_skill_root_override` in `config.yaml`. Only a root an earlier export chose shows the layout: create-skill, create-stack-skill, quick-skill and update-skill write the draft root `skills/{skill-name}/` into every snippet they build, whatever the layout. So a repo whose skills live in `skills/` sets `snippet_skill_root_override: skills/`: a `skills/{skill-name}/` root an earlier export wrote reads as a draft root, and without the override the probe asks the Layout Question, whose headless default is the IDE skill folder.
 
-Loaded by `load-skill.md` §1b after `target_context_files` is resolved and `snippet_skill_root_override` is confirmed unset.
+`{reference_root}` is `target_context_files[0].skill_root`, the root step 3 writes when nothing overrides it.
 
-## Inputs
+## Probe
 
-- `target_context_files[0].skill_root` — the reference IDE-mapped skill root (used because step 3 §2.7 picks this same entry for snippet generation when no override is set)
-- `{skills_output_folder}` — for manifest-driven candidate enumeration
-- Current skill's snippet path (resolved via manifest / `active` symlink / flat path per `knowledge/version-paths.md`)
-- `{headless_mode}` — boolean flag from workflow context
+List the snippet of each version the export manifest records: for each skill in step 1 §1's `result.manifest.exports` whose `active_version` has an entry under `versions`, `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`. A skill the manifest does not list was never exported, so its snippet holds the draft root only. With no snippet to list, go to the Layout Question. Otherwise run:
 
-## Probe Algorithm
+```bash
+python3 {rebuildManagedSectionsHelper} root-probe {snippet-1} {snippet-2} … --reference-root "{reference_root}" --project-root "{project-root}"
+```
 
-1. Collect candidate snippet paths (manifest-driven orchestration — stays in-prompt):
-   - Read the export manifest through `{manifestOpsHelper}` (resolve it from `{manifestOpsProbeOrder}`; skip this bullet when no candidate exists): `python3 {manifestOpsHelper} {skills_output_folder} read`. For each skill in `result.manifest.exports` whose `active_version` has an entry under `versions`, add `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`. A missing manifest reads as no `exports`.
-   - Also include the current skill's snippet if present.
-2. **Read the prefixes and compare via the helper** — reading each snippet's first line, parsing/stripping the `root:` prefix, collecting the unique set, and comparing against the reference is deterministic prefix arithmetic with one correct answer per input. Resolve `{rebuildManagedSectionsHelper}` from `{rebuildManagedSectionsProbeOrder}` (frontmatter — first existing path wins; if no candidate exists, skip the probe and continue to §2 without a warning rather than blocking export on a missing dev-only helper), then run:
+The helper reads each snippet's `root:` prefix and leaves out a snippet that is missing, has no root, or holds the draft root (it lists those skills in `draft_roots`). It returns `observed_prefixes`, `mismatch` (true when one of them is not `{reference_root}`), `mismatched_skills`, and `disk_root`: `{reference_root}` when that folder holds every mismatched skill, else the one observed prefix when that folder holds them all, else null. Then:
 
-   ```bash
-   python3 {rebuildManagedSectionsHelper} root-probe {candidate-snippet-1} {candidate-snippet-2} … --reference-root {target_context_files[0].skill_root}
-   ```
+- `observed_prefixes` is empty: no earlier export chose a root. Ask the Layout Question.
+- `mismatch` is false: every earlier export chose `{reference_root}`. Ask nothing and return to load-skill.md §1b.
+- `mismatch` is true: take the Mismatch Gate.
 
-   Pass every candidate snippet path from step 1 as a positional argument and the reference `skill_root` as `--reference-root`. The helper reads each snippet that exists, parses its first-line `root:` value, strips the trailing `{skill-name}/` (recovered from the row's own `[skill-name v...]` header) to extract the prefix, and returns:
+## Layout Question
 
-   ```json
-   {"status": "ok", "reference_root": "…", "observed_prefixes": ["…"], "mismatch": true}
-   ```
-
-   Set `observed_prefixes = result["observed_prefixes"]` (already unique and sorted; missing or root-less snippets contribute nothing). `result["mismatch"]` is `true` when any observed prefix differs from the reference `skill_root` — the trigger for the Mismatch Gate below.
-
-## Mismatch Gate
-
-**If `result["mismatch"]` is `true`** (some value in `observed_prefixes` does not match the reference `skill_root`):
-
-Emit a single warning (once, not per snippet) and present resolution options before continuing to §2:
-
-> **Snippet root prefix mismatch detected.**
-> Existing snippets use: `{observed_prefixes}`
-> IDE-mapped skill_root:  `{target_context_files[0].skill_root}`
+> **Where should the managed section point your skills?** No earlier export has chosen yet. By default each row points at `{reference_root}{skill-name}/`, your IDE's skill folder, where `npx skills add` installs the skill (step 6 prints the command).
 >
-> This usually means you are in an authoring repo where skills live under a single shared directory. Options:
->
-> - **(a) Set override** — add `snippet_skill_root_override: {observed_prefix}` to `config.yaml`. Snippets keep their on-disk prefix; the managed section references the real location.
-> - **(b) Proceed with IDE mapping** — step 4 will rewrite every snippet's root path to the IDE's skill_root. Use this only if the IDE's skill directory actually contains the skill files.
-> - **(c) Cancel** — abort export and investigate.
-> - **(d) Use observed prefix for this run only** — set the effective snippet root to the single observed on-disk prefix for this export run, without writing to `config.yaml`. The managed section references the real on-disk location. (Only offered when exactly one prefix was observed.)
->
-> If multiple distinct prefixes were observed, the snippets disagree with each other — investigate before choosing (a) or (d).
+> - **[I] IDE skill folder** (default): point at `{reference_root}`.
+> - **[S] Shared skills folder**: point at the skills where SKF writes them, for a repo that keeps them there. Export, drop-skill and rename-skill read that choice from `config.yaml`.
+> - **[X] Cancel**
 
-Wait for user choice.
+Wait for the user's choice.
 
-**Headless default:** when `{headless_mode}`, default to **(b) Proceed with IDE mapping** and log the observed prefix(es) so the mismatch is visible in run logs (not silent). Record the decision in the run sink, with `{observed_prefixes}` as a JSON array. If `record` exits non-zero, display its error line and go on (a failed `record` never stops the run):
+- **[I]**: return to load-skill.md §1b.
+- **[S]**: display "Add `snippet_skill_root_override: {skills_prefix}` to `{project-root}/_bmad/skf/config.yaml`, then re-run the export." and HALT (exit code 6, `halt_reason: "user-cancelled"`): the workflow never edits `config.yaml`. `{skills_prefix}` is the path of `{skills_output_folder}` from `{project-root}`, with a trailing `/`, such as `skills/`.
+- **[X]** / `cancel` / `exit` / `:q`: HALT (exit code 6, `halt_reason: "user-cancelled"`). Nothing was written.
+- **Headless** [default I]: record the decision in the run sink with the command below, log "headless: no earlier export chose a snippet root, using the IDE skill folder", then take [I]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
-{"gate":"load-skill.snippet-root-probe","default_action":"b","taken_action":"b","reason":"headless: snippet root prefix mismatch, proceeding with the IDE mapping","evidence":{"observed_prefixes":{observed_prefixes},"reference_root":"{target_context_files[0].skill_root}"}}
+{"gate":"load-skill.snippet-root-layout","default_action":"I","taken_action":"I","reason":"headless: no earlier export chose a snippet root, using the IDE skill folder","evidence":{"reference_root":"{reference_root}"}}
 SKF_JSON
 ```
 
-## Choice handling
+## Mismatch Gate
 
-### (a) Set override
+> **Snippet root prefix mismatch detected.**
+> Earlier exports point at: `{observed_prefixes}`
+> The IDE mapping points at: `{reference_root}`
+>
+> - **(a) Set override**: add `snippet_skill_root_override: {observed_prefix}` to `config.yaml`, which export, drop-skill and rename-skill all read. Snippets keep their on-disk prefix.
+> - **(b) Proceed with IDE mapping**: every row's root becomes `{reference_root}`. Use this when that folder holds the skills, or will once you install them there.
+> - **(c) Cancel**: abort the export and investigate.
+> - **(d) Use the observed prefix for this run only**: every row's root stays `{observed_prefix}`, and `config.yaml` is not changed. (Offered only when exactly one prefix was observed.)
+>
+> If several prefixes were observed, the snippets disagree with each other: investigate before choosing (a).
 
-Halt and instruct the user to update `config.yaml` with `snippet_skill_root_override: {observed_prefix}`, then re-run export. Exit code 6, `halt_reason: "user-cancelled"` (configuration change is out-of-band — workflow does not edit config.yaml on the user's behalf).
+Wait for the user's choice.
 
-### (b) Proceed with IDE mapping
+**Headless default, by the disk:** take (d) when `disk_root` is the observed prefix (that folder holds the skills and `{reference_root}` does not), else (b): `{reference_root}` holds them, or no folder does yet, as in a project that installs its skills after the export. `{choice}` is the option taken. Log it with the observed prefixes, record the decision in the run sink with the command below (`{disk_root}` is `none` when it is null), then take that option. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
 
-Continue to §2. Step 4's root-rewrite algorithm will rewrite every snippet's prefix to the reference `skill_root`. The user is accepting that the IDE's skill directory contains the actual files; if it does not, the resulting managed section will reference paths that don't resolve.
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+{"gate":"load-skill.snippet-root-probe","default_action":"{choice}","taken_action":"{choice}","reason":"headless: snippet root prefix mismatch, option {choice} by the folder on disk that holds the skills","evidence":{"observed_prefixes":{observed_prefixes},"reference_root":"{reference_root}","disk_root":"{disk_root}"}}
+SKF_JSON
+```
 
-### (c) Cancel
+### Choice handling
 
-HALT. Exit code 6, `halt_reason: "user-cancelled"`. No files written.
-
-### (d) Use observed prefix for this run only
-
-**Only available when `observed_prefixes` contains exactly one value.** Set the effective snippet root for this run to that single observed prefix — do NOT mutate `config.yaml`. Step 4's root-rewrite algorithm uses this value as the reference instead of `target_context_files[0].skill_root`, so snippets keep their on-disk prefix and the managed section resolves to the real location. Print a one-line hint: "Persist `snippet_skill_root_override: {observed_prefix}` in config.yaml to skip this prompt on future exports." Continue to §2.
-
-## No-mismatch fast path
-
-**If all observed prefixes match the reference `skill_root` (or no existing snippets were found):** no warning, no gate. Return control to §1b and proceed silently to §2.
+- **(a) Set override**: display "Add `snippet_skill_root_override: {observed_prefix}` to `{project-root}/_bmad/skf/config.yaml`, then re-run the export." and HALT (exit code 6, `halt_reason: "user-cancelled"`): the workflow never edits `config.yaml`.
+- **(b) Proceed with IDE mapping**: return to load-skill.md §1b. Step 4 writes `{reference_root}` as every row's root.
+- **(c) Cancel**: HALT (exit code 6, `halt_reason: "user-cancelled"`). Nothing was written.
+- **(d) Use the observed prefix for this run only**: bind `{snippet_skill_root_override}` ← the observed prefix for this run, without editing `config.yaml`. Step 3 §2.7 and step 4 §4b read it as they read the `config.yaml` value, so every snippet and row keeps that root. Display "Persist `snippet_skill_root_override: {observed_prefix}` in `{project-root}/_bmad/skf/config.yaml` to skip this question next time: drop-skill and rename-skill read only `config.yaml` when they rebuild the section." Return to load-skill.md §1b.

@@ -31,11 +31,11 @@ Two package shapes are supported via --skill-type (default: individual):
                metadata.json's forge_tier against the run's tier.
 
 The --export-gate flag selects a third, self-contained mode used by
-skf-export-skill's publishing gate (load-skill.md §2 + package.md §1-3). It is
-additive and orthogonal to --skill-type: it does NOT touch the individual/stack
-code path above, so existing callers keep byte-identical output. Under the flag
-the script emits the deterministic verdict the export prompt previously derived
-by hand each run:
+skf-export-skill's publishing gate (load-skill.md §2; package.md renders the
+verdict). It is additive and orthogonal to --skill-type: it does NOT touch the
+individual/stack code path above, so existing callers keep byte-identical
+output. Under the flag the script emits the deterministic verdict the export
+prompt previously derived by hand each run:
   - metadata.json required-field presence for the full agentskills.io set
     (name, version, skill_type, source_authority, exports, generation_date,
     confidence_tier) as high-severity issues under validation.metadata.issues;
@@ -55,7 +55,11 @@ by hand each run:
     scripts/ and assets/ files, under validation.crossref_7b.{missing,orphans}
     (a §7b-named file absent on disk is high; an on-disk file not named in §7b
     is a low orphan warning). Only a path that starts with scripts/ or
-    assets/, optionally after ./, is read as a bundled file;
+    assets/, optionally after ./, is read as a bundled file. The section is
+    the level-2 `## Scripts & Assets` heading create-skill writes (optionally
+    numbered, as in `## 7b. Scripts & Assets`), found outside fenced code, and
+    validation.crossref_7b.{heading,heading_line} name the heading it matched
+    and its line (both null when SKILL.md has no Section 7b);
   - a deterministic export_status ∈ READY / WARNINGS / NOT_READY alongside the
     existing PASS/FAIL result (NOT_READY on any high issue, WARNINGS when only
     medium/low issues remain, READY when clean).
@@ -264,6 +268,10 @@ _EXPORT_GATE_RECOMMENDED = {
 _SECTION_7B_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9._/\-])(?:\./)?((?:scripts|assets)/[A-Za-z0-9._][A-Za-z0-9._/\-]*)"
 )
+# The title of Section 7b's level-2 heading (skf-create-skill/assets/
+# skill-sections.md, compile-assembly-rules.md), with an optional section
+# number such as `7b.` before it.
+_SECTION_7B_TITLE_RE = re.compile(r"^(?:\d+[A-Za-z]?\.?[ \t]+)?Scripts & Assets$", re.IGNORECASE)
 
 
 def _is_blank(val):
@@ -385,42 +393,49 @@ def validate_metadata_export_gate(data):
     return required_issues, enum_issues, recommended_missing
 
 
+def _section_7b_bounds(skill_md_text):
+    """(heading, heading_line, start, end) of SKILL.md's Section 7b, or None.
+
+    Section 7b is the first level-2 heading titled `Scripts & Assets` (the
+    heading create-skill writes, optionally numbered as in
+    `## 7b. Scripts & Assets`) outside fenced code, and runs until the next
+    level-1 or level-2 heading outside fenced code. A heading that only
+    mentions scripts and assets (`### Loading assets from JavaScript`) or a
+    shell comment inside a code fence is not it. `heading` is the heading
+    line as written, `heading_line` its 1-based line number, and `start` and
+    `end` slice the section's body out of the text's lines.
+    """
+    if not skill_md_text:
+        return None
+    headings = _headings(skill_md_text)
+    for k, (level, title, index) in enumerate(headings):
+        if level == 2 and _SECTION_7B_TITLE_RE.match(title):
+            lines = skill_md_text.split("\n")
+            end = next((i for lvl, _, i in headings[k + 1:] if lvl <= 2), len(lines))
+            return lines[index].strip(), index + 1, index + 1, end
+    return None
+
+
+def section_7b_heading(skill_md_text):
+    """(heading, heading_line) of SKILL.md's Section 7b, or (None, None) when it has none."""
+    bounds = _section_7b_bounds(skill_md_text)
+    return (bounds[0], bounds[1]) if bounds else (None, None)
+
+
 def _extract_section_7b_refs(skill_md_text):
     """Extract scripts/… and assets/… paths named in SKILL.md's Section 7b
     (Scripts & Assets). Returns a set of posix path strings.
 
     Section 7b is optional (create-skill emits it only when scripts or assets
-    are detected), so an absent section yields an empty set. The section is
-    located by its heading — a markdown heading whose text mentions both
-    "script" and "asset" (the "Scripts & Assets" title) — and the region runs
-    until the next heading of the same or higher level.
+    are detected), so an absent section yields an empty set. _section_7b_bounds
+    locates it by its exact heading.
     """
-    if not skill_md_text:
+    bounds = _section_7b_bounds(skill_md_text)
+    if bounds is None:
         return set()
 
-    lines = skill_md_text.split("\n")
-    start = None
-    heading_level = None
-    for i, line in enumerate(lines):
-        m = re.match(r"^(#{1,6})\s+(.*)$", line)
-        if m:
-            text = m.group(2).lower()
-            if "script" in text and "asset" in text:
-                start = i + 1
-                heading_level = len(m.group(1))
-                break
-
-    if start is None:
-        return set()
-
-    end = len(lines)
-    for j in range(start, len(lines)):
-        m = re.match(r"^(#{1,6})\s+", lines[j])
-        if m and len(m.group(1)) <= heading_level:
-            end = j
-            break
-
-    region = "\n".join(lines[start:end])
+    _, _, start, end = bounds
+    region = "\n".join(skill_md_text.split("\n")[start:end])
     refs = set()
     # findall returns the capture group: the path without a leading `./`.
     for match in _SECTION_7B_PATH_RE.findall(region):
@@ -1161,7 +1176,7 @@ def _validate_export_gate(skill_dir):
     """Export-gate validation for skf-export-skill's publishing gate.
 
     Self-contained: does not run the individual/stack passes. Emits the
-    deterministic verdict load-skill.md §2 and package.md §1-3 previously
+    deterministic verdict load-skill.md §2 and package.md previously
     derived in-prompt: SKILL.md presence/non-emptiness; metadata.json as a
     valid JSON object, with required-field presence and enum membership;
     recommended-field presence by skill_type (low,
@@ -1235,14 +1250,18 @@ def _validate_export_gate(skill_dir):
             _record(enum_issues)
             _record(recommended_missing)
 
-    # 3. SKILL.md Section 7b <-> on-disk scripts/assets cross-reference.
+    # 3. SKILL.md Section 7b <-> on-disk scripts/assets cross-reference. The
+    #    heading the section was found by, and its line, go in the verdict, so
+    #    a halt on a missing file shows which heading named it.
     missing, orphans = crossref_section_7b(skill_md_text, skill_dir)
+    heading, heading_line = section_7b_heading(skill_md_text)
     crossref_issues = []
     for path in missing:
         crossref_issues.append({
             "severity": "high",
             "field": "crossref_7b",
-            "message": f"SKILL.md Section 7b references '{path}' but it is absent on disk",
+            "message": (f"SKILL.md Section 7b ('{heading}' at line {heading_line}) references '{path}' "
+                        "but it is absent on disk"),
         })
     for path in orphans:
         crossref_issues.append({
@@ -1251,6 +1270,8 @@ def _validate_export_gate(skill_dir):
             "message": f"'{path}' present on disk but not referenced in SKILL.md Section 7b (orphan)",
         })
     result["validation"]["crossref_7b"] = {
+        "heading": heading,
+        "heading_line": heading_line,
         "missing": missing,
         "orphans": orphans,
         "issues": crossref_issues,
