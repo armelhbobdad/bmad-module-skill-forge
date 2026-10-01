@@ -89,7 +89,11 @@ Subcommands:
       "aliases"} entries (`aliases` optional), or an object with a
       `skills` array: the skf-enumerate-stack-skills.py inventory, whose
       `path` is relative to the skills folder, so pass that folder as
-      --skills-root. `path` names the skill folder, `skill_md` the file;
+      --skills-root. An entry's `source_repo_basename` and
+      `source_root_basename` (the inventory gives both) are aliases too,
+      unless another entry has the same term as its name, an alias or a
+      source basename, since one word would then cite two skills.
+      `path` names the skill folder, `skill_md` the file;
       a relative one resolves against --skills-root, else the working
       directory, and a --skills-root that is not a directory is an
       error. `citations[]` holds one entry per citing direction, sorted
@@ -1236,12 +1240,29 @@ def parse_kinds(raw: str) -> set[str]:
     return kinds
 
 
+# The names an skf-enumerate-stack-skills.py inventory entry gives the
+# repository and the folder its skill was built from.
+SOURCE_ALIAS_KEYS = ("source_repo_basename", "source_root_basename")
+
+
+def _source_aliases(item: dict) -> list[str]:
+    """The entry's SOURCE_ALIAS_KEYS values that are non-empty strings."""
+    found: list[str] = []
+    for key in SOURCE_ALIAS_KEYS:
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            found.append(value.strip())
+    return found
+
+
 def parse_skill_entries(payload) -> list[dict]:
     """Normalize the --skills JSON into [{"name", "file", "terms"}] dicts.
 
     `file` is the SKILL.md path as given (`skill_md`, else `path` joined
     with SKILL.md); `terms` is the name plus its aliases, case-insensitive
-    duplicates dropped.
+    duplicates dropped. An entry's source basenames (SOURCE_ALIAS_KEYS)
+    are aliases too, unless another entry has the same term as its name,
+    an alias or a source basename: one word would then cite two skills.
     """
     items = payload.get("skills") if isinstance(payload, dict) else payload
     if not isinstance(items, list):
@@ -1249,7 +1270,7 @@ def parse_skill_entries(payload) -> list[dict]:
             "--skills must be a JSON array of skill entries or an object "
             "with a `skills` array"
         )
-    entries: list[dict] = []
+    parsed: list[tuple[str, str, list[str], list[str]]] = []
     seen: set[str] = set()
     for idx, item in enumerate(items):
         if not isinstance(item, dict):
@@ -1277,8 +1298,20 @@ def parse_skill_entries(payload) -> list[dict]:
             raise UserError(
                 f"--skills[{idx}] ({name}) `aliases` must be strings"
             )
+        parsed.append((name, file, aliases, _source_aliases(item)))
+
+    # How many entries hold each term, case-insensitively.
+    owners: dict[str, int] = {}
+    for name, _file, aliases, source in parsed:
+        held = {t.strip().lower() for t in (name, *aliases, *source) if t.strip()}
+        for term in held:
+            owners[term] = owners.get(term, 0) + 1
+
+    entries: list[dict] = []
+    for name, file, aliases, source in parsed:
+        unique = [term for term in source if owners[term.lower()] == 1]
         terms: dict[str, str] = {}
-        for term in (name, *aliases):
+        for term in (name, *aliases, *unique):
             term = term.strip()
             if term:
                 terms.setdefault(term.lower(), term)
@@ -1509,7 +1542,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "path to the skills JSON, or '-' for stdin. Shape: "
             '[{"name": "...", "skill_md" | "path": "...", "aliases": [...]}] '
-            'or {"skills": [...]} (the skf-enumerate-stack-skills.py output)'
+            'or {"skills": [...]} (the skf-enumerate-stack-skills.py output, '
+            "whose source basenames a single skill holds count as aliases)"
         ),
     )
     p_xref.add_argument(

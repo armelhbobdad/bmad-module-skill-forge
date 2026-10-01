@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-verify-stack-result-envelope.v1.json",
+  "title": "SKF_VERIFY_STACK_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-verify-stack emits when {headless_mode} is true, prefixed with the literal 'SKF_VERIFY_STACK_RESULT_JSON: ': once on stdout when step 6 (report) finishes, before it chains to the health check, and once on stderr at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload a stage stages in the run folder, folds in the auto-decisions and warnings the run recorded there, derives exit_code from halt_reason, stamps run_id and result_path, and checks the line against this schema, so the model never types it. The skill's references/exit-codes.md describes each field and the halt command.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-verify-stack",
+        "prefix": "SKF_VERIFY_STACK_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-missing": 2,
+          "input-invalid": 2,
+          "skills-folder-missing": 3,
+          "forge-folder-unconfigured": 3,
+          "resolution-failure": 3,
+          "write-failed": 4,
+          "insufficient-skills": 5,
+          "previous-report-collision": 5,
+          "schema-violation": 5,
+          "user-cancelled": 6,
+          "inventory-unreliable": 7
+        },
+        "success_exit_code": 0,
+        "result_file": "verify-stack-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "report_path",
+    "report_latest_path",
+    "overall_verdict",
+    "coverage_percentage",
+    "recommendation_count",
+    "exit_code",
+    "halt_reason",
+    "run_id",
+    "result_path"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error"],
+      "description": "'success' when step 6 finished: the report passed the feasibility-report check and its -latest copy was written. 'error' on any HARD HALT."
+    },
+    "report_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "The run's timestamped feasibility report, feasibility-report-<slug>-<timestamp>.md. On a halt it names the partial report the run wrote so far (step 1 writes it, and steps 2 to 5 fill it in); null when the run halted before step 1 wrote it."
+    },
+    "report_latest_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "The feasibility-report-<slug>-latest.md copy of the finished report. Step 6 writes it only after the report passed the feasibility-report check, so it is null on a halt before that, which leaves the previous run's copy in place; the one later halt (the result contract could not be written) names the copy it published."
+    },
+    "overall_verdict": {
+      "type": ["string", "null"],
+      "enum": ["FEASIBLE", "CONDITIONALLY_FEASIBLE", "NOT_FEASIBLE", null],
+      "default": null,
+      "description": "The report's overallVerdict (case-sensitive schema tokens), as the feasibility-report check read it from the finished report. Null on a halt."
+    },
+    "coverage_percentage": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "The report's coveragePercentage, a whole number from 0 to 100 that the coverage tally helper computed, as the feasibility-report check read it from the finished report. 0 on a halt."
+    },
+    "recommendation_count": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "The report's recommendationCount, the count the verdict rollup helper derived from the report's counts (one recommendation per Missing or Replaced technology, per Blocked, Risky or Plausible row, for no integration pair, and per unmet requirement). 0 on a halt."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6, 7],
+      "description": "Process exit code matching references/exit-codes.md, derived from halt_reason: null gives 0, input-missing and input-invalid 2, skills-folder-missing, forge-folder-unconfigured and resolution-failure 3, write-failed 4, insufficient-skills, previous-report-collision and schema-violation 5, user-cancelled 6, inventory-unreliable 7."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "input-missing",
+        "input-invalid",
+        "skills-folder-missing",
+        "forge-folder-unconfigured",
+        "resolution-failure",
+        "write-failed",
+        "insufficient-skills",
+        "previous-report-collision",
+        "schema-violation",
+        "user-cancelled",
+        "inventory-unreliable"
+      ],
+      "description": "Null on success. One of the documented HALT classes on error, so a pipeline branches on the failure class without parsing the prose message."
+    },
+    "run_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The run's id, stamped by the emitter from the run folder name: the run's timestamp (YYYYMMDD-HHmmss, UTC), the same stamp the timestamped report's file name carries. Null for a halt before the run folder exists."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The per-run result file the emitter wrote in the forge data folder, verify-stack-result-<YYYYMMDD-HHmmss>.json (UTC), beside its verify-stack-result-latest.json copy. Stamped by the emitter, never typed. Null on every halt, which writes no result file, and when the write failed (warnings say why)."
+    },
+    "headless_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "default_action", "taken_action", "reason"],
+        "properties": {
+          "gate": {
+            "type": "string",
+            "enum": ["init.previous-report"],
+            "description": "The gate that auto-resolved: step 1's offer to compare against the newest earlier report. The gate records its decision in the run sink the moment it decides."
+          },
+          "default_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action documented as the gate's default ('Y' for [Y] use it)."
+          },
+          "taken_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action the run took. In a headless run it equals default_action."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable rationale, such as 'headless: delta comparison against <path>'."
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional gate-specific data, such as the previous report the run compares against."
+          }
+        }
+      },
+      "description": "Optional. One entry per gate that auto-resolved during the run, read from the run sink, so a halt reports the decisions taken before it. Present only when there is at least one."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: no_technology_referenced, no_live_technology or zero_coverage when the coverage step found no Covered technology (the architecture names none, marks each one for removal, or no skill matches one), skill_modified_mid_run when a paired skill changed after step 1 read it, all_pairs_blocked when every integration pair is Blocked, and result_file_write_failed when a result file could not be written (the emitter's own, or step 6's when it cannot create the forge data folder). Present only when there is at least one."
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "reason"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the run halted: the step and gate, for example 'init:skills-folder' or 'report:check'."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The halt message the step displayed, on one line."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional path the failed operation targeted."
+        }
+      },
+      "description": "Present on a HARD HALT only: where the run stopped and why. Pipelines branch on halt_reason and read error for the diagnostic."
+    }
+  }
+}

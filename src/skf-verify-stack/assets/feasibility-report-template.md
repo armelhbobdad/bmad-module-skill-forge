@@ -21,6 +21,7 @@ previousReport: ''
 skillsAnalyzed: 0
 coverageCovered: null
 coverageMissing: null
+coverageReplaced: null
 stepsCompleted: []
 requirementsPass: ''
 requirementsFulfilled: null

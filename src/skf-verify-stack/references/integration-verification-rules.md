@@ -8,7 +8,7 @@ Rules for cross-referencing API surfaces between two skills to determine integra
 
 ## Verdict Definitions
 
-Token set is defined canonically in the SKF shared feasibility report schema (`_bmad/skf/shared/references/feasibility-report-schema.md` in installed mode; `src/shared/references/feasibility-report-schema.md` in a dev checkout) — the table below restates the same set with this skill's evidence obligations. Tokens are case-sensitive (`Verified`, `Plausible`, `Risky`, `Blocked`); emitting any other token is a schema violation.
+Token set is defined canonically in the SKF shared feasibility report schema (`{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md` in installed mode; `{project-root}/src/shared/references/feasibility-report-schema.md` in a dev checkout); the table below restates the same set with this skill's evidence obligations. Tokens are case-sensitive (`Verified`, `Plausible`, `Risky`, `Blocked`); emitting any other token is a schema violation.
 
 | Verdict | Meaning | Required Evidence |
 |---|---|---|
@@ -44,10 +44,9 @@ For each integration pair (Library A ↔ Library B):
 
 ### 4. Documentation Cross-Reference (required for `Verified`)
 
-- Search Skill A's SKILL.md for a literal substring/name citation of Library B
-- Search Skill B's SKILL.md for the reciprocal citation
-- Accept literal names or aliases declared in that skill's metadata; a paraphrase or fuzzy match does not satisfy Check 4
-- A pass requires at least one literal citation in at least one direction; record the exact substring and location in the evidence block. A fail brings the Plausible cap above into play.
+- Search Skill A's SKILL.md for a literal substring/name citation of Library B, and Skill B's SKILL.md for the reciprocal citation. The shared SKILL.md scanner runs that search (`skf-scan-skill-md-structure.py cross-reference`, integrations.md §4): a citation is a hit it lists, never a line read from a SKILL.md
+- A hit that only matches a common word does not count (`the next step` for a skill named `next`): quote the first hit whose excerpt names the library, and a direction whose hits name only the common word has no citation
+- A pass requires at least one literal citation in at least one direction; record the exact substring and its line in the evidence block. A fail brings the Plausible cap above into play.
 
 ---
 

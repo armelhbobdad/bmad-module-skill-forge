@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'synthesize.md'
+coverageTallyScript: 'scripts/skf-coverage-tally.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
   - '{project-root}/src/shared/references/feasibility-report-schema.md'
@@ -7,7 +8,12 @@ atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
-outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+# The skill summaries integrations.md §3 wrote: one per skill matched to a
+# Covered technology, with its exports and capabilities.
+skillSummariesFile: '{run_dir}/skill-summaries.json'
 ---
 
 <!-- Config: communicate in {communication_language}. Append the Requirements Coverage section to the report in {document_output_language}. -->
@@ -26,9 +32,17 @@ If a PRD or vision document was provided in Step 01, verify that the combined ca
 
 ## MANDATORY SEQUENCE
 
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound (first existing path wins), then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-verify-stack --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, then stop with the halt's exit code (`references/exit-codes.md` describes the envelope). If no candidate exists, or the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Check PRD Availability
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `requirements:report`.
 
 **Read `prdAvailable` from `{outputFile}` frontmatter (set in Step 01). If `prdAvailable` is false (no PRD/vision document was provided):**
 
@@ -40,7 +54,7 @@ To include this pass, re-run **[VS]** with a PRD or vision document path.
 
 **Proceeding to synthesis...**"
 
-Update `{outputFile}` frontmatter: append `'requirements'` to `stepsCompleted`; set `requirementsPass: "skipped"`. Pipe the updated content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`.
+Update `{outputFile}` frontmatter: append `'requirements'` to `stepsCompleted`; set `requirementsPass: "skipped"`. Pipe the updated content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`.
 
 Load, read the full file and then execute `{nextStepFile}`. The no-PRD path ends here — sections 2-6 are the PRD-present branch and do not run.
 
@@ -65,13 +79,14 @@ Parse the PRD/vision document for capability requirements.
 
 ### 3. Assess Stack Coverage
 
-For each requirement, evaluate whether the combined capabilities of the generated skills address it.
+For each requirement, evaluate whether the combined capabilities of the generated skills address it. Work from the summaries step 3 wrote to `{skillSummariesFile}`, one per skill matched to a Covered technology (its `exports`, `capabilities`, `protocols_inferred` and `data_formats_inferred`), never from a SKILL.md read in this context: step 3 already read each one in a subagent.
 
 **Assessment method:**
-- Read each skill's SKILL.md exports, description, and capabilities sections
+- Match each requirement against the skills' `capabilities` and `exports`
 - Check if skill exports provide functions, types, or patterns relevant to the requirement
 - Consider combinations of multiple skills that together address a requirement
-- For non-functional requirements, check if skills document relevant configuration or patterns
+- For non-functional requirements, check if the summaries name relevant configuration or patterns
+- When a verdict turns on a detail no summary holds, delegate it: one subagent reads that skill's SKILL.md and returns only `{"requirement_id": "…", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed", "evidence": "…"}`
 
 **Assign verdict per requirement:**
 - **Fulfilled** — one or more skills clearly provide the needed capability, with specific exports or patterns identified
@@ -83,6 +98,14 @@ For each requirement, evaluate whether the combined capabilities of the generate
 - Specific exports or capabilities from those skills that are relevant
 - For Partially Fulfilled: what gap remains
 
+**Count the verdicts deterministically.** Assigning each verdict is judgment; counting them has one correct answer, so delegate it. Write `{run_dir}/requirement-rows.json` as `{"rows": [{"requirement_id": "R1", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed"}, …]}`, one row per requirement, and run:
+
+```bash
+uv run {coverageTallyScript} --kind requirements --stdin < "{run_dir}/requirement-rows.json"
+```
+
+It returns `requirements_fulfilled`, `requirements_partial`, `requirements_not_addressed` and `requirement_count` (run `uv run {coverageTallyScript} --help` for the contract). When it exits non-zero, it rejected its input and says why (its JSON `error`): fix the rows and run it again. Section 4 displays these counts and section 5 persists them.
+
 ### 4. Display Requirements Results
 
 "**Pass 3: Requirements Coverage**
@@ -91,7 +114,7 @@ For each requirement, evaluate whether the combined capabilities of the generate
 |----|-------------|----------|---------|-------------------|
 | {id} | {requirement_text} | {category} | {Fulfilled/Partially Fulfilled/Not Addressed} | {skill_names or '—'} |
 
-**Coverage: {fulfilled_count} Fulfilled, {partial_count} Partially Fulfilled, {not_addressed_count} Not Addressed**
+**Coverage: {requirements_fulfilled} Fulfilled, {requirements_partial} Partially Fulfilled, {requirements_not_addressed} Not Addressed**
 
 {IF any Not Addressed:}
 **Unaddressed Requirements — Recommendations:**
@@ -110,8 +133,8 @@ Write the Requirements Coverage content under the `## Recommendations` section (
 - Include recommendations for Not Addressed and Partially Fulfilled items
 - Update frontmatter: append `'requirements'` to `stepsCompleted`
 - Set `requirementsPass: "completed"`
-- Set `requirementsFulfilled`, `requirementsPartial`, `requirementsNotAddressed` counts
-- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
+- From the §3 tally, set `requirementsFulfilled` ← `requirements_fulfilled`, `requirementsPartial` ← `requirements_partial` and `requirementsNotAddressed` ← `requirements_not_addressed`
+- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`.
 
 ### 6. Auto-Proceed to Next Step
 

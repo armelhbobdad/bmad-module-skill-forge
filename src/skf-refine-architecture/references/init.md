@@ -48,7 +48,7 @@ Load the architecture document (required), scan the skills folder to build a ski
 uv run {validateFeasibilityReportHelper} --locate "{forge_data_folder}" --project-name "{project_name}"
 ```
 
-It turns the config `{project_name}` into the slug [VS] names its report by and reads only `feasibility-report-<slug>-latest.md` in `{forge_data_folder}`, the copy [VS] rewrites on every run: the helper builds the file name, so this step never does. It checks the report as the shared feasibility-report schema requires and prints one JSON (the helper's module docstring lists every key). Branch on its exit code:
+It turns the config `{project_name}` into the slug [VS] names its report by and reads only `feasibility-report-<slug>-latest.md` in `{forge_data_folder}`, the copy [VS] rewrites each time a run finishes and its report passes the schema check: the helper builds the file name, so this step never does. It checks the report as the shared feasibility-report schema requires and prints one JSON (the helper's module docstring lists every key). Branch on its exit code:
 
 - **0 with `status: "ok"`:** the report [VS] last wrote for this project. It becomes the report question's default below.
 - **0 with `status: "not-found"`:** there is no [VS] report for this project, so the question has no default.

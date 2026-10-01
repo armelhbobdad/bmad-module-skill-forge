@@ -3,12 +3,14 @@
 The deterministic overall-feasibility verdict rollup that verify-stack now
 delegates to instead of an in-prompt threshold cascade (zero-coverage
 short-circuit, blocked/missing/risky conditions, plausible cap, requirements
-gaps, zero-pairs guard, and CLI exit codes), and the rollup input that
-synthesize.md builds for it.
+gaps, zero-pairs guard, the recommendation count derived from the same
+counts, and CLI exit codes), and the rollup input that synthesize.md builds
+for it.
 """
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -189,6 +191,16 @@ def test_cli_zero_pairs_repro_from_590():
     assert out["matchedConditions"] == ["zero-integration-pairs"]
 
 
+def test_cli_reads_utf8_stdin_under_a_cp1252_console():
+    # A Windows console decodes piped input as cp1252, where the second byte of
+    # a UTF-8 `\u00c1` is undefined: stdin is read as UTF-8 instead.
+    inp = json.dumps({**base(), "note": "R\u00c1"}, ensure_ascii=False).encode("utf-8")
+    p = subprocess.run([sys.executable, str(SCRIPT), "--stdin"], input=inp, capture_output=True,
+                       env={**os.environ, "PYTHONIOENCODING": "cp1252"}, check=False)
+    assert p.returncode == 0, p.stderr
+    assert json.loads(p.stdout)["overallVerdict"] == "FEASIBLE"
+
+
 def test_cli_help_prints_the_ladder_synthesize_points_to():
     p = subprocess.run([sys.executable, str(SCRIPT), "--help"], capture_output=True, text=True, check=False)
     assert p.returncode == 0
@@ -234,6 +246,76 @@ def test_no_verify_stack_file_sets_the_removed_zero_state_flag():
         if path.is_file() and path.suffix in (".md", ".py", ".toml"):
             text = path.read_text(encoding="utf-8")
             assert "continuedPastZeroState" not in text, path.relative_to(REPO).as_posix()
+
+
+# --- The recommendation count ---------------------------------------------------
+
+
+def test_a_clean_run_needs_no_recommendation():
+    r = rollup(base())
+    assert r["recommendationCount"] == 0
+    assert set(r["recommendations"].values()) == {0}
+
+
+def test_one_recommendation_per_finding():
+    r = rollup(base(coveragePercentage=60, missingCount=2, replacedCount=1, pairsBlocked=1, pairsRisky=2,
+                    pairsPlausible=3, pairsVerified=1, requirementsEvaluated=True,
+                    requirementsNotAddressed=2, requirementsPartial=1))
+    assert r["recommendations"] == {"blocked": 1, "missing": 2, "replaced": 1, "risky": 2, "plausible": 3,
+                                    "zeroPairs": 0, "notAddressed": 2, "partial": 1}
+    assert r["recommendationCount"] == 12
+    # The keys follow the order synthesize.md section 4 lists the recommendations in.
+    assert list(r["recommendations"]) == ["blocked", "missing", "replaced", "risky", "plausible",
+                                          "zeroPairs", "notAddressed", "partial"]
+
+
+def test_requirement_gaps_count_only_when_the_pass_ran():
+    r = rollup(base(requirementsNotAddressed=3, requirementsPartial=2))
+    assert (r["recommendations"]["notAddressed"], r["recommendations"]["partial"]) == (0, 0)
+    assert r["recommendationCount"] == 0
+
+
+def test_the_zero_pairs_note_is_one_recommendation():
+    r = rollup(base(**NO_PAIRS))
+    assert r["recommendations"]["zeroPairs"] == 1
+    assert r["recommendationCount"] == 1
+    assert rollup(base(coveredCount=1, **NO_PAIRS))["recommendations"]["zeroPairs"] == 0
+
+
+def test_replaced_technologies_count_without_touching_the_verdict():
+    r = rollup(base(replacedCount=2))
+    assert r["overallVerdict"] == "FEASIBLE"
+    assert r["recommendations"]["replaced"] == 2 and r["recommendationCount"] == 2
+    # Left out, it counts none (an older caller).
+    assert rollup(base())["recommendations"]["replaced"] == 0
+
+
+def test_zero_coverage_still_counts_its_recommendations():
+    r = rollup(base(coveragePercentage=0, coveredCount=0, missingCount=3, replacedCount=1, **NO_PAIRS))
+    assert r["overallVerdict"] == "NOT_FEASIBLE"
+    assert r["recommendationCount"] == 4
+
+
+def test_validation_replaced_count():
+    assert rollup(base(replacedCount=-1)).get("code") == "INVALID_INPUT"
+    assert rollup(base(replacedCount=True)).get("code") == "INVALID_INPUT"
+    assert rollup(base(replacedCount=None))["recommendations"]["replaced"] == 0
+
+
+def test_synthesize_takes_the_recommendation_count_from_the_rollup():
+    section = _synthesize_section("### 1. Calculate Overall Verdict", "### 2.")
+    assert "`replacedCount` \u2190 `coverageReplaced`" in section
+    assert "`recommendationCount`" in section and "`recommendations`" in section
+    compile_section = _synthesize_section("### 4. Compile Synthesis Section", "### 5.")
+    assert "count total recommendations" not in compile_section
+    assert "the §1 rollup's `recommendationCount`" in compile_section
+    write = _synthesize_section("### 5. Append to Report", "### 6.")
+    # No circular check of the frontmatter's pair counts against themselves.
+    assert "Verify that `pairsVerified`" not in write
+    coverage = _synthesize_section("### 6. Append to Report", "### 7.", path=SKILL / "references" / "coverage.md")
+    assert "`coverageReplaced` \u2190 `replaced_count`" in coverage
+    template = (SKILL / "assets" / "feasibility-report-template.md").read_text(encoding="utf-8")
+    assert "\ncoverageReplaced: null\n" in template.split("\n---\n", 1)[0]
 
 
 def test_synthesize_zero_pairs_recommendation_keys_on_the_guard():

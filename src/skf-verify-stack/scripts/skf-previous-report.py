@@ -11,20 +11,30 @@ prose:
 
   * A given path (--provided) is used when it is a readable file, unless it is
     one of the two files this run writes: this run's timestamped report
-    (outputFile) or the -latest copy (outputFileLatest). init.md §4
-    overwrites both before synthesize reads the previous report, so a run
-    compared with either would be compared with itself and report every
-    finding unchanged. Files are compared as files (os.path.samefile), not as
-    path strings, so a symlink or another spelling of the same file matches.
-  * With no given path, the newest timestamped report of this project in the
+    (outputFile) or the -latest copy (outputFileLatest). init.md §4 writes the
+    first before synthesize reads the previous report, so a run compared with
+    it would be compared with itself and report every finding unchanged.
+    report.md §1 copies the finished report over the second, so a report
+    compared with it would, from then on, name its own copy as its previous
+    report. Files are compared as files (os.path.samefile), not as path
+    strings, so a symlink or another spelling of the same file matches.
+  * With no given path, the newest finished report of this project in the
     folder is picked: feasibility-report-<slug>-<YYYYMMDD-HHmmss>.md, newest by
-    that timestamp. This run's own file, the -latest copy and any file that is
-    one of the two are never picked, and neither is the report of another
-    project whose slug starts with this one (the timestamp must follow the
-    slug directly) or a report this process cannot read.
+    that timestamp, whose frontmatter stepsCompleted lists `synthesize` and
+    which passes the feasibility-report check report.md §1 runs before it
+    publishes a report. A run that halted before synthesize left a partial
+    report, and one that halted at that check left a report no consumer reads:
+    neither is the baseline. This run's own file, the -latest copy and any file
+    that is one of the two are never picked, and neither is the report of
+    another project whose slug starts with this one (the timestamp must follow
+    the slug directly) or a report this process cannot read.
 
 The slug is the producer's `projectSlug`, as `skf-validate-feasibility-report.py
---locate` returns it: this script applies no slug rule of its own.
+--locate` returns it: this script applies no slug rule of its own. It reads
+stepsCompleted with the frontmatter reader of that shared script, and checks a
+report with its read_report(), the check report.md §1 runs. The script sits in
+the shared scripts folder beside this skill's folder, so the rules that read the
+list and check the report are the ones the report's consumers use.
 
 CLI usage:
   uv run skf-previous-report.py --folder <dir> --slug <slug> --timestamp <YYYYMMDD-HHmmss>
@@ -32,7 +42,8 @@ CLI usage:
 
 Output (stdout, one object):
   {
-    "status": "provided" | "discovered" | "none" | "not-found" | "collision",
+    "status": "provided" | "discovered" | "none" | "not-found" | "collision"
+              | "reader-missing",
     "previousReport": "<path>" | null,     # the report to compare against
     "previousTimestamp": "<YYYYMMDD-HHmmss>" | null,
     "provided": "<path as given>" | null,
@@ -41,11 +52,19 @@ Output (stdout, one object):
     "outputFileLatest": "<folder>/feasibility-report-<slug>-latest.md"
   }
 
-  provided    the given path is a readable file and neither file this run writes
-  discovered  no path was given; previousReport is the newest earlier report
-  none        no path was given and the folder holds no earlier report
-  not-found   the given path is not a readable file (no previous report)
-  collision   the given path is outputFile or outputFileLatest
+  provided        the given path is a readable file and neither file this run
+                  writes (it is used as given, finished or not: the delta names
+                  a report it cannot compare)
+  discovered      no path was given; previousReport is the newest finished
+                  earlier report (it lists synthesize and passes the check)
+  none            no path was given and the folder holds no finished earlier
+                  report
+  not-found       the given path is not a readable file (no previous report)
+  collision       the given path is outputFile or outputFileLatest
+  reader-missing  no path was given and the shared skf-validate-feasibility-report.py
+                  is not in the shared scripts folder beside this skill's folder,
+                  so no report can be read or checked; the output also carries
+                  "error", naming the missing file
 
 previousTimestamp is the timestamp in the previous report's file name, null
 when there is no previous report or its name carries none.
@@ -55,11 +74,13 @@ Exit codes:
   1  status collision: the caller halts (previous-report-collision)
   2  usage error: a missing flag, a --timestamp not shaped YYYYMMDD-HHmmss, or
      a --slug that is not a project slug (argparse prints the reason; no JSON)
+  3  status reader-missing: the caller halts (resolution-failure)
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -68,6 +89,20 @@ from pathlib import Path
 
 REPORT_NAME = "feasibility-report-{slug}-{suffix}.md"
 LATEST_SUFFIX = "latest"
+
+# A report is finished once synthesize.md §5 appended its step to this list.
+STEPS_KEY = "stepsCompleted"
+FINISHED_STEP = "synthesize"
+
+# The shared feasibility-report reader. Installed (under _bmad/skf/ or an
+# IDE's skills folder) and in a dev checkout (src/), shared/ sits beside
+# this skill's folder.
+SHARED_READER = (
+    Path(__file__).resolve().parent.parent.parent
+    / "shared"
+    / "scripts"
+    / "skf-validate-feasibility-report.py"
+)
 
 # A run timestamp: UTC, to the second (SKILL.md On Activation §2).
 _TIMESTAMP_RE = re.compile(r"^\d{8}-\d{6}$")
@@ -105,8 +140,47 @@ def _timestamp_of(path: Path, slug: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _earlier_reports(folder: Path, slug: str, timestamp: str) -> list[tuple[str, Path]]:
-    """(timestamp, path) of this project's timestamped reports, this run's excluded."""
+def load_reader():
+    """Import the shared feasibility-report reader, or None when it is missing."""
+    try:
+        if not SHARED_READER.is_file():
+            return None
+    except OSError:
+        return None  # a folder on the way that cannot be searched
+    spec = importlib.util.spec_from_file_location("skf_validate_feasibility_report", SHARED_READER)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _finished(path: Path, reader) -> bool:
+    """True when the report's frontmatter stepsCompleted lists synthesize and
+    the report passes the shared reader's check (read_report), as report.md §1
+    requires before it publishes a report.
+
+    A report this process cannot read, whose frontmatter holds no such list,
+    or that fails the check is not finished.
+    """
+    try:
+        # utf-8-sig drops a byte order mark, as the shared reader does.
+        content = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return False
+    steps = reader.frontmatter_list(content, STEPS_KEY)
+    if steps is None or FINISHED_STEP not in steps:
+        return False
+    _fields, ok = reader.read_report(content)
+    return ok
+
+
+def _earlier_reports(folder: Path, slug: str, timestamp: str, reader) -> list[tuple[str, Path]]:
+    """(timestamp, path) of this project's finished timestamped reports, this run's excluded.
+
+    A report counts only when it is finished (_finished): a run that halted
+    earlier left a partial or unchecked report behind.
+    """
     try:
         entries = list(folder.iterdir())
     except OSError:
@@ -114,7 +188,7 @@ def _earlier_reports(folder: Path, slug: str, timestamp: str) -> list[tuple[str,
     found = []
     for entry in entries:
         stamp = _timestamp_of(entry, slug)
-        if stamp is not None and stamp != timestamp and _readable_file(entry):
+        if stamp is not None and stamp != timestamp and _readable_file(entry) and _finished(entry, reader):
             found.append((stamp, entry))
     return found
 
@@ -151,10 +225,14 @@ def resolve(folder: str, slug: str, timestamp: str, provided: str | None = None)
         )
         return result, 0
 
+    reader = load_reader()
+    if reader is None:
+        result.update(status="reader-missing", error=f"the shared report reader is missing: {SHARED_READER}")
+        return result, 3
     # A report name that is a link to a file this run writes is no earlier run.
     candidates = [
         (stamp, path)
-        for stamp, path in _earlier_reports(base, slug, timestamp)
+        for stamp, path in _earlier_reports(base, slug, timestamp, reader)
         if not any(_same_file(path, target) for target in written)
     ]
     if candidates:
@@ -187,8 +265,10 @@ def _build_parser():
             "(init.md §1). With --provided: use that file unless it is one of "
             "the two files this run writes (the timestamped report or the -latest "
             "copy), which is a collision (exit 1). Without it: pick the newest "
-            "timestamped report of this project in --folder. Prints JSON; exit 0 "
-            "otherwise, 2 on a usage error."
+            "finished timestamped report of this project in --folder (its "
+            "stepsCompleted lists synthesize and it passes the feasibility-report "
+            "check); exit 3 when the shared report reader that reads and checks "
+            "it is missing. Prints JSON; exit 0 otherwise, 2 on a usage error."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -230,5 +310,21 @@ def main(argv=None):
     return code
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdout and stderr to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which cannot print every character
+    a --help text or a path may hold.
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdout, sys.stderr)
     sys.exit(main())

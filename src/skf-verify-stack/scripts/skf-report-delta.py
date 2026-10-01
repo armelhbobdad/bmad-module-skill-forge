@@ -21,8 +21,9 @@ Verdict ranking (higher = healthier):
   * evidence tier: T3(0) < T2(1) < T1-low(2) < T1(3); a drop is a regression.
 
 Tiers use one scale, the confidence tiers T1, T1-low, T2 and T3 (case-sensitive),
-for every skill: the caller maps each skill to it before calling (verify-stack
-passes skf-enumerate-stack-skills.py's evidence_tier). metadata.json
+for every skill: the caller maps each skill to it before calling, or passes
+--inventory, whose skf-enumerate-stack-skills.py inventory gives each skill's
+evidence_tier (verify-stack does). metadata.json
 `confidence_tier` is no input here: a single skill records its forge tier there
 (Quick, Forge, Forge+ or Deep) and a stack its confidence tier, so its values sit
 on two scales that do not compare. Any other token, a forge tier included, is
@@ -60,11 +61,16 @@ CLI usage:
   cat input.json | uv run skf-report-delta.py --stdin  # piped input
   echo '{"currentTiers": {...}}' | uv run skf-report-delta.py \\
       --previous-report <earlier.md> --current-report <this-run.md> --stdin
+  uv run skf-report-delta.py --previous-report <earlier.md> \\
+      --current-report <this-run.md> --inventory <skill-inventory.json>
 
-  --previous-report fills `previous` and `previousTiers` from that report and
-  --current-report fills `current` from its report, so the JSON leaves them
-  out; with both flags the JSON may be left out too. --no-tiers compares no
-  tier: both tier maps and the previous report's tier table are ignored.
+  --previous-report fills `previous` and `previousTiers` from that report,
+  --current-report fills `current` from its report, and --inventory fills
+  `currentTiers` from an skf-enumerate-stack-skills.py inventory (each
+  skills[] entry's name and evidence_tier), so the JSON leaves them out; with
+  both report flags the JSON may be left out too. --no-tiers compares no
+  tier: both tier maps, the previous report's tier table and --inventory are
+  ignored.
 
 Input schema (one object):
   {
@@ -93,8 +99,10 @@ Output (stdout, one object):
   }
 
 Errors (stdout, one object): {"error": "<why>", "code": "<code>"}, plus "report"
-("previous" or "current") and "path" when the error comes from a report:
-  INVALID_INPUT   the JSON does not fit the input schema above
+("previous" or "current") and "path" when the error comes from a report, and
+"path" alone when it comes from --inventory:
+  INVALID_INPUT   the JSON does not fit the input schema above, or the
+                  --inventory file cannot be read or holds no skills[] list
   UNKNOWN_TIER    a tier token outside T1, T1-low, T2 and T3
   INVALID_REPORT  a report that cannot be read, or is not read (see above)
   HELPER_MISSING  the shared skf-validate-feasibility-report.py is not in the
@@ -156,7 +164,8 @@ _DELIMITER_CELL_RE = re.compile(r"^:?-+:?$")
 
 
 class ReportError(Exception):
-    """A report the delta does not read; `code` is INVALID_REPORT or UNKNOWN_TIER."""
+    """A file the delta does not read; `code` is INVALID_REPORT or UNKNOWN_TIER
+    for a report, INVALID_INPUT for an --inventory file."""
 
     def __init__(self, code, message):
         super().__init__(message)
@@ -467,11 +476,39 @@ def read_report(path, reader, with_tiers):
     return {"coverage": coverage, "integration": integration}, tiers
 
 
-def run(data, previous_report=None, current_report=None, no_tiers=False, reader=None):
+def read_inventory_tiers(path):
+    """`currentTiers` from an skf-enumerate-stack-skills.py inventory file.
+
+    Maps each skills[] entry's name to its evidence_tier, which compute()
+    checks against the tier scale. Raises ReportError (INVALID_INPUT) for a
+    file that cannot be read, is not JSON or holds no skills[] list of named
+    entries.
+    """
+    shown = f"--inventory `{path}`"
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ReportError(INVALID_INPUT, f"{shown} cannot be read: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ReportError(INVALID_INPUT, f"{shown} is not JSON: {exc.msg}") from exc
+    skills = data.get("skills") if isinstance(data, dict) else None
+    if not isinstance(skills, list):
+        raise ReportError(INVALID_INPUT, f"{shown} holds no `skills` list")
+    tiers = {}
+    for i, entry in enumerate(skills):
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            raise ReportError(INVALID_INPUT, f"{shown} skills[{i}] has no `name`")
+        tiers[name.strip()] = entry.get("evidence_tier")
+    return tiers
+
+
+def run(data, previous_report=None, current_report=None, no_tiers=False, reader=None, inventory=None):
     """The delta for one call: the JSON input, each side a report flag names read from that report.
 
     `reader` is the shared report reader (load_reader()), needed only with a
-    report path.
+    report path. `inventory`, an skf-enumerate-stack-skills.py inventory file,
+    gives `currentTiers`.
     """
     if not isinstance(data, dict):
         return make_error("Input must be a JSON object")
@@ -493,6 +530,13 @@ def run(data, previous_report=None, current_report=None, no_tiers=False, reader=
             recorded = tiers is not None
             if tiers is not None:
                 inp["previousTiers"] = tiers
+    if inventory is not None and not no_tiers:
+        if "currentTiers" in inp:
+            return make_error("`currentTiers` comes from --inventory: leave it out of the JSON")
+        try:
+            inp["currentTiers"] = read_inventory_tiers(inventory)
+        except ReportError as exc:
+            return {**make_error(str(exc), exc.code), "path": inventory}
     if no_tiers:
         inp.pop("previousTiers", None)
         inp.pop("currentTiers", None)
@@ -518,9 +562,10 @@ def _build_parser():
             "  uv run skf-report-delta.py "
             "'{\"previous\":{\"coverage\":[{\"technology\":\"react\",\"verdict\":\"Missing\"}]},"
             "\"current\":{\"coverage\":[{\"technology\":\"react\",\"verdict\":\"Covered\"}]}}'\n"
-            "  echo '{\"currentTiers\":{\"react\":\"T1\"}}' | uv run skf-report-delta.py "
+            "  uv run skf-report-delta.py "
             "--previous-report forge-data/feasibility-report-my-app-20260101-080000.md "
-            "--current-report forge-data/feasibility-report-my-app-20260930-120000.md --stdin"
+            "--current-report forge-data/feasibility-report-my-app-20260930-120000.md "
+            "--inventory skill-inventory.json"
         ),
     )
     src = parser.add_mutually_exclusive_group()
@@ -538,9 +583,14 @@ def _build_parser():
         help="read `current` from this run's feasibility report",
     )
     parser.add_argument(
+        "--inventory",
+        metavar="PATH",
+        help="read `currentTiers` from this skf-enumerate-stack-skills.py inventory (each skill's evidence_tier)",
+    )
+    parser.add_argument(
         "--no-tiers",
         action="store_true",
-        help="compare no tier: ignore both tier maps and the previous report's tier table",
+        help="compare no tier: ignore both tier maps, the previous report's tier table and --inventory",
     )
     return parser
 
@@ -584,16 +634,17 @@ def main(argv=None):
             print(json.dumps(make_error(message, HELPER_MISSING), indent=2))
             return 1
 
-    result = run(data, args.previous_report, args.current_report, args.no_tiers, reader)
+    result = run(data, args.previous_report, args.current_report, args.no_tiers, reader, args.inventory)
     print(json.dumps(result, indent=2))
     return 2 if "code" in result else 0
 
 
 def _force_utf8(*streams) -> None:
-    """Reconfigure stdout and stderr to UTF-8, keeping each stream's error handler.
+    """Reconfigure the given streams to UTF-8, keeping each stream's error handler.
 
     A Windows console pipes them as cp1252, which cannot print every character
-    of the --help text, so --help would stop with UnicodeEncodeError.
+    of the --help text, so --help would stop with UnicodeEncodeError, and which
+    garbles UTF-8 JSON piped into --stdin.
     """
     for stream in streams:
         if hasattr(stream, "reconfigure"):
@@ -605,5 +656,5 @@ def _force_utf8(*streams) -> None:
 
 
 if __name__ == "__main__":
-    _force_utf8(sys.stdout, sys.stderr)
+    _force_utf8(sys.stdin, sys.stdout, sys.stderr)
     raise SystemExit(main())
