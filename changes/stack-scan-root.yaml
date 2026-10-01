@@ -2,4 +2,5 @@ type: changed
 scope: skf-create-stack-skill
 summary: |
   Stack Skill's code mode now scans only the folder you choose. Pass `project_path` to build the stack for one package of a monorepo, or, in an interactive run whose dependency manifests sit in more than one folder, answer the one question it asks (the whole project, or one package folder). The manifest scan, the import counts and the co-import pairs all stay inside that folder, while every path the run records (each `source_file`, the co-import files of an integration) stays relative to the project root. Without `project_path`, a headless run still scans the whole project and logs a `headless-scan-root-default` warning when the manifests sit in several folders. `project_path` was declared before but never read.
+prs: [635]
 issues: [606]
