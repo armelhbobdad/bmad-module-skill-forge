@@ -6,8 +6,9 @@ extractionPatternsData: 'skf-create-skill/references/extraction-patterns.md'
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
-# `{buildChangeManifestHelper}`: §3's `build` and §2.2's `deletion-ratio`.
-# HALT if neither exists.
+# `{buildChangeManifestHelper}`: §3's `build` (and §1's for a docs-only
+# skill), §2.2's `deletion-ratio` and Category C's `rename-candidates`. HALT
+# if neither exists.
 buildChangeManifestProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-build-change-manifest.py'
   - '{project-root}/src/shared/scripts/skf-build-change-manifest.py'
@@ -45,6 +46,11 @@ extractPublicApiProbeOrder:
 structuralDiffProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-structural-diff.py'
   - '{project-root}/src/shared/scripts/skf-structural-diff.py'
+# `{compareDocHashesHelper}`: §1's docs-only branch, the doc-hash comparison
+# audit-skill's doc-drift step runs. HALT if neither exists.
+compareDocHashesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
+  - '{project-root}/src/shared/scripts/skf-detect-docs.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -62,13 +68,22 @@ Compare current source code state against the provenance map to produce a comple
 
 ## Steps
 
-**Run folder.** Unless `{run_dir}` is already bound, first create this run's folder, where the helpers below and step 3 pass their JSON to each other. From `{project-root}`, run:
+The helpers below and step 3 pass their JSON to each other through `{run_dir}`, the run folder SKILL.md On Activation created.
+
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved. Nothing this step wrote is undone: it writes the skill brief only with a person's decision or a headless deferral (§1b, §1c), both of which stand, and the read-only modes write a copy in `{run_dir}` instead.
 
 ```bash
-mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-update-skill-XXXXXXXX"
+uv run {runStateHelper} halt --run-dir "{run_dir}" \
+    [--tree "{source_tree}"] \
+    [--lock "{forge_data_folder}/{skill_name}/.skf-update.lock" --owner "{lock_owner}"] \
+    [--emit] <<'SKF_JSON'
+{"status": "<status>", "phase": "<phase>", "path": "<path; leave the key out when the halt names none>", "reason": "<reason>", "skill_name": "{skill_name}", "version": "<the metadata.json version>", "previous_version": "<the same>", "update_mode": "<normal, gap-driven or degraded>"}
+SKF_JSON
 ```
 
-Bind `{run_dir}` ← the path it prints. Step 8 removes it in every mode; a run that halts leaves it. If the folder cannot be created, HALT with status `blocked`; in `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "detect-changes:run-folder", path: "{project-root}/_bmad-output/.skf-run", reason: "<the first stderr line>"}`).
+Pass `--tree` when init.md §6b bound `{source_tree}`, `--lock` and `--owner` when init.md §1b bound `{lock_owner}` (the read-only modes take no lock), and `--emit` in `{headless_mode}`. It removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "detect-changes:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
+
+The halt leaves `{run_dir}` in place, with the decisions the gates below recorded before it.
 
 ### 0. Check for Test Report Input (Gap-Driven Mode)
 
@@ -85,10 +100,10 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
        [--provenance-map "{provenance_map_path}"]
    ```
 
-   Pass `--source-root` unless the skill is docs-only (there is no source tree), and `--provenance-map` whenever init.md §4 loaded one. It reads the gap ledger test-skill wrote beside the report (`test-findings-{run_id}.json`), which holds every gap of a run test-skill's hard gate blocked (its `stepsCompleted` ends at `hard-gate`), and for a report older than the ledger the report's `## Gap Report`. Never read gaps from the report by eye.
+   Pass `--source-root` unless the skill is docs-only (there is no source tree), and `--provenance-map` whenever init.md §4 loaded one. It reads the gap ledger test-skill wrote beside the report (`test-findings-<the report's run id>.json`), which holds every gap of a run test-skill's hard gate blocked (its `stepsCompleted` ends at `hard-gate`), and for a report older than the ledger the report's `## Gap Report`. Never read gaps from the report by eye.
 
    - **Exit 0:** take its `gaps[]`, and add each of its `warnings[]` to `warnings[]` as `test-report: <entry>`.
-   - **Exit 1** (`status: "error"`, with `code` `REPORT_MISSING`, `LEDGER_MISSING`, `LEDGER_INVALID` or `INVALID_INPUT`), **any other exit, no JSON, or no candidate resolves:** HALT with status `blocked` and display "**The test report's gaps could not be read:** {code}: {error}" ("skf-parse-gaps.py is missing; re-install SKF" when no candidate resolved). In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "detect-changes:parse-gaps", path: "{test_report_path}", reason: "{code}: {error}"}`).
+   - **Exit 1** (`status: "error"`, with `code` `REPORT_MISSING`, `LEDGER_MISSING`, `LEDGER_INVALID` or `INVALID_INPUT`), **any other exit, no JSON, or no candidate resolves:** HALT with status `blocked` and display "**The test report's gaps could not be read:** {code}: {error}" ("skf-parse-gaps.py is missing; re-install SKF" when no candidate resolved). The halt procedure takes `phase: "detect-changes:parse-gaps"`, `path: "{test_report_path}"`, `reason: "{code}: {error}"`.
 
 2. **Translate each gap by its `category`** (the gap ledger's closed set of slugs), never by its severity. A report older than the ledger gives no `category`: take the row whose gap type its title and issue describe.
 
@@ -107,7 +122,7 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
 
 **Translation rules (referenced by the table above):**
 
-- **R1: DELETED_EXPORT (rescope).** A coverage gap is a rescope only when its remediation text names removal (`rescope`, `remove from surface`, `out of scope`) or the export is upstream `#[doc(hidden)]` / internal. Default a `missing-export` or `missing-type` gap to NEW_EXPORT (document it); choose rescope only on that explicit signal. **Interactive:** prompt per qualifying gap: "[D] Document the export / [R] Rescope (remove from the public surface)". **Headless:** default to **document** (NEW_EXPORT); choose rescope only when the remediation explicitly says removal *and* the export is internal/`#[doc(hidden)]`. A rescope is honest only if the reduction is expressed in the brief's scope: append a `scope.amendments[]` entry (`category: "scope-expansion"`, `action: "excluded"`) **and** add the export's source path to `brief.scope.exclude`, then route the entry to merge Priority 1 (removal) so step 4/6 remove it and recompute stats from the amended scope. Never close a coverage gap by editing `metadata.stats` to equal the documented count: that is denominator deflation and `skf-test-skill` will reject it.
+- **R1: DELETED_EXPORT (rescope).** A coverage gap is a rescope only when its remediation text names removal (`rescope`, `remove from surface`, `out of scope`) or the export is upstream `#[doc(hidden)]` / internal. Default a `missing-export` or `missing-type` gap to NEW_EXPORT (document it); choose rescope only on that explicit signal. **Interactive:** prompt per qualifying gap: "[D] Document the export / [R] Rescope (remove from the public surface)". **Headless:** default to **document** (NEW_EXPORT); choose rescope only when the remediation explicitly says removal *and* the export is internal/`#[doc(hidden)]`. A rescope is honest only if the reduction is expressed in the brief's scope: give the manifest entry a `rescope` object holding the `scope.amendments[]` entry (`category: "scope-expansion"`, `action: "excluded"`, `path`, `reason` (the remediation), `date`, `workflow: "skf-update-skill"`) **and** the export's source path for `brief.scope.exclude`, then route the entry to merge Priority 1 (removal) so step 4/6 remove it and recompute stats from the amended scope. This step writes neither to the brief: step 4 §6b writes both, the first write of the repair, and skips an amendment or an exclude path the brief already holds, so a re-run never adds them twice and a run that stops before step 4 (a halt, `--dry-run`, `--detect-only`) leaves the brief as it was. In those read-only modes add `proposed-amendment: excluded {path} (scope-expansion); not written: {--dry-run or --detect-only}` to `warnings[]`. Never close a coverage gap by editing `metadata.stats` to equal the documented count: that is denominator deflation and `skf-test-skill` will reject it.
 - **R2: STRUCTURAL_FIX.** A finding whose fix edits the generated markdown only, with no source change and no provenance entry change. It carries `remediation` text describing the surgical markdown edit and routes to merge Priority 8 (generated-markdown edit only); it never adds, modifies, or removes a provenance `entries[]` row. Two kinds of finding qualify:
   - a coherence finding from `skf-scan-skill-md-structure.py` (e.g., `table_drift`, `unbalanced_fences`, a broken intra-skill anchor) that touches the generated output file only;
   - a split-body consistency finding (test-skill coverage-check §1b `cross_check_mismatches`): the SKILL.md body and a `references/*.md` file document one export differently. test-skill rates it High, as it rates a signature mismatch against the source, yet it needs nothing from the source: merge Priority 8 edits the `references/*.md` file to match the body. Its `category` is `split-body-mismatch`; in a report older than the ledger, recognize it by its `Source:`, which points inside the skill package (at the skill's own `SKILL.md` or at one of its `references/*.md` files, whether the path is written relative to the package or through `{skill_package}`), while its issue sets the SKILL.md body against a `references/*.md` file. Test for it before the High "Signature mismatch" row: a High signature gap whose `Source:` points into the source tree, or that has no `Source:`, stays `MODIFIED_EXPORT`.
@@ -125,6 +140,15 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
    - **`change_category`**: the Change Category resolved from the table above (`NEW_EXPORT`, `MODIFIED_EXPORT`, `MOVED_EXPORT`, `DELETED_EXPORT`, `STRUCTURAL_FIX`, or `metadata update`). Step 3 §1a partitions on this field; merge.md §3 dispatches on it.
    - **`remediation`**: the gap's full `remediation` text, verbatim. Required for `STRUCTURAL_FIX` (the surgical markdown edit), `metadata update` (the patch description), and `DELETED_EXPORT` rescope (the removal rationale recorded in the `scope.amendments[]` entry). For `NEW_EXPORT` / `MODIFIED_EXPORT` it is informational.
    - **`provenance_completeness: true`**: set on a `NEW_EXPORT` entry whose gap is rule R3 (documented in SKILL.md/`references/` but absent from the provenance-map). Step 3 §0 routes these to §0a regardless of severity.
+   - **`rescope`**: on a rule R1 `DELETED_EXPORT`, the amendment and the exclude path above.
+
+   Write the entries to `{run_dir}/change-manifest.json`, where step 3 and step 6 read them, as `{"mode": "gap-driven", "entries": [...]}`:
+
+   ```bash
+   cat > "{run_dir}/change-manifest.json" <<'SKF_JSON'
+   {"mode": "gap-driven", "entries": [<each entry, with the fields above>]}
+   SKF_JSON
+   ```
 4. Set `gap_count` from the total number of translated entries. Add each gap the table does not route to `warnings[]` as `test-report: not routed: {id} ({category})`, and keep its `id`, `title` and `category` for §5.
 5. **Skip to section 5** (Display Change Summary) with the gap-derived manifest. When no gap translates, the manifest is empty and §5 routes to the no-change report.
 
@@ -134,9 +158,23 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
 
 ### 1. Scan Current Source State
 
-**A docs-only skill** (`source_type: "docs-only"` in the brief or metadata.json) has no source tree for §2's categories to read: skip §1b to §2.2 and run §3 with no helper file and `{"degraded_mode": false, "update_mode": "normal"}` as `{run_dir}/categories.json`, so §4 reports no change.
+**A docs-only skill** (`source_type: "docs-only"` in the brief or metadata.json) has no source tree for §2's categories to read: its drift is in the documents `doc_sources` records with their hashes. Compare them with the helper audit-skill's doc-drift step runs: resolve `{compareDocHashesHelper}` ← first existing path in `{compareDocHashesProbeOrder}` and, from `{project-root}`, run:
 
-`{source_root}` is the tree init.md §6b prepared at `{target_commit}` when `{source_tree_status}` is `ready` or `offline`, and otherwise the skill's local source. **If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists**, HALT with status `blocked` per SKILL.md's source-tree rule (`error.phase` `detect-changes:source-tree-missing`): reading a missing tree would report every file deleted. §2.1's helpers walk `{source_root}` themselves: build no file inventory here.
+```bash
+uv run {compareDocHashesHelper} compare-hashes "{skill_package}/metadata.json" > "{run_dir}/doc-hashes.json"
+```
+
+It fetches each URL with a recorded hash and buckets it `changed`, `unchanged`, `fetch_failed` or `skipped_null_hash`, with `stats`: never fetch or hash a URL by hand. On exit 2, no JSON, or no candidate resolves, HALT with status `blocked` (halt procedure: `phase: "detect-changes:doc-hashes"`, `path: "{skill_package}/metadata.json"`, `reason: "<its error, or skf-detect-docs.py is missing; re-install SKF>"`). Add `doc-fetch-failed: {url} ({reason})` to `warnings[]` for each `fetch_failed` entry (a document that could not be read is not drift), `doc-not-hashed: {url}` for each `skipped_null_hash` entry, and `doc-drift-not-checked: metadata.json records no doc_sources` when `stats.total_tracked` is 0. Then skip §1b to §2.2 and §3's build, and have the helper write the change manifest from that output, never by hand:
+
+```bash
+uv run {buildChangeManifestHelper} build --doc-hashes "{run_dir}/doc-hashes.json" > "{run_dir}/change-manifest.json"
+```
+
+It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "counts": {"docs_changed", "docs_fetch_failed"}}`. On exit 1 or no JSON: HALT with status `blocked` (halt procedure: `phase: "detect-changes:change-manifest"`, its stderr as `reason`). §4 then reports no change only when every hashed document matches (`changed_urls` is empty); otherwise §5 routes to step 3, whose §1 re-fetches the changed URLs, and step 6 records their new hashes from `{run_dir}/doc-hashes.json`.
+
+`{source_root}` is the tree init.md §6b prepared at `{target_commit}` when `{source_tree_status}` is `ready` or `offline`, and otherwise the skill's local source. **If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists**, HALT with status `blocked` per SKILL.md's source-tree rule (halt procedure: `phase: "detect-changes:source-tree-missing"`, `path: "{source_root}"`, `reason: "source tree {source_root} disappeared mid-run"`): reading a missing tree would report every file deleted. §2.1's helpers walk `{source_root}` themselves: build no file inventory here.
+
+**The brief this run reads.** Bind `{brief_path}` ← `{forge_data_folder}/{skill_name}/skill-brief.yaml`. When `detect_only_mode` or `dry_run_mode` is true and that file exists, copy it to `{run_dir}/skill-brief.yaml` and bind `{brief_path}` to the copy: §1b and §1c write each decision there, Category A reads the scope from there, and the brief itself stays as it was. Each amendment a read-only run writes to the copy is a proposed one: add `proposed-amendment: {action} {path} ({category}); not written: {--dry-run or --detect-only}` to `warnings[]` as you write it, and step 7 lists them with the change manifest.
 
 ### 1b. Discovered Authoritative Files Protocol (Mirror)
 
@@ -146,7 +184,7 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
 
 - `update_mode == "gap-driven"` (source hasn't drifted — we're verifying test report findings, not discovering new files), OR
 - `metadata.json.source_type == "docs-only"` (no source tree to scan), OR
-- `{forge_data_folder}/{skill_name}/skill-brief.yaml` does not exist (a skill built without a brief, such as a quick skill): there is no scope or amendment to match a document against, and no brief to amend. Display `"Authoritative files mirror: skipped (no skill brief)."`
+- `{brief_path}` does not exist (a skill built without a brief, such as a quick skill): there is no scope or amendment to match a document against, and no brief to amend. Display `"Authoritative files mirror: skipped (no skill brief)."`
 
 **Procedure (the helper and buckets of create-skill §2a):**
 
@@ -155,18 +193,18 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
    ```bash
    uv run {resolveAuthoritativeFilesHelper} resolve \
        --source-root "{source_root}" \
-       --brief "{forge_data_folder}/{skill_name}/skill-brief.yaml" \
+       --brief "{brief_path}" \
        [--provenance-map "{provenance_map_path}"]
    ```
 
-   Pass `--provenance-map` whenever init.md §4 loaded one. It finds the files create-skill §2a looks for (`llms.txt`, `AGENTS.md`, `.cursorrules` and the like), sorts each into a bucket below, and hashes and previews each one a decision needs. Never walk, match or hash these files by hand. On exit 1 (a source root, brief or provenance map it cannot read), no JSON, or no candidate resolves: HALT with status `blocked` (`error.phase` `detect-changes:authoritative-files`), showing its stderr.
+   Pass `--provenance-map` whenever init.md §4 found one. It finds the files create-skill §2a looks for (`llms.txt`, `AGENTS.md`, `.cursorrules` and the like), sorts each into a bucket below, and hashes and previews each one a decision needs. Never walk, match or hash these files by hand. On exit 1 (a source root, brief or provenance map it cannot read), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:authoritative-files"`, `reason: "<its stderr>"`), showing its stderr.
 
 2. **Apply each bucket:**
    - **`already_tracked[]`:** the provenance map names the file (`entries[]` or `file_entries[]`), so §2 detects its drift. No action here.
    - **`already_in_scope[]`:** the brief's scope already takes the file (a `scope.include` glob matches it, or its latest amendment promoted it), but the map has no row for it. Add the helper's `{path, heuristic, size_bytes, line_count, content_hash}` to `promoted_docs_new[]` (the list [P] Promote below fills), with no prompt, as create-skill §2a does. Display: `"In scope: {path} scheduled for file_entries write."`
    - **`pre_decided[]` with `prior_action: "promoted"`:** a prior run promoted it, but its `file_entries[]` row is missing (e.g. provenance-map was regenerated from source without re-reading amendments). Add it to `promoted_docs_new[]` with the helper's hash, size and line count so §4 merge writes a new `file_entries[]` row. No user prompt: the decision was already made. Display: `"Honoring prior amendment: promoted {path} scheduled for file_entries write."`
    - **`pre_decided[]` with `prior_action: "skipped"`:** a person declined promotion before. Honor the skip silently. No prompt, no action.
-   - **`unresolved[]`:** no one has decided the file yet (a `prior_action` of `deferred-headless` marks one a headless run met and left for a person): continue to the prompt.
+   - **`unresolved[]`:** no one has decided the file yet (a `prior_action` of `deferred-headless` marks one a headless run met and left for a person, the legacy `skipped` amendment with reason `headless: no user to prompt` included): continue to the prompt.
 
 3. **Prompt.** For each `unresolved[]` candidate, present the same prompt as create-skill §2a, with the helper's `path`, `line_count`, `size_bytes`, `heuristic` and `preview` as it reported them (never recomputed):
 
@@ -188,34 +226,37 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
    [U] Update  — halt this run and return to skf-brief-skill to refine scope
    ```
 
-4. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate: record `action: "skipped"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`, except for a candidate whose `prior_action` is `deferred-headless`, which a headless run already recorded: write no second amendment for it. A non-interactive update run must never silently add files to scope. **Also append one entry per candidate to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "detect-changes.promoted-doc-prompt", default_action: "S", taken_action: "S", reason: "headless: no user to prompt", evidence: {path: "<candidate.path>"}}`.
+4. **Headless mode (`{headless_mode}` is true):** promote nothing and decide nothing: whether a document belongs in scope needs a person. Leave every candidate out of this run and record it as deferred, so the next interactive run asks: append a `brief.scope.amendments[]` entry `action: "deferred-headless"`, `path: candidate.path`, `reason: "headless: no user to prompt; left for the next interactive run"`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"` to `{brief_path}`, except for a candidate whose `prior_action` is `deferred-headless`, which a headless run already recorded: write no second amendment for it. A non-interactive update run must never silently add files to scope, and never records a skip no person chose. **Also record one decision per candidate path**, from `{project-root}`:
+
+   ```bash
+   uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+   {"gate": "detect-changes.promoted-doc-prompt", "default_action": "S", "taken_action": "deferred-headless", "reason": "headless: no user to prompt; left for the next interactive run", "evidence": {"path": "<candidate.path>"}}
+   SKF_JSON
+   ```
 
 5. **Apply decision:**
 
    - **[P] Promote:**
      1. Append `candidate.path` to `brief.scope.include` as a literal glob.
      2. Append a `brief.scope.amendments[]` entry: `action: "promoted"`, `path: candidate.path`, `reason: {user-provided or auto: "discovered post-creation — matched heuristic {basename}"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
-     3. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Preserve all other fields.
-     4. Append the candidate's `{path, heuristic, size_bytes, line_count, content_hash}`, as the helper reported them, to the in-context `promoted_docs_new[]` list. This list is consumed by §4 merge Priority 7 to write new `file_entries[]` rows: promoted docs do NOT go through §3 code re-extraction, which would produce ghost entries on non-code files.
+     3. **Write the amended brief back to disk immediately** at `{brief_path}` (the run folder's copy in a read-only mode). Preserve all other fields.
+     4. Append the candidate's `{path, heuristic, size_bytes, line_count, content_hash}`, as the helper reported them, to `promoted_docs_new[]`, which this section keeps as the JSON array `{run_dir}/promoted-docs.json` (each record as the helper printed it; `[]` when none): step 6's `apply` writes a new `file_entries[]` row for each (merge Priority 7). Promoted docs do NOT go through §3 code re-extraction, which would produce ghost entries on non-code files.
      5. Display: `"Promoted {path} — brief amended, scheduled as new file_entries row for file_type doc."`
 
    - **[S] Skip:**
      1. Do NOT modify `scope.include`.
      2. Append a `brief.scope.amendments[]` entry: `action: "skipped"`, `path: candidate.path`, `reason: {user-provided or auto: "user declined promotion at update-skill §1b"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
-     3. **Write the amended brief back to disk** so neither update-skill nor create-skill will re-prompt in future runs.
+     3. **Write the amended brief back to disk** at `{brief_path}`, so neither update-skill nor create-skill will re-prompt in future runs.
      4. Display: `"Skipped {path} — decision recorded in amendments."`
 
-   - **[U] Update:**
-     1. Halt the workflow immediately.
-     2. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."`
-     3. Exit with status `halted-for-brief-refinement`. Change manifest is discarded — no partial writes.
+   - **[U] Update:** HALT with status `halted-for-brief-refinement` (halt procedure: `phase: "detect-changes:authoritative-files"`, `path: "{brief_path}"`, `reason: "the user chose to refine the brief's scope for {path}"`) and display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."` The change manifest is discarded: no partial writes.
 
 6. **Summary.** After all candidates are resolved (or none were found):
 
-   - `"Authoritative files mirror: {N} candidates, {P} promoted, {S} skipped, {A} decided by the brief (in scope or amended), {T} already tracked in provenance."`, with N the helper's `summary.candidates_total`, A its `already_in_scope_count` plus `pre_decided_count` and T its `already_tracked_count`.
+   - `"Authoritative files mirror: {N} candidates, {P} promoted, {S} skipped, {D} deferred to an interactive run, {A} decided by the brief (in scope or amended), {T} already tracked in provenance."`, with N the helper's `summary.candidates_total`, A its `already_in_scope_count` plus `pre_decided_count` and T its `already_tracked_count`.
    - If N = 0: `"Authoritative files mirror: no candidates."`
 
-**Record for evidence report:** the update-skill evidence report appends `authoritative_files_mirror: {candidates: N, promoted: P, skipped: S, pre_decided: A, already_tracked: T, decisions: [{path, action, heuristic, reason}]}`.
+**Record for evidence report:** the update-skill evidence report appends `authoritative_files_mirror: {candidates: N, promoted: P, skipped: S, deferred: D, pre_decided: A, already_tracked: T, decisions: [{path, action, heuristic, reason}]}`.
 
 ### 1c. Major-Version Scope Reconciliation (Pre-Detection)
 
@@ -233,11 +274,13 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
 
    ```bash
    uv run {provenanceGapDispatchHelper} dispatch \
-       --skill-name {skill_name} \
-       --baseline-version {baseline_version} \
-       --forge-data-folder {forge_data_folder} \
-       --brief {forge_data_folder}/{skill_name}/skill-brief.yaml
+       --skill-name "{skill_name}" \
+       --baseline-version "{baseline_version}" \
+       --forge-data-folder "{forge_data_folder}" \
+       --brief "{brief_path}"
    ```
+
+   On exit 1 (a forge folder or brief it cannot read), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:scope-reconciliation"`, `path: "{brief_path}"`, `reason: "<its stderr>"`).
 
    Output envelope:
 
@@ -254,7 +297,7 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
                  | "pre-decided-demoted" | "unresolved",
          "prior_action": "promoted" | "skipped"
                        | "demoted-include" | "demoted-exclude"
-                       | null
+                       | "deferred-headless" | null
        }, ...
      ],
      "summary": {"pre_decided_count": N, "unresolved_count": N}
@@ -269,7 +312,7 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
      - `status: "already-in-scope"` → skip silently (`prior_action: "promoted"`).
      - `status: "pre-decided-skipped"` → honor silently (`prior_action: "skipped"`).
      - `status: "pre-decided-demoted"` → record as `pre_decided`; do not re-prompt (`prior_action` ∈ `demoted-include`, `demoted-exclude`).
-     - `status: "unresolved"` → continue to step 4 (user prompt).
+     - `status: "unresolved"` → continue to step 3 (user prompt). A `prior_action` of `deferred-headless` marks a path a headless run deferred (the legacy `skipped` amendment with reason `headless: no user to prompt` reads the same): a person decides it now.
 
    **Note:** the Out-of-Scope section is an optional audit-skill output and is often absent or empty — new-file detection is update-skill's job (§1b/§2.2), not audit-skill's — so the `no-report` / `no-candidates` paths above are the common case.
 
@@ -289,35 +332,38 @@ Read the gaps of the test report at `{test_report_path}` and translate them:
    [U] Update  — halt this run and return to skf-brief-skill to refine scope
    ```
 
-4. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `category: "scope-expansion"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently expand scope. **Also append one entry per candidate to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "detect-changes.scope-expansion", default_action: "S", taken_action: "S", reason: "headless: no user to prompt", evidence: {path: "<candidate.path>"}}`.
+4. **Headless mode (`{headless_mode}` is true):** promote nothing and decide nothing: expanding scope needs a person, and so does declining it. Record each candidate as deferred, so the next interactive run asks: append a `brief.scope.amendments[]` entry `action: "deferred-headless"`, `category: "scope-expansion"`, `path: candidate.path`, `reason: "headless: no user to prompt; left for the next interactive run"`, `evidence: {evidence string}`, `date: {today ISO}`, `workflow: "skf-update-skill"` to `{brief_path}`, except for a candidate whose `prior_action` is `deferred-headless`, which a headless run already recorded: write no second amendment for it. A non-interactive update run must never silently expand scope, and never records a skip no person chose. **Also record one decision per candidate path**, from `{project-root}`:
+
+   ```bash
+   uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+   {"gate": "detect-changes.scope-expansion", "default_action": "S", "taken_action": "deferred-headless", "reason": "headless: no user to prompt; left for the next interactive run", "evidence": {"path": "<candidate.path>"}}
+   SKF_JSON
+   ```
 
 5. **Apply decision:**
 
    - **[P] Promote:**
      1. Append `candidate.path` to `brief.scope.include` as a literal glob (preserve any wildcards from the drift report).
      2. Append a `brief.scope.amendments[]` entry: `action: "promoted"`, `category: "scope-expansion"`, `path: candidate.path`, `reason: {user-provided or auto: "out-of-scope new public API — drift report {report basename}"}`, `evidence: {evidence string}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
-     3. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Preserve all other fields.
+     3. **Write the amended brief back to disk immediately** at `{brief_path}` (the run folder's copy in a read-only mode). Preserve all other fields.
      4. Display: `"Promoted {path} — brief amended; §2 Category A will pick up matching files as ADDED."`
      5. **No `promoted_docs_new[]` entry and no `--exclude`:** promoted code globs flow through the standard §2 Category A → §3 extraction path, unlike §1b's promoted docs which bypass extraction.
 
    - **[S] Skip:**
      1. Do NOT modify `scope.include` or `scope.exclude`.
      2. Append a `brief.scope.amendments[]` entry: `action: "skipped"`, `category: "scope-expansion"`, `path: candidate.path`, `reason: {user-provided or auto: "user declined promotion at update-skill §1c"}`, `evidence: {evidence string}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
-     3. **Write the amended brief back to disk** so neither §1c nor a future run will re-prompt.
+     3. **Write the amended brief back to disk** at `{brief_path}`, so neither §1c nor a future run will re-prompt.
      4. Display: `"Skipped {path} — decision recorded in amendments."`
 
-   - **[U] Update:**
-     1. Halt the workflow immediately.
-     2. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."`
-     3. Exit with status `halted-for-brief-refinement`. Change manifest is not yet built — no partial writes to provenance.
+   - **[U] Update:** HALT with status `halted-for-brief-refinement` (halt procedure: `phase: "detect-changes:scope-reconciliation"`, `path: "{brief_path}"`, `reason: "the user chose to refine the brief's scope for {path}"`) and display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."` The change manifest is not built yet: no partial writes to provenance.
 
 6. **Summary:** After all candidates are resolved (or none were found):
 
-   - `"Scope reconciliation: {N} candidates, {P} promoted, {S} skipped, {A} pre-decided from amendments."`
+   - `"Scope reconciliation: {N} candidates, {P} promoted, {S} skipped, {D} deferred to an interactive run, {A} pre-decided from amendments."`
    - If N = 0 (section absent or empty): `"Scope reconciliation: no out-of-scope observations in drift report."`
    - If §1c was skipped entirely (no drift report): omit this line; §2.2 will still run.
 
-**Record for evidence report:** the update-skill evidence report appends `scope_reconciliation_pre: {drift_report: path, candidates: N, promoted: P, skipped: S, pre_decided: A, decisions: [{path, action, evidence}]}` (omit when §1c was skipped).
+**Record for evidence report:** the update-skill evidence report appends `scope_reconciliation_pre: {drift_report: path, candidates: N, promoted: P, skipped: S, deferred: D, pre_decided: A, decisions: [{path, action, evidence}]}` (omit when §1c was skipped).
 
 ### 2. Compare Against Provenance Map
 
@@ -337,7 +383,7 @@ Category B reads the files Category A lists, and Category C pairs what A and B l
 uv run {classifyChangedFilesHelper} classify \
     --source-root "{source_root}" \
     [--provenance-map "{provenance_map_path}"] \
-    [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] \
+    [--brief "{brief_path}"] \
     [--language "{language}"] \
     --tree-status "{source_tree_status}" \
     --diff-status "{source_diff_status}" \
@@ -347,7 +393,7 @@ uv run {classifyChangedFilesHelper} classify \
     > "{run_dir}/category-a.json"
 ```
 
-Pass `--provenance-map` whenever init.md §4 loaded one; `--brief` (as §1c left it) when that file exists (a skill built without a brief, such as a quick skill after its degraded update, has none); `--language` when metadata.json records one; one `--exclude` for each `promoted_docs_new[]` path; and the three init.md §6b values as bound (an empty or `null` value counts as not given). In a tree it takes the changed files from git's list at `{source_changed_files}`, never from file times or sizes, which a checkout rewrites. Add each of its `warnings[]` to `warnings[]`. It writes `{run_dir}/modified-files.json` (the files Category B diffs) and `{run_dir}/extract-files.json` (the modified and added files and each moved file's new path, which Category B and step 3 read): never retype or re-derive a list. On exit 1 (an input it cannot read, named on stderr), no JSON, or no candidate resolves: HALT with status `blocked` (`error.phase` `detect-changes:category-a`, the helper's message as `reason`).
+Pass `--provenance-map` whenever init.md §4 found one; `--brief` (as §1c left it) when that file exists (a skill built without a brief, such as a quick skill after its degraded update, has none); `--language` when metadata.json records one; one `--exclude` for each `promoted_docs_new[]` path; and the three init.md §6b values as bound (an empty or `null` value counts as not given). In a tree it takes the changed files from git's list at `{source_changed_files}`, never from file times or sizes, which a checkout rewrites. Add each of its `warnings[]` to `warnings[]`. It writes `{run_dir}/modified-files.json` (the files Category B diffs) and `{run_dir}/extract-files.json` (the modified and added files and each moved file's new path, which Category B and step 3 read): never retype or re-derive a list. On exit 1 (an input it cannot read, named on stderr), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:category-a"`, the helper's message as `reason`).
 
 **Category B: export-level changes.** Skip it when `{run_dir}/extract-files.json` lists no file.
 
@@ -376,18 +422,38 @@ Pass `--provenance-map` whenever init.md §4 loaded one; `--brief` (as §1c left
        -o "{run_dir}/category-b-diff.json"
    ```
 
-   Exit 0 (no difference) and exit 1 (differences) both wrote the diff, which §3's helper maps onto Category B: never re-diff by eye. On exit 2, no JSON, or no candidate resolves: HALT with status `blocked` (`error.phase` `detect-changes:category-b`, the helper's `error` as `reason`).
+   Exit 0 (no difference) and exit 1 (differences) both wrote the diff, which §3's helper maps onto Category B: never re-diff by eye. On exit 2, no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:category-b"`, the helper's `error` as `reason`).
 
-**Category C: rename detection.** A worker pairs Category A's `deleted` files with its `added` ones, and the diff's `removed[]` exports with its `added[]` ones and with the added files' exports (`{run_dir}/extraction.json` and `export-details.json`). It returns ONLY `{"category_c": {"renamed_files": [{old_path, new_path}], "renamed_exports": [{old_name, new_name, file, old_file}]}}`, with no prose and no fences: `file` is the export's file now, and `old_file`, given only when it differs, its file before. Content similarity above 80% (fixed, not configurable) is a rename. **Similarity mechanism by tier:** Quick: a file size ratio within 20% (in a §6b tree, the deleted file's size is `git -C "{source_root}" cat-file -s "{source_commit}:<deleted path>"`; in a local source the file is gone, so skip this test) and export name overlap above 70%, the deleted file's names from its provenance map entries and the added file's from the two files above. Forge and above: compare export signatures, the deleted file's provenance map entries against the added file's exports. Forge+/Deep: use CCC semantic similarity when available, except when `{source_tree_status}` is `ready` or `offline`: the tree init.md §6b prepared has no ccc index, and a search there could start indexing a folder step 8 deletes, so keep the ast-grep comparison. Category A's `moved_files[]` (same-content moves) are not the worker's to pair, and §3's helper takes each pair out of the lists it was found in.
+**Category C: rename detection.** The fixed rules pair Category A's `deleted` files with its `added` ones, and the diff's `removed[]` exports with its `added[]` ones and with the added files' exports, by script, never by eye. From `{project-root}`, run:
+
+```bash
+uv run {buildChangeManifestHelper} rename-candidates \
+    --category-a "{run_dir}/category-a.json" \
+    [--category-b-diff "{run_dir}/category-b-diff.json"] \
+    --provenance-map "{provenance_map_path}" \
+    [--extraction "{run_dir}/extraction.json"] \
+    [--export-details "{run_dir}/export-details.json"] \
+    --tier "{forge_tier}" \
+    --source-root "{source_root}" \
+    [--sizes-commit "{source_commit}"] \
+    -o "{run_dir}/category-c.json"
+```
+
+Pass `--category-b-diff`, `--extraction` and `--export-details` when Category B wrote them, and `--sizes-commit` only when `{source_tree_status}` is `ready` or `offline`: in that tree the helper reads a deleted file's size at the pinned commit (`git cat-file -s`), while in a local source the file is gone and the size test is skipped. Skip Category C in degraded mode (there is no map). Content similarity above 80% (fixed, not configurable) is a rename: at Quick tier a file size within 20% and export names that overlap above 70% (export names above 80% alike), at Forge and above equal export signatures. The helper keeps a pair only when it is each side's best match, so a tie pairs nothing, and writes `category_c` (`renamed_files: [{old_path, new_path}]`, `renamed_exports: [{old_name, new_name, file, old_file?}]`, `old_file` only when it differs from `file`), the `evidence` of each pair and what it left `unpaired`. On exit 1, no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:category-c"`, its stderr as `reason`). Category A's `moved_files[]` (same-content moves) are not Category C's to pair, and §3's helper takes each pair out of the lists it was found in.
+
+**CCC check (Forge+ and Deep, a local source only).** When `tools.ccc` is true and `{source_tree_status}` is neither `ready` nor `offline` (the tree init.md §6b prepared has no ccc index, and a search there could start indexing a folder step 8 deletes), you may pair what the rules left in `unpaired`: a deleted file with an added one that CCC ranks as the same code (`ccc_bridge.search` over the deleted file's export names; **Tool resolution:** `/ccc` skill search, ccc MCP or `ccc search`). This is the one judgment in Category C: add a pair only on CCC's evidence, name it in the report as a CCC pairing, and never undo a pair the rules made. Write only these pairs, with each path as `unpaired` gives it, to `{run_dir}/ccc-pairs.json` as `{"renamed_files": [{"old_path": "<deleted>", "new_path": "<added>"}]}`; the helpers below read `{run_dir}/category-c.json` themselves, so never copy its pairs.
 
 **Category D: script/asset file changes.**
 
-Run the bulk comparison once via:
+Run the bulk comparison once, keeping its output in the run folder (step 6's `apply` reads it):
 
 ```bash
 uv run {hashContentHelper} compare "{source_root}" \
-    --provenance-map "{provenance_map_path}"
+    --provenance-map "{provenance_map_path}" \
+    > "{run_dir}/category-d-compare.json"
 ```
+
+On exit 1, no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:category-d"`, its stderr as `reason`).
 
 The helper emits:
 
@@ -411,16 +477,17 @@ The compare helper reports only tracked files; NEW_FILE detection (a file presen
 
 ```bash
 uv run {detectScriptsAssetsHelper} detect "{source_root}" \
-    | uv run {newFileDiffHelper} "{provenance_map_path}"
+    | uv run {newFileDiffHelper} "{provenance_map_path}" \
+    > "{run_dir}/new-files.json"
 ```
 
-It emits `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "stats":{...}}`. Add each `new_files[]` entry to the manifest as NEW_FILE: `kind` (`script`/`asset`) selects the target array. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above.
+It writes `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "stats":{...}}`. Add each `new_files[]` entry to the manifest as NEW_FILE: `kind` (`script`/`asset`) selects the target array. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above.
 
-**Write the category JSON** to `{run_dir}/categories.json`, where §2.2 and §3 read it beside the helper files: Category C's object (`category_c`), Category D's (`category_d`, §3's shape) and the two flags, `degraded_mode` and `update_mode: "normal"`:
+**Write the category JSON** to `{run_dir}/categories.json`, where §2.2 and §3 read it beside the helper files: Category D's object (`category_d`, §3's shape) and the two flags, `degraded_mode` and `update_mode: "normal"`. Category C stays in the files its steps wrote, which §2.2, §3 and step 6's `apply` take as `--category-c` and `--ccc-pairs`:
 
 ```bash
 cat > "{run_dir}/categories.json" <<'SKF_JSON'
-{"category_c": {...}, "category_d": {...}, "degraded_mode": <bool>, "update_mode": "normal"}
+{"category_d": {...}, "degraded_mode": <bool>, "update_mode": "normal"}
 SKF_JSON
 ```
 
@@ -435,10 +502,12 @@ uv run {buildChangeManifestHelper} deletion-ratio \
     --provenance-map "{provenance_map_path}" \
     --category-a "{run_dir}/category-a.json" \
     [--category-b-diff "{run_dir}/category-b-diff.json"] \
+    [--category-c "{run_dir}/category-c.json"] \
+    [--ccc-pairs "{run_dir}/ccc-pairs.json"] \
     --input "{run_dir}/categories.json"
 ```
 
-Pass `--category-b-diff` when Category B wrote it.
+Pass `--category-b-diff`, `--category-c` and `--ccc-pairs` when Category B, Category C and the CCC check wrote them.
 
 The helper handles the three skip conditions internally — when the input has `update_mode: "gap-driven"`, `degraded_mode: true`, or the provenance has zero entries, it returns `skip_reason` set and `should_trigger: false`. `should_trigger` fires when the deletion ratio reaches the fixed bundled threshold of 50% (`ratio >= 0.50`, baked into the helper — not configurable). The output envelope:
 
@@ -475,13 +544,19 @@ The upstream surface appears to have been substantially replaced. The brief's
 [A] Audit    — halt and run skf-audit-skill to map the new surface, then re-run update-skill
 ```
 
-**Headless mode (`{headless_mode}` is true):** auto-select `[C] Continue`, log a WARN-level entry to the evidence report (`scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "headless-continue"}`), and surface the warning in step 7's report. A non-interactive run must not silently halt, but the user must be able to see the signal post-hoc. **Also append to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "detect-changes.deletion-ratio", default_action: "C", taken_action: "C", reason: "headless: deletion-ratio threshold exceeded but no user to halt", evidence: {deletion_ratio: <ratio>, deleted_export_count: <N>, total_provenance_exports: <T>}}`.
+**Headless mode (`{headless_mode}` is true):** auto-select `[C] Continue`, log a WARN-level entry to the evidence report (`scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "headless-continue"}`), and surface the warning in step 7's report. A non-interactive run must not silently halt, but the user must be able to see the signal post-hoc. **Also record the decision**, from `{project-root}`:
+
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+{"gate": "detect-changes.deletion-ratio", "default_action": "C", "taken_action": "C", "reason": "headless: deletion-ratio threshold exceeded but no user to halt", "evidence": {"deletion_ratio": <ratio>, "deleted_export_count": <N>, "total_provenance_exports": <T>}}
+SKF_JSON
+```
 
 **Apply decision:**
 
 - **[C] Continue:** record `scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "continue"}` and proceed to §3.
-- **[B] Brief:** halt with status `halted-for-brief-refinement`. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."` Change manifest discarded — no partial writes.
-- **[A] Audit:** halt with status `halted-for-audit`. Display: `"Halting update-skill. Run skf-audit-skill against {skill_name} to map the new surface — its drift report will feed §1c on the next update-skill run."` Change manifest discarded.
+- **[B] Brief:** HALT with status `halted-for-brief-refinement` (halt procedure: `phase: "detect-changes:deletion-ratio"`, `reason: "the user chose to refine the brief's scope: {deleted_export_count} of {total_provenance_exports} exports deleted"`). Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."` The change manifest is discarded: no partial writes.
+- **[A] Audit:** HALT with status `halted-for-audit` (halt procedure: `phase: "detect-changes:deletion-ratio"`, `reason: "the user chose to audit the new surface first"`). Display: `"Halting update-skill. Run skf-audit-skill against {skill_name} to map the new surface: its drift report will feed §1c on the next update-skill run."` The change manifest is discarded.
 
 ### 3. Build Change Manifest
 
@@ -491,10 +566,13 @@ Hand the helper files and the category JSON to the helper, which takes Category 
 uv run {buildChangeManifestHelper} build \
     [--category-a "{run_dir}/category-a.json"] \
     [--category-b-diff "{run_dir}/category-b-diff.json"] \
-    --input "{run_dir}/categories.json"
+    [--category-c "{run_dir}/category-c.json"] \
+    [--ccc-pairs "{run_dir}/ccc-pairs.json"] \
+    --input "{run_dir}/categories.json" \
+    > "{run_dir}/change-manifest.json"
 ```
 
-Pass each helper file its category wrote. `category_d` in the category JSON has the shape `{"scripts_modified": [...], "scripts_added": [...], "scripts_deleted": [...], "assets_modified": [...], "assets_added": [...], "assets_deleted": [...]}`.
+Pass each helper file its category wrote. On exit 1 or no JSON: HALT with status `blocked` (halt procedure: `phase: "detect-changes:change-manifest"`, its stderr as `reason`). `category_d` in the category JSON has the shape `{"scripts_modified": [...], "scripts_added": [...], "scripts_deleted": [...], "assets_modified": [...], "assets_added": [...], "assets_deleted": [...]}`.
 
 The helper emits the unified manifest envelope:
 
@@ -517,11 +595,11 @@ The helper emits the unified manifest envelope:
 }
 ```
 
-`per_file` entries are sorted MODIFIED → ADDED → DELETED → MOVED, then alphabetically within each status group, so downstream stages can rely on stable ordering. MOVED entries include an extra `old_path` field. Stash the envelope as the change manifest in workflow context.
+`per_file` entries are sorted MODIFIED → ADDED → DELETED → MOVED, then alphabetically within each status group, so downstream stages can rely on stable ordering. MOVED entries include an extra `old_path` field. `{run_dir}/change-manifest.json` is the change manifest: step 3, step 7 and step 6's `apply` read it there, so it survives a compacted context.
 
 ### 4. Check for No-Change Shortcut
 
-**If zero changes detected across all categories:**
+**If zero changes detected across all categories** (`no_changes` is true in `{run_dir}/change-manifest.json`; for a docs-only skill, when every hashed document matched):
 
 "**No changes detected.** Source code matches provenance map exactly.
 
@@ -529,7 +607,7 @@ The skill `{skill_name}` is current — no update needed.
 
 **Skipping to report step...**"
 
-→ Skip steps 03-06, immediately load {noChangeReportFile} with "no changes" status.
+→ Skip steps 03-06, immediately load {noChangeReportFile} with "no changes" status. A `--detect-only` or `--dry-run` run takes this route too and stays read-only there: report.md §1 prints its line with no result file and never runs `{onCompleteCommand}`.
 
 ### 5. Display Change Summary and Route
 
@@ -543,7 +621,7 @@ The skill `{skill_name}` is current — no update needed.
 | Files moved/renamed | {count} |
 | Exports affected | {total_export_changes} |"
 
-In gap-driven mode, list below the table each gap §0 did not route, as `{id}: {title} ({category})`, and say this run does not repair them.
+In gap-driven mode, list below the table each gap §0 did not route, as `{id}: {title} ({category})`, and say this run does not repair them. For a docs-only skill, show instead the documents that changed (`changed_urls`) and the ones that could not be fetched.
 
 This step auto-proceeds — no user choices. Once the change manifest is fully built, load and fully read the next file, then execute it, per the branch that applies:
 

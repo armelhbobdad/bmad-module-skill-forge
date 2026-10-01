@@ -7,7 +7,7 @@ description: Smart regeneration preserving [MANUAL] sections after source change
 
 ## Overview
 
-Surgically updates existing skills when source code changes, preserving all [MANUAL] developer content while re-extracting only affected exports with full provenance tracking. Only changed exports are re-extracted — unchanged content is never touched. Every regenerated instruction must trace to code with file:line citations. Stack skills (`skill_type: "stack"` in metadata.json) are not supported by surgical update — use `skf-create-stack-skill` to re-compose from updated constituents. If a stack skill is provided, this workflow exits with a redirect message.
+Surgically updates existing skills when source code changes, preserving all [MANUAL] developer content while re-extracting only affected exports with full provenance tracking; unchanged content is never touched, and each regenerated instruction cites code by file:line. Stack skills (`skill_type: "stack"` in metadata.json) are not updated here: this workflow redirects them to `skf-create-stack-skill`, which re-composes them from updated constituents.
 
 ## Conventions
 
@@ -17,7 +17,7 @@ Surgically updates existing skills when source code changes, preserving all [MAN
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Cross-skill data coupling:** stages in this workflow load shared assets from `skf-create-skill` to keep extraction semantics aligned between create and update — `re-extract.md` pulls `extraction-patterns.md`, `extraction-patterns-tracing.md`, and `tier-degradation-rules.md` from `skf-create-skill/references/`; `init.md` §6c reads the version files the Version Reconciliation section of `skf-create-skill/references/source-resolution-protocols.md` lists, and `skf-source-tree.py` (init.md §6b) computes a remote skill's clone path with that document's workspace rule; `write.md` reads `skill-sections.md` from `skf-create-skill/assets/`. Update-skill assumes these files are present at install time and that their semantics are stable across the two skills' versions.
+- **Cross-skill data coupling:** stages load shared assets from `skf-create-skill`, so create and update extract alike: `re-extract.md` pulls `extraction-patterns.md`, `extraction-patterns-tracing.md` and `tier-degradation-rules.md` from `skf-create-skill/references/`; `init.md` §6c reads the version files the Version Reconciliation section of `skf-create-skill/references/source-resolution-protocols.md` lists, and `skf-source-tree.py` (init.md §6b) computes a remote skill's clone path with its workspace rule; `write.md` reads `skill-sections.md` from `skf-create-skill/assets/`. These files must be installed, with semantics stable across both skills.
 
 ## Role
 
@@ -32,9 +32,9 @@ These rules apply to every step in this workflow:
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
-- Once `references/init.md` §6b has bound `{source_tree}` (a private source tree for a skill forged from a remote repository), every HALT or ABORT after it first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}`, binds `{source_tree_close}` ← `status` and never stops on the result: on `removed` or `missing` it goes on; on `refused` it runs the command once more with `--tree` set to the exact `tree` value the helper's `open` printed, and binds that result the same way; on `left`, `refused` again, or a command that fails or prints no JSON, it adds `source-tree-not-removed: {source_tree} ({source_tree_close})` to the `warnings[]` of the envelope it emits. `references/health-check.md` removes the tree on every run that reaches step 8.
-- While `{source_tree}` is bound, a step that finds `{source_root}` missing HALTs with status `blocked` (`error.phase` `<step>:source-tree-missing`, for example `detect-changes:source-tree-missing`) instead of reading its files as deleted.
-- Once `references/init.md` §1b has bound `{lock_owner}`, every HALT, ABORT or other exit before step 8, the Stack Skill Guard's redirect included, first runs `uv run {runLockHelper} release --lock "{forge_data_folder}/{skill_name}/.skf-update.lock" --owner "{lock_owner}"` from `{project-root}`, before it emits its envelope, if any, and never stops on the result: when the command fails or prints no JSON, it adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to that envelope's `warnings[]`.
+- Every HALT, ABORT or other exit before step 8 runs the **Halt procedure** of the step file it fires in: one `{runStateHelper}` `halt` call that undoes this run's writes, removes the private source tree, releases the run lock and, headless, prints the halt's line. A halt never falls through to step 7.
+- While `{source_tree}` is bound, a step that finds `{source_root}` missing HALTs with status `blocked` (`error.phase` `<step>:source-tree-missing`) instead of reading its files as deleted.
+- **Run log.** Warnings and gate decisions live in the run folder, never only in context: record a warning at once with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "<text>"` from `{project-root}`, and each gate's decision with `record --decision`.
 
 ## Stages
 
@@ -53,12 +53,12 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | skill_name [required] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--from-test-report` (gap-driven mode); `--target-ref <ref>` (normal mode, a skill forged from a remote repository: read the current commit of that tag, branch, `HEAD` or full commit instead of the recorded `source_ref`, and record both as `source_ref` / `source_commit` when the update writes; init.md §6b); `--allow-workspace-drift` (gap-driven only: accept a workspace HEAD other than the pinned commit; update-skill takes nothing from HEAD, and a gap that needs the pinned tree, a rescope included, halts `halted-for-workspace-drift` before merge); `--allow-degraded` (headless only: pre-authorize the lossy degraded full re-extraction when the provenance map is missing, instead of halting `blocked`; init.md §4); `--detect-only` (run detect-changes only, exit before re-extract; envelope `status="detect-only"`); `--dry-run` (run detect-changes + re-extract, exit before merge/write; envelope `status="dry-run"` describes what would change; a re-extract halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it). If both `--detect-only` and `--dry-run` are passed, `--detect-only` wins. |
+| **Inputs** | skill_name [required]: the skill's name or folder path, as the argument. With none, an interactive run offers the skills SKF generated, and a headless run halts `blocked` (`error.phase` `init:skill-name`, `error.reason` starting `input-missing`) |
+| **Flags** | `--headless` / `-H`; `--from-test-report` (gap-driven mode); `--target-ref <ref>`; `--allow-workspace-drift` (gap-driven only: update-skill takes nothing from HEAD, and a gap that needs the pinned tree, a rescope included, halts `halted-for-workspace-drift` before merge); `--allow-degraded`; `--detect-only` (status `detect-only`); `--dry-run` (status `dry-run`, writes nothing in any mode; a re-extract halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it). init.md §1 describes each; `--detect-only` wins over `--dry-run`. |
 | **Gates** | step 1: Confirm Gate [C]; init.md §4b's [G]/[S] test-report offer, interactive only (headless warns `unconsumed-test-report`) | step 4: Confirm Gate [C if clean merge, HALT if conflicts] |
-| **Outputs** | A new version of the skill: SKILL.md, metadata.json, provenance-map.json and evidence-report.md in a new version folder `{skill_group}/{new_version}/` and its forge folder, beside the unchanged previous version (a gap-driven repair updates the current version in place); none when `--detect-only` or `--dry-run` is set: those modes are read-only inspection paths. Helper JSON goes to a run folder under `{project-root}/_bmad-output/.skf-run/` that step 8 removes |
+| **Outputs** | A new version folder `{skill_group}/{new_version}/` and its forge folder, beside the unchanged previous version (a gap-driven repair writes the current version in place), and a finished run's `update-skill-result-{YYYYMMDD-HHmmss}.json` and `update-skill-result-latest.json` in that version's forge folder (a run that found no change: the current one's). `--detect-only` and `--dry-run` write none of these, nor the skill brief. Run state goes to a run folder under `{project-root}/_bmad-output/.skf-run/` that step 8 removes; a halt keeps it |
 | **Concurrency** | A second real update of the same skill halts `halted-for-concurrent-run` while the first holds its run lock (init.md §1b); `--detect-only` and `--dry-run` take no lock. A remote skill is read from a private tree, and no mode writes to the shared workspace clone before write.md §6b. |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Each auto-resolved gate appends a `{gate, default_action, taken_action, reason, evidence?}` entry to `headless_decisions[]`, surfaced in step 7's `SKF_UPDATE_RESULT_JSON` envelope so non-interactive runs can be audited post-hoc. A HALT reached in headless mode emits its own `SKF_UPDATE_RESULT_JSON` at the halt site (the site's `status` code plus an `error: {phase, path?, reason}` object) and exits — halts do not fall through to step 7. Pipeline branches on the envelope's top-level `status` field (`success`, `no-changes`, `detect-only`, `dry-run`, or one of the documented `halted-for-*`/`blocked` codes). The first four are successful exits — pipelines treating non-success as failure must include them in the success set. The status enum is defined once in `src/shared/scripts/schemas/skf-update-result-envelope.v1.json`. |
+| **Headless** | Every gate auto-resolves with its default action. One `SKF_UPDATE_RESULT_JSON` line (report.md §5b), at step 7 or at a HALT, printed by the shared emitter and checked against `shared/scripts/schemas/skf-update-result-envelope.v1.json`. Pipelines branch on `skf_update.status`: `success`, `no-changes`, `detect-only` and `dry-run` are successful exits. |
 
 ## On Activation
 
@@ -66,17 +66,34 @@ These rules apply to every step in this workflow:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
+2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false. Bind `{requested_skill}` ← the skill name or folder path the invocation passes (its argument that is neither a flag nor a flag's value), else empty: `references/init.md` §1 takes it as the skill without asking.
 
-3. **Resolve workflow customization.** Run:
+3. **Resolve the shared helpers and create the run folder**, before anything can halt. Resolve `{emitEnvelopeHelper}` ← the first that exists of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`.
+   Resolve `{runStateHelper}` ← the first that exists of `{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py` and `{project-root}/src/shared/scripts/skf-update-run-state.py`. Then, from `{project-root}`, run:
+
+   ```bash
+   mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-update-skill-XXXXXXXX"
+   ```
+
+   Bind `{run_dir}` ← the path it prints and `{run_id}` ← its folder name less `skf-update-skill-`.
+
+   If a helper is missing or the folder cannot be created, HALT: display "**SKF cannot start this update:** {the missing helper (re-install SKF), or the command's first stderr line}. Nothing was changed." Headless, when the emitter resolved, print the halt's line with no run folder, from `{project-root}`:
+
+   ```bash
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-update-skill <<'SKF_JSON'
+   {"status": "blocked", "phase": "on-activation:run-folder", "path": "{project-root}/_bmad-output/.skf-run", "reason": "<which helper is missing, or that stderr line>", "skill_name": "unknown", "version": "unknown", "previous_version": "unknown", "update_mode": "normal"}
+   SKF_JSON
+   ```
+
+4. **Resolve workflow customization.** Run:
 
    ```bash
    python3 {project-root}/_bmad/scripts/resolve_customization.py \
        --skill {skill-root} --key workflow
    ```
 
-   This merges the three layers per `bmad-customize` rules (scalars override, arrays append): `{skill-root}/customize.toml` (bundled defaults), `_bmad/custom/<skill-name>.toml` under `{project-root}` (team overrides), and `_bmad/custom/<skill-name>.user.toml` under `{project-root}` (personal overrides). If the script is missing or fails, read `{skill-root}/customize.toml` directly.
+   This merges the three layers per `bmad-customize` rules (scalars override, arrays append): `{skill-root}/customize.toml` (bundled defaults), `_bmad/custom/<skill-name>.toml` under `{project-root}` (team overrides), and `_bmad/custom/<skill-name>.user.toml` under `{project-root}` (personal overrides). If the script is missing or fails, read `{skill-root}/customize.toml` directly and add `customization_resolver_unavailable: <the reason>` to `warnings[]`.
 
-   Apply the resolved values so no surface is a silent no-op: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (entries prefixed `file:` are paths or globs whose contents load as facts — the bundled default loads any `project-context.md` under `{project-root}`); resolve `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string, and stash it in workflow context (`references/report.md` §5b invokes it after the result contract is written; empty string = the hook is a no-op). After activation completes, execute each entry in `workflow.activation_steps_append` in order before `init.md` runs.
+   Apply the resolved values so no surface is a silent no-op: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (entries prefixed `file:` are paths or globs whose contents load as facts: the bundled default loads any `project-context.md` under `{project-root}`); resolve `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string, and stash it in workflow context (`references/report.md` §5b runs it after a finished run's result files, never in `--detect-only`, `--dry-run` or a halt; empty = no-op). After activation completes, execute each entry in `workflow.activation_steps_append` in order before `init.md` runs.
 
-4. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+5. Load, read the full file, and then execute `references/init.md` to begin the workflow.

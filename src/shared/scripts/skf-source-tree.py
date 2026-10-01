@@ -193,8 +193,8 @@ advance
 
   Moves the shared clone (--clone) to --target, the commit the update
   recorded, so test-skill and audit-skill read that commit there. It takes
-  the clone's `.skf-workspace.lock`, the lock create-skill and audit-skill
-  take (`fcntl.flock` on POSIX, the lock `flock -x` takes, and
+  the clone's `.skf-workspace.lock`, the lock create-skill takes
+  (`fcntl.flock` on POSIX, the lock `flock -x` takes, and
   `msvcrt.locking` on Windows), waiting up to --lock-timeout seconds, and
   runs the hygiene helper inside it. It then does nothing when the clone
   already holds --target; otherwise it checks the clone out at --target

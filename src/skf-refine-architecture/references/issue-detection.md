@@ -9,6 +9,10 @@ refinementRulesData: '{refinementRulesPath}'
 validateFeasibilityReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
   - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
+# The shared emitter: §4's recovery halt prints its envelope with it.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Append issue-detection findings to the RA state file in {document_output_language}. -->
@@ -27,6 +31,14 @@ Find contradictions between what the architecture document claims and what the g
 
 ## MANDATORY SEQUENCE
 
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, adding `"path"` when the halt names one, resolve `{emitEnvelopeHelper}` from `{emitEnvelopeProbeOrder}` if it is not bound (first existing path wins), then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-refine-architecture --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, then stop with the halt's exit code (`references/exit-codes.md` describes the envelope). If no candidate exists, or the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Reference Refinement Rules
 
 Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
@@ -35,7 +47,7 @@ Extract: issue classification (API Mismatch, Protocol Contradiction, Language Bo
 
 ### 2. Extract Integration Claims from Architecture
 
-Parse the architecture document for specific claims about how technologies interact.
+Parse the architecture document for specific claims about how technologies interact. Read it as `{analysis_doc}`, the copy Step 01 §1b wrote with any earlier Refine Architecture pass set aside, so a claim is always the user's, never an old RA annotation.
 
 **Claim types to extract:**
 - **API claims:** "Library X provides/exposes/exports {function/endpoint}"
@@ -45,7 +57,7 @@ Parse the architecture document for specific claims about how technologies inter
 - **Capability claims:** "Library X handles {capability}"
 
 For each claim, record:
-- The exact text or paraphrase from the architecture
+- The claim's exact text as one line of `{analysis_doc}` holds it, copied character for character (Step 05 anchors the issue's callout on it), then a paraphrase if one helps
 - The section where it appears
 - The libraries referenced
 
@@ -82,7 +94,7 @@ If `vs_report_available` is true:
 uv run {validateFeasibilityReportHelper} "{vs_report_path}"
 ```
 
-Use its JSON when it exits 0 with the `generatedAt` the block records. When it exits non-zero with a JSON, or its `generatedAt` differs ([VS] rewrote the report during this run), the verdicts this run started from are gone: HALT (exit code 8, `halt_reason: "recovery-failed"`) naming the VS report, and in headless emit the error envelope. An exit 2 with no JSON is a malformed call, as in Step 01: fix it and run it again.
+Use its JSON when it exits 0 with the `generatedAt` the block records. When it exits non-zero with a JSON, or its `generatedAt` differs ([VS] rewrote the report during this run), the verdicts this run started from are gone: HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:vs-report`, naming the VS report, with `"path"` set to its `path`. An exit 2 with no JSON is a malformed call, as in Step 01: fix it and run it again.
 
 **Scope filter (reuse `{in_scope_pairs}` and `{out_of_scope_pairs}` from Step 02 §3, or the `[RA-SCOPE]` block of the same state file if they are no longer in context):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Map each pair's `lib_a` and `lib_b` to the inventory skill whose name, or one of the aliases Step 02 §2 passed to the mentions helper, equals it (compared case-insensitively). A verdict whose pair is in `{in_scope_pairs}`, in either order, is promoted by the rules below. Record every other verdict (a pair in `{out_of_scope_pairs}`, or one naming a library no inventory skill matches) under the informational Out-of-Scope bucket instead of promoting it to an issue for this architecture.
 
@@ -105,7 +117,7 @@ For each detected issue, cite it in this format:
 ```
 **[ISSUE]**: {description}
 
-Architecture states: "{quoted claim from original document}" (Section: {section_name})
+Architecture states: "{the claim's exact text from §2}" (Section: {section_name})
 Skill reality: {skill_name} exports: `{actual_api}` — {explanation of contradiction}
 {IF VS report}: VS verdict: {Risky|Blocked|Plausible} for {pair}: {VS rationale}
 

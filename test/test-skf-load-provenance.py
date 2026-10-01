@@ -180,6 +180,38 @@ class TestExtractReexportMap:
 
 
 # --------------------------------------------------------------------------
+# File-to-library map (a stack's per-library diff)
+# --------------------------------------------------------------------------
+
+
+class TestSourceLibraryByFile:
+    def test_each_file_takes_its_entries_library(self) -> None:
+        data = {"entries": [
+            {"source_file": "lib-b\\b.ts", "source_library": "lib-b"},
+            {"source_file": "lib-a/a.ts", "source_library": "lib-a"},
+            {"source_file": "lib-a/a.ts", "source_library": "lib-a"},
+            {"source_file": "shared/x.ts", "source_library": "lib-a"},
+            {"source_file": "shared/x.ts", "source_library": "lib-b"},
+        ]}
+        assert mod.source_library_by_file(data) == {"lib-a/a.ts": "lib-a", "lib-b/b.ts": "lib-b",
+                                                    "shared/x.ts": "lib-a"}
+
+    @pytest.mark.parametrize("data", [
+        {},
+        {"entries": "x"},
+        {"entries": [{"source_file": "a.ts"}, {"source_file": "b.ts", "source_library": ""},
+                     {"source_file": 3, "source_library": "lib"}, "junk"]},
+    ], ids=["no-entries", "entries-not-a-list", "no-usable-library"])
+    def test_files_without_a_library_are_left_out(self, data) -> None:
+        assert mod.source_library_by_file(data) == {}
+
+    def test_normalize_carries_the_map(self) -> None:
+        data = {"provenance_version": "2.0", "skill_type": "stack",
+                "entries": [{"source_file": "lib-a/a.ts", "source_library": "lib-a"}]}
+        assert mod.normalize(data)["source_library_by_file"] == {"lib-a/a.ts": "lib-a"}
+
+
+# --------------------------------------------------------------------------
 # normalize end-to-end
 # --------------------------------------------------------------------------
 
@@ -204,6 +236,7 @@ class TestNormalize:
             "baseline_commit": "abc123",
             "baseline_ref": "v1.0.0",
             "reexport_map": {},
+            "source_library_by_file": {},
             "export_count": 1,
             "generated_at": None,
             "age_days": None,
@@ -272,6 +305,7 @@ class TestNormalize:
             "baseline_commit": None,
             "baseline_ref": None,
             "reexport_map": {},
+            "source_library_by_file": {},
             "export_count": 0,
             "generated_at": None,
             "age_days": None,

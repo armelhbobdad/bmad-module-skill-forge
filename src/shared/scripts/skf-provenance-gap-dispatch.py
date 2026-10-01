@@ -17,7 +17,15 @@ deterministic operations before the LLM can prompt the user:
      - `promoted` for this path → already in scope (skip)
      - `skipped` for this path → user previously declined (skip)
      - `demoted-include` or `demoted-exclude` → pre-decided demotion
+     - `deferred-headless` for this path → a headless run met it and left
+       it for a person: unresolved, so the next interactive run asks
      - no matching amendment → unresolved (caller prompts user)
+
+     A `skipped` amendment whose reason is `headless: no user to prompt`
+     is the automatic skip a headless run wrote before `deferred-headless`
+     existed. No person declined the path, so it counts as
+     `deferred-headless` too (as skf-resolve-authoritative-files.py reads
+     the same legacy record).
 
 The prose previously asked the LLM to do all three per run. The
 markdown parsing in particular is fiddly (heading lookahead, table
@@ -45,7 +53,7 @@ Output JSON (stdout):
                 | "unresolved",
         "prior_action": "promoted" | "skipped"
                       | "demoted-include" | "demoted-exclude"
-                      | null
+                      | "deferred-headless" | null
       }, ...
     ],
     "summary": {
@@ -58,6 +66,9 @@ Output JSON (stdout):
   - `no-report`     → no drift report exists; §1c skipped entirely
   - `no-candidates` → report exists but Out-of-Scope section is absent/empty
   - `candidates-found` → classified[] is populated; iterate unresolved entries
+
+An `unresolved` entry with `prior_action: "deferred-headless"` is one a
+headless run deferred; with `null` no run has decided it yet.
 
 Exit codes:
   0  — operation succeeded (any status)
@@ -238,6 +249,12 @@ _PRE_DECIDED_SKIPPED = "pre-decided-skipped"
 _PRE_DECIDED_DEMOTED = "pre-decided-demoted"
 _UNRESOLVED = "unresolved"
 
+_SKIPPED = "skipped"
+_DEFERRED = "deferred-headless"
+# The reason a headless run gave its automatic skip before deferred-headless
+# existed. Such a skip was never a person's decision.
+_LEGACY_HEADLESS_REASON = "headless: no user to prompt"
+
 
 def load_brief(brief_path: Path) -> dict:
     """Parse a skill-brief.yaml file. Raises ValueError on load failure."""
@@ -272,7 +289,7 @@ def reconcile(candidates: list[dict], brief: dict) -> list[dict]:
         if not isinstance(amend, dict):
             continue
         path = amend.get("path")
-        action = amend.get("action")
+        action = _amendment_action(amend)
         if isinstance(path, str) and isinstance(action, str):
             by_path.setdefault(path, []).append(action)
 
@@ -293,20 +310,35 @@ def reconcile(candidates: list[dict], brief: dict) -> list[dict]:
     return classified
 
 
+def _amendment_action(amend: dict) -> str | None:
+    """The action an amendment records, reading a legacy headless skip as a deferral."""
+    action = amend.get("action")
+    if not isinstance(action, str):
+        return None
+    reason = amend.get("reason")
+    if action == _SKIPPED and isinstance(reason, str) and reason.strip() == _LEGACY_HEADLESS_REASON:
+        return _DEFERRED
+    return action
+
+
 def _classify(prior_actions: list[str]) -> tuple[str, str | None]:
     """Pick the dominant amendment action for a single candidate path.
 
     A path may have multiple amendments (e.g. promoted then later
-    demoted-exclude). Most recent action wins — the list is in
-    amendment-record-insertion order, so iterate from the end.
+    demoted-exclude). Most recent action wins: the list is in
+    amendment-record-insertion order, so iterate from the end. A
+    deferred-headless amendment decides nothing: the path stays
+    unresolved for the next interactive run, which a person answers.
     """
     for action in reversed(prior_actions):
         if action == "promoted":
             return _ALREADY_IN_SCOPE, "promoted"
-        if action == "skipped":
-            return _PRE_DECIDED_SKIPPED, "skipped"
+        if action == _SKIPPED:
+            return _PRE_DECIDED_SKIPPED, _SKIPPED
         if action in ("demoted-include", "demoted-exclude"):
             return _PRE_DECIDED_DEMOTED, action
+        if action == _DEFERRED:
+            return _UNRESOLVED, _DEFERRED
     return _UNRESOLVED, None
 
 

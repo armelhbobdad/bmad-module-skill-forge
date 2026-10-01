@@ -86,7 +86,7 @@ CONTRACT_FILES = {
     "src/skf-rename-skill/references/exit-codes.md": ("not-skf-output", "flat-layout"),
     "src/skf-export-skill/references/result-envelope.md": ("not-skf-output",),
     "src/skf-export-skill/SKILL.md": ("not-skf-output",),
-    "src/skf-audit-skill/SKILL.md": ("not-skf-output",),
+    "src/skf-audit-skill/references/headless-contract.md": ("not-skf-output",),
     "src/skf-test-skill/SKILL.md": ("not-skf-output",),
     QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
     SS_SKILL: ("not-skf-output", "flat-layout"),
@@ -819,7 +819,8 @@ def test_version_paths_names_writers_and_forge_folders():
     inventory = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(inventory)
     tree = _section(text, "### forge_data_folder\n", "## Version Resolution")
-    for name in sorted(inventory.FORGE_VERSION_FILES) + ["test-report-", "drift-report-", "-result-", ".skf-rename-"]:
+    for name in sorted(inventory.FORGE_VERSION_FILES) + ["test-report-", "test-findings-", "drift-report-",
+                                                          ".skf-audit/", "-result-", ".skf-rename-"]:
         assert name in tree, f"the forge tree must name {name!r}"
 
 

@@ -7,7 +7,7 @@ description: Improve architecture doc using verified skill data and VS feasibili
 
 ## Overview
 
-Takes an original architecture document + generated skills + optional VS feasibility report, and produces a refined architecture with gaps filled, issues flagged, and improvements suggested — all backed by specific API evidence from the generated skills. This workflow enhances the original architecture — it never deletes original content, only adds annotations, subsections, and suggestions.
+Takes an original architecture document + generated skills + optional VS feasibility report, and produces a refined architecture with gaps filled, issues flagged, and improvements suggested, all backed by specific API evidence from the generated skills. This workflow enhances the original architecture: it never deletes original content, only adds annotations, subsections, and suggestions, each between `<!-- RA:BEGIN ... -->` and `<!-- RA:END -->` marker lines. Run again on a refined document, it sets its own earlier annotations aside and writes one current set in their place.
 
 ## Conventions
 
@@ -29,19 +29,21 @@ These rules apply to every step in this workflow:
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
 - Always communicate in `{communication_language}`
-- At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
-- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
+- At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`), except at step 6's final menu: the result contract is already written there, so each of them finishes the run (exit code 0)
+- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; a gate that picks its default for the user also records that decision in the run sink the moment it decides
+- Every HARD HALT names its exit code, `halt_reason` and phase, and in headless mode prints its envelope through the shared emitter, with the command each stage file shows (`references/exit-codes.md` describes the envelope)
+- Run state lives in `{run_dir}`, not in context; step 6 deletes it when the run finishes, a HALT keeps it
 
 ## Stages
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load Inputs | references/init.md | No (confirm) |
+| 1 | Initialize & Load Inputs | references/init.md | No (input gate) |
 | 2 | Gap Analysis | references/gap-analysis.md | Conditional (confirm a derived scope) |
 | 3 | Issue Detection | references/issue-detection.md | Yes |
 | 4 | Improvements | references/improvements.md | Yes |
 | 5 | Compile Refined Architecture | references/compile.md | No (review) |
-| 6 | Report | references/report.md | Yes |
+| 6 | Report | references/report.md | No (final menu) |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
@@ -50,35 +52,14 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | architecture_doc_path [required], vs_report_path [optional] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--vs-report-path <path>` (skip step 1 prompt for the optional VS report; `--vs-report-path none` refines without a report and skips the search for one); `--scope-skills <names>` (comma-separated in-scope skill names; overrides scope derivation in gap analysis, so step 2 asks no scope confirmation) |
-| **Gates** | step 1: Input Gate [use args] | step 2: Scope Confirm Gate [C] continue / [X] cancel (only when a derived scope leaves skills out or keeps an ambiguous one) | step 5: Review Gate [C] continue / [X] cancel | step 6: Exit menu [R] review / [X] exit |
-| **Outputs** | `refined-architecture-{arch_project_name}.md` at `{outputFolderPath}` (`{arch_project_name}` = the architecture doc's frontmatter `project_name`, else config `project_name` — resolved in init.md), plus `refine-architecture-result-{timestamp}.json` and `refine-architecture-result-latest.json` |
+| **Gates** | step 1: Input Gate [use args] | step 2: Scope Confirm Gate [C] continue / [X] cancel (only when a derived scope leaves skills out or keeps an ambiguous one) | step 5: Review Gate [C] approve and replace the refined document / [X] cancel | step 6: Final menu [R] review / [X] finish (the result contract is already written) |
+| **Outputs** | `refined-architecture-{arch_project_name}.md` at `{outputFolderPath}` (`{arch_project_name}` = the architecture doc's frontmatter `project_name`, else config `project_name`, resolved in init.md), promoted from a draft only when the step 5 review approves it; an earlier file of that name is first renamed to `refined-architecture-{arch_project_name}-{timestamp}.md`. Plus `refine-architecture-result-{YYYYMMDD-HHmmss}.json` (UTC, named by the emitter) and `refine-architecture-result-latest.json` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--vs-report-path`, `--scope-skills`) consumed at the gates that would otherwise prompt: `--scope-skills` skips the step 2 scope confirmation, and without `--vs-report-path` step 1 uses the [VS] report it finds for the project, while `--vs-report-path none` uses none. |
-| **Exit codes** | See "Exit Codes" below |
-
-## Exit Codes
-
-Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
-
-| Code | Meaning              | Raised by                                                                                    |
-| ---- | -------------------- | -------------------------------------------------------------------------------------------- |
-| 0    | success              | step 7 (terminal)                                                                           |
-| 2    | input-missing / input-invalid | step 1 §1 (headless missing `architecture-doc` arg, or invalid path) → `input-missing`; non-existent file → `input-invalid`; a [VS] report that breaks the feasibility-report contract (`schemaVersion` not `1.0`, a section missing or out of order, a missing or second verdict table, an unknown verdict token) or cannot be read → `input-invalid` |
-| 3    | resolution-failure   | On-Activation §5 (`output_folder` or `forge_data_folder` unconfigured) |
-| 4    | write-failure        | On-Activation §5 pre-flight write probe; step 1 §3c (RA state file write failed); step 5 §6 (refined-architecture write failed); step 6 §3 (result-contract write failed) |
-| 5    | state-conflict       | step 1 §3 (no skills found — refinement requires ≥1 skill) |
-| 6    | user-cancelled       | step 1 §1 prompt cancelled; step 2 §2b scope confirmation `[X]`; any prompt that accepted `cancel`/`exit`/`:q`; step 5 review gate `[X]` |
-| 7    | inventory-unreliable | step 1 §2 (>20% skill-inventory warnings exceed budget); skills SKF did not generate are not counted |
-| 8    | recovery-failed      | step 3 §4 (the [VS] report cannot be read again, or [VS] rewrote it during the run); step 5 §1 (durability state insufficient to reconstruct Step 02-04 findings); step 6 §1 (`## Refinement Summary` absent from the compiled document) |
+| **Exit codes** | See `references/exit-codes.md` |
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
-
-```
-SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success|error","refined_path":"…|null","gap_count":0,"issue_count":0,"improvement_count":0,"exit_code":0,"halt_reason":null}
-```
-
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"insufficient-skills"`, `"output-folder-unconfigured"`, `"forge-folder-unconfigured"`, `"inventory-unreliable"`, `"write-failed"`, `"recovery-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+When `{headless_mode}` is true, step 6 prints one `SKF_REFINE_ARCHITECTURE_RESULT_JSON: {...}` line on **stdout** when it writes the result contract, before its final menu, and every HARD HALT one on **stderr**, built by the shared emitter: `references/exit-codes.md` gives its fields, the `halt_reason` values and the halt command each stage file shows.
 
 ## On Activation
 
@@ -87,7 +68,8 @@ SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success|error","refined_path":"�
    - `skills_output_folder`, `forge_data_folder`, `output_folder`, `sidecar_path`
 
 2. **Compute run-scoped variables:**
-   - `timestamp` ← UTC `YYYYMMDD-HHmmss` captured at activation time. Fixed for the entire workflow run; report.md reuses this when writing the result contract.
+   - `timestamp` ← the output of `date -u +%Y%m%d-%H%M%S`, run once now and fixed for the run: it names the run folder and, when step 5 promotes the draft, the timestamped name an earlier refined document is renamed to. The result files take their names from the emitter's clock.
+   - `run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-refine-architecture-{timestamp}`, the run folder §5 creates: it holds the analysis copy of the architecture document, the insertion plan, the draft build's record, the halt and result payloads, and the run sink of auto-decisions and warnings
 
 3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
@@ -116,9 +98,19 @@ SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success|error","refined_path":"�
 
    Also apply the array surfaces (not silent no-ops): run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` after activation.
 
-5. **Pre-flight config + write probe.** Assert both output paths are configured, then probe writability — order matters: an empty path makes `mkdir -p ""` fail, which would misreport a *missing config* (exit 3) as a *write failure* (exit 4) and collapse the distinction the Result Contract draws.
+5. **Pre-flight: the emitter, config, write probe and run folder.** Resolve the emitter first, so every halt below can print its envelope. Then assert both output paths are configured before probing writability: order matters, since an empty path makes `mkdir -p ""` fail, which would misreport a *missing config* (exit 3) as a *write failure* (exit 4) and collapse the distinction the Result Contract draws.
 
-   **Config-completeness (exit 3).** If `{outputFolderPath}` is empty: HALT (exit code 3, `halt_reason: "output-folder-unconfigured"`) — "`output_folder` is not configured in config.yaml. Add an `output_folder` path and re-run [RA]." If `{forge_data_folder}` is empty: HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`) — "`forge_data_folder` is not configured in config.yaml. Add a `forge_data_folder` path and re-run [RA]."
+   **The emitter.** Resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists). If neither exists, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `on-activation:emitter` and display only: "Refine Architecture cannot run without `skf-emit-result-envelope.py`, which is not installed. Re-install SKF."
+
+   Every other HALT in this section comes before the run folder exists, so in headless mode it passes its payload to the emitter on stdin:
+
+   ```bash
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-refine-architecture --target stderr <<'SKF_RA_HALT'
+   {"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}
+   SKF_RA_HALT
+   ```
+
+   **Config-completeness (exit 3).** If `{outputFolderPath}` is empty: HALT (exit code 3, `halt_reason: "output-folder-unconfigured"`) at phase `on-activation:config`: "`output_folder` is not configured in config.yaml. Add an `output_folder` path and re-run [RA]." If `{forge_data_folder}` is empty: HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`) at phase `on-activation:config`: "`forge_data_folder` is not configured in config.yaml. Add a `forge_data_folder` path and re-run [RA]."
 
    **Write probe (exit 4).** With both paths now non-empty, verify each is writable — a read-only mount, full disk, or permissions-denied path otherwise only surfaces at init.md §3c's RA state file write, by which point the user has already gone through input prompts:
 
@@ -130,6 +122,14 @@ SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success|error","refined_path":"�
    done
    ```
 
-   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, every HALT above emits the error envelope per **Result Contract (Headless)** with `refined_path: null`.
+   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation:write-probe`, with `"path"` set to the folder that failed.
+
+   **Run folder (exit 4).** Create the run folder:
+
+   ```bash
+   mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"
+   ```
+
+   If the command fails, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation:run-folder`: "Cannot create the run folder `{run_dir}`: {the first stderr line}."
 
 6. Load, read the full file, and then execute `references/init.md` to begin the workflow.

@@ -1,5 +1,11 @@
 ---
 nextStepFile: 'health-check.md'
+# Resolve `{skillInventoryHelper}` to the first existing path when §1b names
+# the version folder a dry run would create. If neither exists, §1b says
+# "the next patch version" instead of a folder name.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -12,7 +18,7 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 
 ## Rules
 
-- Focus only on reporting — all operations are complete; do not modify any files
+- Focus only on reporting: the skill's files are written. This step writes only the run's result files and prints its line, through the shared emitter (§5b, and §1's no-change exit), and changes no file of the skill
 - Present clear, actionable summary with next step recommendations
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
 
@@ -43,7 +49,11 @@ In gap-driven mode (step 2 §0 translated none of the report's gaps), replace th
 
 When `{source_moved}` is true, add before the recommendation: "Upstream moved to `{target_commit}`, but no file this skill tracks changed, so nothing was written and the skill stays pinned at `{source_commit}`." When `{target_ref_override}` is set and `{target_ref}` differs from `{source_ref}`, also add "**The re-pin to `{target_ref}` was not recorded** — an update records a new ref only when it writes, and `{target_ref}` changes no file this skill tracks." and add `target-ref-not-recorded: {target_ref} changes no file {skill_name} tracks; the skill still records {source_ref}` to `warnings[]`.
 
-The headless envelope (`SKF_UPDATE_RESULT_JSON`, §5b shape) carries `status: "no-changes"`, `files_written: []` and `warnings[]`.
+List under **Warnings:** each warning the run recorded (`{run_dir}/warnings.jsonl`, one per line), so an interactive run, which prints no line, shows them too.
+
+**Result files, line and hook.** A normal or gap-driven run that found no change is a finished run: write its result contract and fire the hook as §5b does, with `status: "no-changes"` in the payload and `--result-dir "{forge_version}"`, the current version's forge folder (no version was written): `version` and `previous_version` both the metadata.json `version`, `files_written: []`, `error: null`, and in `result_contract` an empty `outputs` and `summary` `{"update_status": "no-changes", "exports_affected": 0, "files_modified": 0, "validation_status": "not-run"}`. The line carries `warnings[]` (`target-ref-not-recorded` among them). Then run `{onCompleteCommand}` as §5b says.
+
+**A read-only run stays read-only here.** When `detect_only_mode` or `dry_run_mode` is true (detect-changes.md §4 sends a read-only run that finds no change here too), stage no `result_contract` and write no result file: in `{headless_mode}`, print the line as §1a does, with `status: "no-changes"` and no `--result-dir`, and never run `{onCompleteCommand}`. Those modes take no run lock, and the result files of the current version stay as the last finished run left them.
 
 → Load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
 
@@ -58,11 +68,13 @@ The headless envelope (`SKF_UPDATE_RESULT_JSON`, §5b shape) carries `status: "n
 
 The change manifest below describes what would be updated. No artifact was modified — re-run without `--detect-only` to apply.
 
-{render the change manifest summary table from detect-changes.md §5, plus the per-file detail section}
+{render the change manifest summary table from detect-changes.md §5, plus the per-file detail section, read from `{run_dir}/change-manifest.json`}
+
+{the warnings the run recorded, read from `{run_dir}/warnings.jsonl`: **Proposed skill brief amendments (not written):** each `proposed-amendment:` one, as the decision that would amend `skill-brief.yaml`; **Warnings:** each other one}
 
 **Recommendation:** Review the manifest; if it matches expectations, re-run `skf-update-skill` without `--detect-only` to perform the actual update."
 
-The headless envelope (`SKF_UPDATE_RESULT_JSON`) carries `status: "detect-only"`, `files_written: []`, and any `headless_decisions[]` recorded by detect-changes' §1b / §1c / §2.2 gates. `version` and `previous_version` are both equal to the on-disk version (detect-only does not bump). `update_mode` reflects the run's mode (`normal` or `gap-driven` or `degraded`) so consumers know which detection path produced the manifest.
+In `{headless_mode}`, print the line as §5b says, with `status: "detect-only"` and no `--result-dir`, and with no `result_contract`: a detect-only run writes no result file and does not run `{onCompleteCommand}`. `version` and `previous_version` are both the on-disk version (detect-only does not bump), `files_written: []`, `error: null`, and `update_mode` reflects the run's mode (`normal` or `gap-driven` or `degraded`) so consumers know which detection path produced the manifest. The emitter adds the `headless_decisions[]` detect-changes' §1b / §1c / §2.2 gates recorded and the `proposed-amendment:` warnings.
 
 → Load, read the full file, and execute `{nextStepFile}` (health-check) — even detect-only runs through the terminal health-check step.
 
@@ -77,12 +89,14 @@ The headless envelope (`SKF_UPDATE_RESULT_JSON`) carries `status: "detect-only"`
 
 The change manifest below shows what was detected; re-extraction ran to compute the planned merge but neither merge nor write executed. No artifact was modified.
 
-{render the change manifest summary AND the re-extraction summary — what merge+validate+write WOULD have done}
+{render the change manifest summary AND the re-extraction summary (what merge+validate+write WOULD have done), read from `{run_dir}/change-manifest.json` and `{run_dir}/reextract-records.json`}
+
+{the warnings the run recorded, read from `{run_dir}/warnings.jsonl`: **Proposed skill brief amendments (not written):** each `proposed-amendment:` one, as the decision that would amend `skill-brief.yaml` (a rescope's, rule R1, among them); **Warnings:** each other one}
 
 **Planned writes (skipped):**
 - SKILL.md re-merge with re-extracted exports
 - metadata.json version bump (or hold for gap-driven)
-- a new version folder beside the current one, named `{source_version_detected}` when step 1 §6c recorded one and otherwise the next patch version, holding a copy of the current package, and its forge folder with copies of the provenance map, evidence report and extraction rules (not in gap-driven mode, which writes into the current version)
+- a new version folder beside the current one, `{dry_run_version}`, holding a copy of the current package, and its forge folder with copies of the provenance map, evidence report and extraction rules (not in gap-driven mode, which writes into the current version)
 - provenance-map.json update with re-extraction results
 - evidence-report.md
 - context-snippet.md (only if a staleness trigger fired)
@@ -92,7 +106,9 @@ The change manifest below shows what was detected; re-extraction ran to compute 
 
 **Recommendation:** Review the manifest and re-extraction summary; if both match expectations, re-run `skf-update-skill` without `--dry-run` to perform the actual update."
 
-The headless envelope carries `status: "dry-run"`, `files_written: []`, the `headless_decisions[]` recorded so far (everything before merge), and `update_mode` from the run.
+`{dry_run_version}` names the folder the run would create, never "the next patch version" by eye: `{source_version_detected}` when step 1 §6c recorded one; otherwise resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and, from `{project-root}`, run `uv run {skillInventoryHelper} version next-patch "{version}"` with the metadata.json `version`, as merge.md §6b does, and take its `next_patch`. When no candidate resolves or the command exits 1 or prints no JSON, say "the next patch version (it could not be computed: {the helper's `error`, or skf-skill-inventory.py is missing})". In gap-driven mode leave this line out.
+
+In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and no `--result-dir`, and with no `result_contract`: a dry run writes no result file and does not run `{onCompleteCommand}`. `files_written: []`, `error: null`, `update_mode` from the run; the emitter adds the decisions recorded so far (everything before merge) and the `proposed-amendment:` warnings.
 
 → Load, read the full file, and execute `{nextStepFile}` (health-check).
 
@@ -223,28 +239,41 @@ When `warnings[]` holds `workspace-clone-not-updated`, add: "- test-skill stops 
 
 ### 5b. Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_version}/update-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_version}/update-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all modified file paths in `outputs`; include `exports_affected`, `files_modified`, and `validation_status` (passed/warnings/failures) in `summary`.
+The shared emitter writes the result contract and prints the line; never type either. Stage the payload in the run folder, from the files this run wrote rather than from memory (`{run_dir}/change-manifest.json` for the counts, write.md §6's verified list for `files_written`, step 5's verdicts for `validation_status`):
 
-**Headless envelope (`SKF_UPDATE_RESULT_JSON`):** when `{headless_mode}` is true, ALSO emit a single-line JSON envelope to stdout prefixed with the literal `SKF_UPDATE_RESULT_JSON: `. Schema: `src/shared/scripts/schemas/skf-update-result-envelope.v1.json`. Construct the envelope from in-context state:
-
-```json
-SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|detect-only|dry-run|halted-for-*|blocked","skill_name":"<name>","version":"<v>","previous_version":"<v>","update_mode":"normal|gap-driven|degraded","files_written":[...],"headless_decisions":[...],"warnings":[...],"error":null|{...}}}
+```bash
+cat > "{run_dir}/result-context.json" <<'SKF_JSON'
+{"status": "success", "skill_name": "{skill_name}", "version": "{new_version}", "previous_version": "{baseline_version}", "update_mode": "{update_mode}", "files_written": [<each artifact write.md wrote and verified: SKILL.md, metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, active-symlink>], "error": null,
+ "result_contract": {"skill": "skf-update-skill", "status": "success", "outputs": [{"type": "skill", "path": "<each modified file's path>"}], "summary": {"update_status": "success", "exports_affected": <total_export_changes, or the gap count in gap-driven mode>, "files_modified": <the files written>, "validation_status": "<passed, warnings or failures>"}}}
+SKF_JSON
 ```
 
-- `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation and §4 degraded-rebuild, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
-- `status` — single-field outcome for pipeline branching. `"success"` when the run wrote artifacts and produced no halts; `"no-changes"` when §1 short-circuited; `"detect-only"` / `"dry-run"` for the §1a/§1b read-only exits; one of the documented `halted-for-*` codes when a halt fired; `"blocked"` as the catch-all. The full enum lives in the schema (this step emits the value already resolved in context).
-- `error` — null on success or no-changes. Object `{phase, path?, reason}` describing the failure when a halt or write error fired. Pipelines branch on `error !== null` for non-zero exit semantics.
-- `warnings[]`: every entry the run added, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category})` for each gap detect-changes.md §0 did not route), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (re-extract.md §0.a) and `provenance:` entries (write.md §6a: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
+Then, from `{project-root}`, run the emitter with the run folder and the new version's forge folder:
 
-The headless envelope is the structured channel; the per-run JSON written above is the audit trail. Both coexist — the envelope is one line on stdout for grep-friendly consumption, the per-run JSON is the full record on disk.
+```bash
+uv run {emitEnvelopeHelper} emit --workflow skf-update-skill --run-dir "{run_dir}" --result-dir "{forge_version}" < "{run_dir}/result-context.json"
+```
 
-**Post-finalization hook.** If `{onCompleteCommand}` (resolved in SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it after both result-JSON writes complete:
+It writes the per-run record `{forge_version}/update-skill-result-{YYYYMMDD-HHmmss}.json` (UTC, the time from the clock; `-2`, `-3` appended when a run already took that second's name) and its copy `{forge_version}/update-skill-result-latest.json` (the stable path pipeline consumers read: a copy, not a symlink), each the `result_contract` with the run's `timestamp`, `run_id`, `headless_decisions` and `warnings` stamped in (see `shared/references/output-contract-schema.md`). It folds the run's decision log and warnings in `{run_dir}` into the line, checks it against `shared/scripts/schemas/skf-update-result-envelope.v1.json` and prints it:
+
+```
+SKF_UPDATE_RESULT_JSON: {"skf_update": {"status": "success", "skill_name": ..., "version": ..., "previous_version": ..., "update_mode": ..., "files_written": [...], "headless_decisions": [...], "warnings": [...], "error": null}}
+```
+
+In `{headless_mode}`, display that line verbatim: it is the run's structured channel, and the per-run JSON is the full record on disk. An interactive run runs the command for its result files and need not show the line. When the emitter exits non-zero and its `message` names the payload, fix the payload once and run it again; a write it could not make adds `result_file_write_failed` to the line's `warnings[]`.
+
+- `status`: `"success"` here; §1 stages `"no-changes"`, §1a `"detect-only"` and §1b `"dry-run"`; a halt prints its own `halted-for-*` or `blocked` line through its step's halt procedure and never reaches this step. The full enum lives in the schema.
+- `headless_decisions[]`: every gate's record in the run's decision log (init.md §4 degraded-rebuild and §8 confirmation, detect-changes.md §1b / §1c / §2.2, merge.md §8). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gate auto-resolved.
+- `error`: null on every exit this step prints. A halt's line carries `{phase, path?, reason}`, and pipelines branch on `error !== null` for non-zero exit semantics.
+- `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category})` for each gap detect-changes.md §0 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (re-extract.md §0.a), `run-state-not-finished` and `provenance:` entries (write.md §3 and §6a: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
+
+**Post-finalization hook.** A finished run, this one or §1's no-change exit, fires the hook; `--detect-only`, `--dry-run` and a halt never do (customize.toml says so). If `{onCompleteCommand}` (resolved in SKILL.md On Activation §4 from `workflow.on_complete`) is non-empty, invoke it after the emitter wrote both result files:
 
 ```bash
 {onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json
 ```
 
-Run it with a bounded timeout (default 60s). On success, log an Info note and continue; on non-zero exit, timeout, or any failure, append the reason to `warnings[]` (surfaced on the headless envelope) and continue. The hook must never fail the workflow — it is integration glue (notify a CI router, chain audit/export/test) orthogonal to the update outcome. Empty `{onCompleteCommand}` = no-op, no log entry.
+Run it with a bounded timeout (default 60s). On success, log an Info note and continue; on non-zero exit, timeout, or any failure, tell the user in one line with the reason (the line and the result files are written before the hook runs, so they cannot carry its failure) and continue. The hook must never fail the workflow: it is integration glue (notify a CI router, chain audit/export/test) orthogonal to the update outcome. Empty `{onCompleteCommand}` = no-op, no log entry.
 
 ### 6. Chain to Health Check
 

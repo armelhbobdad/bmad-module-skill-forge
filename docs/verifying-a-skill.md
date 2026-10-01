@@ -48,15 +48,16 @@ The snippet above follows the `search` entry in [`forge-data/oms-cognee/1.0.0/pr
 
 Open `{source_repo}` at `{source_commit}`, jump to `{source_file}` line `{source_line}`. The signature in `SKILL.md` should match what you see in the source.
 
-If it doesn't, **that's a bug**. For a skill you built, Test Skill (`@Ferris TS`) rates a signature mismatch as a High-severity gap, and Update Skill (`@Ferris US`) with `--from-test-report` repairs the gaps a test report lists. If you think SKF extracted it wrong, [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose). Falsifiability isn't a feature. It's the whole deal.
+If it doesn't, **that's a bug**. For a skill you built, Test Skill (`@Ferris TS`) rates a signature mismatch as a Critical gap, which stops the test at its [hard gate](#hard-gate), and Update Skill (`@Ferris US`) with `--from-test-report` repairs the gaps a test report lists. If you think SKF extracted it wrong, [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose). Falsifiability isn't a feature. It's the whole deal.
 
 ### Workflow-time enforcement
 
 SKF checks the same anchor while it works, so a skill and its citations always describe one commit.
 
+- **Create Skill (`@Ferris CS`)**, at Forge tier and above, reads a remote source in a private checkout at the commit it resolves from the brief: the ref its `target_ref` names, or the tag that matches its version. It records that commit as the skill's `source_commit`, and it moves SKF's shared clone of the repository to the same commit. If it could not move the clone, it says why, and the run skips ccc discovery and the ccc index registration.
 - **Update Skill (`@Ferris US`)**, for a skill built from a remote repository, reads the source in a private checkout at the commit that the skill's `source_ref` (or the `--target-ref` you pass) points to now. When it writes, it records that commit as the new `source_commit`. If it could not move SKF's shared clone to that commit, its report says why and how to move it.
 - **Test Skill (`@Ferris TS`)**, and **Update Skill with `--from-test-report`** (a repair driven by a test report's gaps), first compare the commit your local source is on (`git rev-parse HEAD`) with `metadata.source_commit`. If they differ, they stop before reading any source: Test Skill with `workspace-drift`, Update Skill with `halted-for-workspace-drift`. The message names the commit to check out, so a spot-check never quietly reads the wrong tree.
-- To read the current commit anyway, pass `--allow-workspace-drift`. The final report records the override. In Test Skill, a pass under this override is recorded as `pass-with-drift`, and SKF recommends Update Skill instead of export. Update Skill with `--from-test-report` takes nothing from the current commit: it never moves a provenance line to it or records one from it, and it reads no signature, parameter list, return type or node kind there. Every new or changed export in the test report, whatever its severity, needs one of those from the source, so it stops the run with `halted-for-workspace-drift` before it changes the skill, and the message lists what each gap needs. A report whose gaps are only provenance line fixes, structural fixes or metadata patches still runs: a line it would have moved is recorded as `unknown` instead, and a node kind it would have looked up in the source stays as it is, each with a warning.
+- To read the current commit anyway, pass `--allow-workspace-drift`. The final report records the override. In Test Skill, a pass under this override is recorded as `pass-with-drift`, and SKF recommends Update Skill instead of export. Update Skill with `--from-test-report` takes nothing from the current commit: it never moves a provenance line to it or records one from it, and it reads no signature, parameter list, return type or node kind there. Every new or changed export in the test report, whatever its severity, needs one of those from the source, so it stops the run with `halted-for-workspace-drift` before it changes the skill, and the message lists what each gap needs. A rescope (a gap that takes an export out of the skill's scope) stops the run the same way, because recounting the public API needs the pinned tree: the run has not written the scope amendment to the skill brief yet, so the brief stays as it was and a re-run asks again. A report whose gaps are only provenance line fixes, structural fixes or metadata patches still runs: a line it would have moved is recorded as `unknown` instead, and a node kind it would have looked up in the source stays as it is, each with a warning, while the stats keep the public API counts `metadata.json` records.
 - **Line and citation checks.** When the source is on disk, Create Skill and Update Skill check that each provenance `source_line` in a Python, TypeScript or JavaScript file is the line that defines its export (the `def` or declaration line, not a decorator or blank line above it). With or without the source, they check that each `[AST:]` / `[SRC:]` citation matches how its entry was extracted: ast-grep gives `[AST:]`, reading the source by eye gives `[SRC:]`. They also ask the ast-grep CLI whether each ast-grep entry's `ast_node_type` is a node kind of its file's language, and replace a kind it does not know with the kind the matching recipe declares. They fix each finding that has one answer and list the rest as warnings in the evidence report. With the local source at hand, Test Skill reports each wrong line as a Low gap, and Update Skill with `--from-test-report` moves the entry to its definition line. When the checks find no line that defines an export, which can mean a shape they do not cover, the entry is left as it is and Test Skill asks you to check it by hand.
 
 ---
@@ -172,7 +173,7 @@ When categories are skipped, their combined weight is redistributed proportional
 
 ### Hard gate
 
-Before scoring, a hard gate scans all findings for **Critical** and **High** severity. If any are present, Test Skill stops there: no score is computed, the result is FAIL whatever the coverage, and SKF recommends Update Skill. Medium, Low, and Info findings pass through to scoring.
+Before scoring, a hard gate reads the run's gap ledger, `test-findings-{run_id}.json` in the skill's version folder under `forge-data/`, where the coverage, coherence and external validation steps record every gap they find with its severity. If any gap is **Critical** or **High**, Test Skill stops there: no score is computed, and the result is FAIL whatever the coverage. A blocked run still completes its record. It writes the Gap Report, with the blocking gaps first, and a FAIL result record whose `halt_reason` is `hard-gate-blocked`, runs the `on_complete` hook and the health check, then exits with code 2. SKF recommends `@Ferris US <name> --from-test-report` to repair the blocking gaps. Medium, Low and Info gaps pass through to scoring: a missing export, for example, is Medium, so it lowers Export Coverage and the threshold decides the verdict.
 
 ### Pass/fail
 
@@ -196,15 +197,17 @@ A run that found drift and went on under `--allow-workspace-drift` ends **pass-w
 
 ### Gap severities
 
-When the score is calculated, each finding is classified by severity to guide remediation:
+Each step rates every gap it records against the Gap Severity table in Test Skill's [`scoring-rules.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-test-skill/references/scoring-rules.md), so a gap gets the same severity on every run. Critical and High gaps found before scoring block the run at the [hard gate](#hard-gate). The others lower the score or guide remediation:
 
 | Severity | Examples |
 |---|---|
-| **Critical** | Missing exported function/class documentation |
-| **High** | Signature mismatch between source and `SKILL.md` |
-| **Medium** | Missing type/interface documentation; scripts/assets directory inconsistencies |
-| **Low** | Missing optional metadata or examples; description optimization opportunities |
-| **Info** | Style suggestions; discovery testing recommendations |
+| **Critical** | A wrong signature, or a fabricated one (a documented export that the source does not define at the line the skill cites); a broken reference in a stack skill (a file, skill, type, or `scripts/` or `assets/` file that does not exist) |
+| **High** | An inaccurate reference in a stack skill (the target exists but does not match), or a reference whose real path leads outside the skill and its sources; a split-body mismatch (`SKILL.md` and a `references/` file document one export differently); `metadata.json` stats that count every export as documented while some are missing from the skill; in an individual skill, a missing required section, an unbalanced code fence, or an example that awaits a sync function or skips the `await` of an async one |
+| **Medium** | A missing export or type (a missing export lowers Export Coverage); stale documentation (a documented export the source no longer exports); an incomplete integration pattern in a stack skill; in an individual skill, a code fence with no language tag, a function no example names, or a table row whose column count differs from its header |
+| **Low** | Gaps in metadata, the description or provenance lines, such as missing optional metadata or a provenance line that is not the definition line |
+| **Info** | Observations such as style suggestions; discovery testing not performed |
+
+Discovery testing runs after the hard gate, so a discovery gap (Info, Medium or High) is counted in the Gap Report and blocks nothing.
 
 ### Score report output
 

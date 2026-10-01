@@ -10,7 +10,8 @@ Covers:
     em-dash / en-dash / hyphen separators, empty section
   - reconcile: already-in-scope, pre-decided-skipped,
     pre-decided-demoted (both flavors), unresolved, most-recent-wins
-    when same path has multiple amendments
+    when same path has multiple amendments, and a deferred-headless or
+    legacy headless skip left unresolved for a person
   - dispatch end-to-end: no-report, no-candidates, candidates-found
   - CLI: happy path, bad paths exit 1
 """
@@ -292,6 +293,43 @@ class TestReconcile:
         assert result[0]["status"] == "pre-decided-demoted"
         assert result[0]["prior_action"] == "demoted-exclude"
 
+    def test_deferred_headless_stays_unresolved(self, tmp_path: Path) -> None:
+        # A headless run met the path and left it for a person: the next
+        # interactive run asks, so it is not pre-decided.
+        brief_path = _write_brief(tmp_path, [
+            {"action": "deferred-headless", "category": "scope-expansion", "path": "src/foo.py",
+             "reason": "headless: no user to prompt; left for the next interactive run"}
+        ])
+        brief = mod.load_brief(brief_path)
+        result = mod.reconcile([{"path": "src/foo.py", "evidence": "x"}], brief)
+        assert result[0]["status"] == "unresolved"
+        assert result[0]["prior_action"] == "deferred-headless"
+
+    @pytest.mark.parametrize(("reason", "status", "prior"), [
+        ("headless: no user to prompt", "unresolved", "deferred-headless"),
+        ("  headless: no user to prompt\n", "unresolved", "deferred-headless"),
+        ("user declined promotion at update-skill §1c", "pre-decided-skipped", "skipped"),
+        (None, "pre-decided-skipped", "skipped"),
+    ], ids=["legacy-headless", "legacy-headless-padded", "person", "no-reason"])
+    def test_a_legacy_headless_skip_is_a_deferral(self, tmp_path: Path, reason, status, prior) -> None:
+        # A headless run wrote `skipped` with this reason before deferred-headless
+        # existed: no person declined the path.
+        amendment = {"action": "skipped", "category": "scope-expansion", "path": "src/foo.py"}
+        if reason is not None:
+            amendment["reason"] = reason
+        brief = mod.load_brief(_write_brief(tmp_path, [amendment]))
+        result = mod.reconcile([{"path": "src/foo.py", "evidence": "x"}], brief)
+        assert (result[0]["status"], result[0]["prior_action"]) == (status, prior)
+
+    def test_a_decision_after_a_deferral_wins(self, tmp_path: Path) -> None:
+        # An interactive run answered the path a headless run deferred.
+        brief_path = _write_brief(tmp_path, [
+            {"action": "deferred-headless", "path": "src/foo.py"},
+            {"action": "skipped", "path": "src/foo.py", "reason": "user declined promotion at update-skill §1c"},
+        ])
+        result = mod.reconcile([{"path": "src/foo.py", "evidence": "x"}], mod.load_brief(brief_path))
+        assert (result[0]["status"], result[0]["prior_action"]) == ("pre-decided-skipped", "skipped")
+
     def test_missing_scope_field(self, tmp_path: Path) -> None:
         # brief without scope — everything is unresolved
         p = tmp_path / "brief.yaml"
@@ -361,6 +399,36 @@ class TestDispatch:
         assert statuses["src/already_skipped.py"] == "pre-decided-skipped"
         assert result["summary"]["unresolved_count"] == 1
         assert result["summary"]["pre_decided_count"] == 1
+
+    def test_headless_deferrals_count_as_unresolved(self, tmp_path: Path) -> None:
+        # Both a deferred-headless amendment and the legacy headless skip reach
+        # the prompt again, and the summary counts them as unresolved.
+        brief_path = _write_brief(tmp_path, [
+            {"action": "deferred-headless", "category": "scope-expansion", "path": "src/deferred.py"},
+            {"action": "skipped", "category": "scope-expansion", "path": "src/legacy.py",
+             "reason": "headless: no user to prompt"},
+            {"action": "skipped", "category": "scope-expansion", "path": "src/declined.py",
+             "reason": "user declined promotion at update-skill §1c"},
+        ])
+        forge = tmp_path / "forge"
+        d = _make_report_dir(forge, "x", "1.0.0")
+        _write_report(d, "drift-report-A.md", """
+            # Drift Report
+
+            ## Out-of-Scope Observations
+            - `src/deferred.py` - 1 export
+            - `src/legacy.py` - 2 exports
+            - `src/declined.py` - 3 exports
+        """)
+        result = mod.dispatch(forge_data_folder=forge, skill_name="x", baseline_version="1.0.0",
+                              brief_path=brief_path)
+        by_path = {c["path"]: (c["status"], c["prior_action"]) for c in result["classified"]}
+        assert by_path == {
+            "src/deferred.py": ("unresolved", "deferred-headless"),
+            "src/legacy.py": ("unresolved", "deferred-headless"),
+            "src/declined.py": ("pre-decided-skipped", "skipped"),
+        }
+        assert result["summary"] == {"pre_decided_count": 1, "unresolved_count": 2}
 
 
 # --------------------------------------------------------------------------

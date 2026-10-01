@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-audit-skill, skf-test-skill, skf-update-skill, skf-create-stack-skill, skf-drop-skill, skf-rename-skill
+summary: |
+  These workflows resolve the version folder and compare versions through one helper, `skf-skill-inventory.py`: its `resolve` command chooses the version a workflow reads (the `active` link's when the export manifest lags it) and returns that version's folder and the metadata, provenance map and evidence report paths, and its `version` command orders two versions, gives the next patch version and a compose-mode stack's next version, and names a code-mode stack's primary library. The knowledge file `version-paths.md` now describes both commands and lists every file a version folder holds, test-skill's gap ledger and audit-skill's per-run stage data included, so no step orders, bumps or resolves a version by hand.
+prs: [633]
+issues: [597]

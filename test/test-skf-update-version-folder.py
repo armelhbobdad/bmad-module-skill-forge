@@ -3,13 +3,17 @@
 
 Outside gap-driven mode an update names a new version (the source's
 version when step 1 found a higher one, else the next patch version).
-merge.md §6b stages a copy of the current package with
-skf-atomic-write.py stage-dir, copies it, publishes it with commit-dir,
-creates the new forge folder with the provenance map, evidence report and
-extraction rules, and rebinds {skill_package} and {forge_version}, so
-write.md's metadata, provenance and active-link steps all land in the new
-version and the previous one stays as it was. It never overwrites a
-version folder that already exists, and the read-only modes never reach it.
+merge.md §6b records the folders it creates (skf-update-run-state.py
+begin, which refuses one that exists), stages a copy of the current
+package with skf-atomic-write.py stage-dir, copies it, writes the merged
+SKILL.md into the staged copy and verifies its [MANUAL] blocks there,
+publishes it with commit-dir, creates the new forge folder with the
+provenance map, evidence report and extraction rules, and rebinds
+{skill_package} and {forge_version}, so write.md's metadata, provenance
+and active-link steps all land in the new version and the previous one
+stays as it was. It never overwrites a version folder that already exists,
+a halt removes the folders it created, and the read-only modes never
+reach it.
 
 The prose pins slice merge.md §6b and fail loudly on a renamed heading. The
 run test executes the stage-dir and commit-dir commands §6b spells out (the
@@ -76,9 +80,10 @@ def _merge_6b() -> str:
 
 def _step(section: str, number: int) -> str:
     """Numbered step `number` of the version-folder list in merge §6b."""
+    folder = _slice(section, "**Create the version folder**", "**Write the merged files in place**")
     start = f"\n{number}. **"
-    end = f"\n{number + 1}. **" if f"\n{number + 1}. **" in section else "\n\nIf no `{atomicWriteProbeOrder}`"
-    return _slice(section, start, end)
+    end = f"\n{number + 1}. **" if f"\n{number + 1}. **" in folder else "\n\nIf no `{atomicWriteProbeOrder}`"
+    return _slice(folder, start, end)
 
 
 # --------------------------------------------------------------------------
@@ -113,27 +118,44 @@ def test_merge_never_overwrites_a_version():
     assert "`halted-for-write-failure` before writing anything" in guard
     assert 'phase: "merge:new-version-folder"' in guard
     assert six_b.index("**Never overwrite a version.**") < six_b.index("stage-dir")
+    # the helper checks that neither folder exists, never a look by eye, and records them for a halt to remove
+    record = _slice(six_b, "**Record what this run writes**", "**Create the version folder**")
+    begin = record[record.index("uv run {runStateHelper} begin --run-dir \"{run_dir}\" --mode new-version"):]
+    for token in ('--created "{skill_group}/{new_version}"', '--created "{forge_data_folder}/{skill_name}/{new_version}"',
+                  '--staging "{skill_group}/{new_version}.skf-tmp"', '--skill-group "{skill_group}"'):
+        assert token in begin, token
+    assert "Exit 3 (`status` `exists`) is the version-exists halt in step 1 below" in record
+    assert "When `begin` above exited 3" in guard
 
 
 def test_merge_stages_copies_publishes_and_rebinds_in_order():
     six_b = _merge_6b()
-    marks = ["**Never overwrite a version.**", "stage-dir --target", "**Copy the current package**",
-             "commit-dir --target", "**Create the forge folder**", "**Rebind**", "**Write SKILL.md:**"]
+    marks = ["**Record what this run writes**", "**Never overwrite a version.**", "stage-dir --target",
+             "**Copy the current package**", "**Write and verify the merged SKILL.md in the staged package**",
+             'manual-verify "{version_staging}/{skill_name}/SKILL.md"', "commit-dir --target",
+             "**Create the forge folder**", "**Rebind**", "**Write the merged files in place**"]
     positions = [six_b.index(m) for m in marks]
     assert positions == sorted(positions), marks
+    # the merged SKILL.md is verified against the approved inventory before anything is published (W1 handoff)
+    staged = _step(six_b, 4)
+    for token in ("`{version_staging}/{skill_name}/SKILL.md`", '--inventory "{manual_inventory}"',
+                  "HALT with status `halted-for-manual-mismatch` before the version is published",
+                  '`phase: "merge:verify-manual-integrity"`', "its rollback removes `{version_staging}`"):
+        assert token in staged, token
     assert "Bind `{version_staging}` ← `staging`" in _step(six_b, 2)
     copy = _step(six_b, 3)
     assert 'cp -a "{skill_package}" "{version_staging}/{skill_name}"' in copy
     assert "each link copied as a link and never followed" in copy
-    forge = _step(six_b, 5)
+    forge = _step(six_b, 6)
     for name in ("`provenance-map.json`", "`evidence-report.md`", "`extraction-rules.yaml`"):
         assert name in forge, name
-    rebind = _step(six_b, 6)
+    rebind = _step(six_b, 7)
     assert "`{skill_package}` ← `{skill_group}/{new_version}/{skill_name}`" in rebind
     assert "`{forge_version}` ← `{forge_data_folder}/{skill_name}/{new_version}`" in rebind
-    failure = _slice(six_b, "If no `{atomicWriteProbeOrder}` candidate resolves", "**Write SKILL.md:**")
-    assert "remove what this section created" in failure and "merge:new-version-folder" in failure
-    assert "none of which existed before the first step" in failure
+    assert "`{manual_inventory}` keeps the amended path §4 bound" in rebind
+    failure = _slice(six_b, "If no `{atomicWriteProbeOrder}` candidate resolves", "**Write the merged files in place**")
+    assert "its rollback removes what this section created" in failure and "merge:new-version-folder" in failure
+    assert "none of which existed before `begin` recorded them" in failure
 
 
 def test_write_names_the_folder_step_4_created():
@@ -151,9 +173,10 @@ def test_report_and_contract_name_the_new_version():
     assert "| `{skill_package}/SKILL.md` | Updated |" in files
     assert "{resolved_skill_package}" not in files
     dry = _slice(report, "### 1b. Handle Dry-Run Mode", "### 2.")
-    # --dry-run never reaches merge §6b, which binds {new_version}.
-    assert "a new version folder beside the current one" in dry and "{new_version}" not in dry
-    assert "`{source_version_detected}` when step 1 §6c recorded one and otherwise the next patch version" in dry
+    # --dry-run never reaches merge §6b, which binds {new_version}: it names the folder through the same helper
+    assert "a new version folder beside the current one, `{dry_run_version}`" in dry and "{new_version}" not in dry
+    assert "`{source_version_detected}` when step 1 §6c recorded one" in dry
+    assert 'run `uv run {skillInventoryHelper} version next-patch "{version}"`' in dry and "as merge.md §6b does" in dry
     outputs = _slice(_read(SKILL), "| **Outputs** |", "\n")
     assert "new version folder `{skill_group}/{new_version}/`" in outputs
     status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["description"]
@@ -199,10 +222,13 @@ def test_manual_mismatch_recovery_depends_on_mode():
     for folder in ("`{skill_group}/{new_version}/`", "`{forge_data_folder}/{skill_name}/{new_version}/`"):
         assert folder in outside, folder
     assert "delete" not in gap.lower() and "{new_version}" not in gap
-    assert "Restore the [MANUAL] blocks" in gap and "Keep the version folder" in gap
+    # the snapshot step 4 took puts a repair back: no restore from version control or a backup (#587)
+    assert "restored the package, with its [MANUAL] blocks" in gap and "from the snapshot step 4 took" in gap
+    assert "version control" not in gap and "the halt removed" in outside
     halt = _slice(_merge_6b(), "**Halt-on-tool-failure:**", "\n")
-    assert "When this run created `{skill_group}/{new_version}/`" in halt
-    assert "In gap-driven mode the skill package may be in a partial state" in halt
+    assert "it removes `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/` when this " \
+           "run created them" in halt
+    assert "in gap-driven mode restores the package and the brief from the snapshot" in halt
 
 
 def test_read_only_modes_never_reach_merge():
@@ -303,7 +329,7 @@ def test_version_folder_steps_run_against_the_real_helpers(tmp_path):
     _run_call(six_b, "commit-dir", values)
     new_forge = forge / "lib" / "1.0.1"
     new_forge.mkdir(parents=True)
-    for name in re.findall(r"`([\w.-]+\.(?:json|md|yaml))`", _step(six_b, 5)):
+    for name in re.findall(r"`([\w.-]+\.(?:json|md|yaml))`", _step(six_b, 6)):
         if (old_forge / name).is_file():
             shutil.copy2(old_forge / name, new_forge / name)
 

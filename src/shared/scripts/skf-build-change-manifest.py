@@ -27,14 +27,36 @@ schema, plus the provenance map for the denominator.
 Subcommands:
 
   build [--input <file>] [--category-a <file>] [--category-b-diff <file>]
+        [--category-c <file>] [--ccc-pairs <file>]
       Reads category JSON from stdin or `--input <file>`, emits the
       unified manifest envelope.
 
+  build --doc-hashes <file>
+      A docs-only skill's manifest, from skf-detect-docs.py
+      compare-hashes' output and nothing else (see "Docs-only" below).
+
   deletion-ratio --provenance-map <file> [--input <file>]
                  [--category-a <file>] [--category-b-diff <file>]
+                 [--category-c <file>] [--ccc-pairs <file>]
       Same category JSON input. Reads provenance entries[] from
       <file>, computes the §2.2 trigger envelope. Auto-skips when
       degraded_mode or update_mode==gap-driven is set in the input.
+
+  rename-candidates --category-a <file> --provenance-map <file>
+                    --tier Quick|Forge|Forge+|Deep [--category-b-diff <file>]
+                    [--extraction <file>] [--export-details <file>]
+                    [--source-root <dir> [--sizes-commit <commit>]] [-o <file>]
+      Category C by fixed rules (see "Rename candidates" below): pairs
+      Category A's deleted files with its added ones, and the diff's
+      removed exports with its added ones and the added files' exports.
+      Prints {"category_c": {...}, "evidence": {...}, "unpaired": {...}}.
+
+  apply --update-type incremental|gap-driven|full --skill-name <name>
+        --generation-date <iso> --confidence-tier <tier>
+        --manual-sections-preserved <n> -o <file> [inputs...]
+      The provenance map an update writes (see "Apply" below): the old
+      map with this run's changes, written to -o through a temporary file
+      and a rename. Prints a summary with the warnings for a person.
 
 Helper files in place of typed slices (update-skill detect-changes §2.1):
 
@@ -60,6 +82,12 @@ Helper files in place of typed slices (update-skill detect-changes §2.1):
                                             unless it is a modified export
                             label_changes[] is not drift, and a name
                             ambiguous_names[] lists stays removed and added
+  --category-c <file>       the output of rename-candidates: its category_c
+                            is the Category C slice
+  --ccc-pairs <file>        the pairs the update's CCC check added to what
+                            rename-candidates left unpaired,
+                            {"renamed_files": [...], "renamed_exports":
+                            [...]}, appended to the Category C slice
   A given file replaces the input's own slice. Either way, every category_c
   rename then takes its pair out of the lists it was found in: a renamed
   file's old_path out of category_a.deleted and new_path out of
@@ -99,16 +127,147 @@ empty lists. This lets gap-driven runs (which produce no Category D
 results) and degraded runs (which skip Category B) feed the same
 script without sentinel values.
 
+Docs-only (update-skill detect-changes §1): build --doc-hashes reads the
+compare-hashes output and prints {"mode": "docs-only", "no_changes":
+<changed[] is empty>, "changed_urls": [each changed[].url],
+"fetch_failed": [each fetch_failed[].url], "counts": {"docs_changed",
+"docs_fetch_failed"}}. It takes no other input.
+
+Rename candidates (update-skill detect-changes Category C):
+
+  Content similarity above 80% (fixed, not configurable) is a rename. A
+  file moved with its content unchanged is Category A's moved_files and is
+  left out here. For the rest:
+    files, Quick tier   the added file's size is within 20% of the deleted
+                        file's (the deleted size is `git cat-file -s` of
+                        <commit>:<path> under --source-root; with no
+                        --sizes-commit, a local source whose file is gone,
+                        the size test is skipped) and the export names
+                        overlap above 70% (shared names over all names of
+                        the two files)
+    files, Forge+       above 80% of the exports match: an export of the
+                        added file with the deleted file's export name and
+                        signature (export_type, params and return_type),
+                        over the larger file's export count
+    exports, Quick      the names are above 80% alike (difflib ratio) and
+                        their export types agree
+    exports, Forge+     the signatures are equal (export_type, params and
+                        return_type, a parameter list or a return type
+                        given) and the names differ
+  A deleted file's exports come from the provenance map, an added file's
+  from --extraction and --export-details. A pair is kept only when it is
+  each side's best match: the highest similarity wins, and a tie between
+  two candidates pairs neither. category_c.renamed_files holds {old_path,
+  new_path}; renamed_exports holds {old_name, new_name, file, old_file?},
+  with old_file only when it differs from file. evidence lists each pair
+  with its rule and similarity, and unpaired the deleted and added files
+  and the removed and added exports left over, for the judgment step.
+
+Apply (update-skill write.md §3):
+
+  Reads the provenance map the update started from (--provenance-map;
+  without it, a degraded run's new map) and prints nothing but a summary:
+  the new map goes to -o. Every entry the run leaves alone keeps its exact
+  value; every entry it adds or rewrites carries signature_source, set
+  from the tool that produced the signature: ast-grep gives T1 (with
+  confidence T1 and the recipe's ast_node_type), a signature read by eye
+  (source-read) gives T1-low (confidence T1-low, ast_node_type null).
+  A rewritten entry keeps any key the update does not set (notes,
+  deprecated). New entries take source_library from the map's entries,
+  else --skill-name.
+
+  incremental (normal mode) reads --manifest (build's output), the renamed
+  exports of --category-c and --ccc-pairs (or of --input, the category
+  JSON's category_c) and the fresh
+  records: --reextract-records ({"mode": "normal", "files": [{file_path,
+  exports: [the per-file worker records]}]}), --extraction (the recipe
+  runner's exports) and --export-details. A fresh record of an export
+  takes its line, export_type and ast labels from the runner, then the
+  details, then the worker record; its params and return_type from the
+  details, then the worker record. Per file of the manifest:
+    MODIFIED  NEW_EXPORT adds an entry, MODIFIED_EXPORT rewrites the
+              export's fields from its fresh record, MOVED_EXPORT sets
+              its line (and file), DELETED_EXPORT removes it
+    ADDED     every fresh record of the file becomes an entry
+    DELETED   every entry of the file is removed
+    MOVED     the old path's entries are replaced by the new path's
+              fresh records, each keeping the keys of the entry of its
+              name it replaces
+  and each renamed export takes its new name and fresh fields. A docs-only
+  run's records ({"mode": "docs-only", "changed_urls": [...], "exports":
+  [{name, type, params, return_type, url}]}) replace the entries of each
+  changed URL (source_file is the URL; confidence and signature_source
+  T3).
+
+  gap-driven reads --reextract-records ({"mode": "gap-driven",
+  "verification": [...], "files": [...]}) and --merge-records ({"exports":
+  [{export_name, export_type, params, return_type}]}, merge's output for
+  an export no fresh record holds). Each verification record names
+  export_name, gap_category, severity, verification, in_map (the map holds
+  an entry of that name), map_entry ({source_file, source_line} of the one
+  entry the spot-check took, else null), source_citation, new_location,
+  unknown_reason, pinned_definition_lines and reachability:
+    verified (map_entry)    unchanged
+    moved (map_entry)       source_line (and source_file) from new_location
+    re-extracted            the entry from its `files` record (§0a)
+    verified/moved, not in_map, a NEW_EXPORT or MODIFIED_EXPORT whose
+    reachability is not internal-unreachable
+                            one source-read entry at the citation's line
+                            (verified) or new_location (moved), at most one
+                            per name and file, export_type and the
+                            signature from --merge-records
+    unknown, not in_map, a NEW_EXPORT or MODIFIED_EXPORT, a Medium, Low or
+    Info severity           an entry from --merge-records with no
+                            source_file or source_line
+    unknown, not in_map, any other severity (a missing one included)
+                            refused: exit 3, nothing written
+    missing, unknown in_map, unknown on a MOVED_EXPORT
+                            unchanged, with a warning for a person
+    rescoped                the entry removed
+  Under the drift override (--drift-head and --drift-pinned) each warning
+  names the drift.
+
+  full (degraded mode) makes every fresh record an entry.
+
+  Every mode then applies the file changes: --file-compare (skf-hash-
+  content.py compare's output) sets the content_hash of a MODIFIED_FILE
+  row and removes a DELETED_FILE row; --new-files (skf-new-file-diff.py's
+  output) adds a row per new script or asset ({kind}s/<file name>, hashed
+  under --source-root, extraction_method file-copy); --promoted-docs (the
+  documents step 2 promoted, with their hashes) adds a doc row each
+  (docs/authoritative/<path>, promoted-authoritative). A row whose
+  source_file the map already holds is never added twice.
+
+  Last it sets the top-level source_commit and source_ref (when given)
+  and the update block, replacing an earlier update's values in place:
+  last_update (--generation-date), update_type, test_report_run_id,
+  files_changed (the manifest's files, or in gap-driven mode the files of
+  the entries this run changed), exports_affected (the manifest's export
+  changes, or the verification records), confidence_tier and
+  manual_sections_preserved. An older update-history key
+  (update_operations, update_metadata) stays as it is.
+
+  Summary on stdout: {"status": "written", "map": <-o>, "entries":
+  {"added", "updated", "removed"}, "file_entries": {"added", "updated",
+  "removed"}, "warnings": [...]}, or {"status": "refused",
+  "blocking_unresolved": [{export_name, severity}]} with exit 3.
+
 Exit codes:
   0  operation succeeded
   1  user error (malformed JSON, bad path, malformed provenance file, a
      helper file that is not the output it names)
+  3  apply refused: a blocking gap reached the provenance write with no
+     source line (nothing written)
 """
 
 from __future__ import annotations
 
 import argparse
+import difflib
+import hashlib
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -499,14 +658,831 @@ def _ratio_skip(*, skip_reason: str) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Shared readers (rename-candidates and apply)
+# --------------------------------------------------------------------------
+
+
+def _norm_path(path: object) -> str | None:
+    """A file path compared as structural-diff compares it: `/` separators, no leading `./`."""
+    if not isinstance(path, str) or not path.strip():
+        return None
+    text = path.strip().replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+def _load_json_file(path: Path, what: str):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"cannot read {what} {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{what} {path} is not valid JSON: {exc}") from exc
+
+
+def _exports_of(doc, what: str) -> list[dict]:
+    """The export records of an extraction or export-details file ({"exports": [...]})."""
+    if doc is None:
+        return []
+    if not isinstance(doc, dict) or not isinstance(doc.get("exports"), list):
+        raise ValueError(f"{what} has no `exports` array: is it the helper's output?")
+    return [e for e in doc["exports"] if isinstance(e, dict)]
+
+
+def _entries_of(provenance) -> list[dict]:
+    if provenance is None:
+        return []
+    if not isinstance(provenance, dict):
+        raise ValueError("the provenance map must be a JSON object")
+    entries = provenance.get("entries", [])
+    if not isinstance(entries, list):
+        raise ValueError("provenance `entries` must be an array")
+    return [e for e in entries if isinstance(e, dict)]
+
+
+def _params(value) -> tuple | None:
+    """A parameter list compared by its text, whitespace removed."""
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return (str(value),)
+    out = []
+    for item in value:
+        if isinstance(item, dict):
+            name, kind = item.get("name"), item.get("type")
+            item = f"{name}: {kind}" if kind else str(name)
+        out.append("".join(str(item).split()))
+    return tuple(out)
+
+
+def _signature(record: dict) -> tuple:
+    """(export_type, params, return_type) of an export record, the parts a signature compares."""
+    kind = record.get("export_type", record.get("type"))
+    params = record.get("params", record.get("parameters"))
+    ret = record.get("return_type")
+    return (kind if isinstance(kind, str) else None, _params(params),
+            "".join(ret.split()) if isinstance(ret, str) else None)
+
+
+def _name_of(record: dict) -> str | None:
+    name = record.get("export_name", record.get("name"))
+    return name if isinstance(name, str) and name else None
+
+
+def _file_of(record: dict) -> str | None:
+    return _norm_path(record.get("source_file", record.get("file", record.get("file_path"))))
+
+
+# --------------------------------------------------------------------------
+# Rename candidates (update-skill detect-changes Category C)
+# --------------------------------------------------------------------------
+
+
+RENAME_SIMILARITY = 0.80  # content similarity above this is a rename (fixed)
+SIZE_TOLERANCE = 0.20     # Quick tier: the added file's size within 20% of the deleted one's
+NAME_OVERLAP = 0.70       # Quick tier: shared export names above 70%
+TIERS = ("Quick", "Forge", "Forge+", "Deep")
+
+
+def _git_size(source_root: Path, commit: str, path: str) -> int | None:
+    """The size of `path` at `commit` (git cat-file -s), or None when git cannot tell."""
+    try:
+        proc = subprocess.run(["git", "-C", str(source_root), "cat-file", "-s", f"{commit}:{path}"],
+                              capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return int(proc.stdout.strip())
+    except ValueError:
+        return None
+
+
+def _file_size(source_root: Path | None, path: str) -> int | None:
+    if source_root is None:
+        return None
+    try:
+        return (source_root / path).stat().st_size
+    except OSError:
+        return None
+
+
+def _best_pairs(candidates: list[tuple]) -> list[tuple]:
+    """Each side's best match only: (score, left, right, rule) tuples, highest score first.
+
+    A pair is kept when neither side is taken yet and no other candidate of
+    either side ties its score, so a tie pairs neither.
+    """
+    out, used_left, used_right = [], set(), set()
+    ordered = sorted(candidates, key=lambda c: (-c[0], c[1], c[2]))
+    for score, left, right, rule in ordered:
+        if left in used_left or right in used_right:
+            continue
+        rivals = [c for c in ordered if c[0] == score and (c[1] == left) != (c[2] == right)
+                  and c[1] not in used_left and c[2] not in used_right]
+        if rivals:
+            used_left.add(left)
+            used_right.add(right)
+            for c in rivals:
+                used_left.add(c[1])
+                used_right.add(c[2])
+            continue
+        used_left.add(left)
+        used_right.add(right)
+        out.append((score, left, right, rule))
+    return out
+
+
+def rename_candidates(category_a_doc: dict, diff: dict | None, provenance: dict, extraction: dict | None,
+                      details: dict | None, tier: str, *, source_root: Path | None = None,
+                      sizes_commit: str | None = None) -> dict:
+    """Category C by the fixed rules of the module docstring."""
+    if tier not in TIERS:
+        raise ValueError(f"--tier must be one of {', '.join(TIERS)}, got {tier!r}")
+    forge = tier != "Quick"
+    moves = [m for m in _get_list(category_a_doc, "moved_files") if isinstance(m, dict)]
+    moved_old = {_norm_path(m.get("old_path")) for m in moves}
+    moved_new = {_norm_path(m.get("new_path")) for m in moves}
+    deleted = sorted({p for p in map(_norm_path, _get_list(category_a_doc, "category_a", "deleted"))
+                      if p and p not in moved_old})
+    added = sorted({p for p in map(_norm_path, _get_list(category_a_doc, "category_a", "added"))
+                    if p and p not in moved_new})
+
+    old_by_file: dict[str, dict[str, dict]] = {}
+    for entry in _entries_of(provenance):
+        name, path = _name_of(entry), _file_of(entry)
+        if name and path:
+            old_by_file.setdefault(path, {}).setdefault(name, entry)
+    new_by_file: dict[str, dict[str, dict]] = {}
+    for record in _exports_of(extraction, "--extraction file") + _exports_of(details, "--export-details file"):
+        name, path = _name_of(record), _file_of(record)
+        if name and path:
+            merged = new_by_file.setdefault(path, {}).setdefault(name, {})
+            for key, value in record.items():
+                if merged.get(key) is None:
+                    merged[key] = value
+
+    file_candidates = []
+    for old in deleted:
+        old_exports = old_by_file.get(old, {})
+        for new in added:
+            new_exports = new_by_file.get(new, {})
+            if not old_exports or not new_exports:
+                continue
+            if forge:
+                matched = sum(1 for name, e in old_exports.items()
+                              if name in new_exports and _signature(e) == _signature(new_exports[name]))
+                score = matched / max(len(old_exports), len(new_exports))
+                if score > RENAME_SIMILARITY:
+                    file_candidates.append((round(score, 4), old, new, "signatures"))
+                continue
+            names_old, names_new = set(old_exports), set(new_exports)
+            overlap = len(names_old & names_new) / len(names_old | names_new)
+            if overlap <= NAME_OVERLAP:
+                continue
+            old_size = _git_size(source_root, sizes_commit, old) if (source_root and sizes_commit) else None
+            new_size = _file_size(source_root, new)
+            if old_size is not None:
+                if new_size is None or max(old_size, new_size) == 0:
+                    continue
+                if min(old_size, new_size) / max(old_size, new_size) < 1 - SIZE_TOLERANCE:
+                    continue
+                rule = "size-and-names"
+            else:
+                rule = "names (size not checked)"
+            file_candidates.append((round(overlap, 4), old, new, rule))
+    file_pairs = _best_pairs(file_candidates)
+    paired_old = {p[1] for p in file_pairs}
+    paired_new = {p[2] for p in file_pairs}
+
+    removed = []
+    for item in _get_list(diff or {}, "removed"):
+        if isinstance(item, dict) and _name_of(item) and _file_of(item):
+            name, path = _name_of(item), _file_of(item)
+            removed.append({**old_by_file.get(path, {}).get(name, {}), **{k: v for k, v in item.items()
+                                                                         if v is not None},
+                            "_key": (name, path)})
+    candidates_new = []
+    for item in _get_list(diff or {}, "added"):
+        if isinstance(item, dict) and _name_of(item) and _file_of(item):
+            name, path = _name_of(item), _file_of(item)
+            candidates_new.append({**new_by_file.get(path, {}).get(name, {}),
+                                   **{k: v for k, v in item.items() if v is not None}, "_key": (name, path)})
+    seen_new = {c["_key"] for c in candidates_new}
+    for path in added:
+        if path in paired_new:
+            continue
+        for name, record in new_by_file.get(path, {}).items():
+            if (name, path) not in seen_new:
+                candidates_new.append({**record, "_key": (name, path)})
+
+    export_candidates = []
+    for old in removed:
+        old_sig = _signature(old)
+        for new in candidates_new:
+            if old["_key"][0] == new["_key"][0]:
+                continue
+            new_sig = _signature(new)
+            if forge:
+                if old_sig[1] is None and old_sig[2] is None:
+                    continue
+                if old_sig == new_sig:
+                    export_candidates.append((1.0, old["_key"], new["_key"], "signature-equal"))
+                continue
+            if old_sig[0] and new_sig[0] and old_sig[0] != new_sig[0]:
+                continue
+            ratio = difflib.SequenceMatcher(None, old["_key"][0], new["_key"][0]).ratio()
+            if ratio > RENAME_SIMILARITY:
+                export_candidates.append((round(ratio, 4), old["_key"], new["_key"], "name-similarity"))
+    export_pairs = _best_pairs(export_candidates)
+
+    renamed_exports = []
+    for _score, (old_name, old_file), (new_name, new_file), _rule in export_pairs:
+        item = {"old_name": old_name, "new_name": new_name, "file": new_file}
+        if old_file != new_file:
+            item["old_file"] = old_file
+        renamed_exports.append(item)
+    paired_removed = {p[1] for p in export_pairs}
+    paired_added = {p[2] for p in export_pairs}
+    return {
+        "category_c": {
+            "renamed_files": [{"old_path": old, "new_path": new} for _s, old, new, _r in file_pairs],
+            "renamed_exports": renamed_exports,
+        },
+        "evidence": {
+            "files": [{"old_path": old, "new_path": new, "rule": rule, "similarity": score}
+                      for score, old, new, rule in file_pairs],
+            "exports": [{"old_name": o[0], "new_name": n[0], "file": n[1], "rule": rule, "similarity": score}
+                        for score, o, n, rule in export_pairs],
+        },
+        "unpaired": {
+            "deleted_files": [p for p in deleted if p not in paired_old],
+            "added_files": [p for p in added if p not in paired_new],
+            "removed_exports": [{"name": r["_key"][0], "file": r["_key"][1]} for r in removed
+                                if r["_key"] not in paired_removed],
+            "added_exports": [{"name": c["_key"][0], "file": c["_key"][1]} for c in candidates_new
+                              if c["_key"] not in paired_added],
+        },
+        "tier": tier,
+    }
+
+
+# --------------------------------------------------------------------------
+# Apply (update-skill write.md §3)
+# --------------------------------------------------------------------------
+
+
+UPDATE_TYPES = ("incremental", "gap-driven", "full")
+NON_BLOCKING = ("medium", "low", "info")
+EXIT_REFUSED = 3
+# The update block apply sets at the top level of the map, in this order.
+UPDATE_BLOCK_KEYS = ("last_update", "update_type", "test_report_run_id", "files_changed", "exports_affected",
+                     "confidence_tier", "manual_sections_preserved")
+
+
+def _labels(method: object, node: object) -> dict:
+    """The confidence labels an extraction method implies (create-skill's entry contract)."""
+    if method in ("ast-grep", "ast_bridge"):
+        return {"confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": node,
+                "signature_source": "T1"}
+    return {"confidence": "T1-low", "extraction_method": "source-read", "ast_node_type": None,
+            "signature_source": "T1-low"}
+
+
+def _line_of(value: object) -> int | None:
+    """A line number from an int, a digit string or a `file:line` / `file:start-end` location."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        tail = value.rsplit(":", 1)[-1].split("-", 1)[0].strip()
+        if tail.isdigit():
+            return int(tail)
+    return None
+
+
+def _location(value: object) -> tuple[str | None, int | None]:
+    """(file, line) of a `file:line` string or a {file, line} object."""
+    if isinstance(value, dict):
+        return _norm_path(value.get("file") or value.get("source_file")), _line_of(
+            value.get("line", value.get("source_line")))
+    if isinstance(value, str) and ":" in value:
+        path, _, rest = value.rpartition(":")
+        return _norm_path(path), _line_of(rest)
+    return None, None
+
+
+class _Fresh:
+    """The fresh records of one run, looked up by export name and file."""
+
+    def __init__(self, worker_files: list, extraction: dict | None, details: dict | None):
+        self.runner = {}
+        self.details = {}
+        self.worker = {}
+        for record in _exports_of(extraction, "--extraction file"):
+            key = (_name_of(record), _file_of(record))
+            if all(key):
+                self.runner.setdefault(key, record)
+        for record in _exports_of(details, "--export-details file"):
+            key = (_name_of(record), _file_of(record))
+            if all(key):
+                self.details.setdefault(key, record)
+        for block in worker_files:
+            if not isinstance(block, dict):
+                continue
+            path = _norm_path(block.get("file_path"))
+            for record in block.get("exports") or []:
+                if isinstance(record, dict) and _name_of(record) and path:
+                    self.worker.setdefault((_name_of(record), path), record)
+
+    def keys_of(self, path: str) -> list[tuple]:
+        keys = {k for source in (self.runner, self.details, self.worker) for k in source if k[1] == path}
+        return sorted(keys)
+
+    def all_keys(self) -> list[tuple]:
+        return sorted({k for source in (self.runner, self.details, self.worker) for k in source})
+
+    def record(self, name: str, path: str) -> dict | None:
+        """The entry fields of an export's fresh record, or None when no source holds it."""
+        key = (name, path)
+        runner, detail, worker = self.runner.get(key), self.details.get(key), self.worker.get(key)
+        if runner is None and detail is None and worker is None:
+            return None
+        sources = [r for r in (runner, detail, worker) if r is not None]
+
+        def first(*fields):
+            for record in sources:
+                for field in fields:
+                    value = record.get(field)
+                    if value is not None:
+                        return value
+            return None
+
+        line = None
+        for record in sources:
+            line = _line_of(record.get("source_line"))
+            if line is None and record is worker:
+                line = _line_of(record.get("location"))
+            if line is not None:
+                break
+        method = first("extraction_method")
+        node = first("ast_node_type") if method in ("ast-grep", "ast_bridge") else None
+        params = None
+        for record in (detail, worker, runner):
+            if record is None:
+                continue
+            value = record.get("params", record.get("parameters"))
+            if value is not None:
+                params = value
+                break
+        return {
+            "export_name": name,
+            "export_type": first("export_type", "type"),
+            "params": params,
+            "return_type": first("return_type"),
+            "source_file": path,
+            "source_line": line,
+            **_labels(method, node),
+        }
+
+
+def _without_none(fields: dict, keep: tuple = ()) -> dict:
+    return {k: v for k, v in fields.items() if v is not None or k in keep}
+
+
+def _new_entry(fields: dict, library: str) -> dict:
+    """An entry in create-skill's key order, from the fields a record gives."""
+    order = ("export_name", "export_type", "source_library", "params", "return_type", "source_file",
+             "source_line", "confidence", "extraction_method", "ast_node_type", "signature_source")
+    merged = {**fields, "source_library": fields.get("source_library") or library}
+    out = {k: merged[k] for k in order if k in merged and (merged[k] is not None or k == "ast_node_type")}
+    return out
+
+
+def _rewrite(entry: dict, fields: dict) -> dict:
+    """The entry with `fields` set in place; keys the update does not set keep their values."""
+    out = dict(entry)
+    for key, value in fields.items():
+        if value is None and key not in ("ast_node_type",):
+            continue
+        out[key] = value
+    return out
+
+
+def _sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+class _Map:
+    """The provenance map being rewritten, with what changed."""
+
+    def __init__(self, provenance: dict | None, skill_name: str):
+        self.doc = json.loads(json.dumps(provenance)) if provenance is not None else {
+            "provenance_version": "2.0", "skill_name": skill_name, "skill_type": "single", "entries": []}
+        if not isinstance(self.doc.get("entries"), list):
+            raise ValueError("provenance `entries` must be an array")
+        libraries = [e.get("source_library") for e in self.doc["entries"]
+                     if isinstance(e, dict) and isinstance(e.get("source_library"), str) and e["source_library"]]
+        self.library = libraries[0] if libraries else skill_name
+        self.added: list[str] = []
+        self.updated: list[str] = []
+        self.removed: list[str] = []
+        self.touched_files: set[str] = set()
+
+    def find(self, name: str, path: str | None, line: int | None = None) -> int | None:
+        """The index of the entry with this name (and file, and line when several share both)."""
+        hits = [i for i, e in enumerate(self.doc["entries"]) if isinstance(e, dict) and _name_of(e) == name
+                and (path is None or _file_of(e) == path)]
+        if len(hits) > 1 and line is not None:
+            hits = [i for i in hits if _line_of(self.doc["entries"][i].get("source_line")) == line]
+        return hits[0] if len(hits) == 1 else None
+
+    def indexes_of(self, path: str) -> list[int]:
+        return [i for i, e in enumerate(self.doc["entries"]) if isinstance(e, dict) and _file_of(e) == path]
+
+    def add(self, entry: dict) -> None:
+        self.doc["entries"].append(entry)
+        self.added.append(entry["export_name"])
+        if entry.get("source_file"):
+            self.touched_files.add(_norm_path(entry["source_file"]))
+
+    def update(self, index: int, fields: dict) -> None:
+        before = self.doc["entries"][index]
+        after = _rewrite(before, fields)
+        if after != before:
+            self.doc["entries"][index] = after
+            self.updated.append(_name_of(after))
+            for path in (_file_of(before), _file_of(after)):
+                if path:
+                    self.touched_files.add(path)
+
+    def remove(self, indexes: list[int]) -> None:
+        for index in sorted(set(indexes), reverse=True):
+            entry = self.doc["entries"].pop(index)
+            self.removed.append(_name_of(entry))
+            if _file_of(entry):
+                self.touched_files.add(_file_of(entry))
+
+
+def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fresh: _Fresh,
+                  warnings: list[str]) -> tuple[int, int]:
+    """Normal mode: the manifest's file and export changes. Returns (files, exports) for the update block."""
+    per_file = [f for f in _get_list(manifest or {}, "per_file") if isinstance(f, dict)]
+
+    def refresh(index: int | None, name: str, path: str, *, add: bool) -> None:
+        record = fresh.record(name, path)
+        if record is None:
+            warnings.append(f"provenance: {name} in {path}: no extraction record, entry "
+                            f"{'kept as it was' if index is not None else 'not added'}")
+            return
+        if index is None:
+            if add:
+                pmap.add(_new_entry(record, pmap.library))
+            return
+        pmap.update(index, _without_none(record, keep=("ast_node_type",)))
+
+    for item in per_file:
+        status, path = item.get("status"), _norm_path(item.get("file_path"))
+        if not path:
+            continue
+        if status == "DELETED":
+            pmap.remove(pmap.indexes_of(path))
+            continue
+        if status == "MOVED":
+            old = _norm_path(item.get("old_path"))
+            old_entries = {_name_of(pmap.doc["entries"][i]): pmap.doc["entries"][i]
+                           for i in (pmap.indexes_of(old) if old else [])}
+            pmap.remove(pmap.indexes_of(old) if old else [])
+            for name, key_path in fresh.keys_of(path):
+                record = fresh.record(name, key_path)
+                carried = old_entries.get(name)
+                entry = _rewrite(carried, _without_none(record, keep=("ast_node_type",))) if carried \
+                    else _new_entry(record, pmap.library)
+                pmap.add(entry)
+            continue
+        if status == "ADDED":
+            for name, key_path in fresh.keys_of(path):
+                index = pmap.find(name, key_path)
+                refresh(index, name, key_path, add=True)
+            continue
+        for change in item.get("exports_affected") or []:
+            if not isinstance(change, dict) or not _name_of(change):
+                continue
+            name, kind = _name_of(change), change.get("change_type")
+            index = pmap.find(name, path, _line_of(change.get("old_line")))
+            if kind == "DELETED_EXPORT":
+                if index is not None:
+                    pmap.remove([index])
+            elif kind == "MOVED_EXPORT":
+                record = fresh.record(name, path)
+                line = record["source_line"] if record and record.get("source_line") is not None \
+                    else _line_of(change.get("new_line"))
+                if index is not None and line is not None:
+                    pmap.update(index, {"source_file": path, "source_line": line})
+            elif kind in ("NEW_EXPORT", "MODIFIED_EXPORT"):
+                refresh(index, name, path, add=True)
+    for rename in _get_list(categories or {}, "category_c", "renamed_exports"):
+        if not isinstance(rename, dict):
+            continue
+        old_name, new_name = rename.get("old_name"), rename.get("new_name")
+        path = _norm_path(rename.get("file"))
+        old_path = _norm_path(rename.get("old_file")) or path
+        if not (isinstance(old_name, str) and isinstance(new_name, str) and path):
+            continue
+        index = pmap.find(old_name, old_path)
+        record = fresh.record(new_name, path)
+        if index is None:
+            continue
+        fields = {"export_name": new_name, "source_file": path}
+        if record is not None:
+            fields.update(_without_none(record, keep=("ast_node_type",)))
+        pmap.update(index, fields)
+    files = len(per_file)
+    total = manifest.get("total_export_changes") if isinstance(manifest, dict) else None
+    return files, total if isinstance(total, int) else 0
+
+
+def _apply_docs_only(pmap: _Map, records: dict) -> tuple[int, int]:
+    changed = [u for u in records.get("changed_urls") or [] if isinstance(u, str) and u]
+    exports = [e for e in records.get("exports") or [] if isinstance(e, dict)]
+    for url in changed:
+        old = {_name_of(pmap.doc["entries"][i]): pmap.doc["entries"][i] for i in pmap.indexes_of(url)}
+        pmap.remove(pmap.indexes_of(url))
+        for record in exports:
+            if record.get("url") != url or not _name_of(record):
+                continue
+            fields = {"export_name": _name_of(record), "export_type": record.get("export_type", record.get("type")),
+                      "params": record.get("params", record.get("parameters")),
+                      "return_type": record.get("return_type"), "source_file": url,
+                      "confidence": "T3", "signature_source": "T3"}
+            carried = old.get(_name_of(record))
+            entry = _rewrite(carried, _without_none(fields)) if carried else _new_entry(
+                _without_none(fields), pmap.library)
+            pmap.add(entry)
+    return len(changed), len(exports)
+
+
+def _drift_note(drift: tuple | None) -> str:
+    return f"drift override: HEAD {drift[0]} is not pinned {drift[1]}" if drift else ""
+
+
+def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, drift: tuple | None,
+                      warnings: list[str]) -> tuple[int, int] | list[dict]:
+    """Gap-driven mode: one write per verification record. A list return is the refusal."""
+    verification = [r for r in records.get("verification") or [] if isinstance(r, dict) and _name_of(r)]
+    reextracted = _Fresh(records.get("files") or [], None, None)
+    merged = {}
+    for record in _exports_of(merge_records, "--merge-records file") if merge_records is not None else []:
+        if _name_of(record):
+            merged.setdefault(_name_of(record), record)
+
+    def in_map(r: dict) -> bool:
+        return bool(r.get("in_map")) or bool(r.get("map_entry"))
+
+    blocking = [{"export_name": _name_of(r), "severity": r.get("severity")} for r in verification
+                if r.get("verification") == "unknown" and not in_map(r)
+                and r.get("gap_category") in ("NEW_EXPORT", "MODIFIED_EXPORT")
+                and str(r.get("severity") or "").strip().lower() not in NON_BLOCKING]
+    if blocking:
+        return blocking
+    note = _drift_note(drift)
+    pinned_keys: set[tuple] = set()
+    for r in verification:
+        name, outcome, category = _name_of(r), r.get("verification"), r.get("gap_category")
+        entry_file, entry_line = _location(r.get("map_entry"))
+        index = pmap.find(name, entry_file, entry_line) if r.get("map_entry") else None
+        lines = r.get("pinned_definition_lines")
+        r5 = f"; definition lines per the test report: {lines}" if category == "MOVED_EXPORT" else ""
+        if outcome == "rescoped":
+            if index is not None:
+                pmap.remove([index])
+        elif outcome == "verified" and index is not None:
+            if drift and category == "MOVED_EXPORT":
+                warnings.append(f"provenance: {name}: verified at HEAD only ({note}{r5})")
+        elif outcome == "moved" and index is not None:
+            path, line = _location(r.get("new_location"))
+            if path and line is not None:
+                pmap.update(index, {"source_file": path, "source_line": line})
+        elif outcome == "re-extracted":
+            path, line = _location(r.get("new_location"))
+            record = reextracted.record(name, path) if path else None
+            if record is None:
+                warnings.append(f"provenance: {name}: re-extracted, but no record of it in the run's files")
+                continue
+            existing = pmap.find(name, path)
+            if existing is None:
+                pmap.add(_new_entry(record, pmap.library))
+            else:
+                pmap.update(existing, _without_none(record, keep=("ast_node_type",)))
+        elif outcome in ("verified", "moved") and not in_map(r) and category in ("NEW_EXPORT", "MODIFIED_EXPORT"):
+            if r.get("reachability") == "internal-unreachable":
+                continue
+            where = r.get("source_citation") if outcome == "verified" else r.get("new_location")
+            path, line = _location(where)
+            if not path or line is None or (name, path) in pinned_keys or pmap.find(name, path) is not None:
+                continue
+            pinned_keys.add((name, path))
+            extra = merged.get(name, {})
+            pmap.add(_new_entry(_without_none({
+                "export_name": name,
+                "export_type": extra.get("export_type") or r.get("export_type"),
+                "params": extra.get("params"), "return_type": extra.get("return_type"),
+                "source_file": path, "source_line": line, **_labels("source-read", None)},
+                keep=("ast_node_type",)), pmap.library))
+        elif outcome == "unknown" and not in_map(r) and category in ("NEW_EXPORT", "MODIFIED_EXPORT"):
+            extra = merged.get(name, {})
+            pmap.add(_new_entry(_without_none({
+                "export_name": name, "export_type": extra.get("export_type") or r.get("export_type"),
+                "params": extra.get("params"), "return_type": extra.get("return_type"),
+                **_labels("source-read", None)}, keep=("ast_node_type",)), pmap.library))
+        else:
+            if r.get("unknown_reason") == "drift-override":
+                warnings.append(f"provenance: {name}: unknown ({note}; no line taken from HEAD{r5})")
+            elif drift:
+                warnings.append(f"provenance: {name}: {outcome} ({note}{r5})")
+            else:
+                warnings.append(f"provenance: {name}: {outcome}{r5}")
+    return len(pmap.touched_files), len(verification)
+
+
+def _apply_files(pmap: _Map, compare: dict | None, new_files: dict | None, promoted: list | None,
+                 source_root: Path | None) -> dict:
+    """The file_entries[] changes of Category D and the promoted documents."""
+    rows = pmap.doc.get("file_entries")
+    if rows is None:
+        rows = []
+    if not isinstance(rows, list):
+        raise ValueError("provenance `file_entries` must be an array")
+    done = {"added": [], "updated": [], "removed": []}
+    by_source = {_norm_path(r.get("source_file")): i for i, r in enumerate(rows) if isinstance(r, dict)}
+    gone = set()
+    for row in _get_list(compare or {}, "comparisons"):
+        if not isinstance(row, dict):
+            continue
+        path, kind = _norm_path(row.get("source_file")), row.get("classification")
+        index = by_source.get(path)
+        if index is None:
+            continue
+        if kind == "MODIFIED_FILE" and isinstance(row.get("current_hash"), str):
+            if rows[index].get("content_hash") != row["current_hash"]:
+                rows[index] = {**rows[index], "content_hash": row["current_hash"]}
+                done["updated"].append(path)
+        elif kind == "DELETED_FILE":
+            gone.add(index)
+            done["removed"].append(path)
+    rows = [r for i, r in enumerate(rows) if i not in gone]
+    held = {_norm_path(r.get("source_file")) for r in rows if isinstance(r, dict)}
+    for item in _get_list(new_files or {}, "new_files"):
+        if not isinstance(item, dict):
+            continue
+        path, kind = _norm_path(item.get("source_file")), item.get("kind")
+        if not path or path in held or kind not in ("script", "asset"):
+            continue
+        if source_root is None:
+            raise ValueError("--new-files needs --source-root, to hash each new file")
+        try:
+            digest = _sha256_of(source_root / path)
+        except OSError as exc:
+            raise ValueError(f"cannot hash new file {path} under {source_root}: {exc}") from exc
+        rows.append({"file_name": f"{kind}s/{Path(path).name}", "file_type": kind, "source_file": path,
+                     "confidence": "T1-low", "extraction_method": "file-copy", "content_hash": digest})
+        held.add(path)
+        done["added"].append(path)
+    for doc in promoted or []:
+        if not isinstance(doc, dict):
+            continue
+        path = _norm_path(doc.get("path"))
+        if not path or path in held or not isinstance(doc.get("content_hash"), str):
+            continue
+        rows.append({"file_name": f"docs/authoritative/{path}", "file_type": "doc", "source_file": path,
+                     "content_hash": doc["content_hash"], "confidence": "T1-low",
+                     "extraction_method": "promoted-authoritative"})
+        held.add(path)
+        done["added"].append(path)
+    if rows or "file_entries" in pmap.doc:
+        pmap.doc["file_entries"] = rows
+    return done
+
+
+def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, manifest: dict | None = None,
+                 categories: dict | None = None, extraction: dict | None = None, details: dict | None = None,
+                 records: dict | None = None, merge_records: dict | None = None, compare: dict | None = None,
+                 new_files: dict | None = None, promoted: list | None = None, source_root: Path | None = None,
+                 generation_date: str, test_report_run_id: str | None, confidence_tier: str,
+                 manual_sections_preserved: int, source_commit: str | None = None,
+                 source_ref: str | None = None, drift: tuple | None = None) -> tuple[dict, dict]:
+    """(new map, summary) of one update (see "Apply" in the module docstring).
+
+    A refusal returns ({}, summary) with status "refused" and no map.
+    Raises ValueError for inputs it cannot read.
+    """
+    if update_type not in UPDATE_TYPES:
+        raise ValueError(f"--update-type must be one of {', '.join(UPDATE_TYPES)}, got {update_type!r}")
+    if provenance is None and update_type != "full":
+        raise ValueError("--provenance-map is required unless --update-type is full (a degraded run)")
+    records = records if isinstance(records, dict) else {}
+    pmap = _Map(provenance, skill_name)
+    warnings: list[str] = []
+    mode = records.get("mode")
+    if update_type == "gap-driven":
+        outcome = _apply_gap_driven(pmap, records, merge_records, drift, warnings)
+        if isinstance(outcome, list):
+            return {}, {"status": "refused", "blocking_unresolved": outcome}
+        files, exports = outcome
+    elif mode == "docs-only":
+        files, exports = _apply_docs_only(pmap, records)
+    else:
+        fresh = _Fresh(records.get("files") or [], extraction, details)
+        if update_type == "full":
+            for name, path in fresh.all_keys():
+                index = pmap.find(name, path)
+                record = fresh.record(name, path)
+                if index is None:
+                    pmap.add(_new_entry(record, pmap.library))
+                else:
+                    pmap.update(index, _without_none(record, keep=("ast_node_type",)))
+            files = len({path for _name, path in fresh.all_keys()})
+            exports = len(fresh.all_keys())
+        else:
+            files, exports = _apply_normal(pmap, manifest, categories, fresh, warnings)
+    file_changes = _apply_files(pmap, compare, new_files, promoted, source_root)
+    doc = pmap.doc
+    for key, value in (("source_commit", source_commit), ("source_ref", source_ref)):
+        if value is not None:
+            doc[key] = value or None
+    block = {
+        "last_update": generation_date,
+        "update_type": update_type,
+        "test_report_run_id": test_report_run_id or None,
+        "files_changed": files,
+        "exports_affected": exports,
+        "confidence_tier": confidence_tier,
+        "manual_sections_preserved": manual_sections_preserved,
+    }
+    for key in UPDATE_BLOCK_KEYS:
+        doc[key] = block[key]
+    summary = {
+        "status": "written",
+        "entries": {"added": pmap.added, "updated": pmap.updated, "removed": pmap.removed},
+        "file_entries": file_changes,
+        "warnings": warnings,
+    }
+    return doc, summary
+
+
+def _write_json_atomic(path: Path, value) -> None:
+    """Write `value` as indented JSON through a temporary file beside `path` and one rename."""
+    tmp = path.with_name(f".{path.name}.skf-{os.getpid()}-tmp")
+    try:
+        tmp.write_bytes((json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
+
+
+def _category_c(args: argparse.Namespace, own: dict | None) -> dict | None:
+    """Category C from --category-c and --ccc-pairs, else the input's own
+    (`own`, None when there is none). Raises ValueError."""
+    if not args.category_c and not args.ccc_pairs:
+        return own
+    cat_c = dict(own or {})
+    if args.category_c:
+        doc = _load_helper_file(Path(args.category_c), "--category-c file", "category_c")
+        if not isinstance(doc["category_c"], dict):
+            raise ValueError(f"--category-c file {args.category_c} has no `category_c` object")
+        cat_c = dict(doc["category_c"])
+    if args.ccc_pairs:
+        pairs = _load_json_file(Path(args.ccc_pairs), "--ccc-pairs file")
+        if not isinstance(pairs, dict):
+            raise ValueError(f"--ccc-pairs file {args.ccc_pairs} must hold a JSON object")
+        for key in ("renamed_files", "renamed_exports"):
+            cat_c[key] = list(_get_list(cat_c, key)) + [p for p in _get_list(pairs, key) if isinstance(p, dict)]
+    return cat_c
 
 
 def _payload(args: argparse.Namespace) -> dict:
     """The category JSON of a build or deletion-ratio call: the input with
     the helper files' slices assembled in. Raises ValueError."""
     payload = _load_input(Path(args.input) if args.input else None)
+    cat_c = _category_c(args, payload.get("category_c") if isinstance(payload.get("category_c"), dict) else None)
+    if cat_c is not None:
+        payload = {**payload, "category_c": cat_c}
     category_a_doc = (
         _load_helper_file(Path(args.category_a), "--category-a file", "category_a") if args.category_a else None
     )
@@ -515,13 +1491,28 @@ def _payload(args: argparse.Namespace) -> dict:
     return assemble(payload, category_a_doc=category_a_doc, diff=diff)
 
 
+def docs_only_manifest(doc_hashes: dict) -> dict:
+    """A docs-only skill's change manifest from compare-hashes' output."""
+    def urls(key: str) -> list[str]:
+        return [e["url"] for e in _get_list(doc_hashes, key) if isinstance(e, dict) and isinstance(e.get("url"), str)]
+
+    changed, failed = urls("changed"), urls("fetch_failed")
+    return {"mode": "docs-only", "no_changes": not changed, "changed_urls": changed, "fetch_failed": failed,
+            "counts": {"docs_changed": len(changed), "docs_fetch_failed": len(failed)}}
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     try:
-        payload = _payload(args)
+        if args.doc_hashes:
+            if args.input or args.category_a or args.category_b_diff or args.category_c or args.ccc_pairs:
+                raise ValueError("--doc-hashes takes no other input")
+            doc_hashes = _load_helper_file(Path(args.doc_hashes), "--doc-hashes file", "changed")
+            manifest = docs_only_manifest(doc_hashes)
+        else:
+            manifest = build_manifest(_payload(args))
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    manifest = build_manifest(payload)
     json.dump(manifest, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
@@ -552,6 +1543,100 @@ def _cmd_deletion_ratio(args: argparse.Namespace) -> int:
     return 0
 
 
+def _optional_json(value: str | None, what: str):
+    return _load_json_file(Path(value), what) if value else None
+
+
+def _emit(result: dict, output: str | None) -> None:
+    if output:
+        _write_json_atomic(Path(output), result)
+        print(json.dumps({"status": "ok", "output": output}))
+    else:
+        json.dump(result, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+
+
+def _cmd_rename_candidates(args: argparse.Namespace) -> int:
+    try:
+        category_a_doc = _load_helper_file(Path(args.category_a), "--category-a file", "category_a")
+        diff = _load_helper_file(Path(args.category_b_diff), "--category-b-diff file", "removed") \
+            if args.category_b_diff else None
+        provenance = _load_json_file(Path(args.provenance_map), "--provenance-map file")
+        result = rename_candidates(
+            category_a_doc, diff, provenance,
+            _optional_json(args.extraction, "--extraction file"),
+            _optional_json(args.export_details, "--export-details file"),
+            args.tier,
+            source_root=Path(args.source_root) if args.source_root else None,
+            sizes_commit=args.sizes_commit or None,
+        )
+        _emit(result, args.output)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"error: cannot write {args.output}: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _apply_categories(args: argparse.Namespace) -> dict | None:
+    """The category JSON apply reads: --input, with --category-c and --ccc-pairs in place of its category_c."""
+    categories = _optional_json(args.input, "--input file")
+    if categories is not None and not isinstance(categories, dict):
+        raise ValueError("--input file must hold a JSON object")
+    own = (categories or {}).get("category_c")
+    cat_c = _category_c(args, own if isinstance(own, dict) else None)
+    if cat_c is None:
+        return categories
+    return {**(categories or {}), "category_c": cat_c}
+
+
+def _cmd_apply(args: argparse.Namespace) -> int:
+    if bool(args.drift_head) != bool(args.drift_pinned):
+        print("error: --drift-head and --drift-pinned go together", file=sys.stderr)
+        return 1
+    try:
+        promoted = _optional_json(args.promoted_docs, "--promoted-docs file")
+        if promoted is not None and not isinstance(promoted, list):
+            raise ValueError("--promoted-docs file must hold a JSON array")
+        doc, summary = apply_update(
+            update_type=args.update_type,
+            provenance=_optional_json(args.provenance_map, "--provenance-map file"),
+            skill_name=args.skill_name,
+            manifest=_optional_json(args.manifest, "--manifest file"),
+            categories=_apply_categories(args),
+            extraction=_optional_json(args.extraction, "--extraction file"),
+            details=_optional_json(args.export_details, "--export-details file"),
+            records=_optional_json(args.reextract_records, "--reextract-records file"),
+            merge_records=_optional_json(args.merge_records, "--merge-records file"),
+            compare=_optional_json(args.file_compare, "--file-compare file"),
+            new_files=_optional_json(args.new_files, "--new-files file"),
+            promoted=promoted,
+            source_root=Path(args.source_root) if args.source_root else None,
+            generation_date=args.generation_date,
+            test_report_run_id=args.test_report_run_id,
+            confidence_tier=args.confidence_tier,
+            manual_sections_preserved=args.manual_sections_preserved,
+            source_commit=args.source_commit,
+            source_ref=args.source_ref,
+            drift=(args.drift_head, args.drift_pinned) if args.drift_head else None,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if summary["status"] == "refused":
+        print(json.dumps(summary))
+        return EXIT_REFUSED
+    try:
+        _write_json_atomic(Path(args.output), doc)
+    except OSError as exc:
+        print(f"error: cannot write {args.output}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({**summary, "map": args.output}))
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-build-change-manifest",
@@ -563,6 +1648,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_build = sub.add_parser("build", help="aggregate categories into manifest")
+    p_build.add_argument("--doc-hashes", metavar="FILE",
+                         help="a docs-only skill: skf-detect-docs.py compare-hashes output, the only input")
     p_build.set_defaults(func=_cmd_build)
 
     p_ratio = sub.add_parser(
@@ -573,6 +1660,53 @@ def _build_parser() -> argparse.ArgumentParser:
         "--provenance-map", required=True, help="path to provenance-map.json"
     )
     p_ratio.set_defaults(func=_cmd_deletion_ratio)
+
+    p_rename = sub.add_parser(
+        "rename-candidates",
+        help="Category C by fixed rules: renamed files and renamed exports",
+    )
+    p_rename.add_argument("--category-a", required=True, metavar="FILE",
+                          help="skf-classify-changed-files.py classify output (deleted and added files)")
+    p_rename.add_argument("--category-b-diff", metavar="FILE",
+                          help="skf-structural-diff.py output (removed and added exports)")
+    p_rename.add_argument("--provenance-map", required=True, metavar="FILE",
+                          help="the provenance map: the deleted files' exports")
+    p_rename.add_argument("--extraction", metavar="FILE", help="the recipe runner's output: the added files' exports")
+    p_rename.add_argument("--export-details", metavar="FILE",
+                          help="the workers' export details: params, return types and exports read by eye")
+    p_rename.add_argument("--tier", required=True, choices=TIERS, help="the forge tier, which picks the rules")
+    p_rename.add_argument("--source-root", metavar="DIR", help="the source tree: the added files' sizes")
+    p_rename.add_argument("--sizes-commit", metavar="COMMIT",
+                          help="the commit the deleted files' sizes are read at (git cat-file -s)")
+    p_rename.add_argument("-o", "--output", metavar="FILE", help="write the JSON here instead of stdout")
+    p_rename.set_defaults(func=_cmd_rename_candidates)
+
+    p_apply = sub.add_parser("apply", help="write the provenance map an update leaves")
+    p_apply.add_argument("--update-type", required=True, choices=UPDATE_TYPES,
+                         help="incremental (normal mode), gap-driven, or full (degraded mode)")
+    p_apply.add_argument("--provenance-map", metavar="FILE", help="the map the update started from")
+    p_apply.add_argument("--manifest", metavar="FILE", help="the change manifest (build's output)")
+    p_apply.add_argument("--input", metavar="FILE", help="the category JSON: category_c's renamed exports")
+    p_apply.add_argument("--extraction", metavar="FILE", help="the recipe runner's output")
+    p_apply.add_argument("--export-details", metavar="FILE", help="the workers' export details")
+    p_apply.add_argument("--reextract-records", metavar="FILE", help="step 3's records")
+    p_apply.add_argument("--merge-records", metavar="FILE", help="merge's records of the exports no fresh record holds")
+    p_apply.add_argument("--file-compare", metavar="FILE", help="skf-hash-content.py compare output")
+    p_apply.add_argument("--new-files", metavar="FILE", help="skf-new-file-diff.py output")
+    p_apply.add_argument("--promoted-docs", metavar="FILE", help="the documents step 2 promoted, with their hashes")
+    p_apply.add_argument("--source-root", metavar="DIR", help="the source tree: the new files' hashes")
+    p_apply.add_argument("--skill-name", required=True, help="the skill name: source_library of a new entry")
+    p_apply.add_argument("--generation-date", required=True, help="last_update: the generation_date written")
+    p_apply.add_argument("--test-report-run-id", default=None, help="the run id of the test report applied")
+    p_apply.add_argument("--confidence-tier", required=True, help="the forge tier the update ran at")
+    p_apply.add_argument("--manual-sections-preserved", required=True, type=int,
+                         help="the [MANUAL] blocks the post-merge check found intact")
+    p_apply.add_argument("--source-commit", default=None, help="the map's source_commit (empty: null)")
+    p_apply.add_argument("--source-ref", default=None, help="the map's source_ref (empty: null)")
+    p_apply.add_argument("--drift-head", default=None, help="under the drift override: HEAD's short SHA")
+    p_apply.add_argument("--drift-pinned", default=None, help="under the drift override: the pinned short SHA")
+    p_apply.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the new map")
+    p_apply.set_defaults(func=_cmd_apply)
 
     for p in (p_build, p_ratio):
         p.add_argument(
@@ -586,6 +1720,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "--category-b-diff", metavar="FILE",
             help="skf-structural-diff.py output over the modified files: the Category B slice",
         )
+    for p in (p_build, p_ratio, p_apply):
+        p.add_argument("--category-c", metavar="FILE", help="rename-candidates output: the Category C slice")
+        p.add_argument("--ccc-pairs", metavar="FILE",
+                       help="the CCC check's pairs, {renamed_files, renamed_exports}, added to Category C")
 
     return parser
 

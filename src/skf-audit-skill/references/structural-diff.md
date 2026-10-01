@@ -6,8 +6,17 @@ outputFile: '{forge_version}/drift-report-{timestamp}.md'
 # drop-skill and rename-skill, which read any other new name there as a file
 # SKF did not write.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
-# §1b verifies a relocated export with the recipes step 2 runs.
-extractionPatternsData: 'skf-create-skill/references/extraction-patterns.md'
+# §1b: the recipe runner, and the snapshot helper that adds its finds.
+extractPublicApiProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+extractionSnapshotProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-snapshot.py'
+  - '{project-root}/src/shared/scripts/skf-extraction-snapshot.py'
+# Every HALT after step 1 §5b's [C] closes the private tree with it.
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
 compareFileHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-compare-file-hashes.py'
   - '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
@@ -33,11 +42,19 @@ Compare the original provenance map extractions from create-skill against the cu
 
 ## MANDATORY SEQUENCE
 
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (step 1 §5b's [C]), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, then stop with the halt's exit code. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Run the Deterministic Export Diff
 
 The export comparison — canonicalization, set arithmetic (added/removed/moved), and field-level change detection — is fully deterministic and runs in one subprocess. Do **not** diff the two export lists by hand: an LLM comparing dozens or hundreds of exports can silently drop or mis-match entries, which violates this skill's zero-hallucination contract.
 
-**Resolve `{structuralDiffHelper}`** from `{structuralDiffProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{structuralDiffHelper}`** from `{structuralDiffProbeOrder}`; first existing path wins. If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `structural-diff:diff`.
 
 Run one comparison over the baseline provenance map (`{provenanceMap}`, bound in step 1 §1) and the current extraction snapshot (`{extractionSnapshot}`, written to disk by step 2 §3), and save it in `{auditDataFolder}` (create the folder first: `mkdir -p "{auditDataFolder}"`):
 
@@ -50,8 +67,8 @@ For a stack skill with v2 provenance, add `--group-by source_library` (see Stack
 With `-o` the helper saves the diff to the file and prints one line, `{"status": "ok", "output": ..., "summary": {...}}`. Exit `0` (no export added, removed, changed or moved) and exit `1` (differences found) both saved it. Exit `2` saved nothing; act on its `error`:
 
 - It names `{extractionSnapshot}` (unreadable, not JSON, or, with `--group-by`, no export with a `source_library`): step 2 wrote that file, so fix it as re-index §3 describes and run the command again.
-- It starts `Cannot write output`: HALT with **exit 4**, `halt_reason: "write-failed"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract).
-- Otherwise it names `{provenanceMap}`, which step 1 §4 read: HALT as step 1 §4 does for a map it cannot read, showing the `error`.
+- It starts `Cannot write output`: HALT with **exit 4**, `halt_reason: "write-failed"`, phase `structural-diff:diff`, `"path": "{auditDataFolder}/structural-diff.json"`.
+- Otherwise it names `{provenanceMap}`, which step 1 §4 read: HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase `structural-diff:diff`, `"path": "{provenanceMap}"`, showing the `error`.
 
 The helper reads both shapes directly — the provenance map's `entries[]` (with `export_name`/`export_type`/`source_file`/`source_line`) and the snapshot's `exports[]` — and aliases the field names, so no manual projection is needed.
 
@@ -90,12 +107,19 @@ An `<entry>` in `added[]` or `removed[]` is the helper's normalized record, whic
 
 An export moved to a file outside the bounded scan list is missing from the snapshot, so the diff reports it as removed, which step 5 grades CRITICAL. Look for each `removed[]` entry of `{auditDataFolder}/structural-diff.json` elsewhere in the source:
 
-1. Search for its name: `cd {source_root} && ccc search --limit 5 "{name}"` (CLI), the `/ccc` skill (Claude Code) or the ccc MCP server (Cursor). `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`): see `knowledge/ccc-bridge.md`.
+1. Search for its name: `cd {source_root} && ccc search --limit 5 "{name}"` (CLI), the `/ccc` skill (Claude Code) or the ccc MCP server (Cursor). `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`): see `knowledge/ccc-bridge.md`. When `{source_tree}` is set, `{source_root}` is step 1 §5b's private tree, which has no ccc index (and a search there could start indexing a folder this run deletes): list the files of the tree that hold the name as a word instead, with `git -C "{source_root}" grep -l -w -F -e "{name}"`, and take them as the candidates.
 2. Drop each candidate file on `{bounded_scan_files}`: step 2 extracted those files, so the diff already saw their exports.
-3. Verify each remaining candidate with ast-grep: run the AST Extraction Protocol's recipes for its language (in `{extractionPatternsData}`) over that one file, and keep a match whose `$NAME` is the removed name.
-4. Append each verified match to `{extractionSnapshot}`'s `exports[]` as step 2 records an export: `name`, `type`, `signature`, `file` (relative to `{source_root}`, with forward slashes), `line` (`$NAME`'s line), `confidence: "T1"`, `extraction_method: "ast-grep"`, `ast_node_type` (the kind the matching recipe declares) and, for a stack, the removed entry's `source_library`.
+3. Write the remaining candidates of every name, relative to `{source_root}` with forward slashes, as one JSON list in `{auditDataFolder}/relocation-candidates.json`. Resolve `{extractPublicApiHelper}` and `{extractionSnapshotHelper}` from their probe orders, then, from `{project-root}`, run the recipes over the candidates and add what they find to the snapshot:
 
-When any export was appended, write the snapshot back and run §1's command again with the same arguments and the same `-o`, acting on its exit code as §1 does. The helper pairs each relocation with its removed entry as a move (or, when the name occurs more than once, lists it under `ambiguous_names[]`), so `moved[]` comes from the script and never from an edit of the report. A removed export whose search finds nothing ast-grep verifies stays removed. When ccc cannot search (no index for `{source_root}`, or the command fails), skip the rest of this section and note `ccc relocation check skipped: {reason}` on the **Method:** line (§5).
+   ```bash
+   rm -f "{auditDataFolder}/relocations.json"
+   uv run {extractPublicApiHelper} --mode full --source-root "{source_root}" --files-from "{auditDataFolder}/relocation-candidates.json" --head-cap 0 -o "{auditDataFolder}/relocations.json"
+   uv run {extractionSnapshotHelper} relocate "{extractionSnapshot}" --diff "{auditDataFolder}/structural-diff.json" --extraction "{auditDataFolder}/relocations.json"
+   ```
+
+   `relocate` adds each export the runner found under a removed name in a file outside the bounded scan list (with the removed entry's `source_library` for a stack), recounts the snapshot and prints `added`: never edit the snapshot by hand.
+
+When `added` is above 0, run §1's command again with the same arguments and the same `-o`, acting on its exit code as §1 does. The helper pairs each relocation with its removed entry as a move (or, when the name occurs more than once, lists it under `ambiguous_names[]`), so `moved[]` comes from the script and never from an edit of the report. A removed export the runner finds nowhere else stays removed. When ccc cannot search (no index for `{source_root}`, or the command fails), the runner writes no JSON, or `relocate` prints an `error`, skip the rest of this section and note `ccc relocation check skipped: {reason}` on the **Method:** line (§5).
 
 ### 2. Read Added / Removed / Moved from the Diff
 
@@ -122,7 +146,7 @@ Confidence tier for each entry is the `confidence` field the extractor recorded,
 
 **Only execute if provenance-map.json contains `file_entries`.**
 
-**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `structural-diff:file-drift`.
 
 Run one deterministic comparison subprocess — it walks tracked file_entries[] AND the inverse direction (source-tree → candidate set in standard script/asset/doc directories) so the LLM does not orchestrate per-file hashing:
 
@@ -155,7 +179,7 @@ If `{is_stack_skill}` is true:
 - §1 runs with `--group-by source_library`: the helper diffs each library on its own and tags every listed item with its `source_library`, which step 2 records on each snapshot export
 - Report per-library diff results, taking each library's counts from `groups[]` (the top-level `summary` sums them)
 
-**For code-mode stacks:** Re-extract from each source repo and compare per-library entries.
+**For code-mode stacks:** none reaches this step yet: a code-mode stack's provenance map records no single source root, so step 1 §5 stops its audit (`source-dir-missing`).
 
 **For v1 legacy provenance:** Report library-level summary only (export counts, extraction methods). Note that per-export drift detection requires re-composition with v2 provenance.
 

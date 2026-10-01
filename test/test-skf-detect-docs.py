@@ -1217,6 +1217,75 @@ class TestCompareHashesCli:
 
 
 # --------------------------------------------------------------------------
+# refresh-hashes subcommand: update-skill records the hashes compare-hashes
+# found changed, so the next comparison starts from what the update read
+# --------------------------------------------------------------------------
+
+
+class TestRefreshDocHashes:
+    META = {"name": "docs", "version": "1.0.1", "doc_sources": [
+        {"url": "https://d/a", "detected_via": "brief_doc_urls", "content_hash": "sha256:old-a",
+         "recorded_at": "2026-01-01T00:00:00+00:00"},
+        {"url": "https://d/b", "content_hash": "sha256:same"},
+        "not an object"]}
+
+    def test_only_the_changed_documents_take_their_new_hash(self):
+        comparison = {"changed": [{"url": "https://d/a", "old_hash": "sha256:old-a", "new_hash": "sha256:new-a"},
+                                  {"url": "https://d/gone", "old_hash": "x", "new_hash": "sha256:y"}],
+                      "unchanged": [{"url": "https://d/b"}]}
+        updated, refreshed, not_found = mod.refresh_doc_hashes(self.META, comparison, recorded_at="2026-10-01T00:00Z")
+        assert refreshed == ["https://d/a"] and not_found == ["https://d/gone"]
+        assert updated["doc_sources"][0] == {"url": "https://d/a", "detected_via": "brief_doc_urls",
+                                             "content_hash": "sha256:new-a", "recorded_at": "2026-10-01T00:00Z"}
+        assert updated["doc_sources"][1:] == self.META["doc_sources"][1:]
+        assert {k: v for k, v in updated.items() if k != "doc_sources"} == {"name": "docs", "version": "1.0.1"}
+        assert self.META["doc_sources"][0]["content_hash"] == "sha256:old-a"  # the input is not changed
+
+    def test_a_comparison_with_no_changed_array_is_refused(self):
+        with pytest.raises(ValueError, match="no `changed` array"):
+            mod.refresh_doc_hashes(self.META, {"stats": {}})
+
+    def test_the_next_comparison_finds_nothing_changed(self, tmp_path):
+        doc = tmp_path / "guide.md"
+        doc.write_bytes(b"version two\n")
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(json.dumps({"name": "docs", "doc_sources": [
+            {"url": "file://" + doc.as_posix(), "content_hash": _hash_bytes(b"version one\n"),
+             "recorded_at": "2026-01-01T00:00:00+00:00"}]}).encode("utf-8"))
+        compare = subprocess.run([sys.executable, str(SCRIPT_PATH), "compare-hashes", str(meta)],
+                                 capture_output=True, encoding="utf-8")
+        assert json.loads(compare.stdout)["stats"]["changed"] == 1
+        comparison = tmp_path / "doc-hashes.json"
+        comparison.write_text(compare.stdout, encoding="utf-8")
+        result = subprocess.run([sys.executable, str(SCRIPT_PATH), "refresh-hashes", str(meta),
+                                 "--compare", str(comparison)], capture_output=True, encoding="utf-8")
+        assert result.returncode == 0, result.stderr
+        out = json.loads(result.stdout)
+        assert out["refreshed"] == ["file://" + doc.as_posix()] and out["not_found"] == []
+        entry = json.loads(meta.read_bytes())["doc_sources"][0]
+        assert entry["content_hash"] == _hash_bytes(b"version two\n")
+        assert entry["recorded_at"] != "2026-01-01T00:00:00+00:00"
+        again = subprocess.run([sys.executable, str(SCRIPT_PATH), "compare-hashes", str(meta)],
+                               capture_output=True, encoding="utf-8")
+        assert json.loads(again.stdout)["stats"] == {"total_tracked": 1, "changed": 0, "unchanged": 1,
+                                                     "fetch_failed": 0, "skipped_null_hash": 0}
+        assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []  # no temporary file left
+
+    @pytest.mark.parametrize("comparison", [b"{nope", b"[]", b'{"stats": {}}'],
+                             ids=["not-json", "not-an-object", "no-changed-array"])
+    def test_a_bad_comparison_exits_2_and_writes_nothing(self, tmp_path, comparison):
+        meta = tmp_path / "metadata.json"
+        meta.write_bytes(json.dumps(self.META).encode("utf-8"))
+        before = meta.read_bytes()
+        bad = tmp_path / "doc-hashes.json"
+        bad.write_bytes(comparison)
+        result = subprocess.run([sys.executable, str(SCRIPT_PATH), "refresh-hashes", str(meta), "--compare", str(bad)],
+                                capture_output=True, encoding="utf-8")
+        assert result.returncode == 2 and json.loads(result.stderr)["code"] == "REFRESH_FAILED"
+        assert meta.read_bytes() == before
+
+
+# --------------------------------------------------------------------------
 # hash-urls subcommand — docs-only doc_sources from the brief's doc_urls (#475)
 # --------------------------------------------------------------------------
 

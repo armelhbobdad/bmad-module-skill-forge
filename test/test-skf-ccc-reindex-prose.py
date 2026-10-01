@@ -36,9 +36,9 @@ step files and the ccc knowledge fragment on that contract:
   workspace clone, runs `skf-ccc-git-hygiene.py`, which never gates: a workspace
   clone gets ccc's `.gitignore` edit undone and the index and lock listed
   in `.git/info/exclude`, a nested local index gets a self-ignoring
-  `.cocoindex_code/.gitignore`, the lazy index never initializes the
-  enclosing checkout, and audit's `[C]` checkout cleans up before its
-  dirty-worktree probe;
+  `.cocoindex_code/.gitignore`, and the lazy index never initializes the
+  enclosing checkout; audit's `[C]` reads the upstream ref into a private
+  tree and moves no clone, so it runs no clean-up (#588);
 - no step prose cites ccc source lines.
 
 Every section slicer asserts that its markers exist and that the slice is
@@ -585,9 +585,8 @@ def _line_starting(text: str, prefix: str) -> str:
         (UPDATE_WRITE, [UPDATE_WRITE]),
         (GENERATE, [GENERATE]),
         (CCC_DISCOVER, [CCC_DISCOVER]),
-        (AUDIT_INIT, [AUDIT_INIT]),
     ],
-    ids=["extract", "update-write", "generate", "ccc-discover", "audit-init"],
+    ids=["extract", "update-write", "generate", "ccc-discover"],
 )
 def test_hygiene_probe_order_declared(loader, users):
     frontmatter = _frontmatter(_read(loader))
@@ -702,17 +701,17 @@ def test_lazy_index_keeps_to_the_source_folder():
         assert token in lazy, token
 
 
-def test_audit_checkout_clears_ccc_traces_before_dirty_probe():
+def test_audit_reads_a_private_tree_and_moves_no_clone():
+    """#588: audit's [C] used to check the shared clone out in place, after a
+    hygiene pass and a dirty-worktree probe; it now reads the upstream ref
+    into a private tree, so the clone keeps its checkout and needs no
+    clean-up."""
     text = _read(AUDIT_INIT)
-    lock = _slice(text, "**[C]:** Acquire an exclusive lock", "**Dirty-worktree probe")
-    assert 'uv run {cccGitHygieneHelper} workspace --repo "{source_root}"' in lock
-    assert "after the clean-up above" in text
-    for gone in ("CCC daemon appending", "`setup-forge` pointed it", "pop the stash on the way out"):
+    for gone in ("cccGitHygiene", "git checkout", "git stash", "stash pop"):
         assert gone not in text, gone
-    stash = _line_starting(text, "- **[T] Transient stash**")
-    assert "stash pop" in stash
-    assert "'skf-audit-skill: pre-checkout {chosen_ref}'" in stash
-    assert "tooling-generated" not in stash
+    upstream = _slice(text, "**Gate handling:**", "**Headless default**")
+    assert 'uv run {sourceTreeHelper} resolve --source-repo "{source_repo}"' in upstream
+    assert "never writes to the clone (the call passes no `--update-clone`)" in upstream
 
 
 def test_tier_degradation_mentions_hygiene():

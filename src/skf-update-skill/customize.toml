@@ -37,12 +37,18 @@ persistent_facts = [
 ]
 
 # Pipeline-integration hook invoked after report.md §5b writes the result
-# contract (the per-run record plus update-skill-result-latest.json). The
+# contract (the per-run record plus update-skill-result-latest.json) of a
+# finished run: an update that wrote a version, or a run that found no
+# change (its result files go in the current version's forge folder). The
 # command is called as:
 #   <on_complete> --result-path=<{forge_version}/update-skill-result-latest.json>
+# It is not called for --detect-only or --dry-run, which write no result
+# file, nor when a run halts.
 # Useful for Slack notifications, dashboard ingest, CI hooks, or chaining a
-# downstream skill (audit, export, test). Failures are logged to the run's
-# warnings[] but never fail the workflow.
+# downstream skill (audit, export, test). A failure is reported to the user
+# in one line and never fails the workflow; it does not reach the result
+# files or the SKF_UPDATE_RESULT_JSON line, which are written before the
+# hook runs.
 #
 # Empty string = no-op (default).
 

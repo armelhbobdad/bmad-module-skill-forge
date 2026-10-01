@@ -148,15 +148,16 @@ Full mode
       [--tier-a-include GLOB]... [--scope-type TYPE] [--language LANG]...
       [--files-from <file>] [--recipe-set standard|component-library]
       [--tier Quick|Forge|Forge+|Deep] [--head-cap N] [--recipes <file>]
-      [-o <out.json>]
+      [--timeout <seconds>] [-o <out.json>]
 
 Which files. The files under --source-root are those git lists there
 (tracked, and untracked but not ignored), or every file when it is not in
 a git work tree, leaving out hidden entries and symbolic links: the files
-ast-grep itself would walk. With --files-from (one path per line, relative
-to --source-root, or a JSON list) only the files it names are read, and a
-named file that is missing, or whose language has no recipe, is listed in
-`file_issues`. A file is in scope when an include glob matches it (every
+ast-grep itself would walk. With --files-from (paths relative to
+--source-root: a JSON list when the whole file is one, else one path per
+line, so a first path such as `[slug]/page.tsx` is read as a path) only
+the files it names are read, and a named file that is missing, or whose
+language has no recipe, is listed in `file_issues`. A file is in scope when an include glob matches it (every
 file when there is none) and no exclude glob does, and when its language
 is one the recipes read (python, typescript, tsx, javascript, rust, go and
 .vue files) and --language allows it. Globs follow
@@ -187,7 +188,12 @@ the export records the one no other of them lists under
 metadata.prefer_over, else the first in the recipe file. Its `source_line`
 is the line of `$NAME` (a decorator or an `export` line can come first),
 `signature_line` the whole source line holding it (the full list line for
-a list item), `ast_node_type` the kind the recipe declares, and
+a list item), `signature` the declaration that line opens on one line (the
+lines after it joined while a ( or [ it opens is still open, each without
+its line comment, and a trailing comma before the closing bracket dropped,
+so a parameter list a formatter split one per line reads as its one-line
+form; at most 40 lines; otherwise `signature_line`), `ast_node_type` the
+kind the recipe declares, and
 `export_type` its metadata.export_type (for a list, the declaration
 keyword before the name picks one). An item of a local `export { ... }`
 list takes instead the type of the top-level binding it names in its file:
@@ -261,7 +267,7 @@ Output JSON (stdout, or -o):
     "truncated": bool,
     "recipes": [{"id", "languages": [...], "matches": N, "truncated": bool}, ...],
     "exports": [{"export_name", "source_file", "source_line", "signature_line",
-                 "citation": "[AST:<file>:L<line>]", "ast_recipe",
+                 "signature", "citation": "[AST:<file>:L<line>]", "ast_recipe",
                  "ast_node_type", "export_type", "language",
                  "from": "<module>" | null, "from_file": "<file>" | null,
                  "confidence": "T1", "extraction_method": "ast-grep"}, ...],
@@ -294,8 +300,9 @@ Output JSON (stdout, or -o):
                "denominator_files": N},
     "arms": {"monorepo": bool, "monorepo_kind": "<kind>" | null,
              "specific_modules": bool, "multi_subpath_exports": bool},
-    "errors": [{"reason": "ast-grep-error" | "ast-grep-timeout", "files": N,
-                "first_file", "detail"}, ...],
+    "errors": [{"reason": "ast-grep-error" | "ast-grep-timeout" | "time-limit",
+                "files": N, "first_file", "detail",
+                "unread": [...]}, ...],      # unread: time-limit only
     "warnings": ["..."]
   }
 
@@ -315,15 +322,23 @@ node), where a recipe can miss an export. `t1_low` is 0: every export here
 comes from a recipe, and an export the caller then reads by eye (an
 extraction gap, a Known Limitation #11 form) is T1-low.
 
+Time limit. The ast-grep runs stop once --timeout seconds (540 by default,
+under the 10-minute limit an agent's shell call often has) have passed
+since the run started: the run going on is stopped, no other starts, and
+an `errors[]` item with the reason `time-limit` lists in `unread` the
+files left unread (each ast-grep call also stops after 600 seconds,
+`ast-grep-timeout`). The JSON is still written, status "incomplete".
+
 Exit codes (full):
 
   0    the recipes ran on every file in scope ("ok")
-  1    an ast-grep run failed (exited non-zero) or timed out: its files
-       may be unread and the result is incomplete ("incomplete"); `errors`
-       lists them
+  1    an ast-grep run failed (exited non-zero) or timed out, or the
+       --timeout ran out: its files may be unread and the result is
+       incomplete ("incomplete"); `errors` lists them
   2    input error (no source root, an unreadable brief, file list or
        recipe file, a recipe without its metadata, no PyYAML, an -o file
-       that cannot be written): one line on stderr and no JSON
+       that cannot be written, a --timeout not above 0), or a failure the
+       runner did not foresee: one line on stderr and no JSON
   3    no ast-grep the runner can run ("no-ast-grep"): none on PATH, or
        only an npm .cmd/.bat shim (Windows) with no native ast-grep.exe
        beside it (cmd.exe would read a repository path's `&` as syntax);
@@ -351,6 +366,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import xml.etree.ElementTree as ET
 from collections import Counter
@@ -1258,6 +1274,12 @@ HEAD_CAPS = {
     ("Deep", "component-library"): 300,
 }
 SCAN_TIMEOUT_SEC = 600  # per ast-grep call
+# The whole run's limit (--timeout), below the 10-minute cap many agents put
+# on one shell call, so the JSON is written before the shell stops the run.
+DEFAULT_TIMEOUT_SEC = 540
+# The most source lines one export's `signature` spans (a formatter splits a
+# long parameter list one parameter per line).
+SIGNATURE_MAX_LINES = 40
 # Characters of file paths per ast-grep call: Windows caps a whole command
 # line at 32,767 characters.
 ARGV_BUDGET = 24000
@@ -1291,6 +1313,17 @@ WORKSPACE_MANIFESTS = ("package.json", "pnpm-workspace.yaml", "lerna.json", "Car
 
 class RunnerError(Exception):
     """An input full mode cannot use (exit 2)."""
+
+
+class _Clock:
+    """The --timeout of one full run: the seconds left before it runs out."""
+
+    def __init__(self, seconds: float):
+        self.seconds = seconds
+        self.end = time.monotonic() + seconds
+
+    def left(self) -> float:
+        return self.end - time.monotonic()
 
 
 _SIBLINGS: dict[str, object] = {}
@@ -1574,19 +1607,21 @@ def _wanted_languages(values: list[str]) -> tuple[set[str], list[str]]:
 
 
 def _read_file_list(path: Path) -> list[str]:
-    """--files-from: one path per line, or a JSON list of paths."""
+    """--files-from: a JSON list of paths when the whole text is one, else
+    one path per line, so a first path such as `[slug]/page.tsx` is a path."""
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise RunnerError(f"cannot read file list {path}: {exc}") from exc
+    items = None
     if text.lstrip().startswith("["):
         try:
-            items = json.loads(text)
-        except ValueError as exc:
-            raise RunnerError(f"file list {path} is not a JSON list: {exc}") from exc
-        if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
-            raise RunnerError(f"file list {path} must be a JSON list of paths")
-    else:
+            value = json.loads(text)
+        except ValueError:
+            value = None
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            items = value
+    if items is None:
         items = text.splitlines()
     return list(dict.fromkeys(rel for rel in (_norm(item) for item in items) if rel))
 
@@ -1642,11 +1677,73 @@ def _position(node: object) -> int | None:
     return line + 1 if isinstance(line, int) and not isinstance(line, bool) else None
 
 
+_SIGNATURE_QUOTES = {"python": "'\"", "rust": '"'}  # a Rust `'a` is a lifetime
+
+
+def _code_end(text: str, language: str, depth: int) -> tuple[int, int]:
+    """(the bracket depth after `text`, one source line, where its line
+    comment starts, else its length): each ( or [ outside a string opens
+    one, each ) or ] closes one."""
+    quotes = _SIGNATURE_QUOTES.get(language, "'\"`")
+    comment = "#" if language == "python" else "//"
+    quote = None
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                i += 1
+            elif ch == quote:
+                quote = None
+        elif ch in quotes:
+            quote = ch
+        elif text.startswith(comment, i):
+            return depth, i
+        elif ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        i += 1
+    return depth, len(text)
+
+
+def _declaration_signature(rows: list[str], start: int, language: str) -> str:
+    """The declaration a match names, on one line: the source line holding
+    `$NAME`, and, while a ( or [ it opens is still open at a line's end (or
+    a generic's < that ends the line, outside Python), the lines after it
+    (at most SIGNATURE_MAX_LINES), each without its line comment, as is a
+    one-line declaration. A parameter list a formatter split one parameter
+    per line, its trailing comma included, reads as its one-line form does:
+    `def f(a: int, b: str) -> R:`, and so does a destructured parameter
+    (`({ a, b }: Props) => {`) or a split generic (`f<T, U>(a: T)`). A {
+    adds no depth: it opens a body, an interface or an object as often as a
+    parameter, and a ( or [ around it already holds the line open."""
+    out, depth, angle = "", 0, 0
+    for row in rows[start:start + SIGNATURE_MAX_LINES]:
+        text = row.strip()
+        if out and angle and text.startswith(">"):
+            angle -= 1
+        depth, end = _code_end(text, language, depth)
+        piece = text[:end].rstrip()
+        if language != "python" and piece.endswith("<"):
+            angle += 1
+        if not out:
+            out = piece
+        elif piece:
+            if piece[0] in ")]}>" and out.endswith(","):
+                out = out[:-1]
+            out += piece if out[-1] in "([<" or piece[0] in ")]>" else " " + piece
+        if depth <= 0 and angle <= 0:
+            break
+    return out
+
+
 def _parse_match(raw: object) -> dict | None:
     """One `--json=stream` match: its rule, language, file, `$NAME`'s line
     (the match's own first line when it binds no `$NAME`), `$NAME`,
     `$SOURCE`, the source line holding `$NAME` (from `lines`, the whole
-    lines the match spans, so a list item gives its full line) and the
+    lines the match spans, so a list item gives its full line), the
+    declaration signature that line opens (_declaration_signature) and the
     match text."""
     first = _position(raw)
     if first is None:
@@ -1659,27 +1756,32 @@ def _parse_match(raw: object) -> dict | None:
         line = _position(name_var) or first
     text = str(raw.get("text") or "")
     rows = str(raw.get("lines") or text).split("\n")
+    row = min(max(line - first, 0), len(rows) - 1)
+    language = str(raw.get("language") or "").lower()
     return {
         "rule": str(raw.get("ruleId") or ""),
-        "language": str(raw.get("language") or "").lower(),
+        "language": language,
         "file": _norm(raw.get("file")),
         "line": line,
         "start_line": first,
         "name": name,
         "source": (str(source_var.get("text") or "") or None) if isinstance(source_var, dict) else None,
-        "signature_line": rows[min(max(line - first, 0), len(rows) - 1)].strip(),
+        "signature_line": rows[row].strip(),
+        "signature": _declaration_signature(rows, row, language),
         "text": text,
     }
 
 
 def _scan(exe: str, root: Path, folder: Path, rules: list[dict], files: list[str],
-          errors: list[dict]) -> list[dict]:
+          errors: list[dict], clock: _Clock | None = None) -> list[dict]:
     """ast-grep's matches of `rules` in `files` (relative to `root`), in
     batches. The rules go in a file as JSON documents (YAML reads JSON),
     never on the command line. A call that times out, exits non-zero (its
     rules carry no severity, so a scan that read every file exits 0, matches
     or not) or prints other than JSON lines adds to `errors`: its batch's
-    files may be unread. The matches it printed are kept."""
+    files may be unread. The matches it printed are kept. When `clock` (the
+    run's --timeout) runs out, the call running is stopped and no other
+    starts: one `time-limit` item names every file left unread."""
     if not rules or not files:
         return []
     rule_file = folder / "rules.yml"
@@ -1688,13 +1790,25 @@ def _scan(exe: str, root: Path, folder: Path, rules: list[dict], files: list[str
     config = folder / "sgconfig.yml"
     config.write_text(SGCONFIG, encoding="utf-8")
     found = []
-    for batch in _batches(files):
+    batches = list(_batches(files))
+    for index, batch in enumerate(batches):
+        left = None if clock is None else clock.left()
+        if left is not None and left <= 0:
+            unread = [rel for rest in batches[index:] for rel in rest]
+            errors.append({"reason": "time-limit", "files": len(unread), "first_file": unread[0],
+                           "detail": f"the --timeout of {clock.seconds:g}s ran out before ast-grep read them",
+                           "unread": unread})
+            break
+        limit = SCAN_TIMEOUT_SEC if left is None else min(SCAN_TIMEOUT_SEC, left)
         cmd = [exe, "scan", "--config", str(config), "-r", str(rule_file), "--json=stream", "--", *batch]
         failure = None
         try:
-            res = subprocess.run(cmd, cwd=root, capture_output=True, timeout=SCAN_TIMEOUT_SEC, check=False)
+            res = subprocess.run(cmd, cwd=root, capture_output=True, timeout=limit, check=False)
         except subprocess.TimeoutExpired:
-            failure = ("ast-grep-timeout", f"no answer in {SCAN_TIMEOUT_SEC}s")
+            if clock is not None and clock.left() <= 0:
+                failure = ("time-limit", f"the --timeout of {clock.seconds:g}s ran out while ast-grep read them")
+            else:
+                failure = ("ast-grep-timeout", f"no answer in {limit:g}s")
         except (OSError, ValueError) as exc:
             failure = ("ast-grep-error", f"{type(exc).__name__}: {exc}")
         else:
@@ -1714,8 +1828,10 @@ def _scan(exe: str, root: Path, folder: Path, rules: list[dict], files: list[str
                 if match is not None:
                     found.append(match)
         if failure is not None:
-            errors.append({"reason": failure[0], "files": len(batch), "first_file": batch[0],
-                           "detail": failure[1]})
+            error = {"reason": failure[0], "files": len(batch), "first_file": batch[0], "detail": failure[1]}
+            if failure[0] == "time-limit":
+                error["unread"] = list(batch)
+            errors.append(error)
     return found
 
 
@@ -1784,6 +1900,7 @@ def _export_record(match: dict, form: dict) -> dict:
         "source_file": match["file"],
         "source_line": match["line"],
         "signature_line": match["signature_line"],
+        "signature": match["signature"],
         "citation": f"[AST:{match['file']}:L{match['line']}]",
         "ast_recipe": match["rule"],
         "ast_node_type": form["rule"]["kind"],
@@ -1855,7 +1972,7 @@ def _syntax_issues(matches: list[dict]) -> list[dict]:
 
 
 def _type_list_items(exe: str, root: Path, folder: Path, matches: list[dict], exports: list[dict],
-                     errors: list[dict]) -> None:
+                     errors: list[dict], clock: _Clock | None = None) -> None:
     """Give each export a local `export { ... }` list names (an
     export_specifier with no `from`) the type of the top-level binding it
     names in its file, as BINDING_TYPES has it; the recipe's own
@@ -1872,7 +1989,7 @@ def _type_list_items(exe: str, root: Path, folder: Path, matches: list[dict], ex
     languages = sorted({lang for f in files for lang in _rule_languages(_file_language(f) or "")}
                        & set(RECIPE_LANGUAGES))
     rules = [rule for language in languages for rule in _binding_rules(language)]
-    types = _binding_types(_scan(exe, root, folder, rules, files, errors))
+    types = _binding_types(_scan(exe, root, folder, rules, files, errors, clock))
     for e in items:
         name = local.get((e["source_file"], e["ast_recipe"], e["export_name"]), e["export_name"])
         e["export_type"] = types.get((e["source_file"], name), e["export_type"])
@@ -3251,6 +3368,7 @@ def _select_files(root: Path, candidates: list[str], listed: bool, includes: lis
 
 def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     """Run the recipes over the source tree; (result, exit code)."""
+    clock = _Clock(DEFAULT_TIMEOUT_SEC if args.timeout is None else args.timeout)
     root = Path(args.source_root)
     if not root.is_dir():
         raise RunnerError(f"source root not found: {args.source_root}")
@@ -3363,10 +3481,10 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     with tempfile.TemporaryDirectory(prefix="skf-extract-", ignore_cleanup_errors=True) as tmp:
         folder = Path(tmp)
         rules = _recipe_rules(set_recipes, languages) + [_syntax_error_rule(lang) for lang in sorted(languages)]
-        matches = _scan(exe, root, folder, rules, readable, errors)
+        matches = _scan(exe, root, folder, rules, readable, errors, clock)
         issues += _syntax_issues(matches)
         exports, stats = merge_exports(matches, recipes, recipe_set, head_cap)
-        _type_list_items(exe, root, folder, matches, exports, errors)
+        _type_list_items(exe, root, folder, matches, exports, errors, clock)
 
         scanned: dict[str, list[dict]] = {}
 
@@ -3377,7 +3495,7 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
             barrel_rules += [r for lang in sorted(langs & set(RECIPE_LANGUAGES)) for r in _trace_rules(lang)]
             for f in todo:
                 scanned[f] = []
-            for m in _scan(exe, root, folder, barrel_rules, todo, errors):
+            for m in _scan(exe, root, folder, barrel_rules, todo, errors, clock):
                 scanned.setdefault(m["file"], []).append(m)
             return {f: scanned.get(f, []) for f in files}
 
@@ -3447,10 +3565,17 @@ def _main_full(args: argparse.Namespace) -> int:
     if args.head_cap is not None and args.head_cap < 0:
         sys.stderr.write("error: --head-cap must be 0 (no cap) or more\n")
         return 2
+    if args.timeout is not None and not args.timeout > 0:
+        sys.stderr.write("error: --timeout must be more than 0 seconds\n")
+        return 2
     try:
         result, code = run_full(args)
     except RunnerError as exc:
         sys.stderr.write(f"error: {exc}\n")
+        return 2
+    except Exception as exc:  # noqa: BLE001 - one stderr line and exit 2, never a traceback
+        detail = " ".join(str(exc).split())
+        sys.stderr.write(f"error: the run failed: {type(exc).__name__}: {detail}\n")
         return 2
     text = json.dumps(result, indent=2) + "\n"
     if args.output:
@@ -3510,12 +3635,15 @@ def _build_parser() -> argparse.ArgumentParser:
     full.add_argument("--tier", choices=TIERS, help="the forge tier, for the default head cap")
     full.add_argument("--head-cap", type=int, metavar="N",
                       help="the most matches kept per recipe (0: no cap; default: by tier and scope type)")
+    full.add_argument("--timeout", type=float, metavar="SECONDS",
+                      help=f"stop the ast-grep runs after this many seconds and still write the JSON, "
+                           f"status incomplete (default {DEFAULT_TIMEOUT_SEC})")
     full.add_argument("-o", "--output", metavar="FILE", help="write the JSON here instead of stdout")
     return parser
 
 
 FULL_MODE_FLAGS = ("source_root", "brief", "include", "exclude", "tier_a_include", "scope_type", "language",
-                   "files_from", "recipe_set", "recipes", "tier", "head_cap", "output")
+                   "files_from", "recipe_set", "recipes", "tier", "head_cap", "timeout", "output")
 # The full mode flags quick mode takes with its file inputs.
 QUICK_FILE_FLAGS = ("source_root", "language")
 

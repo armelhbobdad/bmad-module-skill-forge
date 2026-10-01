@@ -4,31 +4,29 @@
 # ///
 """SKF Load Provenance — normalize provenance-map.json into deterministic projections.
 
-Two places in `skf-audit-skill` walk the same provenance map to extract
-identical deterministic projections:
+`skf-audit-skill` reads one provenance map in several steps, and each needs
+a projection of it with one correct answer:
 
   1. **init.md §4 Load Provenance Map + Stack Skill Detection** — extracts
      `source_root`, `baseline_commit` (`source_commit`), `baseline_ref`
-     (`source_ref`), and detects stack-skill flags (`provenance_version` and
-     top-level `libraries` for legacy v1 stacks).
+     (`source_ref`), detects stack-skill flags (`provenance_version` and
+     top-level `libraries` for legacy v1 stacks), and takes the baseline
+     facts init.md §7 shows (export count, generation time and age).
 
-  2. **structural-diff.md §1 Prepare Comparison Sets** — re-walks the map to
-     build a `reexport_map` from any `__init__.py` re-export mapping recorded
-     in the provenance map, used to canonicalize public-API renames before
-     diffing.
+  2. **re-index.md §2 and §3**: the **bounded scan list** (the union of
+     `entries[].source_file` and `file_entries[].source_file`), which the
+     recipe runner reads, and for a stack the library of each file
+     (`source_library_by_file`), which skf-extraction-snapshot.py gives each
+     export of the snapshot it builds (it loads this script beside it).
 
-Both files also reference the **bounded scan list** — the union of
-`entries[].source_file` and `file_entries[].source_file` — which `re-index.md`
-§2 consumes to constrain its scan. Collecting that list once at provenance
-load time and surfacing it as a normalized field removes ~80 lines of
-LLM walk-and-extract prose from the audit-skill references.
+skf-structural-diff.py derives the re-export map from the provenance map
+itself and applies the quote-style, stdlib-prefix and re-export transforms
+on both sides (structural-diff.md §1), so no step carries `reexport_map`
+from here; the field stays for a caller that passes it to the diff as
+`--reexport-map`.
 
 The transforms here are pure projections — no I/O against the source tree,
-no comparisons. The script reads one JSON, emits one JSON. The downstream
-canonicalization transforms in structural-diff.md §1 (quote-style on string
-defaults, stdlib module qualification on signature components) STAY in the
-LLM prose because they require per-signature judgment; this script handles
-only the deterministic projections.
+no comparisons. The script reads one JSON, emits one JSON.
 
 Subcommand:
   normalize <map.json> [--now <ISO-8601>]
@@ -42,6 +40,7 @@ Subcommand:
           "baseline_commit": "<sha or null>",
           "baseline_ref": "<ref or null>",
           "reexport_map": {"<from-internal>": "<to-public>"},
+          "source_library_by_file": {"<rel-path>": "<library>"},
           "export_count": <int>,
           "generated_at": "<YYYY-MM-DDTHH:MM:SSZ or null>",
           "age_days": <int or null>,
@@ -65,6 +64,12 @@ Subcommand:
           writes, whose entries come from constituent skills rather than a
           source tree. Audit-skill checks its constituents' freshness
           instead of re-indexing a source.
+
+      File-to-library map: each `entries[].source_file` (forward slashes)
+      with the `source_library` of its entries, for a stack's per-library
+      diff. A file whose entries name no library is left out, and when its
+      entries name two, the first one's wins. Empty for a single skill
+      whose entries carry no `source_library`.
 
       Re-export map: read `reexport_map` field directly from the provenance
       map if it exists (writer-side captures __init__.py walk results there).
@@ -161,6 +166,25 @@ def bounded_scan_files(data: dict) -> list[str]:
             if isinstance(sf, str) and sf:
                 paths.add(_posix(sf))
     return sorted(paths)
+
+
+def source_library_by_file(data: dict) -> dict[str, str]:
+    """{source_file: source_library} from `entries[]`, paths forward-slash.
+
+    The first library named for a file wins; entries without a string
+    `source_library` add nothing.
+    """
+    out: dict[str, str] = {}
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        return out
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        sf, library = entry.get("source_file"), entry.get("source_library")
+        if isinstance(sf, str) and sf and isinstance(library, str) and library:
+            out.setdefault(_posix(sf), library)
+    return dict(sorted(out.items()))
 
 
 def _normalize_version(v: object) -> tuple[int, ...] | None:
@@ -337,6 +361,7 @@ def normalize(
         "baseline_commit": baseline_commit,
         "baseline_ref": baseline_ref,
         "reexport_map": extract_reexport_map(data),
+        "source_library_by_file": source_library_by_file(data),
         "export_count": export_count(data),
         **provenance_age(data, mtime, now),
     }
@@ -376,7 +401,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Normalize provenance-map.json into deterministic projections "
             "(bounded scan, stack flags, source_root/commit/ref, reexport map, "
-            "export count, generated_at and age)."
+            "file-to-library map, export count, generated_at and age)."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)

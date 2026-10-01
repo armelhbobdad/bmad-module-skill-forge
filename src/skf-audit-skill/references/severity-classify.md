@@ -8,6 +8,10 @@ auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 severityClassifyProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-severity-classify.py'
   - '{project-root}/src/shared/scripts/skf-severity-classify.py'
+# Every HALT after step 1 §5b's [C] closes the private tree with it.
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -28,9 +32,17 @@ Grade every drift finding from Steps 03 and 04 (or step 1c for a compose-mode st
 
 ## MANDATORY SEQUENCE
 
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (step 1 §5b's [C]), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, and `"drift_score"` once §2 saved the classification, then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, then stop with the halt's exit code. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
 ### 1. Build the Findings File
 
-**Resolve `{severityClassifyHelper}`** from `{severityClassifyProbeOrder}`; first existing path wins.
+**Resolve `{severityClassifyHelper}`** from `{severityClassifyProbeOrder}`; first existing path wins. If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `severity-classify:findings`.
 
 Print the rule table once. It lists the only type and category pairs the helper grades, each with the rule it implements:
 
@@ -69,7 +81,7 @@ uv run {severityClassifyHelper} "{auditDataFolder}/findings.json" -o "{auditData
 
 - **Exit 0:** the helper saved the result and printed one line with `drift_score`, `total_findings`, `total_items` and `by_severity`.
 - **Exit 1 with `problems[]`:** some findings fit no rule. Each problem names the finding (its `index` in the findings file), its `type` and `category`, and why. Re-categorize exactly those findings (a pair from the rule table, a category from the finding's `category_choices`, an ambiguous finding back to `removed` or `added`), then run the command again.
-- **Exit 1 without `problems[]`:** nothing was saved. An `error` that starts `Cannot write output` (here or in §1) is a failed write: HALT with **exit 4**, `halt_reason: "write-failed"`, and when `{headless_mode}` emit the error envelope on **stderr** (shape per SKILL.md → Result Contract). Any other `error` names a findings file the helper could not read: fix it, then run the command again.
+- **Exit 1 without `problems[]`:** nothing was saved. An `error` that starts `Cannot write output` (here or in §1) is a failed write: HALT with **exit 4**, `halt_reason: "write-failed"`, phase `severity-classify:save`, `"path": "{auditDataFolder}"`. Any other `error` names a findings file the helper could not read: fix it, then run the command again.
 - **Exit 2:** a usage error in the command itself.
 
 The saved result, CRITICAL first:

@@ -51,8 +51,9 @@ refinement_rules_path = ""
 output_folder_path = ""
 
 # Optional post-completion hook. When non-empty, invoked with
-# `--result-path=<path>` after the refined architecture and result JSON are
-# finalized (step 6). Use to index the refined doc, notify, or chain the next
-# workflow. Failures are logged to workflow_warnings[] but never fail the run.
+# `--result-path=<path>` (the per-run result JSON) after the refined
+# architecture and result JSON are finalized (step 6), before its final menu.
+# Use to index the refined doc, notify, or chain the next workflow. A failure
+# shows as a warning line in step 6's report but never fails the run.
 
 on_complete = ""

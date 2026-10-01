@@ -264,6 +264,27 @@ def test_as_reads_the_record_severity():
 
 
 @pytest.mark.parametrize(
+    "fields,decision",
+    [
+        pytest.param({"next_workflow": "update-skill", "upstream_moved": True, "upstream_ref": "v1.3.0"},
+                     "continue", id="upstream-moved"),
+        pytest.param({"next_workflow": None, "upstream_moved": False, "upstream_ref": None}, "skip",
+                     id="upstream-unchanged"),
+    ],
+)
+def test_a_clean_audit_reaches_us_when_upstream_moved(fields, decision):
+    """#588: a headless `maintain` after an upstream release reaches US. The
+    audited tree can read CLEAN while the skill is pinned to an older ref;
+    AS then routes to update-skill, and the gate follows the route."""
+    d = decide("AS", as_envelope("CLEAN", **fields), next_code="US")
+    assert d["decision"] == decision
+    if decision == "continue":
+        assert d["skip"] is None and "v1.3.0" in d["message"]
+    record = {"status": "success", "summary": {"severity": "CLEAN", "next_workflow": fields["next_workflow"]}}
+    assert decide("AS", json.dumps(record), next_code="US")["decision"] == decision
+
+
+@pytest.mark.parametrize(
     "text,reason",
     [
         pytest.param(as_envelope(None, status="error", exit_code=3, halt_reason="skill-not-found"),
@@ -484,7 +505,7 @@ def _schema_values(node: dict) -> set[str]:
 GATED = {
     "TS": ("test", "skf-test-skill", ("verdict", "next_workflow"), "verdict"),
     "AN": ("analyze", "skf-analyze-source", ("unit_counts", "brief_paths"), None),
-    "AS": ("audit", "skf-audit-skill", ("drift_score",), "drift_score"),
+    "AS": ("audit", "skf-audit-skill", ("drift_score", "next_workflow", "upstream_ref"), "drift_score"),
     "VS": ("verify-stack", "skf-verify-stack", ("overall_verdict", "coverage_percentage"), "overall_verdict"),
 }
 RULE_VALUES = {

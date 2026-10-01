@@ -7,6 +7,9 @@ Covers:
   - provenance shapes: top-level object with file_entries[]; bare array
   - guard against ../.. escapes from source-root
   - error paths: missing file, malformed JSON, missing file_entries key
+  - manual-inventory-amend: the user's [R]emove and [E]dit decisions
+    applied to the captured inventory, so manual-verify passes the merge
+    the user approved and still fails any other change
 """
 
 from __future__ import annotations
@@ -407,6 +410,104 @@ class TestManualVerify:
             mod.manual_verify(bad, target)
 
 
+class TestManualInventoryAmend:
+    """The amended inventory verifies the merge the user approved, and only it."""
+
+    _EDITED = "\nWatch out for the frobnicator (fixed in 2.0).\n"
+
+    def _inventory(self, tmp_path: Path) -> Path:
+        src = _write(tmp_path / "SKILL.md", _FIXTURE)
+        return _write(tmp_path / "inv.json", json.dumps(mod.manual_inventory(src)))
+
+    def _plan(self, tmp_path: Path, decisions: list) -> Path:
+        return _write(tmp_path / "run" / "manual-plan.json", json.dumps({"decisions": decisions}))
+
+    def _approved(self) -> str:
+        # [R]emove third-block, [E]dit gotchas, [K]eep extra-notes
+        text = _FIXTURE.replace(
+            "<!-- [MANUAL:third-block] -->\nThird block content here.\n<!-- [/MANUAL:third-block] -->\n", "")
+        return text.replace("\nWatch out for the frobnicator.\n", self._EDITED)
+
+    def test_approved_remove_and_edit_verify(self, tmp_path: Path) -> None:
+        inv = self._inventory(tmp_path)
+        edit = _write(tmp_path / "run" / "manual-edit-gotchas.md", self._EDITED)
+        plan = self._plan(tmp_path, [
+            {"name": "third-block", "action": "remove"},
+            {"name": "gotchas", "action": "edit", "content_file": edit.name},
+            {"name": "extra-notes", "action": "keep"},
+        ])
+        out = tmp_path / "run" / "manual-inventory.json"
+        summary = mod.manual_inventory_amend(inv, plan, out)
+        assert summary == {"output": out.as_posix(), "count": 2, "removed": ["third-block"],
+                           "edited": ["gotchas"], "kept": ["extra-notes"]}
+        amended = json.loads(out.read_bytes())
+        assert [b["name"] for b in amended["blocks"]] == ["extra-notes", "gotchas"]
+        gotchas = amended["blocks"][1]
+        assert gotchas["content_hash"] == _expected_hash(self._EDITED.encode("utf-8"))
+        assert gotchas["parent_heading"] == "Conventions"
+        merged = _write(tmp_path / "merged.md", self._approved())
+        assert mod.manual_verify(out, merged)["ok"] is True
+        # the step-1 inventory still fails the same file: the halt the plan exists to avoid
+        before = mod.manual_verify(inv, merged)
+        assert (before["ok"], before["modified"], before["missing"]) == (False, ["gotchas"], ["third-block"])
+
+    def test_an_unapproved_change_still_fails(self, tmp_path: Path) -> None:
+        inv = self._inventory(tmp_path)
+        plan = self._plan(tmp_path, [{"name": "gotchas", "action": "edit", "content": self._EDITED}])
+        out = tmp_path / "run" / "manual-inventory.json"
+        mod.manual_inventory_amend(inv, plan, out)
+        # the merge wrote another interior than the one approved, and truncated extra-notes
+        merged = _FIXTURE.replace("\nWatch out for the frobnicator.\n", "\nsomething else\n")
+        merged = merged.replace("Line two of developer notes.\n", "")
+        result = mod.manual_verify(out, _write(tmp_path / "merged.md", merged))
+        assert result["ok"] is False and sorted(result["modified"]) == ["extra-notes", "gotchas"]
+
+    def test_inline_content_matches_the_file_form(self, tmp_path: Path) -> None:
+        inv = self._inventory(tmp_path)
+        out = tmp_path / "run" / "manual-inventory.json"
+        mod.manual_inventory_amend(inv, self._plan(tmp_path, [
+            {"name": "gotchas", "action": "edit", "content": self._EDITED}]), out)
+        hashes = {b["name"]: b["content_hash"] for b in json.loads(out.read_bytes())["blocks"]}
+        assert hashes["gotchas"] == _expected_hash(self._EDITED.encode("utf-8"))
+
+    def test_no_decisions_copies_the_inventory(self, tmp_path: Path) -> None:
+        inv = self._inventory(tmp_path)
+        out = tmp_path / "run" / "manual-inventory.json"
+        summary = mod.manual_inventory_amend(inv, self._plan(tmp_path, []), out)
+        assert summary["count"] == 3 and summary["removed"] == summary["edited"] == summary["kept"] == []
+        assert json.loads(out.read_bytes())["blocks"] == json.loads(inv.read_bytes())["blocks"]
+
+    def test_bad_plans_are_refused_and_write_nothing(self, tmp_path: Path) -> None:
+        import pytest
+
+        inv = self._inventory(tmp_path)
+        out = tmp_path / "run" / "manual-inventory.json"
+        for decisions, match in (
+            ([{"name": "nope", "action": "remove"}], "does not hold"),
+            ([{"name": "gotchas", "action": "remove"}, {"name": "gotchas", "action": "keep"}], "twice"),
+            ([{"name": "gotchas", "action": "edit"}], "exactly one"),
+            ([{"name": "gotchas", "action": "edit", "content": "x", "content_file": "y"}], "exactly one"),
+            ([{"name": "gotchas", "action": "rewrite"}], "must be one of"),
+            ([{"name": "gotchas", "action": "edit", "content_file": "missing.md"}], "cannot read"),
+        ):
+            with pytest.raises(ValueError, match=match):
+                mod.manual_inventory_amend(inv, self._plan(tmp_path, decisions), out)
+            assert not out.exists()
+
+    def test_editing_a_shared_name_is_refused(self, tmp_path: Path) -> None:
+        import pytest
+
+        twice = _FIXTURE + "\n" + _GOTCHAS_BLOCK
+        inv = _write(tmp_path / "inv.json", json.dumps(mod.manual_inventory(_write(tmp_path / "S.md", twice))))
+        with pytest.raises(ValueError, match="2 blocks share"):
+            mod.manual_inventory_amend(inv, self._plan(tmp_path, [
+                {"name": "gotchas", "action": "edit", "content": "x"}]), tmp_path / "run" / "out.json")
+        # removing every block of the name is unambiguous
+        summary = mod.manual_inventory_amend(inv, self._plan(tmp_path, [
+            {"name": "gotchas", "action": "remove"}]), tmp_path / "run" / "out.json")
+        assert summary["count"] == 2
+
+
 class TestClassifyManualBlocks:
     def test_all_buckets_mutually_exclusive(self) -> None:
         inv = [
@@ -775,6 +876,25 @@ class TestCli:
         payload = json.loads(result.stdout)
         assert payload["ok"] is False
         assert payload["modified"] == ["extra-notes"]
+
+    def test_manual_inventory_amend_via_cli(self, tmp_path: Path) -> None:
+        src = _write(tmp_path / "SKILL.md", _FIXTURE)
+        inv = _write(tmp_path / "inv.json", json.dumps(mod.manual_inventory(src)))
+        plan = _write(tmp_path / "run dir" / "manual-plan.json",
+                      json.dumps({"decisions": [{"name": "third-block", "action": "remove"}]}))
+        out = tmp_path / "run dir" / "manual-inventory.json"
+        r = _run_cli("manual-inventory-amend", "--inventory", str(inv), "--plan", str(plan), "--output", str(out))
+        assert r.returncode == 0, r.stderr
+        assert json.loads(r.stdout)["removed"] == ["third-block"]
+        assert json.loads(out.read_bytes())["count"] == 2
+
+    def test_manual_inventory_amend_bad_plan_exits_1(self, tmp_path: Path) -> None:
+        src = _write(tmp_path / "SKILL.md", _FIXTURE)
+        inv = _write(tmp_path / "inv.json", json.dumps(mod.manual_inventory(src)))
+        plan = _write(tmp_path / "plan.json", json.dumps({"decisions": [{"name": "x", "action": "remove"}]}))
+        out = tmp_path / "out.json"
+        r = _run_cli("manual-inventory-amend", "--inventory", str(inv), "--plan", str(plan), "--output", str(out))
+        assert r.returncode == 1 and "does not hold" in r.stderr and not out.exists()
 
     def test_manual_verify_missing_inventory_exits_1(self, tmp_path: Path) -> None:
         src = _write(tmp_path / "SKILL.md", _FIXTURE)

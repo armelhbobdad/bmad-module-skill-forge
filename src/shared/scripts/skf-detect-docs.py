@@ -76,6 +76,30 @@ matches.  Exit 0 on any well-formed input (never blocks the informational
 audit); exit 2 on malformed args or JSON.
 
 ---------------------------------------------------------------------------
+Subcommand: refresh-hashes
+---------------------------------------------------------------------------
+
+Records the new hashes of the documents a `compare-hashes` run found
+changed, once update-skill has re-read them (update-skill write.md §2), so
+the next comparison starts from the documents this update used.
+
+  uv run src/shared/scripts/skf-detect-docs.py refresh-hashes \\
+      <metadata.json> --compare <compare-hashes output>
+
+Each `doc_sources[]` entry whose url is in the comparison's `changed[]`
+takes that entry's `new_hash` as its `content_hash` and the current UTC
+time as its `recorded_at`; every other entry and every other key of the
+file stays as it was. The file is rewritten through a temporary file and
+one rename.
+
+Output (JSON object on stdout):
+  {"metadata": <path>, "refreshed": [urls], "not_found": [changed urls
+   that metadata.json does not track]}
+
+Exit 0 once written; exit 2 on malformed args, JSON that is not the shape
+named, or a file that cannot be read or written.
+
+---------------------------------------------------------------------------
 Subcommand: hash-urls
 ---------------------------------------------------------------------------
 
@@ -786,6 +810,74 @@ def _cmd_compare_hashes(argv: List[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: refresh-hashes: record the hashes compare-hashes found changed
+# ---------------------------------------------------------------------------
+
+def refresh_doc_hashes(
+    metadata: Dict[str, Any], comparison: Dict[str, Any], recorded_at: Optional[str] = None
+) -> Tuple[Dict[str, Any], List[str], List[str]]:
+    """(metadata with the changed documents' new hashes, refreshed urls, urls it does not track).
+
+    Raises ValueError when `doc_sources` or `changed` is not an array.
+    """
+    entries = metadata.get("doc_sources")
+    if entries is None:
+        entries = []
+    if not isinstance(entries, list):
+        raise ValueError("`doc_sources` in the metadata is not an array")
+    changed = comparison.get("changed")
+    if not isinstance(changed, list):
+        raise ValueError("the comparison has no `changed` array: is it compare-hashes output?")
+    new_hashes = {
+        e["url"]: e["new_hash"] for e in changed
+        if isinstance(e, dict) and isinstance(e.get("url"), str) and isinstance(e.get("new_hash"), str)
+    }
+    stamp = recorded_at or datetime.now(timezone.utc).isoformat()
+    refreshed: List[str] = []
+    out: List[Any] = []
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("url") in new_hashes:
+            entry = {**entry, "content_hash": new_hashes[entry["url"]], "recorded_at": stamp}
+            refreshed.append(entry["url"])
+        out.append(entry)
+    not_found = sorted(url for url in new_hashes if url not in refreshed)
+    return {**metadata, "doc_sources": out}, refreshed, not_found
+
+
+def _cmd_refresh_hashes(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="skf-detect-docs.py refresh-hashes",
+        description=(
+            "Record in metadata.json's doc_sources the new content_hash of each "
+            "document a compare-hashes run found changed."
+        ),
+    )
+    parser.add_argument("metadata", help="the skill's metadata.json, rewritten in place")
+    parser.add_argument("--compare", required=True, help="the compare-hashes output for that metadata.json")
+    args = parser.parse_args(argv)
+
+    path = Path(args.metadata)
+    tmp = path.with_name(f".{path.name}.skf-{os.getpid()}-tmp")
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        comparison = json.loads(Path(args.compare).read_text(encoding="utf-8"))
+        if not isinstance(metadata, dict) or not isinstance(comparison, dict):
+            raise ValueError("metadata.json and the comparison must each hold a JSON object")
+        updated, refreshed, not_found = refresh_doc_hashes(metadata, comparison)
+        tmp.write_bytes((json.dumps(updated, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+        os.replace(tmp, path)
+    except (OSError, ValueError) as exc:
+        if tmp.exists():
+            tmp.unlink()
+        json.dump({"error": str(exc), "code": "REFRESH_FAILED"}, sys.stderr)
+        sys.stderr.write("\n")
+        return 2
+    json.dump({"metadata": path.as_posix(), "refreshed": refreshed, "not_found": not_found}, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Subcommand: hash-urls — docs-only doc_sources from the brief's doc_urls
 # ---------------------------------------------------------------------------
 
@@ -1397,6 +1489,8 @@ def main() -> int:
     # invocation `--repo-url <url> ...` is unchanged.
     if len(sys.argv) > 1 and sys.argv[1] == "compare-hashes":
         return _cmd_compare_hashes(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "refresh-hashes":
+        return _cmd_refresh_hashes(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "hash-urls":
         return _cmd_hash_urls(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "readme-entry":

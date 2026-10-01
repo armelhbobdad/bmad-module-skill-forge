@@ -23,7 +23,10 @@ The rules mirror the Circuit Breakers table in
   AN  continue when it confirmed at least `--min` skillable units (default 1).
       A redirect or a skipped target halts: there is no brief to go on with.
   AS  CRITICAL drift halts; CLEAN skips an update that comes next
-      (`--next US`); MINOR and SIGNIFICANT continue.
+      (`--next US`) unless AS routes to it (`next_workflow` is
+      `update-skill`: upstream moved past the skill's ref, so an update is
+      due however clean the audited tree read); MINOR and SIGNIFICANT
+      continue.
   VS  zero coverage halts (`zero-coverage`): VS verified none of the
       architecture's technologies, so nothing after it has evidence to use.
       Every verdict with coverage continues, NOT_FEASIBLE included: RA, which
@@ -49,7 +52,8 @@ and both are read:
       pass-with-drift), route `next_workflow` (checked when present)
   AN  units `unit_counts.confirmed`, else the `brief_paths`, else the
       `skill-brief.yaml` paths in `outputs[]`
-  AS  severity `drift_score` | `summary.severity`
+  AS  severity `drift_score` | `summary.severity`, route `next_workflow` |
+      `summary.next_workflow`
   VS  verdict `overall_verdict` | `summary.overallVerdict`, coverage
       `coverage_percentage` | `summary.coveragePercentage`
 
@@ -111,6 +115,7 @@ AS_SEVERITIES = ("CLEAN", "MINOR", "SIGNIFICANT", "CRITICAL")
 VS_VERDICTS = ("FEASIBLE", "CONDITIONALLY_FEASIBLE", "NOT_FEASIBLE")
 ERROR_STATUSES = frozenset({"error", "failed"})
 EXPORT_ROUTE = "export-skill"
+UPDATE_ROUTE = "update-skill"
 
 _ENVELOPE_RE = re.compile(r"(SKF_[A-Z0-9_]+_RESULT_JSON):\s*(\{.*\})\s*$")
 _MISSING = object()
@@ -281,6 +286,10 @@ def _gate_as(result: dict, next_code: str | None) -> dict:
         message = "AS found CRITICAL drift: review the drift report, then run US on the skill."
         return _halt("AS", "CRITICAL", message)
     if severity == "CLEAN" and next_code == "US":
+        if _field(result, "next_workflow", "next_workflow") == UPDATE_ROUTE:
+            moved_to = _field(result, "upstream_ref", "upstream_ref")
+            where = f" to {moved_to}" if isinstance(moved_to, str) and moved_to.strip() else ""
+            return _go("AS", f"AS found no drift, but upstream moved{where}: updating.")
         return _decision("AS", "skip", "CLEAN", "No drift detected: skipping update.", skip="US")
     return _go("AS", f"AS drift severity {severity}.")
 
@@ -351,7 +360,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--next",
         type=str.upper,
-        help="The code of the next workflow in the plan, if any (a CLEAN AS skips a next US).",
+        help="The code of the next workflow in the plan, if any (a CLEAN AS skips a next US, unless it "
+             "routes to update-skill).",
     )
     parser.add_argument(
         "--min",

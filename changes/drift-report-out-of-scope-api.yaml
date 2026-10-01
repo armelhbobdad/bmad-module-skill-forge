@@ -1,0 +1,6 @@
+type: added
+scope: skf-audit-skill
+summary: |
+  The audit drift report lists the public API a package entry point exports from files outside the skill's scope, in an `Out-of-Scope New Public API` table under Remediation Suggestions, so update-skill's scope reconciliation now gets its candidates from the latest audit instead of always finding none. Audit Skill's re-index now extracts through the shared recipe runner, `skf-extract-public-api.py --mode full`, in one call over the files the provenance map covers, and a script builds `extraction-snapshot.json` from its result and the exports read by eye: each file gets a status (`extracted`, `read-by-eye`, `hash-tracked`, `missing`, `parse-failed` or `unread`), a script, asset or doc the map tracks by content hash is compared by hash and never read for exports, and the audit never diffs an incomplete snapshot. The relocation check of the Forge+ and Deep tiers runs the same runner over the files that may hold a removed export and adds what it finds to the snapshot through the same script.
+prs: [633]
+issues: [589]

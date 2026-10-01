@@ -22,7 +22,7 @@ It must be preserved during any update operation.
 
 ### Rules
 
-1. **Never modify content between [MANUAL] markers** — treat as immutable
+1. **Never delete or modify content between [MANUAL] markers without the user's merge §4 [R]emove or [E]dit decision**: treat it as immutable otherwise. The decision is recorded in the run's manual plan, and the post-merge check verifies the blocks against the inventory that plan amends
 2. **Preserve marker positions** — if the surrounding generated content moves, the [MANUAL] block moves with its logical parent section
 3. **Orphan detection** — if the parent section is deleted (export removed), flag as WARNING and present to user
 4. **Multiple [MANUAL] blocks** — a single SKILL.md may have multiple [MANUAL] sections; preserve all
