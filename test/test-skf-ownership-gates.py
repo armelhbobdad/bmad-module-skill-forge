@@ -71,6 +71,7 @@ QS_WRITE = "src/skf-quick-skill/references/write-and-validate.md"
 QS_HALT_CONTRACT = "src/skf-quick-skill/references/halt-contract.md"
 SS_GENERATE = "src/skf-create-stack-skill/references/generate-output.md"
 SS_SKILL = "src/skf-create-stack-skill/SKILL.md"
+SS_CONTRACT = "src/skf-create-stack-skill/references/invocation-contract.md"
 # Each writer step file, with the markers of its first write: the ownership
 # check must come before every one of them.
 WRITER_SITES = {
@@ -89,7 +90,7 @@ CONTRACT_FILES = {
     "src/skf-audit-skill/references/headless-contract.md": ("not-skf-output",),
     "src/skf-test-skill/SKILL.md": ("not-skf-output",),
     QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
-    SS_SKILL: ("not-skf-output", "flat-layout"),
+    SS_CONTRACT: ("not-skf-output", "flat-layout"),
     CS_SCHEMA: ("not-skf-output", "flat-layout", "description-angle-brackets"),
 }
 PROBE_ORDER = (
@@ -609,7 +610,8 @@ def test_writer_ownership_halt_writes_nothing_on_disk():
     rule = next(line for line in _read(CS_SKILL).splitlines() if "Every HARD HALT in steps 1 to 7" in line)
     assert 'adding `--result-dir "{forge_version}"` once step 7 has created `{forge_version}`' in rule
     assert "ownership halt" in _read("src/skf-quick-skill/references/batch-mode.md")
-    assert '"exit_code":5,"halt_reason":"not-skf-output"' in _read(SS_GENERATE)
+    assert ('(exit 5, `halt_reason: "not-skf-output"`, or `halt_reason: "flat-layout"` for the flat-layout refusal'
+            in _read(SS_GENERATE))
 
 
 def test_create_skill_gate_uses_the_working_version():
@@ -652,7 +654,7 @@ def test_stack_gate_runs_in_two_phases():
     assert phase_1 < text.index("{stack_name}/{prior_active_version}/{stack_name}/metadata.json")
     assert phase_1 < text.index("capture its `version` as `{prior_stack_version}`")
     assert text.index("**Pre-flight: ownership, phase 2.**") < text.index("stage-dir --target {skill_package}")
-    exit_codes = _section(_read(SS_SKILL), "## Exit Codes", "## Result Contract")
+    exit_codes = _section(_read(SS_CONTRACT), "## Exit Codes", "## Result Contract")
     assert "state-conflict" in _row(exit_codes, "| 5 ")
 
 

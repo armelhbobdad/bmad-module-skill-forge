@@ -214,7 +214,7 @@ Header with project name, library count, integration count, forge tier.
 STACK_SNIPPET = "[demo-stack v1.0.0]|root: skills/demo-stack/\n|IMPORTANT: Stack capstone\n|stack: lib-a, lib-b\n"
 
 # metadata.json as create-stack-skill writes it from
-# src/skf-create-stack-skill/assets/stack-skill-template.md, for a compose-mode
+# src/skf-create-stack-skill/assets/metadata-contract.md, for a compose-mode
 # stack (no AST pass of its own, so no ast_node_count). make_stack_package
 # overlays the counts and name each test passes.
 STACK_TEMPLATE_META = {
@@ -716,8 +716,8 @@ class TestStackStructure:
             assert [i["field"] for i in issues] == [key]
 
     def test_the_required_keys_are_the_template_keys(self):
-        """Every key the stack template writes, less ast_node_count and the keys the count pass checks."""
-        keys = template_metadata_keys("src/skf-create-stack-skill/assets/stack-skill-template.md")
+        """Every key the stack metadata contract writes, less ast_node_count and the keys the count pass checks."""
+        keys = template_metadata_keys("src/skf-create-stack-skill/assets/metadata-contract.md")
         assert set(mod._STACK_REQUIRED_KEYS) == keys - {
             "ast_node_count", "library_count", "integration_count", "confidence_distribution"}
 
@@ -1427,7 +1427,7 @@ class TestExportGateRecommendedFields:
         [
             ("single", ["src/skf-quick-skill/assets/skill-template.md",
                         "src/skf-create-skill/assets/skill-sections.md"]),
-            ("stack", ["src/skf-create-stack-skill/assets/stack-skill-template.md"]),
+            ("stack", ["src/skf-create-stack-skill/assets/metadata-contract.md"]),
         ],
     )
     def test_recommended_set_matches_generator_templates(self, skill_type, templates):

@@ -64,7 +64,7 @@ timeout 10s npx --no-install skill-check -h
 ```
 
 - If exits 0: Use skill-check for automated validation in sections 3, 9.
-- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used, security scan skipped"`) so step 9 does not report the run as skill-check validated, and list every skipped check in the §10 validation results.
+- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used, security scan skipped"`) so step 9 does not report the run as skill-check validated, recording it at once (write its `[step-08/warn] skill-check-unavailable: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`), and list every skipped check in the §10 validation results.
 
 **Important:** Do not assume availability — empirical check required.
 

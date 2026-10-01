@@ -563,14 +563,15 @@ def validate_stack_counts(skill_dir, meta):
 #
 # The checks create-stack-skill's validate.md §4 to §7 made by hand over every
 # file of a committed stack, against src/skf-create-stack-skill/assets/
-# stack-skill-template.md. Each issue carries `check`, the validate.md section
+# stack-skill-template.md and, for metadata.json, assets/metadata-contract.md.
+# Each issue carries `check`, the validate.md section
 # that records it: skill_md (§4), metadata (§5), references (§6) and
 # tier_labels (§7).
 
 # The helper beside this script that holds the stack tier rules.
 _STACK_RULES_HELPER = "skf-render-stack-metadata.py"
 
-# The metadata.json keys the stack template writes, less ast_node_count
+# The metadata.json keys the stack metadata contract writes, less ast_node_count
 # (written only when ast-grep ran) and the three validate_stack_counts checks
 # (library_count, integration_count, confidence_distribution).
 _STACK_REQUIRED_KEYS = (
@@ -734,7 +735,7 @@ def validate_stack_structure(skill_dir, meta, generated_by=None, forge_tier=None
         pointer that links references/stack-catalog.md, which holds both
         sections; every relative link in SKILL.md and stack-catalog.md
         resolving from the file that holds it.
-      - metadata: the template's keys (less ast_node_count and the three
+      - metadata: the metadata contract's keys (less ast_node_count and the three
         validate_stack_counts checks); skill_type `stack`; name equal to the
         package folder's; version and generation_date non-empty strings;
         forge_tier a forge tier (and `forge_tier` when given);

@@ -177,7 +177,7 @@ WRITERS = (
     "src/skf-quick-skill/references/compile.md",
     "src/shared/scripts/skf-render-quick-metadata.py",
     "src/skf-create-stack-skill/assets/provenance-map-schema.md",
-    "src/skf-create-stack-skill/assets/stack-skill-template.md",
+    "src/skf-create-stack-skill/assets/metadata-contract.md",
     "src/knowledge/provenance-tracking.md",
     "src/skf-update-skill/references/write.md",
 )

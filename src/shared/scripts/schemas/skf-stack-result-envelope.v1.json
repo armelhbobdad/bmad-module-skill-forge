@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-stack-result-envelope.v1.json",
+  "title": "SKF_STACK_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-create-stack-skill prints, prefixed with the literal 'SKF_STACK_RESULT_JSON: ': on stdout when step 9 (report) finishes, before it chains to the health check, and on stderr at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload a step stages in the run folder, folds in the auto-decisions and warnings the run recorded there, derives exit_code from halt_reason, stamps run_id and result_path, and checks the line against this schema, so the model never types it. The skill's references/invocation-contract.md lists each halt with its step; each halting step file shows the emit-halt command.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-create-stack-skill",
+        "prefix": "SKF_STACK_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "config-missing": 2,
+          "input-invalid": 2,
+          "no-manifests": 2,
+          "all-extractions-failed": 2,
+          "schema-version-mismatch": 2,
+          "unknown-verdict-token": 2,
+          "forge-tier-missing": 3,
+          "helper-missing": 3,
+          "resolution-failure": 3,
+          "write-failure": 4,
+          "not-skf-output": 5,
+          "flat-layout": 5,
+          "user-cancelled": 6
+        },
+        "success_exit_code": 0,
+        "result_file": "create-stack-skill-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "skill_package",
+    "skill_name",
+    "stack_libraries",
+    "mode",
+    "quality_score",
+    "exit_code",
+    "halt_reason",
+    "run_id",
+    "result_path",
+    "headless_decisions",
+    "warnings"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error"],
+      "description": "'success' when step 9 finished the run, 'error' at every HARD HALT."
+    },
+    "skill_package": {
+      "type": ["string", "null"],
+      "description": "Absolute path of the committed stack package, {skills_output_folder}/{stack_name}/{version}/{stack_name}/. Null at every HARD HALT: no halt comes after step 7 committed the package."
+    },
+    "skill_name": {
+      "type": ["string", "null"],
+      "description": "The stack's published name, {stack_name}, as step 1 bound it. Null for a halt before step 1 bound it (config-missing, or a stack_name step 1 refused)."
+    },
+    "stack_libraries": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "The libraries of the stack: dependency names in code mode, constituent skill names in compose mode. At a halt, the confirmed libraries when step 3 confirmed them, else []."
+    },
+    "mode": {
+      "type": ["string", "null"],
+      "enum": ["code", "compose", null],
+      "description": "The run's resolved mode; null for a halt before step 1 chose it."
+    },
+    "quality_score": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "description": "The skill-check score step 8 recorded for the committed package; null when skill-check did not run and at every halt. It is not a test-skill score: [TS] grades the stack."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6],
+      "description": "Derived from halt_reason: null gives 0; config-missing, input-invalid, no-manifests, all-extractions-failed, schema-version-mismatch and unknown-verdict-token 2; forge-tier-missing, helper-missing and resolution-failure 3; write-failure 4; not-skf-output and flat-layout 5; user-cancelled 6."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "config-missing",
+        "input-invalid",
+        "no-manifests",
+        "all-extractions-failed",
+        "schema-version-mismatch",
+        "unknown-verdict-token",
+        "forge-tier-missing",
+        "helper-missing",
+        "resolution-failure",
+        "write-failure",
+        "not-skf-output",
+        "flat-layout",
+        "user-cancelled"
+      ],
+      "description": "Null on success. The failure class of a HARD HALT, so a pipeline branches on it without parsing the message. helper-missing: a shared helper the run needs resolved to no path (re-install SKF)."
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "reason"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the run halted: the step file and the check, for example 'detect-manifests:enumerate'."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The halt message the step displayed, on one line."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional: the file or folder the halt names, such as a missing helper's probe path or the folder the ownership check refused."
+        }
+      },
+      "description": "Present at a HARD HALT only: where the run stopped and why."
+    },
+    "run_id": {
+      "type": ["string", "null"],
+      "description": "The run folder's id, stamped by the emitter from {run_dir}'s name; null for a halt before the run folder exists."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "description": "The per-run create-stack-skill-result-<YYYYMMDD-HHmmss>.json the emitter wrote in {forge_version} on success, beside its -latest copy; null at a halt and when the write failed (warnings say why)."
+    },
+    "headless_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "default_action", "taken_action", "reason"],
+        "properties": {
+          "gate": {
+            "type": "string",
+            "enum": ["init.compose-suggestion", "init.scan-root", "rank-and-confirm.scope", "compile-stack.review"],
+            "description": "The gate a headless run resolved by its default: step 1's compose suggestion and scan-scope question, step 3's scope gate and step 6's review gate. Each records its decision in the run sink the moment it decides."
+          },
+          "default_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The gate's documented default action."
+          },
+          "taken_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action the run took; in a headless run it equals default_action."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why, such as 'headless: kept the recommended scope'."
+          },
+          "evidence": {
+            "type": "object",
+            "description": "Optional gate data. The scope gate gives scope (the libraries kept) and dropped (each library the default left out, with its reason), so no library leaves the stack unrecorded."
+          }
+        }
+      },
+      "description": "One entry per gate the run resolved without asking, read from the run sink, so a halt reports the decisions taken before it. [] when there were none."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "The run's workflow_warnings[], one '[<step>/<severity>] <code>: <message>' string each as the steps recorded them in the run sink, then any the emitter raised (result_file_write_failed, a sink line it could not read). [] when none."
+    }
+  }
+}

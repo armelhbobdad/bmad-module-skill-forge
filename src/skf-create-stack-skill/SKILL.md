@@ -28,23 +28,32 @@ These rules apply to every step in this workflow:
 
 - Zero hallucination — all extracted content must trace to actual source code (compose-mode inferences must be labeled)
 - Only load one step file at a time — never preload future steps
-- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — except the ownership check: never decide by hand whether SKF generated a folder
+- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread, with two exceptions: never decide by hand whether SKF generated a folder (the ownership check), and never work out by hand what a shared helper computes where its step names a `helper-missing` HALT: that helper resolving to no path stops the run with exit 3 `helper-missing` (`references/invocation-contract.md` lists every such halt). Where a step says what to do without its helper (an advisory check, a default value), do as it says
 - Never write into a skill folder SKF did not generate — generate-output §1 runs the inventory's write check before any prior metadata is read and again before staging
 - Always communicate in `{communication_language}`
-- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
-- Warnings use a single accumulator — see `## Workflow state contract` below for shape and surfacing.
+- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action, and record each auto-decision in the run sink the moment the gate takes it, with the `record --decision` command the gate shows
+- Every HARD HALT names its exit code, `halt_reason` and phase, and prints its envelope through the shared emitter with the command its step file shows (the `init:emitter` halt, with no emitter, only displays its message); never type an `SKF_STACK_RESULT_JSON` line
+- Warnings use a single accumulator: see `## Workflow state contract` below for shape and surfacing.
 
 ## Workflow state contract
 
-Every step that emits a warning appends a structured entry to a single in-memory list named `workflow_warnings[]` (the one accumulator for the whole workflow). Each entry has the shape `{step: "step-NN", severity: "info|warn|error", code: "<short-slug>", message: "<human text>", context: {<optional fields>}}`. Step 7 surfaces these in `evidence-report.md`; step 8 may add validation findings; step 9 §5 reads the accumulated list and renders the user-facing "Warnings" section.
+Every step that emits a warning appends a structured entry to a single list named `workflow_warnings[]` (the one accumulator for the whole workflow). Each entry has the shape `{step: "step-NN", severity: "info|warn|error", code: "<short-slug>", message: "<human text>", context: {<optional fields>}}`. Appending one means recording it in the run sink at once, the `context` fields folded into the message. Write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, never an `echo`: a message can quote backticks or `$( )`, which a shell runs. Then run:
 
-**Single-pass — no mid-run checkpoint.** State lives in memory until step 7 commits `provenance-map.json`/`evidence-report.md`; the workflow keeps no resumable checkpoint and On Activation does not probe for a prior run — the analysis is deterministic and cheap to redo, and the two gates are trivially re-confirmed. If interrupted before that commit, restart from step 1.
+```bash
+uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"
+```
+
+The shell does not expand what the substitution prints, so the message reaches the sink as text.
+
+The sink, `{run_dir}/warnings.jsonl`, is the list: step 7 §8b lists it in `evidence-report.md`, step 9 §1 renders it, and the result envelope carries it.
+
+**Single-pass, no resume:** the run's state lives in `{run_dir}`, the run folder step 1 creates under `{project-root}/_bmad-output/.skf-run/` (the warnings and auto-decisions, step 3's import counts, step 4's extraction bundle and step 6's draft), and an interrupted run starts again from step 1.
 
 ## Stages
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Mode Detection | references/init.md | No (confirm) |
+| 1 | Initialize & Mode Detection | references/init.md | Conditional |
 | 2 | Detect Manifests | references/detect-manifests.md | Yes |
 | 3 | Rank & Confirm Libraries | references/rank-and-confirm.md | No (confirm) |
 | 4 | Parallel Extract | references/parallel-extract.md | Yes |
@@ -57,36 +66,7 @@ Every step that emits a warning appends a structured entry to a single in-memory
 
 ## Invocation Contract
 
-| Aspect | Detail |
-|--------|--------|
-| **Inputs** | All optional; step 1 binds and checks each one, and halts with `input-invalid` on a value it cannot use. `project_path`: the folder code mode scans (default: the project root; an interactive run asks once when the manifests sit in several folders). `skills`: the libraries to rank, or the constituent skills in compose mode. `stack_name`: the stack's skill name (default `{project_name}-stack`). `scope_overrides`: step 3 scope overrides. `architecture_doc_path`: the document compose mode reads. `mode`: `code` or `compose` (default: step 1 detects it) |
-| **Gates** | step 1: compose suggestion and scan scope (interactive only); step 3: Confirm Gate [C]; step 6: Review Gate [C] |
-| **Outputs** | SKILL.md (stack), context-snippet.md, metadata.json |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
-| **Exit codes** | See "Exit Codes" below |
-
-## Exit Codes
-
-Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
-
-| Code | Meaning              | Raised by (halt_reason)                                                                     |
-| ---- | -------------------- | ------------------------------------------------------------------------------------------ |
-| 0    | success              | step 10 (terminal handoff to shared health-check)                                          |
-| 2    | input / precondition invalid | step 1 §0 `config.yaml` missing/malformed (`config-missing`); step 1 §0 or §3 an input it cannot use (`input-invalid`); step 2 §2 headless with no manifests (`no-manifests`, S2); step 4 §3 all extractions failed (`all-extractions-failed`, B7); step 5 §2 feasibility-report `schemaVersion` mismatch (`schema-version-mismatch`) |
-| 3    | resolution-failure   | step 1 §1 `forge-tier.yaml` missing (`forge-tier-missing`); step 1 §0 or §3, or step 3 §1, a helper missing (`resolution-failure`); step 2 §0 compose-mode stale manifest (a manifest key whose skill folder is gone); step 2 §0 compose-mode zero qualifying skills (S1/B4); step 4 §0 compose-cycle among confirmed skills, or a confirmed skill no longer an SKF package; step 5 §3 or step 7 §6 `skf-render-stack-metadata.py` missing: all `resolution-failure` |
-| 4    | write-failure        | step 7 §1 stage-dir / commit-dir failure; step 7 §1 group-dir collision when an existing non-stack skill occupies the target path — both `write-failure` |
-| 5    | state-conflict       | step 7 §1 ownership check (S3, both phases): the stack's folder in skills_output_folder, or the version folder this run writes, is not SKF output or SKF cannot check it (`not-skf-output`); an SKF stack still in the flat layout (`flat-layout`) |
-| 6    | user-cancelled       | any interactive menu in step 3 / step 6 when the user selects `[X]` Cancel and exit (`user-cancelled`) |
-
-## Result Contract (Headless)
-
-When `{headless_mode}` is true, step 9 emits a single-line JSON envelope on **stdout** before chaining to step 10, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
-
-```
-SKF_STACK_RESULT_JSON: {"status":"success|error","skill_package":"…|null","skill_name":"…","stack_libraries":["…"],"mode":"code|compose","quality_score":null,"exit_code":0,"halt_reason":null}
-```
-
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `skill_package` is the absolute path to the committed stack-skill directory (or `null` on error before commit). `skill_name` is the stack skill's published name, `{stack_name}` (step 1 §0 binds it). `stack_libraries` is the array of library names included in the stack (constituent skill names in compose-mode, dependency names in code-mode). `mode` is `"code"` or `"compose"` per the run's resolved mode (`null` if the run halts before mode resolution). `quality_score` is the skill-check score step 8 §3 records for the committed package, `null` when skill-check did not run and on every error; it is not a test-skill score ([TS] grades the stack). `halt_reason` is one of: `null` (success), `"config-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"no-manifests"`, `"all-extractions-failed"`, `"schema-version-mismatch"`, `"resolution-failure"`, `"write-failure"`, `"not-skf-output"`, `"flat-layout"`, `"user-cancelled"`. `exit_code` matches the table above. Fields unknown at the halt point are `null` (`skill_name`, `quality_score`) or `[]` (`stack_libraries`): a `config-missing` halt, for one, precedes `project_name` resolution.
+`references/invocation-contract.md` holds the inputs, gates and outputs, the exit code and `halt_reason` of every HARD HALT, and the `SKF_STACK_RESULT_JSON` result envelope.
 
 ## On Activation
 
@@ -114,17 +94,14 @@ SKF_STACK_RESULT_JSON: {"status":"success|error","skill_package":"…|null","ski
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
 
-   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the five scalars, if the merged value is empty or absent, use the bundled default:
+   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, use the bundled default:
 
-   - `{stackSkillTemplatePath}` ← `workflow.stack_skill_template_path` if non-empty, else `assets/stack-skill-template.md`
+   - `{stackSkillTemplatePath}` ← `workflow.stack_skill_template_path` if non-empty, else `assets/stack-skill-template.md` (the SKILL.md, snippet and reference-file structures; `assets/metadata-contract.md` holds the `metadata.json` contract, which no override replaces)
    - `{integrationPatternsPath}` ← `workflow.integration_patterns_path` if non-empty, else `references/integration-patterns.md`
-   - `{manifestPatternsPath}` ← `workflow.manifest_patterns_path` if non-empty, else `references/manifest-patterns.md`
-   - `{composeModeRulesPath}` ← `workflow.compose_mode_rules_path` if non-empty, else `references/compose-mode-rules.md`
-   - `{provenanceMapSchemaPath}` ← `workflow.provenance_map_schema_path` if non-empty, else `assets/provenance-map-schema.md`
 
-   Also resolve `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — `references/report.md` §6c skips the hook invocation entirely).
+   Also resolve `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op: `references/report.md` §2c then skips the hook).
 
-   Stash all five paths plus `{onCompleteCommand}` as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` / `{integrationPatternsPath}` / `{manifestPatternsPath}` / `{composeModeRulesPath}` / `{provenanceMapSchemaPath}` directly; empty-string overrides fall through to the bundled default.
+   Stash both paths plus `{onCompleteCommand}` as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` and `{integrationPatternsPath}` directly; empty-string overrides fall through to the bundled default.
 
    Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents), then run `workflow.activation_steps_append` after.
 

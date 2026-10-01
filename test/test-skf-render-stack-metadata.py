@@ -2,7 +2,12 @@
 """Tests for src/shared/scripts/skf-render-stack-metadata.py.
 
 The helper create-stack-skill runs for a stack's tiers and metadata.json
-(detect-integrations section 3, generate-output section 6):
+(parallel-extract section 3a, detect-integrations section 3,
+generate-output section 6):
+  - `library-tiers` makes a code-mode library T1 only when it has export
+    records and an ast-grep rule matched every one, T1-low otherwise (a
+    library with no record included), in the order --libraries gives; a
+    record naming a library --libraries does not list exits 2
   - combine_pair_tier gives a pair the weaker of its two tiers, the same
     rule in code mode and compose mode, for the six cases of the old compose
     matrix and every pair with a T3 member
@@ -75,6 +80,90 @@ def stack(libraries, integrations=(), mode="compose") -> dict:
         ],
         "integrations": [{"a": a, "b": b} for a, b in integrations],
     }
+
+
+# --------------------------------------------------------------------------
+# library_tier and library-tiers
+# --------------------------------------------------------------------------
+
+
+def records(*pairs) -> dict:
+    """An export records file: one {source_library, extraction_method} record per pair."""
+    return {"entries": [{"export_name": f"e{i}", "source_library": library, "extraction_method": method}
+                        for i, (library, method) in enumerate(pairs)]}
+
+
+@pytest.mark.parametrize("methods, tier", [
+    (["ast_bridge"], "T1"),
+    (["ast_bridge", "ast_bridge"], "T1"),
+    (["ast_bridge", "source_reading"], "T1-low"),
+    (["source_reading"], "T1-low"),
+    ([], "T1-low"),
+    (["ast-grep"], "T1-low"),
+], ids=["one-ast", "all-ast", "one-read-by-eye", "all-read-by-eye", "no-record", "create-skill-method"])
+def test_a_library_is_t1_only_when_ast_grep_matched_every_export(methods, tier):
+    assert mod.library_tier(methods) == tier
+
+
+def test_library_tiers_follow_the_libraries_given():
+    out = mod.library_tiers(records(("libb", "source_reading"), ("liba", "ast_bridge"), ("libb", "ast_bridge")),
+                            ["liba", "libb", "libc"])
+    assert out == [
+        {"name": "liba", "tier": "T1", "export_count": 1, "ast_bridge_count": 1},
+        {"name": "libb", "tier": "T1-low", "export_count": 2, "ast_bridge_count": 1},
+        {"name": "libc", "tier": "T1-low", "export_count": 0, "ast_bridge_count": 0},
+    ]
+
+
+def test_a_method_compares_case_insensitively():
+    out = mod.library_tiers(records(("liba", " AST_Bridge "), ("liba", None)), ["liba"])
+    assert out[0]["tier"] == "T1-low" and out[0]["ast_bridge_count"] == 1  # a record with no method is no match
+    assert mod.library_tiers(records(("liba", "AST_BRIDGE")), ["liba"])[0]["tier"] == "T1"
+
+
+@pytest.mark.parametrize("data, names, needle", [
+    ([], ["liba"], "`entries` array"),
+    ({"entries": {}}, ["liba"], "`entries` array"),
+    ({"entries": ["liba"]}, ["liba"], "entries[0] must be an object"),
+    (records(("libz", "ast_bridge")), ["liba"], "entries[0].source_library 'libz' is not one of --libraries"),
+    ({"entries": [{"extraction_method": "ast_bridge"}]}, ["liba"], "entries[0].source_library None"),
+], ids=["not-an-object", "entries-not-a-list", "record-not-an-object", "unknown-library", "no-library"])
+def test_a_malformed_records_file_is_refused(data, names, needle):
+    with pytest.raises(ValueError) as caught:
+        mod.library_tiers(data, names)
+    assert needle in str(caught.value)
+
+
+@pytest.mark.parametrize("value, needle", [
+    ("", "at least one library"),
+    (" , ", "at least one library"),
+    ("liba,libb,liba", "listed twice"),
+], ids=["empty", "only-commas", "duplicate"])
+def test_a_malformed_library_list_is_refused(value, needle):
+    with pytest.raises(ValueError) as caught:
+        mod.parse_library_names(value)
+    assert needle in str(caught.value)
+
+
+def test_library_names_are_split_on_commas_and_trimmed():
+    assert mod.parse_library_names(" react, react-dom ,@scope/pkg ") == ["react", "react-dom", "@scope/pkg"]
+
+
+def test_library_tiers_reads_a_file(tmp_path):
+    path = tmp_path / "export-records.json"
+    path.write_bytes(json.dumps(records(("café", "ast_bridge")), ensure_ascii=False).encode("utf-8"))
+    result = run("library-tiers", "--records", str(path), "--libraries", "café,zod")
+    assert result.returncode == 0, result.stderr
+    assert [(e["name"], e["tier"]) for e in json.loads(result.stdout)["libraries"]] == [("café", "T1"), ("zod", "T1-low")]
+    assert result.stdout.isascii(), "non-ASCII names are escaped for a Windows console"
+
+
+def test_library_tiers_reads_stdin():
+    result = run("library-tiers", "--records", "-", "--libraries", "liba",
+                 stdin=json.dumps(records(("liba", "source_reading"))))
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "libraries": [{"name": "liba", "tier": "T1-low", "export_count": 1, "ast_bridge_count": 0}]}
 
 
 # --------------------------------------------------------------------------
@@ -355,7 +444,10 @@ def test_stdin_is_read_as_utf8_under_a_cp1252_console():
     (("metadata", "--input", "-"), '{"mode": "compose", "libraries": [{"name": "a", "confidence": "T9"}]}',
      "libraries[0].confidence"),
     (("pair-tiers", "--input", "missing.json"), None, "cannot read the input"),
-], ids=["bad-json", "bad-tier", "missing-file"])
+    (("library-tiers", "--records", "-", "--libraries", "a"),
+     '{"entries": [{"source_library": "b", "extraction_method": "ast_bridge"}]}', "is not one of --libraries"),
+    (("library-tiers", "--records", "missing.json", "--libraries", "a"), None, "cannot read the input"),
+], ids=["bad-json", "bad-tier", "missing-file", "records-unknown-library", "records-missing-file"])
 def test_an_input_error_exits_2_with_one_line(args, stdin, needle, tmp_path):
     result = subprocess.run([sys.executable, str(SCRIPT), *args], input=stdin, capture_output=True, text=True,
                             cwd=tmp_path)
@@ -365,15 +457,17 @@ def test_an_input_error_exits_2_with_one_line(args, stdin, needle, tmp_path):
     assert len(result.stderr.strip().splitlines()) == 1
 
 
-@pytest.mark.parametrize("args", [(), ("metadata",), ("pair-tiers", "--input"), ("render", "--input", "-")],
-                         ids=["no-command", "no-input", "input-without-value", "unknown-command"])
+@pytest.mark.parametrize("args", [(), ("metadata",), ("pair-tiers", "--input"), ("render", "--input", "-"),
+                                  ("library-tiers", "--records", "-"), ("library-tiers", "--libraries", "a")],
+                         ids=["no-command", "no-input", "input-without-value", "unknown-command",
+                              "records-without-libraries", "libraries-without-records"])
 def test_a_usage_error_exits_2(args):
     result = run(*args, stdin="")
     assert result.returncode == 2
     assert result.stdout == ""
 
 
-def test_help_names_both_commands():
+def test_help_names_every_command():
     result = run("--help")
     assert result.returncode == 0
-    assert "pair-tiers" in result.stdout and "metadata" in result.stdout
+    assert "library-tiers" in result.stdout and "pair-tiers" in result.stdout and "metadata" in result.stdout

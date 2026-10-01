@@ -95,54 +95,6 @@ Indexed format targeting ~80-120 tokens per stack:
 |gotchas: {1-2 most critical integration pitfalls}
 ```
 
-## metadata.json Structure
-
-```json
-{
-  "skill_type": "stack",
-  "name": "{stack_name}",
-  "version": "1.0.0",
-  "generation_date": "{ISO-8601}",
-  "forge_tier": "{Quick|Forge|Forge+|Deep}",
-  "confidence_tier": "{T1|T1-low|T2|T3}",
-  "spec_version": "1.3",
-  "source_authority": "{official|community|internal}",
-  "generated_by": "create-stack-skill",
-  "exports": [],
-  "library_count": 0,
-  "integration_count": 0,
-  "libraries": ["lib1", "lib2"],
-  "integration_pairs": [["lib1", "lib2"]],
-  "language": "{primary language or list of languages from constituent skills}",
-  "ast_node_count": "{number-or-omitted-if-no-ast}",
-  "confidence_distribution": {
-    "t1": 0,
-    "t1_low": 0,
-    "t2": 0,
-    "t3": 0
-  },
-  "tool_versions": {
-    "ast_grep": "{version-or-null}",
-    "qmd": "{version-or-null}",
-    "skf": "{skf_version}"
-  },
-  "stats": {
-    "exports_documented": 0,
-    "exports_public_api": 0,
-    "exports_internal": 0,
-    "exports_total": 0,
-    "public_api_coverage": 0.0,
-    "total_coverage": 0.0,
-    "scripts_count": 0,
-    "assets_count": 0
-  },
-  "dependencies": [],
-  "compatibility": "{semver-range}"
-}
-```
-
-Step 7 §6 writes `library_count`, `integration_count`, `libraries`, `integration_pairs`, `confidence_distribution`, `confidence_tier` and `source_authority` verbatim from `skf-render-stack-metadata.py`. `confidence_distribution` counts libraries, each by its `per_library_extractions[].confidence`; the evidence report bins the provenance entries.
-
 ## references/stack-catalog.md Structure
 
 Written **only for large stacks** (see Sizing Guidance) when the catalog is

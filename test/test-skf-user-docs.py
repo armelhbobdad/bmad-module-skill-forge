@@ -262,7 +262,7 @@ def test_skill_model_gives_confidence_tier_the_export_gate_scales():
     assert "keeps its forge tier in `forge_tier`" in paragraph
     assert ("Export Skill still accepts a forge tier from a stack made by an earlier SKF version, with a warning "
             "that running Stack Skill again records the dominant tier") in paragraph
-    template = _read(SRC / "skf-create-stack-skill" / "assets" / "stack-skill-template.md")
+    template = _read(SRC / "skf-create-stack-skill" / "assets" / "metadata-contract.md")
     assert f'"forge_tier": "{{{"|".join(forge_tiers)}}}"' in template
     assert f'"confidence_tier": "{{{"|".join(stack_tiers)}}}"' in template
 
