@@ -4,4 +4,5 @@ summary: |
   A `docs-only` brief whose documentation could not be fetched at all (every `doc_urls` page failed, or the environment has no web fetch tool) now stops before compiling with `halt_reason` `docs-unreachable` and exit code `3`, naming each URL that failed; it used to compile and publish an empty skill. Nothing is staged or written. A source brief whose extraction found no export and whose every `doc_urls` fetch failed now gets the zero-export warning at that point, as a source brief without `doc_urls` already did.
 migration: |
   Fix what kept the documentation out of reach (the network, the web fetch tool, or the `doc_urls` in the brief), then re-run Create Skill. A pipeline that treated an empty docs-only skill as done now reads the halt's `SKF_CREATE_SKILL_RESULT_JSON` line or its exit code `3`.
+prs: [634]
 issues: [593]

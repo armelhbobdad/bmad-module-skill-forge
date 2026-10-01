@@ -2,4 +2,5 @@ type: added
 scope: skf-brief-skill
 summary: |
   The Brief Skill target prompt now takes a package name or a registry page (`zod`, `requests==2.31.0`, an npmjs.com, pypi.org or crates.io URL) and resolves it to its GitHub repository, offering every candidate when the name is ambiguous. A GitHub `/tree/<ref>/<folder>` URL sets the brief's `target_ref` and a scope hint for the folder, a repository on another git host gets a pointer to clone it first, and a relative path that exists, such as `briefs/skill-brief.yaml` or `libs/mylib`, is read as a local path whatever its shape.
+prs: [634]
 issues: [582]

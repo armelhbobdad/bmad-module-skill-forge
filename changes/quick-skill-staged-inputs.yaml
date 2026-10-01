@@ -2,4 +2,5 @@ type: fixed
 scope: skf-quick-skill
 summary: |
   A repository of skills written in Markdown alone is no longer refused for having no language: it is documented as a skills module, with `language` `markdown`. A Go module path such as `go.uber.org/zap`, or a Maven coordinate, now goes through the web search for its GitHub repository before the redirect. A large source tree, or a source file holding an apostrophe, now reaches the extractor whole, and `metadata.json` is rendered from the extraction files, so a description holding quotes or an apostrophe reaches it as written and the SKF version is read from the installed module.
+prs: [634]
 issues: [527, 592, 594]

@@ -2,4 +2,5 @@ type: fixed
 scope: skf-brief-skill
 summary: |
   The interactive draft checkpoint is written once the description is accepted and again after scope definition, so a resumed run keeps the accepted description and, past scope definition, resumes at the brief review instead of redoing the analysis and the scope.
+prs: [634]
 issues: [587]

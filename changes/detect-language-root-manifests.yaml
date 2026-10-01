@@ -2,4 +2,5 @@ type: changed
 scope: skf-analyze-source, skf-brief-skill, skf-quick-skill
 summary: |
   The shared language helper, `skf-detect-language.py`, now lets the manifests nearest the repository root decide a repository's language, never one in a docs, example, test, tool or hidden folder while another manifest exists: a Python library whose docs site has a `package.json` is `python`, not `javascript`, and a Rust-and-Python repository with a root `pyproject.toml` is `python`. When no manifest sits at the root (CPython's), the nearest one decides at `medium` confidence instead of `high`. `detected_languages` follows the same ranking, folder depth first and then the rule order, so its first entry is still the `language` answer, and the output gains `source_language`, the language most of the source files are written in, which also ends `detected_languages` when no manifest sits at the root. Analyze Source, Brief Skill and Quick Skill take their language from this helper.
+prs: [634]
 issues: [582]

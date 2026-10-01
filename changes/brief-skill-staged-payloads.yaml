@@ -2,4 +2,5 @@ type: fixed
 scope: skf-brief-skill
 summary: |
   Brief Skill passes repository file lists, manifests, entry files and JSON payloads to its helpers through files in a run folder under `_bmad-output/.skf-run/`, never typed into a shell command, so a large repository no longer reaches language, workspace and scope detection cut short, and a source file, description or note with an apostrophe no longer breaks a run. At Forge tier and above, the tier-A list of a monorepo subset comes from the files the recipe runner traces the entry barrel's re-exports to. The run folder is deleted once the brief is written or the run is cancelled.
+prs: [634]
 issues: [592, 584]
