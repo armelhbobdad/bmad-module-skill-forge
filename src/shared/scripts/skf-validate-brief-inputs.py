@@ -39,8 +39,11 @@ Input (JSON object on stdin or via --json):
   Optional with format constraints:
     target_version — loose semver string (matches 1.2.3, 1.2.3-rc.1, 1.2.3+build.5)
 
-  Conditional:
-    doc_urls — required when source_type == "docs-only"
+  Conditional (derive route only):
+    doc_urls: required when source_type == "docs-only"
+    include:  required when scope_type == "reference-app": no headless
+              boundary default covers a reference app's pattern surface, so
+              the run stops here instead of after step 2 reads the target
 
   Free-text / pass-through:
     scope_hint, language_hint, intent, include, exclude, force
@@ -88,8 +91,8 @@ KNOWN_FIELDS = {
     "exclude",
     "force",
 }
-# `preset` is intentionally NOT in KNOWN_FIELDS — it is consumed at the step 1 §8 GATE
-# (the LLM merges the named preset YAML into the args dict and drops the `preset` key
+# `preset` is intentionally NOT in KNOWN_FIELDS: it is consumed by the headless input gate
+# (headless-args.md: the LLM merges the named preset YAML into the args dict and drops the `preset` key
 # before calling the validator). If the key leaks through, the validator's existing
 # unknown-field handling emits `"unrecognized field 'preset' — passed through unchanged"`
 # in `warnings[]` so the missed drop is debuggable rather than silent.
@@ -252,6 +255,17 @@ def validate(inp: dict[str, Any]) -> dict[str, Any]:
             _err("doc_urls", "doc_urls is required when source_type is docs-only")
         )
 
+    # reference-app requires include, derive route only: only the caller knows the pattern
+    # surface, so step 3 has no headless boundary default for it (scope-definition.md §3).
+    if not ratify_route and scope_type == "reference-app" and not inp.get("include"):
+        errors.append(
+            _err(
+                "include",
+                "include is required when scope_type is reference-app: pass the files or "
+                "folders of the pattern surface as comma-separated globs",
+            )
+        )
+
     # target_repo shape (warning only — script doesn't HEAD-check). Skipped on
     # the ratify route, where target_repo is already flagged as ignored above —
     # a second "doesn't look like a URL" warning would just be noise.
@@ -279,10 +293,11 @@ def validate(inp: dict[str, Any]) -> dict[str, Any]:
     normalized: dict[str, Any] = dict(inp)
     normalized.setdefault("source_type", "source")
     # `source_authority` is intentionally NOT setdefault'd here for source-type targets:
-    # step 1 §3.3's headless detection branch runs `gh api user` and may resolve to
-    # `official` for repos owned by the authenticated user. Stamping a default at
-    # validator time would pre-empt the detection because step 1 §8 GATE treats the
-    # `normalized` object as the source of truth. Absence is the signal "run detection."
+    # the headless input gate's source-authority section (headless-args.md) runs
+    # `gh api user` and may resolve to `official` for repos owned by the authenticated
+    # user. Stamping a default at validator time would pre-empt the detection because
+    # the gate treats the `normalized` object as the source of truth. Absence is the
+    # signal "run detection."
     # The docs-only branch below still forces `community` since detection cannot apply.
     normalized.setdefault("scripts_intent", "detect")
     normalized.setdefault("assets_intent", "detect")

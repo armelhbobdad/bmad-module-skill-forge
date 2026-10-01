@@ -29,7 +29,7 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 
 **Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-`{briefSchemaPath}` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefHelper}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `{briefSchemaPath}` only if you need to explain a specific field to the user during inline adjustments — otherwise skip the read; the script is the source of truth.
+`assets/skill-brief-schema.md` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefHelper}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `assets/skill-brief-schema.md` only if you need to explain a specific field to the user during inline adjustments; otherwise skip the read: the script is the source of truth.
 
 ### 2. Resolve Output Path
 
@@ -45,7 +45,7 @@ Before writing, check whether the resolved target path already exists.
 
 **Ratify path (`ratify_mode: true` in workflow context):**
 
-The overwrite was already authorized when ratify mode was entered — interactively at step 1 §3.1a (`[R] Ratify` against the same file, then reviewed and approved at step 4), or headlessly at the step 1 §8 GATE `from_brief` route (the operator pointed the run at a brief to ratify). Either way, skip the interactive prompt below; log a single-line `brief-skill: ratify-mode auto-overwriting existing brief at {path}` and proceed to §3. **This ratify branch takes precedence over both the interactive and headless branches below** — when `ratify_mode` is set, neither of those runs. In particular, a headless ratify (`from_brief`) auto-overwrites the brief in place without requiring `force`; `force` governs only the derive route, where overwriting a pre-existing brief is a genuine clobber the operator must opt into.
+The overwrite was already authorized when ratify mode was entered in step 1 (`references/gather-intent-ratify.md`): interactively by `[R] Ratify` against the same file, then reviewed and approved at step 4, or headlessly by a `from_brief` argument (the operator pointed the run at a brief to ratify). Either way, skip the interactive prompt below; log a single-line `brief-skill: ratify-mode auto-overwriting existing brief at {path}` and proceed to §3. **This ratify branch takes precedence over both the interactive and headless branches below:** when `ratify_mode` is set, neither of those runs. In particular, a headless ratify (`from_brief`) auto-overwrites the brief in place without requiring `force`; `force` governs only the derive route, where overwriting a pre-existing brief is a genuine clobber the operator must opt into.
 
 **Interactive (`{headless_mode}` is false, `ratify_mode` not set):**
 
@@ -101,7 +101,7 @@ Assemble the brief context as a **flat** JSON object — every approved value is
 }
 ```
 
-**Ratify mode (`ratify_mode: true`):** step 2 never re-derives the version on a ratify run (an [R] pass analyzes the brief's ref but keeps the hydrated version): the version was hydrated from the upstream brief at step 1 §3.1a (interactive) or the §8 GATE `from_brief` route (headless). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds. Likewise carry `target_ref`, `source_ref`, `scope_tier_a_include`/`scope_amendments` and `scope_registry_path`/`scope_ui_variants`/`scope_demo_patterns` from the hydrated brief (on a derive run all null but `target_ref`, which step 1 sets from a `/tree/<ref>/` URL and steps 2 and 3 analyzed) so the writer round-trips the monorepo git ref, the stratified tier-A surface, the amendment audit log, and a component library's registry file, design system variants and demo globs instead of dropping them.
+**Ratify mode (`ratify_mode: true`):** step 2 never re-derives the version on a ratify run (an [R] pass analyzes the brief's ref but keeps the hydrated version): the version was hydrated from the upstream brief when step 1 ratified it (`references/gather-intent-ratify.md`). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds. Likewise carry `target_ref`, `source_ref`, `scope_tier_a_include`/`scope_amendments` and `scope_registry_path`/`scope_ui_variants`/`scope_demo_patterns` from the hydrated brief, so the writer round-trips the monorepo git ref, the stratified tier-A surface, the amendment audit log, and a component library's registry file, design system variants and demo globs instead of dropping them. A derive run sets them itself, each null when nothing set it: `target_ref` from step 1's `/tree/<ref>/` URL, `scope_tier_a_include` from step 3 §3c, and the three component-library keys from step 3's component-library flow or its headless default; `source_ref` and `scope_amendments` are null.
 
 Stage it in the run folder, then run the writer on the file with the `--from-flat` flag:
 
@@ -132,7 +132,7 @@ The script:
 
 **On success:** capture `brief_path` and `version` from the response envelope (§4b, §6 and §6b need them), and add each entry of its `warnings[]` to `workflow_warnings[]`.
 
-**Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f`, silent on absent). The draft was the checkpoint step 1 §7b and step 3 §5c wrote for the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
+**Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f`, silent on absent). The draft was the checkpoint step 1 §8 and step 3 §5c wrote for the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
 
 ### 3b. QMD Collection Registration (Deep Tier Only)
 
@@ -197,7 +197,7 @@ where `{brief_path}` is the absolute path captured from the §3 response envelop
 - **Never fail the workflow on hook errors:** the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production. On a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. A headless run printed its envelope at §4b, so the envelope does not carry this line.
 - On success, add nothing: the hook's own output is its report.
 
-When `{onCompleteCommand}` is empty (bundled default), skip this section entirely: no hook is invoked. On the `[auto]` approve paths, which never load this file, step-auto-validate.md §4 runs the same hook right after its envelope.
+When `{onCompleteCommand}` is empty (bundled default), skip this section entirely: no hook is invoked. An `[auto]` run never loads this file: step-auto-validate.md §3 runs the same hook right after its envelope.
 
 ### 7. Chain to Health Check
 

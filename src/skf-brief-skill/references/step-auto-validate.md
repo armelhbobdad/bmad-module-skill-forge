@@ -1,12 +1,8 @@
 ---
 nextStepFile: 'health-check.md'
-rejectTargetFile: 'confirm-brief.md'
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
-writeSkillBriefProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
-  - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -15,14 +11,13 @@ writeSkillBriefProbeOrder:
 
 ## STEP GOAL:
 
-To present the user with a concise summary of the auto-generated brief and offer three actions (approve, edit, or reject) before the pipeline continues. On approve, directly or after edits, the result envelope is emitted, the `on_complete` hook runs, and the pipeline chains to the health check. On reject, the pipeline falls back to the interactive brief review cycle with pre-populated fields.
+To check the auto-generated brief against the schema and show a concise summary of it, then print the result envelope, run the `on_complete` hook and chain to the health check. `[auto]` is a pipeline stage, which the forger always runs headless, so this step asks nothing.
 
 ## Rules
 
 - This step is conditional — only loaded from step-auto-brief.md when `[auto]` mode is active
 - The brief MUST already exist on disk (written by step-auto-brief §4) before this step runs
 - Do NOT render YAML or JSON envelopes in the LLM — delegate to deterministic scripts
-- Do NOT modify confirm-brief.md or write-brief.md — the [R]eject path reuses them as-is
 - The 10-line summary is always displayed, even in headless mode, for logging transparency
 
 ## MANDATORY SEQUENCE
@@ -77,27 +72,7 @@ Description:  "{description}"
 
 Where `{N}` is the count of `scope_include` patterns and `{M}` is the count of `scope_exclude` patterns. If `doc_urls` is null or empty, display "None detected". The `Pipeline` line names the auto pipeline and the resolved `{forge_tier}` — it carries no numeric quality target, which would be an unverified guarantee an automator might parse as fact.
 
-### 3. Validation Gate
-
-**GATE: [A]pprove** — Present `[A]pprove` / `[E]dit` / `[R]eject` to user.
-
-"**Review the auto-generated brief above.**
-
-Select an action:
-  [A] Approve — accept the brief as-is and continue the pipeline
-  [E] Edit — modify specific fields before continuing
-  [R] Reject — fall back to interactive brief review with pre-populated fields"
-
-If `{headless_mode}`: auto-proceed with `[A]pprove`, log: "headless: auto-approve auto-brief".
-
-Wait for user response. Branch on the response:
-
-- `[A]` or `approve` → §4 ([A]pprove path)
-- `[E]` or `edit` → §5 ([E]dit path)
-- `[R]` or `reject` → §6 ([R]eject path)
-- Any other input → answer briefly, re-display the menu
-
-### 4. [A]pprove Path
+### 3. Envelope, Hook and Chain
 
 Print the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`, through the `{emitBriefEnvelopeHelper}` SKILL.md On Activation step 4 resolved (`references/invocation-contract.md` defines each field), and display the line it prints verbatim:
 
@@ -124,84 +99,3 @@ case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm
 ```
 
 Chain to {nextStepFile} (health-check.md): load, read fully, then execute. The health check only relays to the shared check: the envelope and the hook of this path run here.
-
-### 5. [E]dit Path
-
-Present each brief field with its current value and accept natural language modification requests.
-
-"**Editable fields:**
-
-1. **Name:** {skill_name}
-2. **Source:** {source_repo}
-3. **Language:** {language}
-4. **Scope type:** {scope_type}
-5. **Include patterns:** {scope_include}
-6. **Exclude patterns:** {scope_exclude}
-7. **Description:** {description}
-8. **Doc URLs:** {doc_urls or "None"}
-9. **Version:** {version}
-10. **Forge tier:** {forge_tier}
-
-Tell me what to change (e.g. 'change scope type to public-api', 'add doc URL https://...')."
-
-Wait for user response. Apply changes to the brief context.
-
-**Re-write the modified brief** through the canonical writer:
-
-**Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins.
-
-Stage the user's changes, and only them, as one JSON object nested as the brief nests them (`{"scope": {"type": "public-api"}}`, `{"description": "..."}`): a list you change (`doc_urls`, `scope.include`) goes in whole with the change applied, and `null` removes an optional field. A changed version goes in `version`, and in `target_version` too when the brief has one (the writer requires the two to match). Then run the writer on the brief it wrote, with the changes laid over it; every field the user did not change is kept as it is on disk:
-
-```bash
-cat > "{run_dir}/edit.json" <<'SKF_JSON'
-<the fields the user changed, as one JSON object>
-SKF_JSON
-uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --base-brief {forge_data_folder}/{skill_name}/skill-brief.yaml --patch-file "{run_dir}/edit.json"
-```
-
-The canonical writer validates the brief internally — on non-zero exit, surface the error and re-prompt for corrections. The edit loop allows multiple modifications — each write re-validates before accepting.
-
-**Re-validate the written brief** against the schema to confirm correctness:
-
-**Resolve `{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`; first existing path wins.
-
-```bash
-uv run {validateBriefSchemaHelper} {forge_data_folder}/{skill_name}/skill-brief.yaml
-```
-
-If validation fails (the writer missed a constraint), surface the error and re-prompt for corrections.
-
-Re-present the 10-line summary (§2 format) with updated values so the user can verify the change.
-
-"Updated brief written. **Select:** [A] Approve and continue · [E] Edit more · [R] Reject"
-
-- `[A]` → §4: the envelope, then the on_complete hook, then the run folder's removal and the chain to {nextStepFile}
-- `[E]` → repeat §5 edit loop
-- `[R]` → §6 ([R]eject path)
-
-### 6. [R]eject Path
-
-"**Falling back to interactive brief — fields pre-populated from auto-detection.**"
-
-Hydrate brief context variables from the auto-brief on disk, using the same field mapping as the ratify path in gather-intent §3.1a:
-
-- `name` ← `brief.name`; `version` ← `brief.version`; `target_version` ← `brief.target_version`
-- `target_ref` ← `brief.target_ref`; `source_ref` ← `brief.source_ref` (optional git refs; preserve when present)
-- `source_repo` ← `brief.source_repo`; `source_type` ← `brief.source_type`; `source_authority` ← `brief.source_authority`; `doc_urls` ← `brief.doc_urls`
-- `language` ← `brief.language`; `description` ← `brief.description`; `forge_tier` ← `brief.forge_tier`
-- `created` ← `brief.created`; `created_by` ← `brief.created_by`
-- `scope.type` / `scope.include` / `scope.exclude` / `scope.tier_a_include` / `scope.notes` / `scope.rationale` / `scope.amendments` ← `brief.scope.*` (preserve `tier_a_include` and the `amendments` log verbatim — do not re-derive or drop them)
-- `scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*` (a component library's registry file, design system variants and demo globs: preserve all three verbatim)
-- `scripts_intent` ← `brief.scripts_intent`; `assets_intent` ← `brief.assets_intent`
-
-Set `ratify_mode: true` and `ratify_source_path: {forge_data_folder}/{skill_name}/skill-brief.yaml` in workflow context.
-
-The user chose to leave auto mode, so set `{auto_mode}` to false as well: from here on the run follows the interactive rules. write-brief.md prints its envelope only when `{headless_mode}` is true, with `mode: null`, and its §6b runs the on_complete hook.
-
-Chain to {rejectTargetFile} (confirm-brief.md): load, read fully, then execute. The user gets the full interactive review experience: view, adjust fields inline, revise scope via [R], or approve via [C] → write-brief.md → health-check.md.
-
-### 7. Chain
-
-Load, read fully, then execute the appropriate next step file, only after the user has made their choice and the corresponding action has been taken (envelope emitted and hook run, or context hydrated):
-- [A]pprove or [E]dit (after final approve): {nextStepFile} (health-check.md)
-- [R]eject: {rejectTargetFile} (confirm-brief.md)

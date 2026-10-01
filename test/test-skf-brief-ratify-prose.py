@@ -6,8 +6,10 @@ run the target analysis before scope definition for every source brief,
 and analyze-source writes its briefs without `source_type` (a source brief
 by the schema default). SKILL.md must resolve `document_output_language`,
 the language step 1 writes the description in, and read `headless_mode`
-from the sidecar's preferences.yaml. No test runs the step prose, so these
-checks pin it.
+from the sidecar's preferences.yaml. The ratify route itself is one file,
+gather-intent-ratify.md, and an [R] pass keeps a ratified brief's
+component-library fields and its amendments log. No test runs the step
+prose, so these checks pin it.
 """
 
 from __future__ import annotations
@@ -48,11 +50,7 @@ def test_revise_scope_on_a_ratify_run_analyzes_every_source_brief():
 
 
 def test_ratify_hydration_fills_the_source_type_default():
-    """analyze-source writes briefs without source_type; the ratify hydration gives them the schema default.
-
-    step-auto-validate's reject path hydrates the same way from a brief the
-    writer wrote, which always carries source_type, so one list is enough.
-    """
+    """analyze-source writes briefs without source_type; the ratify hydration gives them the schema default."""
     lines = [line for line in _references_text().splitlines() if "`source_type` ← `brief.source_type`" in line]
     assert any("`source` when absent" in line for line in lines), lines
 
@@ -80,15 +78,19 @@ def test_activation_reads_headless_mode_from_the_sidecar_preferences():
 def test_ratify_hydration_keeps_the_component_library_fields():
     """#605: skf-create-skill writes a confirmed registry path and demo globs
     back to the brief, so a ratify must hydrate them, with ui_variants, for
-    the writer to keep: each has a flat `scope_*` key the writer reads. The
-    headless from_brief route hydrates by the same list, not a copy of it."""
-    gather = _read(REFERENCES / "gather-intent.md")
-    [line] = [line for line in gather.splitlines()
+    the writer to keep: each has a flat `scope_*` key the writer reads.
+    #600: the ratify route is one file, gather-intent-ratify.md, which the
+    interactive §3.1a branch and the headless `from_brief` route both load,
+    so the mapping list is written once."""
+    ratify = _read(REFERENCES / "gather-intent-ratify.md")
+    [line] = [line for line in ratify.splitlines()
               if "`scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*`" in line]
     assert "preserve all three verbatim" in line
-    [route] = [line for line in gather.splitlines() if "**Hydrate and route.**" in line]
-    assert "exactly as the §3.1a `[R]` branch does: every field of its mapping list" in route
-    assert "`scope.amendments`" not in route and "`scripts_intent`" not in route
+    # one mapping list: no other reference restates it, and both routes load the file that holds it
+    holders = [path.name for path in sorted(REFERENCES.glob("*.md")) if "`name` ← `brief.name`" in _read(path)]
+    assert holders == ["gather-intent-ratify.md"], holders
+    for route in ("gather-intent.md", "headless-args.md"):
+        assert re.search(r"^ratifyFile: 'references/gather-intent-ratify\.md'$", _read(REFERENCES / route), re.M), route
     writer = (REPO / "src" / "shared" / "scripts" / "skf-write-skill-brief.py").read_text(encoding="utf-8")
     flat_keys = writer[writer.index("_FLAT_SCOPE_KEYS = ("):]
     flat_keys = flat_keys[:flat_keys.index(")")]
@@ -100,6 +102,24 @@ def test_ratify_hydration_keeps_the_component_library_fields():
     for field in ("registry_path", "ui_variants", "demo_patterns"):
         assert f'"scope_{field}":' in write, field
         assert f"`scope_{field}`" in carry, field
-    # the [auto] reject path hydrates them too, as it claims to follow §3.1a's mapping
-    auto = _read(REFERENCES / "step-auto-validate.md")
-    assert "`scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*`" in auto
+
+
+def test_revise_scope_keeps_the_hydrated_component_library_fields_and_amendments():
+    """W3 handoff: an [R] Revise Scope pass re-presents the registry path, demo globs and variants it found,
+    and drops them only when the scope type stops being component-library; step 3 never writes
+    `scope.amendments`, so a ratify run keeps the hydrated log after the pass."""
+    rules = _section(_read(REFERENCES / "scope-definition.md"), "## Rules")
+    [reentry] = [line for line in rules.splitlines() if line.startswith("- **Re-entry from step 4 [R] revise:**")]
+    preserved = reentry[:reentry.index("are preserved")]
+    for field in ("`scope.registry_path`", "`scope.ui_variants`", "`scope.demo_patterns`", "`scope.tier_a_include`"):
+        assert field in preserved, field
+    assert "dropped only when this pass changes `scope.type` away from `component-library`" in reentry
+    templates = _read(SKILL_DIR / "assets" / "scope-templates.md")
+    component = templates[templates.index("### Component Library Boundaries"):templates.index("## Scripts & Assets")]
+    assert "On a step 4 `[R]` re-entry" in component
+    for field in ("`scope.registry_path`", "`scope.demo_patterns`", "`scope.ui_variants`"):
+        assert component.count(field) >= 2, field  # re-presented, and recorded by its phase
+    confirm = _read(REFERENCES / "confirm-brief.md")
+    [after_r] = [line for line in confirm.splitlines() if line.startswith("After a `[R]` pass on a ratify run")]
+    assert "except `scope.amendments`, which step 3 never writes" in after_r
+    assert "`scope.amendments` included, stays hydrated" in after_r

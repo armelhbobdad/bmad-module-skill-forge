@@ -45,7 +45,7 @@ uv run {emitBriefEnvelopeHelper} emit --target stderr <<'SKF_BRIEF_HALT'
 SKF_BRIEF_HALT
 ```
 
-Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skill_name` is the resolved skill name, or `unknown` while step 1 has not resolved one; `mode` is `"auto"` while `{auto_mode}` is true, else `null`; `warnings` holds `workflow_warnings[]` (`[]` when it is empty). The quoted heredoc hands the payload to the helper as written, so a quote inside a warning needs no shell escaping. Display the line the helper prints verbatim, then HALT. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, display the halt message alone: a pipeline that sees no envelope line treats the run as not completed cleanly. An interactive run outside `[auto]` mode displays the halt message and emits nothing.
+Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skill_name` is the resolved skill name, or `unknown` while step 1 has not resolved one; `mode` is `"auto"` while `{auto_mode}` is true, else `null`; `warnings` holds `workflow_warnings[]` (`[]` when it is empty). The quoted heredoc hands the payload to the helper as written, so a quote inside a warning needs no shell escaping. Display the line the helper prints verbatim, then HALT. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, display the halt message alone: a pipeline that sees no envelope line treats the run as not completed cleanly. An interactive run outside `[auto]` mode displays the halt message and emits nothing. A HALT that names no `halt_reason`, such as a helper with no installed path (an install fault: re-install SKF), emits nothing in any mode.
 
 ## On Activation
 
@@ -54,7 +54,7 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
-   **Resolve `{auto_mode}`**: true when the invocation carries the `[auto]` flag (a pipeline's `BS[auto]`, which step 1 §1b routes to the auto stages), else false. Step 1b's `[R]eject` sets it back to false when it hands the brief to the interactive review.
+   **Resolve `{auto_mode}`**: true when the invocation carries the `[auto]` flag (a pipeline's `BS[auto]`, which step 1 §1b routes to the auto stages), else false.
 
 3. **Resolve workflow customization.** Run:
 
@@ -69,20 +69,17 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
    - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
    - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
 
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly.
 
-   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the three scalars, if the merged value is empty or absent, use the bundled default:
+   Bind the values the stage files use, taking the bundled default when the merged value is empty or absent:
 
-   - `{descriptionVoiceExamplesPath}` ← `workflow.description_voice_examples_path` if non-empty, else `assets/description-voice-examples.md`
-   - `{scopeTemplatesPath}` ← `workflow.scope_templates_path` if non-empty, else `assets/scope-templates.md`
-   - `{briefSchemaPath}` ← `workflow.brief_schema_path` if non-empty, else `assets/skill-brief-schema.md`
-   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op: write-brief.md §6b and step-auto-validate.md §4, the two places the hook runs, skip it)
+   - `{descriptionVoiceExamplesPath}` ← `workflow.description_voice_examples_path`, else `assets/description-voice-examples.md`
+   - `{scopeTemplatesPath}` ← `workflow.scope_templates_path`, else `assets/scope-templates.md`
+   - `{onCompleteCommand}` ← `workflow.on_complete`, else empty: no hook, so write-brief.md §6b and step-auto-validate.md §3, the two places it runs, skip it
 
-   Stash all four as workflow-context variables. Stage files reference `{descriptionVoiceExamplesPath}` / `{scopeTemplatesPath}` / `{briefSchemaPath}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies (or wire in a pipeline hook) without forking the skill.
+   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts, and the bundled default loads any `project-context.md` under `{project-root}`; an entry prefixed `!` loads nothing and drops each earlier entry it names); then, after activation completes and before step 5 loads the first stage, execute each entry in `workflow.activation_steps_append` in order.
 
-   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts; the bundled default loads any `project-context.md` under `{project-root}`); then, after activation completes and before step 5 loads the first stage, execute each entry in `workflow.activation_steps_append` in order.
-
-4. **Resolve the envelope emitter** before any stage can halt: `{emitBriefEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py`, the first that exists (no path when neither does). It prints every `SKF_BRIEF_RESULT_JSON` line of the run: a halt's through the Halt Contract above, the success line in write-brief.md §4b or step-auto-validate.md §4. `references/invocation-contract.md` defines the envelope.
+4. **Resolve the envelope emitter** before any stage can halt: `{emitBriefEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py`, the first that exists (no path when neither does). It prints every `SKF_BRIEF_RESULT_JSON` line of the run: a halt's through the Halt Contract above, the success line in write-brief.md §4b or step-auto-validate.md §3. `references/invocation-contract.md` defines the envelope.
 
 5. Load, read the full file, and execute `references/gather-intent.md`.
 
@@ -91,15 +88,17 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Gather Intent | references/gather-intent.md | No (interactive) |
+| 1h | Headless Input Gate (headless only) | references/headless-args.md | Yes |
+| 1r | Ratify an Existing Brief (ratify only) | references/gather-intent-ratify.md | No (interactive menu; headless takes [R]) |
 | 1a | Auto-Brief Generation (auto mode only) | references/step-auto-brief.md | Yes |
-| 1b | Auto-Brief Validation (auto mode only) | references/step-auto-validate.md | No (interactive gate — headless auto-approves) |
+| 1b | Auto-Brief Validation (auto mode only) | references/step-auto-validate.md | Yes |
 | 2 | Analyze Target | references/analyze-target.md | Yes |
 | 3 | Scope Definition | references/scope-definition.md | No (interactive) |
 | 4 | Confirm Brief | references/confirm-brief.md | No (confirm) |
 | 5 | Write Brief | references/write-brief.md | Yes |
 | 6 | Workflow Health Check (terminal) | references/health-check.md | Yes |
 
-Stages 1a-1b are conditional — they replace stages 2-5 when BS is invoked with the `[auto]` flag via pipeline context. The routing decision is made in stage 1 (gather-intent.md §1b). In auto mode, the chain is: gather-intent.md §1 (forge tier) → §1b (auto check) → step-auto-brief.md → step-auto-validate.md → health-check.md (on [A]pprove or [E]dit) or → confirm-brief.md → write-brief.md → health-check.md (on [R]eject).
+Every run starts in gather-intent.md, whose §1 (run folder, forge tier) serves every mode; its §1b routes by mode. `[auto]` (a pipeline's `BS[auto]`): step-auto-brief.md → step-auto-validate.md → health-check.md, in place of stages 2-5. Headless: headless-args.md validates the arguments before any stage uses them, then continues at stage 2. Interactive: the rest of gather-intent.md. A brief to ratify (a brief path at the first prompt, or a headless `from_brief`) goes through gather-intent-ratify.md straight to stage 4, skipping stages 2 and 3.
 
 ## Invocation Contract
 

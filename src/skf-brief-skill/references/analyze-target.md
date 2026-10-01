@@ -328,20 +328,6 @@ Store `{analysis_ref}`, `module_count` and the export count in workflow context:
 
 Moving to scope definition where you'll choose what to include and exclude."
 
-### 6. Auto-Proceed to Scope Definition
+### 6. Proceed to Scope Definition
 
-Display: "**Proceeding to scope definition...**
-
-Review the analysis above. If anything looks wrong, let me know now — otherwise I'll proceed to scope definition."
-
-Pause briefly for user input. If the user provides corrections or asks questions, address them and re-present any updated analysis findings. Then proceed.
-
-#### Menu Handling Logic:
-
-- After analysis report is presented to user and any corrections addressed, load, read entire file, then execute {nextStepFile}
-
-#### Execution rules:
-
-- This is a soft auto-proceed step — present the pause prompt, wait briefly for user input
-- If user provides corrections: address them, then proceed
-- If no user input after a brief pause: proceed directly to step 03
+In the same turn as the §5 summary, load, read entire file, then execute {nextStepFile}: step 3 §1 asks whether anything in this analysis is wrong, and applies a correction before a scope decision relies on it.

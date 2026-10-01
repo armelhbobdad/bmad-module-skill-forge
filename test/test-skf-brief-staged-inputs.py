@@ -44,6 +44,8 @@ SKILL_DIR = REPO / "src" / "skf-brief-skill"
 REFERENCES = SKILL_DIR / "references"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
 GATHER_INTENT = REFERENCES / "gather-intent.md"
+HEADLESS_ARGS = REFERENCES / "headless-args.md"
+RATIFY = REFERENCES / "gather-intent-ratify.md"
 ANALYZE_TARGET = REFERENCES / "analyze-target.md"
 SCOPE_DEFINITION = REFERENCES / "scope-definition.md"
 AUTO_BRIEF = REFERENCES / "step-auto-brief.md"
@@ -154,7 +156,7 @@ def test_step_one_creates_the_run_folder(tmp_path):
 def test_the_run_folder_is_removed_once_the_brief_is_written(tmp_path):
     """write-brief.md and the [auto] approve path remove the run folder, and only it."""
     [first] = _blocks(_section(_read(WRITE_BRIEF), "### 7. Chain to Health Check"), "rm -rf")
-    [second] = _blocks(_section(_read(AUTO_VALIDATE), "### 4. [A]pprove Path"), "rm -rf")
+    [second] = _blocks(_section(_read(AUTO_VALIDATE), "### 3. Envelope, Hook and Chain"), "rm -rf")
     assert first == second
     root = tmp_path / "_bmad-output" / ".skf-run"
     run_dir = root / "skf-brief-skill-abc12345"
@@ -167,7 +169,7 @@ def test_the_run_folder_is_removed_once_the_brief_is_written(tmp_path):
     assert other.is_dir() and not run_dir.exists()
 
 
-CANCEL_FILES = (GATHER_INTENT, SCOPE_DEFINITION, REFERENCES / "confirm-brief.md")
+CANCEL_FILES = (GATHER_INTENT, RATIFY, SCOPE_DEFINITION, REFERENCES / "confirm-brief.md")
 
 
 def test_every_cancel_removes_the_run_folder_before_it_stops():
@@ -182,7 +184,8 @@ def test_every_cancel_removes_the_run_folder_before_it_stops():
                 sites += 1
                 assert command in line and line.index(command) < line.index("HALT"), f"{path.name}: {line[:80]}"
                 assert "non-destructive" not in line.lower() and "no files have been written" not in line
-    assert sites == 5, sites  # step 1 §3.1 and §3.1a [X] and §8, step 3 §6, step 4 §5
+    # step 1 §3.1 and §8, the ratify menu's [X], step 4 §5 (step 3 has no menu of its own: #599)
+    assert sites == 4, sites
 
 
 def test_no_brief_step_types_a_payload_into_an_echo():
@@ -191,9 +194,8 @@ def test_no_brief_step_types_a_payload_into_an_echo():
 
 
 @pytest.mark.parametrize("path", [
-    pytest.param(GATHER_INTENT, id="gather-intent"),
+    pytest.param(HEADLESS_ARGS, id="headless-args"),
     pytest.param(AUTO_BRIEF, id="step-auto-brief"),
-    pytest.param(AUTO_VALIDATE, id="step-auto-validate"),
     pytest.param(WRITE_BRIEF, id="write-brief"),
     pytest.param(QMD_REGISTRATION, id="qmd-collection-registration"),
     pytest.param(DRAFT_CHECKPOINT, id="draft-checkpoint"),
@@ -493,7 +495,7 @@ def test_a_docs_only_derive_run_writes_its_brief_with_the_documentation_language
 
 @needs_bash
 def test_headless_arguments_reach_the_validator_from_a_staged_file(tmp_path):
-    section = _section(_read(GATHER_INTENT), "### 8. Present MENU OPTIONS")
+    section = _section(_read(HEADLESS_ARGS), "### 2. Validate the Arguments")
     [block] = _blocks(section, "{validateBriefInputsHelper}")
     args = {"target_repo": "https://github.com/o/r", "skill_name": "demo",
             "intent": "Skill the client's retry API; it's what agents call", "scope_hint": "the `retry` module"}
@@ -614,33 +616,6 @@ def test_the_auto_path_hands_every_upstream_field_back_to_the_writer(tmp_path):
         {k: v for k, v in upstream.items() if k != "doc_urls"}
 
 
-@needs_bash
-def test_the_auto_edit_path_rewrites_only_the_fields_the_user_changed(tmp_path):
-    """step-auto-validate [E]dit stages the changes alone and lays them over the brief on disk."""
-    section = _section(_read(AUTO_VALIDATE), "### 5. [E]dit Path")
-    [block] = _blocks(section, "{writeSkillBriefHelper}")
-    assert "--from-flat" not in block and '--patch-file "{run_dir}/edit.json"' in block
-    upstream = _upstream_brief(tmp_path)
-    forge = tmp_path / "forge"
-    target = forge / "demo" / "skill-brief.yaml"
-    target.parent.mkdir(parents=True)
-    shutil.copyfile(tmp_path / "upstream" / "skill-brief.yaml", target)
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    edit = {"description": "Demo's widgets, the user's words. Use when it's a UI task.",
-            "scope": {"type": "public-api"}}
-    block = (block.replace("<the fields the user changed, as one JSON object>", json.dumps(edit))
-             .replace("{run_dir}", run_dir.as_posix()).replace("{forge_data_folder}", forge.as_posix())
-             .replace("{skill_name}", "demo")
-             .replace("uv run {writeSkillBriefHelper}", _script("skf-write-skill-brief.py")))
-    proc = _bash(block)
-    assert proc.returncode == 0, proc.stderr
-    written = json.loads(_run("skf-validate-brief-schema.py", str(target)).stdout)["brief"]
-    assert written["description"] == edit["description"] and written["scope"]["type"] == "public-api"
-    unchanged = dict(upstream, description=edit["description"], scope=dict(upstream["scope"], type="public-api"))
-    assert written == unchanged
-
-
 # --------------------------------------------------------------------------
 # The target prompt reads the target with parse-target (#582)
 # --------------------------------------------------------------------------
@@ -733,20 +708,24 @@ def test_the_documented_parse_target_call_keeps_quotes_and_dollars(tmp_path):
 
 def test_the_checkpoint_is_written_after_the_description_and_after_the_scope():
     gather = _read(GATHER_INTENT)
+    # #599: the summary, the description and the menu are one message; [C] accepts and writes the draft
     assert "Draft checkpoint" not in _section(gather, "### 7. Summarize Gathered Intent")
-    assert "follow Half 2 (Checkpoint Write)" in _section(gather, "### 7b. Synthesize Skill Description")
+    assert "Half 2" not in _section(gather, "### 7b. Synthesize Skill Description")
+    [accept] = [line for line in _section(gather, "### 8. Present MENU OPTIONS").splitlines()
+                if line.startswith("- IF C:")]
+    assert accept.index("follow Half 2 (Checkpoint Write)") < accept.index("execute {nextStepFile}")
     scope = _read(SCOPE_DEFINITION)
     checkpoint = _section(scope, "### 5c. Draft Checkpoint (interactive only)")
     assert "{draftCheckpointFile}" in checkpoint and "Half 2 (Checkpoint Write)" in checkpoint
-    assert scope.index("### 5c. Draft Checkpoint") < scope.index("### 6. Present MENU OPTIONS")
+    assert scope.index("### 5c. Draft Checkpoint") < scope.index("### 6. Continue to Brief Confirmation")
     assert re.search(r"^draftCheckpointFile: 'references/draft-checkpoint\.md'$", scope, re.M)
     draft = _read(DRAFT_CHECKPOINT)
     assert "step 5 §4" not in draft and "step 5 §3 removes it" in draft
-    assert "## Half 2: Checkpoint Write (loaded from step 1 §7b, and from step 3 §5c)" in draft
+    assert "## Half 2: Checkpoint Write (loaded from step 1 §8, and from step 3 §5c)" in draft
     for field in ("`language`", "`detected_version`", "`analysis_ref`", "`monorepo_workspace`", "`scripts_intent`",
                   "`assets_intent`", "`tier_a_include`", "`rationale`", "`registry_path`"):
-        assert field in _section(draft, "## Half 2: Checkpoint Write (loaded from step 1 §7b, and from step 3 §5c)")
-    assert "the checkpoint step 1 §7b and step 3 §5c wrote" in _read(WRITE_BRIEF)
+        assert field in _section(draft, "## Half 2: Checkpoint Write (loaded from step 1 §8, and from step 3 §5c)")
+    assert "the checkpoint step 1 §8 and step 3 §5c wrote" in _read(WRITE_BRIEF)
 
 
 def test_a_draft_that_holds_the_scope_resumes_at_step_four():
@@ -754,7 +733,7 @@ def test_a_draft_that_holds_the_scope_resumes_at_step_four():
     [scoped] = [line for line in resume.splitlines() if line.startswith("- **A draft written after step 3**")]
     assert "execute `references/confirm-brief.md` (step 4)" in scoped
     assert "`scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `draft.scope.*`" in scoped
-    [early] = [line for line in resume.splitlines() if line.startswith("- **A draft written after step 1 §7b**")]
+    [early] = [line for line in resume.splitlines() if line.startswith("- **A draft written by step 1**")]
     assert "§8" in early
     # Revise Scope after such a resume stages the analysis again before step 3 reads it
     rules = _section(_read(SCOPE_DEFINITION), "## Rules")
