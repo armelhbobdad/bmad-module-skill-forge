@@ -58,6 +58,7 @@ How outputs from one workflow become inputs to the next:
 | QS | TS | skill name (from `repo_name`) | Forger passes the quick-skill's output name to TS |
 | QS | EX | skill name | Same |
 | AS | US | skill name + drift severity | The forger's gate reads the drift severity from the envelope AS printed (`drift_score`); CLEAN skips US |
+| US | TS | skill name | Forger passes the `skill_name` US updated to TS: the skill `maintain` names, or the one a repair updates |
 | VS | RA | architecture doc path | Already known from VS invocation |
 
 ## Circuit Breakers
@@ -88,23 +89,81 @@ Only AN (a unit count) and TS (a test threshold) take `min:N`. CS, AS and VS hav
 
 ## Pipeline State
 
-The forger tracks pipeline state in memory during execution:
+The forger keeps a chain's state on disk, never only in the conversation, so a closed session, a killed terminal or a compacted context loses nothing. Its `scripts/pipeline-journal.py` writes the state, and nothing else does: a journal, `pipeline-journal.json`, in the run's own folder `{project-root}/_bmad-output/.skf-run/skf-forger-<run_id>/`, written when the chain starts, after every workflow, and when a resume picks the chain up again.
 
-```yaml
-pipeline:
-  alias: "forge"          # pipeline alias name, or null for ad-hoc sequences
-  workflows: [AN, CS, TS, EX]
-  current_index: 1
-  completed:
-    - {code: AN, status: ok, output: {units: 3, briefs: [...]}}
-  pending: [CS, TS, EX]
-  data:
-    pipeline_mode: true     # forwarded to each workflow; marks pipeline context even when the alias is null
-    pipeline_alias: "forge" # forwarded to each workflow's data context (consumed by TS init.md §1b for per-pipeline threshold lookup)
-    skill_name: "cocoindex"
-    brief_path: "/path/to/skill-brief.yaml"
-    target: "cocoindex"
+| Field | What it holds |
+| --- | --- |
+| `journal_version` | `1` |
+| `run_id` | the UTC time the chain started and a random suffix (`20261001T120000Z-3f9a1c2e`), also the run folder's suffix |
+| `status` | `running` from the start, `halted` once a step halted; a chain cut off mid-step stays `running` |
+| `started_at`, `updated_at` | the UTC times of the journal's first and last write |
+| `invocation` | the whole invocation the chain started from |
+| `alias` | the pipeline alias name (`forge-auto`, `forge`, `forge-quick`, `maintain`), or null for an ad-hoc sequence |
+| `args` | the first workflow's inputs, the parse's `args` (`project_path`, `pin` ...) |
+| `steps` | one entry per workflow, in plan order |
+| `data` | each value a workflow handed the next, by its Data Flow name (`skill_name`, `brief_path` ...); a name one call gave twice holds a list |
+| `outputs` | each result or report path a workflow's envelope named, with its code |
+| `history` | each halt a resume or repair picked up again: its code, reason, repair and time |
+
+Each entry of `steps` has one shape, in the journal and in the pipeline result alike:
+
+```json
+{"code": "TS", "min": 90, "mode": null, "target": null, "flags": [], "status": "halted", "reason": "FAIL"}
 ```
+
+`min`, `mode` and `target` are the plan's bracket values (Bracket Syntax), a resumed chain's first step also taking the journal's skill as its `target`, and `flags` the flags a repair adds (`--from-test-report`). `status` is `pending` (not run yet), `completed`, `skipped` (a gate passed over it) or `halted`, and `reason` is the gate's or the workflow's halt reason, a gate's reason for a skip, or null.
+
+Every chained workflow's data context carries `pipeline_mode: true`, which marks pipeline context even for an ad-hoc sequence, and `pipeline_alias`, the journal's `alias`, which TS reads in init.md §1b for the per-pipeline threshold lookup.
+
+## Pipeline Result
+
+`pipeline-journal.py finish` writes each chain's result from its journal, per `output-contract-schema.md`: the per-run record `{sidecar_path}/pipeline-result-<YYYYMMDD-HHmmss>.json` (UTC; `-2`, `-3` ... when a run already took that second's name) and its copy `{sidecar_path}/pipeline-result-latest.json`, the file consumers read.
+
+```json
+{
+  "skill": "skf-forger",
+  "status": "partial",
+  "timestamp": "2026-10-01T12:31:07Z",
+  "run_id": "20261001T120000Z-3f9a1c2e",
+  "outputs": [{"type": "report", "path": "forge-data/hono/1.2.0/create-skill-result-latest.json"}],
+  "summary": {
+    "status": "partial",
+    "halt_reason": "FAIL",
+    "alias": "forge-auto",
+    "steps": [
+      {"code": "CS", "min": null, "mode": null, "target": null, "flags": [], "status": "completed", "reason": null},
+      {"code": "TS", "min": 90, "mode": null, "target": null, "flags": [], "status": "halted", "reason": "FAIL"}
+    ]
+  },
+  "headless_decisions": [],
+  "warnings": []
+}
+```
+
+`status` and `summary.status` are `success` when no step halted, `partial` when a step halted after another completed, and `failed` when one halted before any completed, or when the chain stopped before its journal started (at its parse, or a `start` that failed) or lost it: such a record lists no step. `summary.halt_reason` is the halted step's `reason`, null on success, and `summary.steps` lists every step of the plan in the Pipeline State shape, one that never ran as `pending` (the example shows two of five). `headless_decisions` stays empty, and `warnings` names what `finish` could not do: save or read the journal, or delete the run folder.
+
+## Resume and Repair
+
+At activation the forger runs `pipeline-journal.py resume`, which reads the newest journal a stopped chain left. It offers nothing when no journal is left, when a later chain recorded a result with a step in it (any pipeline result in the sidecar, the per-run records included: a record with no step, such as a parse halt's, supersedes nothing), or when the journal's skill was tested or exported after the journal's last write: a test result record or an export manifest entry, which WS reads too, dated after it. The manifest dates an export by its day only, so an export that same day counts when the manifest was written after the journal, whichever skill that write was for. Otherwise it offers one of two things:
+
+- **Resume** after an interruption (the journal is still `running`) or a halt that is no quality verdict, such as a workflow that hard-halted or a result the gate could not read: the chain re-runs the step it stopped on, then the rest of the plan, with the recorded alias, bracket values and arguments.
+- **Repair** after a quality halt: the repair the table below gives, then the chain picks up where the table says, still with the recorded alias and threshold.
+
+`finish` prints the same next action when the chain stops, and both print it with its `route`, the next action in one line (`US hono --from-test-report, then TS EX at the recorded threshold of 90`), and its `user_action`, what the user does before the chain picks up again (null when the chain does it all). `pipeline-journal.py reopen` applies the offer the user accepts (the Resume procedure in the forger's pipeline-mode.md), and `discard` deletes a stopped chain's run folder, so its offer is made no more.
+
+### Repair Routes
+
+| Halted on | Reason | `repair` | `user_action` | The chain picks up at |
+| --- | --- | --- | --- | --- |
+| TS | `FAIL` | `update-from-test-report` | none: `US <skill> --from-test-report` joins the plan as the next step and fixes the gaps the test report lists | TS, at the recorded threshold |
+| TS | `INCONCLUSIVE` | `add-evidence` | add evidence: install skill-check, or move up a tier (the tier's tools, then `SF`) | TS |
+| TS | `pass-with-drift`, `workspace-drift` | `retest-at-pinned-commit` | put the source back at the commit the skill pins | TS, without `--allow-workspace-drift` |
+| AS | `CRITICAL` | `review-drift-report` | review the drift report | the step after AS |
+| VS | `zero-coverage` | `create-missing-skills` | create skills for the architecture's technologies (for example `forge-quick <package>`) | VS |
+| AN | `no-skillable-units`, `units-below-min`, `skipped` | `new-target` | start a new chain with another target, or with a scope hint | no resume |
+| AN | `redirect` | `update-existing-skill` | run `US` on the skill the target already has | no resume |
+
+A halt with no resume leaves no journal behind: `finish` deletes its run folder, as it does after a chain that succeeded, and its `route` is `no resume:` and the `user_action`.
 
 ## Anti-Patterns
 

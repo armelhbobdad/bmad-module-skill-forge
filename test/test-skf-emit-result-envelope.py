@@ -1459,15 +1459,22 @@ def test_a_derived_files_written_is_empty_with_an_error():
 # ─── skf-setup: staged helper outputs ───────────────────────────────────────
 
 
+GIT_BELOW = {"tool": "git", "name": "git", "version": "2.10.0", "minimum": "2.15",
+             "upgrade": "Install the latest release from https://git-scm.com/downloads", "tier": None}
+
+
 def _detect_output() -> dict:
-    """skf-detect-tools.py's output for a Forge re-run that gained gh."""
+    """skf-detect-tools.py's output for a Forge re-run that gained gh, on a git below its minimum."""
     return {
         "status": "ok", "version": "v1",
         "tools": {"ast_grep": {"available": True, "version": "ast-grep 0.45.3"},
                   "gh_cli": {"available": True, "version": "gh version 2.91.0 (2026-04-22)"},
                   "qmd": {"available": False, "status": "absent", "version": None},
                   "ccc": {"available": False, "daemon": None, "version": None},
+                  "git": {"available": True, "version": "git version 2.10.0", "minimum": "2.15",
+                          "meets_minimum": False, "below_minimum": True},
                   "security_scan": {"available": False}},
+        "tools_below_minimum": [GIT_BELOW],
         "tier": {"calculated": "Forge", "detected": "Forge", "override_applied": False, "override_value": None,
                  "override_invalid": True, "override_invalid_value": "deep",
                  "override_invalid_suggestion": "Deep", "override_unsafe": False, "override_unsafe_missing": []},
@@ -1517,7 +1524,9 @@ def test_fold_staged_takes_every_detector_field_from_the_file():
     assert folded["tier_override_active"] is False and folded["tier_override_unsafe"] is False
     assert folded["tier_override_unsafe_missing"] == []
     assert (folded["require_tier_satisfied"], folded["require_tier_failure_missing"]) == (False, ["ccc"])
+    assert folded["require_tier"] == "Forge+"
     assert folded["qmd_status"] == "absent"
+    assert folded["tools_below_minimum"] == [GIT_BELOW]
 
 
 def test_a_first_run_detector_output_reads_as_no_previous_tools():
@@ -1581,6 +1590,7 @@ def test_emit_from_staged_files_matches_the_hand_built_payload(tmp_path):
             "tier_override_invalid_suggestion": "Deep", "tier_override_unsafe": False,
             "tier_override_unsafe_missing": [], "require_tier_satisfied": False,
             "require_tier_failure_missing": ["ccc"], "qmd_status": "absent",
+            "tools_below_minimum": [GIT_BELOW],
             "ccc_registry_stale_removed": ["/gone"], "files_written": ["forge-tier.yaml"]}
     rc, stdout, stderr = _run_emit(full)
     assert rc == 0, stderr
@@ -1591,14 +1601,17 @@ def test_emit_from_staged_files_matches_the_hand_built_payload(tmp_path):
     assert env["status"] == "tier_failure" and env["tools_added"] == ["gh_cli"]
     assert "tier_override_invalid: deep (did you mean Deep?)" in env["warnings"]
     assert "ccc_registry_stale_removed: /gone" in env["warnings"]
+    assert "tool_below_minimum: git 2.10.0 (minimum 2.15)" in env["warnings"]
 
 
 # ─── skf-setup: FORGE STATUS banner (render-report) ─────────────────────────
 
 
-REPORT_STEP = ROOT / "src" / "skf-setup" / "references" / "report.md"
 TIER_RULES = ROOT / "src" / "skf-setup" / "references" / "tier-rules.md"
 MERGE_HELPER = ROOT / "src" / "shared" / "scripts" / "skf-merge-ccc-exclusions.py"
+# The banner template render_report follows. report.md no longer holds it:
+# the step displays what the script prints, and these tests keep the two in step.
+BANNER_TEMPLATE = ROOT / "test" / "fixtures" / "setup-report" / "forge-status-template.txt"
 COPY = mod.load_tier_rules(TIER_RULES)
 RULE = "═" * 39
 
@@ -1650,23 +1663,47 @@ DEEP = {"tier": "Deep", "previous_tier": "Deep", "tools": _probes(qmd=QMD), "qmd
 GAINED_GH = {"previous_tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": False}}
 LOST_GH = {"tools": _probes(gh=NO_GH)}
 
-# One case per `{if ...}` of the FORGE STATUS template in report.md section
-# 2, in the template's order: the condition as the template writes it, the
-# payload changes that make it hold, the changes that make it fail, and the
-# line the banner shows only when it holds.
+
+def _below(tool: str, name: str, version: str, minimum: str, upgrade: str, tier=None) -> dict:
+    """One entry of skf-detect-tools.py's tools_below_minimum."""
+    return {"tool": tool, "name": name, "version": version, "minimum": minimum, "upgrade": upgrade, "tier": tier}
+
+
+AST_BELOW = _below("ast_grep", "ast-grep", "0.42.2", "0.45.3", "npm install -g @ast-grep/cli@latest", "Forge")
+# A tier tool below its minimum is installed, and reads unavailable, as the detector reports it.
+QUICK_OLD_AST = {**QUICK, "tools": _probes(ast={"available": False, "version": "ast-grep 0.42.2"}, gh=NO_GH),
+                 "tools_below_minimum": [AST_BELOW]}
+OLD_CCC = {"tools": _probes(ccc={"available": False, "daemon": "healthy", "version": "0.1.0"}),
+           "tools_below_minimum": [_below("ccc", "ccc", "0.1.0", "0.2", "uv tool upgrade cocoindex-code", "Forge+")]}
+OLD_GH = {"tools": _probes(gh={"available": False, "version": "gh version 2.10.0"}),
+          "tools_below_minimum": [_below("gh_cli", "gh", "2.10.0", "2.40",
+                                         "Install the latest release from https://cli.github.com", "Deep")]}
+OLD_QMD = {"qmd_status": "daemon_stopped",
+           "tools_below_minimum": [_below("qmd", "qmd", "1.0.0", "2.0", "bun install -g @tobilu/qmd@latest", "Deep")]}
+TIER_MISS = {"require_tier": "Forge+", "require_tier_satisfied": False, "require_tier_failure_missing": ["ccc"]}
+
+# One case per `{if ...}` of the FORGE STATUS template (BANNER_TEMPLATE), in
+# the template's order: the condition as the template writes it, the payload
+# changes that make it hold, the changes that make it fail, and the line the
+# banner shows only when it holds.
 BANNER_CASES = [
-    ("no tools are available", QUICK, {}, '  (none yet, see "Climb to next tier" below)'),
-    ("calculated_tier is not Deep", {}, DEEP, "  Climb to next tier:"),
-    ("not tools.ast_grep", QUICK, {},
+    ("no tools are available and ast-grep is not below its minimum", QUICK, QUICK_OLD_AST,
+     '  (none yet, see "Climb to next tier" below)'),
+    ("no tools are available and ast-grep is below its minimum", QUICK_OLD_AST, QUICK,
+     '  (none yet, see "Tool upgrades" below)'),
+    ("a tool is below its minimum", {"tools_below_minimum": [GIT_BELOW]}, {}, "  Tool upgrades:"),
+    ("calculated_tier is not Deep and a hint below holds", {}, QUICK_OLD_AST, "  Climb to next tier:"),
+    ("not tools.ast_grep and ast-grep is not below its minimum", QUICK, QUICK_OLD_AST,
      "  - Install ast-grep (https://ast-grep.github.io): unlocks AST-backed code analysis (Forge tier)"),
-    ("tools.ast_grep and not tools.ccc", {}, _ccc(),
+    ("tools.ast_grep and not tools.ccc and ccc is not below its minimum", {}, OLD_CCC,
      "  - Install cocoindex-code (https://github.com/cocoindex-io/cocoindex-code): adds semantic-guided "
      "precision compilation (Forge+ tier)"),
-    ("tools.ast_grep and not tools.gh_cli", LOST_GH, {},
+    ("tools.ast_grep and not tools.gh_cli and gh is not below its minimum", LOST_GH, OLD_GH,
      "  - Install GitHub CLI (https://cli.github.com): required for Deep tier (cross-repository synthesis)"),
     ('tools.ast_grep and not tools.qmd and qmd_status is "absent"', {}, {"qmd_status": "daemon_stopped"},
      "  - Install qmd (https://github.com/tobi/qmd): required for Deep tier (knowledge search)"),
-    ('tools.ast_grep and not tools.qmd and qmd_status is "daemon_stopped"', {"qmd_status": "daemon_stopped"}, {},
+    ('tools.ast_grep and not tools.qmd and qmd_status is "daemon_stopped" and qmd is not below its minimum',
+     {"qmd_status": "daemon_stopped"}, OLD_QMD,
      "  - Start the qmd daemon (already installed): run `qmd start` (or your distribution's qmd service "
      "command) to unlock Deep tier (knowledge search)"),
     ('tools.ccc and ccc_daemon is "error"', _ccc(daemon="error"), _ccc(),
@@ -1745,8 +1782,9 @@ BANNER_CASES = [
     ("ccc was added and tier is Deep", {**DEEP, "tools": _probes(qmd=QMD, ccc=CCC)},
      {**_ccc(), "previous_tools": {"ast_grep": True, "gh_cli": True, "qmd": False, "ccc": False}},
      "  Newly detected: ccc. ccc enhances Deep tier transparently."),
-    ("{tools_removed} non-empty", LOST_GH, GAINED_GH,
+    ("a tool in {tools_removed} is not below its minimum", LOST_GH, OLD_GH,
      "  No longer detected: gh. Re-install to restore those capabilities."),
+    ("require_tier_satisfied is false", TIER_MISS, {}, "  REQUIRED TIER NOT MET"),
 ]
 
 
@@ -1762,10 +1800,8 @@ def test_banner_line_shows_exactly_when_its_condition_holds(condition, holds, fa
 
 
 def _template_lines() -> list[str]:
-    """The FORGE STATUS template: the fenced block of report.md section 2 that opens with the banner."""
-    section = REPORT_STEP.read_text(encoding="utf-8").split("\n### 2. ", 1)[1].split("\n### 3. ", 1)[0]
-    [template] = [block for block in section.split("```")[1::2] if "FORGE STATUS" in block]
-    return template.strip("\n").splitlines()
+    """The FORGE STATUS template, one string per line."""
+    return BANNER_TEMPLATE.read_text(encoding="utf-8").strip("\n").splitlines()
 
 
 def _tokens(text: str) -> list[tuple[str, str]]:
@@ -1797,8 +1833,8 @@ def _template_entries() -> list[tuple[str, str]]:
     """(condition, the template line it shows) for every `{if ...}`, in template order.
 
     `{if C: T}` shows T in its own line; `{if C:}` alone on a line opens a
-    block whose first line is what it shows; `{if C:} T` and a condition
-    inside a line show that line.
+    block whose first line other than a rule is what it shows; `{if C:} T`
+    and a condition inside a line show that line.
     """
     lines = _template_lines()
     entries = []
@@ -1809,7 +1845,8 @@ def _template_entries() -> list[tuple[str, str]]:
                 continue
             condition, _, shown = value[3:].partition(":")
             if not shown.strip() and len(tokens) == 1:
-                line = next(later for later in lines[n + 1:] if later.strip() and not _is_if(later))
+                line = next(later for later in lines[n + 1:]
+                            if later.strip() and not _is_if(later) and later.strip() != RULE)
             entries.append((condition, line))
     return entries
 
@@ -1843,9 +1880,9 @@ def _shown(line: str, condition: str) -> str:
 
 
 def test_every_template_condition_has_its_case_in_template_order():
-    """The template in report.md is what render-report prints: 40 conditions, a case for each."""
+    """The template is what render-report prints: 43 conditions, a case for each."""
     entries = _template_entries()
-    assert len(entries) == 40
+    assert len(entries) == 43
     assert [condition for condition, _ in entries] == [case[0] for case in BANNER_CASES]
     assert "{headless_mode}" not in "\n".join(_template_lines())
 
@@ -1871,11 +1908,13 @@ def _copy_pattern(message: str, cut: str | None = None) -> str:
 DESCRIBED = {
     "tier capability description from tier-rules.md":
         "(?:" + "|".join(re.escape(COPY[tier]) for tier in mod.VALID_TIERS) + ")",
-    "appropriate upgrade/downgrade message from tier-rules.md":
+    "appropriate upgrade/downgrade message from tier-rules.md, naming no tool below its minimum":
         "(?:" + "|".join(_copy_pattern(COPY[key], "{current}.") for key in ("upgrade", "downgrade")) + ")",
     "same-tier message from tier-rules.md": _copy_pattern(COPY["same"]),
 }
-FOR_EACH = {"for each tool ": r"- (?:ast-grep|gh|qmd|ccc)(?: .+)?", "for each entry ": r"- .+"}
+# The more specific prefix first: the first one a `{for each ...}` line starts with wins.
+FOR_EACH = {"for each tool below its minimum": r"- Upgrade \S+ \S+ to \S+ or newer(?: \(.+?\))?(?: to use the \S+ tier)?",
+            "for each tool ": r"- (?:ast-grep|gh|qmd|ccc)(?: .+)?", "for each entry ": r"- .+"}
 
 
 def _template_text(text: str) -> str:
@@ -2002,8 +2041,10 @@ def test_a_first_deep_run_renders_the_whole_banner():
     ("qmd", {"available": True, "version": None}, None, "  - qmd"),
     ("gh_cli", True, None, "  - gh"),
     ("ccc", {"available": True, "daemon": "error"}, "error", "  - ccc (daemon error)"),
+    ("ccc", {"available": True, "daemon": "healthy", "version": "0.2.41"}, "healthy", "  - ccc 0.2.41 (daemon healthy)"),
     ("ccc", True, None, "  - ccc"),
-], ids=["ast-grep", "gh-version-word", "bare-version", "no-version", "bool-shape", "ccc-daemon", "ccc-bool"])
+], ids=["ast-grep", "gh-version-word", "bare-version", "no-version", "bool-shape", "ccc-daemon", "ccc-uv-version",
+        "ccc-bool"])
 def test_tools_detected_lines(key, probe, daemon, line):
     assert mod._tool_line(key, probe, daemon) == line
 
@@ -2018,6 +2059,107 @@ def test_a_tier_change_names_the_tools_that_changed_or_stops_after_one_sentence(
     assert "  Tier upgraded from Quick to Forge." in _banner(previous_tier="Quick", tier_override_active=True)
 
 
+# ─── skf-setup: tools below their minimum version ───────────────────────────
+
+
+def test_each_tool_below_its_minimum_is_a_warning_and_no_envelope_field_changes():
+    p = _baseline_payload()
+    p["tools_below_minimum"] = [AST_BELOW, GIT_BELOW]
+    env = mod.assemble_envelope(p)
+    assert env["skf_setup"]["warnings"] == ["tool_below_minimum: ast-grep 0.42.2 (minimum 0.45.3)",
+                                            "tool_below_minimum: git 2.10.0 (minimum 2.15)"]
+    assert mod._validate_against_schema(env, _schema()) == []
+    assert set(env["skf_setup"]) == set(_schema()["properties"]["skf_setup"]["properties"])
+
+
+def test_a_tier_tool_below_its_minimum_reads_false_in_the_envelope(tmp_path):
+    """The detector reports it unavailable, so it counts toward no tier and the
+    envelope's tools say false, as they do for a stopped qmd."""
+    detect = _detect_output()
+    detect["tools"]["ast_grep"] = {"available": False, "version": "ast-grep 0.42.2", "minimum": "0.45.3",
+                                   "meets_minimum": False, "below_minimum": True}
+    detect["tools_below_minimum"] = [AST_BELOW, GIT_BELOW]
+    detect["tier"].update(calculated="Quick", detected="Quick")
+    detect["require_tier"] = {"requested": "Forge", "satisfied": False, "missing_tools": ["ast-grep"]}
+    run_dir = _stage(tmp_path / "skf-setup-RUN", detect=detect)
+    proc = _cli_in(["emit", "--run-dir", str(run_dir)], (run_dir / "report-context.json").read_text(encoding="utf-8"))
+    assert proc.returncode == 0, proc.stderr
+    env = _envelope_of(proc.stdout)
+    assert mod._validate_against_schema(env, _schema()) == []
+    env = env["skf_setup"]
+    assert env["status"] == "tier_failure" and env["tier"] == "Quick" and env["tools"]["ast_grep"] is False
+    # The tool no longer counts, so a re-run lists it as removed; the banner, not the envelope, says why.
+    assert env["tools_removed"] == ["ast_grep"]
+    assert env["warnings"][-3:] == ["tool_below_minimum: ast-grep 0.42.2 (minimum 0.45.3)",
+                                    "tool_below_minimum: git 2.10.0 (minimum 2.15)",
+                                    "require_tier_failed: missing ast-grep"]
+
+
+@pytest.mark.parametrize("tool,line", [
+    (AST_BELOW, "  - Upgrade ast-grep 0.42.2 to 0.45.3 or newer (npm install -g @ast-grep/cli@latest) "
+                "to use the Forge tier"),
+    (GIT_BELOW, "  - Upgrade git 2.10.0 to 2.15 or newer "
+                "(Install the latest release from https://git-scm.com/downloads)"),
+    ({**GIT_BELOW, "upgrade": None}, "  - Upgrade git 2.10.0 to 2.15 or newer"),
+], ids=["tier-tool", "warn-only", "no-upgrade-text"])
+def test_tool_upgrade_lines(tool, line):
+    lines = _banner(tools_below_minimum=[tool])
+    assert lines[lines.index("  Tool upgrades:") + 1] == line
+
+
+def test_the_upgrade_block_shows_at_every_tier_even_deep():
+    """Climb to next tier renders only below Deep, and a ccc on Deep still needs its line."""
+    old_ccc = _below("ccc", "ccc", "0.1.0", "0.2", "uv tool upgrade cocoindex-code", "Forge+")
+    lines = _banner(**DEEP, tools_below_minimum=[old_ccc])
+    assert "  Climb to next tier:" not in lines
+    assert "  - Upgrade ccc 0.1.0 to 0.2 or newer (uv tool upgrade cocoindex-code) to use the Forge+ tier" in lines
+    assert lines.index("  Tools Detected:") < lines.index("  Tool upgrades:")
+
+
+def test_a_tool_that_dropped_below_its_minimum_is_not_called_no_longer_detected():
+    # Forge to Quick: ast-grep still answers, but below its minimum it counts toward no tier.
+    downgraded = _banner(**{**QUICK_OLD_AST, "previous_tier": "Forge",
+                            "previous_tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": False}})
+    assert "  Tier changed from Forge to Quick." in downgraded
+    assert not any("no longer detected" in line.lower() for line in downgraded)
+    assert '  (none yet, see "Tool upgrades" below)' in downgraded
+    assert not any(line.startswith("  - Install ast-grep") for line in downgraded)
+    # Same tier: the delta block keeps its first line and names no tool.
+    same = _banner(**OLD_GH)
+    assert "  Tier unchanged: Forge." in same
+    assert not any("No longer detected" in line for line in same)
+    assert "  - Upgrade gh 2.10.0 to 2.40 or newer (Install the latest release from https://cli.github.com) " \
+           "to use the Deep tier" in same
+    # A tool that is really gone is still named next to one below its minimum.
+    both = _banner(tools=_probes(ast={"available": False, "version": "ast-grep 0.42.2"}, gh=NO_GH),
+                   tools_below_minimum=[AST_BELOW], tier="Quick")
+    assert "  Tier changed from Forge to Quick. gh no longer detected. Run the tool's installation to restore " \
+           "capabilities." in both
+
+
+def test_the_required_tier_block_ends_the_banner():
+    lines = _banner(**{**DEEP, **TIER_MISS, "require_tier_failure_missing": ["ast-grep", "ccc"]})
+    assert lines[-10:] == [
+        RULE, "  REQUIRED TIER NOT MET", RULE, "",
+        "  Required:  Forge+", "  Detected:  Deep", "  Missing:   ast-grep, ccc", "",
+        "  Install or upgrade the missing tool(s) and re-run, or relax `--require-tier`.", RULE,
+    ]
+    assert lines[-12] == mod.NEXT_STEPS
+    # Deep can miss Forge+ (Deep does not need ccc): the block points at no Climb section.
+    assert "  Climb to next tier:" not in lines
+    assert "  REQUIRED TIER NOT MET" not in _banner(**DEEP)
+
+
+def test_the_required_tier_comes_from_the_staged_detector_output(tmp_path):
+    run_dir = _stage(tmp_path / "skf-setup-RUN", detect=_detect_output())
+    proc = _cli_in(["render-report", "--run-dir", str(run_dir), "--tier-rules", str(TIER_RULES)],
+                   (run_dir / "report-context.json").read_text(encoding="utf-8"))
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.splitlines()
+    for line in ("  Tool upgrades:", "  Required:  Forge+", "  Detected:  Forge", "  Missing:   ccc"):
+        assert line in lines, line
+
+
 def _placeholder_refusal() -> str:
     """The refusal skf-merge-ccc-exclusions.py itself writes for a value that holds a placeholder."""
     spec = importlib.util.spec_from_file_location("skf_merge_ccc_exclusions", MERGE_HELPER)
@@ -2028,15 +2170,17 @@ def _placeholder_refusal() -> str:
     return refusal
 
 
-def test_exclusion_notes_resolve_the_project_root_except_in_the_placeholder_refusal():
-    # The helper's own message, so rewording it there without PLACEHOLDER_REFUSAL fails here.
+def test_exclusion_notes_resolve_every_project_root_placeholder():
+    # The helper's own refusal names the placeholder in words, so every
+    # `{project-root}` a note holds is the project root, which the banner shows.
     refusal = _placeholder_refusal()
-    assert mod.PLACEHOLDER_REFUSAL in refusal and "{project-root}" in refusal
+    assert "{project-root}" not in refusal and "project-root placeholder" in refusal
     lines = _banner(**_ccc(ccc_exclusion_warnings=["add /.cocoindex_code/ to {project-root}/.gitignore",
                                                    refusal, "ccc init failed in /elsewhere"]))
     assert "  - add /.cocoindex_code/ to /p/.gitignore" in lines
     assert f"  - {refusal}" in lines
     assert "  - ccc init failed in /elsewhere" in lines
+    assert not hasattr(mod, "PLACEHOLDER_REFUSAL")
 
 
 def test_a_failure_reason_on_several_lines_stays_on_its_banner_line():
@@ -2083,7 +2227,9 @@ def test_cli_render_report_reads_the_run_folder(tmp_path):
     for line in ("  - gh 2.91.0 (2026-04-22)", '        Did you mean "Deep"?', "  1 collection(s) healthy",
                  "  1 stale QMD registry entry/entries cleaned", "  Newly detected: gh."):
         assert line in lines, line
-    assert lines[0] == RULE and lines[-1] == mod.NEXT_STEPS
+    # The detector output misses --require-tier=Forge+, so the tier-miss block ends the banner.
+    assert lines[0] == RULE and lines[-1] == RULE and lines[-9] == "  REQUIRED TIER NOT MET"
+    assert mod.NEXT_STEPS in lines
 
 
 def test_cli_render_report_finds_the_tier_copy_in_an_installed_project(tmp_path):

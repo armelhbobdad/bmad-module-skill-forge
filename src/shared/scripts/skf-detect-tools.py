@@ -6,10 +6,22 @@
 
 Replaces the prose-driven tool-detection sequence in `src/skf-setup/references/
 detect-and-tier.md` §3-§8b with one Python invocation. Probes ast-grep,
-gh, qmd, and ccc concurrently, applies the 4-rule tier decision table
-(calculate_tier() below), evaluates --tier-override (with sanity check) and
---require-tier (with tool-prerequisite check independent of the tier name),
-and emits one JSON document on stdout.
+gh, qmd, ccc, git and uv concurrently, holds each to its minimum version,
+applies the 4-rule tier decision table (calculate_tier() below), evaluates
+--tier-override (with sanity check) and --require-tier (with tool-prerequisite
+check independent of the tier name), and emits one JSON document on stdout.
+
+Minimum versions come from tool-requirements.yaml in the shared/ folder
+above this script's scripts/ folder, in the source tree and in an installed
+project alike. Each probed tool gets `minimum`, `meets_minimum` (null when
+its version cannot be read or it has no minimum) and `below_minimum`. A tier
+tool below its minimum is reported like a stopped qmd, `available: false`,
+so the tier and --require-tier leave it out with no change to the rules
+below; git and uv are no tier tools, so they only warn. A version the
+script cannot read, a null minimum or a list it cannot read never lowers a
+tier. `tools_below_minimum` lists each tool below its minimum with what the
+setup report and envelope need to name it, since skf-emit-result-envelope.py
+reads no YAML.
 
 Schema documented in DETECT_OUTPUT_SCHEMA at the bottom of this docstring.
 The output is consumed by step 1 prose, step 2 (forge-tier.yaml writer),
@@ -26,6 +38,8 @@ CCC verification is two-step (matches step 1 §7):
   Step A: `ccc --help` exits 0 AND output contains "CocoIndex Code" marker.
           Rejects code2prompt-aliased-as-ccc and similar PATH shadowing.
   Step B: `ccc doctor` succeeds (daemon healthy).
+  ccc has no version flag: its version is the cocoindex-code line of
+  `uv tool list` (`cocoindex-code v0.2.41`), null when uv did not install it.
 
 QMD verification is two-step (matches step 1 §5 post-PR-#248):
   Step A: `qmd --version` exits 0 (binary identity, falls back to --help).
@@ -48,23 +62,32 @@ runtime prerequisite):
   uv run skf-detect-tools.py --require-tier Forge+
   uv run skf-detect-tools.py --snyk-env-var SNYK_TOKEN
 
-Bare `python3` works when dependencies = [] (this script's case) but
-becomes brittle the moment a non-stdlib dep is added — prefer `uv run`
-for invocation consistency with sibling scripts that DO require pyyaml.
+`uv run` installs pyyaml, which reads the prior state and the minimums;
+under a bare `python3` without it, both read as absent.
 
 DETECT_OUTPUT_SCHEMA (v1):
   {
     "status": "ok",
     "version": "v1",
     "tools": {
+      # Every probed tool also has "minimum": str|null, "meets_minimum":
+      # bool|null and "below_minimum": bool; "version" is the probe's first
+      # output line (ccc's is the bare version).
       "ast_grep":      {"available": bool, "version": str|null},
       "gh_cli":        {"available": bool, "version": str|null},
       "qmd":           {"available": bool, "status": "absent"|"daemon_stopped"|"healthy",
                         "version": str|null},
       "ccc":           {"available": bool, "daemon": "healthy"|"stopped"|"error"|null,
                         "version": str|null},
+      "git":           {"available": bool, "version": str|null},
+      "uv":            {"available": bool, "version": str|null},
       "security_scan": {"available": bool}
     },
+    "tools_below_minimum": [
+      # One per tool below its minimum, in the order of tool-requirements.yaml.
+      {"tool": str, "name": str, "version": str, "minimum": str,
+       "upgrade": str|null, "tier": "Forge"|"Forge+"|"Deep"|null}
+    ],
     "tier": {
       "calculated":              "Quick"|"Forge"|"Forge+"|"Deep",
       "detected":                "Quick"|"Forge"|"Forge+"|"Deep",
@@ -110,12 +133,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
@@ -132,6 +157,13 @@ PROBE_TIMEOUT_SEC = 8  # per-tool subprocess.run timeout
 # own timeout. None when unavailable.
 _TIMEOUT_BIN = shutil.which("timeout") if os.name == "posix" else None
 CCC_IDENTITY_MARKER = "cocoindex code"  # case-insensitive substring
+# The one list of tool versions: shared/ holds it beside scripts/.
+REQUIREMENTS_FILE = Path(__file__).resolve().parent.parent / "tool-requirements.yaml"
+# The first x.y or x.y.z of a version line: `gh version 2.101.0 (2026-09-15)`.
+VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+MINIMUM_RE = re.compile(r"\d+(?:\.\d+)*")
+# `uv tool list` names each package uv installed, with its version.
+CCC_PACKAGE_RE = re.compile(r"^cocoindex-code v(\S+)", re.MULTILINE)
 
 
 def _die(code: int, message: str) -> None:
@@ -240,18 +272,30 @@ def _first_line(text: str) -> str | None:
     return None
 
 
-def probe_ast_grep() -> dict:
-    rc, stdout, _ = _run(["ast-grep", "--version"])
+def _probe_version(command: str) -> dict:
+    """One `<command> --version` call: available, and the first output line."""
+    rc, stdout, _ = _run([command, "--version"])
     if rc != 0:
         return {"available": False, "version": None}
     return {"available": True, "version": _first_line(stdout)}
+
+
+def probe_ast_grep() -> dict:
+    return _probe_version("ast-grep")
 
 
 def probe_gh_cli() -> dict:
-    rc, stdout, _ = _run(["gh", "--version"])
-    if rc != 0:
-        return {"available": False, "version": None}
-    return {"available": True, "version": _first_line(stdout)}
+    return _probe_version("gh")
+
+
+def probe_git() -> dict:
+    """Not a tier tool: held to its minimum, which only warns."""
+    return _probe_version("git")
+
+
+def probe_uv() -> dict:
+    """Not a tier tool: held to its minimum, which only warns."""
+    return _probe_version("uv")
 
 
 def probe_qmd() -> dict:
@@ -294,9 +338,92 @@ def probe_ccc() -> dict:
     return {"available": True, "daemon": "error", "version": version}
 
 
+def probe_ccc_version() -> str | None:
+    """ccc's version from `uv tool list`, or None when uv did not install it."""
+    rc, stdout, _ = _run(["uv", "tool", "list"])
+    match = CCC_PACKAGE_RE.search(stdout) if rc == 0 else None
+    return found_version(match.group(1)) if match else None
+
+
 def probe_security_scan(env_var: str) -> dict:
     """Informational only — does NOT affect tier."""
     return {"available": bool(os.environ.get(env_var, "").strip())}
+
+
+def load_requirements(path=None) -> dict:
+    """The tools of tool-requirements.yaml by key, or {} when it cannot be read.
+
+    A list that is missing or not YAML gives no tool a minimum, so it holds
+    none back.
+    """
+    try:
+        import yaml  # local import, as in read_prior_state
+        data = yaml.safe_load(Path(path or REQUIREMENTS_FILE).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    tools = data.get("tools") if isinstance(data, dict) else None
+    if not isinstance(tools, dict):
+        return {}
+    return {key: entry for key, entry in tools.items() if isinstance(entry, dict)}
+
+
+def found_version(text) -> str | None:
+    """The first x.y or x.y.z of a version line, as written there, or None."""
+    match = VERSION_RE.search(text) if isinstance(text, str) else None
+    return match.group(0) if match else None
+
+
+def meets_minimum(version, minimum) -> bool | None:
+    """Whether a probed version is at least the minimum, missing parts read as 0.
+
+    None when either cannot be read: a version SKF cannot parse, or a null
+    minimum, never holds a tool back.
+    """
+    found = found_version(version)
+    if found is None or not isinstance(minimum, str) or not MINIMUM_RE.fullmatch(minimum):
+        return None
+    have = [int(part) for part in found.split(".")]
+    need = [int(part) for part in minimum.split(".")]
+    width = max(len(have), len(need))
+    return have + [0] * (width - len(have)) >= need + [0] * (width - len(need))
+
+
+def apply_minimums(tools: dict, requirements: dict) -> list[dict]:
+    """Hold each probed tool to its minimum; return the tools below theirs.
+
+    Adds `minimum`, `meets_minimum` and `below_minimum` to every probed tool
+    (security_scan is none). A tier tool below its minimum becomes
+    `available: false`, so calculate_tier() and tier_prerequisites_met()
+    leave it out; any other kind only warns. Each tool below its minimum
+    gets one entry, in the list's order, naming it, its version and minimum,
+    how to upgrade it and, for a tier tool, the first tier it counts toward.
+    """
+    below = []
+    order = [*requirements, *(key for key in tools if key not in requirements)]
+    for key in order:
+        probe = tools.get(key)
+        if key == "security_scan" or not isinstance(probe, dict):
+            continue
+        entry = requirements.get(key, {})
+        minimum = entry.get("minimum") if isinstance(entry.get("minimum"), str) else None
+        meets = meets_minimum(probe.get("version"), minimum)
+        probe.update({"minimum": minimum, "meets_minimum": meets, "below_minimum": meets is False})
+        if meets is not False:
+            continue
+        tier_tool = entry.get("kind") == "tier"
+        if tier_tool:
+            probe["available"] = False
+        tiers = entry.get("tiers") if isinstance(entry.get("tiers"), list) else []
+        upgrade = entry.get("upgrade")
+        below.append({
+            "tool": key,
+            "name": str(entry.get("name") or key),
+            "version": found_version(probe.get("version")),
+            "minimum": minimum,
+            "upgrade": " ".join(upgrade.split()) if isinstance(upgrade, str) and upgrade.strip() else None,
+            "tier": str(tiers[0]) if tier_tool and tiers else None,
+        })
+    return below
 
 
 def calculate_tier(tools: dict) -> str:
@@ -504,15 +631,21 @@ def detect(args: argparse.Namespace) -> dict:
             _die(1, error)
 
     tools: dict = {}
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=7) as ex:
         futures = {
             "ast_grep": ex.submit(probe_ast_grep),
             "gh_cli":   ex.submit(probe_gh_cli),
             "qmd":      ex.submit(probe_qmd),
             "ccc":      ex.submit(probe_ccc),
+            "git":      ex.submit(probe_git),
+            "uv":       ex.submit(probe_uv),
         }
+        ccc_version = ex.submit(probe_ccc_version)
         for key, fut in futures.items():
             tools[key] = fut.result()
+        if tools["ccc"]["available"]:
+            tools["ccc"]["version"] = ccc_version.result()
+    tools_below_minimum = apply_minimums(tools, load_requirements())
     tools["security_scan"] = probe_security_scan(args.snyk_env_var)
 
     detected = calculate_tier(tools)
@@ -559,6 +692,7 @@ def detect(args: argparse.Namespace) -> dict:
 
     return {
         "tools": tools,
+        "tools_below_minimum": tools_below_minimum,
         "tier": {
             "calculated": calculated,
             "detected": detected,

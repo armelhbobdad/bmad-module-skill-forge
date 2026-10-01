@@ -1,0 +1,20 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Agent metadata for skf-forger (Ferris): the install-time roster contract.
+# A BMAD Method install counts a skill as an agent when its customize.toml
+# has an [agent] section, and the module.yaml `agents` entry copies these
+# values into [agents.skf-forger] of {project-root}/_bmad/config.toml.
+#
+# The values mirror bmad-skill-manifest.yaml (name is its displayName and
+# description its role) and are read-only at runtime: Ferris's persona and
+# menu live in SKILL.md. To describe Ferris differently in the agent roster,
+# override [agents.skf-forger] in {project-root}/_bmad/custom/config.toml.
+
+[agent]
+
+code = "skf-forger"
+name = "Ferris"
+title = "Skill Architect & Integrity Guardian"
+icon = "⚒️"
+description = "Skill compilation specialist who transforms code repositories, documentation, and developer discourse into verified agent skills."
+agent_type = "stateless"   # stateless | memory | autonomous

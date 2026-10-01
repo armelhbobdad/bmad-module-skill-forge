@@ -352,12 +352,12 @@ Paths in messages: when a warning or `not_ready_reason` names the
 project root in SKF's own words, it writes the literal `{project-root}`
 placeholder, never the absolute path. Setup's step 4 banner renders a
 warning's placeholder like its own `{project-root}` paths, and the
-envelope keeps it verbatim. The unresolved-placeholder refusal writes
-`{project-root}` too, as the name of the placeholder this script
-resolves rather than a folder, and the banner shows that warning as it
-is. Output and errors quoted from `ccc init` or git can carry paths of
-their own, the project root included. Error messages on stderr name
-absolute paths.
+envelope keeps it verbatim. The unresolved-placeholder refusal names the
+placeholder this script resolves in words ("the project-root
+placeholder"), so a `{project-root}` in SKF's own words always means the
+project root. Output and errors quoted from `ccc init` or git can carry
+paths of their own, the project root included. Error messages on stderr
+name absolute paths.
 
 Writes to settings.yml use temp + fsync + rename (mirrors
 skf-atomic-write.py), emit ASCII-only YAML (non-ASCII escaped, as ccc
@@ -709,7 +709,7 @@ def validate_config_value(key: str, raw_value) -> tuple[str | None, str | None]:
         return None, (
             f"{key} contains an unresolved template placeholder ({{ or }}); "
             f"refused for ccc exclusion because the step is supposed to forward "
-            f"the raw config value and let this script resolve {{project-root}}"
+            f"the raw config value and let this script resolve the project-root placeholder"
         )
 
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):

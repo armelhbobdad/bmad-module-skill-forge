@@ -10,6 +10,8 @@ const chalk = require('chalk');
 const PACKAGE_NAME = 'bmad-module-skill-forge';
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const TIMEOUT_MS = 3000;
+// The first x.y or x.y.z in a string: `0.45`, `v3.0.0-rc.1`, `ast-grep 0.42.2`.
+const VERSION_IN_TEXT = /(\d+)\.(\d+)(?:\.(\d+))?/;
 
 function fetchLatestVersion() {
   return new Promise((resolve) => {
@@ -42,15 +44,26 @@ function fetchLatestVersion() {
   });
 }
 
-function compareVersions(current, latest) {
-  const parse = (v) => v.replace(/^v/, '').split('.').map(Number);
-  const [cMajor, cMinor, cPatch] = parse(current);
-  const [lMajor, lMinor, lPatch] = parse(latest);
+/** The first x.y or x.y.z in `text`, as written there, or null. */
+function findVersion(text) {
+  const match = VERSION_IN_TEXT.exec(String(text ?? ''));
+  return match ? match[0] : null;
+}
 
-  if (lMajor > cMajor) return true;
-  if (lMajor === cMajor && lMinor > cMinor) return true;
-  if (lMajor === cMajor && lMinor === cMinor && lPatch > cPatch) return true;
-  return false;
+/**
+ * True when `latest` is newer than `current`. Each is read as the first x.y
+ * or x.y.z it holds, a missing part as 0, so `0.45` and `ast-grep 0.42.2`
+ * both compare with `0.45.3`; a string with neither is never newer.
+ */
+function compareVersions(current, latest) {
+  const parse = (text) => {
+    const match = VERSION_IN_TEXT.exec(String(text ?? ''));
+    return match ? match.slice(1, 4).map((part) => Number(part ?? 0)) : null;
+  };
+  const [from, to] = [parse(current), parse(latest)];
+  if (!from || !to) return false;
+  const index = from.findIndex((part, position) => part !== to[position]);
+  return index !== -1 && to[index] > from[index];
 }
 
 /**
@@ -83,4 +96,4 @@ function startVersionCheck(currentVersion) {
   };
 }
 
-module.exports = { startVersionCheck, compareVersions };
+module.exports = { startVersionCheck, compareVersions, findVersion, TIMEOUT_MS };

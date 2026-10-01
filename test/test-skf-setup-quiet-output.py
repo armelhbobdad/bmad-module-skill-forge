@@ -480,12 +480,14 @@ def test_queue_fingerprint_has_a_portable_form():
     assert out == hashlib.sha1(key.encode("utf-8")).hexdigest()[:7]
 
 
-def test_campaign_consent_does_not_override_the_headless_queue():
-    """The campaign's "improvement" consent pre-satisfies the friction/gap
-    opt-in only; a headless review gate still queues every finding locally."""
+def test_campaign_relay_carries_no_routing_consent():
+    """Campaign no longer asks at setup where findings go, so its relay step
+    only delegates: the shared review gate decides, and a headless run takes
+    its default [Q] and queues every finding locally."""
     text = _read(CAMPAIGN_RELAY)
-    assert "follows an interactive **[Y]**" in text
-    assert "Under `{headless_mode}` that gate takes its listed default **[Q]**" in text
+    assert "health_findings_queue" not in text
+    assert "consent" not in text
+    assert "Load `{nextStepFile}`, read it fully, then execute it." in text
 
 
 # ---------------------------------------------------------------- agent notes between tool calls
@@ -540,12 +542,12 @@ def test_pipeline_mode_marks_every_workflow_it_invokes():
 
 
 def test_forger_and_pipeline_state_name_pipeline_mode():
-    """The forger's own summary and the Pipeline State block forward the marker too."""
-    forger = _read(SRC / "skf-forger" / "SKILL.md")
-    sentence = next(line for line in forger.splitlines() if "Each chained workflow runs with" in line)
-    assert "`{pipeline_mode}` = true" in sentence
+    """The forger routes every chain to pipeline-mode.md, whose step 4c sets
+    the marker (above), and the Pipeline State contract forwards it too."""
+    forger = _section(_read(SRC / "skf-forger" / "SKILL.md"), "## Pipeline Mode")
+    assert "`references/pipeline-mode.md`" in forger
     state = _section(_read(SRC / "shared" / "references" / "pipeline-contracts.md"), "## Pipeline State")
-    assert re.search(r"^\s+pipeline_mode: true\b", state, re.M)
+    assert "data context carries `pipeline_mode: true`" in state
 
 
 def test_pipeline_mode_reads_the_setup_envelope_status():
@@ -788,7 +790,8 @@ def test_report_payload_is_staged_before_the_banner_and_shared_with_the_envelope
     assert ('render-report --run-dir "{run_dir}" --tier-rules "{skill-root}/references/tier-rules.md" '
             '< "{run_dir}/report-context.json"') in banner
     assert (REFS / "tier-rules.md").is_file()
-    assert "`render-report` follows this template, kept for reference only;" in banner
+    # The script owns the banner's lines: no template of them is left to drift from it.
+    assert "kept for reference only" not in report and "{if " not in report
     emit = _section(report, "### 4.")
     assert 'emit --run-dir "{run_dir}" < "{run_dir}/report-context.json"' in emit
     assert "echo '" not in report and "tierRulesData" not in report
@@ -833,10 +836,14 @@ def test_payload_strings_escape_control_characters_and_a_bad_payload_is_rewritte
 
 def test_required_tier_block_points_at_no_section_a_deep_banner_lacks():
     """Deep can miss `--require-tier=Forge+` (Deep does not require ccc), and
-    render-report prints "Climb to next tier" only below Deep."""
+    render-report prints "Climb to next tier" only below Deep. The banner
+    ends with the block, so section 3 covers the banner that could not be
+    rendered: without it, section 5 would halt on the miss unexplained."""
     block = _section(_read(REFS / "report.md"), "### 3.")
     assert "REQUIRED TIER NOT MET" in block
     assert "Climb to next tier" not in block
+    assert "If section 2 displayed `FORGE STATUS could not be rendered`" in block
+    assert "{require_tier_failure_missing_tools}" in block
 
 
 # ---------------------------------------------------------------- what the docs promise

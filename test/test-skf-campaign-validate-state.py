@@ -3,7 +3,9 @@
 This script replaces ~13 per-step "mentally validate the state against the
 schema" prose sites. These tests pin its contract: valid state → exit 0, schema
 violations → exit 1 with translated errors, load failures → exit 1 with a
-halt_reason, and a missing/unreadable schema → exit 2.
+halt_reason, and a missing/unreadable schema → exit 2. They also pin two schema
+facts step files rely on: overall_verdict takes Verify Stack's verdicts, and an
+older state that still holds health_findings_queue validates.
 """
 
 from __future__ import annotations
@@ -37,11 +39,12 @@ VALID_STATE: dict = {
         "last_updated": "2026-05-27T00:00:00Z",
         "current_stage": 0,
         "quality_gate": {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80},
-        "health_findings_queue": "local",
     },
     "skills": [],
     "dependency_graph": {"execution_order": [], "circular_deps_detected": False},
 }
+VERIFY_STACK_VERDICTS = ("FEASIBLE", "CONDITIONALLY_FEASIBLE", "NOT_FEASIBLE")
+REMOVED_VERDICTS = ("Verified", "Plausible", "Risky", "Blocked")
 
 
 def _write_state(tmp_path: pathlib.Path, state: dict) -> pathlib.Path:
@@ -72,6 +75,30 @@ class TestValidateStateFn:
         result = mod.validate_state(state, schema)
         assert result["valid"] is False
 
+    @pytest.mark.parametrize("queue", ["local", "improvement"])
+    def test_older_state_with_health_findings_queue_still_valid(self, queue):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        state = copy.deepcopy(VALID_STATE)
+        state["campaign"]["health_findings_queue"] = queue
+        assert mod.validate_state(state, schema) == {"valid": True, "errors": []}
+
+    @pytest.mark.parametrize("verdict", VERIFY_STACK_VERDICTS + (None,))
+    def test_verify_stack_verdicts_valid(self, verdict):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        state = copy.deepcopy(VALID_STATE)
+        state["campaign"]["verification"] = {"report_path": "r.md", "overall_verdict": verdict}
+        assert mod.validate_state(state, schema)["valid"] is True
+
+    @pytest.mark.parametrize("verdict", REMOVED_VERDICTS)
+    def test_pair_verdict_tokens_rejected(self, verdict):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        state = copy.deepcopy(VALID_STATE)
+        state["campaign"]["verification"] = {"overall_verdict": verdict}
+        result = mod.validate_state(state, schema)
+        assert result["valid"] is False
+        assert [e["field"] for e in result["errors"]] == ["campaign.verification.overall_verdict"]
+        assert "FEASIBLE" in result["errors"][0]["message"]
+
 
 class TestRun:
     def test_valid_exit_0(self, tmp_path, capsys):
@@ -101,6 +128,29 @@ class TestRun:
         assert rc == 1
         out = json.loads(capsys.readouterr().out.strip())
         assert any(e["field"] == "name" for e in out["errors"])
+
+    def test_verified_capstone_state_exit_0(self, tmp_path, capsys):
+        # What step-08 writes after a FEASIBLE run: the verdict and a verified capstone.
+        state = copy.deepcopy(VALID_STATE)
+        state["campaign"]["current_stage"] = 7
+        state["campaign"]["capstone"] = {"skill_path": "skills/stack/", "quality_score": 91.0, "verified": True}
+        state["campaign"]["verification"] = {
+            "report_path": "forge-data/feasibility-report-demo-20260930-120000.md",
+            "overall_verdict": "FEASIBLE",
+            "coverage_percentage": 100,
+            "recommendation_count": 0,
+        }
+        rc = mod.run(str(_write_state(tmp_path, state)))
+        assert rc == 0
+        assert json.loads(capsys.readouterr().out.strip())["valid"] is True
+
+    def test_removed_verdict_exit_1(self, tmp_path, capsys):
+        state = copy.deepcopy(VALID_STATE)
+        state["campaign"]["verification"] = {"overall_verdict": "Verified"}
+        rc = mod.run(str(_write_state(tmp_path, state)))
+        assert rc == 1
+        out = json.loads(capsys.readouterr().out.strip())
+        assert out["halt_reason"] == "state-invalid"
 
     def test_missing_file_exit_1(self, tmp_path, capsys):
         rc = mod.run(str(tmp_path / "nope.yaml"))

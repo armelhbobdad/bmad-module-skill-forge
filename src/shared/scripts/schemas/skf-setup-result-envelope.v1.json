@@ -124,7 +124,7 @@
         "warnings": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Non-fatal anomalies surfaced during the run. May include customization_resolver_unavailable, tier_override_invalid, tier_override_unsafe, ccc_exclusion_warnings entries, ccc_registry_stale_removed entries, qmd_daemon_stopped, ccc_indexing_failed, etc. Empty when none."
+          "description": "Non-fatal anomalies surfaced during the run. May include customization_resolver_unavailable, tier_override_invalid, tier_override_unsafe, ccc_exclusion_warnings entries, ccc_registry_stale_removed entries, qmd_daemon_stopped, tool_below_minimum entries (one per tool below its minimum version: '<tool> <version> (minimum <minimum>)'; a tier tool among them reads false under tools), ccc_indexing_failed, etc. Empty when none."
         },
         "error": {
           "oneOf": [

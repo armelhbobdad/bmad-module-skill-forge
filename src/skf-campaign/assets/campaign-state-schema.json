@@ -8,7 +8,7 @@
   "properties": {
     "campaign": {
       "type": "object",
-      "required": ["name", "started_at", "last_updated", "current_stage", "quality_gate", "health_findings_queue"],
+      "required": ["name", "started_at", "last_updated", "current_stage", "quality_gate"],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -48,7 +48,8 @@
         },
         "health_findings_queue": {
           "type": "string",
-          "enum": ["local", "improvement"]
+          "enum": ["local", "improvement"],
+          "description": "Ignored. Setup asked for it before v3.0.0; the end-of-run health check now decides where findings go. Kept optional so state files that hold it still validate."
         },
         "architecture_doc_path": {
           "type": ["string", "null"],
@@ -80,11 +81,13 @@
           "description": "Stage 7 verify-stack summary. Detailed findings live in the external report at report_path.",
           "properties": {
             "report_path": {
-              "type": ["string", "null"]
+              "type": ["string", "null"],
+              "description": "report_path of the skf-verify-stack result envelope: the timestamped report, which no later run rewrites (not the -latest copy)."
             },
             "overall_verdict": {
               "type": ["string", "null"],
-              "enum": ["Verified", "Plausible", "Risky", "Blocked", null]
+              "enum": ["FEASIBLE", "CONDITIONALLY_FEASIBLE", "NOT_FEASIBLE", null],
+              "description": "overall_verdict of the skf-verify-stack result envelope."
             },
             "coverage_percentage": {
               "type": ["number", "null"]

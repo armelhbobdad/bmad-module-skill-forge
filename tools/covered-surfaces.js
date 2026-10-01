@@ -39,16 +39,21 @@
  * - Preference keys (src/forger/preferences.yaml) and install config keys
  *   (src/module.yaml)
  * - halt_reason and error.phase values written in the Markdown under src/
+ * - Tool minimums: the `minimum` of each tool in
+ *   src/shared/tool-requirements.yaml, keyed by the tool and named by its
+ *   `name` (a tool with a null minimum has none)
  *
  * Groups:
  * - hard: a removed schema enum value or property, menu code, pipeline alias
  *   or flag (a flag no Markdown file of its workflow names any more, or a
- *   possible rename). The release needs a major bump, and a breaking change
- *   fragment must name the item.
- * - additive: one of those surfaces added, or a new preference key or exit
- *   code. The release needs at least a minor bump. A flag that enters a flag
- *   row is added even when the workflow's Markdown named it before: the row
- *   puts it under the contract. The reverse is not a removal (see review).
+ *   possible rename), and a tool minimum raised or given to a tool that had
+ *   none. The release needs a major bump, and a breaking change fragment
+ *   must name the item (a tool by its name).
+ * - additive: one of those surfaces added, a new preference key or exit
+ *   code, or a tool minimum lowered or removed. The release needs at least a
+ *   minor bump. A flag that enters a flag row is added even when the
+ *   workflow's Markdown named it before: the row puts it under the contract.
+ *   The reverse is not a removal (see review).
  * - review: a flag that left every flag row while its workflow's Markdown
  *   still names it (listed first, with the files: it may be a silent
  *   breaking change), halt_reason and error.phase values added or removed, a
@@ -78,6 +83,8 @@
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const YAML = require('yaml');
+const { REQUIREMENTS: TOOL_REQUIREMENTS, compareVersions } = require('./tool-requirements.js');
 
 const SCHEMA_FILE = /^src\/shared\/scripts\/schemas\/[^/]+\.json$/;
 const FORGER_SKILL = 'src/skf-forger/SKILL.md';
@@ -112,6 +119,8 @@ const KINDS = {
   'schema-required': { label: 'required field', removed: 'review', added: 'review' },
   'halt-reason': { label: 'halt_reason value', removed: 'review', added: 'review' },
   'error-phase': { label: 'error.phase value', removed: 'review', added: 'review' },
+  // A new minimum, or a raised one, turns away users the release before accepted.
+  'tool-minimum': { label: 'tool minimum', added: 'hard', raised: 'hard', removed: 'additive', lowered: 'additive' },
 };
 const GROUPS = ['hard', 'additive', 'review'];
 const KIND_ORDER = Object.keys(KINDS);
@@ -154,7 +163,7 @@ function lastStableTag(root, from = 'HEAD') {
 /** True for the files the extractors read. */
 function isSurfaceFile(file) {
   if (!file.startsWith('src/')) return false;
-  return file.endsWith('.md') || SCHEMA_FILE.test(file) || file === PREFERENCES || file === MODULE_CONFIG;
+  return file.endsWith('.md') || SCHEMA_FILE.test(file) || file === PREFERENCES || file === MODULE_CONFIG || file === TOOL_REQUIREMENTS;
 }
 
 function normalizeNewlines(text) {
@@ -574,6 +583,32 @@ function keyItems(tree, add) {
 }
 
 /**
+ * The minimum of each tool in the tool list, keyed by the tool: a fragment
+ * names it by its `name`. A tree whose list is missing or not YAML has none.
+ */
+function toolMinimumItems(tree, add) {
+  let tools;
+  try {
+    tools = YAML.parse(tree.read(TOOL_REQUIREMENTS) || '')?.tools;
+  } catch {
+    return;
+  }
+  if (!tools || typeof tools !== 'object' || Array.isArray(tools)) return;
+  for (const [key, tool] of Object.entries(tools)) {
+    const minimum = tool && typeof tool.minimum === 'string' ? tool.minimum.trim() : '';
+    if (!/^\d+(?:\.\d+)*$/.test(minimum)) continue;
+    add({
+      kind: 'tool-minimum',
+      workflow: 'requirements',
+      token: String(tool.name || key),
+      where: TOOL_REQUIREMENTS,
+      detail: minimum,
+      id: key,
+    });
+  }
+}
+
+/**
  * Every covered item of one tree.
  *
  * @returns {{items: Map<string, object>, skillFiles: string[], schemaFiles: string[], workflows: string[],
@@ -601,6 +636,7 @@ function extractSurfaces(tree) {
   exitCodeItems(tree, add);
   haltItems(tree, add);
   keyItems(tree, add);
+  toolMinimumItems(tree, add);
   return { items, skillFiles, schemaFiles, workflows, flagMentions: flagMentions(tree) };
 }
 
@@ -637,6 +673,11 @@ function describe(item, change, before) {
   }
   if (change === 'added' && item.kind === 'exit-code') text += ` (${item.detail})`;
   if (change === 'removed' && item.kind === 'exit-code') text += ` (was ${item.detail})`;
+  if (item.kind === 'tool-minimum') {
+    if (change === 'added') return `${text} (${item.detail})`;
+    if (change === 'removed') return `${text} (was ${item.detail})`;
+    return `${item.workflow}: ${kind.label} \`${item.token}\` ${change} from ${before} to ${item.detail}`;
+  }
   if (change === 'moved') return `${text} from ${before} to #${item.where.slice(item.where.indexOf('#') + 1)}`;
   if (item.where && item.kind.startsWith('schema-')) text += ` (${item.where})`;
   return text;
@@ -704,7 +745,11 @@ function diffSurfaces(base, head) {
   for (const [key, item] of base.items) {
     const now = head.items.get(key);
     if (!now) removedItems.push(item);
-    else if (item.detail !== now.detail) push(now, 'changed', item.detail);
+    else if (item.kind === 'tool-minimum') {
+      // "2.15" and "2.15.0" are the same minimum: only a move up or down counts.
+      const direction = compareVersions(now.detail, item.detail);
+      if (direction !== 0) push(now, direction > 0 ? 'raised' : 'lowered', item.detail);
+    } else if (item.detail !== now.detail) push(now, 'changed', item.detail);
   }
   const addedItems = [...head.items].filter(([key]) => !base.items.has(key)).map(([, item]) => item);
   const { moves, removed, added } = pairMoves(removedItems, addedItems);
@@ -818,6 +863,7 @@ module.exports = {
   extractSurfaces,
   flagsInRow,
   formatReport,
+  isSurfaceFile,
   lastStableTag,
   main,
   openTree,

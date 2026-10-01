@@ -45,7 +45,7 @@ Pick the type by what a user sees, not by the commit type. When unsure, pick the
 - **docs**: a change to the user docs worth announcing.
 - **lead**: the opening paragraph of the release notes, usually written for the release itself.
 
-The minimum version bump is major for a `breaking` fragment, minor for `added` or `changed`, and patch for `fixed` or `docs`. The covered-surface check (`tools/covered-surfaces.js`) can raise it: removing a schema enum value or property, a menu code, a pipeline alias or a flag needs a major bump and a `breaking` fragment that names the item, in backticks (the plain word does not count); adding one of those, a preference key or an exit code needs at least a minor bump.
+The minimum version bump is major for a `breaking` fragment, minor for `added` or `changed`, and patch for `fixed` or `docs`. The covered-surface check (`tools/covered-surfaces.js`) can raise it: removing a schema enum value or property, a menu code, a pipeline alias or a flag needs a major bump and a `breaking` fragment that names the item, in backticks (the plain word does not count); adding one of those, a preference key or an exit code needs at least a minor bump. A tool minimum in `src/shared/tool-requirements.yaml` works the other way round: raising one, or giving a tool its first one, needs a major bump and a `breaking` fragment that names the tool by its `name` in backticks, such as `ast-grep`, while lowering or removing one needs at least a minor bump.
 
 ## Commands
 

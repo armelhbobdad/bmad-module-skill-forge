@@ -1,3 +1,6 @@
+# The [agent] block of customize.toml and the `agents` entry of the module's
+# module.yaml copy name, displayName, title, icon and role (as code, name,
+# title, icon and description): change the three files together.
 type: agent
 name: skf-forger
 displayName: Ferris

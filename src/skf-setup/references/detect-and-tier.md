@@ -19,7 +19,7 @@ emitEnvelopeProbeOrder:
 
 ## STEP GOAL:
 
-Verify availability of the four forge tools (ast-grep, gh, qmd, ccc), read any existing configuration for re-run comparison, check for tier override, and calculate the capability tier, all via `{detectToolsHelper}` so the deterministic work is done once, by a tested script, never by the LLM. Then, on an interactive run, tell the user what setup is about to write before step 1b or step 2 writes anything.
+Verify availability of the four forge tools (ast-grep, gh, qmd, ccc) and hold each tool to its minimum version, read any existing configuration for re-run comparison, check for tier override, and calculate the capability tier, all via `{detectToolsHelper}` so the deterministic work is done once, by a tested script, never by the LLM. Then, on an interactive run, tell the user what setup is about to write before step 1b or step 2 writes anything.
 
 ## Rules
 
@@ -58,7 +58,7 @@ uv run {detectToolsHelper} --project-root "{project-root}" \
 
 Pass `--tier-override` only when `{tier_override}` is non-null, and `--require-tier` only when `{require_tier}` is non-null, with the value exactly as activation bound it, even when it names no tier: the script rejects such a value, and the halt below then names the valid tiers. (`--project-root` lets the script compute the CCC-index freshness verdict, `prior.ccc_index_fresh`, so step 1b works from a boolean instead of doing timestamp math.)
 
-The script (see `src/shared/scripts/skf-detect-tools.py` docstring for the full `DETECT_OUTPUT_SCHEMA`) probes ast-grep / gh / qmd / ccc concurrently with two-step verification for qmd and ccc (binary-identity check + daemon-health check, including the `CocoIndex Code` identity-marker substring check that rejects PATH-shadowing aliases). It applies the 4-rule tier table, performs the tier-override sanity check (override is honored but flagged unsafe when underlying tools are missing), and evaluates `--require-tier` using a tool-prerequisite check (Deep does not subsume Forge+ — Deep does not require ccc). Output is one JSON document on stdout.
+Output is one JSON document on stdout; `DETECT_OUTPUT_SCHEMA` in the helper's docstring documents it.
 
 **If the script exits non-zero or prints no JSON:** halt before section 3 with phase `step 1:detect-tools`, `path` `{project-root}`, and reason `Setup cannot proceed: tool detection failed: <message>`. `<message>` is the `message` of the stderr JSON `{"status":"error","message":...}`, or the first stderr line when stderr holds no JSON, with each `'` replaced by a backtick and each `\` by `/`. Under `{quiet_mode}` the blocked envelope is the only line displayed.
 
@@ -74,6 +74,8 @@ From `tools`:
 - `{ccc}` ← `tools.ccc.available`
 - `{ccc_daemon}` ← `tools.ccc.daemon` (`"healthy" | "stopped" | "error" | null`)
 - `{security_scan}` ← `tools.security_scan.available` (informational only — never affects tier)
+
+A tier tool below its minimum version binds `false` here, like a missing one: it counts toward no tier, and step 4 names it with its upgrade from the staged output.
 
 From `tier`:
 
@@ -98,14 +100,14 @@ Now that section 3 has bound `{previous_tier}` and `{previous_detection_date}`, 
 
 **First-run preamble:** when `{previous_tier}` is null:
 
-"**About to set up the forge.** Setup has probed the available tools (ast-grep, gh, qmd, ccc), read-only, and keeps their result in the scratch folder `{run_dir}` until it finishes. This workflow will now:
+"**About to set up the forge.** Setup has probed the available tools (ast-grep, gh, qmd and ccc, plus git and uv), read-only, and keeps their result in the scratch folder `{run_dir}` until it finishes. This workflow will now:
 
 - Write `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` (capability tier + tool state)
 - Write `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` (first-run defaults)
 - Create `{forge_data_folder}/` if missing
 - When ccc is available: prepare `{project-root}/.cocoindex_code/settings.yml` (run `ccc init` if it is missing, which in a git checkout also adds `/.cocoindex_code/` to `.gitignore`; merge the SKF exclusion patterns and remove ones a previous folder config left behind), then create or refresh the project ccc index
 
-**About tiers:** SKF picks one of four tiers (Quick / Forge / Forge+ / Deep) based on which tools are installed. **All four are fully usable**: higher tiers add power, they don't fix gaps. If you're new and only have a base Python install, Quick tier is the right starting point and the report at the end will show you exactly which tools to install if you want to climb later.
+**About tiers:** SKF picks one of four tiers (Quick / Forge / Forge+ / Deep) based on which tools are installed, each at its minimum version or newer. **All four are fully usable**: higher tiers add power, they don't fix gaps. If you're new and only have a base Python install, Quick tier is the right starting point and the report at the end will show you exactly which tools to install or upgrade if you want to climb later.
 
 Press Esc or Ctrl+C now if this isn't the right project: none of the files above has been written yet (if you stop here, delete `{run_dir}`)."
 

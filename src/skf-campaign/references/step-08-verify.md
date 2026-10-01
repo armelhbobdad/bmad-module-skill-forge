@@ -57,12 +57,12 @@ SKF_VERIFY_STACK_RESULT_JSON: {"status":"…","report_path":"…","report_latest
 
 **On success** (exit code 0): persist the summary to `campaign.verification` (detailed findings stay in the external report):
 
-- `campaign.verification.report_path` — `report_latest_path` from the envelope
-- `campaign.verification.overall_verdict` — one of `Verified`, `Plausible`, `Risky`, `Blocked`
-- `campaign.verification.coverage_percentage` — from the envelope
-- `campaign.verification.recommendation_count` — from the envelope
+- `campaign.verification.report_path`: `report_path` from the envelope, the timestamped report no later Verify Stack run rewrites (step-09 hands it to RA)
+- `campaign.verification.overall_verdict`: `overall_verdict` from the envelope, one of `FEASIBLE`, `CONDITIONALLY_FEASIBLE` or `NOT_FEASIBLE`
+- `campaign.verification.coverage_percentage`: from the envelope
+- `campaign.verification.recommendation_count`: from the envelope
 
-Also set `campaign.capstone.verified` to `true` when `overall_verdict == "Verified"`, otherwise `false` (only if a `campaign.capstone` entry exists from step-07).
+Also set `campaign.capstone.verified` to `true` when `overall_verdict` is `FEASIBLE`, otherwise `false` (only if a `campaign.capstone` entry exists from step-07).
 
 **On VS failure** (non-zero exit): log the error (exit code and halt_reason from the envelope or stderr). Verification failure does NOT block the campaign — it produces diagnostic information for operator review. Leave `campaign.verification` unset (or null). Continue to §6 regardless of outcome.
 

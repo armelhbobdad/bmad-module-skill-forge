@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-campaign
+summary: |
+  Campaign Setup no longer asks whether to send anonymized quality findings to the shared improvement queue, and `health_findings_queue` is no longer a required field of `_campaign-state.yaml`. The field stays optional and is ignored, in the state and in `campaign-brief.yaml`, so older campaigns still validate and resume. The end-of-run health check decides where findings go, as it does for every workflow: it asks before it submits a finding, and a headless run queues every finding locally. The completion message no longer shows a findings-routing setting: it shows how many skills completed and failed, and how long the run took. The Skill Loop also no longer tells the model to write campaign-level `workarounds_applied` and `quality_score`, keys the state schema rejects (a run that wrote them stopped with exit `3` at the next stage); both stay recorded per skill.
+migration: |
+  Nothing to change in an existing campaign. To send findings to the shared queue, answer the health check's question at the end of an interactive run. A script or brief that sets `health_findings_queue` can drop it, since Campaign ignores it.
+prs: [631]
+issues: [599]

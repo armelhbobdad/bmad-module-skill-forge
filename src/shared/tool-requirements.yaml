@@ -16,6 +16,15 @@
 # - `minimum: null` means SKF has no floor it can check yet. A null minimum
 #   never warns. Node and Python always have one, since --check compares
 #   their copies with it.
+# - A tier tool's minimum also decides its tier: skf-setup counts a tier tool
+#   below its minimum as unavailable. So a first minimum for gh, qmd or ccc
+#   waits for a recorded run, and stays at or below the versions package
+#   managers ship, or their users drop out of Deep or Forge+. Other tools
+#   below their minimum only warn.
+# - Raising a minimum, or giving a tool its first one, is a breaking change:
+#   the release check (tools/covered-surfaces.js) asks for a major release
+#   and a breaking change fragment that names the tool. Lowering or removing
+#   one is additive, and changing `tested` is neither.
 #
 # To change a version, edit this file and run
 # `node tools/tool-requirements.js --write`, which regenerates the

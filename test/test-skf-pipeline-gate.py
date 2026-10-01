@@ -568,7 +568,7 @@ def test_the_circuit_breaker_table_names_what_the_gate_decides():
 def _step_4d() -> str:
     text = _read(PIPELINE_MODE)
     start = text.index("   - d. **Check the circuit breaker.**")
-    return text[start:text.index("   - e. **Report completion:**")]
+    return text[start:text.index("   - e. **", start)]
 
 
 def _documented_gate_call() -> tuple[list[str], str]:
@@ -628,10 +628,14 @@ def test_step_4d_acts_on_the_decision_and_compares_no_score():
     assert "validate it against the threshold" not in _read(PIPELINE_MODE)
 
 
-def test_special_behaviors_defer_to_the_gate():
-    special = _section(_read(PIPELINE_MODE), "## Special behaviors")
-    ts_ex = next(line for line in special.splitlines() if line.startswith("- **`TS` followed by `EX`:**"))
+def test_the_ts_to_ex_rule_has_one_home_in_the_contracts():
+    """Step 4d runs the gate; the contracts state when EX runs after TS, and
+    the run procedure keeps no copy of that rule."""
+    assert "`TS` followed by `EX`" not in _section(_read(PIPELINE_MODE), "## Special behaviors")
+    contracts = _read(CONTRACTS)
+    ts_ex = next(line for line in _section(contracts, "## Data Flow").splitlines() if line.startswith("| TS | EX |"))
     assert "below the circuit-breaker threshold" not in ts_ex
-    assert "the gate continues after TS" in ts_ex
+    assert "`next_workflow` is `export-skill`" in ts_ex
+    ts_row = next(line for line in _section(contracts, "## Circuit Breakers").splitlines() if line.startswith("| TS |"))
     for verdict in ("FAIL", "INCONCLUSIVE", "pass-with-drift", "post-score cap"):
-        assert verdict in ts_ex, verdict
+        assert verdict in ts_ex + ts_row, verdict

@@ -83,6 +83,8 @@ Explicit non-commitments: ANSI color choices, exact prose wording, precise layou
 
 SKF supports the Node.js major versions declared in `package.json` `engines.node` (currently `>=22.0.0`). Dropping a supported major is breaking; adding support for a new major is additive. Linux, macOS, and Windows are supported runtime platforms; dropping OS support is breaking. Adding support for a new platform is additive.
 
+The external tools SKF runs have minimum versions too, in `src/shared/tool-requirements.yaml` (installed as `_bmad/skf/shared/tool-requirements.yaml`), such as ast-grep >= 0.45.3 and git >= 2.15; a tool whose `minimum` is null has none. `skf install`, `skf update` and `skf status` report each tool against its minimum, and `skf-setup` counts no tier tool below its minimum toward the capability tier. Raising a tool's minimum, or giving a tool a minimum it did not have, is breaking. Lowering or removing a minimum is additive. Changing a tool's `tested` versions is neither. The release check compares these minimums with the last stable release, as it does the items of [§ Workflow Contract Surfaces](#workflow-contract-surfaces): a raised or new minimum needs a major release and a breaking change fragment that names the tool.
+
 ### Workflow Contract Surfaces
 
 These are the parts of SKF's workflows that pipelines, scripts and saved Ferris commands depend on by name. Removing or renaming any item below is breaking (major), and adding one is additive (minor); for a flag, removing it means what the **Workflow flags** entry says:
@@ -130,7 +132,7 @@ Shrinking the covered surface (removing a commitment) is a breaking change and r
 What each version changed in this contract:
 
 - **v1.0.0**: the contract took effect, with the first six buckets of [§ Covered Surfaces](#covered-surfaces).
-- **v3.0.0**: added [§ Workflow Contract Surfaces](#workflow-contract-surfaces), which widens what the contract covers and removes nothing from it, so it is an additive change. It also adopted the BCP 14 keywords, stopped counting the workflow exit codes, `halt_reason` and `error.phase` values and preference keys that the release check reviews among the `@internal` surfaces free to change in any release, restated the `SKILL.md` description rule as rule `SKILL-06` checks it, and recorded that `package.json` declares no `main` field, so requiring the package throws `MODULE_NOT_FOUND`.
+- **v3.0.0**: added [§ Workflow Contract Surfaces](#workflow-contract-surfaces), which widens what the contract covers and removes nothing from it, so it is an additive change. It also adopted the BCP 14 keywords, stopped counting the workflow exit codes, `halt_reason` and `error.phase` values and preference keys that the release check reviews among the `@internal` surfaces free to change in any release, restated the `SKILL.md` description rule as rule `SKILL-06` checks it, and recorded that `package.json` declares no `main` field, so requiring the package throws `MODULE_NOT_FOUND`. It also added the tool minimums of `tool-requirements.yaml` to [§ Engine & Platform Compatibility](#engine--platform-compatibility), so raising or adding one is breaking.
 
 ## References
 

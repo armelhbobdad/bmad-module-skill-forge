@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-campaign
+summary: |
+  Campaign now records the verdict Verify Stack returns. `campaign.verification.overall_verdict` in `_campaign-state.yaml` takes `FEASIBLE`, `CONDITIONALLY_FEASIBLE` or `NOT_FEASIBLE`, and the values `Verified`, `Plausible`, `Risky` and `Blocked` are removed: they are per-pair verdicts, so a real overall verdict failed state validation, and `campaign.capstone.verified` could never be `true`. It is now `true` when the verdict is `FEASIBLE`. The verification stage now saves the timestamped report Verify Stack wrote (the envelope's `report_path`, `feasibility-report-<slug>-<timestamp>.md`) in `campaign.verification.report_path`, instead of the `-latest` copy that every later Verify Stack run rewrites. The refinement stage hands Refine Architecture that report, where it used to search `feasibility-report-*-latest.md` on resume (and could pick a stale report or miss a customized output folder). When that path is empty, it passes `--vs-report-path none` so Refine Architecture refines without a report.
+migration: |
+  If `_campaign-state.yaml` holds `Verified`, `Plausible`, `Risky` or `Blocked` in `campaign.verification.overall_verdict`, set it to the `overallVerdict` of the report at `campaign.verification.report_path`, or to `null`, then run `campaign resume`. A script that reads the field compares it with `FEASIBLE`, `CONDITIONALLY_FEASIBLE` and `NOT_FEASIBLE`.
+prs: [631]
+issues: [590]

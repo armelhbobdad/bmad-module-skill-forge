@@ -1,6 +1,7 @@
 /**
  * SKF Status Command
- * Shows installation state, version, tier, configured IDEs, and sidecar status.
+ * Shows installation state, version, tier, configured IDEs, and sidecar status,
+ * and under the tier the last setup recorded, the tools installed now.
  */
 
 const chalk = require('chalk');
@@ -9,6 +10,7 @@ const fs = require('fs-extra');
 const yaml = require('js-yaml');
 const { readManifest } = require('../lib/manifest');
 const { getAvailablePlatforms } = require('../lib/ide-skills');
+const { startToolCheck } = require('../lib/tool-check');
 
 const SKF_FOLDER = '_bmad/skf';
 const SIDECAR_FOLDER = '_bmad/_memory/forger-sidecar';
@@ -94,7 +96,11 @@ async function getStatus(projectDir) {
   };
 }
 
-function displayStatus(status, version) {
+/**
+ * Print the status. `printToolReport` prints what is installed now, below
+ * the tier and tools the last setup recorded.
+ */
+async function displayStatus(status, version, printToolReport) {
   console.log('');
   console.log(chalk.hex('#F59E0B').bold('  Skill Forge — Status'));
   console.log(chalk.dim(`  v${version}`));
@@ -104,6 +110,7 @@ function displayStatus(status, version) {
     console.log(chalk.yellow('  Not installed.'));
     console.log(chalk.dim('  Run: npx bmad-module-skill-forge install'));
     console.log('');
+    await printToolReport();
     return;
   }
 
@@ -157,6 +164,8 @@ function displayStatus(status, version) {
   console.log(`    QMD:          ${formatTool(tools.qmd)}`);
   console.log('');
 
+  await printToolReport();
+
   // Output Folders
   console.log(chalk.white.bold('  Output Folders'));
   console.log(`    Skills:       ${status.skillsFolder}/ ${status.skillsFolderExists ? chalk.green('✓') : chalk.yellow('missing')}`);
@@ -181,12 +190,15 @@ module.exports = {
   description: 'Show SKF installation state, version, tier, and configuration',
   options: [],
   action: async () => {
+    const printToolReport = startToolCheck();
     try {
       const projectDir = process.cwd();
       const packageJson = require('../../../package.json');
       const status = await getStatus(projectDir);
-      displayStatus(status, packageJson.version);
+      await displayStatus(status, packageJson.version, printToolReport);
     } catch (error) {
+      // No report follows: stop the probes still running, so none outlives the exit.
+      printToolReport.stop();
       console.error(chalk.red('\nFailed to read status:'), error.message);
       process.exit(1);
     }

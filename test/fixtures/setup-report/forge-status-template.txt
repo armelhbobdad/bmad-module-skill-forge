@@ -1,0 +1,124 @@
+═══════════════════════════════════════
+  FORGE STATUS
+═══════════════════════════════════════
+
+  Tier:  {calculated_tier}
+  {tier capability description from tier-rules.md}
+
+  Tools Detected:
+  {for each tool that is available: - <tool> <version>, where <version> is the probe's version line without the tool's name or a leading "version"; ccc adds its daemon, - ccc <version> (daemon {ccc_daemon}), its version known only when uv installed it}
+  {if no tools are available and ast-grep is not below its minimum: (none yet, see "Climb to next tier" below)}
+  {if no tools are available and ast-grep is below its minimum: (none yet, see "Tool upgrades" below)}
+
+  {if a tool is below its minimum:}
+  Tool upgrades:
+  {for each tool below its minimum, in the order of tool-requirements.yaml: - Upgrade <name> <version> to <minimum> or newer (<upgrade>) to use the <tier> tier, with no (<upgrade>) for a tool that has none and no tier for a tool that is not a tier tool}
+  {end if}
+
+  {if calculated_tier is not Deep and a hint below holds:}
+  Climb to next tier:
+  {if not tools.ast_grep and ast-grep is not below its minimum: - Install ast-grep (https://ast-grep.github.io): unlocks AST-backed code analysis (Forge tier)}
+  {if tools.ast_grep and not tools.ccc and ccc is not below its minimum: - Install cocoindex-code (https://github.com/cocoindex-io/cocoindex-code): adds semantic-guided precision compilation (Forge+ tier)}
+  {if tools.ast_grep and not tools.gh_cli and gh is not below its minimum: - Install GitHub CLI (https://cli.github.com): required for Deep tier (cross-repository synthesis)}
+  {if tools.ast_grep and not tools.qmd and qmd_status is "absent": - Install qmd (https://github.com/tobi/qmd): required for Deep tier (knowledge search)}
+  {if tools.ast_grep and not tools.qmd and qmd_status is "daemon_stopped" and qmd is not below its minimum: - Start the qmd daemon (already installed): run `qmd start` (or your distribution's qmd service command) to unlock Deep tier (knowledge search)}
+  {if tools.ccc and ccc_daemon is "error": - The ccc daemon is reporting errors: run `ccc doctor` to diagnose. CCC index will fail until resolved}
+  {end if}
+
+  {if hygiene_result is "completed":}
+  QMD Registry:
+  {hygiene_healthy} collection(s) healthy
+  {if hygiene_orphaned_removed > 0: {hygiene_orphaned_removed} orphaned collection(s) removed}
+  {if hygiene_orphaned_kept > 0: {hygiene_orphaned_kept} orphaned collection(s) kept}
+  {if hygiene_stale_cleaned > 0: {hygiene_stale_cleaned} stale QMD registry entry/entries cleaned}
+  {end if}
+
+  {if ccc_registry_stale_cleaned > 0:}
+  CCC Registry: {ccc_registry_stale_cleaned} stale entry/entries cleaned
+  {end if}
+
+  {if hygiene_result is "completed" and hygiene_healthy is 0:}
+  QMD Registry: empty. Collections are created automatically when you run /skf-create-skill.
+  {end if}
+
+  {if hygiene_result is "qmd_unavailable":}
+  QMD Registry: skipped (qmd unavailable; if the daemon is stopped, `qmd start` restores it).
+  {end if}
+
+  {if tools.ccc is true:}
+  CCC Index:
+  {if ccc_index_result is "fresh": up to date, semantic discovery ready}
+  {if ccc_index_result is "created": indexed this run, semantic discovery ready}
+  {if ccc_index_result is "skipped": skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to build or refresh the index when you're ready}
+  {if ccc_index_result is "failed": indexing failed, semantic discovery unavailable this session ({ccc_indexing_failed_reason})}
+  {if ccc_exclusion_warnings is non-empty:}
+  CCC exclusion notes:
+  {for each entry in ccc_exclusion_warnings: - {entry}, its {project-root} shown as the resolved project root}
+  {end if}
+  {end if}
+
+  Files written this run:
+  - forge-tier.yaml: {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml
+  {if preferences_yaml_created is true:}
+  - preferences.yaml: {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)
+  {end if}
+  - {forge_data_folder}/ (directory ensured)
+  {if settings_yml_written is true:}
+  - .cocoindex_code/settings.yml: {project-root}/.cocoindex_code/settings.yml ({settings_yml_patterns_added} SKF exclusion pattern(s) merged{if settings_yml_patterns_removed > 0:}, {settings_yml_patterns_removed} stale SKF pattern(s) removed{end if})
+  {end if}
+  {if gitignore_updated is true:}
+  - .gitignore: {project-root}/.gitignore (`/.cocoindex_code/` added by `ccc init`)
+  {end if}
+  {if ccc_index_result is "created":}
+  - .cocoindex_code/ ccc index: {ccc_file_count} files indexed
+  {end if}
+
+{if tier_override is active:}
+  Note: Tier override active (set in preferences.yaml)
+
+{if tier_override_invalid is true:}
+  Note: tier_override value "{tier_override_invalid_value}" in preferences.yaml is not valid.
+        {if tier_override_invalid_suggestion is non-null: Did you mean "{tier_override_invalid_suggestion}"?}
+        Valid values are case-sensitive: Quick, Forge, Forge+, Deep. Using detected tier {calculated_tier}.
+
+{if tier_override_unsafe is true:}
+  Warning: tier_override is forcing {calculated_tier} but the underlying tool prerequisites are not satisfied.
+           Missing: {tier_override_unsafe_missing}. The override is honored, but downstream skills that
+           rely on the missing tool(s) will fail at runtime. Install the missing tool(s) or remove
+           the override from preferences.yaml.
+
+{if {previous_tier} is null:}
+  Initial detection: {calculated_tier} tier established.
+
+{if {tier_changed} is true:}
+  {appropriate upgrade/downgrade message from tier-rules.md, naming no tool below its minimum}
+
+{if {tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} is non-null:}
+  {same-tier message from tier-rules.md}
+  {if preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "fresh": Your preferences and ccc settings were left untouched, and the ccc index was already current.}
+  {if preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "skipped": Your preferences and ccc settings were left untouched; the ccc index was not checked (--ccc-skip-index).}
+  {if preferences_yaml_created is false and ccc_index_result is "none": Your preferences were left untouched.}
+
+{if {tier_changed} is false and ({tools_added} or {tools_removed} is non-empty) and {previous_tier} is non-null:}
+  Tier unchanged: {calculated_tier}.
+  {if {tools_added} non-empty:} Newly detected: {comma-separated tool names from tools_added}.{if ccc was added and tier is Deep: " ccc enhances Deep tier transparently."}
+  {if a tool in {tools_removed} is not below its minimum:} No longer detected: {comma-separated names of the tools_removed not below their minimum}. Re-install to restore those capabilities.
+
+═══════════════════════════════════════
+  Forge ready. {calculated_tier} tier active.
+═══════════════════════════════════════
+
+  Next: the fastest start is `@Ferris forge-auto <repo-or-doc-url>`: one command auto-scopes, briefs, compiles, tests at a 90% quality gate, and exports a verified skill with zero configuration. Prefer to scope by hand? `/skf-brief-skill` scopes your first compilation target, or `/skf-quick-skill` is a fast template-driven path. Already have a skill? `/skf-audit-skill` drift-checks an existing skill against current sources.
+
+  {if require_tier_satisfied is false:}
+═══════════════════════════════════════
+  REQUIRED TIER NOT MET
+═══════════════════════════════════════
+
+  Required:  {require_tier}
+  Detected:  {calculated_tier}
+  Missing:   {require_tier_failure_missing}
+
+  Install or upgrade the missing tool(s) and re-run, or relax `--require-tier`.
+═══════════════════════════════════════
+  {end if}

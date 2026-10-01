@@ -26,38 +26,38 @@ This is the only step that creates the state file (it does not yet exist). All s
 
 ## TASKS
 
-### §1 — Collect Inputs
+### §1: Collect Inputs
 
-Accept from the operator (or, in headless mode, from the `--brief`/`--manifest` source parsed in On Activation):
+A campaign needs a `campaign_name` and its target libraries. Each target has:
 
-- `campaign_name` — string identifier for this campaign run
-- Target libraries — each entry requires:
-  - `name` — skill name
-  - `repo_url` — source repository URL
-  - `tier` — `"A"` (full pipeline) or `"B"` (batch)
-  - `pin` — version pin (string) or `null` for latest
-  - `depends_on` — array of skill names this target depends on (may be empty)
-- `directive_path` (optional) — path to a `_campaign-directive.md` file with operator directives (contract: `references/campaign-directive-spec.md`)
-- `architecture_doc_path` (optional) — path to the architecture document the verify (Stage 7) and refine (Stage 8) stages consume. If omitted here, those stages discover it at runtime (`docs/architecture.md`, then `_bmad-output/planning-artifacts/architecture.md`). Capturing it now persists the choice across resume and avoids re-prompting.
+- `name`: skill name
+- `repo_url`: source repository URL
+- `tier`: `"A"` (full pipeline) or `"B"` (batch)
+- `pin`: version pin (string), or `null` for latest
+- `depends_on`: array of skill names this target depends on (may be empty)
 
-When seeding from `--manifest`, parse it deterministically: `uv run {manifestScript} <manifest-file>`. If the result's `errors[]` is non-empty (script exit 1), HALT (exit code 2, `invalid-input`) listing the offending line numbers — never run a partial target set. When seeding from `--brief`, read the existing `campaign-brief.yaml` directly.
+Two paths are optional:
 
-If no targets can be collected (empty interactive input or empty `--brief`/`--manifest`), HALT (exit code 2, `invalid-input`) with guidance — a campaign needs at least one target.
+- `directive_path`: a `_campaign-directive.md` file with operator directives (contract: `references/campaign-directive-spec.md`)
+- `architecture_doc_path`: the architecture document the verify (Stage 7) and refine (Stage 8) stages consume. If omitted here, those stages discover it at runtime (`{project-root}/docs/architecture.md`, then `{project-root}/_bmad-output/planning-artifacts/architecture.md`). Capturing it now persists the choice across resume and avoids re-prompting.
 
-### §2 — Health Queue Preference
+A field no source gives takes its default: `tier` `"A"`, `pin` `null`, `depends_on` empty, and `campaign_name` the brief's `campaign_name`, else `{project_name}`.
 
-Default to `"local"` (project-local findings queue). Present the opt-in prompt:
+**Headless** (`--brief` and `--manifest` imply it): take the inputs from the source On Activation parsed. Parse a `--manifest` file deterministically with `uv run {manifestScript} <manifest-file>`; read a `--brief` file's `campaign-brief.yaml` fields directly.
 
-> Send anonymized quality findings to the shared improvement queue? [y/N]
+**Interactive:** open with this one question, and ask nothing before it:
 
-- **y** — set `health_findings_queue` to `"improvement"`
-- **N** (default) — keep `health_findings_queue` as `"local"`
+> Share the targets for this campaign in whatever form you have them: a manifest or `campaign-brief.yaml` path, a pasted list, or repository URLs. Add a campaign name and a directive or architecture document path if you have them.
 
-In headless mode: auto-select `"local"` (N) and log the auto-decision.
+Turn the answer into targets: a manifest path goes through `uv run {manifestScript} <manifest-file>`, and a brief path is read directly. A pasted list or bare repository URLs are first rewritten as manifest lines in the `--manifest` format On Activation describes (the name taken from the repository when none is given), then piped to `uv run {manifestScript} -`. Show the drafted campaign once for correction: the campaign name, the directive and architecture paths (or none), and one table of the targets with `name`, `repo_url`, `tier`, `pin` and `depends_on`. After the operator's corrections, ask only about what is still missing or ambiguous (a target with no repository URL, a `depends_on` name that is no target), all in one question.
 
-### §3 — Build State Object
+A manifest line the parser rejects (`errors[]` non-empty, script exit 1) never yields a partial target set: in headless, HALT (exit code 2, `invalid-input`) listing the offending line numbers; interactively, show those lines and ask for them corrected.
 
-Construct `_campaign-state.yaml` in memory from collected inputs. Use the campaign-wide quality gate resolved in On Activation: `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}`. Note: `repo_url` (collected in §1) is NOT part of the state schema — it belongs in the brief only (§5). The state schema enforces `additionalProperties: false`, so including it would fail validation.
+If no targets can be collected (an empty answer, or an empty `--brief` or `--manifest`), HALT (exit code 2, `invalid-input`) with guidance: a campaign needs at least one target.
+
+### §2: Build State Object
+
+Construct `_campaign-state.yaml` in memory from collected inputs. Use the campaign-wide quality gate resolved in On Activation: `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}`. Note: `repo_url` (collected in §1) is NOT part of the state schema: it belongs in the brief only (§4). The state schema enforces `additionalProperties: false`, so including it would fail validation.
 
 ```yaml
 campaign:
@@ -71,7 +71,6 @@ campaign:
     hard: "{qualityGateHard}"
     soft_target: {qualityGateSoftTarget}
     soft_fallback: {qualityGateSoftFallback}
-  health_findings_queue: "{local or improvement}"
 skills:
   # One entry per target:
   - name: "{target.name}"
@@ -90,23 +89,22 @@ dependency_graph:
   circular_deps_detected: false
 ```
 
-### §4 — Write + Validate State
+### §3: Write + Validate State
 
 1. Ensure the directory `{campaignWorkspacePath}/` exists (create if missing).
 2. Write the constructed state to `{stateFile}`. This is the initial creation — no `.bak` is needed for the first write; all subsequent steps use read-backup-modify-write.
 3. Run `uv run {validateScript} --state-file {stateFile}`. On non-zero (invalid), **HALT** (exit 3) with the script's `errors[]` — do not proceed to brief generation with an invalid state file.
 
-### §5 — Generate Brief
+### §4: Generate Brief
 
 Populate `{templateFile}` with collected inputs and write to `{briefFile}`. Fill in:
 
-- `campaign_name` — from collected input
-- `created_at` — current ISO-8601 timestamp with timezone
-- `targets` — array of target entries with `name`, `repo_url`, `tier`, `pin`, `depends_on`
-- `quality_gate` — `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}`
-- `health_findings_queue` — from the §2 preference decision
-- `architecture_doc_path` — from collected input, or empty string if not provided
-- `notes` — operator-provided context, or empty string
+- `campaign_name`: from collected input
+- `created_at`: current ISO-8601 timestamp with timezone
+- `targets`: one entry per target with `name`, `repo_url`, `tier`, `pin` and `depends_on`, plus every other field its source gave it (a language or scope hint, for example)
+- `quality_gate`: `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}`
+- `architecture_doc_path`: from collected input, or empty string if not provided
+- `notes`: operator-provided context, or empty string
 
 The brief is a machine-readable snapshot enabling fresh-context resume.
 
@@ -116,6 +114,5 @@ Confirm state file creation and brief generation. Display summary:
 
 - Campaign name
 - Number of targets
-- Health queue setting
 
 Chain to `{nextStepFile}`.
