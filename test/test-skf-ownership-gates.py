@@ -87,7 +87,7 @@ CONTRACT_FILES = {
     "src/skf-export-skill/references/result-envelope.md": ("not-skf-output",),
     "src/skf-export-skill/SKILL.md": ("not-skf-output",),
     "src/skf-audit-skill/references/headless-contract.md": ("not-skf-output",),
-    "src/skf-test-skill/SKILL.md": ("not-skf-output",),
+    "src/skf-test-skill/references/invocation-contract.md": ("not-skf-output",),
     QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
     SS_SKILL: ("not-skf-output", "flat-layout"),
     CS_SCHEMA: ("not-skf-output", "flat-layout", "description-angle-brackets"),

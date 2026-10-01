@@ -44,6 +44,8 @@ Reflect on the workflow that just completed. If real friction, bugs, or gaps wer
 
 **Envelope-only runs.** Treat `{quiet_mode}` as true only when the workflow that loaded this step is skf-setup and it set `{quiet_mode}` to true. In every other case (unset, another workflow ran, or the user asked for this health check directly) treat it as false. skf-setup sets it under `--quiet` or in headless mode because its result envelope must be the only line setup displays. When it is true, this whole step displays nothing of its own and writes no text between tool calls: skip this announcement and its headless log, and queue any findings locally through **[Q]** without presenting them (§3, §4). Wherever it stops (the clean-run stop in §2, or the end of §5c), it displays skf-setup's `{setup_envelope_line}` verbatim after every tool call, with no code fence and nothing of this step's own before or after it (nothing at all if that line is empty). In a standalone setup run that line is the final message, because `claude -p` prints only the final message. When `{pipeline_mode}` is true, skf-setup is one step of a forger pipeline: control then returns to the forger, which keeps chaining.
 
+**Result envelope line.** Any other workflow may bind `{result_envelope_line}` before it loads this step, in headless mode only, to the result envelope line its run printed through the shared emitter (its `SKF_<NAME>_RESULT_JSON: ...` line; skf-test-skill's report step binds its `SKF_TEST_RESULT_JSON` line). When it is bound and not empty, wherever this step stops (the clean-run stop in §2, or the end of §5c) it displays that line verbatim as its very last line, after everything else it displays, with no code fence and nothing after it. In a standalone headless run, such as `claude -p`, which prints only the final message, that line is then the final message a pipeline reads. A workflow that binds nothing gets nothing extra.
+
 **Display in `{communication_language}`:**
 
 "**Running a quick self-improvement check on this workflow.** If nothing rough came up, I'll close out immediately."
@@ -75,6 +77,8 @@ If `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0). Otherwise
 "**Health Check: Clean run.** No workflow issues to report.
 
 Workflow complete."
+
+When `{result_envelope_line}` is bound (§0), display it verbatim after that, as the last line.
 
 **STOP HERE. Do not proceed further. The workflow is done.**
 
@@ -383,6 +387,8 @@ After writing all files, if `{quiet_mode}` is true, display only `{setup_envelop
 Or open them manually at: <https://github.com/{healthCheckRepo}/issues/new/choose>
 
 Workflow complete."
+
+When `{result_envelope_line}` is bound (§0), display it verbatim after that block, as the last line.
 
 ---
 

@@ -17,14 +17,18 @@ so two runs over the same files always agree.
 Subcommands:
   scan <skill-md>
       Emit JSON describing fence balance, bare opening fences (no language
-      tag), and table column-count drift:
+      tag), table column-count drift and the Scripts & Assets section (see
+      "Scripts & Assets section" below):
         {
           "unbalanced_fences": <bool>,
           "fence_count": N,
           "bare_opening_fences": [{"line": N, "text": "..."}, ...],
           "table_drift": [{"line": N, "section": "<heading>",
                            "expected_cols": N, "actual_cols": N,
-                           "row": "..."}]
+                           "row": "..."}],
+          "scripts_assets": {"folders": ["assets", "scripts"],
+                             "section": {"heading": "...", "line": N} | null,
+                             "missing": <bool>}
         }
 
   scan <skill-md> --required-sections
@@ -124,6 +128,7 @@ Subcommands:
                           "root": "skill" | "source" | "skills" | null},
                          ...],
           "counts": {"total": N, "ok": N, "missing": N, "escapes": N},
+          "scripts_assets": {...},
           "warnings": ["--source-root is not a directory: <dir>", ...]
         }
       A target resolves against the SKILL.md folder and through every
@@ -139,6 +144,14 @@ Subcommands:
       reference. A --source-root or --skills-root that is not a
       directory (a stale metadata.json `source_root`, say) is a warning,
       not an error.
+
+Scripts & Assets section:
+  `folders` lists the `scripts` and `assets` folders beside SKILL.md,
+  sorted; `section` is the first heading outside the frontmatter and
+  fenced code whose text starts with `Scripts` (case-insensitive, any
+  level: the section the reference extraction below also reads), with its
+  text and line, or null; `missing` is true when a folder exists and no
+  such section does, the gap test-skill's coherence check records.
 
 Heading match rule:
   Match the first `^#+\\s+<heading>$` (any number of `#`, case-insensitive,
@@ -1032,6 +1045,26 @@ def extract_references(
     return refs
 
 
+def scripts_assets_section(text: str, skill_dir: Path) -> dict:
+    """The package's scripts/ and assets/ folders and its Scripts & Assets heading."""
+    lines = _split_lines(text)
+    start = _frontmatter_end(lines)
+    heading = next(
+        (
+            {"heading": t, "line": idx + 1}
+            for idx, _, t in _body_headings(lines, start, _code_lines(lines, start))
+            if t.lower().startswith("scripts")
+        ),
+        None,
+    )
+    folders = sorted(f for f in _PACKAGE_FOLDERS if (skill_dir / f).is_dir())
+    return {
+        "folders": folders,
+        "section": heading,
+        "missing": bool(folders) and heading is None,
+    }
+
+
 def _realpath(path: str) -> str:
     try:
         return os.path.realpath(path)
@@ -1149,6 +1182,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             "fence_count": fence_count,
             "bare_opening_fences": bare,
             "table_drift": find_table_drift(text),
+            "scripts_assets": scripts_assets_section(text, skill_md.parent),
         }
 
     json.dump(payload, sys.stdout, indent=2)
@@ -1467,6 +1501,9 @@ def _cmd_reference_check(args: argparse.Namespace) -> int:
     payload = check_references(
         refs, str(skill_dir), args.source_root, args.skills_root
     )
+    warnings = payload.pop("warnings")
+    payload["scripts_assets"] = scripts_assets_section(text, skill_dir)
+    payload["warnings"] = warnings
     return _emit(payload)
 
 

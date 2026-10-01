@@ -19,6 +19,7 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name>
      uv run skf-skill-inventory.py <skills-output-folder> --manifest-only
      uv run skf-skill-inventory.py <skills-output-folder> --match-target <url-or-name>
+     uv run skf-skill-inventory.py <skills-output-folder> --near <name>
      uv run skf-skill-inventory.py derive-name --target <url-or-path> [--manifest-name <name>]
          [--skills-folder <skills-output-folder>]
      uv run skf-skill-inventory.py derive-name --from <names.json|-> [--skills-folder <folder>]
@@ -160,6 +161,16 @@ and `duplicates` the index groups still sharing one. With
 name in the folder, in the `matches[]` entry shape below (`match_reason`
 "name"), or null.
 
+Near names. `--near <name>` adds a top-level `near[]`: every skill SKF
+generated that has a SKILL.md (`skf_skill` and `has_skill_md`), as
+{name, active_version, close}, the closest to the name first. test-skill
+shows it when the name it was given resolves to no version, instead of
+sending the user to create a skill that may already exist. A name is
+`close` when one name holds the other (case-insensitive) or difflib's
+similarity ratio of the lower-cased names reaches 0.6 (the cutoff of
+difflib.get_close_matches); the close names come first, then each group by
+ratio, highest first, then by name.
+
 The --match-target mode deterministically computes coexistence matches: it
 normalizes scheme / trailing .git / trailing slash, derives the expected
 skill name (`derive_name`), compares case-insensitively, and emits a
@@ -171,6 +182,7 @@ by hand (identical (target, inventory) always yields the same match set).
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -309,7 +321,9 @@ FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", 
 # The other names SKF writes into a forge version folder
 # (knowledge/version-paths.md, forge_data_folder tree), and
 # .manual-inventory.json, which update-skill kept there before it kept
-# that inventory beside its lock.
+# that inventory beside its lock. A test-skill run writes its report as
+# .skf-test-report-{name}-{run_id}.md beside .test-skill.lock until the
+# report's checks pass: like every `.skf-` name it is SKF's, never foreign.
 FORGE_VERSION_FILES = FORGE_VERSION_ANCHORS | frozenset({
     "evidence-report-fallback.md", "extraction-snapshot.json", ".manual-inventory.json",
     ".test-skill.lock"})
@@ -2013,8 +2027,35 @@ def existing_by_name(skills_folder):
             for entry in inventory["skills"]}
 
 
+# A name at least this similar to the name asked for is a near match (the
+# default cutoff of difflib.get_close_matches).
+NEAR_CUTOFF = 0.6
+
+
+def near_skills(skills, query):
+    """The skills SKF generated that have a SKILL.md, closest to `query` first.
+
+    >>> skills = [{"name": n, "skf_skill": True, "has_skill_md": True, "active_version": "1.0.0"}
+    ...           for n in ("zod", "cocoindex-code", "cocoindx")]
+    >>> [(s["name"], s["close"]) for s in near_skills(skills, "cocoindex")]
+    [('cocoindx', True), ('cocoindex-code', True), ('zod', False)]
+    """
+    wanted = (query or "").strip().lower()
+    ranked = []
+    for entry in skills:
+        if not (entry.get("skf_skill") and entry.get("has_skill_md")):
+            continue
+        name = str(entry.get("name") or "")
+        lowered = name.lower()
+        ratio = difflib.SequenceMatcher(None, wanted, lowered).ratio()
+        close = bool(wanted) and (wanted in lowered or lowered in wanted or ratio >= NEAR_CUTOFF)
+        ranked.append(((not close, -ratio, name),
+                       {"name": name, "active_version": entry.get("active_version"), "close": close}))
+    return [item for _, item in sorted(ranked, key=lambda pair: pair[0])]
+
+
 def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_target=None,
-                   forge_data_folder=None):
+                   forge_data_folder=None, near=None):
     """Scan the skills output folder and produce an inventory."""
     skills_dir = Path(skills_folder)
     forge_dir = Path(forge_data_folder) if forge_data_folder else None
@@ -2105,13 +2146,16 @@ def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_
     if match_target is not None:
         result["match_name"] = derive_name(match_target)
         result["matches"] = compute_matches(result["skills"], match_target)
+    # Near names (opt-in via --near; additive top-level key).
+    if near is not None:
+        result["near"] = near_skills(result["skills"], near)
 
     return result
 
 
 USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "[--skill <name>] [--manifest-only] [--match-target <url-or-name>] "
-         "[--forge-data-folder <path>]\n"
+         "[--near <name>] [--forge-data-folder <path>]\n"
          "       uv run skf-skill-inventory.py derive-name --target <url-or-path> "
          "[--manifest-name <name>] [--skills-folder <skills-output-folder>]\n"
          "       uv run skf-skill-inventory.py derive-name --from <names.json|-> "
@@ -2395,6 +2439,7 @@ def main(argv):
             raise ValueError("pass one of " + ", ".join(CHECK_FLAGS) + ", not several")
         skill = _flag_value(argv, "--skill", required=check is not None)
         match_target = _flag_value(argv, "--match-target")
+        near = _flag_value(argv, "--near", required=True)
         forge_data_folder = _flag_value(argv, "--forge-data-folder", required=True)
         versions = {flag: _flag_value(argv, flag, required=True)
                     for flag in ("--write-version", "--purge-version")}
@@ -2440,6 +2485,7 @@ def main(argv):
             manifest_only="--manifest-only" in argv,
             match_target=match_target,
             forge_data_folder=forge_data_folder,
+            near=near,
         )
     print(json.dumps(result, indent=2))
     return 0 if result["status"] == "ok" else 1

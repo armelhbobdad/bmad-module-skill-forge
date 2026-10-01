@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-test-result-envelope.v1.json",
+  "title": "SKF_TEST_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-test-skill emits when {headless_mode} is true, prefixed with the literal 'SKF_TEST_RESULT_JSON: ': once when the report step has written the result contract (status success for a scored run, status error with halt_reason hard-gate-blocked for a run the hard gate blocked), and once at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload a stage stages in the run folder (the report step's from scripts/build-result-context.py), derives a halt's exit_code from halt_reason, stamps run_id and result_path, and checks the line against this schema, so the model never types it. A skill run cannot set the exit status of the agent that runs it, so automators read exit_code from this line or from skf-test-skill-result-latest.json. The skill's references/invocation-contract.md describes each halt.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. No success_exit_code: a scored run's exit_code follows its verdict (0 PASS, 2 FAIL, 3 INCONCLUSIVE, 4 pass-with-drift), which build-result-context.py derives. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-test-skill",
+        "prefix": "SKF_TEST_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "error",
+        "exit_codes": {
+          "input-missing": 1,
+          "input-invalid": 1,
+          "runtime-missing": 1,
+          "helper-missing": 1,
+          "helper-failed": 1,
+          "write-failed": 1,
+          "target-inaccessible": 1,
+          "not-skf-output": 1,
+          "frontmatter-invalid": 1,
+          "forge-tier-missing": 1,
+          "workspace-drift": 1,
+          "another-run-active": 1,
+          "inventory-invalid": 1,
+          "indeterminate-surface": 1,
+          "step-completeness-violation": 1,
+          "report-anchor-missing": 1,
+          "health-check-missing": 1,
+          "hard-gate-blocked": 2
+        },
+        "result_file": "skf-test-skill-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "skill_name",
+    "verdict",
+    "score",
+    "threshold",
+    "report_path",
+    "next_workflow",
+    "exit_code",
+    "halt_reason",
+    "run_id",
+    "result_path"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error"],
+      "description": "'success' when a scored run wrote its result contract (PASS, FAIL, INCONCLUSIVE or pass-with-drift: the workflow completed). 'error' on a HARD HALT, and on a run the hard gate blocked, which still writes the Gap Report and its FAIL result contract."
+    },
+    "skill_name": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "The skill under test. Null only for a halt before the run had a name (a headless run given none halts input-missing)."
+    },
+    "verdict": {
+      "type": ["string", "null"],
+      "enum": ["PASS", "FAIL", "INCONCLUSIVE", "pass-with-drift", null],
+      "default": null,
+      "description": "The settled result: PASS, FAIL (a blocked run included), INCONCLUSIVE (the minimum-evidence floor) or pass-with-drift (a PASS under --allow-workspace-drift with drift observed, never exportable). Null on a halt before a verdict exists. The result file's summary.result spells the same verdict PASS, FAIL, INCONCLUSIVE or PASS_WITH_DRIFT."
+    },
+    "score": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "default": null,
+      "description": "The completeness score, in percent, from the scoring script. Null for a run the hard gate blocked (never scored) and on a halt."
+    },
+    "threshold": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "default": null,
+      "description": "The pass threshold the verdict was settled against, in percent: 80 when the threshold fallback fired (original_threshold holds the target). Null for a blocked run and on a halt."
+    },
+    "report_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null,
+      "description": "The test report. A finished or blocked run names its published report, test-report-<skill>-<run_id>.md. A halt after the report was created names the in-progress copy, .skf-test-report-<skill>-<run_id>.md, which no consumer reads; null on a halt before it exists."
+    },
+    "next_workflow": {
+      "type": ["string", "null"],
+      "enum": ["export-skill", "update-skill", null],
+      "default": null,
+      "description": "\"export-skill\" only when verdict is PASS; \"update-skill\" for FAIL (a blocked run included) and pass-with-drift; null for INCONCLUSIVE (route to manual review) and on a halt."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 1, 2, 3, 4],
+      "description": "The exit code the run settles on, for automators to branch on: 0 PASS, 2 FAIL (a blocked run's hard-gate-blocked included), 3 INCONCLUSIVE, 4 pass-with-drift, and 1 for every other halt_reason. A skill run cannot set the process exit status of the agent that runs it, so this field (or skf-test-skill-result-latest.json) is the place to read it."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "input-missing",
+        "input-invalid",
+        "runtime-missing",
+        "helper-missing",
+        "helper-failed",
+        "write-failed",
+        "target-inaccessible",
+        "not-skf-output",
+        "frontmatter-invalid",
+        "forge-tier-missing",
+        "workspace-drift",
+        "another-run-active",
+        "inventory-invalid",
+        "indeterminate-surface",
+        "step-completeness-violation",
+        "report-anchor-missing",
+        "health-check-missing",
+        "hard-gate-blocked"
+      ],
+      "description": "Null for a scored run. On a halt, the failure class: input-missing (headless with no skill name), input-invalid (a --tier value that names no tier), runtime-missing (python3 or uv is not on PATH), helper-missing (an SKF helper is not installed), helper-failed (a helper or scoring script exited with an error), write-failed (the run folder, the report or the result contract could not be written), target-inaccessible (no version of the skill to test), not-skf-output, frontmatter-invalid, forge-tier-missing, workspace-drift, another-run-active, inventory-invalid (the documented inventory failed its schema check or spot-check twice), indeterminate-surface (zero exports, or an empty stack surface: no score can be attached), step-completeness-violation, report-anchor-missing, health-check-missing; hard-gate-blocked for a run the hard gate blocked (verdict FAIL, exit 2)."
+    },
+    "run_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The run's id, stamped by the emitter from the run folder name: the UTC time the run took its lock and a random suffix, the {run_id} in the report's file name. Null for a halt before the run folder exists."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The per-run result file the emitter wrote in the version folder, skf-test-skill-result-<YYYYMMDD-HHmmss>.json (UTC; -2, -3 appended when a run took that second's name), beside its skf-test-skill-result-latest.json copy. Stamped by the emitter, never typed. Null on a halt, which writes no result file, and when the write failed (warnings say why)."
+    },
+    "threshold_fallback": {
+      "type": "boolean",
+      "const": true,
+      "description": "Present, and true, only when the threshold fallback accepted the run at the 80% floor; absent (never false or null) otherwise."
+    },
+    "original_threshold": {
+      "type": "number",
+      "minimum": 0,
+      "description": "The threshold the run was asked to meet, present only beside threshold_fallback."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: customization_resolver_unavailable when the customization resolver could not run, and result_file_write_failed when a result file could not be written. Present only when there is at least one."
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "reason"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the run halted: the step and the check, for example 'init:runtime' or 'report:anchors'."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The halt message the step displayed, on one line."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional path the failed operation targeted."
+        }
+      },
+      "description": "Present on a HARD HALT only: where the run stopped and why. Pipelines branch on halt_reason and read error for the diagnostic."
+    }
+  }
+}

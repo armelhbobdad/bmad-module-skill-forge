@@ -7,13 +7,41 @@
 
 Pure-function tally + weighted mean for the SKF test-skill workflow
 (step-04, coherence-check.md §5c). The prompt keeps the judgment — deciding
-which cross-references are valid (§4) and which integration patterns are
-complete (§5). This script does ONLY the arithmetic those judgments feed:
-the reference-validity ratio, the integration-completeness ratio, and their
+which skill, type-import and integration-pattern references are accurate
+(§4) and which integration patterns are complete (§5). This script does the
+counting and the arithmetic those judgments feed: it counts the valid
+references from the per-reference results, then computes the
+reference-validity ratio, the integration-completeness ratio, and their
 fixed 0.6 / 0.4 weighted mean. That way the 18%-weight `coherence` input to
 compute-score.py is computed once, deterministically, instead of by hand on
 every run (this skill grades other skills — a false PASS is catastrophic, so
 every scoring input is scripted for run-to-run reproducibility).
+
+Per-reference input (the files coherence-check.md §5c passes):
+  --references   skf-scan-skill-md-structure.py reference-check output: its
+                 `references[]` hold the file-path and script/asset
+                 references, each valid when its `status` is "ok"
+                 ("missing": no file inside an allowed root; "escapes":
+                 outside every root)
+  --judged       the §4 subagent results for the other references (skill,
+                 type-import, integration-pattern), as the subagent returned
+                 them (a wrapping markdown fence is stripped): a JSON array,
+                 or an object with a `references` array, of
+                 {"reference", "line", "target_exists", "type_match",
+                  "signature_match", "issues"}; valid when the three
+                 booleans are true and `issues` is empty. Optional: a skill
+                 with no such reference has no file.
+  --integration  the §5 integration JSON ({"patterns_documented",
+                 "patterns_complete", ...}, fence stripped)
+  `total_references` is the number of entries in both, `valid_references`
+  the number of valid ones, and `invalidReferences[]` lists each invalid
+  one with its `status`: "missing" or "escapes" from the scan, and for a
+  judged one "missing" (target_exists false) or "inaccurate". Each entry
+  also carries what coherence-check.md §5c needs for its gap, so the
+  caller never matches it back to the per-reference files: a scanned
+  one's `canonical` (the realpath the scanner checked, which an escape
+  names) and `root`, and a judged one's `issues` (when the subagent gave
+  none, the flags that are false, such as "type_match: false").
 
 Formula (this script is its one home: scoring-rules.md points here, and
 coherence-check.md §5 defines what makes a pattern complete):
@@ -46,11 +74,18 @@ Input schema (one JSON object):
 
 Output (JSON):
   {
-    "input": { ...echo... },
+    "input": { ...echo, or the counts the files gave... },
     "referenceValidity":       <0-100>,
     "integrationCompleteness": <0-100 | null when patterns_documented == 0>,
     "combinedCoherence":       <0-100>,
-    "patternsScored":          <bool>
+    "patternsScored":          <bool>,
+    "invalidReferences":       [{"source": "scan" | "judged", "line": N | null,
+                                 "target": "...", "status": "...",
+                                 "canonical": "..." | null, "root": "..." | null,
+                                 "issues": ["..."]}]
+                               # with the per-reference files only; canonical
+                               # and root are null for a judged entry, and
+                               # issues is empty for a scanned one
   }
   or {"error": ..., "code": "INVALID_INPUT"} on a schema violation.
 
@@ -58,18 +93,20 @@ Percentages use the same JavaScript-compatible 2-decimal rounding as
 compute-score.py so the two scoring scripts agree to the last digit.
 
 CLI usage (mirrors compute-score.py):
-  uv run aggregate-coherence.py '<JSON>'                  # positional arg
-  uv run aggregate-coherence.py --json-input '<JSON>'     # explicit flag form
-  cat input.json | uv run aggregate-coherence.py --stdin  # piped input
+  uv run aggregate-coherence.py --references <scan.json> [--judged <file>] --integration <file>
+  uv run aggregate-coherence.py '<JSON>'                  # counts, positional arg
+  uv run aggregate-coherence.py --json-input '<JSON>'     # counts, explicit flag form
+  cat input.json | uv run aggregate-coherence.py --stdin  # counts, piped input
 
 --output <file> also writes the result to a file (UTF-8 JSON), the one
 compute-score.py --coherence reads; a refused input removes a file left
 there earlier.
 
 Exit codes (same convention as compute-score.py / reconcile-coverage.py):
-  0  — a result object was emitted
-  1  — input could not be parsed at all (no input provided, or malformed JSON)
-  2  — input parsed but schema/semantics invalid
+  0  a result object was emitted
+  1  input could not be parsed at all (no input provided, malformed JSON,
+     or a file that cannot be read)
+  2  input parsed but schema/semantics invalid
 
 Both 1 and 2 emit an {"error": ..., "code": "INVALID_INPUT"} envelope on stdout,
 so the envelope's presence — not the specific code — tells a caller the input was
@@ -79,6 +116,7 @@ refused rather than scored.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 import sys
@@ -95,6 +133,26 @@ COUNT_FIELDS = (
     "patterns_documented",
     "patterns_complete",
 )
+
+# reference-check statuses (skf-scan-skill-md-structure.py); only "ok" is valid.
+SCAN_STATUSES = ("ok", "missing", "escapes")
+JUDGED_FLAGS = ("target_exists", "type_match", "signature_match")
+
+_INVENTORY_MODULE = None
+
+
+def _inventory_module():
+    """validate-inventory.py beside this script: the fence rule lives there."""
+    global _INVENTORY_MODULE
+    if _INVENTORY_MODULE is None:
+        sibling = Path(__file__).resolve().parent / "validate-inventory.py"
+        spec = importlib.util.spec_from_file_location("skf_validate_inventory", sibling)
+        if spec is None or spec.loader is None or not sibling.is_file():
+            raise ImportError(f"validate-inventory.py not found beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _INVENTORY_MODULE = module
+    return _INVENTORY_MODULE
 
 
 def round2(value):
@@ -212,6 +270,98 @@ def aggregate_coherence(inp):
     }
 
 
+def count_references(scan, judged):
+    """Count the valid references from the per-reference results.
+
+    `scan` is the reference-check output (an object with `references[]`),
+    `judged` the list of subagent results (or None). Returns
+    (valid, total, invalid[]) or an error string.
+
+    >>> scan = {"references": [{"line": 3, "target": "a.md", "status": "ok"},
+    ...                        {"line": 5, "target": "../x", "status": "escapes"}]}
+    >>> judged = [{"reference": "react", "line": 9, "target_exists": True, "type_match": True,
+    ...            "signature_match": True, "issues": []},
+    ...           {"reference": "./types", "line": 12, "target_exists": True, "type_match": False,
+    ...            "signature_match": True, "issues": []}]
+    >>> valid, total, invalid = count_references(scan, judged)
+    >>> valid, total, [(i["target"], i["status"]) for i in invalid]
+    (2, 4, [('../x', 'escapes'), ('./types', 'inaccurate')])
+    >>> invalid[1]["issues"], invalid[1]["canonical"]
+    (['type_match: false'], None)
+    """
+    refs = scan.get("references") if isinstance(scan, dict) else None
+    if not isinstance(refs, list):
+        return "--references holds no `references` array (pass the reference-check output)"
+    valid, invalid = 0, []
+    for index, ref in enumerate(refs):
+        if not isinstance(ref, dict) or ref.get("status") not in SCAN_STATUSES:
+            return f"--references references[{index}] has no status in {list(SCAN_STATUSES)}"
+        if ref["status"] == "ok":
+            valid += 1
+        else:
+            invalid.append({"source": "scan", "line": ref.get("line"),
+                            "target": ref.get("target"), "status": ref["status"],
+                            "canonical": ref.get("canonical"), "root": ref.get("root"),
+                            "issues": []})
+    for index, ref in enumerate(judged or []):
+        if not isinstance(ref, dict):
+            return f"--judged [{index}] is not an object"
+        for flag in JUDGED_FLAGS:
+            if not isinstance(ref.get(flag), bool):
+                return f"--judged [{index}] `{flag}` must be true or false"
+        issues = ref.get("issues", [])
+        if not isinstance(issues, list):
+            return f"--judged [{index}] `issues` must be a list"
+        if all(ref[flag] for flag in JUDGED_FLAGS) and not issues:
+            valid += 1
+        else:
+            invalid.append({"source": "judged", "line": ref.get("line"), "target": ref.get("reference"),
+                            "status": "missing" if not ref["target_exists"] else "inaccurate",
+                            "canonical": None, "root": None,
+                            "issues": [str(i) for i in issues]
+                            or [f"{flag}: false" for flag in JUDGED_FLAGS if not ref[flag]]})
+    return valid, len(refs) + len(judged or []), invalid
+
+
+def _read_json_file(path, label, fenced=False):
+    """Parse a JSON file; a subagent response may come wrapped in a markdown fence."""
+    text = Path(path).read_bytes().decode("utf-8-sig")
+    if fenced:
+        text = _inventory_module().strip_fences(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} {path} is not valid JSON: {exc.msg}") from exc
+
+
+def aggregate_from_files(references, judged=None, integration=None):
+    """Aggregate from the per-reference files and the §5 integration JSON."""
+    scan = _read_json_file(references, "--references")
+    results = None
+    if judged is not None:
+        results = _read_json_file(judged, "--judged", fenced=True)
+        if isinstance(results, dict):
+            results = results.get("references")
+        if not isinstance(results, list):
+            return make_error(f"--judged {judged} holds no array of reference results")
+    patterns = _read_json_file(integration, "--integration", fenced=True)
+    if not isinstance(patterns, dict):
+        return make_error(f"--integration {integration} is not a JSON object")
+    counted = count_references(scan, results)
+    if isinstance(counted, str):
+        return make_error(counted)
+    valid, total, invalid = counted
+    result = aggregate_coherence({
+        "valid_references": valid,
+        "total_references": total,
+        "patterns_documented": patterns.get("patterns_documented"),
+        "patterns_complete": patterns.get("patterns_complete"),
+    })
+    if result.get("code") != "INVALID_INPUT":
+        result["invalidReferences"] = invalid
+    return result
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aggregate-coherence",
@@ -245,6 +395,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Read the JSON object from stdin.",
     )
+    parser.add_argument("--references", metavar="PATH",
+                        help="skf-scan-skill-md-structure.py reference-check output")
+    parser.add_argument("--judged", metavar="PATH",
+                        help="the subagent results for the skill, type-import and integration references")
+    parser.add_argument("--integration", metavar="PATH",
+                        help="the integration JSON (patterns_documented, patterns_complete)")
     parser.add_argument("--output", metavar="PATH", help="also write the result to this file")
     return parser
 
@@ -271,22 +427,37 @@ def _resolve_input(args: argparse.Namespace) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    raw = _resolve_input(args)
-    if not raw.strip():
-        parser.print_usage(file=sys.stderr)
-        print(
-            "error: no input provided (positional arg, --json-input, or --stdin)",
-            file=sys.stderr,
-        )
-        return 1
+    files = (args.references, args.judged, args.integration)
+    if any(f is not None for f in files):
+        if args.stdin or args.json_input_flag is not None or args.json_input is not None:
+            parser.error("pass the counts or the files (--references, --judged, --integration), not both")
+        if args.references is None or args.integration is None:
+            parser.error("--references and --integration go together (--judged is optional)")
+        try:
+            result = aggregate_from_files(*files)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            print(json.dumps(make_error(str(exc)), indent=2))
+            if args.output:
+                Path(args.output).unlink(missing_ok=True)
+            return 1
+    else:
+        raw = _resolve_input(args)
+        if not raw.strip():
+            parser.print_usage(file=sys.stderr)
+            print(
+                "error: no input provided (--references and --integration, positional arg, "
+                "--json-input, or --stdin)",
+                file=sys.stderr,
+            )
+            return 1
 
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(json.dumps(make_error(f"Invalid JSON: {exc.msg}"), indent=2))
-        return 1
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            print(json.dumps(make_error(f"Invalid JSON: {exc.msg}"), indent=2))
+            return 1
 
-    result = aggregate_coherence(data)
+        result = aggregate_coherence(data)
     if args.output:
         _write_output(args.output, result)
     print(json.dumps(result, indent=2))

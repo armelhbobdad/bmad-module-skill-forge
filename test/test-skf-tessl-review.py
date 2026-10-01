@@ -960,11 +960,16 @@ class TestWorkflowWiring:
         assert "{external_validation_score" not in score and "{external_score" not in score
         assert "{skill-check and Tessl Review | skill-check only | Tessl Review only | none" in score
 
-    def test_reuse_never_skips_tessl_review_or_the_combine(self):
-        section = _section(_read(EXTERNAL), "### 1b. ", "### 2. Run skill-check")
-        assert "skip section 2 and continue at section 3" in section
-        assert "Never reuse a Tessl Review result" in section
-        assert "Skip to section 5" not in section
+    def test_skill_check_always_runs_fresh_before_tessl_review_and_the_combine(self):
+        """#599: the evidence-report reuse cache (section 1b) is gone, so no
+        earlier skill-check score, and no earlier Tessl Review result, is reused."""
+        text = _read(EXTERNAL)
+        assert "### 1b." not in text and "Auto-Reuse" not in text and "reused from" not in text
+        section = _section(text, "### 2. Run skill-check", "### 3. Run Tessl Review")
+        assert "Run skill-check fresh on every test" in section
+        assert "Skip to section 5" not in text
+        assert text.index("### 2. Run skill-check") < text.index("### 3. Run Tessl Review") \
+            < text.index("### 4. Calculate Combined External Score")
 
     def test_description_check_prose(self):
         text = _read(VALIDATE)

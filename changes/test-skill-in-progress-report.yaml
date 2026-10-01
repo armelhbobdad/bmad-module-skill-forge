@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  `skf-test-skill` writes its test report as `.skf-test-report-<skill>-<run_id>.md` in the version folder while it runs, and gives it its public name `test-report-<skill>-<run_id>.md` only once the report step's checks pass, a run the hard gate blocked included. A run that halts leaves no partial report where export-skill and update-skill look, so they keep reading the last finished one, and the hidden copy never makes drop-skill or rename-skill refuse the version folder. The run resolves its pass threshold once, records it with its source in the report frontmatter (`threshold`, `thresholdSource`), and the later steps read the threshold, the tooling status (`toolingStatus`) and the drift override (`workspaceDrift`) from there, so `--allow-workspace-drift` on a tree that has not drifted no longer turns a PASS into `pass-with-drift`. The report step no longer waits at a one-option `[C] Finish` menu before the health check.
+issues: [587, 599]

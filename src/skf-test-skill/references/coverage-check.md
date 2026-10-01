@@ -1,6 +1,6 @@
 ---
 nextStepFile: 'coherence-check.md'
-outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
+outputFile: '{report_file}'
 scoringRulesFile: 'references/scoring-rules.md'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 validateInventoryScript: 'scripts/validate-inventory.py'
@@ -47,7 +47,13 @@ detectWorkspacesProbeOrder:
 
 Compare the exports, functions, classes, types, and interfaces documented in SKILL.md against the actual source code API surface. Identify missing documentation, undocumented exports, and signature mismatches. Analysis depth scales with forge tier.
 
-Every HALT in this step releases the run lock first (SKILL.md Workflow Rules).
+**Halt envelope.** Every HALT in this step names its `halt_reason` and phase and carries exit code 1. It releases the run lock first, whatever the release prints: from `{project-root}`, run `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"` (SKILL.md Workflow Rules). In headless mode it then writes `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{report_file}"}`, adding `"path"` when the halt names one, to `{run_dir}/halt.json` and runs:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
 **Run files.** Every script below writes its result into the run folder `{run_dir}` that init.md §6b created, and the next one reads it from there by path: no list, count or score is copied from one command into another. A subagent's response is saved there with the Write tool exactly as it came back, fence and all, and passed by path, so a quote or an apostrophe in it never meets a shell. Each command runs from `{project-root}`; a `{...Script}` path resolves relative to the skill root.
 
@@ -59,7 +65,7 @@ A skill is docs-only when every citation it writes is `[EXT:...]`, with no local
 uv run {coverageInputsScript} census --skill-dir "{resolved_skill_package}" --output "{run_dir}/census.json"
 ```
 
-Bind `{docs_only_mode}` ← `docsOnly`. Exit 1 printed its error on stderr: HALT with it. §0b sets `{docs_only_mode}` too when source access reaches State 5 (no source access at all).
+Bind `{docs_only_mode}` ← `docsOnly`. Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:census`). §0b sets `{docs_only_mode}` too when source access reaches State 5 (no source access at all).
 
 **A docs-only run** has no source to compare against, so Export Coverage measures documentation completeness instead, and `analysis_confidence` is `docs-only`. It runs §1, §1a and §1b, the docs-only guard of §2b, §2c's `docsOnly` branch, §3, §4's Export Coverage line and its `Denominator: docs-only completeness` annotation, §5, §5b and §6, and skips the rest of §0b, §2, §2b, §4, §4b and §4c. Step 5 passes `docsOnly: true` to the scoring script, which skips Signature Accuracy and Type Coverage and redistributes their weights at any tier.
 
@@ -121,28 +127,19 @@ Save the subagent's response, as it came back, to `{run_dir}/inventory-response.
 
 #### 1a. Parent-Side Schema Validation + Spot-Check
 
-test-skill is a quality gate: it must not trust subagent output blindly. Before any downstream step consumes the inventory, the parent runs a schema validator and a spot-check.
-
-**Schema validation, by `{validateInventoryScript}`.** It strips a wrapping markdown fence, parses the JSON and checks the contract §1 gave the subagent: `exports` and `cross_check_mismatches` are lists, each export has a non-empty `name` and one of the 12 kinds, and each cross-check mismatch carries its five fields. It also counts each documented item's completeness for a docs-only run (§2c):
+test-skill is a quality gate: it must not trust subagent output blindly. Before any downstream step consumes the inventory, `{validateInventoryScript}` validates it and spot-checks it against the skill:
 
 ```bash
-uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --output "{run_dir}/inventory.json"
+uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --skill-package "{resolved_skill_package}" --output "{run_dir}/inventory.json"
 ```
 
-`valid` true (exit 0): the script wrote the validated inventory to `{run_dir}/inventory.json`, which every later command reads by path; do not re-parse the raw response by hand. `valid` false (exit 2): re-dispatch the §1 subagent once, with the script's `violations[]` appended to its instructions, save the new response over the old one and run the command again. Exit 1 (no input, or a file that cannot be read): correct the file and run it again.
+**Schema validation.** It strips a wrapping markdown fence, parses the JSON and checks the contract §1 gave the subagent: `exports` and `cross_check_mismatches` are lists, each export has a non-empty `name` and one of the 12 kinds, and each cross-check mismatch carries its five fields. It also counts each documented item's completeness for a docs-only run (§2c).
 
-**Spot-check (ground-truth verification, zero-hallucination guard):** operate on the validated inventory.
+**Spot-check (ground-truth verification, zero-hallucination guard).** With `--skill-package` it also spot-checks sampled names against SKILL.md and the reference files the subagent listed; an absent name is a violation. The look-up is the script's, never a grep: an export named `$state` or `a.b` is neither a shell variable nor a regex.
 
-1. If `exportsCount` is 0: skip the spot-check (no names to verify). Zero-exports policy is handled in the §2b zero-exports guard.
-2. Otherwise, sample `min(3, exportsCount)` exports deterministically: by default take indices `[0, len//2, len-1]` (first, middle, last) from the inventory's `exports` after a stable sort by `name`.
-3. For each sampled export, grep for the name across SKILL.md **and every reference file the subagent listed in its `references`** (the documented surface of a split-body skill spans both): `grep -n "{export.name}" {resolved_skill_package}/SKILL.md {resolved_skill_package}/{each references[] path}` in the parent context. The name must appear at least once somewhere in that file set. Grepping SKILL.md alone would false-HALT a split-body skill whose sampled export is documented only in a `references/*.md` file (a legitimate placement per §1 step 2 and the split-body note below).
-4. If a sampled name returns zero matches across SKILL.md **and** all listed reference files, re-dispatch the §1 subagent once, with the absent names appended to its instructions as names the skill does not write, and validate and spot-check its new response.
+`valid` true (exit 0): the script wrote the validated inventory to `{run_dir}/inventory.json`, which every later command reads by path; do not re-parse the raw response by hand. `valid` false (exit 2): re-dispatch the §1 subagent once, with the script's `violations[]` appended to its instructions (an absent name as a name the skill does not write), save the new response over the old one and run the command again. Exit 1 (no input, a file that cannot be read, or a package with no readable SKILL.md): correct the file and run it again.
 
-These checks catch two hallucination classes: schema-shape drift (subagent paraphrased or dropped the contract) and fabricated exports (subagent invented names not in the document). Both are disqualifying for a grader skill, so neither is downgraded to a warning: when the re-dispatched response fails the schema validation or the spot-check again, HALT with `halt_reason: "inventory-invalid"`: "coverage-check: the subagent inventory failed {schema validation: the violations joined | the ground-truth spot-check: `{name}` claimed as export but absent from SKILL.md and the listed reference files} twice." In `{headless_mode}`, emit to **stderr** before halting:
-
-```
-SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":null,"exit_code":1,"halt_reason":"inventory-invalid"}
-```
+These checks catch two hallucination classes: schema-shape drift (subagent paraphrased or dropped the contract) and fabricated exports (subagent invented names not in the document). Both are disqualifying for a grader skill, so neither is downgraded to a warning: when the re-dispatched response is invalid again, HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`): "coverage-check: the subagent inventory failed {schema validation | the ground-truth spot-check} twice: {the violations joined}."
 
 **Split-body traversal** is handled inside the subagent: if `references/` exists and `## Full` headings are absent or stubs in SKILL.md, the subagent extends its scan to all `references/*.md` files and includes them in the `exports` array. After split-body, Tier 2 content (Full API Reference, Full Type Definitions) lives in reference files: the inventory must reflect the full skill content regardless of where it resides.
 
@@ -182,7 +179,7 @@ Each mismatch is a High `split-body-mismatch` gap: a signature inconsistency bet
 
 Start from the package entry point (see 0b) and identify the public API surface. Then analyze those exports at the appropriate tier depth. However the surface is found, `{coverageInputsScript} surface` writes it to `{run_dir}/surface.json`: its `exports[]` (each name with its kind, file and line when known) and its name `sets` (`all`; `scope.include` and `tier_a_include` when the brief has those globs and the names carry their files; `subpaths` and `root` from an extraction only), which §2b, §2c, §4 and step 5 read.
 
-**Exits.** Every `{coverageInputsScript}` and `{scoreSignaturesScript}` command in §2 and §2b prints its JSON and exits 0, or exits 1 with its error on stderr: HALT with it. `surface` with a `--per-file` and `score` also exit 2 when a subagent response breaks the schema: their `violations[]` name the response, so re-dispatch that subagent once with the violations appended (or correct a result the main thread wrote), save its new response over the old one and run the command again; a second failure HALTs with the violations.
+**Exits.** Every `{coverageInputsScript}` and `{scoreSignaturesScript}` command in §2 and §2b prints its JSON and exits 0, or exits 1 with its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:surface`). `surface` with a `--per-file` and `score` also exit 2 when a subagent response breaks the schema: their `violations[]` name the response, so re-dispatch that subagent once with the violations appended (or correct a result the main thread wrote), save its new response over the old one and run the command again; a second failure HALTs with the violations (`halt_reason: "helper-failed"`, phase `coverage-check:surface`).
 
 **Quick Tier (no AST tools):**
 - **A skill quick-skill built** (`metadata.json` `generated_by` is `quick-skill`), **from local source** (State 1): quick-skill built its export list with `{extractPublicApiHelper}` `--mode quick`, so parse the entry points with the same parser and both sides count one surface. Resolve it ← first existing path in `{extractPublicApiProbeOrder}` and run it once per package in scope, with its manifest and one `--entry-file` for each entry-point file the Source API Surface Definition (§0b) makes its surface, each path relative to `{source_path}`, saving its output to `{run_dir}/quick-<n>.json` (`<n>` counts the packages from 1):
@@ -282,7 +279,7 @@ uv run {coverageInputsScript} metadata --metadata "{resolved_skill_package}/meta
 
 - **Standard barrel**, **multi-entry**, **specific-modules**, **pattern-reference**, State 2 or a priority-2/3 **stratified-scope** denominator: an enumerated name set, §2c's barrel branch, with the `surface.json` set the clause names (`all`, `subpaths`, `tier_a_include` or `scope.include`). A set is there only when its inputs are: `scope.include` and `tier_a_include` need the brief's globs and names that carry their files (State 3's metadata names carry none), `subpaths` and `root` an extraction. Without an extraction the entry files read are the ones the clause names, so when its set is absent the denominator is the `all` set, and the `Denominator:` line (§4) adds `({set} set absent: all set used)`.
 - **Stratified-scope priority 1**: the scalar `stats.effective_denominator` (`candidates.statsEffectiveDenominator`), §2c's scalar branch, unless the deflation guard fires (`guards.deflation.fires`), when the re-derived `scope.include` set (`all` when the brief has no `scope.include`) is the denominator instead.
-- **A stack skill** (`metadata.json.skill_type == "stack"`): its own barrel is empty by design (it composes constituent skills rather than exporting a proprietary surface), and its `[from skill: …]` citations never make it docs-only. Its denominator is `coverage-inputs.json` `stack.denominator`: the distinct provenance-map named exports (`::` impl-block methods left out) when init.md §2 bound a map with entries, else its libraries and integration pairs (`stack.basis` says which). §2c's stack branch reads it. **If `stack.denominator` is 0**: HALT with `Error: stack composition surface empty: {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
+- **A stack skill** (`metadata.json.skill_type == "stack"`): its own barrel is empty by design (it composes constituent skills rather than exporting a proprietary surface), and its `[from skill: …]` citations never make it docs-only. Its denominator is `coverage-inputs.json` `stack.denominator`: the distinct provenance-map named exports (`::` impl-block methods left out) when init.md §2 bound a map with entries, else its libraries and integration pairs (`stack.basis` says which). §2c's stack branch reads it. **If `stack.denominator` is 0**: HALT (`halt_reason: "indeterminate-surface"`, phase `coverage-check:denominator`) with `Error: stack composition surface empty: {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
 - **A docs-only skill**: §2c's `docsOnly` branch, over the inventory.
 
 **Numerator ground truth.** A documented count padded to equal the denominator (`stats.exports_documented == stats.effective_denominator`, the inflation signature) would give a tautological 100%. Run the check on every source-based skill: without the signature (a stack and a reference app carry none) it reports `skipped`:
@@ -291,9 +288,9 @@ uv run {coverageInputsScript} metadata --metadata "{resolved_skill_package}/meta
 uv run {numeratorVerifyScript} --inputs "{run_dir}/coverage-inputs.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/numerator.json"
 ```
 
-On the signature it looks every declared name up in `SKILL.md ∪ references/*.md` and reports `inflated`, `verified` and the `absent[]` names; §2c's scalar branch reads `verified` as its numerator when `inflated` is true, and §4b records the gap. Exit 1 or 2 (an input it cannot read, or one it refuses): HALT with its message.
+On the signature it looks every declared name up in `SKILL.md ∪ references/*.md` and reports `inflated`, `verified` and the `absent[]` names; §2c's scalar branch reads `verified` as its numerator when `inflated` is true, and §4b records the gap. Exit 1 or 2 (an input it cannot read, or one it refuses): HALT with its message (`halt_reason: "helper-failed"`, phase `coverage-check:numerator`).
 
-**If the chosen denominator is 0 AND `docs_only_mode == false` AND `metadata.json.skill_type != "stack"`:** HALT with:
+**If the chosen denominator is 0 AND `docs_only_mode == false` AND `metadata.json.skill_type != "stack"`:** HALT (`halt_reason: "indeterminate-surface"`, phase `coverage-check:denominator`) with:
 
 ```
 Error: indeterminate API surface — 0 exports discovered in source for {skill_name}.
@@ -310,7 +307,7 @@ Fix one of:
 
 Do not write the Coverage Analysis section. Do not proceed to scoring. This is a true indeterminate state, not a FAIL: no score should be attached.
 
-**If `docs_only_mode == true` and the validated inventory documents no item:** HALT with the analogous docs-only message ("docs-only skill declares zero items: no API surface to test").
+**If `docs_only_mode == true` and the validated inventory documents no item:** HALT (`halt_reason: "indeterminate-surface"`, phase `coverage-check:denominator`) with the analogous docs-only message ("docs-only skill declares zero items: no API surface to test").
 
 **Score the signatures** (Forge, Forge+ and Deep tier at State 1, once §2 compared them). `{scoreSignaturesScript}` schema-checks every saved response and computes both categories: Signature Accuracy compares every documented signature on the whole surface, since a wrong signature is wrong whatever the denominator counts, and Type Coverage counts the types of the set the denominator counts (`totalTypes`), so a type the clause leaves out (a stratified skill's deferred Tier B) lowers neither Export Coverage nor Type Coverage. Give it that set as `--surface-set`: the set §2c's barrel branch reads, or for the scalar branch the set the scalar counts (`tier_a_include` when `surface.json` has it, else `scope.include`, else `all`). Give it one `--results` per saved response (the fallback scan's `per-file-<n>.txt` responses, else the `signatures-<n>.txt` ones):
 
@@ -357,7 +354,7 @@ The script returns (read these, **do not re-derive them by hand**):
 - `exportCoverage`: `documented / denominator * 100`, already rounded; capped at 100 on the scalar and stack branches
 - `numeratorSurplus` / `coverageUncapped` / `coverageCapped`: scalar and stack only; see the surplus note below
 
-Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run it again. Exit 1: HALT with its stderr.
+Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run it again. Exit 1: HALT with its stderr (`halt_reason: "helper-failed"`, phase `coverage-check:reconcile`).
 
 **Surplus on the lookup branches.** The scalar and stack branches look a name set up in the skill body, so their numerator and denominator measure independent sets and `documented` can exceed `denominator`: a consumer-surface denominator counts one surface while the documented body may also name migration aliases or re-exported sibling symbols. When that happens the script reports `numeratorSurplus > 0` and `coverageCapped: true`, holds `exportCoverage` at 100, floors `missingCount` at 0, and preserves the raw ratio in `coverageUncapped`. **A surplus is a signal, not a pass:** it means the two sets disagree, so state it in the Coverage Analysis section (§5) alongside both counts. A large surplus on a skill whose brief carries no `scope.tier_a_include` is the deflated-denominator signature the deflation guard looks for: check `guards.deflation` before accepting the 100.
 
@@ -367,7 +364,7 @@ Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run i
 
 - **Missing names** (barrel branch: `missing`): each is a Medium `missing-export` gap titled `Missing export: {name}`, or a Medium `missing-type` gap titled `Missing type: {name}` when `signatures.json` lists it in `missingTypes`, with `export` `{name}`. Its Source is the file `surface.json` `exports[]` records for it (`{file}:{line}` when the line is known), and its Remediation names that file, so update-skill can re-extract the export from it. A missing export does not block: it lowers Export Coverage, and the threshold decides.
 - **Missing count** (scalar or stack branch, `missingCount` above 0): these branches do not enumerate the names, so record one Medium `missing-export` gap for the count, titled `{missingCount} of {denominator} exports not documented`, with the source of the denominator as its Source. When §4b's numerator ground-truth arm finds the count inflated, its `absent[]` names replace this gap (§4b).
-- **Stale names** (barrel branch: `stale`): each is a documented name the enumerated source surface lacks. Where ast-grep read the source at the pinned commit (Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `allow_workspace_drift` not true) and `{forge_provenance_map}` holds entries whose `export_name` is the name, check the line the skill cites for it. Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and run once per such entry, with `--export-type` when the entry records one:
+- **Stale names** (barrel branch: `stale`): each is a documented name the enumerated source surface lacks. Where ast-grep read the source at the pinned commit (Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden` in the `{outputFile}` frontmatter) and `{forge_provenance_map}` holds entries whose `export_name` is the name, check the line the skill cites for it. Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and run once per such entry, with `--export-type` when the entry records one:
 
   ```bash
   uv run {verifyProvenanceCompletenessHelper} definition-lines --source-root "{source_path}" --file "{source_file}" --name "{name}" --line {source_line} [--export-type "{export_type}"]
@@ -435,7 +432,7 @@ Read `findings[]` and record each entry as a gap (§5b); **do not re-derive the 
 
 ### 4c. Provenance Line Check
 
-Check that the provenance map records each export at the line that defines it (the `def` or declaration line itself, not a decorator or blank line above it), so update-skill can move a wrong line. Run this section only when `analysis_confidence` is `full`, `{forge_version}/provenance-map.json` exists, and `allow_workspace_drift` is not true (init.md §5b): under the drift override the tree at `{source_path}` is not the pinned commit, so its lines prove nothing about the map. Otherwise skip to section 5.
+Check that the provenance map records each export at the line that defines it (the `def` or declaration line itself, not a decorator or blank line above it), so update-skill can move a wrong line. Run this section only when `analysis_confidence` is `full`, `{forge_version}/provenance-map.json` exists, and the `{outputFile}` frontmatter's `workspaceDrift` is not `overridden` (init.md §5b): under the drift override the tree at `{source_path}` is not the pinned commit, so its lines prove nothing about the map. Otherwise skip to section 5.
 
 Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}`. If neither path exists, skip to section 5: the check is advisory. Otherwise run:
 
@@ -530,7 +527,7 @@ Rely on its JSON:
 
 - Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
 - Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0) and run the command again.
-- Exit 1: HALT with the script's `error`.
+- Exit 1: HALT with the script's `error` (`halt_reason: "helper-failed"`, phase `coverage-check:ledger`).
 
 ### 6. Report Coverage Results
 
