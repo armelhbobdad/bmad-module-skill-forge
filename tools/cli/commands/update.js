@@ -9,6 +9,7 @@ const path = require('node:path');
 const fs = require('fs-extra');
 const yaml = require('js-yaml');
 const { Installer } = require('../lib/installer');
+const { startToolCheck } = require('../lib/tool-check');
 const { UI } = require('../lib/ui');
 
 const SKF_FOLDER = '_bmad/skf';
@@ -17,7 +18,11 @@ module.exports = {
   command: 'update',
   description: 'Update SKF files and reinstall agent skill (preserves config and sidecar)',
   options: [],
+  // Returns rather than exiting, so skf-cli.js prints the update notice after
+  // it; a failure sets process.exitCode.
   action: async () => {
+    // The tool probes run while the files copy.
+    const printToolReport = startToolCheck();
     try {
       const projectDir = process.cwd();
       const skfDir = path.join(projectDir, SKF_FOLDER);
@@ -25,7 +30,6 @@ module.exports = {
       if (!(await fs.pathExists(skfDir))) {
         console.log(chalk.yellow('\n  SKF is not installed in this directory.'));
         console.log(chalk.dim('  Run: npx bmad-module-skill-forge install\n'));
-        process.exit(0);
         return;
       }
 
@@ -52,14 +56,17 @@ module.exports = {
         }
         const ui = new UI();
         ui.displaySuccess(SKF_FOLDER, ides, 'update');
-        process.exit(0);
+        await printToolReport();
       } else {
         console.error(chalk.red('\nUpdate failed.'));
-        process.exit(1);
+        process.exitCode = 1;
       }
     } catch (error) {
       console.error(chalk.red('\nUpdate failed:'), error.message);
-      process.exit(1);
+      process.exitCode = 1;
+    } finally {
+      // An update that fails, or finds no SKF here, prints no report: stop the probes still running.
+      printToolReport.stop();
     }
   },
 };

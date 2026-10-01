@@ -30,11 +30,14 @@ for (const command of [installCommand, updateCommand, statusCommand, uninstallCo
   for (const option of command.options || []) {
     cmd.option(...option);
   }
-  // Wrap action to print update notice after command completes
+  // Wrap action to print update notice after command completes. The actions
+  // return (setting process.exitCode on a failure) rather than exit, so the
+  // notice follows them; the exit ends the stdin that the fix above resumed.
   const originalAction = command.action;
   cmd.action(async (...args) => {
     await originalAction(...args);
     await printUpdateNotice();
+    process.exit(process.exitCode ?? 0);
   });
 }
 

@@ -49,11 +49,12 @@ Subcommands:
              skf-setup's interactive FORGE STATUS banner: reads the same
              payload as `emit` on stdin (plus the banner keys below),
              folds in the helper outputs --run-dir holds, and prints the
-             banner's lines in English, one per line. --tier-rules names
-             skf-setup's references/tier-rules.md, which holds the tier
-             descriptions and re-run messages (default: the copy beside
-             this script's folder, in the source tree and in an installed
-             project alike).
+             banner's lines in English, one per line, ending with the
+             REQUIRED TIER NOT MET block when --require-tier was not met.
+             --tier-rules names skf-setup's references/tier-rules.md,
+             which holds the tier descriptions and re-run messages
+             (default: the copy beside this script's folder, in the source
+             tree and in an installed project alike).
 
 Workflow schemas. A workflow's envelope schema is
 `schemas/skf-<name>-result-envelope.v<N>.json`, found beside this script in
@@ -188,6 +189,9 @@ Context payload shape (consumed by `emit` for skf-setup):
     "require_tier_satisfied":        bool|null,
     "require_tier_failure_missing":  ["ccc", ...],
     "qmd_status":                    "absent|daemon_stopped|healthy",
+    "tools_below_minimum":           [{"tool": "ast_grep", "name": "ast-grep", "version": "0.42.2",
+                                       "minimum": "0.45.3", "upgrade": "string|null",
+                                       "tier": "Forge|Forge+|Deep|null"}, ...],
     "ccc_exclusion_warnings":        ["string", ...],
     "ccc_registry_stale_removed":    ["/path", ...],
     "ccc_indexing_failed_reason":    "string|null",
@@ -212,6 +216,12 @@ Context payload shape (consumed by `emit` for skf-setup):
   the removal deleted and the ones it could not, and each becomes its own
   warning (`orphan_removed: <name>`, `orphan_remove_failed: <name>`).
 
+  `tools_below_minimum` is skf-detect-tools.py's list of the tools below
+  their minimum version, which detect-tools.json supplies. Each becomes the
+  warning `tool_below_minimum: <name> <version> (minimum <minimum>)`, and
+  the banner's Tool upgrades line; a tier tool among them already reads
+  false under `tools`, so no envelope field changes.
+
   When the On Activation customization resolver was missing or failed,
   pass its one-line reason as `customization_resolver_unavailable`: the
   run then used only the skill's own customize.toml, and the warning tells
@@ -223,10 +233,12 @@ Context payload shape (consumed by `emit` for skf-setup):
   "forge_data_folder" (resolved paths), "preferences_yaml_created",
   "settings_yml_written" and "gitignore_updated" (bool),
   "settings_yml_patterns_added" and "settings_yml_patterns_removed"
-  (int), "hygiene_result" ("completed|qmd_unavailable|skipped"), and
+  (int), "hygiene_result" ("completed|qmd_unavailable|skipped"),
   "hygiene_healthy", "hygiene_orphaned_removed", "hygiene_orphaned_kept",
-  "hygiene_stale_cleaned" and "ccc_registry_stale_cleaned" (int). The
-  staged helper outputs supply every hygiene key but the two orphan counts.
+  "hygiene_stale_cleaned" and "ccc_registry_stale_cleaned" (int), and
+  "require_tier" (the tier --require-tier named, or null). The staged
+  helper outputs supply every hygiene key but the two orphan counts, and
+  detect-tools.json supplies require_tier.
 
 Caller does NOT need to compute warnings, tools_added/removed, or
 tier_changed: the script derives them from the inputs above.
@@ -401,6 +413,9 @@ def _assemble_warnings(payload: dict) -> list[str]:
         warnings.append(f"ccc_registry_stale_removed: {p}")
     if payload.get("qmd_status") == "daemon_stopped":
         warnings.append("qmd_daemon_stopped")
+    for tool in _objects(payload.get("tools_below_minimum")):
+        warnings.append(f"tool_below_minimum: {_tool_name(tool)} {tool.get('version')} "
+                        f"(minimum {tool.get('minimum')})")
     failure_reason = payload.get("ccc_indexing_failed_reason")
     if failure_reason:
         warnings.append(f"ccc_indexing_failed: {failure_reason}")
@@ -431,6 +446,15 @@ def _dict(value) -> dict:
 
 def _strings(value) -> list[str]:
     return [str(item) for item in value] if isinstance(value, list) else []
+
+
+def _objects(value) -> list[dict]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _tool_name(tool: dict) -> str:
+    """A tools_below_minimum entry's name, as the docs write it."""
+    return str(tool.get("name") or tool.get("tool"))
 
 
 def _normalize_files_written(maybe_files) -> list[str]:
@@ -623,8 +647,8 @@ def fold_staged(payload: dict, staged: dict) -> dict:
     the ones that count.
 
       detect-tools.json   tier, previous_tier, tools, previous_tools, the
-                          tier_override_* and require_tier_* fields and
-                          qmd_status
+                          tier_override_* and require_tier* fields,
+                          qmd_status and tools_below_minimum
       qmd-classify.json   hygiene_result ("completed", or "qmd_unavailable"
                           when the classifier failed) and hygiene_healthy
       clean-stale.json    hygiene_stale_cleaned, ccc_registry_stale_cleaned
@@ -646,9 +670,11 @@ def fold_staged(payload: dict, staged: dict) -> dict:
             "tier_override_invalid_suggestion": tier.get("override_invalid_suggestion"),
             "tier_override_unsafe": tier.get("override_unsafe") is True,
             "tier_override_unsafe_missing": _strings(tier.get("override_unsafe_missing")),
+            "require_tier": required.get("requested"),
             "require_tier_satisfied": required.get("satisfied"),
             "require_tier_failure_missing": _strings(required.get("missing_tools")),
             "qmd_status": _dict(tools.get("qmd")).get("status"),
+            "tools_below_minimum": _objects(detect.get("tools_below_minimum")),
         })
     if STAGED_CLASSIFY in staged:
         healthy = _dict(staged[STAGED_CLASSIFY]).get("healthy")
@@ -677,9 +703,6 @@ TIER_RULES_FILE = Path(__file__).resolve().parent.parent.parent / "skf-setup" / 
 TIER_RULES_HEADINGS = {"Quick Tier": "Quick", "Forge Tier": "Forge", "Forge+ Tier": "Forge+",
                        "Deep Tier": "Deep", "Upgrade": "upgrade", "Downgrade": "downgrade",
                        "Same": "same"}
-# The one exclusion note whose `{project-root}` names the placeholder
-# skf-merge-ccc-exclusions.py resolves, not the project folder.
-PLACEHOLDER_REFUSAL = "unresolved template placeholder"
 NEXT_STEPS = (
     "  Next: the fastest start is `@Ferris forge-auto <repo-or-doc-url>`: one command auto-scopes, "
     "briefs, compiles, tests at a 90% quality gate, and exports a verified skill with zero "
@@ -728,15 +751,24 @@ def _names(keys) -> str:
 def _tool_line(key: str, probe, ccc_daemon) -> str:
     """One Tools Detected line: the tool and its version, the probe's version
     line without the tool's name or a leading "version" (gh prints
-    `gh version 2.91.0 (...)`). ccc has no version, so it shows its daemon."""
+    `gh version 2.91.0 (...)`). ccc also shows its daemon; its version is the
+    one `uv tool list` gave, when uv installed it."""
     name = TOOL_NAMES[key]
-    if key == "ccc":
-        return f"  - ccc (daemon {ccc_daemon})" if ccc_daemon else "  - ccc"
     version = str(_dict(probe).get("version") or "").strip()
     for word in (name, "version"):
         if version.lower().startswith(word + " "):
             version = version[len(word) + 1:].lstrip()
-    return f"  - {name} {version}" if version else f"  - {name}"
+    line = f"  - {name} {version}" if version else f"  - {name}"
+    return f"{line} (daemon {ccc_daemon})" if key == "ccc" and ccc_daemon else line
+
+
+def _upgrade_line(tool: dict) -> str:
+    """One Tool upgrades line: the version found, the minimum, how to upgrade
+    and, for a tier tool, the tier it counts toward once upgraded."""
+    line = f"- Upgrade {_tool_name(tool)} {tool.get('version')} to {tool.get('minimum')} or newer"
+    if tool.get("upgrade"):
+        line += f" ({tool['upgrade']})"
+    return line + (f" to use the {tool['tier']} tier" if tool.get("tier") else "")
 
 
 def _tier_change_message(copy: dict, previous: str, current: str, added, removed) -> str:
@@ -757,10 +789,10 @@ def _tier_change_message(copy: dict, previous: str, current: str, added, removed
 def render_report(payload: dict, copy: dict) -> list[str]:
     """The FORGE STATUS banner of a finished setup run, one string per line.
 
-    Implements the template in skf-setup's references/report.md section 2:
-    each of its `{if ...}` conditions is one test below, on the payload
-    (with the staged helper outputs folded in) and the envelope fields
-    derived from it. The lines are English; the step translates them.
+    Each `{if ...}` condition of the banner template is one test below, on
+    the payload (with the staged helper outputs folded in) and the envelope
+    fields derived from it; the tests keep the template. The lines are
+    English; the step translates them.
     """
     inner = assemble_envelope(payload)["skf_setup"]
     tier, previous, tools = inner["tier"], inner["previous_tier"], inner["tools"]
@@ -772,36 +804,47 @@ def render_report(payload: dict, copy: dict) -> list[str]:
     hygiene = payload.get("hygiene_result")
     prefs_created = payload.get("preferences_yaml_created")
     settings_written = payload.get("settings_yml_written")
+    # A tool below its minimum is installed: its Tool upgrades line replaces
+    # an install hint, and it is never called "no longer detected".
+    below = _objects(payload.get("tools_below_minimum"))
+    below_keys = {str(tool.get("tool")) for tool in below}
+    removed_shown = [key for key in removed if key not in below_keys]
 
     blocks = [[BANNER_RULE, "  FORGE STATUS", BANNER_RULE], [f"  Tier:  {tier}", f"  {copy[tier]}"]]
 
     detected = ["  Tools Detected:"]
     detected += [_tool_line(key, probes.get(key), ccc_daemon) for key in TOOL_KEYS if tools[key]]
     if not any(tools.values()):
-        detected.append('  (none yet, see "Climb to next tier" below)')
+        # With no tool counted, the only climb hint is ast-grep's install line.
+        section = "Tool upgrades" if "ast_grep" in below_keys else "Climb to next tier"
+        detected.append(f'  (none yet, see "{section}" below)')
     blocks.append(detected)
+
+    if below:
+        blocks.append(["  Tool upgrades:"] + [f"  {_upgrade_line(tool)}" for tool in below])
 
     if tier != "Deep":
         ast_grep, qmd_status = tools["ast_grep"], payload.get("qmd_status")
         hints = [hint for holds, hint in (
-            (not ast_grep,
+            (not ast_grep and "ast_grep" not in below_keys,
              "- Install ast-grep (https://ast-grep.github.io): unlocks AST-backed code analysis (Forge tier)"),
-            (ast_grep and not tools["ccc"],
+            (ast_grep and not tools["ccc"] and "ccc" not in below_keys,
              "- Install cocoindex-code (https://github.com/cocoindex-io/cocoindex-code): adds "
              "semantic-guided precision compilation (Forge+ tier)"),
-            (ast_grep and not tools["gh_cli"],
+            (ast_grep and not tools["gh_cli"] and "gh_cli" not in below_keys,
              "- Install GitHub CLI (https://cli.github.com): required for Deep tier "
              "(cross-repository synthesis)"),
             (ast_grep and not tools["qmd"] and qmd_status == "absent",
              "- Install qmd (https://github.com/tobi/qmd): required for Deep tier (knowledge search)"),
-            (ast_grep and not tools["qmd"] and qmd_status == "daemon_stopped",
+            (ast_grep and not tools["qmd"] and qmd_status == "daemon_stopped" and "qmd" not in below_keys,
              "- Start the qmd daemon (already installed): run `qmd start` (or your distribution's "
              "qmd service command) to unlock Deep tier (knowledge search)"),
             (tools["ccc"] and ccc_daemon == "error",
              "- The ccc daemon is reporting errors: run `ccc doctor` to diagnose. CCC index will "
              "fail until resolved"),
         ) if holds]
-        blocks.append(["  Climb to next tier:"] + [f"  {hint}" for hint in hints])
+        if hints:
+            blocks.append(["  Climb to next tier:"] + [f"  {hint}" for hint in hints])
 
     if hygiene == "completed":
         qmd = ["  QMD Registry:", f"  {_count(payload.get('hygiene_healthy'))} collection(s) healthy"]
@@ -835,9 +878,10 @@ def render_report(payload: dict, copy: dict) -> list[str]:
         ) if index == status]
         notes = _strings(payload.get("ccc_exclusion_warnings"))
         if notes:
+            # A note that names the project root in SKF's words writes the
+            # placeholder, shown here as the resolved root; the envelope keeps it.
             ccc.append("  CCC exclusion notes:")
-            ccc += [f"  - {note if PLACEHOLDER_REFUSAL in note else note.replace('{project-root}', root)}"
-                    for note in notes]
+            ccc += [f"  - {note.replace('{project-root}', root)}" for note in notes]
         blocks.append(ccc)
 
     config_path = inner["config_path"]
@@ -884,7 +928,7 @@ def render_report(payload: dict, copy: dict) -> list[str]:
     if previous is None:
         blocks.append([f"  Initial detection: {tier} tier established."])
     if changed:
-        blocks.append([f"  {_tier_change_message(copy, previous, tier, added, removed)}"])
+        blocks.append([f"  {_tier_change_message(copy, previous, tier, added, removed_shown)}"])
     if not changed and not added and not removed and previous is not None:
         same = [f"  {copy['same'].replace('{current}', tier)}"]
         if prefs_created is False and settings_written is False and index == "fresh":
@@ -901,11 +945,17 @@ def render_report(payload: dict, copy: dict) -> list[str]:
         if added:
             deep_ccc = " ccc enhances Deep tier transparently." if "ccc" in added and tier == "Deep" else ""
             delta.append(f"  Newly detected: {_names(added)}.{deep_ccc}")
-        if removed:
-            delta.append(f"  No longer detected: {_names(removed)}. Re-install to restore those capabilities.")
+        if removed_shown:
+            delta.append(f"  No longer detected: {_names(removed_shown)}. Re-install to restore those capabilities.")
         blocks.append(delta)
 
     blocks += [[BANNER_RULE, f"  Forge ready. {tier} tier active.", BANNER_RULE], [NEXT_STEPS]]
+    if inner["require_tier_satisfied"] is False:
+        missing = ", ".join(_strings(payload.get("require_tier_failure_missing"))) or "<none>"
+        blocks += [[BANNER_RULE, "  REQUIRED TIER NOT MET", BANNER_RULE],
+                   [f"  Required:  {payload.get('require_tier') or '<unknown>'}", f"  Detected:  {tier}",
+                    f"  Missing:   {missing}"],
+                   ["  Install or upgrade the missing tool(s) and re-run, or relax `--require-tier`.", BANNER_RULE]]
     lines: list[str] = []
     for block in blocks:
         lines += ([""] if lines else []) + block

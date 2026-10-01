@@ -788,7 +788,8 @@ def test_report_payload_is_staged_before_the_banner_and_shared_with_the_envelope
     assert ('render-report --run-dir "{run_dir}" --tier-rules "{skill-root}/references/tier-rules.md" '
             '< "{run_dir}/report-context.json"') in banner
     assert (REFS / "tier-rules.md").is_file()
-    assert "`render-report` follows this template, kept for reference only;" in banner
+    # The script owns the banner's lines: no template of them is left to drift from it.
+    assert "kept for reference only" not in report and "{if " not in report
     emit = _section(report, "### 4.")
     assert 'emit --run-dir "{run_dir}" < "{run_dir}/report-context.json"' in emit
     assert "echo '" not in report and "tierRulesData" not in report
@@ -833,10 +834,14 @@ def test_payload_strings_escape_control_characters_and_a_bad_payload_is_rewritte
 
 def test_required_tier_block_points_at_no_section_a_deep_banner_lacks():
     """Deep can miss `--require-tier=Forge+` (Deep does not require ccc), and
-    render-report prints "Climb to next tier" only below Deep."""
+    render-report prints "Climb to next tier" only below Deep. The banner
+    ends with the block, so section 3 covers the banner that could not be
+    rendered: without it, section 5 would halt on the miss unexplained."""
     block = _section(_read(REFS / "report.md"), "### 3.")
     assert "REQUIRED TIER NOT MET" in block
     assert "Climb to next tier" not in block
+    assert "If section 2 displayed `FORGE STATUS could not be rendered`" in block
+    assert "{require_tier_failure_missing_tools}" in block
 
 
 # ---------------------------------------------------------------- what the docs promise

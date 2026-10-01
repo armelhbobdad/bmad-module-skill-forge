@@ -36,6 +36,7 @@ and in-process tests replace `run_ccc_init` with fakes.
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -53,11 +54,20 @@ REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-merge-ccc-exclusions.py"
 CCC_INDEX_STEP = REPO_ROOT / "src" / "skf-setup" / "references" / "ccc-index.md"
 REPORT_STEP = REPO_ROOT / "src" / "skf-setup" / "references" / "report.md"
+# Setup's FORGE STATUS banner is what skf-emit-result-envelope.py's
+# render-report prints, so the banner pins below read its output.
+EMIT_HELPER = REPO_ROOT / "src" / "shared" / "scripts" / "skf-emit-result-envelope.py"
+TIER_RULES = REPO_ROOT / "src" / "skf-setup" / "references" / "tier-rules.md"
 
 spec = importlib.util.spec_from_file_location("skf_merge_ccc_exclusions", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(mod)
+
+_emit_spec = importlib.util.spec_from_file_location("skf_emit_result_envelope", EMIT_HELPER)
+emit = importlib.util.module_from_spec(_emit_spec)
+assert _emit_spec.loader is not None
+_emit_spec.loader.exec_module(emit)
 
 
 # The 9 exclude_patterns `ccc init` writes (cocoindex-code 0.2.41).
@@ -1308,13 +1318,14 @@ def _root_forms(project: Path) -> set[str]:
 
 
 def test_placeholder_refusal_names_the_placeholder_not_the_root(tmp_project):
-    # The one SKF-worded warning whose {project-root} is the placeholder's
-    # name, not a folder: report.md tells the banner to show it as it is.
+    # The refusal names the placeholder in words, so every `{project-root}`
+    # in SKF's own words is the project root, which the banner resolves.
     _seed_ccc_settings(tmp_project)
     payload = _merge(tmp_project, skills="{output_folder}/skills")
     [warning] = _warnings_with(payload, "unresolved template placeholder")
-    assert warning.endswith("let this script resolve {project-root}")
-    assert "unresolved template placeholder" in _report_exclusion_note()
+    assert warning.endswith("let this script resolve the project-root placeholder")
+    assert "{project-root}" not in warning
+    assert f"  - {warning}" in _setup_banner(ccc_exclusion_warnings=[warning])
 
 
 # ─── Collision check (real git, cleaned environment) ───────────────────────
@@ -2931,9 +2942,9 @@ def test_docstring_says_where_the_project_root_placeholder_applies():
         "it writes the literal `{project-root}` placeholder, never the absolute path.",
         "Setup's step 4 banner renders a warning's placeholder like its own "
         "`{project-root}` paths, and the envelope keeps it verbatim.",
-        "The unresolved-placeholder refusal writes `{project-root}` too, as the name of the "
-        "placeholder this script resolves rather than a folder, and the banner shows that "
-        "warning as it is.",
+        "The unresolved-placeholder refusal names the placeholder this script resolves in words "
+        '("the project-root placeholder"), so a `{project-root}` in SKF\'s own words always means '
+        "the project root.",
         "Output and errors quoted from `ccc init` or git can carry paths of their own, "
         "the project root included.",
         "Error messages on stderr name absolute paths.",
@@ -3005,135 +3016,121 @@ def test_record_kept_when_step_does_not_reconcile():
         assert "ccc_exclude_patterns: null" in line, line
 
 
+def _setup_banner(**over) -> list[str]:
+    """Setup's FORGE STATUS banner for a same-tier Forge+ re-run with ccc, as render-report prints it."""
+    payload = {
+        "project_root": "/p", "config_path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
+        "forge_data_folder": "/p/forge-data", "tier": "Forge+", "previous_tier": "Forge+",
+        "tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": {"available": True, "daemon": "healthy"}},
+        "previous_tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": True},
+        "ccc_index": {"status": "fresh", "indexed_path": "/p", "file_count": 3},
+        "preferences_yaml_created": False, "settings_yml_written": False,
+        "qmd_status": "absent", "hygiene_result": "skipped", "error": None,
+    }
+    payload.update(over)
+    return emit.render_report(payload, emit.load_tier_rules(TIER_RULES))
+
+
+def _index(status: str) -> dict:
+    checked = status in ("fresh", "created")
+    return {"status": status, "indexed_path": "/p" if checked else None, "file_count": 3 if checked else None}
+
+
+INDEX_STATUSES = ("fresh", "created", "skipped", "failed", "none")
+
+
 def test_report_shows_removed_count_notes_and_gitignore():
-    text = REPORT_STEP.read_text(encoding="utf-8")
-    section_2 = text.split("### 3.", 1)[0]
-    assert "{settings_yml_patterns_removed}" in section_2
-    assert "ccc_exclusion_warnings" in section_2
-    assert "gitignore_updated is true" in section_2
+    lines = _setup_banner(settings_yml_written=True, settings_yml_patterns_added=3, settings_yml_patterns_removed=2,
+                          gitignore_updated=True, ccc_exclusion_warnings=["skills_output_folder note"])
+    assert ("  - .cocoindex_code/settings.yml: /p/.cocoindex_code/settings.yml (3 SKF exclusion pattern(s) "
+            "merged, 2 stale SKF pattern(s) removed)") in lines
+    assert "  CCC exclusion notes:" in lines and "  - skills_output_folder note" in lines
+    assert "  - .gitignore: /p/.gitignore (`/.cocoindex_code/` added by `ccc init`)" in lines
 
 
-SAME_TIER_MESSAGE = "{same-tier message from tier-rules.md}"
-# What a same-tier closing line may claim, and the condition that backs it.
+# What a same-tier closing line may claim, and the payload value that backs it.
 CLOSING_CLAIMS = {
-    "your preferences": "preferences_yaml_created is false",
-    "ccc settings were left untouched": "settings_yml_written is false",
-    "the ccc index was already current": 'ccc_index_result is "fresh"',
-    "the ccc index was not checked (--ccc-skip-index)": 'ccc_index_result is "skipped"',
+    "your preferences": lambda run: run["preferences_yaml_created"] is False,
+    "ccc settings were left untouched": lambda run: run["settings_yml_written"] is False,
+    "the ccc index was already current": lambda run: run["ccc_index"]["status"] == "fresh",
+    "the ccc index was not checked (--ccc-skip-index)": lambda run: run["ccc_index"]["status"] == "skipped",
 }
-# The only terms a closing-line condition may join, and only with " and ".
-CLOSING_TERMS = {"preferences_yaml_created is false", "settings_yml_written is false"} | {
-    f'ccc_index_result is "{status}"' for status in ("fresh", "skipped", "none")}
-INDEX_STATUS_RE = re.compile(r'ccc_index_result is "([a-z]+)"')
-BANNER_LINE_RE = re.compile(r"\{if (.+?): (.+)\}")
-EXCLUSION_NOTE = "`{ccc_exclusion_warnings}` entry"
-FORWARD_NOTE = "`{ccc_exclusion_warnings_list}` is"
 
 
-def _report_section(number: int) -> str:
-    text = REPORT_STEP.read_text(encoding="utf-8")
-    start, end = f"\n### {number}. ", f"\n### {number + 1}. "
-    for marker in (start, end):
-        assert text.count(marker) == 1, marker
-    return text.split(start, 1)[1].split(end, 1)[0]
+def _same_tier_closing_lines(lines: list[str]) -> list[str]:
+    """The lines under the same-tier message, up to the blank line that ends its block."""
+    same = "  " + emit.load_tier_rules(TIER_RULES)["same"].replace("{current}", "Forge+")
+    if same not in lines:
+        return []
+    start = lines.index(same) + 1
+    return lines[start:lines.index("", start)]
 
 
-def _paragraph(section: str, marker: str) -> str:
-    """The one blank-line-separated paragraph holding marker, outside any fence.
-
-    Inside a fence it would be template text the user sees, not an
-    instruction.
-    """
-    [paragraph] = [p for p in section.split("\n\n") if marker in p]
-    before = section[:section.index(marker)]
-    fences = sum(line.lstrip().startswith("```") for line in before.splitlines())
-    assert fences % 2 == 0, f"{marker!r} sits inside a code fence"
-    return paragraph
-
-
-def _report_exclusion_note() -> str:
-    return _paragraph(_report_section(2), EXCLUSION_NOTE)
-
-
-def _same_tier_closing_lines() -> list[tuple[str, str]]:
-    """(condition, shown text) for each line under the same-tier message."""
-    section = _report_section(2)
-    assert section.count(SAME_TIER_MESSAGE) == 1
-    block = section.split(SAME_TIER_MESSAGE, 1)[1].split("\n\n", 1)[0]
-    lines = []
-    for line in block.splitlines():
-        if not line.strip():
-            continue
-        m = BANNER_LINE_RE.fullmatch(line.strip())
-        assert m, f"not a conditional banner line: {line!r}"
-        lines.append((m.group(1), m.group(2)))
-    assert lines, "no closing line under the same-tier message"
-    return lines
-
-
-def test_report_calls_the_index_current_only_after_checking_it():
-    claims = [line.strip() for line in _report_section(2).splitlines()
-              if "already current" in line.lower() or "up to date" in line.lower()]
-    assert len(claims) >= 2
-    for line in claims:
-        m = BANNER_LINE_RE.fullmatch(line)
-        assert m, f"not a conditional banner line: {line!r}"
-        condition = m.group(1)
-        # Only this run's index status backs the claim: no "or", and no other
-        # index term such as the prior record's freshness.
-        assert " or " not in condition, condition
-        index_terms = [INDEX_STATUS_RE.fullmatch(term)
-                       for term in condition.split(" and ") if "index" in term]
-        assert index_terms, line
-        assert all(t and t.group(1) in {"fresh", "created"} for t in index_terms), line
+@pytest.mark.parametrize("status", INDEX_STATUSES)
+@pytest.mark.parametrize("prior_fresh", [True, False], ids=["prior-fresh", "prior-stale"])
+def test_report_calls_the_index_current_only_after_checking_it(status, prior_fresh):
+    # Only this run's index status backs the claim: the prior record's
+    # freshness, which the payload may also carry, never does.
+    lines = _setup_banner(ccc_index=_index(status), ccc_index_fresh=prior_fresh,
+                          previous_ccc_index_status="fresh" if prior_fresh else "failed")
+    claims = [line for line in lines if "already current" in line.lower() or "up to date" in line.lower()]
+    assert bool(claims) == (status == "fresh"), claims
+    if status == "fresh":
+        assert len(claims) == 2, claims
 
 
 def test_report_same_tier_closing_lines_claim_only_what_they_check():
-    by_status = {}
-    for condition, shown in _same_tier_closing_lines():
-        # A plain conjunction of known terms: an "or", or a term such as the
-        # prior record's freshness, would let a line claim what it never checked.
-        assert all(term in CLOSING_TERMS for term in condition.split(" and ")), condition
-        [status] = INDEX_STATUS_RE.findall(condition)
-        assert status not in by_status, status
-        by_status[status] = shown
-        for claim, backing in CLOSING_CLAIMS.items():
-            assert (claim in shown.lower()) == (backing in condition), (claim, condition)
-        # The banner can list removed collections, exclusion notes or
-        # forge-tier.yaml above this line, so it never sums the run up.
-        for summary in ("nothing changed", "you're good"):
-            assert summary not in shown.lower(), shown
-    assert set(by_status) == {"fresh", "skipped", "none"}
-    assert "index" not in by_status["none"].lower()
+    shown = set()
+    for prefs, settings, status in itertools.product((False, True), (False, True), INDEX_STATUSES):
+        run = {"preferences_yaml_created": prefs, "settings_yml_written": settings, "ccc_index": _index(status)}
+        closing = _same_tier_closing_lines(_setup_banner(**run))
+        for line in closing:
+            text = line.lower()
+            for claim, backed in CLOSING_CLAIMS.items():
+                assert claim not in text or backed(run), (claim, run)
+            # The banner can list removed collections, exclusion notes or
+            # forge-tier.yaml above this line, so it never sums the run up.
+            for summary in ("nothing changed", "you're good"):
+                assert summary not in text, line
+            if status == "none":
+                assert "index" not in text, line
+        if closing:
+            shown.add(status)
+    assert shown == {"fresh", "skipped", "none"}
 
 
 def test_report_skip_lane_and_exclusion_notes_wording():
-    section = _report_section(2)
-    [skipped] = [line for line in section.splitlines()
-                 if line.strip().startswith('{if ccc_index_result is "skipped": skipped')]
+    [skipped] = [line for line in _setup_banner(ccc_index=_index("skipped"))
+                 if line.startswith("  skipped (--ccc-skip-index)")]
     assert "without --ccc-skip-index to build or refresh the index" in skipped
-    note = _report_exclusion_note()
-    for needle in (
-        "entry that names the project root in SKF's own words carries the literal `{project-root}`",
-        "render it the way the banner's own `{project-root}` paths are rendered",
-        "show text quoted from ccc or git as it is",
-        "An entry about an unresolved template placeholder names `{project-root}` as the "
-        "placeholder the helper resolves, not a folder: show that entry as it is too.",
-        "the envelope keeps the placeholder",
-    ):
-        assert needle in note, needle
+    refusal = mod.validate_config_value("skills_output_folder", "{output_folder}/skills")[1]
+    notes = ["add /.cocoindex_code/ to {project-root}/.gitignore", "ccc init: /elsewhere/x is read-only", refusal]
+    lines = _setup_banner(ccc_exclusion_warnings=notes)
+    # SKF's own placeholder shows as the project root, like the banner's own paths.
+    assert "  - add /.cocoindex_code/ to /p/.gitignore" in lines
+    # Text quoted from ccc or git, and the refusal, which names the placeholder in words, as they are.
+    assert "  - ccc init: /elsewhere/x is read-only" in lines
+    assert f"  - {refusal}" in lines and "{project-root}" not in refusal
 
 
 def test_report_envelope_forwards_exclusion_warnings_verbatim():
-    # Section 2's note says the envelope keeps the placeholder, but only
-    # section 4 runs under headless and quiet, so the instruction sits there.
-    note = _paragraph(_report_section(4), FORWARD_NOTE)
+    # The banner resolves an SKF-worded {project-root}; the envelope keeps it,
+    # and report.md stages each entry as step 1b bound it (read by content,
+    # not by section number, so the step can move it).
+    note = "add /.cocoindex_code/ to {project-root}/.gitignore"
+    envelope = emit.assemble_envelope({
+        "tier": "Forge+", "previous_tier": "Forge+", "config_path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
+        "tools": {"ast_grep": True, "gh_cli": False, "qmd": False, "ccc": True}, "ccc_exclusion_warnings": [note],
+        "error": None,
+    })
+    assert note in envelope["skf_setup"]["warnings"]
+    text = " ".join(REPORT_STEP.read_text(encoding="utf-8").split())
     for needle in (
         "`{ccc_exclusion_warnings_list}` is `{ccc_exclusion_warnings}` as a JSON list of strings",
         "each entry exactly as step 1b bound it",
         "do not resolve the `{project-root}` inside an entry",
     ):
-        assert needle in note, needle
+        assert needle in text, needle
 
 
 # ─── Clone mode: a workspace clone's settings.yml (create-skill) ────────────

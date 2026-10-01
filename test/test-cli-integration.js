@@ -7,12 +7,19 @@
  * - Uninstall removes all tracked files
  * - IDE skill installation for each target
  * - Manifest accuracy
+ * - The tool report (tools/cli/lib/tool-check.js), against stub tools on a
+ *   PATH the test sets: each tool's version and status against its minimum,
+ *   a stub that hangs, a stub in the project folder that never runs, .cmd
+ *   shims on Windows, install and update returning (not exiting) so the
+ *   update notice prints after them, and a run that prints no report
+ *   leaving no probe running
  *
  * Usage: node test/test-cli-integration.js
  */
 
 const path = require('node:path');
 const os = require('node:os');
+const { spawnSync } = require('node:child_process');
 const fs = require('fs-extra');
 const yaml = require('js-yaml');
 
@@ -659,6 +666,625 @@ async function testGitignoreEntries() {
 }
 
 // ============================================================
+// Tool report (tools/cli/lib/tool-check.js)
+// ============================================================
+
+const IS_WINDOWS = process.platform === 'win32';
+const TOOL_LIST = path.join(__dirname, '..', 'src', 'shared', 'tool-requirements.yaml');
+// eslint-disable-next-line no-control-regex -- the report is colored with chalk
+const ANSI = /\u001B\[\d+(?:;\d+)*m/g;
+
+/**
+ * A stub tool in `dir`: a shell script on POSIX, a .cmd batch file on
+ * Windows. `out` lines are echoed whatever the arguments; `posix` and
+ * `windows` replace the script body.
+ */
+async function writeStub(dir, name, { out = [], posix, windows } = {}) {
+  await fs.ensureDir(dir);
+  if (IS_WINDOWS) {
+    const body = windows ?? out.map((line) => `echo ${line}`);
+    await fs.writeFile(path.join(dir, `${name}.cmd`), ['@echo off', ...body, ''].join('\r\n'));
+    return;
+  }
+  const file = path.join(dir, name);
+  await fs.writeFile(file, ['#!/bin/sh', ...(posix ?? out.map((line) => `echo '${line}'`)), ''].join('\n'));
+  await fs.chmod(file, 0o755);
+}
+
+/** process.env with PATH replaced (every spelling of its name, for Windows). */
+function envWithPath(...dirs) {
+  const env = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.toUpperCase() !== 'PATH') env[key] = value;
+  }
+  env.PATH = dirs.join(path.delimiter);
+  return env;
+}
+
+function byKey(rows) {
+  return Object.fromEntries(rows.map((row) => [row.key, row]));
+}
+
+/** The status a found version has against the shipped minimum of `key`. */
+function expectedStatus(list, key, version) {
+  const { compareVersions } = require('../tools/cli/lib/version-check');
+  const minimum = list.tools[key].minimum;
+  return minimum && compareVersions(version, minimum.includes('.') ? minimum : `${minimum}.0`) ? 'upgrade' : 'ok';
+}
+
+/** A POSIX stub that writes its process id to `pidFile`, then hangs as that same process. */
+async function writePidStub(dir, name, pidFile) {
+  await writeStub(dir, name, { posix: [`echo $$ > '${pidFile}'`, 'exec /bin/sleep 30'] });
+}
+
+/** The process id a stub wrote to `pidFile`, or null when none is written within `ms`. */
+async function readPid(pidFile, ms = 5000) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    const text = await fs.readFile(pidFile, 'utf8').catch(() => '');
+    if (/^\d+\n$/.test(text)) return Number(text.trim());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return null;
+}
+
+/** True once process `pid` has ended (a zombie has ended too), polling for up to `ms`. POSIX only. */
+async function processEnded(pid, ms = 3000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const ps = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+    if (ps.status !== 0 || ps.stdout.trim().startsWith('Z')) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/** Kill a stub a failed check left running. */
+function killStub(pid) {
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    // Already gone
+  }
+}
+
+/**
+ * A --require preload for a CLI run: the registry check answers `version`
+ * with no network and, when SKF_TEST_SPAWN_LOG is set, each process the CLI
+ * spawns is logged there as "<pid> <file>" the moment it starts.
+ */
+async function writeCliPreload(file, version) {
+  await fs.writeFile(
+    file,
+    [
+      "const fs = require('node:fs');",
+      "const https = require('node:https');",
+      "const childProcess = require('node:child_process');",
+      "const { EventEmitter } = require('node:events');",
+      'https.get = (url, options, callback) => {',
+      '  const request = new EventEmitter();',
+      '  request.destroy = () => {};',
+      '  process.nextTick(() => {',
+      '    const response = new EventEmitter();',
+      '    response.statusCode = 200;',
+      '    response.resume = () => {};',
+      '    callback(response);',
+      `    response.emit('data', JSON.stringify({ version: '${version}' }));`,
+      "    response.emit('end');",
+      '  });',
+      '  return request;',
+      '};',
+      'const spawn = childProcess.spawn;',
+      'childProcess.spawn = function (file, ...rest) {',
+      '  const child = spawn.call(this, file, ...rest);',
+      '  if (process.env.SKF_TEST_SPAWN_LOG && child.pid) {',
+      String.raw`    fs.appendFileSync(process.env.SKF_TEST_SPAWN_LOG, child.pid + ' ' + file + '\n');`,
+      '  }',
+      '  return child;',
+      '};',
+      '',
+    ].join('\n'),
+  );
+}
+
+/** A folder of stub tools: every tool of the list but qmd, tessl and python3. */
+async function writeToolStubs(dir) {
+  await writeStub(dir, 'uv', {
+    posix: [
+      'case "$1" in',
+      '  python) echo 3.12.4 ;;',
+      String.raw`  tool) printf 'ruff v0.6.0\n- ruff\ncocoindex-code v0.2.41\n- ccc\n' ;;`,
+      "  *) echo 'uv 0.12.15 (stub)' ;;",
+      'esac',
+    ],
+    windows: [
+      'if "%1"=="python" (echo 3.12.4& exit /b 0)',
+      'if "%1"=="tool" (echo ruff v0.6.0& echo - ruff& echo cocoindex-code v0.2.41& echo - ccc& exit /b 0)',
+      'echo uv 0.12.15 (stub)',
+    ],
+  });
+  await writeStub(dir, 'git', { out: ['git version 1.9.5'] });
+  await writeStub(dir, 'gh', { out: ['gh: no version here'] });
+  await writeStub(dir, 'ast-grep', { out: ['ast-grep 0.1.0'] });
+  await writeStub(dir, 'ccc', { posix: ['exit 0'], windows: ['exit /b 0'] });
+  await writeStub(dir, 'skill-check', { out: ['skill-check 1.2.0'] });
+}
+
+async function testToolReport() {
+  console.log(`${colors.yellow}Test Suite 8: Tool Report${colors.reset}\n`);
+
+  const root = await makeTempDir('tools');
+  try {
+    const { checkTools, formatReport } = require('../tools/cli/lib/tool-check');
+    const list = yaml.load(await fs.readFile(TOOL_LIST, 'utf8'));
+    const stubs = path.join(root, 'stubs');
+    await writeToolStubs(stubs);
+    const project = path.join(root, 'project');
+    await fs.ensureDir(project);
+
+    const rows = await checkTools({ projectDir: project, env: envWithPath(stubs), timeoutMs: 10_000 });
+    assert(
+      rows.map((row) => row.key).join(',') === Object.keys(list.tools).join(','),
+      'one row per tool, in the order of tool-requirements.yaml',
+      rows.map((row) => row.key).join(','),
+    );
+    const found = byKey(rows);
+    const check = (key, version, status, label) => {
+      const row = found[key];
+      const ok = row && row.version === version && row.status === status && (label === undefined || row.label === label);
+      assert(ok, `${key}: ${version ?? '-'} ${label ?? status}`, JSON.stringify(row));
+    };
+    check('node', process.versions.node, expectedStatus(list, 'node', process.versions.node));
+    check('python', '3.12.4', 'ok', 'ok');
+    check('uv', '0.12.15', 'ok', 'ok');
+    check('git', '1.9.5', 'upgrade', `upgrade to >= ${list.tools.git.minimum}`);
+    check('gh_cli', null, 'unknown', 'installed, version unknown');
+    check('ast_grep', '0.1.0', 'upgrade', `upgrade to >= ${list.tools.ast_grep.minimum}`);
+    check('ccc', '0.2.41', 'ok', 'ok');
+    check('qmd', null, 'optional', `optional, ${list.tools.qmd.tiers[0]} tier`);
+    check('tessl', null, 'optional', 'optional, runs through npx');
+    check('skill_check', '1.2.0', 'ok', 'ok');
+    assert(found.ast_grep.hint === list.tools.ast_grep.upgrade, 'a tool below its minimum names its upgrade command');
+    assert(found.qmd.hint === list.tools.qmd.install_url, 'a missing tier tool names its install page');
+    assert(found.gh_cli.hint === undefined, 'a tool with no minimum and an unreadable version gets no upgrade line');
+
+    const lines = formatReport(rows).map((line) => line.replaceAll(ANSI, ''));
+    const astLine = lines.find((line) => line.includes('ast-grep'));
+    assert(lines[0].trim() === 'Tools', 'the report opens with its heading', lines[0]);
+    assert(
+      /^ {4}ast-grep +0\.1\.0 +upgrade to >= \S+ +npm install -g @ast-grep\/cli@latest$/.test(astLine),
+      'a report line holds the tool, its version, its status and how to upgrade',
+      astLine,
+    );
+
+    // The project's copy of the list (the SKF version its workflows run) decides the minimums.
+    const copy = path.join(project, '_bmad', 'skf', 'shared', 'tool-requirements.yaml');
+    await fs.ensureDir(path.dirname(copy));
+    await fs.writeFile(copy, 'schema_version: 1\ntools:\n  ast_grep:\n    minimum: "0.1"\n');
+    const pinned = byKey(await checkTools({ projectDir: project, env: envWithPath(stubs), timeoutMs: 10_000 }));
+    assert(pinned.ast_grep.status === 'ok', "the project's copy of the list sets the minimums", JSON.stringify(pinned.ast_grep));
+    assert(pinned.git.status === 'ok', 'a tool the copy gives no minimum has none', JSON.stringify(pinned.git));
+  } catch (error) {
+    assert(false, 'tool report completes without error', error.stack);
+  } finally {
+    await fs.remove(root);
+  }
+
+  console.log('');
+}
+
+async function testToolReportHangingStub() {
+  console.log(`${colors.yellow}Test Suite 9: Tool Report With a Tool That Hangs${colors.reset}\n`);
+
+  const root = await makeTempDir('tools-hang');
+  try {
+    const { checkTools, startToolCheck } = require('../tools/cli/lib/tool-check');
+    const stubs = path.join(root, 'stubs');
+    await writeStub(stubs, 'ast-grep', {
+      posix: ['exec /bin/sleep 30'],
+      windows: [String.raw`"%SystemRoot%\System32\ping.exe" -n 30 127.0.0.1 >nul`],
+    });
+    const options = { projectDir: path.join(root, 'project'), env: envWithPath(stubs) };
+    const started = Date.now();
+    const rows = await checkTools(options);
+    const elapsed = Date.now() - started;
+    const astGrep = byKey(rows).ast_grep;
+    assert(astGrep.status === 'unknown', 'a probe that hangs reads as version unknown', JSON.stringify(astGrep));
+    assert(elapsed < 6000, `the report waits about 3 s for a tool that hangs, not 30 s (${elapsed} ms)`);
+
+    const printed = [];
+    const origLog = console.log;
+    console.log = (...args) => printed.push(args.join(' '));
+    let thrown = null;
+    try {
+      await startToolCheck({ ...options, timeoutMs: 500 })();
+    } catch (error) {
+      thrown = error;
+    } finally {
+      console.log = origLog;
+    }
+    assert(thrown === null, 'printing the report never throws', thrown && thrown.message);
+    assert(printed.join('\n').includes('ast-grep'), 'the report still prints every tool');
+
+    if (!IS_WINDOWS) {
+      // A command that ends without the report stops the probes instead. The
+      // probe timeout is long here, so only stop() can end the stub in time.
+      const pidFile = path.join(root, 'qmd.pid');
+      await writePidStub(path.join(root, 'hang'), 'qmd', pidFile);
+      const report = startToolCheck({ ...options, env: envWithPath(path.join(root, 'hang')), timeoutMs: 60_000 });
+      const pid = await readPid(pidFile);
+      report.stop();
+      assert(pid !== null && (await processEnded(pid)), 'stop() ends a probe still running, with no report', `pid ${pid}`);
+      if (pid) killStub(pid);
+      assert(report.stop() === undefined, 'stop() can be called again');
+    }
+  } catch (error) {
+    assert(false, 'hanging stub test completes without error', error.stack);
+  } finally {
+    await fs.remove(root);
+  }
+
+  console.log('');
+}
+
+async function testToolReportIgnoresProjectBinaries() {
+  console.log(`${colors.yellow}Test Suite 10: Tool Report Never Runs a Binary in the Project${colors.reset}\n`);
+
+  const root = await makeTempDir('tools-planted');
+  try {
+    const { checkTools, resolveOutsideProject } = require('../tools/cli/lib/tool-check');
+    const project = path.join(root, 'project');
+    const marker = path.join(root, 'planted-stub-ran');
+    const planted = {
+      posix: [`: > '${marker}'`, "echo 'ast-grep 9.9.9'"],
+      windows: [`type nul > "${marker}"`, 'echo ast-grep 9.9.9'],
+    };
+    await writeStub(project, 'ast-grep', planted);
+    await writeStub(path.join(project, 'node_modules', '.bin'), 'ast-grep', planted);
+    const outside = path.join(root, 'outside');
+    await writeStub(outside, 'ast-grep', { out: ['ast-grep 0.45.3'] });
+    const dirs = [project, path.join(project, 'node_modules', '.bin'), 'bin'];
+    if (!IS_WINDOWS) {
+      // A PATH folder outside the project that links into it is the project's too.
+      const linked = path.join(root, 'linked');
+      await fs.symlink(path.join(project, 'node_modules', '.bin'), linked);
+      dirs.unshift(linked);
+    }
+    const env = envWithPath(...dirs, outside);
+    const rows = byKey(await checkTools({ projectDir: project, env, timeoutMs: 10_000 }));
+    assert(rows.ast_grep.version === '0.45.3', 'the binary outside the project answers', JSON.stringify(rows.ast_grep));
+    assert(!(await fs.pathExists(marker)), 'no stub in the project folder ran');
+    const resolved = resolveOutsideProject('ast-grep', { env, projectDir: project });
+    assert(resolved !== null && path.dirname(resolved) === outside, 'resolution skips the project and relative PATH entries', resolved);
+    assert(
+      resolveOutsideProject('ast-grep', { env: envWithPath(project), projectDir: project }) === null,
+      'a binary only in the project is missing',
+    );
+  } catch (error) {
+    assert(false, 'project-binary test completes without error', error.stack);
+  } finally {
+    await fs.remove(root);
+  }
+
+  console.log('');
+}
+
+async function testToolReportWindowsShims() {
+  console.log(`${colors.yellow}Test Suite 11: .cmd Shims Run Through cmd.exe${colors.reset}\n`);
+
+  const { commandFor } = require('../tools/cli/lib/tool-check');
+  const env = { ComSpec: String.raw`C:\Windows\system32\cmd.exe` };
+  const shim = commandFor(String.raw`C:\npm\ast-grep.CMD`, ['--version'], 'win32', env);
+  assert(
+    JSON.stringify(shim) ===
+      JSON.stringify({
+        file: String.raw`C:\Windows\system32\cmd.exe`,
+        args: ['/d', '/s', '/c', String.raw`""C:\npm\ast-grep.CMD" --version"`],
+        options: { windowsVerbatimArguments: true },
+      }),
+    'a .cmd shim runs through cmd.exe with a fixed command line',
+    JSON.stringify(shim),
+  );
+  assert(commandFor(String.raw`C:\100%\ast-grep.cmd`, ['--version'], 'win32', env) === null, 'a shim path cmd.exe would expand is not run');
+  assert(commandFor(String.raw`C:\npm\ast-grep.bat`, ['a b'], 'win32', env) === null, 'an argument that is not a plain word is refused');
+  const exe = commandFor(String.raw`C:\bin\uv.exe`, ['--version'], 'win32', env);
+  assert(exe.file === String.raw`C:\bin\uv.exe` && exe.args[0] === '--version', 'an .exe runs as it is');
+  assert(commandFor('/usr/bin/ast-grep', ['--version'], 'linux').file === '/usr/bin/ast-grep', 'POSIX binaries run as they are');
+
+  if (IS_WINDOWS) {
+    // Suite 8's stubs are .cmd files on Windows: a real run through cmd.exe.
+    const root = await makeTempDir('tools-cmd');
+    try {
+      const { checkTools } = require('../tools/cli/lib/tool-check');
+      await writeStub(root, 'ast-grep', { out: ['ast-grep 0.45.3'] });
+      const rows = byKey(await checkTools({ projectDir: path.join(root, 'project'), env: envWithPath(root), timeoutMs: 10_000 }));
+      assert(
+        rows.ast_grep.version === '0.45.3' || rows.ast_grep.status === 'unknown',
+        'a .cmd stub on PATH gives its version, or version unknown',
+        JSON.stringify(rows.ast_grep),
+      );
+    } catch (error) {
+      assert(false, '.cmd stub run never throws', error.stack);
+    } finally {
+      await fs.remove(root);
+    }
+  }
+
+  console.log('');
+}
+
+async function testCompareVersions() {
+  console.log(`${colors.yellow}Test Suite 12: compareVersions Reads x.y or x.y.z${colors.reset}\n`);
+
+  const { compareVersions, findVersion } = require('../tools/cli/lib/version-check');
+  const cases = [
+    ['0.45', '0.45.3', true],
+    ['ast-grep 0.42.2', '0.45.3', true],
+    ['0.45.3', '0.45.3', false],
+    ['0.46.0', '0.45.3', false],
+    ['gh version 2.101.0 (2026-09-15)', '2.15', false],
+    ['2.2.0', '3.0.0-rc.1', true],
+    ['3.0.0-rc.1', '3.0.0', false],
+    ['v2.9.0', '2.10.0', true],
+    ['no version', '1.0', false],
+  ];
+  for (const [current, latest, newer] of cases) {
+    assert(compareVersions(current, latest) === newer, `compareVersions('${current}', '${latest}') is ${newer}`);
+  }
+  assert(findVersion('qmd 2.8.3 (facd35e)') === '2.8.3' && findVersion('Usage: qmd') === null, 'findVersion takes the first x.y or x.y.z');
+
+  console.log('');
+}
+
+/**
+ * Run `fn` with console output collected, PATH set to `pathDirs` and
+ * process.exit refused: each call is recorded in `exits`, since the action's
+ * own catch may swallow the error the refusal throws.
+ */
+async function captureRun(fn, pathDirs) {
+  const printed = [];
+  const exits = [];
+  const orig = { log: console.log, error: console.error, out: process.stdout.write, err: process.stderr.write, exit: process.exit };
+  const origPath = process.env.PATH;
+  console.log = (...args) => printed.push(args.join(' '));
+  console.error = (...args) => printed.push(args.join(' '));
+  process.stdout.write = () => true;
+  process.stderr.write = () => true;
+  process.exit = (code) => {
+    exits.push(code);
+    throw new Error(`process.exit(${code}) was called`);
+  };
+  process.env.PATH = pathDirs.join(path.delimiter);
+  let thrown = null;
+  try {
+    await fn();
+  } catch (error) {
+    thrown = error;
+  } finally {
+    console.log = orig.log;
+    console.error = orig.error;
+    process.stdout.write = orig.out;
+    process.stderr.write = orig.err;
+    process.exit = orig.exit;
+    process.env.PATH = origPath;
+  }
+  return { printed: printed.join('\n').replaceAll(ANSI, ''), thrown, exits };
+}
+
+async function testInstallAndUpdateReturn() {
+  console.log(`${colors.yellow}Test Suite 13: Install and Update Return, So the Update Notice Prints${colors.reset}\n`);
+
+  const root = await makeTempDir('returns');
+  const origCwd = process.cwd();
+  const { UI } = require('../tools/cli/lib/ui');
+  const { Installer } = require('../tools/cli/lib/installer');
+  const origPrompt = UI.prototype.promptInstall;
+  const origSuccess = UI.prototype.displaySuccess;
+  const origInstall = Installer.prototype.install;
+  try {
+    const installCommand = require('../tools/cli/commands/install');
+    const updateCommand = require('../tools/cli/commands/update');
+    const stubs = path.join(root, 'stubs');
+    await writeStub(stubs, 'ast-grep', { out: ['ast-grep 0.1.0'] });
+    const project = path.join(root, 'project');
+    await fs.ensureDir(project);
+    process.chdir(project);
+    UI.prototype.displaySuccess = () => {};
+    const config = {
+      projectDir: project,
+      skfFolder: '_bmad/skf',
+      project_name: 'returns-test',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      ides: [],
+      install_learning: false,
+      _action: 'fresh',
+    };
+
+    UI.prototype.promptInstall = async () => config;
+    process.exitCode = undefined;
+    const installed = await captureRun(() => installCommand.action(), [stubs]);
+    assert(
+      installed.thrown === null && installed.exits.length === 0,
+      'install returns instead of calling process.exit',
+      `${installed.thrown && installed.thrown.message} exits: ${installed.exits}`,
+    );
+    assert(process.exitCode === undefined, 'a successful install leaves the exit code alone');
+    assert(/\bTools\b/.test(installed.printed) && installed.printed.includes('ast-grep'), 'install prints the tool report');
+
+    // On POSIX a qmd stub that hangs is still running when a run ends without
+    // the report. Its probe's own 3 s timeout would end it too, so the checks
+    // below wait well under 3 s.
+    const hang = path.join(root, 'hang');
+    const pidFile = path.join(root, 'qmd.pid');
+    if (!IS_WINDOWS) await writePidStub(hang, 'qmd', pidFile);
+    let probePid = null;
+    const probeStarted = async () => {
+      if (!IS_WINDOWS) probePid = await readPid(pidFile);
+    };
+    const probeStopped = async () => probePid !== null && (await processEnded(probePid, 1500));
+
+    UI.prototype.promptInstall = async () => {
+      await probeStarted();
+      return { cancelled: true };
+    };
+    const cancelled = await captureRun(() => installCommand.action(), [stubs, hang]);
+    assert(
+      cancelled.thrown === null && cancelled.exits.length === 0 && process.exitCode === undefined,
+      'a cancelled install returns with exit code 0',
+    );
+    assert(!/\bTools\b/.test(cancelled.printed), 'a cancelled install prints no tool report');
+    if (!IS_WINDOWS) {
+      assert(await probeStopped(), 'a cancelled install stops the probes still running', `pid ${probePid}`);
+      if (probePid) killStub(probePid);
+    }
+
+    const updated = await captureRun(() => updateCommand.action(), [stubs]);
+    assert(
+      updated.thrown === null && updated.exits.length === 0,
+      'update returns instead of calling process.exit',
+      `${updated.thrown && updated.thrown.message} exits: ${updated.exits}`,
+    );
+    assert(process.exitCode === undefined, 'a successful update leaves the exit code alone');
+    assert(updated.printed.includes('ast-grep'), 'update prints the tool report');
+
+    await fs.remove(pidFile);
+    probePid = null;
+    Installer.prototype.install = async () => {
+      await probeStarted();
+      throw new Error('disk full');
+    };
+    const failed = await captureRun(() => updateCommand.action(), [stubs, hang]);
+    assert(
+      failed.thrown === null && failed.exits.length === 0 && process.exitCode === 1,
+      'a failed update returns with exit code 1',
+      failed.printed,
+    );
+    assert(!/\bTools\b/.test(failed.printed), 'a failed update prints no tool report');
+    if (!IS_WINDOWS) {
+      assert(await probeStopped(), 'a failed update stops the probes still running', `pid ${probePid}`);
+      if (probePid) killStub(probePid);
+    }
+    process.exitCode = undefined;
+  } catch (error) {
+    assert(false, 'install and update return without error', error.stack);
+  } finally {
+    UI.prototype.promptInstall = origPrompt;
+    UI.prototype.displaySuccess = origSuccess;
+    Installer.prototype.install = origInstall;
+    process.exitCode = undefined;
+    process.chdir(origCwd);
+    await fs.remove(root);
+  }
+
+  console.log('');
+}
+
+async function testCliPrintsReportAndNotice() {
+  console.log(`${colors.yellow}Test Suite 14: The CLI Prints the Tool Report, Then the Update Notice${colors.reset}\n`);
+
+  const root = await makeTempDir('cli-notice');
+  try {
+    const stubs = path.join(root, 'stubs');
+    await writeStub(stubs, 'ast-grep', { out: ['ast-grep 0.1.0'] });
+    // The registry check, answered here with a newer version: no network.
+    const preload = path.join(root, 'fake-registry.js');
+    await writeCliPreload(preload, '999.0.0');
+    const project = path.join(root, 'project');
+    await fs.ensureDir(project);
+    const { Installer } = require('../tools/cli/lib/installer');
+    const restore = suppressConsole();
+    await new Installer().install({
+      projectDir: project,
+      skfFolder: '_bmad/skf',
+      project_name: 'notice-test',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      ides: [],
+      install_learning: false,
+      _action: 'fresh',
+    });
+    restore();
+
+    const cli = path.join(__dirname, '..', 'tools', 'cli', 'skf-cli.js');
+    for (const command of ['update', 'status']) {
+      const run = spawnSync(process.execPath, ['--require', preload, cli, command], {
+        cwd: project,
+        env: envWithPath(stubs),
+        encoding: 'utf8',
+        timeout: 120_000,
+      });
+      const stdout = (run.stdout || '').replaceAll(ANSI, '');
+      const stderr = (run.stderr || '').replaceAll(ANSI, '');
+      assert(run.status === 0, `${command} exits 0`, `${run.status} ${run.error || ''} ${stderr}`);
+      assert(/\n {2}Tools\n/.test(stdout) && /ast-grep +0\.1\.0 +upgrade to >= /.test(stdout), `${command} prints the tool report`, stdout);
+      assert(stderr.includes('Update available') && stderr.includes('999.0.0'), `the update notice prints after ${command}`, stderr);
+    }
+  } catch (error) {
+    assert(false, 'CLI report and notice test completes without error', error.stack);
+  } finally {
+    await fs.remove(root);
+  }
+
+  console.log('');
+}
+
+async function testCliStopsProbesWithoutReport() {
+  console.log(`${colors.yellow}Test Suite 15: A CLI Run That Prints No Tool Report Leaves No Probe Running${colors.reset}\n`);
+
+  if (IS_WINDOWS) {
+    // libuv's kill-on-close job object ends every child with the CLI on Windows.
+    console.log(`${colors.dim}  skipped on Windows${colors.reset}\n`);
+    return;
+  }
+  const root = await makeTempDir('cli-no-report');
+  const left = [];
+  try {
+    const stubs = path.join(root, 'stubs');
+    await writeStub(stubs, 'qmd', { posix: ['exec /bin/sleep 30'] });
+    const qmd = path.join(stubs, 'qmd');
+    const preload = path.join(root, 'cli-preload.js');
+    await writeCliPreload(preload, '0.0.1');
+    // update in a folder without SKF, and status where _bmad/skf is a file, which it cannot read.
+    const bare = path.join(root, 'bare');
+    const broken = path.join(root, 'broken');
+    await fs.ensureDir(bare);
+    await fs.outputFile(path.join(broken, '_bmad', 'skf'), 'not a folder\n');
+
+    const cli = path.join(__dirname, '..', 'tools', 'cli', 'skf-cli.js');
+    for (const [command, cwd, status] of [
+      ['update', bare, 0],
+      ['status', broken, 1],
+    ]) {
+      const log = path.join(root, `${command}-spawned.log`);
+      const run = spawnSync(process.execPath, ['--require', preload, cli, command], {
+        cwd,
+        env: { ...envWithPath(stubs), SKF_TEST_SPAWN_LOG: log },
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+      assert(run.status === status, `${command} exits ${status}`, `${run.status} ${run.error || ''} ${run.stderr}`);
+      const spawned = (await fs.readFile(log, 'utf8').catch(() => '')).split('\n');
+      const pid = Number(spawned.find((line) => line.endsWith(` ${qmd}`))?.split(' ')[0]) || null;
+      if (pid) left.push(pid);
+      assert(pid !== null, `${command} starts the qmd probe`, spawned.join('\n'));
+      assert(
+        pid !== null && (await processEnded(pid)),
+        `${command} stops the probe still running when it ends without the report`,
+        `pid ${pid}`,
+      );
+    }
+  } catch (error) {
+    assert(false, 'CLI probe stop test completes without error', error.stack);
+  } finally {
+    for (const pid of left) killStub(pid);
+    await fs.remove(root);
+  }
+
+  console.log('');
+}
+
+// ============================================================
 // Runner
 // ============================================================
 
@@ -674,6 +1300,14 @@ async function runTests() {
   await testManifestAccuracy();
   await testFreshInstallWithoutLearning();
   await testGitignoreEntries();
+  await testToolReport();
+  await testToolReportHangingStub();
+  await testToolReportIgnoresProjectBinaries();
+  await testToolReportWindowsShims();
+  await testCompareVersions();
+  await testInstallAndUpdateReturn();
+  await testCliPrintsReportAndNotice();
+  await testCliStopsProbesWithoutReport();
 
   console.log(`${colors.cyan}========================================`);
   console.log('Test Results:');

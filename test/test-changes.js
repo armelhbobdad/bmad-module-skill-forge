@@ -31,6 +31,10 @@
  *   hard, and so is one named only in a helper call, another program's
  *   command or a note that it was renamed; a flag that leaves the rows as a
  *   new name enters them is a possible rename, also hard;
+ * - tool minimums in src/shared/tool-requirements.yaml: a raised or new one
+ *   is hard and needs a breaking fragment that names the tool, a lowered or
+ *   removed one is additive, and a tested version is no surface; every
+ *   minimum v3.0.0 sets is named by a breaking fragment;
  * - backtests against the real history: v1.9.0..v2.0.0 finds only the
  *   `onboard` removal, v2.0.0..v2.0.1 finds skf-campaign's flags moved out of
  *   their Overrides row (review, not hard), no other pair of stable tags up to
@@ -1869,6 +1873,123 @@ test('diffSurfaces: a flag no file of its workflow names any more is hard, whate
     ['skf-campaign: flag `--brief` removed', 'skf-campaign: flag `--from` removed', 'skf-campaign: flag `-X` removed'],
   );
   assert.ok(!result.review.some((finding) => finding.change === 'moved-out'), describeFindings(result.review));
+});
+
+// --- Tool minimums (src/shared/tool-requirements.yaml) ---
+
+const TOOL_LIST = 'src/shared/tool-requirements.yaml';
+
+/** A tool list: each tool key with [name, minimum or null]. */
+function toolList(tools, tested = '1.0') {
+  const lines = ['schema_version: 1', 'tools:'];
+  for (const [key, [name, minimum]] of Object.entries(tools)) {
+    lines.push(`  ${key}:`, `    name: ${name}`, `    minimum: ${minimum === null ? 'null' : `"${minimum}"`}`, `    tested: ["${tested}"]`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+test('isSurfaceFile reads the tool list, and extractSurfaces a minimum for each tool that has one', () => {
+  assert.strictEqual(surfaces.isSurfaceFile(TOOL_LIST), true);
+  assert.strictEqual(surfaces.isSurfaceFile('src/shared/other.yaml'), false);
+  const found = surfaces.extractSurfaces(memoryTree({ [TOOL_LIST]: toolList({ ast_grep: ['ast-grep', '0.45.3'], gh_cli: ['gh', null] }) }));
+  const items = [...found.items.values()].filter((item) => item.kind === 'tool-minimum');
+  assert.deepStrictEqual(
+    items.map((item) => [item.workflow, item.token, item.detail, item.where]),
+    [['requirements', 'ast-grep', '0.45.3', TOOL_LIST]],
+  );
+  assert.deepStrictEqual(surfaces.extractSurfaces(memoryTree({ [TOOL_LIST]: 'tools: [unclosed\n' })).items.size, 0);
+});
+
+test('diffSurfaces: a raised or new tool minimum is hard, a lowered or removed one additive, a tested version no surface', () => {
+  const base = {
+    [TOOL_LIST]: toolList({
+      node: ['Node.js', '22'],
+      git: ['git', '2.15'],
+      ast_grep: ['ast-grep', '0.45.3'],
+      gh_cli: ['gh', null],
+      uv: ['uv', '0.4'],
+      qmd: ['qmd', '2.0'],
+    }),
+  };
+  const head = {
+    [TOOL_LIST]: toolList(
+      {
+        node: ['Node.js', '22.0.0'],
+        git: ['git', '2.20'],
+        ast_grep: ['ast-grep', '0.44'],
+        gh_cli: ['gh', '2.40'],
+        uv: ['uv', null],
+        ccc: ['ccc', '0.2'],
+      },
+      '9.9',
+    ),
+  };
+  const result = diffTrees(base, head);
+  assert.deepStrictEqual(
+    result.hard.map((finding) => finding.text),
+    [
+      'requirements: tool minimum `ccc` added (0.2)',
+      'requirements: tool minimum `gh` added (2.40)',
+      'requirements: tool minimum `git` raised from 2.15 to 2.20',
+    ],
+  );
+  assert.deepStrictEqual(
+    result.additive.map((finding) => finding.text),
+    [
+      'requirements: tool minimum `ast-grep` lowered from 0.45.3 to 0.44',
+      'requirements: tool minimum `qmd` removed (was 2.0)',
+      'requirements: tool minimum `uv` removed (was 0.4)',
+    ],
+  );
+  assert.deepStrictEqual(result.review, [], describeFindings(result.review));
+  const verdict = changes.evaluateGate({
+    next: '2.3.0',
+    bump: 'minor',
+    current: '2.2.0',
+    baseTag: 'v2.2.0',
+    fragments: [frag('added')],
+    surfaces: result,
+  });
+  assert.ok(
+    verdict.refusals.some((refusal) => refusal.includes('no breaking fragment names `git`')),
+    verdict.refusals.join('\n'),
+  );
+  assert.ok(
+    verdict.refusals.some((refusal) => refusal.includes('below the minimum major')),
+    verdict.refusals.join('\n'),
+  );
+});
+
+test('pr: a raised tool minimum needs a breaking fragment that names the tool', () => {
+  const root = makeRepo();
+  write(root, { [TOOL_LIST]: toolList({ ast_grep: ['ast-grep', '0.45.3'] }) });
+  commitAll(root, 'tool list');
+  git(root, ['checkout', '-q', '-b', 'feat/raise']);
+  write(root, { [TOOL_LIST]: toolList({ ast_grep: ['ast-grep', '0.46.0'] }) });
+  commitAll(root, 'raise');
+  const raised = runPr(root);
+  assert.strictEqual(raised.status, 1, raised.out);
+  assert.match(
+    raised.out,
+    /tool minimum `ast-grep` raised from 0\.45\.3 to 0\.46\.0, and no breaking fragment on this branch names `ast-grep` in backticks/,
+  );
+  write(root, {
+    'changes/raise-ast-grep.yaml':
+      'type: breaking\nscope: requirements\nsummary: |\n  SKF now needs `ast-grep` 0.46.0 or newer.\nmigration: |\n  Run `npm install -g @ast-grep/cli@latest`.\n',
+  });
+  commitAll(root, 'fragment');
+  const named = runPr(root);
+  assert.strictEqual(named.status, 0, named.out);
+  assert.match(named.out, /tool minimum `ast-grep` raised from 0\.45\.3 to 0\.46\.0 {2}\[named in changes\/raise-ast-grep\.yaml]/);
+});
+
+test('backtest v2.2.0..working tree: a breaking fragment names every tool minimum since v2.2.0', () => {
+  if (!needRefs(['v2.2.0'])) return 'skip';
+  const minimums = surfaces.compareRefs(ROOT, 'v2.2.0', null).hard.filter((finding) => finding.kind === 'tool-minimum');
+  for (const token of ['Node.js', 'Python', 'git', 'ast-grep']) assert.ok(tokens(minimums).includes(token), token);
+  const breaking = changes.readFragments(ROOT).fragments.filter((fragment) => fragment.data && fragment.data.type === 'breaking');
+  const unnamed = minimums.filter((finding) => !breaking.some((fragment) => changes.namesToken(fragment, finding.token)));
+  assert.deepStrictEqual(unnamed, [], describeFindings(unnamed));
 });
 
 test('schemaWorkflow names the workflow a result-envelope schema belongs to', () => {

@@ -9,6 +9,10 @@ Strategy:
   shutil.which, since _run() resolves cmd[0] through PATH before spawning)
   to cover normal, alias-shadowed, daemon-stopped, and timeout paths
   without hitting real binaries.
+- Minimum versions: the version parse, the comparison and what a tool below
+  its minimum does (a tier tool stops counting, git and uv only warn), with
+  a version below, at and above the minimum, one that does not parse and a
+  null minimum.
 - CLI integration test invokes the script as a subprocess and validates the
   emitted JSON shape end-to-end.
 """
@@ -392,6 +396,184 @@ def test_run_accepts_which_result_outside_cwd(tmp_path):
     assert _logical(calls[0]) == [resolved, "--version"]
 
 
+# ─── Minimum versions ───────────────────────────────────────────────────────
+
+
+REPO_REQUIREMENTS = Path(__file__).parent.parent / "src" / "shared" / "tool-requirements.yaml"
+
+
+@pytest.mark.parametrize("line,version", [
+    ("ast-grep 0.45.3", "0.45.3"),
+    ("gh version 2.101.0 (2026-09-15)", "2.101.0"),
+    ("qmd 2.8.3 (facd35e)", "2.8.3"),
+    ("git version 2.47.1.windows.2", "2.47.1"),
+    ("uv 0.12.15 (x86_64-unknown-linux-gnu)", "0.12.15"),
+    ("tool 0.45", "0.45"),
+    ("qmd: a search engine", None),
+    ("x", None),
+    (None, None),
+], ids=["ast-grep", "gh", "qmd", "git-windows", "uv", "two-parts", "help-line", "no-digits", "none"])
+def test_found_version_reads_the_first_x_y_or_x_y_z(line, version):
+    assert mod.found_version(line) == version
+
+
+@pytest.mark.parametrize("version,minimum,meets", [
+    ("ast-grep 0.42.2", "0.45.3", False),
+    ("ast-grep 0.45.3", "0.45.3", True),
+    ("ast-grep 0.46.0", "0.45.3", True),
+    ("ast-grep 0.45", "0.45.3", False),
+    ("git version 2.9.5", "2.15", False),
+    ("git version 2.15.0", "2.15", True),
+    ("gh version 2.101.0 (2026-09-15)", "2.15", True),
+    ("Python 3.11.9", "3", True),
+    ("ast-grep (unknown build)", "0.45.3", None),
+    ("ast-grep 0.42.2", None, None),
+    (None, "0.45.3", None),
+    ("ast-grep 0.42.2", "latest", None),
+], ids=["below", "at", "above", "missing-patch-below", "numeric-not-text", "at-two-parts", "minor-above-100",
+        "bare-major", "version-unparsed", "null-minimum", "not-installed", "minimum-not-a-version"])
+def test_meets_minimum(version, minimum, meets):
+    assert mod.meets_minimum(version, minimum) is meets
+
+
+REQUIREMENTS = {
+    "git": {"name": "git", "kind": "runtime", "tiers": ["Quick"], "minimum": "2.15",
+            "upgrade": "Install the latest release from https://git-scm.com/downloads"},
+    "gh_cli": {"name": "gh", "kind": "tier", "tiers": ["Deep"], "minimum": None,
+               "upgrade": "Install the latest release from https://cli.github.com"},
+    "ast_grep": {"name": "ast-grep", "kind": "tier", "tiers": ["Forge", "Forge+", "Deep"], "minimum": "0.45.3",
+                 "upgrade": "npm install -g @ast-grep/cli@latest"},
+}
+
+
+def test_a_tier_tool_below_its_minimum_stops_counting_and_git_only_warns():
+    tools = {"ast_grep": {"available": True, "version": "ast-grep 0.42.2"},
+             "gh_cli": {"available": True, "version": "gh version 1.0.0"},
+             "git": {"available": True, "version": "git version 2.9.5"},
+             "security_scan": {"available": False}}
+    below = mod.apply_minimums(tools, REQUIREMENTS)
+    assert tools["ast_grep"] == {"available": False, "version": "ast-grep 0.42.2", "minimum": "0.45.3",
+                                 "meets_minimum": False, "below_minimum": True}
+    assert tools["git"]["available"] is True and tools["git"]["below_minimum"] is True
+    # A null minimum never holds a tool back, however old it is.
+    assert tools["gh_cli"] == {"available": True, "version": "gh version 1.0.0", "minimum": None,
+                               "meets_minimum": None, "below_minimum": False}
+    assert tools["security_scan"] == {"available": False}
+    # In the list's order, with what the banner and the envelope need (the emitter reads no YAML).
+    assert below == [
+        {"tool": "git", "name": "git", "version": "2.9.5", "minimum": "2.15",
+         "upgrade": "Install the latest release from https://git-scm.com/downloads", "tier": None},
+        {"tool": "ast_grep", "name": "ast-grep", "version": "0.42.2", "minimum": "0.45.3",
+         "upgrade": "npm install -g @ast-grep/cli@latest", "tier": "Forge"},
+    ]
+
+
+@pytest.mark.parametrize("version", ["ast-grep 0.45.3", "ast-grep 0.50.0", "ast-grep (dev build)", None],
+                         ids=["at", "above", "unparsed", "absent"])
+def test_a_tool_at_or_above_its_minimum_or_of_unknown_version_changes_nothing(version):
+    tools = {"ast_grep": {"available": version is not None, "version": version}}
+    assert mod.apply_minimums(tools, REQUIREMENTS) == []
+    assert tools["ast_grep"]["available"] is (version is not None)
+    assert tools["ast_grep"]["below_minimum"] is False
+
+
+def test_a_tool_the_list_does_not_name_gets_no_minimum():
+    tools = {"uv": {"available": True, "version": "uv 0.1.0"}}
+    assert mod.apply_minimums(tools, {}) == []
+    assert tools["uv"] == {"available": True, "version": "uv 0.1.0", "minimum": None, "meets_minimum": None,
+                           "below_minimum": False}
+
+
+def test_load_requirements_reads_the_shipped_list_beside_scripts(tmp_path):
+    assert mod.REQUIREMENTS_FILE == REPO_REQUIREMENTS.resolve()
+    shipped = mod.load_requirements()
+    assert shipped["ast_grep"]["minimum"] == "0.45.3" and shipped["ast_grep"]["kind"] == "tier"
+    assert {"git", "uv", "gh_cli", "qmd", "ccc"} <= set(shipped)
+    # A list that is missing or not YAML holds no tool back.
+    assert mod.load_requirements(tmp_path / "missing.yaml") == {}
+    broken = tmp_path / "broken.yaml"
+    broken.write_text("tools: [unclosed\n", encoding="utf-8")
+    assert mod.load_requirements(broken) == {}
+
+
+def test_an_installed_copy_reads_the_list_in_its_shared_folder(tmp_path):
+    scripts = tmp_path / "_bmad" / "skf" / "shared" / "scripts"
+    scripts.mkdir(parents=True)
+    copy = scripts / SCRIPT_PATH.name
+    copy.write_bytes(SCRIPT_PATH.read_bytes())
+    installed_spec = importlib.util.spec_from_file_location("skf_detect_tools_installed", copy)
+    installed = importlib.util.module_from_spec(installed_spec)
+    installed_spec.loader.exec_module(installed)
+    assert installed.REQUIREMENTS_FILE == (tmp_path / "_bmad" / "skf" / "shared" / "tool-requirements.yaml").resolve()
+
+
+def test_detect_leaves_a_tier_tool_below_its_minimum_out_of_the_tier_and_require_tier():
+    old = {"ast_grep": "ast-grep 0.42.2", "git": "git version 2.9.5"}
+    with _patch_all_probes(ag=True, gh=True, cc=True, versions=old), \
+            patch.object(mod, "REQUIREMENTS_FILE", REPO_REQUIREMENTS):
+        out = mod.detect(_detect_args(require_tier="Forge"))
+    # Forge+ tools, but ast-grep is below 0.45.3, so it counts toward no tier.
+    assert out["tier"]["calculated"] == "Quick"
+    assert out["tools"]["ast_grep"]["available"] is False and out["tools"]["ast_grep"]["below_minimum"] is True
+    assert out["require_tier"] == {"requested": "Forge", "satisfied": False, "missing_tools": ["ast-grep"]}
+    assert [tool["tool"] for tool in out["tools_below_minimum"]] == ["git", "ast_grep"]
+    assert out["tools"]["git"]["available"] is True
+
+
+@pytest.mark.parametrize("version,tier", [("ast-grep 0.45.3", "Forge+"), ("ast-grep 0.46.1", "Forge+"),
+                                          ("ast-grep (dev)", "Forge+")], ids=["at", "above", "unparsed"])
+def test_detect_counts_a_tool_at_or_above_its_minimum_or_of_unknown_version(version, tier):
+    with _patch_all_probes(ag=True, cc=True, versions={"ast_grep": version}):
+        out = mod.detect(_detect_args(require_tier="Forge"))
+    assert out["tier"]["calculated"] == tier
+    assert out["require_tier"]["satisfied"] is True and out["tools_below_minimum"] == []
+
+
+def test_ccc_version_comes_from_uv_tool_list():
+    listing = ("claude-swap v0.26.0\n- claude-swap\ncocoindex-code v0.2.41\n- ccc\n- cocoindex-code\n"
+               "graphifyy v0.9.69\n- graphify\n")
+
+    def _side_effect(cmd, **kwargs):
+        assert _logical(cmd) == ["uv", "tool", "list"], cmd
+        return _fake_run(0, listing)
+
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
+        assert mod.probe_ccc_version() == "0.2.41"
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", return_value=_fake_run(0, "ruff v0.6.0\n- ruff\n")),
+    ):
+        assert mod.probe_ccc_version() is None
+    with patch.object(mod.shutil, "which", return_value=None):
+        assert mod.probe_ccc_version() is None
+
+
+def test_detect_sets_ccc_version_only_for_an_installed_ccc():
+    with _patch_all_probes(ag=True, cc=True, versions={"ccc": "0.2.41"}):
+        assert mod.detect(_detect_args())["tools"]["ccc"]["version"] == "0.2.41"
+    with _patch_all_probes(ag=True, cc=False, versions={"ccc": "0.2.41"}):
+        assert mod.detect(_detect_args())["tools"]["ccc"]["version"] is None
+
+
+@pytest.mark.parametrize("probe,command", [("probe_git", "git"), ("probe_uv", "uv")])
+def test_git_and_uv_are_probed_with_one_version_call(probe, command):
+    calls = []
+
+    def _side_effect(cmd, **kwargs):
+        calls.append(_logical(cmd))
+        return _fake_run(0, f"{command} 1.2.3\n")
+
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
+        assert getattr(mod, probe)() == {"available": True, "version": f"{command} 1.2.3"}
+    assert calls == [[command, "--version"]]
+
+
 # ─── Override + require-tier integration via detect() ────────────────────────
 
 
@@ -405,17 +587,27 @@ def _detect_args(**overrides):
     )
 
 
-def _patch_all_probes(ag=False, gh=False, qm=False, cc=False):
+def _patch_all_probes(ag=False, gh=False, qm=False, cc=False, versions=None):
+    """Every probe detect() runs, faked: no real binary runs. `versions` gives
+    a tool key's version line (the default "x" parses as no version)."""
+    versions = versions or {}
+
+    def version(key, present):
+        return versions.get(key, "x") if present else None
+
     return patch.multiple(
         mod,
-        probe_ast_grep=lambda: {"available": ag, "version": "x" if ag else None},
-        probe_gh_cli=lambda:   {"available": gh, "version": "x" if gh else None},
+        probe_ast_grep=lambda: {"available": ag, "version": version("ast_grep", ag)},
+        probe_gh_cli=lambda:   {"available": gh, "version": version("gh_cli", gh)},
         probe_qmd=lambda:      {"available": qm,
                                 "status": "healthy" if qm else "absent",
-                                "version": "x" if qm else None},
+                                "version": version("qmd", qm)},
         probe_ccc=lambda:      {"available": cc,
                                 "daemon": "healthy" if cc else None,
-                                "version": "x" if cc else None},
+                                "version": None},
+        probe_ccc_version=lambda: versions.get("ccc"),
+        probe_git=lambda: {"available": True, "version": versions.get("git", "git version 2.47.3")},
+        probe_uv=lambda: {"available": True, "version": versions.get("uv", "uv 0.12.15")},
     )
 
 
@@ -841,7 +1033,11 @@ def test_cli_emits_valid_json_on_stdout():
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
     assert payload["version"] == "v1"
-    assert set(payload["tools"].keys()) == {"ast_grep", "gh_cli", "qmd", "ccc", "security_scan"}
+    assert set(payload["tools"].keys()) == {"ast_grep", "gh_cli", "qmd", "ccc", "git", "uv", "security_scan"}
+    for key in ("ast_grep", "gh_cli", "qmd", "ccc", "git", "uv"):
+        assert {"minimum", "meets_minimum", "below_minimum"} <= set(payload["tools"][key]), key
+    assert payload["tools"]["ast_grep"]["minimum"] == "0.45.3"
+    assert isinstance(payload["tools_below_minimum"], list)
     assert payload["tier"]["calculated"] in ("Quick", "Forge", "Forge+", "Deep")
     assert payload["tier"]["detected"] in ("Quick", "Forge", "Forge+", "Deep")
     assert payload["require_tier"] == {"requested": None, "satisfied": None, "missing_tools": []}
