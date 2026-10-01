@@ -11,12 +11,11 @@ atomicWriteProbeOrder:
 
 ## STEP GOAL:
 
-To finalize the skill by creating the active-version pointer, displaying the completion summary, and emitting the result envelope and result contract. Deliverables (SKILL.md, context-snippet.md, metadata.json) were already written in step 5 so that validation could run against files on disk; this step only performs the post-write finalization.
+To finalize the skill by creating the active-version pointer, displaying the completion summary, and emitting the result envelope and result contract.
 
 ## Rules
 
 - Do not rewrite deliverables — they were written and validated in step 5
-- Create the active pointer via the shared helper — never `rm` + `ln -s` manually
 - Emit the result envelope and contract through the shared emitter, never by hand; when it is missing or fails twice, say the contract was not written and go on (§3)
 - A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
 
@@ -26,19 +25,19 @@ To finalize the skill by creating the active-version pointer, displaying the com
 
 **If `{overrides.no_active_pointer}` is true**, skip the helper invocation entirely. Log: "Active pointer: skipped per `--no-active-pointer` override." Do not update `{skill_group}/active`, and set `{active_pointer}` to `skipped-no-active-pointer`. Proceed to §2 with the active-pointer line omitted from the completion summary and the outputs payload.
 
-`{skill_group}` and `{skill_package}` were computed in step 5 §1 from `{skills_output_folder}`, `{repo_name}`, and `{version}`; `{version}` is the `version` of the `metadata.json` step 5 installed. Reuse the same values here, do not recompute.
+`{skill_group}` and `{skill_package}` were computed in step 5 §1 from `{skills_output_folder}`, `{repo_name}`, and `{version}`; `{version}` is the `version` of the `metadata.json` step 5 installed.
 
-Create or update the `active` pointer at `{skill_group}/active` pointing to `{version}` using the shared atomic-flip helper. The helper acquires an `flock` on `{skill_group}/active.skf-lock`, refuses to replace a non-link at `{skill_group}/active` (protecting against accidental `rm -rf` of a real directory), and uses a rename-over-symlink pattern so the update is atomic from a concurrent reader's perspective. On Windows the helper automatically falls back to a directory junction (`mklink /J`) when `os.symlink` fails with `PRIVILEGE_NOT_HELD` / `ACCESS_DENIED` — junctions require no admin elevation and resolve identically for `skf-skill-inventory`'s consumers:
+Point `{skill_group}/active` at `{version}` with the shared helper.
 
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists, skip the flip the same way `--no-active-pointer` does: log "Active pointer: skipped, atomic-write helper unavailable", omit the active-pointer line from the completion summary and outputs, and set `{active_pointer}` to `skipped-helper-missing`, which the result-contract summary (§3) carries so consumers see why the pointer is absent. The deliverables are already on disk, so a missing helper degrades to "no pointer" rather than a failed run. There is no manual fallback: a hand-rolled `rm` + `ln -s` loses the helper's atomicity and non-link guard, risking a half-flipped pointer or an `rm -rf` into a real directory.
 
 ```bash
-python3 {atomicWriteHelper} flip-link \
-  --link {skill_group}/active \
-  --target {version}
+uv run {atomicWriteHelper} flip-link \
+  --link "{skill_group}/active" \
+  --target "{version}"
 ```
 
-The helper returns non-zero (helper exit 2) if `{skill_group}/active` already exists as a real directory or file rather than a link. In that case, HARD HALT the workflow with **exit code 7 (finalize-blocked)**: "Refusing to flip `{skill_group}/active`: existing path is not a symlink or junction. Investigate manually; expected a link pointing at a version directory." Stage `{"phase": "finalize", "halt_reason": "finalize-blocked", "reason": "Refusing to flip {skill_group}/active: existing path is not a symlink or junction.", "skill_package": "{skill_package}", "outputs": {"skill_md": "{skill_package}/SKILL.md", "context_snippet": "{skill_package}/context-snippet.md", "metadata": "{skill_package}/metadata.json"}}` as `{run_dir}/halt.json` (`context_snippet` left out under `--skip-snippet`) and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"` (`references/halt-contract.md`). A common cause on Windows is a prior run that executed `ln -s` under git-bash without Developer Mode enabled, which silently wrote a full directory copy; remove that copy and retry.
+On exit 0 the helper prints `{"link": …, "points_to": …, "kind": …, "status": "ok"}` on stdout. On any other exit, HARD HALT the workflow with **exit code 7 (finalize-blocked)**: "Refusing to flip `{skill_group}/active`: {the `message` of the helper's `{"status": "error", "message": …}` stderr line (something that is not a link is at `{skill_group}/active`, or another process holds its lock), else its stderr}." Stage `{"phase": "finalize", "halt_reason": "finalize-blocked", "reason": "Refusing to flip {skill_group}/active: <the helper's message>", "skill_package": "{skill_package}", "outputs": {"skill_md": "{skill_package}/SKILL.md", "context_snippet": "{skill_package}/context-snippet.md", "metadata": "{skill_package}/metadata.json"}}` as `{run_dir}/halt.json` (`context_snippet` left out under `--skip-snippet`) and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"` (`references/halt-contract.md`). When a real folder is at `{skill_group}/active`, a common cause on Windows is a prior run that executed `ln -s` under git-bash without Developer Mode enabled, which silently wrote a full directory copy: remove that copy and retry.
 
 Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{kind}` is `symlink` or `junction` as returned by the helper, and set `{active_pointer}` to that `{kind}`.
 
@@ -120,7 +119,7 @@ The emitter writes the result contract from `result_contract`, with the payload'
 {onCompleteCommand} --skill-package={skill_package}
 ```
 
-Log success/failure but never fail the workflow on a hook error: the skill is already written. The hook runs last so a git-add, registry registration, or notifier sees a complete package. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely. Under `--batch` it runs once per target that reaches this section.
+Log success/failure but never fail the workflow on a hook error: the skill is already written. The hook runs last so a git-add, registry registration, or notifier sees a complete package. Under `--batch` it runs once per target that reaches this section.
 
 In a single-target run, then delete the run folder, which a finished run no longer needs: the files step 3 fetched into it, and the files the steps staged (if `rmdir` reports it is not empty, leave it). The `case` guard deletes nothing unless the path is a quick-skill run folder:
 

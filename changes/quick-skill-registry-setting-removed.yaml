@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-quick-skill
+summary: |
+  Quick Skill drops the `registry_resolution_path` setting: `skf-resolve-package.py` asks npm, PyPI and crates.io itself, so a house-style registry chain was never tried, and a `_bmad/custom/skf-quick-skill.toml` that sets it is now ignored. Its ecosystem check no longer searches the web for an official agentskills.io skill, because agentskills.io has no registry API and a search hit cannot show that a skill is official: the run goes from resolving the target straight to extraction, and the `ecosystem-check` step, its gate and exit code `8` stay documented for when a registry API exists. A missing or failing package resolver or language detector now stops the run with exit `3` (`resolution-failure`) instead of being worked out by hand, and a host without `python3` or `uv` stops at activation with exit `3` and a line naming the missing tool, with no result envelope, since the emitter needs `uv` too. `customize.toml` now names the real defaults of `skill_template_path` and `batch_output_path`, the headings a template copy must keep, and how `on_complete` is called.
+migration: |
+  Remove `registry_resolution_path` from `_bmad/custom/skf-quick-skill.toml` and `_bmad/custom/skf-quick-skill.user.toml`. To build a package that only an internal registry holds, pass its GitHub URL as the target. If a run now stops with exit `3` `resolution-failure` at activation or on a missing helper, install `uv` and Python 3.11 or later, or reinstall SKF so the shared helpers resolve.
+issues: [596, 599, 600]

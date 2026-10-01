@@ -1,6 +1,6 @@
 ---
 nextStepFile: 'ecosystem-check.md'
-registryResolutionData: '{registryResolutionPath}'
+registryResolutionData: 'references/registry-resolution.md'
 packageResolverProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-package.py'
   - '{project-root}/src/shared/scripts/skf-resolve-package.py'
@@ -57,7 +57,7 @@ Wait for user input. **Cancel branch**: if the user types `cancel`, `exit`, `:q`
 
 ### 1b. Parse the Target
 
-**Resolve `{packageResolver}`** from `{packageResolverProbeOrder}`; first existing path wins. If no candidate exists, or a call to it prints no JSON on stdout, read {registryResolutionData} and apply its target shapes and registry chain by hand for §1b to §3.
+**Resolve `{packageResolver}`** from `{packageResolverProbeOrder}`; first existing path wins. If no candidate exists, or a call to it prints no JSON on stdout, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**The package resolver could not run.** {the call's first stderr line, or with no candidate: SKF's package resolver (`skf-resolve-package.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF.}" Stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "The package resolver could not run.", "skill_package": null, "details": {"cause": "<package-resolver-missing, or package-resolver-error after a call that printed no JSON>"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
 
 Parse the target. Write it exactly as given on the line between the two markers: the quoted marker hands it to the parser unchanged, quotes, backticks and `$` included.
 
@@ -67,7 +67,7 @@ uv run {packageResolver} parse-target <<'SKF_TARGET'
 SKF_TARGET
 ```
 
-When the parser's `target_version` is not `null`, store it as `target_version` in the extraction context. A `target_version` overrides auto-detection (same behavior as `target_version` in the skill-brief schema). A `dist_tag` (an npm dist-tag such as `latest` or `canary`) pins no version: log "`{dist_tag}` pins no version; auto-detecting it". Without a `target_version`, the version is auto-detected.
+When the parser's `target_version` is not `null`, store it as `target_version` in the extraction context. A `target_version` overrides auto-detection. A `dist_tag` (an npm dist-tag such as `latest` or `canary`) pins no version: log "`{dist_tag}` pins no version; auto-detecting it". Without a `target_version`, the version is auto-detected.
 
 ### 2. Route by Kind
 
@@ -102,7 +102,7 @@ Pass `--registry` when §2 set `registry`, and `--language` when a language hint
 
 - **On `status: "ok"`**: set, from the JSON, `resolved_url`, `owner` ← `repo_owner`, `repo` ← `repo_name`, `repo_name` ← `skill_name` and `registry_used`; when `source_subdir` is set and no scope hint was given, set `scope_hint` ← `source_subdir`. Proceed to §3a.
 - **On `status: "ambiguous"`**: another registry answered for the name too, so it may belong to two projects. `resolved_url`, from `registry_used`, is the chain's pick (the first registry, in the order npm, PyPI, crates.io, that gives a GitHub repository), and `also_found_in` lists every other registry that answered. Run the ambiguous-name gate below.
-- **On `status: "fallthrough"`**: no registry gave a GitHub URL. Fall back to the web-search step from {registryResolutionData} §4: search `"{package_name} github repository"` with a 15s timeout and look for a GitHub URL in the top results. If found, take that URL as the target and go back to §1b. If web search also returns nothing, HARD HALT below.
+- **On `status: "fallthrough"`**: no registry gave a GitHub URL. Load {registryResolutionData} and run its web search for `{package_name}`. If found, take that URL as the target and go back to §1b. If web search also returns nothing, HARD HALT below.
 
 **Ambiguous-name gate** (on `status: "ambiguous"` only). Offer every candidate: the pick first, then each `also_found_in` entry that has a `resolved_url`, numbered on from 2. `{others}` names each entry without one: `no-github-link` knows the name but gives no GitHub repository, `error` could not be read.
 
@@ -177,13 +177,11 @@ The probe reads the tree through gh, and through GitHub's unauthenticated API wh
 
 - **`status: "unavailable"`, any other exit, or no `{githubProbe}` candidate**: nothing could list the repository. HARD HALT with **exit code 3 (resolution-failure)**: "**Could not list the files of `{owner}/{repo}`.** {the probe's `message` (on stderr after another exit), or with no candidate: SKF's GitHub probe (`skf-github-probe.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF.}" Stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "Could not list the files of {owner}/{repo}.", "skill_package": null, "details": {"ref": "{source_ref or HEAD}", "cause": "<the probe's cause, probe-error after another exit, or github-probe-missing>"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
 
-**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins. If no candidate exists, fall back to the rule walk documented in the helper's `--help`, applied by hand to the listing, the manifests nearest the tree's root first (a manifest in a docs, examples, tests or other non-core folder, or in a hidden one, decides only when no other exists): `package.json` → JavaScript/TypeScript (TypeScript when a `tsconfig.json` is also present), `Cargo.toml` → Rust, `pyproject.toml`/`setup.py`/`setup.cfg` → Python, `go.mod` → Go, `pom.xml` → Java, `build.gradle.kts` → Kotlin, `Package.swift` → Swift, `Gemfile` → Ruby, `build.gradle` → Kotlin when `src/main/kotlin/` exists else Java, `*.csproj`/`*.sln` → C#, then extension frequency.
-
 Determine primary language:
 
 1. **User-provided language hint** (overrides detection): set `language` to the hint and `language_resolution` to `hint`, and skip straight to §5. The disambiguation gate below does not run.
 
-2. **Delegate the rule walk to `{detectLanguageHelper}`**: it is the single source of truth for the manifest → language rule table (including the `package.json` JS-vs-TS disambiguation); do not restate or re-derive it here. It reads the listing from the file:
+2. **Delegate the rule walk to `{detectLanguageHelper}`**, resolved from `{detectLanguageProbeOrder}` (first existing path wins). If no candidate exists, or its call below prints no JSON on stdout, HARD HALT with **exit code 3 (resolution-failure)**: "**Could not detect the language of `{repo_name}`.** {the call's first stderr line, or with no candidate: SKF's language detector (`skf-detect-language.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF.} Re-run with `--language-hint <lang>` (a batch line's `language=`) to skip detection." Stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "Could not detect the language of {repo_name}.", "skill_package": null, "details": {"cause": "<detect-language-missing, or detect-language-error after a call that printed no JSON>"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. The helper reads the listing from the file:
 
    ```bash
    uv run {detectLanguageHelper} --tree-file "{run_dir}/tree.json"
@@ -202,7 +200,7 @@ Determine primary language:
    - **`skills_module` is true**: set `language` to `markdown` and `language_resolution` to `detected`, keep `detected_languages` empty, and go on to §5.
    - **Otherwise** (or no `{skillsModuleHelper}` candidate): treat it as a zero-match resolution: show the §3 resolution-failure guidance so the user can supply a language hint or a different target, and in headless mode HARD HALT with **exit code 3 (resolution-failure)**: stage `{"phase": "resolve-target", "halt_reason": "resolution-failure", "reason": "No language found in {repo_name}.", "skill_package": null}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
 
-4. **Multi-language gate** (`len(detected_languages) > 1`): the helper named more than one language (another manifest's, or the source files' language when no manifest sits at the root). Surface the choice rather than silently keeping the first match. Multi-language repos (Python + JS bindings, or monorepos with mixed manifests) otherwise produce a skill for whichever language the helper ranks first, with no signal that the user might have wanted the other one. Offer every detected language, the helper's pick first:
+4. **Multi-language gate** (`len(detected_languages) > 1`): the helper named more than one language (another manifest's, or the source files' language when no manifest sits at the root). Offer every detected language, the helper's pick first:
 
    "**`{repo_name}` has manifests for multiple languages.**
 

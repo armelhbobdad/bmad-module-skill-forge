@@ -624,7 +624,8 @@ def test_create_skill_gate_uses_the_working_version():
 
 def test_writers_write_metadata_first():
     deliverables = _section(_read(QS_WRITE), "### 2. Write Deliverables", "### 3. ")
-    assert "Write File 3 (`metadata.json`) first" in deliverables
+    assert "in this order, `metadata.json` first" in deliverables
+    assert deliverables.index("1. `{skill_package}/metadata.json`") < deliverables.index("2. `{skill_package}/SKILL.md`")
 
 
 def test_create_skill_swaps_the_whole_package_in():
@@ -939,11 +940,12 @@ def test_troubleshooting_explains_inventory_unreliable():
 
 
 def test_quick_skill_writes_the_error_result_only_beside_metadata():
-    """SKILL.md must not promise a `-latest.json` at the ownership halt, which writes nothing."""
+    """SKILL.md must not promise a `-latest.json` at the ownership halt, which writes nothing:
+    it promises none at all and leaves the rule to halt-contract.md, which states it once."""
     text = _read("src/skf-quick-skill/SKILL.md")
-    assert "the on-disk `-latest.json` write once `{skill_package}` is known" not in text
-    assert ("the on-disk `-latest.json` write once `{skill_package}` holds `metadata.json` "
-            "(never at the step 5 §1 ownership halt)") in text
+    assert "-latest.json" not in text
+    assert "| **Exit codes** | See `references/halt-contract.md`" in text
+    assert "except the step 5 §1 ownership halt" in _read(QS_HALT_CONTRACT)
 
 
 RENAME_FORGE_REFUSAL = "is a link, is not a folder, or cannot be listed"

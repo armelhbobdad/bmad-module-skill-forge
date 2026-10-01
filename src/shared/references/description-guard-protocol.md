@@ -44,6 +44,8 @@ uv run {descriptionGuardHelper} \
     --captured-description "{guarded_description}"
 ```
 
+In place of `--captured-description`, `--captured-file <path>` reads the snapshot from a JSON file's `description`: redirect `capture`'s output into the run folder (`capture <skill-md-path> > <run-folder>/description-guard.json`) and pass that file, so the value never passes through context or a shell string. quick-skill calls it this way. An empty or whitespace-only `description` in the file is refused like an empty `--captured-description` (below), and so is a file the helper cannot read or that holds no string `description`.
+
 The script:
 
 1. Re-reads on-disk `description`

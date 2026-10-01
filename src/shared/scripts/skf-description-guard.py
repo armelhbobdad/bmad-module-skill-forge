@@ -23,7 +23,7 @@ Subcommands:
       where schema_hash covers the full frontmatter block (handy for
       tamper detection if the caller wants belt-and-braces verification).
 
-  verify-restore <skill-md> --captured-description <STR>
+  verify-restore <skill-md> (--captured-description <STR> | --captured-file <PATH>)
       Re-read the file, compare current description against the captured
       value using token-stream equality (split on whitespace, compare
       element-by-element). If diverged, atomically rewrite the frontmatter
@@ -32,8 +32,12 @@ Subcommands:
          "current_description": "..."}
       If not diverged (including whitespace-only differences), emit
         {"diverged": false, "restored": false, "diff_kind": "none"|"whitespace-only"}
-      An empty or whitespace-only --captured-description is refused with
-      exit 1 before the file is read: there is nothing to restore from, and
+      --captured-file names a JSON file whose `description` string is the
+      captured value: `capture`'s output saved to a file, or a metadata.json,
+      so the value never passes through a shell string. A file that cannot
+      be read, is not a JSON object or has no string `description` exits 1.
+      An empty or whitespace-only captured value is refused with exit 1
+      before the skill file is read: there is nothing to restore from, and
       writing it back would blank the very field this guard protects.
 
   sanitize <skill-md>
@@ -55,6 +59,9 @@ is auto-resolved:
   uv run skf-description-guard.py capture <skill-md>
   uv run skf-description-guard.py verify-restore <skill-md> \\
       --captured-description "the snapshot string"
+  uv run skf-description-guard.py capture <skill-md> > guard.json
+  uv run skf-description-guard.py verify-restore <skill-md> \\
+      --captured-file guard.json
   uv run skf-description-guard.py sanitize <skill-md>
 
 Exit codes:
@@ -258,15 +265,40 @@ def _cmd_capture(args: argparse.Namespace) -> int:
     return 0
 
 
+def read_captured_file(path: Path) -> str:
+    """The `description` string of a JSON file: capture's output, or a metadata.json.
+
+    Raises ValueError when the file cannot be read, holds no JSON object, or
+    has no string `description`.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path} is not JSON: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("description"), str):
+        raise ValueError(f"{path} has no string `description`")
+    return data["description"]
+
+
 def _cmd_verify_restore(args: argparse.Namespace) -> int:
-    captured = args.captured_description
+    if args.captured_file is not None:
+        try:
+            captured = read_captured_file(Path(args.captured_file))
+        except ValueError as exc:
+            _fail(str(exc))
+        source = f"the description in {args.captured_file}"
+    else:
+        captured = args.captured_description
+        source = "--captured-description"
     if not captured.strip():
         # Restoring an empty snapshot would blank the field the guard exists
         # to protect. The snapshot was lost from context, or the description
         # was already empty before the tool ran; either way there is nothing
         # to restore, so refuse before touching the file.
         _fail(
-            "--captured-description is empty or whitespace-only; refusing to "
+            f"{source} is empty or whitespace-only; refusing to "
             "overwrite the on-disk description with an empty value (the capture "
             "was lost, or the field was already empty before the tool ran)"
         )
@@ -357,10 +389,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="verify on-disk description against captured snapshot; restore if diverged",
     )
     p_ver.add_argument("skill_md", help="path to SKILL.md")
-    p_ver.add_argument(
+    captured = p_ver.add_mutually_exclusive_group(required=True)
+    captured.add_argument(
         "--captured-description",
-        required=True,
         help="the description string captured before the tool call",
+    )
+    captured.add_argument(
+        "--captured-file",
+        help="a JSON file whose `description` is the captured value (capture's output saved to a file)",
     )
     p_ver.set_defaults(func=_cmd_verify_restore)
 

@@ -63,7 +63,7 @@ If `readme` is null or the README could not be fetched, note and continue.
 
 ### 1.5. Repo-Shape Sniff
 
-After the README has loaded, classify the repo shape from the available signals before committing further effort to extraction. Quick-skill is designed to wrap a library; non-library repos sail through silently today and produce low-quality skills the user only notices via the description field after compilation.
+Quick-skill wraps a library: classify the repo shape before spending effort on extraction.
 
 The signals are the README and `{run_dir}/sniff.json`, which `{skillsModuleHelper}` computed from the whole listing: `root_files` (the files at the repository root), `skills_module` with its `skills_root`, `module_root` and `skill_folders`, the `candidates` it weighed, `suggested_scope`, and `asset_dirs` with `asset_dir_count`. It applies the skills-module rules: a skill folder holds its own `SKILL.md`; a folder that directly holds `module.yaml` or `module-help.csv` (not a copy inside a skill folder) is a module root, whose skill folders sit at any depth below it; when `scope_hint` is set it is the only candidate; and a top-level folder of skill folders counts only when it is a module root or the root ships no code. Read its answer; do not re-derive it from the listing.
 
@@ -83,10 +83,10 @@ Quick-skill is designed to wrap a library's public API. The compiled SKILL.md wi
 
 Select: [C] Continue anyway · [A] Abort"
 
-- **IF C**: log "user accepted `{shape}` shape" and proceed to §2. Set `extraction_inventory.repo_shape` to the detected shape, `awesome-list`, `docs-site` or `examples-only`, so the result contract carries the signal for automators.
+- **IF C**: log "user accepted `{shape}` shape" and proceed to §2. Set `extraction_inventory.repo_shape` to the detected shape, `awesome-list`, `docs-site` or `examples-only`.
 - **IF A**: HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. `{shape}` repos are best wrapped manually with `/skf-create-skill` from a brief, not auto-extracted." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Aborted: a {shape} repo, not a library.", "skill_package": null, "details": {"repo_shape": "{shape}"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"` (`references/halt-contract.md`).
 
-**GATE [default: C]**: in headless mode, log "headless: detected `{shape}` repo, continuing anyway", set `extraction_inventory.repo_shape` as [C] does, record the decision (stage `{"gate": "quick-extract.repo-shape", "default_action": "C", "taken_action": "C", "reason": "headless: continued with a {shape} repo"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`) and proceed; the result contract's `summary.repo_shape` carries the signal so automators can flag low-quality outputs without re-parsing logs.
+**GATE [default: C]**: in headless mode, log "headless: detected `{shape}` repo, continuing anyway", set `extraction_inventory.repo_shape` as [C] does, record the decision (stage `{"gate": "quick-extract.repo-shape", "default_action": "C", "taken_action": "C", "reason": "headless: continued with a {shape} repo"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`) and proceed.
 
 ### 2. Fetch Source Files
 
@@ -103,7 +103,7 @@ Fetch the manifest file and the top-level entry-point file(s) for the detected l
 
 **If `scope_hint` provided:** put `{scope_hint}/` before each entry-point pattern, and fetch the manifest there too when the listing holds one, so extraction reads the scoped folder instead of the repo root.
 
-For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first, then every module's manifest and entry-point patterns in one call (each module's patterns under its folder), and run §3 per module.
+For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first: §3's multi-module loop fetches the modules.
 
 **Skills module** (`repo_shape: skills-module`): fetch no entry-point files. Fetch the manifest from the table when the root has one and §1 did not fetch it, and the files the sniff listed in `{run_dir}/skills-fetch.txt`, each skill folder's `SKILL.md` and then the `module-help.csv` directly in the skills root (`<skills root>/module-help.csv`) when the listing shows one:
 
@@ -138,7 +138,7 @@ The helper writes JSON to `{run_dir}/extract.json` with:
 - `package_name`, `version`, `description`: parsed from the manifest
 - `exports[]`: `{name, type, source_file}` per discovered top-level public symbol
 - `dependencies[]`: declared direct dependencies
-- `modules[]`: for Maven `<modules>` and Gradle `include(...)`, the names of sub-modules to iterate (loop §2+§3 per entry)
+- `modules[]`: for Maven `<modules>` and Gradle `include(...)`, the names of sub-modules to iterate
 - `extra`: language-specific extras (e.g. `group_id` for Maven)
 - `warnings[]`: manifest parse failures and scanner errors (advisory only; the envelope is still valid), and each statement whose names the entry file alone cannot give: `export * from`, a star import from the package, an `__all__` built from another module, `pub use x::*`, `module.exports = require(...)`, or an anonymous or conditional export. Each names its file, line and statement.
 
@@ -146,7 +146,7 @@ Read `{run_dir}/extract.json` into the extraction context. The shape of the enve
 
 **Act on the statements a warning names** before §4. When the module such a statement names is in the listing (resolve the relative specifier the way the language does: `./core` is `core.ts`, `core/index.ts` and the like beside the entry file, `.mod` is `mod.py` or `mod/__init__.py`), fetch it with §2's call and run the extractor again with it as one more `--entry-file`, writing over `{run_dir}/extract.json`. Otherwise read the statement by eye, from the README's API section or the module's documentation, and list the names it adds: stage them through a quoted heredoc as `{run_dir}/extract-added.json`, `{"exports": [{"name": "<name>", "type": "re-export", "source_file": "<the warning's file>"}]}`, which step 4 §4 passes with the other extraction files. Leave the other warnings for §5.
 
-**Multi-module loop:** when `modules[]` is non-empty, fetch each sub-module's manifest + entry-point files (§2) and run the helper per module (§3), writing each to `{run_dir}/extract-module-<n>.json`, `<n>` counting from 1 in `modules[]` order (a module is a path such as `modules/core` or a Gradle name such as `core:api`, so it never names the file). Step 4 §4 passes `{run_dir}/extract.json` (the parent manifest, which names the `package_name`) first and then each module's file in that order, and the renderer aggregates `exports[]` and `dependencies[]` across them.
+**Multi-module loop:** when `modules[]` is non-empty, fetch every sub-module's manifest and entry-point patterns in one §2 call (each module's patterns under its folder) and run the helper per module (§3), writing each to `{run_dir}/extract-module-<n>.json`, `<n>` counting from 1 in `modules[]` order (a module is a path such as `modules/core` or a Gradle name such as `core:api`, so it never names the file). Step 4 §4 passes `{run_dir}/extract.json` (the parent manifest, which names the `package_name`) first and then each module's file in that order, and the renderer aggregates `exports[]` and `dependencies[]` across them.
 
 **Skills module** (`repo_shape: skills-module`): when §2 fetched a manifest, run the helper as above with that `--manifest-file` and no `--entry-file`, writing `{run_dir}/extract-manifest.json`. It still reads `package_name`, `version`, `description` and `dependencies`, and returns no exports. Then build the module's envelope from the staged `SKILL.md` files and `module-help.csv`:
 
@@ -186,7 +186,7 @@ For a skills module, confidence is the helper's `confidence`: `high` when every 
 
 Run this gate **only when** `extraction_inventory.exports.length == 0` and `extraction_inventory.description` is empty (no usable README content either). When either is non-empty, the README-fallback in §4 produces a usable skill and this section is skipped.
 
-When both are empty, the compiled SKILL.md would be effectively empty — no API surface to document and no description to fall back on. Offer the user a chance to retry with hints before producing a degenerate output:
+Offer the user a chance to retry with hints before producing a degenerate output:
 
 "**Extraction yielded zero exports and no README description.**
 
@@ -203,7 +203,7 @@ Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) ·
 - **IF P**: log "user accepted zero-exports outcome" and proceed to §5. The compiled skill will be README-content-only with confidence `low`. Record `zero_exports_rescue: "user-accepted"` in the inventory so the result contract summary surfaces it.
 - **IF A**: HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. Run `/skf-create-skill` from a brief if you want a guided extraction with provenance tracking." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Aborted: zero exports and no README description.", "skill_package": null, "details": {"exports_found": 0, "description_empty": true, "language": "{language}", "scope": "{scope_hint or 'entire repo'}"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
 
-**GATE [default: P]**: in headless mode, log "headless: zero exports + empty description, proceeding with low-confidence skill", record `zero_exports_rescue: "auto-proceeded"` in the inventory so the result contract summary lets automators re-run these targets with stricter hints (`--scope-hint` or `--language-hint`, or a batch line's `scope=` or `language=`), record the decision (stage `{"gate": "quick-extract.zero-exports", "default_action": "P", "taken_action": "P", "reason": "headless: compiled a low-confidence skill"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`) and proceed. [P] preserves the pre-rescue behaviour for unattended pipelines.
+**GATE [default: P]**: in headless mode, log "headless: zero exports + empty description, proceeding with low-confidence skill", record `zero_exports_rescue: "auto-proceeded"` in the inventory so the result contract summary lets automators re-run these targets with stricter hints (`--scope-hint` or `--language-hint`, or a batch line's `scope=` or `language=`), record the decision (stage `{"gate": "quick-extract.zero-exports", "default_action": "P", "taken_action": "P", "reason": "headless: compiled a low-confidence skill"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`) and proceed.
 
 ### 5. Report Extraction Summary
 

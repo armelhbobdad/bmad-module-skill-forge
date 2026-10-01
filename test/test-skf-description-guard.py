@@ -9,12 +9,15 @@ Covers:
   - CLI integration via subprocess for capture and verify-restore
   - calling-step prose: both steps resolve the protocol by probe order and
     state the restore and empty-snapshot record rules themselves
+  - verify-restore --captured-file: reads the snapshot from capture's saved
+    output or a metadata.json, and refuses a file it cannot read, one with no
+    string description, an empty description, or both snapshot flags at once
   - quick-skill step 5 (#609): `skill-check --fix` runs between capture and
     verify-restore, a `--fix` rewrite is restored to the approved description
-    that metadata.json holds, and a missing helper skips `--fix`; the step's
-    single-quoted verify-restore call, run through bash, keeps a description
-    that holds quotes, backticks and `$`, and its two exit-2 cases differ by
-    the JSON on stdout
+    that metadata.json holds, and a missing helper skips `--fix`; the step
+    stages the snapshot in its run folder and passes it by file, so its
+    calls, run through bash, keep a description that holds quotes, backticks
+    and `$`, and an empty capture falls back to metadata.json
 """
 
 from __future__ import annotations
@@ -452,6 +455,48 @@ class TestCli:
         desc, _ = mod.read_description(skill)
         assert desc == SAMPLE_DESC
 
+    def test_verify_restore_reads_the_snapshot_from_a_file(self, tmp_path: Path) -> None:
+        """A capture saved to a file, or a metadata.json, hands the snapshot over with no shell quoting."""
+        tricky = 'Builds "agents" with `$HOME` and it\'s fine.'
+        for name, payload in (("guard.json", {"description": tricky, "schema_hash": "sha256:0"}),
+                              ("metadata.json", {"name": "zod", "description": tricky, "version": "1.0.0"})):
+            skill = _write_skill(tmp_path, "tool short version", shape="inline")
+            snapshot = tmp_path / name
+            snapshot.write_text(json.dumps(payload), encoding="utf-8")
+            result = _run_cli("verify-restore", str(skill), "--captured-file", str(snapshot))
+            assert result.returncode == 0, result.stderr
+            assert json.loads(result.stdout)["restored"] is True, name
+            assert mod.read_description(skill)[0] == tricky, name
+
+    @pytest.mark.parametrize("content", [
+        pytest.param(None, id="missing-file"),
+        pytest.param("", id="empty-file"),
+        pytest.param("not json", id="not-json"),
+        pytest.param('["a list"]', id="not-an-object"),
+        pytest.param('{"schema_hash": "sha256:0"}', id="no-description"),
+        pytest.param('{"description": 7}', id="description-not-a-string"),
+        pytest.param('{"description": "  "}', id="empty-description"),
+    ])
+    def test_verify_restore_refuses_an_unusable_snapshot_file(self, tmp_path: Path, content: str | None) -> None:
+        skill = _write_skill(tmp_path, SAMPLE_DESC, shape="inline")
+        before = skill.read_bytes()
+        snapshot = tmp_path / "guard.json"
+        if content is not None:
+            snapshot.write_text(content, encoding="utf-8")
+        result = _run_cli("verify-restore", str(skill), "--captured-file", str(snapshot))
+        assert result.returncode == 1, result.stderr
+        assert result.stdout == ""
+        assert skill.read_bytes() == before
+
+    def test_verify_restore_takes_one_snapshot_flag(self, tmp_path: Path) -> None:
+        skill = _write_skill(tmp_path, SAMPLE_DESC, shape="inline")
+        snapshot = tmp_path / "guard.json"
+        snapshot.write_text(json.dumps({"description": SAMPLE_DESC}), encoding="utf-8")
+        result = _run_cli("verify-restore", str(skill), "--captured-description", SAMPLE_DESC,
+                          "--captured-file", str(snapshot))
+        assert result.returncode == 2
+        assert "not allowed with" in result.stderr
+
     def test_verify_restore_empty_captured_refused_before_file_checks(
         self, tmp_path: Path
     ) -> None:
@@ -738,20 +783,27 @@ def _quick_package(tmp_path: Path) -> tuple[Path, dict]:
     return package, metadata
 
 
+def _stage_capture(skill: Path, tmp_path: Path) -> Path:
+    """Step 5 §4's capture, its stdout saved in the run folder as the step's redirect saves it."""
+    captured = _run_cli("capture", str(skill))
+    assert captured.returncode == 0, captured.stderr
+    staged = tmp_path / "description-guard.json"
+    staged.write_text(captured.stdout, encoding="utf-8")
+    return staged
+
+
 class TestQuickSkillGuard:
     """The capture, the tool's rewrite and the verify-restore of step 5 §4."""
 
     def test_a_fix_rewrite_is_restored_to_the_approved_description(self, tmp_path: Path) -> None:
         package, metadata = _quick_package(tmp_path)
         skill = package / "SKILL.md"
-        captured = _run_cli("capture", str(skill))
-        assert captured.returncode == 0, captured.stderr
-        guarded = json.loads(captured.stdout)["description"]
+        staged = _stage_capture(skill, tmp_path)
         # `skill-check --fix` rewrites the frontmatter, description included.
         skill.write_text("---\nname: zod\ndescription: Validates schemas for TypeScript.\n---\n" + QS_BODY,
                          encoding="utf-8")
 
-        result = _run_cli("verify-restore", str(skill), "--captured-description", guarded)
+        result = _run_cli("verify-restore", str(skill), "--captured-file", str(staged))
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         assert payload["diverged"] is True and payload["restored"] is True
@@ -768,13 +820,14 @@ class TestQuickSkillGuard:
     def test_a_fix_that_only_reflows_the_description_is_left_alone(self, tmp_path: Path) -> None:
         package, metadata = _quick_package(tmp_path)
         skill = package / "SKILL.md"
-        guarded = json.loads(_run_cli("capture", str(skill)).stdout)["description"]
+        staged = _stage_capture(skill, tmp_path)
+        guarded = json.loads(staged.read_text(encoding="utf-8"))["description"]
         assert guarded == APPROVED, "the folded block ends at the fence, so it carries no newline"
         # `--fix` turns the folded block into one line: same value, new layout.
         reflowed = f"---\nname: zod\ndescription: {APPROVED}\n---\n{QS_BODY}"
         skill.write_text(reflowed, encoding="utf-8")
 
-        result = _run_cli("verify-restore", str(skill), "--captured-description", guarded)
+        result = _run_cli("verify-restore", str(skill), "--captured-file", str(staged))
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         assert (payload["diverged"], payload["restored"], payload["diff_kind"]) == (False, False, "none")
@@ -787,68 +840,80 @@ class TestQuickSkillGuard:
 TRICKY = ('Builds agents. Use when the user says "build an agent", runs `bmad-agent-builder`, '
           "costs $HOME or asks for the builder's help.")
 FIXED = "---\nname: zod\ndescription: Builds agents.\n---\n" + QS_BODY
+GUARD_FILE = '"{run_dir}/description-guard.json"'
 
 
-def _verify_call() -> str:
-    """Step 5 §4's verify-restore call, its continuation line joined."""
+def _guard_calls() -> tuple[str, str]:
+    """Step 5 §4's capture and verify-restore lines, as the step writes them."""
     section = _slice(_read(QS_WRITE), "### 4. Validate SKILL.md via skill-check", "### 5. ")
     block = section[section.index("```bash\n") + len("```bash\n"):]
     block = block[: block.index("```")].replace("\\\n", " ")
-    [line] = [line for line in block.splitlines() if " verify-restore " in line]
-    return line
+    [capture] = [line for line in block.splitlines() if " capture " in line]
+    [verify] = [line for line in block.splitlines() if " verify-restore " in line]
+    return capture, verify
 
 
-def _run_pasted(call: str, skill: Path, description: str) -> subprocess.CompletedProcess:
-    """Run `call` through bash with the description pasted in as the agent would."""
+def _run_step_line(call: str, skill: Path, run_dir: Path) -> subprocess.CompletedProcess:
+    """Run one of step 5 §4's guard lines through bash, its placeholders filled in as the
+    model fills them: the raw path, so the line's own quotes must hold a space in it."""
     helper = f"{shlex.quote(sys.executable)} {shlex.quote(str(SCRIPT_PATH))}"
     script = (call.replace("uv run {descriptionGuardHelper}", helper)
-              .replace("{skill_package}", shlex.quote(str(skill.parent)))
-              .replace("{guarded_description}", description))
+              .replace("{skill_package}", skill.parent.as_posix())
+              .replace("{run_dir}", run_dir.as_posix()))
     return subprocess.run([shutil.which("bash") or "bash", "-c", script],
                           capture_output=True, text=True, check=False)
 
 
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the call through bash")
 class TestQuickSkillGuardCall:
-    """The verify-restore call as step 5 §4 writes it, run through a shell."""
+    """The capture and verify-restore lines as step 5 §4 writes them, run through a shell."""
 
-    def _package(self, tmp_path: Path) -> tuple[Path, str]:
-        package, _ = _quick_package(tmp_path)
+    def _package(self, tmp_path: Path, description: str = TRICKY) -> tuple[Path, Path]:
+        # A project path with a space, as under C:\Users\Jane Doe on Windows.
+        project = tmp_path / "Jane Doe"
+        package, _ = _quick_package(project)
         skill = package / "SKILL.md"
-        front = yaml.safe_dump({"name": "zod", "description": TRICKY}, sort_keys=False, width=10**9)
+        front = yaml.safe_dump({"name": "zod", "description": description}, sort_keys=False, width=10**9)
         skill.write_text(f"---\n{front}---\n{QS_BODY}", encoding="utf-8")
-        captured = _run_cli("capture", str(skill))
-        assert captured.returncode == 0, captured.stderr
-        guarded = json.loads(captured.stdout)["description"]
-        assert guarded == TRICKY
-        skill.write_text(FIXED, encoding="utf-8")  # `skill-check --fix` rewrote it
-        return skill, guarded
+        run_dir = project / "run"
+        run_dir.mkdir()
+        return skill, run_dir
 
-    def test_the_single_quoted_call_restores_quotes_backticks_and_dollars(self, tmp_path: Path) -> None:
-        skill, guarded = self._package(tmp_path)
-        call = _verify_call()
-        assert call.endswith("--captured-description '{guarded_description}'")
-        result = _run_pasted(call, skill, guarded.replace("'", "'\\''"))
+    def test_the_staged_snapshot_restores_quotes_backticks_and_dollars(self, tmp_path: Path) -> None:
+        skill, run_dir = self._package(tmp_path)
+        capture, verify = _guard_calls()
+        assert capture.endswith(f"> {GUARD_FILE}") and verify.endswith(f"--captured-file {GUARD_FILE}")
+        staged = _run_step_line(capture, skill, run_dir)
+        assert staged.returncode == 0, staged.stderr
+        assert json.loads((run_dir / "description-guard.json").read_text(encoding="utf-8"))["description"] == TRICKY
+        skill.write_text(FIXED, encoding="utf-8")  # `skill-check --fix` rewrote it
+        result = _run_step_line(verify, skill, run_dir)
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout)["restored"] is True
         assert _parse_frontmatter(skill.read_text(encoding="utf-8"))["description"] == TRICKY
 
-    def test_a_mangled_call_exits_2_with_no_json_and_writes_nothing(self, tmp_path: Path) -> None:
-        # The double-quoted form the other callers use splits on the description's own quotes.
-        skill, guarded = self._package(tmp_path)
-        call = _verify_call().replace("'{guarded_description}'", '"{guarded_description}"')
-        result = _run_pasted(call, skill, guarded)
-        assert result.returncode == 2
-        assert result.stdout == ""
-        assert "unrecognized arguments" in result.stderr
-        assert skill.read_text(encoding="utf-8") == FIXED
+    def test_an_empty_capture_falls_back_to_metadata_json(self, tmp_path: Path) -> None:
+        skill, run_dir = self._package(tmp_path, description="")
+        capture, verify = _guard_calls()
+        assert _run_step_line(capture, skill, run_dir).returncode == 0
+        refused = _run_step_line(verify, skill, run_dir)
+        assert refused.returncode == 1 and refused.stdout == ""
+        assert "empty or whitespace-only" in refused.stderr
+        # The step's re-run reads the description step 4 rendered into metadata.json.
+        rerun = verify.replace(GUARD_FILE, '"{skill_package}/metadata.json"')
+        result = _run_step_line(rerun, skill, run_dir)
+        assert result.returncode == 0, result.stderr
+        assert _parse_frontmatter(skill.read_text(encoding="utf-8"))["description"] == APPROVED
 
     @pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root writes to a read-only folder")
     def test_a_failed_restore_exits_2_with_json(self, tmp_path: Path) -> None:
-        skill, guarded = self._package(tmp_path)
+        skill, run_dir = self._package(tmp_path)
+        capture, verify = _guard_calls()
+        assert _run_step_line(capture, skill, run_dir).returncode == 0
+        skill.write_text(FIXED, encoding="utf-8")
         skill.parent.chmod(0o555)  # the atomic write cannot create its temp file
         try:
-            result = _run_pasted(_verify_call(), skill, guarded.replace("'", "'\\''"))
+            result = _run_step_line(verify, skill, run_dir)
         finally:
             skill.parent.chmod(0o755)
         assert result.returncode == 2
@@ -865,39 +930,47 @@ class TestQuickSkillGuardProse:
     def test_fix_runs_between_capture_and_verify_restore(self) -> None:
         text = _read(QS_WRITE)
         section = _slice(text, "### 4. Validate SKILL.md via skill-check", "### 5. ")
-        capture = section.index("uv run {descriptionGuardHelper} capture {skill_package}/SKILL.md\n")
-        fix = section.index("npx skill-check check {skill_package} --fix --format json\n")
+        capture = section.index(
+            'uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md" > "{run_dir}/description-guard.json"\n')
+        fix = section.index('npx skill-check check "{skill_package}" --fix --format json\n')
         verify = section.index(
-            "uv run {descriptionGuardHelper} verify-restore {skill_package}/SKILL.md \\\n"
-            "    --captured-description '{guarded_description}'\n"
+            'uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" '
+            '--captured-file "{run_dir}/description-guard.json"\n'
         )
         assert capture < fix < verify
-        assert text.count("--fix --format json") == 2, "the guarded call, and §6 naming it"
-        assert text.count("npx skill-check check {skill_package} --fix") == 1
+        assert text.count("--fix --format json") == 1, "one guarded call"
+        assert text.count('npx skill-check check "{skill_package}" --fix') == 1
+
+    def test_the_snapshot_never_passes_through_a_shell_string(self) -> None:
+        """W2 hand-off (determinism-5): the captured value is staged in the run folder and read by path."""
+        text = _read(QS_WRITE)
+        for stale in ("{guarded_description}", "--captured-description", "mangled call", "fix the quoting"):
+            assert stale not in text, stale
 
     def test_the_restore_is_recorded_and_reported(self) -> None:
         text = _read(QS_WRITE)
         outputs = _slice(text, "**Guard outputs.**", "\n")
         for phrase in (
-            "Bind `{guarded_description}` ← `description` from `capture`",
+            "`capture` stages the approved description in `{run_dir}/description-guard.json` and "
+            "`verify-restore` reads it there, so it never passes through a shell string",
             "`{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from `verify-restore`",
             'record the validation note "description restored after `skill-check --fix` ({guard_diff_kind})"',
-            "refuses an empty or whitespace-only `--captured-description` (exit 1, file untouched)",
-            "re-run it with the description compiled in step 4, never with the empty value",
-            "Put `{guarded_description}` between the single quotes as captured, writing each `'` in it as `'\\''`",
+            "`verify-restore` refuses an empty or whitespace-only captured description, and a file it cannot "
+            "read (exit 1, SKILL.md untouched)",
+            're-run it with `--captured-file "{skill_package}/metadata.json"`, whose `description` step 4 '
+            "rendered, never with an empty value",
+            "if that exits 1 too, record a high-severity issue",
             "When it exits 2 with JSON on stdout (the JSON carries `restore_error`), the restore could not be "
             "written, so record a high-severity issue",
-            "An exit 2 with no JSON on stdout is a usage error from a mangled call, not a failed write: "
-            "fix the quoting and run it again.",
         ):
             assert phrase in outputs, phrase
-        report = _slice(text, "### 7. Report Validation Results", "### 8. ")
+        report = _slice(text, "### 6. Report Validation Results", "### 7. ")
         assert "the §4 description-guard note when the guard restored the description" in report
 
     def test_a_missing_helper_skips_fix(self) -> None:
         rule = _slice(_read(QS_WRITE), "**If no `{descriptionGuardProbeOrder}` path exists**", "\n")
         assert "never run `--fix` unguarded" in rule
-        assert "Run `npx skill-check check {skill_package} --format json` instead" in rule
+        assert 'Run `npx skill-check check "{skill_package}" --format json` instead' in rule
         assert "skill-check ran without `--fix`" in rule
 
     def test_the_protocol_lists_quick_skill_as_a_caller(self) -> None:

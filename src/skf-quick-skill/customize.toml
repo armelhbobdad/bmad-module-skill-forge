@@ -10,15 +10,17 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any compilation work.
+# Steps to run in SKILL.md On Activation step 3: after config.yaml is read,
+# the run folder created and headless mode resolved, before the CLI flags are
+# parsed and before any stage runs. Overrides append. Use for org-wide
+# pre-flight checks (auth, network, compliance) that must precede any
+# compilation work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run once activation completes (step 4 has parsed the CLI flags),
+# before step 1 or a --batch run starts; a batch runs them once, not per
+# target. Overrides append. Use for context loads or banner customization.
 
 activation_steps_append = []
 
@@ -31,23 +33,49 @@ activation_steps_append = []
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/skill-style.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#
+# The bundled entry loads every project-context.md under the project root,
+# and nothing when there is none. Arrays only append, so an override file
+# cannot remove it: to keep a project-context.md from steering this
+# workflow, add a literal fact that says so, e.g. "project-context.md
+# describes our app, not the libraries Quick Skill compiles: ignore it."
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# --- Optional asset overrides ---
-#
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
+# --- Optional overrides. An empty string means the default named below. ---
 
-skill_template_path = ""
-registry_resolution_path = ""
-batch_output_path = ""
+# The template step 4 assembles SKILL.md and context-snippet.md from, a path
+# from the skill root. Default: assets/skill-template.md. A house-style copy
+# may reword it and add optional sections, and must keep:
+#   - its `## SKILL.md Section Structure` and `## context-snippet.md Format`
+#     headings, which step 4 reads;
+#   - the `## Overview`, `## Description`, `## Key Exports` and
+#     `## Usage Patterns` headings: step 5's output validator requires all
+#     four, and the snippet's `#key-exports` and `#usage-patterns` anchors
+#     point at the last two.
+# metadata.json is read from a copy only when skf-render-quick-metadata.py
+# is missing or fails twice, so leave the copy's `## metadata.json Format`
+# section as bundled.
 
-# Optional post-completion hook. When non-empty, invoked with
-# `--skill-package=<path>` after the result contract is finalized in step 6.
-# Failures are logged but never fail the workflow. Use for git-add,
-# skill-registry registration, or a notifier on the freshly compiled skill.
+skill_template_path = "assets/skill-template.md"
+
+# The folder a --batch run writes its summary to
+# (quick-skill-batch-<timestamp>.json and quick-skill-batch-latest.json),
+# ending in a slash. Default: {skills_output_folder}/_batch/.
+
+batch_output_path = "{skills_output_folder}/_batch/"
+
+# Optional post-completion hook: a shell command, not an instruction. Step 6
+# runs it once the success envelope is printed and the result contract
+# written, as:
+#   <on_complete> --skill-package=<absolute path of the skill package>
+# That folder then holds SKILL.md, metadata.json, context-snippet.md (unless
+# --skip-snippet) and quick-skill-result-latest.json. Under --batch it runs
+# once per target that finishes; a HARD HALT never runs it. A failure is
+# logged and never fails the workflow, and the envelope, already printed,
+# does not carry it. Use for git-add, skill-registry registration, or a
+# notifier on the freshly compiled skill. Empty string = no hook (default).
 
 on_complete = ""
