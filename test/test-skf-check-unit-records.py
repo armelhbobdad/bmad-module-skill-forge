@@ -22,6 +22,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "src" / "shared" / "scripts" / "skf-check-unit-records.py"
 MAP = REPO / "src" / "skf-analyze-source" / "references" / "map-and-detect.md"
+UNIT_EXPORTS = REPO / "src" / "skf-analyze-source" / "references" / "map-unit-exports.md"
 
 spec = importlib.util.spec_from_file_location("skf_check_unit_records", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
@@ -115,12 +116,15 @@ def test_the_cli_prints_the_result_and_refuses_a_missing_folder(tmp_path):
 
 
 def test_map_and_detect_runs_the_check_instead_of_stripping_fences_by_hand():
-    text = MAP.read_text(encoding="utf-8")
-    assert "checkUnitRecordsProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-check-unit-records.py'" in text
+    # map-and-detect resolves the helper; the export mapping it loads (as the
+    # [D] file does) runs it.
+    assert ("checkUnitRecordsProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-check-unit-records.py'"
+            in MAP.read_text(encoding="utf-8"))
+    text = UNIT_EXPORTS.read_text(encoding="utf-8")
     assert 'uv run {checkUnitRecordsHelper} --dir "{run_dir}/unit-records"' in text
     assert "Strip any wrapping markdown fences" not in text
     assert "Validate each payload against the contract" not in text
     # The contract the script checks is the one the prose shows the subagents.
-    block = text.split("4. **Subagent record contract.**", 1)[1].split("```json\n", 1)[1].split("```", 1)[0]
+    block = text.split("## 3. Record Contract", 1)[1].split("```json\n", 1)[1].split("```", 1)[0]
     keys = re.findall(r'^\s*"([a-z_]+)":', block, re.M)
     assert keys == list(mod.CONTRACT)

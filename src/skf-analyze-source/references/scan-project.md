@@ -1,7 +1,8 @@
 ---
 nextStepFile: 'identify-units.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: '{unitDetectionHeuristicsPath}'
+heuristicsFile: 'references/unit-detection-heuristics.md'
+scanRootFile: 'references/scan-root.md'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
@@ -35,10 +36,10 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 ### 1. Load Context
 
 Read {outputFile} frontmatter to obtain:
-- `project_paths[]` — the root(s) to scan (one or more paths/URLs)
-- `constituent_refs` — optional per-path git ref overrides (present only when `project_paths` has multiple entries and explicit refs were supplied via `--target-refs`)
-- `forge_tier` — determines scanning depth
-- Scope hints (if any were provided in step 01)
+- `project_paths[]`: the root(s) to scan (one or more paths/URLs)
+- `refs`: each project path's ref (a path it leaves out has none)
+- `forge_tier`: determines scanning depth
+- `scope_hint`: the folders or packages to focus on or skip (may be empty)
 
 Load {heuristicsFile} for reference on detection signals.
 
@@ -46,22 +47,22 @@ Load {heuristicsFile} for reference on detection signals.
 
 **Resolve `{scanManifestsHelper}`** from `{scanManifestsProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `scan-project:2`): "`skf-scan-manifests.py` is missing. Re-install SKF."
 
-**For each path in `project_paths[]`**, resolve the constituent ref (if any) and launch a subprocess that scans the project directory structure (aggregate results across all repos with clear repo-level grouping):
+**The scan root of each project path.** Every helper from here on reads a local folder, the path's **scan root**, which §6 records in `scan_roots` so the later steps read the same files. Load {scanRootFile} and make the scan root of each entry of `project_paths[]` as it says. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `scan-project:2`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
 
-**Per-path ref resolution:** If `constituent_refs` is present and contains an entry for the current path, use that ref. For remote paths, this means cloning or fetching at the specified ref (`git clone --branch {ref} --depth 1` or `git show {ref}:<subpath>` for off-HEAD access). For local paths with a non-HEAD ref, check out or read from the specified ref using `git show {ref}:<path>`. When no `constituent_refs` entry exists for a path, use default ref resolution (HEAD for local, latest tag or HEAD for remote).
+**For each path in `project_paths[]`**, scan its scan root (aggregate the results across all repos, grouped by project path):
 
 1. Map the top-level directory tree (2-3 levels deep)
 2. Identify workspace configuration files (pnpm-workspace.yaml, lerna.json, Cargo.toml [workspace], go.work, etc.)
-3. Enumerate package manifests deterministically — invoke `uv run {scanManifestsHelper} scan {path}` and parse the JSON envelope. The script returns `{manifests[], total_unique, monorepo, warnings?}` covering npm/python/rust/go/maven/gradle/ruby/composer/swift; record each `{path, ecosystem}` for the manifests catalog in §4 and capture `monorepo` for the boundary-signal pass in §3
+3. Enumerate package manifests deterministically: invoke `uv run {scanManifestsHelper} scan "{scan_root}"` and parse the JSON envelope. The script returns `{manifests[], total_unique, monorepo, warnings?}` covering npm/python/rust/go/maven/gradle/ruby/composer/swift; record each `{path, ecosystem}` for the manifests catalog in §4 and capture `monorepo` for the boundary-signal pass in §3
 4. Locate entry point files (index.ts, main.ts, app.ts, main.go, main.rs, __init__.py, etc.)
-5. Detect service configuration (Dockerfile, docker-compose.yml, kubernetes manifests, serverless.yml) — keep this step LLM-driven; file glob + presence check is sufficient, no parsing required
-6. Return structured findings — file paths and types only, not contents. When `constituent_refs` was used, include the resolved ref in each repo-level result group: `{path, ref, manifests[], monorepo, warnings?}`
+5. Detect service configuration (Dockerfile, docker-compose.yml, kubernetes manifests, serverless.yml): a file glob and a presence check, no parsing
+6. Return structured findings (file paths and types only, not contents), one group per project path: `{path, ref, scan_root, manifests[], monorepo, warnings?}`
 
 **If subprocess unavailable:** Perform directory scanning in main thread using file I/O tools.
 
-**Apply scope hints if provided:**
-- If specific directories were given, scan only those
-- If exclusion patterns were given, skip matching directories
+**Apply `scope_hint` if it is not empty:**
+- If it names folders or packages to focus on, scan only those
+- If it names folders to skip, skip them
 
 **Deep tier additional scanning (IF Deep tier):**
 - Use ast-grep to detect structural patterns across the codebase: `ast-grep -p 'class $NAME' --lang python` (or equivalent per language) to build a class/type inventory
@@ -80,7 +81,7 @@ Based on scan results, identify potential service boundaries:
 - Workspace member listing
 
 **Document each detected boundary with:**
-- Path relative to project root
+- The project path it was found under, and its path relative to that path's scan root
 - Boundary type (service / package / module)
 - Detection signals found (list specific files)
 - Confidence level (strong / moderate / weak)
@@ -104,61 +105,34 @@ Create a structured catalog:
 |------|------|
 | {path} | {config_type} |
 
-### 5. Present Scan Results
+### 5. Present the Scan and Confirm
 
-"**Project Scan Complete**
+Show the user, per project path: the structure overview, each detected boundary (path, type, signals, confidence), the §4 catalogs (manifests, entry points, service configurations), and the scope applied (`scope_hint`, or "Full project scan"). Then display:
 
-**Project:** {project_path}
-**Forge Tier:** {forge_tier}
-
-**Structure Overview:**
-{top-level directory tree}
-
-**Detected Boundaries:** {count}
-{list each boundary with path, type, confidence}
-
-**Manifests Found:** {count}
-{summary table}
-
-**Entry Points Found:** {count}
-{summary table}
-
-**Service Configurations:** {count}
-{summary table}
-
-**Scope Applied:** {hints or 'Full project scan'}
-
-Does this scan look complete? Any directories I should investigate further or skip?"
-
-Wait for user feedback. If user identifies gaps, rescan as directed.
-
-### 6. Append to Report
-
-Append the complete "## Project Scan" section to {outputFile}:
-
-Replace the placeholder `[Appended by scan-project]` with the full scan results including:
-- Structure overview
-- Detected boundaries table
-- Manifests catalog
-- Entry points catalog
-- Service configurations catalog
-- Scope notes
-
-Update {outputFile} frontmatter:
-```yaml
-stepsCompleted: [append 'scan-project' to existing array]
-lastStep: 'scan-project'
-```
-
-### 7. Present MENU OPTIONS
-
-Display: "**Select:** [C] Continue to Unit Identification | [X] Cancel and exit"
+"Anything to rescan, investigate further or skip? Tell me, or **Select:** [C] Continue to Unit Identification | [X] Cancel and exit"
 
 #### Menu Handling Logic:
 
-- IF C: Save scan results to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `scan-project:7`): "Cancelled at the project scan."
-- IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
+- IF C: go to §6
+- IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `scan-project:5`): "Cancelled at the project scan."
+- IF Any other: rescan or skip as directed, show what changed, then [Redisplay Menu Options](#5-present-the-scan-and-confirm)
 
-**GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past scan results".
+**GATE [default: C]**: present the menu and wait for the user's choice. If `{headless_mode}`: continue with [C], and record that decision the moment it is taken: stage `{run_dir}/decision.json` as `{"gate": "scan-project.scan", "default_action": "C", "taken_action": "C", "reason": "headless: auto-continue past scan results", "evidence": {"project_paths": <the project path count>, "boundaries": <the boundary count>}}`, then run
 
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
+```
+
+If the command fails, go on: only that entry is lost.
+
+### 6. Append to Report and Continue
+
+Replace the placeholder `[Appended by scan-project]` in {outputFile} with the scan results: the structure overview, the detected boundaries table, the manifests, entry points and service configurations catalogs, and the scope notes, grouped by project path when there are several. Update its frontmatter:
+
+```yaml
+stepsCompleted: [append 'scan-project' to existing array]
+lastStep: 'scan-project'
+scan_roots: {each project path: its scan root}
+```
+
+Then load, read the entire file, then execute {nextStepFile}.

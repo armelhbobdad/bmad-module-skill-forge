@@ -63,6 +63,9 @@ HEADLESS = REFS / "headless-contract.md"
 INIT = REFS / "init.md"
 CONTINUE = REFS / "continue.md"
 AUTO = REFS / "step-auto-scope.md"
+COEXIST = REFS / "step-auto-scope-coexistence.md"
+SPLIT = REFS / "step-auto-scope-split.md"
+CORPORA = REFS / "step-auto-scope-corpora.md"
 DOCS = REFS / "auto-docs-only.md"
 SHAPE_REF = REFS / "step-shape-detect.md"
 IDENTIFY = REFS / "identify-units.md"
@@ -309,7 +312,7 @@ VALUES = {
 @pytest.mark.parametrize("marker, status", [("- **[M]erge:**", "redirect"), ("- **[S]kip:**", "skipped")],
                          ids=["redirect", "skip"])
 def test_a_coexistence_redirect_or_skip_ends_with_a_valid_envelope_and_record(tmp_path, marker, status):
-    branch = _section(_read(AUTO), marker, "### 1. Load Context" if status == "skipped" else "- **[S]kip:**")
+    branch = _section(_read(COEXIST), marker, None if status == "skipped" else "- **[S]kip:**")
     [template] = _fenced(branch, "json")
     assert "go to §9" in branch
     envelope, forge = _emit(tmp_path, _fill(template, VALUES))
@@ -406,7 +409,7 @@ def test_the_auto_decisions_reach_the_envelope(tmp_path, gate, marker):
 
 
 def _caveat(seeds: int) -> str:
-    text = _section(_read(AUTO), "### 6b.", "### 4a.")
+    text = _section(_read(CORPORA), "### 2.", "### 3.")
     rule = next(line for line in text.splitlines() if ("`{N}` ≥ 1:" if seeds else "`{N}` == 0:") in line)
     caveat = re.search(r'`"( LANGUAGE-REFERENCE CAVEAT: .*?)"`', rule).group(1)
     return (caveat.replace("{corpus_language}", "rust").replace("{N}", str(seeds))
@@ -509,6 +512,7 @@ def test_the_interactive_brief_is_written_through_the_writer(tmp_path):
     text = _read(GENERATE)
     [template] = _fenced(_section(text, "### 2. Build Each Brief's Context", "### 3."), "json")
     values = {"unit-name": "animato", "version, or null": None, "source_repo": "/src/animato",
+              "the unit's ref, or null": None,
               "language": "rust", "description": "Animation core. Use when animating.",
               "forge_tier": "Deep", "current_date": "2026-10-01", "user_name": "armel",
               "scope.type": "full-library", "scope.include": "crates/animato-core/**",
@@ -553,8 +557,7 @@ def test_the_auto_path_has_no_grep_pre_filter_and_no_echoed_tree():
     language = _one_command(_section(text, "### 5. Generate", "### 6. Build"), "uv run {detectLanguageHelper}")
     assert language == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree.txt" [--workspace-signal {workspace_kind}]'
     assert "detectWorkspacesProbeOrder:" in text.split("\n---\n", 1)[0]
-    corpora = _section(text, "### 6b.", "### 4a.")
-    assert "{detectLanguageHelper}" not in corpora, "6b reuses the language §5 detected"
+    assert "{detectLanguageHelper}" not in _read(CORPORA), "6b reuses the language §5 detected"
 
 
 def test_identify_units_passes_no_workspace_signal():
@@ -597,10 +600,15 @@ def test_the_documented_listing_feeds_shape_and_language_detection(tmp_path):
     tree = subprocess.run(argv, capture_output=True, check=True, timeout=60).stdout
     (Path(out.strip('"').replace("{run_dir}", str(run_dir)))).write_bytes(tree)
     values = {"run_dir": str(run_dir), "shapeDetectHelper": str(SHAPE), "detectLanguageHelper": str(LANGUAGE),
-              "project_path": repo.as_posix()}
-    shape_cmd = _one_command(text, "uv run {shapeDetectHelper}").replace(
-        "<comma_separated_manifest_paths>", (repo / "pyproject.toml").as_posix())
-    shape = _run(shape_cmd, values)
+              "project_path": repo.as_posix(), "scan_root": repo.as_posix(), "i": "1",
+              "scanManifestsHelper": str(SCRIPTS / "skf-scan-manifests.py")}
+    # The §2 scan of a local path writes the envelope shape detection reads.
+    scan_cmd = _one_command(_section(text, "### 2. Manifest Scan", "### 3."), '<the path\'s scan root>')
+    scan_cmd, _, scan_out = scan_cmd.replace("<the path's scan root>", "{scan_root}").partition(" > ")
+    scanned = _run(scan_cmd, values)
+    assert scanned.returncode == 0, scanned.stderr
+    Path(scan_out.strip('"').replace("{run_dir}", str(run_dir)).replace("{i}", "1")).write_bytes(scanned.stdout)
+    shape = _run(_one_command(text, "uv run {shapeDetectHelper}"), values)
     assert shape.returncode == 0, shape.stderr
     assert any(s.startswith("grammar_file:") for s in json.loads(shape.stdout)["signals"])
     language = _run(_one_command(_section(text, "### 5. Generate", "### 6. Build"), "uv run {detectLanguageHelper}"),
@@ -700,9 +708,9 @@ def test_only_compiled_skills_count_as_already_skilled():
 
 
 def test_the_per_boundary_brief_rules_are_stated_once():
-    text = _read(AUTO)
+    text = _read(AUTO) + _read(SPLIT)
     assert text.count("Decomposed from {project_name}") == 1
-    assert "This is the one statement of what each boundary's brief holds" in text
+    assert "This is the one statement of what each boundary's brief holds" in _read(SPLIT)
     assert "**When decomposition is active (N > 1 units):**" not in text
     assert "share the same `version`, `source_repo`, `language`" not in text
 
@@ -717,12 +725,12 @@ def test_every_warning_a_step_raises_goes_to_the_run_sink(tmp_path):
     each step records it through the emitter, whose sink feeds `warnings`."""
     for path in [SKILL, *STEP_FILES]:
         assert "workflow_warnings" not in _read(path), path.name
-    text = _read(MAP)
+    text = _read(REFS / "map-unit-exports.md")  # map-and-detect and [D] map units through it
     assert "returns that path" in text and "pass it `{run_dir}`" in text
     assert "Save each subagent's reply as it came" not in text
     record = next(line.strip("` ") for line in re.findall(r"`uv run \{emitEnvelopeHelper\} record [^`]*`", text))
     assert record == "uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<the warning>'"
-    for path in (AUTO,):
+    for path in (CORPORA,):
         assert record in _read(path), path.name
     run_dir = _run_dir(tmp_path)
     warning = "hono: missing key api_surface"

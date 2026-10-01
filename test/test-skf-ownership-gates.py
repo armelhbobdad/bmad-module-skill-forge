@@ -567,7 +567,8 @@ def test_troubleshooting_entry_matches_the_gate_scope():
 def test_analyze_source_merges_only_skf_skills():
     text = _read("src/skf-analyze-source/references/step-auto-scope.md")
     assert '"skf_skill": true | false' in text
-    merge = _section(text, "- **[M]erge:**", "- **[S]kip:**")
+    gate = _read("src/skf-analyze-source/references/step-auto-scope-coexistence.md")
+    merge = _section(gate, "- **[M]erge:**", "- **[S]kip:**")
     assert "`matches[].skf_skill` is true" in merge
 
 

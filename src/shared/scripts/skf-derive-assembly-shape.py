@@ -15,7 +15,8 @@ The gate is a single, structured, schema-validated condition: the brief's
 `doc_urls` contains at least one entry with `source: "language-registry"`
 (issue #432). Registry-sourced corpora are stamped ONLY by
 skf-language-corpora.py, which is invoked ONLY for a whole-language reference
-(a grammar_file:/tree_triad: signal) in step-auto-scope.md §6b. So the gate
+(a grammar_file:/tree_triad: signal) in step-auto-scope-corpora.md, which
+step-auto-scope.md §6 loads for that signal. So the gate
 fires exactly when there is registry-guaranteed prose to foreground, and never
 for an ordinary library, a parser library (pest), a component-library, a
 reference-app, or a docs-only brief — none of which carry a language-registry

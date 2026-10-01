@@ -4,8 +4,9 @@
 # ///
 """SKF Disqualify Candidates: size, generated-code and signal evidence per boundary.
 
-`identify-units.md` section 2 hands this helper every detected boundary with
-its file list. What it checks has one right answer per file list (file and
+`identify-units.md` section 2 hands this helper every detected boundary, and
+the helper lists each boundary's files itself. What it checks has one right
+answer per file list (file and
 line counts, generated or vendored directory segments, generated-code header
 sentinels, which signal files exist, what the boundary's own manifest names),
 and prior runs showed models miscount files, miss generated paths inside
@@ -87,15 +88,37 @@ that shows it (shallowest, then in path order) or null:
 
 and `large_directory`: true when the file list holds 50 or more files.
 
+Boundary paths. Each `path` is normalized once, so `./packages/auth`,
+`packages/auth/` and `packages/./auth` all read as `packages/auth` (and
+`""` or `./` as `.`, the root); the record carries the normalized path. An
+absolute path, or one that leaves the source root (`..`), is an error.
+
+Listing. A boundary without `files` gets the files under
+<source-root>/<path>: those git lists when the source root is in a git
+work tree (tracked, and untracked but not ignored, so .gitignore holds and
+an installed node_modules/ or a build's target/ stays out), else every file
+of a walk that skips node_modules/ and __pycache__/. The walk also runs
+when git lists no file there (a folder the outer work tree ignores, such
+as an extracted tarball under an ignored vendor/). Hidden entries and
+symbolic links are left out either way. Paths are relative to the source
+root, forward-slash, sorted, each once. A boundary path that is no folder
+under the source root is an error. With --tree-dir, each boundary's file
+list (its listing, or the `files` it was given) is written there, one path
+per line, as `boundary-<n>.txt` (n its 1-based place in the input), and
+its record carries `tree_file`: the listing skf-detect-language.py
+--tree-file reads for that unit, so no file list passes through the
+caller. A file name that is not UTF-8 is written with `?` for each byte
+that is not, so the listing stays one UTF-8 file.
+
 Subcommand:
   filter --boundaries <json-file-or--for-stdin> [--source-root <path>]
-                     [--min-files N] [--min-loc N]
+                     [--tree-dir <folder>] [--min-files N] [--min-loc N]
 
       Read a boundaries JSON of the shape:
         [
           {"name": "<unit-name>",
            "path": "<rel-from-source-root>",
-           "files": ["<rel-path>", ...]},
+           "files": ["<rel-path>", ...]},   // optional: listed when absent
           ...
         ]
       and emit:
@@ -116,7 +139,8 @@ Subcommand:
                               "match": "<segment or sentinel>"}, ...],
          "generated_ratio": R, "passes_with_generated": B,
          "manifest": {"path", "ecosystem", "name", "private"} | null,
-         "signals": {"own_manifest": "<path>|null", ..., "large_directory": B}}
+         "signals": {"own_manifest": "<path>|null", ..., "large_directory": B},
+         "tree_file": "<path>"}            // with --tree-dir only
       `generated_files` is sorted by path. `generated_ratio` is the share of
       the source files that are generated (0.0 with no source file), to
       three decimals. `context` holds the rule's own evidence: `threshold`
@@ -135,14 +159,16 @@ Subcommand:
 CLI examples:
   uv run skf-disqualify-candidates.py filter --boundaries boundaries.json
   cat boundaries.json | uv run skf-disqualify-candidates.py filter \\
-      --boundaries - --source-root /path/to/project
+      --boundaries - --source-root /path/to/project --tree-dir /tmp/trees
 
 Exit codes:
   0  operation succeeded (including: empty input, which gives empty kept
      and dropped lists)
-  1  user error (bad JSON, missing required keys, malformed entry), or no
-     skf-scan-manifests.py beside this script that loads (it needs Python
-     3.11 for tomllib, hence this script's floor)
+  1  user error (bad JSON, missing required keys, malformed entry, a
+     boundary path that is absolute or leaves the source root, a boundary
+     path to list that is no folder, a --tree-dir that cannot be
+     written), or no skf-scan-manifests.py beside this script that loads
+     (it needs Python 3.11 for tomllib, hence this script's floor)
 """
 
 from __future__ import annotations
@@ -150,6 +176,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import posixpath
 import re
 import sys
@@ -257,6 +284,15 @@ _SCAN_MODULE = None
 _MANIFEST_FILENAMES: frozenset[str] = frozenset()
 _MANIFEST_FILENAMES_LC: frozenset[str] = frozenset()
 
+# The git runner beside this script (no hooks, no git location variables,
+# never a git shim in the current folder), which lists a boundary's files.
+SOURCE_TREE = Path(__file__).resolve().parent / "skf-source-tree.py"
+_SOURCE_TREE_MODULE = None
+
+# Folders a walk outside a git work tree skips: installed dependencies and
+# caches, never a boundary's own code, and often thousands of files.
+WALK_SKIPPED_FOLDERS = frozenset({"node_modules", "__pycache__"})
+
 # Entry files, lowercased; one counts at most ENTRY_POINT_MAX_DEPTH folders
 # below the boundary root (src/index.ts, src/pkg/__init__.py, cmd/x/main.go).
 ENTRY_POINT_NAMES = frozenset({
@@ -332,11 +368,30 @@ ALL_REASONS = (
 # --------------------------------------------------------------------------
 
 
-def validate_boundaries(boundaries: object) -> list[dict]:
-    """Validate the boundaries input is a list of {name, path, files} records.
+def normalize_boundary_path(name: str, path: str) -> str:
+    """`path` as one forward-slash path relative to the source root: `.`
+    for the root, no `./`, `//` or trailing slash. Raises ValueError for an
+    absolute path or one that leaves the source root."""
+    norm = posixpath.normpath(path.replace("\\", "/") or ".")
+    if (
+        norm.startswith("/")
+        or norm == ".."
+        or norm.startswith("../")
+        or re.match(r"^[A-Za-z]:", norm)
+    ):
+        raise ValueError(
+            f"boundary {name!r}: path {path!r} is not a folder below the source root"
+        )
+    return norm
 
-    Returns the list with each entry's `files` normalized to forward-slash
-    strings. Raises ValueError on any structural defect.
+
+def validate_boundaries(boundaries: object) -> list[dict]:
+    """Validate the boundaries input is a list of {name, path, files?} records.
+
+    Returns the list with each entry's `path` normalized
+    (normalize_boundary_path) and its `files` normalized to forward-slash
+    strings, or None when the entry gives none (the helper lists it).
+    Raises ValueError on any structural defect.
     """
     if not isinstance(boundaries, list):
         raise ValueError(
@@ -358,10 +413,15 @@ def validate_boundaries(boundaries: object) -> list[dict]:
             raise ValueError(
                 f"boundary entry {name!r} missing required `path` field"
             )
+        path = normalize_boundary_path(name, path)
         files = entry.get("files")
+        if files is None:
+            # Listed by the helper (list_boundary_files).
+            normalized.append({"name": name, "path": path, "files": None})
+            continue
         if not isinstance(files, list):
             raise ValueError(
-                f"boundary entry {name!r} missing required `files` array"
+                f"boundary entry {name!r} has a `files` value that is not an array"
             )
         norm_files: list[str] = []
         for f_idx, f in enumerate(files):
@@ -372,10 +432,92 @@ def validate_boundaries(boundaries: object) -> list[dict]:
             norm_files.append(f.replace("\\", "/"))
         normalized.append({
             "name": name,
-            "path": path.replace("\\", "/"),
+            "path": path,
             "files": norm_files,
         })
     return normalized
+
+
+# --------------------------------------------------------------------------
+# Listing a boundary's files
+# --------------------------------------------------------------------------
+
+
+def _source_tree_module():
+    """skf-source-tree.py, loaded once from beside this script, or None
+    when it cannot be loaded (the listing then walks the folder)."""
+    global _SOURCE_TREE_MODULE
+    if _SOURCE_TREE_MODULE is None:
+        spec = importlib.util.spec_from_file_location("skf_source_tree", SOURCE_TREE)
+        if spec is None or spec.loader is None or not SOURCE_TREE.is_file():
+            return None
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except (OSError, ImportError, SyntaxError):
+            return None
+        _SOURCE_TREE_MODULE = module
+    return _SOURCE_TREE_MODULE
+
+
+def _hidden(rel: str) -> bool:
+    return any(part.startswith(".") for part in rel.split("/"))
+
+
+def _git_files(source_root: Path) -> list[str] | None:
+    """The files git lists under `source_root` (tracked, and untracked but
+    not ignored), relative to it, as git prints them (an unmerged path once
+    per stage); None when git is missing or the folder is in no work tree."""
+    module = _source_tree_module()
+    if module is None:
+        return None
+    res = module._git(source_root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    if res is None or res[0] != 0:
+        return None
+    files = []
+    for raw in res[1].split(b"\0"):
+        rel = os.fsdecode(raw).replace("\\", "/") if raw else ""
+        if rel and (source_root / rel).is_file() and not (source_root / rel).is_symlink():
+            files.append(rel)
+    return files
+
+
+def _walked_files(source_root: Path) -> list[str]:
+    files = []
+    for dirpath, dirnames, filenames in os.walk(source_root):
+        rel_dir = os.path.relpath(dirpath, source_root).replace(os.sep, "/")
+        rel_dir = "" if rel_dir == "." else rel_dir
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if not d.startswith(".") and d not in WALK_SKIPPED_FOLDERS
+            and not os.path.islink(os.path.join(dirpath, d))
+        )
+        for name in filenames:
+            if not os.path.islink(os.path.join(dirpath, name)):
+                files.append(f"{rel_dir}/{name}" if rel_dir else name)
+    return files
+
+
+def list_source_files(source_root: Path) -> list[str]:
+    """Every file under `source_root` a boundary may hold, each once; see
+    the module docstring's Listing."""
+    listed = [rel for rel in _git_files(source_root) or [] if not _hidden(rel)]
+    if not listed:
+        # No git, no work tree, or a folder the outer work tree ignores
+        # (git lists nothing there): walk it.
+        listed = [rel for rel in _walked_files(source_root) if not _hidden(rel)]
+    # An unmerged path is listed once per stage during a conflicted merge.
+    return sorted(set(listed))
+
+
+def list_boundary_files(source_files: list[str], boundary_path: str) -> list[str]:
+    """The files of `source_files` below the boundary folder (all of them
+    for a boundary at the root)."""
+    root = boundary_path.strip("/")
+    if root in ("", "."):
+        return list(source_files)
+    prefix = root + "/"
+    return [f for f in source_files if f.startswith(prefix)]
 
 
 # --------------------------------------------------------------------------
@@ -829,20 +971,61 @@ def evaluate_boundary(
 # --------------------------------------------------------------------------
 
 
+def fill_files(boundaries: list[dict], source_root: Path) -> list[dict]:
+    """The boundaries, each one without `files` given the files listed under
+    its path. Raises ValueError for such a boundary whose path is no folder
+    under `source_root`."""
+    source_files: list[str] | None = None
+    filled = []
+    for b in boundaries:
+        if b["files"] is None:
+            root = b["path"].strip("/")
+            if not (source_root / root).is_dir():
+                raise ValueError(
+                    f"boundary {b['name']!r}: {root or '.'} is not a folder under the source root"
+                )
+            if source_files is None:
+                source_files = list_source_files(source_root)
+            b = {**b, "files": list_boundary_files(source_files, b["path"])}
+        filled.append(b)
+    return filled
+
+
+def write_tree_file(tree_dir: Path, index: int, files: list[str]) -> Path:
+    """Write one boundary's file list, one path per line, as
+    `boundary-<index>.txt`; returns its path. A name that is not UTF-8
+    (decoded with surrogateescape) gets `?` for each byte that is not, so
+    the file stays UTF-8 for skf-detect-language.py."""
+    path = tree_dir / f"boundary-{index}.txt"
+    text = "".join(f"{f}\n" for f in sorted(set(files)))
+    path.write_bytes(text.encode("utf-8", errors="replace"))
+    return path
+
+
 def filter_boundaries(
     boundaries: list[dict],
     *,
     source_root: Path,
     min_files: int = MIN_FILES,
     min_loc: int = MIN_LOC,
+    tree_dir: Path | None = None,
 ) -> dict:
-    """Run evaluate_boundary on each entry; aggregate kept/dropped/stats."""
+    """Run evaluate_boundary on each entry; aggregate kept/dropped/stats.
+
+    A boundary without `files` is listed first (fill_files). With
+    `tree_dir`, each boundary's file list is written there and its record
+    names it in `tree_file`. Raises ValueError for a boundary path to list
+    that is no folder, and OSError for a tree file that cannot be written.
+    """
     kept: list[dict] = []
     dropped: list[dict] = []
     by_reason: dict[str, int] = {r: 0 for r in ALL_REASONS}
+    boundaries = fill_files(boundaries, source_root)
     ci_files = load_ci_files(source_root) if boundaries else []
+    if tree_dir is not None and boundaries:
+        tree_dir.mkdir(parents=True, exist_ok=True)
 
-    for b in boundaries:
+    for index, b in enumerate(boundaries, 1):
         result = evaluate_boundary(
             b,
             source_root=source_root,
@@ -850,6 +1033,8 @@ def filter_boundaries(
             min_loc=min_loc,
             ci_files=ci_files,
         )
+        if tree_dir is not None:
+            result["record"]["tree_file"] = write_tree_file(tree_dir, index, b["files"]).as_posix()
         if result["kind"] == "kept":
             kept.append(result["record"])
         else:
@@ -935,12 +1120,21 @@ def _cmd_filter(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    result = filter_boundaries(
-        boundaries,
-        source_root=source_root,
-        min_files=args.min_files,
-        min_loc=args.min_loc,
-    )
+    tree_dir = Path(args.tree_dir).resolve() if args.tree_dir else None
+    try:
+        result = filter_boundaries(
+            boundaries,
+            source_root=source_root,
+            min_files=args.min_files,
+            min_loc=args.min_loc,
+            tree_dir=tree_dir,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"error: cannot write a tree file under {tree_dir}: {exc}", file=sys.stderr)
+        return 1
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
@@ -969,17 +1163,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "path to boundaries JSON, or '-' to read from stdin. "
             "Shape: [{\"name\": \"<unit>\", \"path\": \"<rel>\", "
-            "\"files\": [\"<rel>\", ...]}, ...]"
+            "\"files\": [\"<rel>\", ...]}, ...]; without files the "
+            "helper lists the files under the path"
         ),
     )
     p_filter.add_argument(
         "--source-root",
         default=None,
         help=(
-            "project root for resolving file paths in `files[]` and for the "
-            "CI configurations ci_reference reads (default: current working "
-            "directory). Each file is resolved as <source-root>/<file-rel> "
-            "first, falling back to <source-root>/<boundary-path>/<file-rel>."
+            "project root for listing a boundary's files, resolving file "
+            "paths in `files[]` and the CI configurations ci_reference reads "
+            "(default: current working directory). Each file is resolved as "
+            "<source-root>/<file-rel> first, falling back to "
+            "<source-root>/<boundary-path>/<file-rel>."
+        ),
+    )
+    p_filter.add_argument(
+        "--tree-dir",
+        default=None,
+        help=(
+            "folder to write each boundary's file list to, one path per line "
+            "(boundary-<n>.txt, n its place in the input); each record names "
+            "its file in tree_file"
         ),
     )
     p_filter.add_argument(

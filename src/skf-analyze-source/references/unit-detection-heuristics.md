@@ -91,7 +91,7 @@ Rules for identifying discrete skillable units within a project. A "skillable un
 
 ### Cohesion Triggers
 
-The one statement of when a monorepo's members belong in one cohesive skill rather than one skill per package. The `[auto]` path (step-auto-scope §3b) and the interactive chain (map-and-detect §5) both apply it. Empirically, 5/5 real monorepos (animato 15 crates, trpc, react 38 packages, aws-sdk-js-v3 442 packages, plus zod) were best served as one cohesive skill or a curated few, not one skill per package. The evidence comes from the `skf-scan-manifests.py` scan (`umbrella_candidates[]`, and each member's `name`, `private` and `internal_deps`), never from opening each member manifest.
+The one statement of when a monorepo's members belong in one cohesive skill rather than one skill per package. The `[auto]` path (step-auto-scope §3b) and the interactive chain (map-and-detect §5, and discover-additional-source for a path [D] adds) apply it. Empirically, 5/5 real monorepos (animato 15 crates, trpc, react 38 packages, aws-sdk-js-v3 442 packages, plus zod) were best served as one cohesive skill or a curated few, not one skill per package. The evidence comes from the `skf-scan-manifests.py` scan (`umbrella_candidates[]`, and each member's `name`, `private` and `internal_deps`), never from opening each member manifest.
 
 Merge when **any** of these holds:
 
@@ -114,7 +114,7 @@ Do not recommend a boundary as a skillable unit when:
 
 ## Unit Names
 
-Every unit, composite and brief is named by `skf-skill-inventory.py derive-name`, from the same inputs on the `[auto]` path (step-auto-scope §4a and §6) and the interactive chain (identify-units §2, map-and-detect §5), so one unit gets one name on both:
+Every unit, composite and brief is named by `skf-skill-inventory.py derive-name`, from the same inputs on the `[auto]` path (step-auto-scope §6 and its split branch) and the interactive chain (identify-units §2, map-and-detect §5, discover-additional-source), so one unit gets one name on both:
 
 - **A single unit** passes its own manifest's `name` and `private` flag. A private manifest names nothing, so a monorepo's workspace root or an internal app takes its folder's or repository's name; a published package takes its manifest's (`@trpc/server` gives `trpc-server`).
 - **A merged unit** (a composite, or a monorepo the cohesion check merges) passes the facade's manifest name when the umbrella facade trigger fired, and its members' manifest names: a composite's constituents, a merged monorepo's published members (its private examples and tools left out). Without a facade it takes the name the members share (`trpc` for `@trpc/server` and `@trpc/client`), else the repository's.

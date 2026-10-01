@@ -10,15 +10,17 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any source-analysis work.
+# Steps to run right after the customization resolve (On Activation step 4).
+# Config and preferences are already loaded by then, so a step here can read
+# them but cannot run before them. Overrides append. Use for org-wide
+# pre-flight checks (auth, network, compliance) that must precede any
+# source-analysis work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run once activation is complete (the run folder exists), just
+# before the first stage executes. Overrides append. Use for context loads
+# or banner customization.
 
 activation_steps_append = []
 
@@ -36,22 +38,25 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# --- Optional asset overrides ---
+# --- Optional asset override ---
 #
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
+# The analysis report skeleton init copies to
+# {forge_data_folder}/analyze-source-report-<project>.md: a path from the
+# skill root, or a {project-root}/... path. A house-style copy keeps the
+# frontmatter keys and the six `## ...` sections with their
+# `[Appended by <step>]` placeholders, since each step replaces its own.
 
-unit_detection_heuristics_path = ""
-brief_schema_path = ""
-analysis_report_template_path = ""
+analysis_report_template_path = "templates/analysis-report-template.md"
 
-# Pipeline-integration hook invoked after the final result JSON is written
-# (see generate-briefs.md). The command is called as:
-#   <on_complete> --result-path=<absolute_path_to_result_json>
-# Useful for Slack notifications, dashboard ingest, CI hooks, or chaining
-# into checkpoint-preview / a brief linter. Failures are logged to
-# workflow_warnings[] but never fail the workflow.
+# Pipeline hook: a shell command the run calls once the shared emitter has
+# written the result files, at the end of every run that writes them
+# (generate-briefs.md, step-auto-scope.md and auto-docs-only.md), as:
+#   <on_complete> --result-path=<forge_data_folder>/analyze-source-result-latest.json
+# A run whose result file could not be written (result_path null in the
+# envelope) and a HALT call no hook. Useful for Slack notifications,
+# dashboard ingest, CI hooks, or chaining into a brief linter. A hook
+# failure is displayed and never fails the run.
 #
-# Empty string = no-op (default).
+# Empty string = no hook (default).
 
 on_complete = ""

@@ -270,7 +270,16 @@ async function runTests() {
         'health-check.md',
       ],
       assets: ['skill-brief-schema.md'],
-      references: ['unit-detection-heuristics.md'],
+      references: [
+        'unit-detection-heuristics.md',
+        'scan-root.md',
+        'map-unit-exports.md',
+        'discover-additional-source.md',
+        'step-auto-scope.md',
+        'step-auto-scope-coexistence.md',
+        'step-auto-scope-split.md',
+        'step-auto-scope-corpora.md',
+      ],
     },
     'brief-skill': {
       steps: ['gather-intent.md', 'analyze-target.md', 'scope-definition.md', 'confirm-brief.md', 'write-brief.md', 'health-check.md'],

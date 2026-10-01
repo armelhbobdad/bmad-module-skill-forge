@@ -27,11 +27,24 @@ CLI:
       --repo-url <url> --manifests <path1,path2,...>
   uv run src/shared/scripts/skf-shape-detect.py \\
       --repo-url <url> --manifests <path1,path2,...> --tree-file <file>
+  uv run src/shared/scripts/skf-shape-detect.py \\
+      --repo-url <url> --manifests-file <scan.json> --manifest-dir <root> \\
+      --tree-file <file>
 
 Input:
   --repo-url      repository URL (required; context only, no cloning)
   --manifests     comma-separated local file paths to manifest files (may be
                   empty when a tree-level signal is supplied instead)
+  --manifests-file the JSON envelope `skf-scan-manifests.py scan <root>`
+                  printed, in place of --manifests: its `manifests[]`
+                  entries of the types this script classifies (the _PARSERS
+                  file names) are read, each `path` resolved against
+                  --manifest-dir, so no caller filters, resolves or joins
+                  the manifest list. A manifest's own path below that root
+                  (not where the root sits) decides whether it is core and
+                  how deep it is.
+  --manifest-dir  the folder the scan ran on (required with
+                  --manifests-file)
   --tree-file     the repository's whole file list (`-` reads it from stdin),
                   read by skf-detect-language.py's read_tree_file() (the
                   sibling in this folder, which must sit beside this
@@ -44,7 +57,8 @@ Input:
                   *.pest, Grammar/python.gram, ...); a whole-language signal
   --tree-paths    comma-separated repo-relative directory/structural signals
                   harvested from the clone (compiler/ dir, lexer/parser/ast)
-Passing --tree-file with --grammar-files or --tree-paths is an error.
+Passing --tree-file with --grammar-files or --tree-paths is an error, and
+so is passing --manifests with --manifests-file.
 
 tree_signals() reads every file of the listing and every folder that holds
 one, so no caller's filter drops a path the gates accept (a root
@@ -73,7 +87,8 @@ Exit codes:
   0  shape classified (not unknown)
   1  unknown shape (no heuristic matched)
   2  error (invalid args, missing/unreadable files, a tree listing that
-     cannot be read, holds no path or reports a failure, parse failure)
+     cannot be read, holds no path or reports a failure, a manifests file
+     that is not a scan envelope, parse failure)
 """
 
 from __future__ import annotations
@@ -920,6 +935,29 @@ def _parse_manifest(path: Path) -> dict[str, Any]:
     return parser(path)
 
 
+def read_manifests_file(path: str) -> list[str]:
+    """The manifest paths of a skf-scan-manifests.py envelope that this
+    script classifies (a _PARSERS file name), in the envelope's order and
+    as the envelope spells them: relative to the folder the scan ran on."""
+    try:
+        envelope = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        _die(f"cannot read the manifests file {path}: {exc}", "MANIFESTS_FILE_ERROR")
+    entries = envelope.get("manifests") if isinstance(envelope, dict) else None
+    if not isinstance(entries, list):
+        _die(f"{path} is not a skf-scan-manifests.py envelope: it has no manifests list",
+             "MANIFESTS_FILE_ERROR")
+    paths: list[str] = []
+    for entry in entries:
+        rel = entry.get("path") if isinstance(entry, dict) else None
+        if not isinstance(rel, str) or not rel:
+            _die(f"{path}: a manifests entry has no path", "MANIFESTS_FILE_ERROR")
+        rel = rel.replace("\\", "/")
+        if rel.rsplit("/", 1)[-1] in _PARSERS and rel not in paths:
+            paths.append(rel)
+    return paths
+
+
 # ---------------------------------------------------------------------------
 # Core classification
 # ---------------------------------------------------------------------------
@@ -929,6 +967,7 @@ def detect(
     manifest_paths: list[str],
     grammar_files: list[str] | None = None,
     tree_paths: list[str] | None = None,
+    manifest_dir: str | None = None,
 ) -> dict[str, Any]:
     """Classify a repo into a skill shape from its manifest files.
 
@@ -937,7 +976,9 @@ def detect(
     tree-level signals harvested from the clone; they let whole-language repos
     that carry no parser-generator dependency — and even manifest-less ones —
     be classified. When all three inputs are empty there is nothing to
-    classify and we error, exactly as before.
+    classify and we error, exactly as before. With `manifest_dir`, each
+    manifest path is relative to it: the file read is the joined path, and
+    the core and depth checks see the relative one.
     """
     grammar_files = grammar_files or []
     tree_paths = tree_paths or []
@@ -946,7 +987,7 @@ def detect(
 
     parsed: list[dict[str, Any]] = []
     for mp in manifest_paths:
-        p = Path(mp)
+        p = Path(manifest_dir) / mp if manifest_dir is not None else Path(mp)
         if not p.is_file():
             _die(f"Manifest not found: {p.as_posix()}", "MANIFEST_NOT_FOUND")
         m = _parse_manifest(p)
@@ -1204,9 +1245,20 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--repo-url", required=True, help="Repository URL")
     parser.add_argument(
-        "--manifests", required=True,
+        "--manifests", default=None,
         help="Comma-separated local file paths to manifest files (may be empty "
-             "when --tree-file, --grammar-files or --tree-paths carry the signal)",
+             "when --tree-file, --grammar-files or --tree-paths carry the signal); "
+             "required unless --manifests-file is given",
+    )
+    parser.add_argument(
+        "--manifests-file", default=None,
+        help="The JSON envelope skf-scan-manifests.py scan printed, in place of "
+             "--manifests: its manifests of the types this script classifies, "
+             "each path resolved against --manifest-dir",
+    )
+    parser.add_argument(
+        "--manifest-dir", default=None,
+        help="The folder the scan ran on (required with --manifests-file)",
     )
     parser.add_argument(
         "--tree-file", default=None,
@@ -1225,7 +1277,18 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
-    manifest_paths = [p.strip() for p in args.manifests.split(",") if p.strip()]
+    if args.manifests_file is not None:
+        if args.manifests is not None:
+            _die("pass the manifests once: --manifests or --manifests-file", "INVALID_ARGS")
+        if args.manifest_dir is None:
+            _die("--manifests-file needs --manifest-dir, the folder the scan ran on", "INVALID_ARGS")
+        manifest_paths = read_manifests_file(args.manifests_file)
+    elif args.manifests is None:
+        _die("--manifests or --manifests-file is required", "MISSING_MANIFESTS")
+    else:
+        if args.manifest_dir is not None:
+            _die("--manifest-dir goes with --manifests-file", "INVALID_ARGS")
+        manifest_paths = [p.strip() for p in args.manifests.split(",") if p.strip()]
     grammar_files = [p.strip() for p in args.grammar_files.split(",") if p.strip()]
     tree_paths = [p.strip() for p in args.tree_paths.split(",") if p.strip()]
     truncated = False
@@ -1244,7 +1307,7 @@ def main(argv: list[str]) -> int:
         # tests, docs, scripts): no signal to classify.
         result = {"shape": "unknown", "signals": [], "confidence": 0.0, "export_count": 0, "package_count": 0}
     else:
-        result = detect(args.repo_url, manifest_paths, grammar_files, tree_paths)
+        result = detect(args.repo_url, manifest_paths, grammar_files, tree_paths, args.manifest_dir)
     if truncated:
         result["signals"].append("tree_truncated")
     json.dump(result, sys.stdout, ensure_ascii=False)
