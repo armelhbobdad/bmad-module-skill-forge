@@ -1,25 +1,22 @@
-<!-- Static reference loaded by gap-analysis.md, issue-detection.md, and improvements.md. -->
+<!-- House style: the finding types and tiers Steps 02-05 classify with. Step 01 checks it, and `workflow.refinement_rules_path` can swap it for a team's copy. -->
 
 # Architecture Refinement Rules
 
-## Purpose
+## What a Copy Can Change
 
-Rules for detecting gaps, issues, and improvements in an architecture document using generated skill data as the evidence source.
+`workflow.refinement_rules_path` replaces this whole file with a team's copy, so a copy starts from this file. It can add, rename, drop or redefine the gap, issue and improvement types, name its own severity and value tiers and say when each applies, and decide which tier each [VS] verdict raises. It keeps the six tables below under their headings, since the steps read them by name: Step 01 halts on a copy that lacks one.
+
+What each step looks for is fixed: the types label what a step finds, so a type a copy drops does not stop the step finding it, and a finding no type fits takes the closest type.
+
+Each tier becomes a count of the Refinement Summary, `{<tier>_count}` (the name in lower case, spaces as `_`), so Step 01 also halts on a copy whose tiers break these rules: a tier name starts with a letter and holds only the letters A to Z, digits and spaces; no two tiers share a name, ignoring case, in one table or across the two (so High, Medium and Low cannot name both severity and value); no tier is named Gap, Issue, Improvement, Unverified or Skill, whose counts the summary already holds; and each VS Report Integration row raises a tier of the Issue Severity table, or no issue.
+
+Everything else is fixed, whatever a copy says. The step files decide which skills and pairs are analyzed (the document scope of Step 02 §2b), `references/finding-storage.md` decides how Steps 02-04 store their findings, and the refined document's headings, callouts, RA markers, placement and preservation check are set by Step 05: compile.md and `scripts/skf-check-preservation.py` own them, so an override of this file cannot change them.
 
 ---
 
-## Gap Detection Rules
+## Gap Classification
 
-Gaps are undocumented integration paths — library pairs that have compatible APIs but no architecture description.
-
-### Detection Method
-
-1. Read the pre-computed unique library pairs from `skill_inventory.pairs` (emitted by the enumerate helper's `--pairs` flag) — do not re-derive them in-context
-2. For each pair, check if both skills export APIs that could connect (compatible types, shared protocols, complementary producer/consumer patterns)
-3. Cross-reference against the architecture document: does the document describe how these two libraries interact?
-4. If compatible APIs exist but NO architecture description exists, this is a **gap**
-
-### Gap Classification
+A gap is an undocumented integration path: two in-scope skills whose APIs could connect while the architecture never describes how they interact.
 
 | Gap Type                     | Description                                                            | Example                                                                              |
 |------------------------------|------------------------------------------------------------------------|--------------------------------------------------------------------------------------|
@@ -29,17 +26,9 @@ Gaps are undocumented integration paths — library pairs that have compatible A
 
 ---
 
-## Issue Detection Rules
+## Issue Classification
 
-Issues are contradictions between architecture claims and verified API reality from the skills.
-
-### Detection Method
-
-1. Extract every integration claim from the architecture document (prose co-mention analysis)
-2. For each claim, verify against the actual API surfaces in the skills
-3. Flag contradictions: claimed APIs that do not exist, assumed compatibility that breaks, missing bridge layers
-
-### Issue Classification
+An issue is a contradiction between an architecture claim and the API evidence of the skills: an API that does not exist, an assumed compatibility that breaks, a bridge layer that is missing.
 
 | Issue Type                    | Description                                                    | Example                                                                      |
 |-------------------------------|----------------------------------------------------------------|------------------------------------------------------------------------------|
@@ -48,27 +37,32 @@ Issues are contradictions between architecture claims and verified API reality f
 | **Language Boundary Ignored** | Architecture assumes direct calls across language boundaries   | "Calls Rust functions from TypeScript" with no FFI/IPC mechanism described   |
 | **Type Incompatibility**      | Architecture assumes type compatibility that does not hold     | "Passes CRDT documents directly" but types are incompatible across libraries |
 
-### VS Report Integration
+## Issue Severity
 
-When a VS feasibility report is available, its per-pair verdict tokens are case-sensitive, and each rule keys on the token alone, never on phrases in the rationale text:
-- `Risky` verdicts become **confirmed issues** with the VS evidence as additional citation
-- `Blocked` verdicts become **critical issues** requiring architecture redesign
-- `Plausible` verdicts become **potential issues**: the token means every compatibility check passed but neither skill cites the other literally
-- `Verified` verdicts raise no issue
+Each issue takes one severity tier. The tiers are listed most severe first: Step 05 orders issues by them and counts each one in the Refinement Summary.
+
+| Severity     | When                                                                             |
+|--------------|----------------------------------------------------------------------------------|
+| **Critical** | The architecture needs a redesign: a fundamental language barrier with no bridge |
+| **Major**    | A protocol mismatch or a missing bridge layer                                    |
+| **Minor**    | A minor type difference with an easy conversion                                  |
+
+## VS Report Integration
+
+When the run uses a [VS] feasibility report, each in-scope pair verdict raises the issue this table maps its token to, citing the verdict and its rationale as additional evidence. The tokens are the feasibility-report schema's and are case-sensitive, and each rule keys on the token alone, never on phrases in the rationale text. A copy maps all four tokens, each to a severity tier of the table above or to no issue.
+
+| Verdict     | Raises                                                                                                     |
+|-------------|------------------------------------------------------------------------------------------------------------|
+| `Blocked`   | A **Critical** issue: the architecture needs a redesign                                                    |
+| `Risky`     | A **Major** issue, confirmed by the VS evidence                                                            |
+| `Plausible` | A **Minor**, potential issue: every compatibility check passed but neither skill cites the other literally |
+| `Verified`  | No issue                                                                                                   |
 
 ---
 
-## Improvement Detection Rules
+## Improvement Classification
 
-Improvements are capability expansions — library features documented in skills but not leveraged in the architecture.
-
-### Detection Method
-
-1. For each skill, enumerate its full API surface (all exports, types, protocols)
-2. Compare against how the architecture uses that library
-3. Identify capabilities present in the skill but absent from the architecture
-
-### Improvement Classification
+An improvement is a capability expansion, looked for in each in-scope skill (Step 02 §2b): a feature the skill documents that the architecture does not use, or two in-scope skills whose features combine in a way the architecture does not.
 
 | Improvement Type          | Description                                                             | Example                                                                        |
 |---------------------------|-------------------------------------------------------------------------|--------------------------------------------------------------------------------|
@@ -76,14 +70,12 @@ Improvements are capability expansions — library features documented in skills
 | **Cross-Library Synergy** | Two libraries have complementary features not combined in architecture  | "Library A's event system could feed Library B's stream processor"             |
 | **Alternative Pattern**   | Skill documents a better pattern than the one described in architecture | "Skill shows batch API is more efficient than the per-item approach described" |
 
----
+## Improvement Value
 
-## Finding Storage (Steps 02-04)
+Each improvement takes one value tier. The tiers are listed most valuable first: Step 05 orders improvements by them and counts each one in the Refinement Summary.
 
-Each analysis step stores its findings two ways: as workflow state for Step 05, and appended to `{forge_data_folder}/ra-state-{project_name}.md` as a labeled `<!-- [RA-...] ... -->` block holding the **complete formatted findings** — full citation blocks with evidence and suggestions, not just counts — so Step 05 can recover them if context degrades on a long run. The refined document itself is written once, in Step 05; Steps 02-04 never write to it.
-
----
-
-## Preservation
-
-Preservation, placement and RA's markers are not set here: compile.md and `scripts/skf-check-preservation.py` own them, so an override of this file cannot change them.
+| Value      | When                                                                                 |
+|------------|--------------------------------------------------------------------------------------|
+| **High**   | Addresses a known architectural concern or significantly expands functionality       |
+| **Medium** | Adds convenience or efficiency                                                       |
+| **Low**    | Nice to have, not impactful                                                          |

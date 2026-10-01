@@ -10,21 +10,21 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede architecture refinement work.
+# Steps to run during activation, after the config load and the headless
+# check and before the pre-flight (the emitter, the configured folders, the
+# write probe and the run folder). Overrides append. Use for org-wide checks
+# (auth, network, compliance) that must precede architecture refinement work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run once the pre-flight has passed, before step 1 loads the
+# inputs. Overrides append. Use for context loads or banner customization
+# that should run once activation completes successfully.
 
 activation_steps_append = []
 
 # Persistent facts the workflow keeps in mind for the whole run
-# (refinement standards, evidence-citation rules, house-style preservation
-# guardrails). Overrides append.
+# (refinement standards, evidence-citation rules). Overrides append.
 #
 # Each entry is either:
 #   - a literal sentence, e.g. "Refinements must cite specific API signatures, never speculate."
@@ -38,22 +38,39 @@ persistent_facts = [
 
 # --- Optional asset overrides ---
 #
-# Lift the canonical refinement-rules path so orgs can substitute house-style
-# rules (e.g. add domain-specific gap categories) without forking the skill.
-# Empty string = use the bundled default.
+# House-style refinement rules. Empty = the bundled
+# references/refinement-rules.md. A copy replaces that whole file, so start
+# it from the bundled one: it can add, rename, drop or redefine the gap,
+# issue and improvement types, name its own severity and value tiers, and
+# decide which tier each [VS] verdict raises. It keeps the six tables the
+# steps read by name, and each tier becomes a {<tier>_count} of the
+# Refinement Summary, so step 1 halts on a copy that lacks a table or whose
+# tiers break these rules: a tier name starts with a letter and holds only
+# the letters A to Z, digits and spaces; no two tiers share a name (ignoring
+# case), severity and value tiers included; none is named gap, issue,
+# improvement, unverified or skill; and each VS Report Integration row
+# raises a tier of Issue Severity, or no issue. Fixed whatever the copy
+# says: what each step looks for, which skills and pairs are analyzed (the
+# document scope), how findings are stored for recovery
+# (references/finding-storage.md), and how the refined document is built,
+# marked and checked (headings, callouts, RA markers, preservation).
 
 refinement_rules_path = ""
 
-# Override the destination directory for the refined architecture document.
-# Empty = use {output_folder} from config.yaml. Useful for orgs that want
+# Override the destination directory for the refined architecture document
+# and the files beside it: the earlier refined document a promotion renames,
+# the result files (refine-architecture-result-<YYYYMMDD-HHmmss>.json and its
+# -latest.json copy, the stable path pipelines read) and the record of
+# findings a review dropped (.ra-dismissed-<project>.json). Empty = use
+# {output_folder} from config.yaml. Useful for orgs that want
 # refined-architecture artifacts to land under a curated docs tree.
 
 output_folder_path = ""
 
-# Optional post-completion hook. When non-empty, invoked with
-# `--result-path=<path>` (the per-run result JSON) after the refined
-# architecture and result JSON are finalized (step 6), before its final menu.
-# Use to index the refined doc, notify, or chain the next workflow. A failure
-# shows as a warning line in step 6's report but never fails the run.
+# Optional post-completion hook: a shell command. When non-empty, step 6 runs
+# it with `--result-path=<path>` (the per-run result JSON) once the refined
+# architecture is promoted and both result files are written, before the run
+# finishes. Use to index the refined doc, notify, or chain the next workflow.
+# A failure shows as a warning line in step 6's report but never fails the run.
 
 on_complete = ""

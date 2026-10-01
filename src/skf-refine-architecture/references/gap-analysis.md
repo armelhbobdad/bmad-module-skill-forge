@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'issue-detection.md'
 refinementRulesData: '{refinementRulesPath}'
+findingStorageData: 'references/finding-storage.md'
 comentionProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-comention-pairs.py'
   - '{project-root}/src/shared/scripts/skf-comention-pairs.py'
@@ -34,12 +35,6 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-refine-architecture --run-d
 ```
 
 Display the line it prints, then stop with the halt's exit code (`references/exit-codes.md` describes the envelope). If no candidate exists, or the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
-
-### 1. Reference Refinement Rules
-
-Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
-
-Extract: gap classification (Missing Integration Path, Undocumented Data Flow, Absent Bridge Layer) and detection method.
 
 ### 2. Extract Integration Claims from Architecture
 
@@ -120,8 +115,9 @@ uv run {enumerateStackSkillsHelper} scope --skills "{inventory_names}" --in-scop
 - When `unknown` is not empty, name those entries once: "Not an inventory skill, left out of the scope: {unknown}." They come from `--scope-skills`, since a derived scope and the §2b edits hold only inventory skills. Record the warning `unknown_scope_skills: <the unknown names, comma-separated>`.
 - When `--scope-skills` named no inventory skill at all (`in_scope` is empty), apply the §2b safe default: run the command again with `{inventory_names}` as `--in-scope` too, and record the warning `scope_fallback_all_skills: --scope-skills named no inventory skill, so every skill is in scope`.
 - `pair_count` equals `skill_inventory.pair_count`. When it does not, a name was left out of `{inventory_names}`: run the command again with every name.
+- Once these bindings are final, when `{out_of_scope_skills}` is not empty, record the warning `out_of_scope_skills: <n> skills left out of the scope of this run: <the names, comma-separated>`, so every headless envelope names what this run did not check, a scope from `--scope-skills` included.
 
-Each warning goes into the run sink as it is raised, so the envelope and the result file report it:
+Each warning goes into the run sink as it is raised, so the envelope and the result file report it (the command single-quotes it, so no warning holds a `'`):
 
 ```bash
 uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning>'
@@ -147,7 +143,8 @@ For each library in the skill inventory, delegate reading to a parallel subagent
   "skill_name": "...",
   "exports": ["functionName(params): ReturnType", "..."],
   "protocols": ["HTTP", "gRPC", "WebSocket", "message queue", "file I/O", "IPC"],
-  "data_formats": ["JSON", "protobuf", "CSV", "binary", "streaming"]
+  "data_formats": ["JSON", "protobuf", "CSV", "binary", "streaming"],
+  "capabilities": ["offline sync", "conflict-free merges", "..."]
 }
 ```
 
@@ -155,9 +152,10 @@ For each library in the skill inventory, delegate reading to a parallel subagent
 - `exports`: exported functions with signatures, exported types/interfaces/classes
 - `protocols`: any protocol indicators found in the SKILL.md
 - `data_formats`: any data format indicators found in the SKILL.md
+- `capabilities`: the capabilities and features the SKILL.md documents beyond its exports, one short phrase each
 - If a field has no matches, return an empty array `[]`
 
-**Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context. Store the collected summaries as `{skill_api_surfaces}` workflow state: Step 03 (issue detection) and Step 04 (improvements) reuse them exactly like `{in_scope_skills}`, rather than re-reading each SKILL.md into the parent.
+**Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context. Store the collected summaries as `{skill_api_surfaces}` workflow state: Step 03 (issue detection) and Step 04 (improvements) reuse them exactly like `{in_scope_skills}`, rather than re-reading each SKILL.md into the parent. Append them to the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`) as a `<!-- [RA-SURFACES] ... -->` block too: Steps 03 and 04 read them back from it if context degrades on a long run.
 
 **From the skill inventory (Step 01 §2), also take** each skill's `language` (the enumerate helper reads it from `metadata.json`: a string, a list of strings for a stack, or null when none is recorded) and its `exports` count and names. Do not open `metadata.json` in the parent.
 
@@ -173,7 +171,7 @@ For each pair in `{in_scope_pairs}` or `{out_of_scope_pairs}` (from §3) not alr
 **Scope routing (from §3):** Before classifying, check which list holds the pair. A pair in `{out_of_scope_pairs}` does not go to the gap list even when its APIs are compatible: record it in the informational **Out-of-Scope** bucket instead (a compatible pair that belongs to a different product surface than this architecture). Only pairs in `{in_scope_pairs}` proceed to gap classification below.
 
 **If compatible APIs exist (in-scope pair) but NO architecture mention:**
-- Classify the gap type (Missing Integration Path, Undocumented Data Flow, or Absent Bridge Layer)
+- Type the gap by the Gap Classification of `{refinementRulesData}`
 - Document the connecting APIs from both skills
 - Propose a brief architecture section describing the integration
 
@@ -199,7 +197,7 @@ Report the in-scope gap count, then list each gap as a row of **# / Library A / 
 - **Out-of-scope compatible pairs exist (from §2b/§5):** list them separately for awareness only — they were not counted as gaps — and note that re-running with `--scope-skills` (naming the skills to include) pulls any that belong into scope.
 - **The architecture names technologies with no skill (`{unverified_technologies}` from §2b is not empty):** name them. No skill backs what the document says about them, so no step checks it; recommend generating their skills with [CS] or [QS] before re-running [RA].
 
-Store the **in-scope** gap findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-GAPS] ... -->` block. Record out-of-scope pairs under a separate `<!-- [RA-OUT-OF-SCOPE] ... -->` marker so Step 05 leaves them out of the refined document — they are informational only.
+Store the **in-scope** gap findings under a `<!-- [RA-GAPS] ... -->` block and the out-of-scope pairs under the `<!-- [RA-OUT-OF-SCOPE] ... -->` marker, as `{findingStorageData}` says (a gap that matches one a review dropped goes under `[RA-DISMISSED]` instead).
 
 Append the scope under a `<!-- [RA-SCOPE] ... -->` block too: `{in_scope_skills}`, `{out_of_scope_skills}`, how the scope was set (`--scope-skills`, derived, derived then edited at the §2b confirmation, or every skill by the safe default), any name §3 reported as not an inventory skill, `{in_scope_pairs}`, `{out_of_scope_pairs}` and `{unverified_technologies}`. Step 03, Step 04 and Step 05 read the block back if context degrades on a long run.
 

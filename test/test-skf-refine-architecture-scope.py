@@ -53,6 +53,26 @@ through the shared helpers (#590, #598):
 - the helper calls fit the helpers' CLIs and quote every placeholder they
   pass, and every key the steps read is one the feasibility helper emits.
 
+And it pins the split of the rules a team may swap from the ones it may not
+(#596, #599, #600):
+
+- refinement-rules.md, which `refinement_rules_path` replaces, holds only
+  house style: six tables (types, severity and value tiers, the VS token
+  mapping) under the headings init checks, with the bundled tiers equal to
+  the preservation script's defaults; the steps classify from it and restate
+  no type, tier or token mapping;
+- a copy's tiers follow the rules that let the script count them, which init
+  checks: each rule is run against the script, as a broken tier set and as a
+  renamed one that fills its own counts;
+- the Finding Storage contract lives in the fixed finding-storage.md, which
+  steps 2 to 4 bind, and a finding an approved review dropped is recorded
+  beside the output and left out of a later run on the refined document (an
+  improvement only for the capability it named);
+- the per-refinement walkthrough is [R] at the step 5 review gate, step 6 has
+  no menu, step 4 reads the capabilities step 2 collected instead of a
+  second subagent round, and the split names the skills a run left out of
+  scope in an `out_of_scope_skills` warning.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -60,9 +80,14 @@ passing vacuously.
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import shlex
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RA = REPO_ROOT / "src" / "skf-refine-architecture"
@@ -75,6 +100,8 @@ IMPROVEMENTS = REFS / "improvements.md"
 COMPILE = REFS / "compile.md"
 REPORT = REFS / "report.md"
 RULES = REFS / "refinement-rules.md"
+STORAGE = REFS / "finding-storage.md"
+CUSTOMIZE = RA / "customize.toml"
 FEASIBILITY_HELPER = REPO_ROOT / "src" / "shared" / "scripts" / "skf-validate-feasibility-report.py"
 COMENTION_HELPER = REPO_ROOT / "src" / "shared" / "scripts" / "skf-comention-pairs.py"
 
@@ -473,10 +500,10 @@ def test_skill_md_lists_the_scope_gate():
 
 def test_every_state_block_compile_reads_is_written_by_a_step():
     written = set()
-    for path in (INIT, GAP, ISSUES, IMPROVEMENTS):
+    for path in (INIT, GAP, ISSUES, IMPROVEMENTS, STORAGE):
         written |= set(STATE_BLOCK_RE.findall(_read(path)))
     read_back = set(STATE_BLOCK_RE.findall(_compile_base()))
-    assert {"[RA-GAPS]", "[RA-ISSUES]", "[RA-IMPROVEMENTS]", "[RA-SCOPE]", "[RA-VS]"} <= read_back
+    assert {"[RA-GAPS]", "[RA-ISSUES]", "[RA-IMPROVEMENTS]", "[RA-DISMISSED]", "[RA-SCOPE]", "[RA-VS]"} <= read_back
     assert read_back <= written, f"compile reads blocks no step writes: {sorted(read_back - written)}"
     assert "[RA-OUT-OF-SCOPE]" not in read_back, "out-of-scope records never enter the refined document"
     for path in (GAP, ISSUES, IMPROVEMENTS):
@@ -667,11 +694,22 @@ def test_issue_detection_reads_a_lost_report_again_or_halts():
     assert "the same helper gives the same JSON" not in _read(ISSUES)
 
 
+VS_TOKENS = ("Blocked", "Risky", "Plausible", "Verified")
+
+
+def _rules_vs() -> str:
+    return _slice(_read(RULES), "## VS Report Integration", "\n## ")
+
+
 def test_verdicts_are_promoted_by_their_exact_token():
+    # One home for the token mapping: the rules file a team may swap.
     promote = _slice(_issue_vs(), "**Promote the in-scope verdicts by their token:**", "\n\n")
-    leads = [line.split(":**")[0] for line in promote.splitlines() if line.startswith("- ")]
-    assert leads == ["- **`Risky`", "- **`Blocked`", "- **`Plausible`", "- **`Verified`"]
-    assert "never phrases in the rationale text" in _bullet(promote, "**`Plausible`")
+    assert "the VS Report Integration table of `{refinementRulesData}` maps its token to" in promote
+    assert "never phrases in the rationale text" in promote
+    assert not [line for line in promote.splitlines() if line.startswith("- ")], "the mapping is not restated"
+    rows = _table_rows(_rules_vs())
+    assert [token for token in rows if token.startswith("`")] == [f"`{token}`" for token in VS_TOKENS]
+    assert rows["`Verified`"][1] == "No issue"
 
 
 RATIONALE_PHRASES = ("no direct API evidence", "weak evidence")
@@ -681,12 +719,13 @@ def test_the_plausible_rule_keys_on_the_token():
     for path in (ISSUES, RULES):
         for phrase in RATIONALE_PHRASES:
             assert phrase not in _read(path), f"{path.name} still keys on the rationale phrase {phrase!r}"
-    rules = _slice(_read(RULES), "### VS Report Integration", "---")
+    rules = _rules_vs()
     assert "each rule keys on the token alone" in rules
-    assert "- `Plausible` verdicts become **potential issues**" in rules
+    assert _table_rows(rules)["`Plausible`"][1].startswith("A **Minor**, potential issue")
     assert "RISKY" not in rules and "BLOCKED" not in rules, "the tokens are case-sensitive"
-    severity = _slice(_read(ISSUES), "**Severity classification:**", "\n\n")
-    assert "- **Minor:** `Plausible` VS verdicts" in severity
+    severity = _slice(_read(ISSUES), "**Severity:**", "\n\n")
+    assert "one tier of the Issue Severity table of `{refinementRulesData}`" in severity
+    assert "a VS-sourced issue takes the tier its verdict's row raises" in severity
 
 
 def test_issue_detection_scopes_verdicts_by_the_pair_lists():
@@ -805,3 +844,331 @@ def test_skill_md_names_the_vs_report_halt():
     assert "step 3 §4 (the [VS] report cannot be read again, or [VS] rewrote it during the run)" in exit_8
     [headless] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Headless** |")]
     assert "without `--vs-report-path` step 1 uses the [VS] report it finds" in headless
+
+
+# --- The rules file holds house style only (#596, #600) ---
+
+RULE_TABLES = ("Gap Classification", "Issue Classification", "Issue Severity", "VS Report Integration",
+               "Improvement Classification", "Improvement Value")
+BUNDLED_TYPES = ("Missing Integration Path", "Undocumented Data Flow", "Absent Bridge Layer", "API Mismatch",
+                 "Protocol Contradiction", "Language Boundary Ignored", "Type Incompatibility",
+                 "Unused Capability", "Cross-Library Synergy", "Alternative Pattern")
+TIER_RE = re.compile(r"\b(?:Critical|Major|Minor|High|Medium|Low)\b")
+PRESERVATION_SCRIPT = RA / "scripts" / "skf-check-preservation.py"
+
+
+def _rules_tiers(table: str) -> list[str]:
+    # The last table runs to the end of the file, so close the text with a heading.
+    rows = _table_rows(_slice(_read(RULES) + "\n## end", f"## {table}\n", "\n## "))
+    return [label for label in rows if label not in {"Severity", "Value"}]
+
+
+def test_the_rules_file_says_what_a_copy_can_change():
+    text = _read(RULES)
+    headings = re.findall(r"^## (.+)$", text, re.M)
+    assert headings == ["What a Copy Can Change", *RULE_TABLES], headings
+    copy = _slice(text, "## What a Copy Can Change", "\n---")
+    for needle in ("replaces this whole file", "severity and value tiers", "which tier each [VS] verdict raises",
+                   "keeps the six tables below under their headings", "Step 01 halts on a copy that lacks one",
+                   "`references/finding-storage.md`", "the document scope of Step 02 §2b"):
+        assert needle in copy, needle
+    # The storage contract and the steps' method left the swappable file.
+    for gone in ("Finding Storage", "ra-state-", "Detection Method", "skill_inventory.pairs"):
+        assert gone not in text, gone
+    improvements = _slice(text, "## Improvement Classification", "|")
+    assert "each in-scope skill (Step 02 §2b)" in improvements
+
+
+def test_step_1_checks_the_tables_the_steps_read():
+    check = _slice(_read(INIT), "### 4. Check the Refinement Rules", "### 5.")
+    named = check.split("six tables the steps read by name: ", 1)[1]
+    positions = [named.index(table) for table in RULE_TABLES]
+    assert positions == sorted(positions), "init names the tables in the rules file's order"
+    for token in VS_TOKENS:
+        assert f"`{token}`" in check, token
+    assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:rules`' in check
+    assert "Extract:" not in _read(INIT)
+
+
+def test_the_steps_classify_with_the_loaded_rules():
+    binding = "refinementRulesData: '{refinementRulesPath}'"
+    for path in (INIT, GAP, ISSUES, IMPROVEMENTS, COMPILE):
+        text = _read(path)
+        assert binding in _frontmatter(text), path.name
+        assert "Reference Refinement Rules" not in text and "Extract:" not in text, path.name
+    assert "Type the gap by the Gap Classification of `{refinementRulesData}`" in _read(GAP)
+    assert "type it by the Issue Classification of `{refinementRulesData}`" in _read(ISSUES)
+    assert ("type each improvement by the Improvement Classification of `{refinementRulesData}` and give it one "
+            "tier of its Improvement Value table") in _read(IMPROVEMENTS)
+    for path in (SKILL, INIT, GAP, ISSUES, IMPROVEMENTS, COMPILE, REPORT, STORAGE):
+        text = _read(path)
+        for name in BUNDLED_TYPES:
+            assert name not in text, f"{path.name} restates the bundled type {name!r}"
+        if path != COMPILE:
+            assert not TIER_RE.search(text), f"{path.name} restates a bundled tier: {TIER_RE.search(text).group(0)}"
+    # Compile shows the bundled tiers only as the example rows of the Changes Made table.
+    rows = [line for line in _read(COMPILE).splitlines() if TIER_RE.search(line)]
+    assert [row.split(" | ")[0] for row in rows] == ["| Issues Flagged", "| Improvements Suggested"]
+
+
+def test_compile_and_the_report_take_the_tiers_from_the_rules():
+    text = _read(COMPILE)
+    assert "a tier of the Issue Severity table of `{refinementRulesData}`" in _slice(text, "### 3.", "### 4.")
+    assert "a tier of the Improvement Value table of `{refinementRulesData}`" in _slice(text, "### 4.", "### 5.")
+    summary = _compile_summary()
+    assert "a `{<tier>_count}` for each severity and value tier" in summary
+    assert "breakdowns name the tiers of the Issue Severity and Improvement Value tables" in summary
+    build = _slice(text, "### 6. Build the Draft", "### 7.")
+    assert '`tiers` (`{"issue": [...], "improvement": [...]}`' in build
+    parse = _report_parse()
+    assert "the count of each severity tier from `counts.issue_tiers`" in parse
+    shown = _table_rows(_report_summary())
+    assert "`counts.issue_tiers`" in shown["Issues Flagged"][1]
+    assert "`counts.improvement_tiers`" in shown["Improvements Suggested"][1]
+    assert "{IF the first tier of `counts.issue_tiers`, the most severe, counts any issue:}" in _report_next_steps()
+
+
+def test_the_bundled_tiers_are_the_scripts_defaults():
+    # The bundled rules and the preservation script agree, so a plan built
+    # from the bundled file places and counts exactly as before.
+    script = _load("ra_scope_preservation", PRESERVATION_SCRIPT)
+    assert _rules_tiers("Issue Severity") == script.DEFAULT_TIERS["issue"]
+    assert _rules_tiers("Improvement Value") == script.DEFAULT_TIERS["improvement"]
+    vs = _table_rows(_rules_vs())
+    severities = set(_rules_tiers("Issue Severity"))
+    for token in VS_TOKENS[:3]:
+        raised = re.match(r"A \*\*([A-Za-z]+)\*\*", vs[f"`{token}`"][1])
+        assert raised and raised.group(1) in severities, token
+
+
+def _rules_comment() -> str:
+    comment = _slice(_read(CUSTOMIZE), "# House-style refinement rules.", 'refinement_rules_path = ""')
+    return " ".join(line.removeprefix("#").strip() for line in comment.splitlines())
+
+
+def test_a_copy_learns_the_tier_rules_and_step_1_checks_them():
+    # Each tier becomes a {<tier>_count} the preservation script fills, so the
+    # names it cannot count are named where a copy is written and checked.
+    script = _load("ra_scope_preservation", PRESERVATION_SCRIPT)
+    fixed = sorted({name.removesuffix("_count") for name in script.REQUIRED_PLACEHOLDERS} | {"unverified", "skill"})
+    copy = _slice(_read(RULES), "## What a Copy Can Change", "\n---")
+    check = _slice(_read(INIT), "### 4. Check the Refinement Rules", "### 5.")
+    comment = _rules_comment()
+    for needle in ("starts with a letter and holds only the letters A to Z, digits and spaces",
+                   "each VS Report Integration row raises a tier of the Issue Severity table, or no issue"):
+        assert needle in copy and needle in check, needle
+    assert "no two tiers share a name, ignoring case, in one table or across the two" in copy
+    assert "no other tier of either table has the same name, ignoring case" in check
+    for name in fixed:
+        assert name.capitalize() in copy and f"`{name}`" in check and name in comment, name
+    for needle in ("a tier name starts with a letter and holds only the letters A to Z, digits and spaces",
+                   "no two tiers share a name (ignoring case), severity and value tiers included",
+                   "each VS Report Integration row raises a tier of Issue Severity, or no issue",
+                   "step 1 halts on a copy that lacks a table or whose tiers break these rules",
+                   "Fixed whatever the copy says: what each step looks for"):
+        assert needle in comment, needle
+    assert ('When the file cannot be read, lacks a table or breaks a tier rule, HALT (exit code 3, '
+            '`halt_reason: "resolution-failure"`) at phase `init:rules`') in check
+    # What a step looks for is fixed: the types only label it.
+    assert "What each step looks for is fixed" in copy and "a finding no type fits takes the closest type" in copy
+
+
+def _apply_with_tiers(tmp_path, severity: list[str], value: list[str], raised: str) -> tuple[int, dict]:
+    """Run compile's apply on a plan with these tiers: one gap, and one issue of the tier `raised`."""
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(b"# App\n\n## Data Layer\n\nLoro stores documents.\n")
+    counts = ", ".join(f"{tier}: {{{re.sub(r'[ ]+', '_', tier.lower())}_count}}" for tier in [*severity, *value])
+    summary = ("## Refinement Summary\n\nGaps: {gap_count}, issues: {issue_count}, "
+               f"improvements: {{improvement_count}}\n\n{counts}\n")
+    plan = {"entries": [
+        {"id": "gap-1", "kind": "gap", "anchor": None, "skills": ["loro", "fastapi"],
+         "block": "#### RA: Loro <-> FastAPI Integration Path"},
+        {"id": "issue-1", "kind": "issue", "tier": raised, "anchor": None, "skills": ["loro"],
+         "block": "> [!WARNING] **Issue Detected by Refine Architecture**"},
+    ], "summary": summary, "unverified_technologies": [], "skill_count": 2,
+        "tiers": {"issue": severity, "improvement": value}}
+    plan_path = tmp_path / "insertion-plan.json"
+    plan_path.write_bytes(json.dumps(plan).encode("utf-8"))
+    proc = subprocess.run(
+        [sys.executable, str(PRESERVATION_SCRIPT), "apply", "--original", str(doc), "--plan", str(plan_path),
+         "--draft", str(tmp_path / "draft.md"), "-o", str(tmp_path / "apply.json")],
+        capture_output=True, text=True, encoding="utf-8", check=False,
+    )
+    return proc.returncode, json.loads(proc.stdout)
+
+
+BROKEN_TIERS = [
+    pytest.param(["High", "Medium", "Low"], ["High", "Medium", "Low"], "High", 1,
+                 "an issue tier and an improvement tier share a name", id="one-set-for-severity-and-value"),
+    pytest.param(["Must-fix", "Later"], ["High", "Low"], "Must-fix", 0, "Must-fix: {must-fix_count}",
+                 id="punctuation"),
+    pytest.param(["1st", "2nd"], ["High", "Low"], "1st", 0, "1st: {1st_count}", id="leading-digit"),
+    pytest.param(["Gap", "Later"], ["High", "Low"], "Later", 0, "Gaps: 0,", id="a-fixed-count-name"),
+    pytest.param(["Critical", "Major", "Minor"], ["High", "Medium", "Low"], "Severe", 1, "tier-unknown",
+                 id="a-vs-row-raising-no-severity-tier"),
+]
+
+
+@pytest.mark.parametrize(("severity", "value", "raised", "code", "symptom"), BROKEN_TIERS)
+def test_each_tier_rule_guards_a_summary_the_script_could_not_count(tmp_path, severity, value, raised, code, symptom):
+    # A copy that broke the rule would never build (exit 1, which fixing the
+    # plan cannot help) or would build a summary with a wrong or unfilled count.
+    exit_code, result = _apply_with_tiers(tmp_path, severity, value, raised)
+    assert exit_code == code, result
+    if code:
+        assert symptom in json.dumps(result["problems"]), result["problems"]
+    else:
+        assert symptom in result["summary"], result["summary"]
+        assert result["counts"]["gap"] == 1
+
+
+def test_a_renamed_tier_set_fills_its_own_counts(tmp_path):
+    exit_code, result = _apply_with_tiers(tmp_path, ["Blocker", "Should fix"], ["Worth it", "Later on"], "should fix")
+    assert exit_code == 0, result
+    assert result["counts"]["issue_tiers"] == {"Blocker": 0, "Should fix": 1}
+    assert result["counts"]["improvement_tiers"] == {"Worth it": 0, "Later on": 0}
+    assert "Gaps: 1, issues: 1, improvements: 0" in result["summary"]
+    assert "Blocker: 0, Should fix: 1, Worth it: 0, Later on: 0" in result["summary"]
+    assert "{" not in result["summary"]
+
+
+# --- Finding storage is fixed (#596) ---
+
+
+def test_finding_storage_lives_in_a_fixed_file():
+    text = _read(STORAGE)
+    assert "No customization replaces it" in text.splitlines()[0]
+    assert "`{forge_data_folder}/ra-state-{project_name}.md`" in text
+    assert "**complete formatted findings**" in text and "never only counts" in text
+    for block in ("[RA-GAPS]", "[RA-ISSUES]", "[RA-IMPROVEMENTS]", "[RA-OUT-OF-SCOPE]", "[RA-DISMISSED]"):
+        assert f"`<!-- {block} ... -->`" in text, block
+    for path in (GAP, ISSUES, IMPROVEMENTS):
+        step = _read(path)
+        assert "findingStorageData: 'references/finding-storage.md'" in _frontmatter(step), path.name
+        assert "as `{findingStorageData}` says" in step, path.name
+        assert "Finding Storage rule (refinement rules)" not in step, path.name
+    toml = _read(CUSTOMIZE)
+    comment = _slice(toml, "# House-style refinement rules.", 'refinement_rules_path = ""')
+    for needle in ("references/finding-storage.md", "six tables", "A copy replaces that whole file"):
+        assert needle in comment, needle
+
+
+# --- A finding the review drops stays dropped (#587 follow-up) ---
+
+DISMISSED_FILE = "dismissedFile: '{outputFolderPath}/.ra-dismissed-{arch_project_name}.json'"
+
+
+def test_a_finding_the_review_drops_stays_dropped():
+    assert DISMISSED_FILE in _frontmatter(_read(INIT)) and DISMISSED_FILE in _frontmatter(_read(COMPILE))
+    previous = _slice(_read(INIT), "**Findings an earlier review dropped.**", "\n\n")
+    assert "When `{previous_pass}` is true and `{dismissedFile}` exists, read it as `{dismissed_findings}`" in previous
+    fields = "`{kind, skills, anchor, title, capability}`"
+    assert fields in previous and fields in _read(STORAGE)
+    match = _slice(_read(STORAGE), "Compare each in-scope finding", "\n")
+    assert "its kind (`gap`, `issue` or `improvement`) is the record's and it cites the same skills" in match
+    assert "An issue must also contradict the claim the record's `anchor` holds" in match
+    # Step 4 raises one improvement per unused capability, so a skill has
+    # several: the capability keeps one drop from hiding the others.
+    assert "an improvement must name the capability or API the record's `capability` holds" in match
+    assert "so one dropped finding never hides another about the same skills" in match
+    assert "with a one-line title of its own and the `title` of the record it matched" in match
+    assert "inserts it only if the user takes it back" in match
+    record = _slice(_read(COMPILE), "**Record what the review dropped.**", "\n")
+    assert '`{"kind", "skills", "anchor", "title", "capability"}`' in record
+    assert "`capability` the `{api}` an improvement's block names, `null` for a gap or an issue" in record
+    assert "a finding taken back removes the record it matched" in record
+    assert "{api}" in _compile_improvements(), "the record's capability is the one the improvement block names"
+    assert "atomicWriteProbeOrder:" in _frontmatter(_read(COMPILE))
+    review = _slice(_read(COMPILE), "### 7. Present the Draft for Review", "### 8.")
+    assert "{IF the `[RA-DISMISSED]` block holds findings:}" in review
+    assert "its own title and the title of the record it matched" in review
+    assert "A finding you dropped at the review stays out of later [RA] runs on this document" in _report_next_steps()
+
+
+DISMISSED_WRITE = 'uv run {atomicWriteHelper} write --target "{dismissedFile}" < "{run_dir}/dismissed.json"'
+PROMOTE = "uv run {preservationScript} promote "
+
+
+def test_only_an_approved_review_records_a_drop():
+    # A feedback round keeps the list in the run folder: [X] or a failed
+    # promotion must leave the record a later run reads as it was.
+    text = _read(COMPILE)
+    assert text.count(DISMISSED_WRITE) == 1, "the record is written once, at [C]"
+    approve = _slice(text, "- IF C (only while the last `apply` exited 0)", "- IF cancel")
+    assert approve.index(PROMOTE) < approve.index("  - **0:**") < approve.index(DISMISSED_WRITE)
+    written = _slice(approve, "  - **0:**", "  - **1**")
+    assert DISMISSED_WRITE in written and "when a feedback round staged `{run_dir}/dismissed.json`" in written
+    assert written.index(DISMISSED_WRITE) < written.index("execute `{nextStepFile}`")
+    assert '"The dropped findings were not recorded ({reason}): a later run may raise them again." and go on' in written
+    record = _slice(text, "**Record what the review dropped.**", "\n")
+    assert "Keep that list in `{run_dir}/dismissed.json`" in record
+    assert "It reaches `{dismissedFile}` only at [C], once `promote` exits 0, so [X] leaves the record as it was" in record
+    assert "{atomicWriteHelper}" not in record
+    cancel = _bullet(_slice(text, "#### Menu Handling Logic:", "**Record what"), "IF cancel")
+    assert "{dismissedFile}" not in cancel
+
+
+# --- The walkthrough sits at the review gate (#599) ---
+
+
+def test_the_review_gate_offers_the_walkthrough():
+    menu = _slice(_read(COMPILE), "### 8. Present MENU OPTIONS", "#### Menu Handling Logic:")
+    [select] = [line for line in menu.splitlines() if "**Select:**" in line]
+    options = OPTION_RE.findall(select)
+    assert options == ["R", "C", "X"], options
+    assert GATE_DEFAULT_RE.findall(menu) == ["C"]
+    branches = [line for line in _read(COMPILE).splitlines() if line.startswith("- IF ")]
+    assert [b.split(":")[0] for b in branches[:2]] == ["- IF R", "- IF C (only while the last `apply` exited 0)"]
+    assert "It changes nothing; then redisplay this menu." in branches[0]
+    report = _read(REPORT)
+    assert "[R]" not in report and "Present Menu" not in report and "EXECUTION RULES" not in report
+    assert "### 6. Finish the Run" in report
+    skill = _read(SKILL)
+    [gates] = [line for line in skill.splitlines() if line.startswith("| **Gates** |")]
+    assert "step 5: Review Gate [R] review each refinement / [C] approve" in gates and "step 6" not in gates
+    assert "| 6 | Report | references/report.md | Yes |" in skill
+    assert "final menu" not in skill
+
+
+# --- Step 04 reads the surfaces Step 02 collected (#599) ---
+
+
+def test_step_4_reads_the_surfaces_step_2_collected():
+    surfaces = _slice(_read(GAP), "### 4. Load Skill API Surfaces for Cross-Reference", "### 5.")
+    assert '"capabilities": [' in surfaces and "- `capabilities`:" in surfaces
+    assert "as a `<!-- [RA-SURFACES] ... -->` block" in surfaces
+    improvements = _read(IMPROVEMENTS)
+    assert "delegate to parallel subagents" not in improvements, "Step 04 launches no second round of subagents"
+    assert "Never re-read a SKILL.md, in the parent or through new subagents." in improvements
+    for path in (ISSUES, IMPROVEMENTS):
+        text = _read(path)
+        assert "`{exports, protocols, data_formats, capabilities}`" in text, path.name
+        assert "the `<!-- [RA-SURFACES] ... -->` block" in text, path.name
+        assert "Reload a" not in text, path.name
+
+
+# --- Headless envelopes name what a run left out (#593 follow-up) ---
+
+
+def test_the_split_records_the_skills_left_out():
+    split = _gap_split()
+    warning = _bullet(split, "Once these bindings are final")
+    assert "record the warning `out_of_scope_skills: <n> skills left out of the scope of this run:" in warning
+    assert split.index("`pair_count` equals") < split.index("Once these bindings are final")
+
+
+RECORDED_WARNING_RE = re.compile(r"[Rr]ecord the warning `([^`]+)`")
+RECORD_WARNING_CMD = "uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<the warning>'"
+
+
+def test_no_recorded_warning_holds_a_single_quote():
+    # The record command single-quotes the warning, so an apostrophe in one
+    # ends the quote early and bash never runs the command.
+    commands = [path.name for path in REFS.glob("*.md") if RECORD_WARNING_CMD in _read(path)]
+    assert sorted(commands) == ["gap-analysis.md", "init.md"], commands
+    warnings = [(path.name, w) for path in sorted(REFS.glob("*.md")) for w in RECORDED_WARNING_RE.findall(_read(path))]
+    assert len(warnings) >= 6, warnings
+    for name, warning in warnings:
+        assert "'" not in warning, f"{name}: {warning}"
+        command = RECORD_WARNING_CMD.replace("<the warning>", warning)
+        assert shlex.split(command)[-1] == warning, f"{name}: {warning}"

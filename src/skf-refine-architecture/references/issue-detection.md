@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'improvements.md'
 refinementRulesData: '{refinementRulesPath}'
+findingStorageData: 'references/finding-storage.md'
 # Resolve `{validateFeasibilityReportHelper}` by probing
 # `{validateFeasibilityReportProbeOrder}` in order (installed SKF module
 # path first, src/ dev-checkout fallback); first existing path wins. §4
@@ -21,7 +22,7 @@ emitEnvelopeProbeOrder:
 
 ## STEP GOAL:
 
-Find contradictions between what the architecture document claims and what the generated skills reveal about actual API surfaces. Detect language boundary issues not addressed, protocol mismatches assumed away, and missing bridge layers. If a VS feasibility report is available, incorporate its `Risky` and `Blocked` verdicts as confirmed issues and its `Plausible` verdicts as potential ones.
+Find contradictions between what the architecture document claims and what the generated skills reveal about actual API surfaces. Each issue takes a type and a severity tier the refinement rules define. If a VS feasibility report is available, raise its in-scope verdicts as issues, as the refinement rules map their tokens.
 
 ## Rules
 
@@ -38,12 +39,6 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-refine-architecture --run-d
 ```
 
 Display the line it prints, then stop with the halt's exit code (`references/exit-codes.md` describes the envelope). If no candidate exists, or the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
-
-### 1. Reference Refinement Rules
-
-Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
-
-Extract: issue classification (API Mismatch, Protocol Contradiction, Language Boundary Ignored, Type Incompatibility) and VS report integration rules.
 
 ### 2. Extract Integration Claims from Architecture
 
@@ -63,24 +58,7 @@ For each claim, record:
 
 ### 3. Verify Claims Against Skill API Surfaces
 
-For each extracted claim, verify against the compact API surfaces already collected in Step 02 §4 — the per-skill `{skill_api_surfaces}` summaries (`{exports, protocols, data_formats}`), carried forward as workflow state exactly like `{in_scope_skills}`. Reload a skill's SKILL.md directly only if its summary is unavailable or context has compacted (see Step 02 §4 for the canonical delegate-the-read pattern). Then check:
-
-**API Mismatch check:**
-- Does the claimed API actually exist in the skill's export list?
-- Does the function signature match what the architecture describes?
-- If the architecture describes an API that does not appear in the skill: flag as issue
-
-**Protocol Contradiction check:**
-- Does the skill document the protocol the architecture assumes?
-- If the architecture claims gRPC but the skill shows HTTP-only: flag as issue
-
-**Language Boundary check:**
-- If two libraries are in different languages, does the architecture describe a bridge mechanism?
-- If the architecture assumes direct calls across language boundaries without FFI/IPC: flag as issue
-
-**Type Incompatibility check:**
-- Does the architecture assume type compatibility that the skills contradict?
-- If Library A exports Type X but the architecture claims Library B consumes it, and Library B expects Type Y: flag as issue
+Check each claim against the compact API surfaces Step 02 §4 collected, the per-skill `{skill_api_surfaces}` summaries (`{exports, protocols, data_formats, capabilities}`), and against each skill's `language` in `skill_inventory`. If the summaries are no longer in context, read them from the `<!-- [RA-SURFACES] ... -->` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), never from the SKILL.md files. Look at what the claim says about an API and its signature, a protocol or data format, a call across languages, and the types passed between libraries. A claim the skill evidence contradicts is an issue: type it by the Issue Classification of `{refinementRulesData}`.
 
 ### 4. Incorporate VS Report (If Available)
 
@@ -98,11 +76,7 @@ Use its JSON when it exits 0 with the `generatedAt` the block records. When it e
 
 **Scope filter (reuse `{in_scope_pairs}` and `{out_of_scope_pairs}` from Step 02 §3, or the `[RA-SCOPE]` block of the same state file if they are no longer in context):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Map each pair's `lib_a` and `lib_b` to the inventory skill whose name, or one of the aliases Step 02 §2 passed to the mentions helper, equals it (compared case-insensitively). A verdict whose pair is in `{in_scope_pairs}`, in either order, is promoted by the rules below. Record every other verdict (a pair in `{out_of_scope_pairs}`, or one naming a library no inventory skill matches) under the informational Out-of-Scope bucket instead of promoting it to an issue for this architecture.
 
-**Promote the in-scope verdicts by their token:**
-- **`Risky`:** Promote to confirmed issues with the VS evidence as additional citation
-- **`Blocked`:** Promote to critical issues requiring architecture redesign
-- **`Plausible`:** Flag as a potential issue. The token means every compatibility check passed but neither skill cites the other literally, so the integration rests on weaker evidence; the token decides this, never phrases in the rationale text
-- **`Verified`:** Not an issue
+**Promote the in-scope verdicts by their token:** each raises the issue the VS Report Integration table of `{refinementRulesData}` maps its token to, or none. The token alone decides, never phrases in the rationale text.
 
 **For each VS-sourced issue, include dual citations:**
 - Evidence from the skill content
@@ -119,23 +93,20 @@ For each detected issue, cite it in this format:
 
 Architecture states: "{the claim's exact text from §2}" (Section: {section_name})
 Skill reality: {skill_name} exports: `{actual_api}` — {explanation of contradiction}
-{IF VS report}: VS verdict: {Risky|Blocked|Plausible} for {pair}: {VS rationale}
+{IF VS report}: VS verdict: {verdict} for {pair}: {VS rationale}
 
 Suggestion: {specific correction with API evidence}
 ```
 
-**Severity classification:**
-- **Critical:** Blocked VS verdicts, fundamental language barriers with no bridge
-- **Major:** Risky VS verdicts, protocol mismatches, missing bridge layers
-- **Minor:** `Plausible` VS verdicts, minor type differences with easy conversion
+**Severity:** give each issue one tier of the Issue Severity table of `{refinementRulesData}`; a VS-sourced issue takes the tier its verdict's row raises.
 
 ### 6. Report Issues & Store Findings
 
-Report the in-scope issue count with its critical/major/minor breakdown, then list each issue as a row of **# / Libraries / Issue Type / Severity / Summary** followed by its full §5 citation. One signal is not inferable from the counts and must survive regardless of format:
+Report the in-scope issue count with its count per severity tier, then list each issue as a row of **# / Libraries / Issue Type / Severity / Summary** followed by its full §5 citation. One signal is not inferable from the counts and must survive regardless of format:
 
 - **Out-of-scope VS verdicts were set aside (from §4):** list them separately for awareness only — they were not counted as issues — and note that re-running with `--scope-skills` pulls any that belong into scope.
 
-Store the **in-scope** issue findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-ISSUES] ... -->` block (its citations carry the architecture claim, skill evidence, VS verdict, severity, and suggestion). Record any out-of-scope VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker so Step 05 leaves them out — informational only.
+Store the **in-scope** issue findings under a `<!-- [RA-ISSUES] ... -->` block (their citations carry the architecture claim, skill evidence, VS verdict, severity and suggestion) and any out-of-scope VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker, as `{findingStorageData}` says (an issue that matches one a review dropped goes under `[RA-DISMISSED]` instead).
 
 ### 7. Auto-Proceed to Next Step
 
