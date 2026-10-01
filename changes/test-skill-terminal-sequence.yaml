@@ -2,4 +2,5 @@ type: fixed
 scope: skf-test-skill
 summary: |
   Test Skill now checks its report before it publishes a verdict. The check that every step ran and the check that each report section was written once now run first, so a run that fails them halts (`step-completeness-violation` or `report-anchor-missing`) before `skf-test-skill-result-<run_id>.json` and `skf-test-skill-result-latest.json` are written and before `on_complete` runs. Before, the result files and the hook came first, and the step check expected the report step's own entry, which is recorded only after it, so it halted a finished run after its verdict was out. A step that skipped its report section is now caught, because each step writes its section in place of the template's placeholder and a placeholder left behind stops the run.
+prs: [627]
 issues: [585]
