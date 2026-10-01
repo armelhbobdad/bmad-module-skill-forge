@@ -8,7 +8,11 @@ skf-test-skill credits a provenance entry toward a stack's Export Coverage
 only when the package writes its `export_name`: reconcile-coverage.py
 (`load_doc_text`, `names_present`) joins the text of `SKILL.md` and of each
 `.md` file directly in `references/` (sorted, read as UTF-8, no subfolder)
-and looks for the name in it as a case-sensitive substring. A name holding
+and looks for the name in it as a fixed string, case-sensitive, never inside
+a longer identifier: on a side where the name ends in a letter, digit, `_`
+or `$`, the next character may not be one of those, so `get` is not found in
+`target` or `getAll` (skf-test-skill's validate-inventory.py keeps that
+rule; NAME_CHARS here must stay the same). A name holding
 `::` (an impl-block method, `Type::method`) rolls up under its type and is
 never looked up, and an entry with no name is no cited contract.
 create-stack-skill (generate-output section 8) runs this helper on a
@@ -49,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -56,6 +61,10 @@ from pathlib import Path
 ATOMIC_WRITE_HELPER = "skf-atomic-write.py"
 ATOMIC_WRITE_TIMEOUT_SEC = 60
 METHOD_SEPARATOR = "::"
+# Characters that continue an identifier in the languages SKF documents (`$`
+# for JS/TS names such as `$state`): skf-test-skill's IDENT_CHARS.
+NAME_CHARS = r"\w$"
+_NAME_CHAR_RE = re.compile(f"[{NAME_CHARS}]")
 
 
 def load_doc_text(skill_dir: Path) -> str:
@@ -71,6 +80,16 @@ def load_doc_text(skill_dir: Path) -> str:
         for ref in sorted(refs.glob("*.md")):
             parts.append(ref.read_text(encoding="utf-8"))
     return "\n".join(parts)
+
+
+def name_written(name: str, doc_text: str) -> bool:
+    """True when `doc_text` holds `name` as skf-test-skill's scorer finds it."""
+    body = re.escape(name)
+    if _NAME_CHAR_RE.match(name[0]):
+        body = f"(?<![{NAME_CHARS}])" + body
+    if _NAME_CHAR_RE.match(name[-1]):
+        body += f"(?![{NAME_CHARS}])"
+    return re.search(body, doc_text) is not None
 
 
 def looked_up_name(entry: object) -> str | None:
@@ -92,7 +111,7 @@ def find_absent(entries: list, doc_text: str) -> tuple[int, list[dict]]:
         if name is None:
             continue
         checked += 1
-        if name not in doc_text:
+        if not name_written(name, doc_text):
             library = entry.get("source_library")
             absent.append({
                 "entry_index": index,

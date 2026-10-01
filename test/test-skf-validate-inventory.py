@@ -2,7 +2,11 @@
 
 Validates the subagent-inventory schema check (kinds, required fields,
 cross-check-mismatch shape, fence stripping, CLI exit codes) that
-coverage-check.md delegates to instead of validating in-prompt.
+coverage-check.md delegates to instead of validating in-prompt, the run
+files (--input reads the saved response, so an apostrophe never meets a
+shell; --output writes the validated inventory), the docs-only completeness
+count (#540: a missing description is incomplete, never invalid) and the
+shared whole-name match (`get` is found in neither `target` nor `getAll`).
 """
 
 from __future__ import annotations
@@ -12,6 +16,8 @@ import json
 import pathlib
 import subprocess
 import sys
+
+import pytest
 
 SCRIPT = (
     pathlib.Path(__file__).resolve().parent.parent
@@ -195,3 +201,100 @@ def test_cli_no_input_exit1():
         [sys.executable, str(SCRIPT), "--stdin"], input="", capture_output=True, text=True
     )
     assert p.returncode == 1
+
+
+# --------------------------------------------------------------------------
+# Run files: the saved response by path, the validated inventory to a file
+# --------------------------------------------------------------------------
+
+
+def test_cli_input_file_with_an_apostrophe_validates(tmp_path):
+    response = tmp_path / "inventory-response.txt"
+    raw = "```json\n" + json.dumps({
+        "exports": [{"name": "parse", "kind": "function", "params": "text: str", "return_type": "Doc",
+                     "description": "Parses the user's input; it's \"lenient\" about $HOME and `backticks`."}],
+        "cross_check_mismatches": []}) + "\n```\n"
+    response.write_bytes(raw.encode("utf-8"))
+    out_path = tmp_path / "run" / "inventory.json"
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(out_path)],
+                       capture_output=True, text=True)
+    assert p.returncode == 0, p.stdout + p.stderr
+    written = json.loads(out_path.read_text(encoding="utf-8"))
+    assert written["exports"][0]["description"].startswith("Parses the user's input; it's")
+    assert written == json.loads(p.stdout)["inventory"]
+
+
+def test_cli_invalid_input_file_removes_a_stale_inventory(tmp_path):
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({"exports": [{"name": "x", "kind": "widget"}],
+                                     "cross_check_mismatches": []}).encode("utf-8"))
+    out_path = tmp_path / "inventory.json"
+    out_path.write_bytes(b'{"exports": []}')
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(out_path)],
+                       capture_output=True, text=True)
+    assert p.returncode == 2 and not out_path.exists()
+
+
+def test_cli_missing_input_file_exits_1(tmp_path):
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(tmp_path / "absent.txt")],
+                       capture_output=True, text=True)
+    assert p.returncode == 1 and "cannot read --input" in p.stderr
+
+
+# --------------------------------------------------------------------------
+# Completeness (#540)
+# --------------------------------------------------------------------------
+
+
+def test_a_missing_description_is_incomplete_not_invalid():
+    raw = json.dumps({"exports": [
+        {"name": "fmt", "kind": "function", "params": "", "return_type": "str", "description": "Formats."},
+        {"name": "go", "kind": "function", "params": [], "return_type": "None"},
+        {"name": "Cfg", "kind": "class", "description": "  "},
+        {"name": "MAX", "kind": "constant", "description": "Limit."},
+        {"name": "hop", "kind": "method", "description": "Hops."},
+    ], "cross_check_mismatches": []})
+    r = mod.validate_inventory(raw)
+    assert r["valid"] is True
+    assert r["completeness"] == {"total": 5, "complete": 2, "incomplete": [
+        {"name": "go", "kind": "function", "missing": ["description"]},
+        {"name": "Cfg", "kind": "class", "missing": ["description"]},
+        {"name": "hop", "kind": "method", "missing": ["params", "return_type"]},
+    ]}
+
+
+def test_no_completeness_for_an_invalid_inventory():
+    assert "completeness" not in mod.validate_inventory("not json")
+
+
+# --------------------------------------------------------------------------
+# The shared whole-name match
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text, found", [
+    ("call get(url)", True),
+    ("the target", False),
+    ("getAll()", False),
+    ("forget", False),
+    ("client.get", True),
+    ("`get`", True),
+], ids=["call", "target", "getAll", "forget", "member", "code-span"])
+def test_get_is_found_only_as_a_whole_name(text, found):
+    assert mod.names_present(["get"], text) == (["get"] if found else [])
+
+
+def test_a_name_that_ends_in_punctuation_still_matches_inside():
+    assert mod.names_present([".then", "Type::method", "$state", "wraps a"],
+                             "promise.then(Type::method) $state; it wraps a session") == \
+        ["$state", ".then", "Type::method", "wraps a"]
+    assert mod.names_present(["$state"], "my$state") == []
+
+
+def test_load_doc_text_reads_skill_md_then_sorted_references(tmp_path):
+    (tmp_path / "references" / "sub").mkdir(parents=True)
+    (tmp_path / "SKILL.md").write_bytes(b"one")
+    (tmp_path / "references" / "b.md").write_bytes(b"three")
+    (tmp_path / "references" / "a.md").write_bytes("tw\u00f6".encode("utf-8"))
+    (tmp_path / "references" / "sub" / "c.md").write_bytes(b"never")
+    assert mod.load_doc_text(str(tmp_path)) == "one\ntw\u00f6\nthree"

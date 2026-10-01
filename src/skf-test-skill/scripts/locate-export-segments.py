@@ -60,6 +60,11 @@ Input (one JSON object):
     "skillPackagePath": "/path/to/skill"          # holds SKILL.md and references/
   }
 
+or the files: --inventory <file> --skill-dir <dir>. --inventory reads the
+validated inventory validate-inventory.py wrote (its --output) and takes the
+name of each entry whose kind is `function` or `method`, so no name is
+copied by hand.
+
 Output (stdout, one object):
   {
     "skillPackagePath": "...",
@@ -83,13 +88,14 @@ Output (stdout, one object):
 Lines are 1-based; `fence` is the line of the call's opening fence.
 
 CLI usage (mirrors verify-declared-numerator.py):
+  uv run locate-export-segments.py --inventory <file> --skill-dir <dir>
   uv run locate-export-segments.py '<JSON>'                  # positional
   uv run locate-export-segments.py --json-input '<JSON>'     # explicit flag
   cat input.json | uv run locate-export-segments.py --stdin  # piped input
 
 Exit codes:
   0  segments emitted
-  1  no input / input could not be parsed as JSON
+  1  no input / input could not be parsed as JSON, or an --inventory file that cannot be read
   2  input parsed but schema invalid (error object emitted as JSON)
 """
 
@@ -763,7 +769,27 @@ def _build_parser():
     src.add_argument("--json-input", dest="json_input_flag",
                      help="JSON object passed via flag (overrides positional).")
     src.add_argument("--stdin", action="store_true", help="Read the JSON object from stdin.")
+    src.add_argument("--inventory", metavar="PATH",
+                     help="the validated inventory file: its function and method names (needs --skill-dir)")
+    parser.add_argument("--skill-dir", metavar="DIR", help="with --inventory: the skill package")
     return parser
+
+
+# The inventory kinds §2.5 checks: the ones a caller awaits or calls.
+CALLABLE_KINDS = ("function", "method")
+
+
+def inventory_input(path, skill_dir):
+    """The JSON input for the function and method names of a validated inventory file."""
+    data = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    if isinstance(data, dict) and isinstance(data.get("inventory"), dict):
+        data = data["inventory"]  # validate-inventory.py's whole result
+    exports = data.get("exports") if isinstance(data, dict) else None
+    if not isinstance(exports, list):
+        raise ValueError(f"--inventory {path} holds no `exports` list")
+    names = [e["name"] for e in exports
+             if isinstance(e, dict) and e.get("kind") in CALLABLE_KINDS and isinstance(e.get("name"), str)]
+    return {"names": names, "skillPackagePath": skill_dir}
 
 
 def _resolve_input(args):
@@ -779,6 +805,17 @@ def _resolve_input(args):
 def main(argv=None):
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.inventory is not None:
+        if not args.skill_dir:
+            parser.error("--inventory needs --skill-dir")
+        try:
+            data = inventory_input(args.inventory, args.skill_dir)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            print(f"error: cannot read --inventory {args.inventory}: {exc}", file=sys.stderr)
+            return 1
+        result = locate(data)
+        print(json.dumps(result, indent=2))
+        return 2 if result.get("code") == "INVALID_INPUT" else 0
     raw = _resolve_input(args)
     if not raw.strip():
         parser.print_usage(file=sys.stderr)

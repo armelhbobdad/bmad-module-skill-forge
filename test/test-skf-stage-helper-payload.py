@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Tests for stage-helper-payload.py: the helper payloads read from disk (#584).
+"""Tests for stage-helper-payload.py: the helper payload read from disk (#584).
 
 coverage-check.md §0b asks skf-detect-workspaces.py whether a local source is
-a monorepo, and its Quick tier parses the entry points with
-skf-extract-public-api.py --mode quick. Both helpers take one JSON payload on
-stdin and read no file, and a payload the model writes by hand can cut or
-mis-escape a source file. The script reads the files and prints the payload
-instead. These tests cover what each payload holds, what the tree leaves
-out, the paths it refuses, the bytes it prints, and, piped into the real
-helpers, the answers the step reads.
+a monorepo. The helper takes one JSON payload on stdin and reads no file,
+and a payload the model writes by hand can cut or mis-escape a file. The
+script reads the files and prints the payload instead. These tests cover
+what the payload holds, what the tree leaves out, the bytes it prints, and,
+piped into the real helper, the answer the step reads. The Quick-tier scan
+no longer goes through it: skf-extract-public-api.py --mode quick reads its
+files itself (--manifest-file, --entry-file), so the extract-public-api
+subcommand is gone.
 """
 
 from __future__ import annotations
@@ -26,7 +27,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "stage-helper-payload.py"
 SCRIPTS = REPO_ROOT / "src" / "shared" / "scripts"
 WORKSPACES = SCRIPTS / "skf-detect-workspaces.py"
-EXTRACT = SCRIPTS / "skf-extract-public-api.py"
 
 spec = importlib.util.spec_from_file_location("stage_helper_payload", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
@@ -127,80 +127,18 @@ def test_the_detector_reads_the_staged_payload(tmp_path, files, expected):
 
 
 # --------------------------------------------------------------------------
-# extract-public-api
-# --------------------------------------------------------------------------
-
-
-def test_public_api_payload_holds_the_files_as_written(tmp_path):
-    entry = "export function fetchData(u: string) { return `it's \"${u}\" \\\\ café`; }\r\n"
-    root = _write(tmp_path / "src", {"package.json": '{"name": "demo", "version": "1.2.3"}\n',
-                                     "src/index.ts": entry,
-                                     "src/extra.ts": b"\xef\xbb\xbfexport const x = 1;\n"})
-    payload = mod.public_api_payload(str(root), "ts", "package.json", ["src/index.ts", "src/extra.ts", "src/index.ts"])
-    assert payload == {
-        "language": "ts",
-        "manifest": {"path": "package.json", "content": '{"name": "demo", "version": "1.2.3"}\n'},
-        "entries": [{"path": "src/index.ts", "content": entry},
-                    {"path": "src/extra.ts", "content": "export const x = 1;\n"}],
-        "mode": "quick",
-    }
-
-
-def test_public_api_payload_without_a_manifest(tmp_path):
-    root = _write(tmp_path / "src", {"lib.rs": "pub fn run() {}\n"})
-    payload = mod.public_api_payload(str(root), "rust", None, ["lib.rs"])
-    assert payload["manifest"] == {"path": "", "content": ""}
-
-
-def test_the_extractor_reads_the_staged_payload(tmp_path):
-    root = _write(tmp_path / "src", {
-        "package.json": '{"name": "demo", "version": "1.2.3"}\n',
-        "src/index.ts": "export function fetchData(url: string) {}\nexport { parse as parseText } from './parse';\n"
-                        "const note = 'it\\'s \"fine\"';\n",
-    })
-    out = _pipe(EXTRACT, ["extract-public-api", "--source-root", str(root), "--language", "ts",
-                          "--manifest", "package.json", "--entry", "src/index.ts"], ["--mode", "quick"])
-    assert (out["package_name"], out["version"]) == ("demo", "1.2.3")
-    assert [(e["name"], e["source_file"]) for e in out["exports"]] == [
-        ("fetchData", "src/index.ts"), ("parseText", "src/index.ts")]
-
-
-# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("args", [
-    ["--entry", "../outside.ts"],
-    ["--entry", "src/missing.ts"],
-    ["--entry", "src"],
-    ["--manifest", "../package.json", "--entry", "src/index.ts"],
-], ids=["escapes-the-root", "missing-file", "a-folder", "manifest-escapes"])
-def test_refused_paths_exit_1_with_nothing_on_stdout(tmp_path, args):
-    root = _write(tmp_path / "src", {"src/index.ts": "export {};\n"})
-    _write(tmp_path, {"outside.ts": "export const leak = 1;\n", "package.json": "{}"})
-    proc = _stage("extract-public-api", "--source-root", str(root), "--language", "ts", *args)
-    assert proc.returncode == 1 and proc.stdout == b""
-    assert json.loads(proc.stderr)["status"] == "error"
-
-
-def test_an_absolute_path_is_refused(tmp_path):
-    root = _write(tmp_path / "src", {"src/index.ts": "export {};\n"})
-    proc = _stage("extract-public-api", "--source-root", str(root), "--language", "ts",
-                  "--entry", str(root / "src" / "index.ts"))
-    assert proc.returncode == 1 and proc.stdout == b""
-
-
-@pytest.mark.parametrize("command", ["detect-workspaces", "extract-public-api"])
-def test_a_missing_source_root_exits_1(tmp_path, command):
-    extra = ["--language", "ts", "--entry", "index.ts"] if command == "extract-public-api" else []
-    proc = _stage(command, "--source-root", str(tmp_path / "absent"), *extra)
+def test_a_missing_source_root_exits_1(tmp_path):
+    proc = _stage("detect-workspaces", "--source-root", str(tmp_path / "absent"))
     assert proc.returncode == 1 and proc.stdout == b""
     assert "not a folder" in json.loads(proc.stderr)["error"]
 
 
 @pytest.mark.parametrize("args", [[], ["detect-workspaces"], ["extract-public-api", "--source-root", "."]],
-                         ids=["no-command", "no-source-root", "no-entry"])
+                         ids=["no-command", "no-source-root", "retired-extract-public-api"])
 def test_bad_arguments_exit_2(args):
     assert _stage(*args).returncode == 2
 

@@ -1,6 +1,7 @@
 """Structural integration tests for threshold fallback evidence report (story 3.3).
 
-Validates the §4b fallback logic in score.md, evidence report path in the
+Validates the threshold fallback compute-score.py applies and the score.md
+§4b fields that read it (the prose restates no trigger), evidence report path in the
 architecture spec, INCONCLUSIVE guard clause, 80% floor constant, fallback
 fields in output frontmatter (§7), fallback notice in score report (§8),
 SKILL.md outputs mention of the evidence report, result contract fallback
@@ -9,6 +10,7 @@ fields in report.md, and report.md §6 fallback notice block.
 
 from __future__ import annotations
 
+import importlib.util
 import pathlib
 import re
 
@@ -59,29 +61,51 @@ class TestScoreFallbackSection:
 
 
 # ---------------------------------------------------------------------------
-# score.md §4b — Fallback Trigger Conditions
+# Fallback trigger conditions: compute-score.py holds them, score.md reads them
 # ---------------------------------------------------------------------------
 
 
+def _compute_score():
+    spec = importlib.util.spec_from_file_location("compute_score_fallback", TS_DIR / "scripts" / "compute-score.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 class TestFallbackTriggerConditions:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(SCORE_FILE)
+    """An uncapped FAIL scoring 80 or more against a threshold above 80 passes
+    at the 80 floor. compute-score.py is the one home of the rule."""
 
-    def test_fail_condition(self, text: str) -> None:
-        assert re.search(r'result\s*==\s*"FAIL"', text), (
-            "§4b must check result == FAIL as a trigger condition"
-        )
+    @staticmethod
+    def _score(total: float, threshold: float) -> dict:
+        categories = ("exportCoverage", "signatureAccuracy", "typeCoverage", "coherence", "externalValidation")
+        return _compute_score().compute_score({"mode": "contextual", "tier": "Deep", "threshold": threshold,
+                                               "toolingStatus": "ok",
+                                               "scores": {c: total for c in categories}})
 
-    def test_score_gte_80(self, text: str) -> None:
-        assert re.search(r"totalScore\s*>=\s*80", text), (
-            "§4b must check totalScore >= 80 as a trigger condition"
-        )
+    def test_fail_condition(self) -> None:
+        out = self._score(95, 90)
+        assert out["result"] == "PASS" and "thresholdFallback" not in out, "a PASS never falls back"
 
-    def test_threshold_gt_80(self, text: str) -> None:
-        assert re.search(r"effective_threshold\s*>\s*80", text), (
-            "§4b must check effective_threshold > 80 as a trigger condition"
-        )
+    def test_score_gte_80(self) -> None:
+        fired = self._score(85, 90)
+        assert (fired["result"], fired["effectiveResult"], fired["thresholdFallback"]) == ("FAIL", "PASS", True)
+        assert fired["originalThreshold"] == 90
+        assert "thresholdFallback" not in self._score(79, 90), "below the floor the FAIL stands"
+
+    def test_threshold_gt_80(self) -> None:
+        out = self._score(85, 80)
+        assert out["result"] == "PASS" and "thresholdFallback" not in out, "at 80 the score passes outright"
+        assert _compute_score().FALLBACK_FLOOR == 80
+
+    def test_score_md_reads_the_fields_and_restates_no_rule(self) -> None:
+        text = _read(SCORE_FILE)
+        section = text[text.find("### 4b."):text.find("### 5.")]
+        for field in ("thresholdFallback", "effectiveResult", "originalThreshold"):
+            assert field in section, field
+        for restated in ("totalScore >= 80", "effective_threshold > 80", 'result == "FAIL"'):
+            assert restated not in section, restated
 
 
 # ---------------------------------------------------------------------------
@@ -95,11 +119,10 @@ class TestInconclusiveGuard:
         return _read(SCORE_FILE)
 
     def test_inconclusive_not_triggered(self, text: str) -> None:
-        section_4b = text[text.find("### 4b."):]
-        section_5 = text[text.find("### 5."):]
-        fallback_section = text[text.find("### 4b."):text.find("### 5.")]
-        assert "INCONCLUSIVE" in fallback_section, (
-            "§4b must explicitly mention INCONCLUSIVE as a non-trigger condition"
+        # §4 settles the verdict the §4b fallback reads: INCONCLUSIVE is never overridden.
+        verdict_sections = text[text.find("### 4. Determine Result"):text.find("### 5.")]
+        assert "INCONCLUSIVE" in verdict_sections and "never overridden" in verdict_sections, (
+            "§4 must say INCONCLUSIVE is never overridden by the fallback"
         )
 
 
@@ -122,8 +145,8 @@ class TestFloorConstant:
         )
 
     def test_override_result_to_pass(self, fallback_section: str) -> None:
-        assert re.search(r'result.*"PASS"', fallback_section), (
-            "§4b must override result to PASS on fallback"
+        assert re.search(r'effectiveResult.*"PASS"', fallback_section), (
+            "§4b must read the script's PASS from effectiveResult on fallback"
         )
 
 
@@ -526,8 +549,11 @@ class TestEvidenceReportRemediationContext:
         )
 
     def test_post_score_cap_context(self, fallback_section: str) -> None:
-        assert "cap" in fallback_section.lower(), (
-            "§4b must reference post-score cap interaction in evidence report context"
+        # The cap interaction is stated once, in §3d, which §4b's fallback follows.
+        text = _read(SCORE_FILE)
+        caps = text[text.find("### 3d."):text.find("### 4.")]
+        assert "a capped run stays FAIL whatever the threshold" in caps, (
+            "§3d must say a capped run never falls back"
         )
 
 

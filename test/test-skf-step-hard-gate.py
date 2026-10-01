@@ -534,10 +534,16 @@ class TestGapSeverityTable:
         assert "with no source line cited for it" not in rows["stale-documentation"]
 
     def test_the_deflation_criterion_is_the_protocols(self) -> None:
+        # The row states the percentage, the loader computes the guard with it,
+        # and the protocol cites the guard's threshold field instead of a copy.
         criterion = "the re-derived source barrel exceeds `effective_denominator` by"
         drift = next(text for s, c, text in _severity_rows() if c == "metadata-drift")
         assert f"{criterion} more than 25% and the brief has no `scope.tier_a_include`" in drift
-        assert f"If {criterion} **more than 25%**" in _read(REFS / "source-access-protocol.md")
+        loader = _load("skf_load_coverage_inputs_for_step_test", TS_DIR / "scripts" / "load-coverage-inputs.py")
+        assert loader.DEFLATION_PCT == 25
+        protocol = _read(REFS / "source-access-protocol.md")
+        assert f"{criterion} more than `guards.thresholds.deflationPct` percent" in protocol
+        assert "more than 25%" not in protocol
 
     @pytest.mark.parametrize("path", [COVERAGE_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE, REPORT_FILE],
                              ids=lambda p: p.stem)

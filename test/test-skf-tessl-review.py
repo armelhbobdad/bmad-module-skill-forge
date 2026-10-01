@@ -953,9 +953,11 @@ class TestWorkflowWiring:
         append = _section(_read(EXTERNAL), "### 5. Write the External Validation Section", "### 6. Report Results")
         assert "### Tessl Review\n- **Result:** {tessl_summary}\n" in append
         assert "- **Tools used:** {external_tools_used}" in append
+        # The combined score reaches the scoring script as the file §4 writes, never copied by hand.
+        assert '--output "{run_dir}/external.json"' in section
         score = _read(TS / "references" / "score.md")
-        assert '"externalValidation": "{external_score, or null when step 04b §4 bound it null}"' in score
-        assert "{external_validation_score" not in score
+        assert '--external "{run_dir}/external.json"' in score
+        assert "{external_validation_score" not in score and "{external_score" not in score
         assert "{skill-check and Tessl Review | skill-check only | Tessl Review only | none" in score
 
     def test_reuse_never_skips_tessl_review_or_the_combine(self):

@@ -159,6 +159,23 @@ class TestReferenceAppSkip:
         assert "typeCoverage" not in out["skippedCategories"]
         assert out.get("skipReasons", {}).get("signatureAccuracy") is None
 
+    @pytest.mark.parametrize("confidence", ["metadata-only", "remote-only"])
+    def test_no_local_source_skips_signature_and_type_at_any_tier(self, confidence):
+        """States 3 and 4 have no source to compare signatures with, so a Forge+
+        run there scores like a stack: no signatures file, nothing refused."""
+        out = compute_score({**self.BASE_INPUT, "tier": "Forge+", "analysisConfidence": confidence})
+        assert "error" not in out, out
+        stack = compute_score({**self.BASE_INPUT, "tier": "Forge+", "stackSkill": True})
+        for key in ("weights", "totalScore", "result", "activeCategories", "skippedCategories"):
+            assert out[key] == stack[key], key
+        assert out["skipReasons"]["typeCoverage"] == "no local source (State 3/4)"
+
+    @pytest.mark.parametrize("confidence", ["full", "provenance-map", None])
+    def test_other_source_access_keeps_its_skip_rules(self, confidence):
+        inp = {**self.BASE_INPUT, "analysisConfidence": confidence}
+        out = compute_score(inp)
+        assert out["code"] == "INVALID_INPUT" and "signatureAccuracy is active" in out["error"]
+
 
 class TestPostScoreCapsAndFallback:
     """Behavioral tests for the post-score caps + threshold fallback lifted from
@@ -181,16 +198,15 @@ class TestPostScoreCapsAndFallback:
         "originalThreshold",
     )
 
-    def test_degraded_cap_then_fallback_reflips_to_pass(self):
-        """Cap 1 (degraded tooling) forces the PASS to FAIL on the capped score,
-        then the threshold fallback re-flips it back to PASS at the 80 floor
-        because the RAW totalScore clears 80. This pins the cap<->fallback
-        interaction that was previously ambiguous prose."""
+    def test_capped_run_stays_fail_above_80(self):
+        """Cap 1 (degraded tooling) forces the PASS to FAIL, and the threshold
+        fallback no longer re-flips it at the 80 floor (#596): a threshold
+        above 80 is a target, never a way past a cap."""
         out = compute_score({
             "mode": "contextual",
             "tier": "Deep",
             "threshold": 90,
-            "analysisConfidence": "degraded",
+            "toolingStatus": "python3-missing",
             "scores": {
                 "exportCoverage": 95,
                 "signatureAccuracy": 95,
@@ -201,15 +217,86 @@ class TestPostScoreCapsAndFallback:
         })
         assert out["totalScore"] == 95.0
         assert out["result"] == "PASS"          # pre-cap score-vs-threshold verdict, unchanged
-        assert out["effectiveResult"] == "PASS"  # capped FAIL re-flipped by fallback
-        assert out["capReason"] is not None
+        assert out["effectiveResult"] == "FAIL"  # the cap holds at any threshold
         assert "tooling degraded" in out["capReason"]
-        assert out["thresholdFallback"] is True
-        assert out["originalThreshold"] == 90
+        assert out["thresholdFallback"] is False
+        assert out["originalThreshold"] is None
+
+    def test_capped_fail_never_falls_back(self):
+        """A run that fails on its score AND trips a cap stays FAIL: before
+        #596 the fallback passed it at the 80 floor."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "threshold": 90,
+            "toolingStatus": "frontmatter-validator-timeout",
+            "scores": {
+                "exportCoverage": 85,
+                "signatureAccuracy": 85,
+                "typeCoverage": 85,
+                "coherence": 85,
+                "externalValidation": 85,
+            },
+        })
+        assert (out["result"], out["effectiveResult"]) == ("FAIL", "FAIL")
+        assert out["thresholdFallback"] is False and out["capReason"] is not None
+
+    def test_timeout_fires_cap_at_threshold_80(self):
+        """#613 acceptance: a validator timeout (no `missing` in it) with a
+        non-degraded analysisConfidence fires Cap 1 and turns a PASS at 80
+        into FAIL."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "threshold": 80,
+            "analysisConfidence": "full",
+            "toolingStatus": "frontmatter-validator-timeout",
+            "scores": {
+                "exportCoverage": 90,
+                "signatureAccuracy": 90,
+                "typeCoverage": 90,
+                "coherence": 90,
+                "externalValidation": 90,
+            },
+        })
+        assert out["result"] == "PASS" and out["effectiveResult"] == "FAIL"
+        assert "tooling degraded" in out["capReason"]
+        assert "frontmatter-validator-timeout" in out["capReason"]
+
+    def test_ok_tooling_status_fires_no_cap(self):
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "toolingStatus": "ok",
+            "analysisConfidence": "full",
+            "scores": {"exportCoverage": 90, "signatureAccuracy": 90, "typeCoverage": 90,
+                       "coherence": 90, "externalValidation": 90},
+        })
+        assert out["result"] == "PASS"
+        for key in self.OVERRIDE_KEYS:
+            assert key not in out
+
+    def test_degraded_is_no_longer_an_analysis_confidence(self):
+        """`degraded` moved to toolingStatus: passing it as analysisConfidence
+        is refused, so a caller cannot lose the cap by passing the old field."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "analysisConfidence": "degraded",
+            "scores": {"exportCoverage": 90, "signatureAccuracy": 90, "typeCoverage": 90,
+                       "coherence": 90, "externalValidation": 90},
+        })
+        assert out.get("code") == "INVALID_INPUT"
+        assert "toolingStatus" in out["error"]
+        unknown = compute_score({
+            "mode": "contextual", "tier": "Deep", "analysisConfidence": "partial",
+            "scores": {"exportCoverage": 90, "signatureAccuracy": 90, "typeCoverage": 90,
+                       "coherence": 90, "externalValidation": 90},
+        })
+        assert unknown.get("code") == "INVALID_INPUT"
 
     def test_tooling_status_missing_marker_fires_cap(self):
-        """A toolingStatus '*-missing' marker triggers Cap 1 identically to
-        analysisConfidence == 'degraded'."""
+        """A toolingStatus '*-missing' marker triggers Cap 1, like any status other than ok."""
         out = compute_score({
             "mode": "contextual",
             "tier": "Deep",
@@ -254,7 +341,7 @@ class TestPostScoreCapsAndFallback:
         out = compute_score({
             "mode": "naive",
             "tier": "Quick",
-            "analysisConfidence": "degraded",
+            "toolingStatus": "python3-missing",
             "scores": {
                 "exportCoverage": 95,
                 "signatureAccuracy": None,
@@ -319,6 +406,57 @@ class TestPostScoreCapsAndFallback:
         })
         assert out.get("code") == "INVALID_INPUT"
         assert "toolingStatus" in out.get("error", "")
+
+
+class TestState2Deduction:
+    """#613 item 2: the State 2 undercount deduction and its >5% trigger live
+    in compute-score.py, read from the provenance, metadata and union counts."""
+
+    BASE = {
+        "mode": "contextual",
+        "tier": "Deep",
+        "state2": True,
+        "scores": {"exportCoverage": 90, "signatureAccuracy": None, "typeCoverage": None,
+                   "coherence": 85, "externalValidation": 80},
+    }
+
+    def _run(self, counts, **extra):
+        return compute_score({**self.BASE, "state2Counts": counts, **extra})
+
+    def test_divergence_above_5_percent_deducts_10_points(self):
+        out = self._run({"provenance": 40, "metadata": 45, "union": 48})
+        assert out["state2Deduction"] == {"divergencePct": 20.0, "applied": True,
+                                          "rawExportCoverage": 90, "exportCoverage": 80}
+        assert out["weightedScores"]["exportCoverage"] == round(out["weights"]["exportCoverage"] * 0.8, 2)
+        assert out["input"]["scores"]["exportCoverage"] == 90  # the echo keeps the raw score
+        assert "10-point deduction" in out["scoringNotes"][0]
+
+    def test_divergence_at_5_percent_deducts_nothing(self):
+        out = self._run({"provenance": 100, "metadata": 100, "union": 105})
+        assert out["state2Deduction"]["divergencePct"] == 5.0
+        assert out["state2Deduction"]["applied"] is False
+        assert "scoringNotes" not in out
+
+    def test_the_deduction_never_goes_below_zero(self):
+        out = compute_score({**self.BASE, "scores": {**self.BASE["scores"], "exportCoverage": 4},
+                             "state2Counts": {"provenance": 10, "metadata": 20, "union": 25}})
+        assert out["state2Deduction"]["exportCoverage"] == 0
+
+    def test_a_stack_and_a_run_that_is_not_state_2_are_exempt(self):
+        counts = {"provenance": 40, "metadata": 45, "union": 48}
+        assert "state2Deduction" not in self._run(counts, stackSkill=True)
+        assert "state2Deduction" not in compute_score({**self.BASE, "state2": False, "state2Counts": counts})
+
+    def test_a_missing_source_count_measures_no_divergence(self):
+        out = self._run({"provenance": 0, "metadata": 45, "union": 45})
+        assert out["state2Deduction"]["applied"] is False
+
+    @pytest.mark.parametrize("counts", [
+        "40,45,48", {"provenance": 40, "metadata": 45}, {"provenance": -1, "metadata": 45, "union": 48},
+        {"provenance": True, "metadata": 45, "union": 48},
+    ], ids=["not-an-object", "no-union", "negative", "boolean"])
+    def test_bad_counts_are_refused(self, counts):
+        assert self._run(counts).get("code") == "INVALID_INPUT"
 
 
 # --------------------------------------------------------------------------
@@ -393,3 +531,68 @@ def test_cli_rejected_input_exits_2(mutation, description):
     proc = _run_cli(json.dumps(payload))
     assert proc.returncode == 2, f"{description}: expected exit 2"
     assert json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+
+
+# --------------------------------------------------------------------------
+# Score files: score.md hands the scores to the script by path (#613)
+# --------------------------------------------------------------------------
+
+
+def _write_json(path, payload):
+    path.write_bytes((json.dumps(payload) + "\n").encode("utf-8"))
+    return str(path)
+
+
+def _run_files(tmp_path, flags, base=None):
+    base = base or {"mode": "contextual", "tier": "Deep", "toolingStatus": "ok"}
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--json-input", json.dumps(base), *flags],
+        capture_output=True, text=True,
+    )
+
+
+def test_cli_reads_every_score_from_its_file(tmp_path):
+    flags = [
+        "--coverage", _write_json(tmp_path / "coverage.json", {"exportCoverage": 90.0, "documented": 9}),
+        "--signatures", _write_json(tmp_path / "signatures.json",
+                                    {"valid": True, "signatureAccuracy": 85.0, "typeCoverage": 100.0}),
+        "--coherence", _write_json(tmp_path / "coherence.json", {"combinedCoherence": 80.0}),
+        "--external", _write_json(tmp_path / "external.json", {"externalScore": 78.0, "toolsUsed": ["skill-check"]}),
+    ]
+    proc = _run_files(tmp_path, flags)
+    assert proc.returncode == 0, proc.stdout
+    out = json.loads(proc.stdout)
+    assert out["input"]["scores"] == {"exportCoverage": 90.0, "signatureAccuracy": 85.0, "typeCoverage": 100.0,
+                                      "coherence": 80.0, "externalValidation": 78.0}
+    assert out == compute_score({"mode": "contextual", "tier": "Deep", "toolingStatus": "ok",
+                                 "scores": out["input"]["scores"]})
+
+
+def test_cli_reads_the_state_2_counts_from_the_surface(tmp_path):
+    flags = [
+        "--coverage", _write_json(tmp_path / "coverage.json", {"exportCoverage": 90}),
+        "--coherence", _write_json(tmp_path / "coherence.json", {"combinedCoherence": 85}),
+        "--external", _write_json(tmp_path / "external.json", {"externalScore": None}),
+        "--surface", _write_json(tmp_path / "surface.json", {"state2": {"provenanceCount": 40, "metadataCount": 45,
+                                                                       "unionCount": 48}}),
+    ]
+    base = {"mode": "contextual", "tier": "Deep", "state2": True, "toolingStatus": "ok"}
+    out = json.loads(_run_files(tmp_path, flags, base).stdout)
+    assert out["state2Deduction"]["applied"] is True
+    assert "externalValidation" in out["skippedCategories"]
+
+
+@pytest.mark.parametrize("payload, needle", [
+    ({"error": "barrel_set is empty", "code": "INVALID_INPUT"}, "refused result"),
+    ({"documented": 3}, "has no `exportCoverage`"),
+], ids=["refused-result", "missing-field"])
+def test_cli_refuses_a_score_file_without_its_score(tmp_path, payload, needle):
+    proc = _run_files(tmp_path, ["--coverage", _write_json(tmp_path / "coverage.json", payload)])
+    assert proc.returncode == 2
+    out = json.loads(proc.stdout)
+    assert out["code"] == "INVALID_INPUT" and needle in out["error"]
+
+
+def test_cli_refuses_a_missing_score_file(tmp_path):
+    proc = _run_files(tmp_path, ["--coverage", str(tmp_path / "absent.json")])
+    assert proc.returncode == 2 and "cannot read --coverage" in json.loads(proc.stdout)["error"]

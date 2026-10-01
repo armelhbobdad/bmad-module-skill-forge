@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  The test report's `analysisConfidence` no longer takes `degraded`: it names the source access only (`full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`), and tooling health moves to `toolingStatus` (`ok`, or `frontmatter-validator-timeout` when the frontmatter validator timed out), so a later source-access write can no longer erase it. The tooling cap now fails a run for any `toolingStatus` other than `ok`. Before, it fired only on `degraded` or on a status naming a missing helper, so a run whose frontmatter validator timed out could pass at threshold 80; it now fails. `compute-score.py` refuses `analysisConfidence: "degraded"` instead of ignoring it.
+migration: |
+  Read tooling health from the test report's `toolingStatus` rather than `analysisConfidence: degraded`, and have a script that calls `compute-score.py` pass the tooling problem as `toolingStatus`. Re-test a skill whose last run timed out in the frontmatter validator once the validator runs again.
+issues: [613]

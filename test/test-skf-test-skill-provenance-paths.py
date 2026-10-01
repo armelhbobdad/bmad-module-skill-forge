@@ -12,8 +12,9 @@ fallback). These tests keep test-skill's step files on those bindings:
 - init.md §2 runs the command and binds every value from a field the
   helper really prints, checked against a real run of the helper, which
   also shows the versioned-first order the prose promises;
-- every read site (source access State 2, the coverage stack denominator
-  and Cluster-B count, the Migration & Deprecation gate, the external
+- every read site (source access State 2, the coverage State 2 surface and
+  the metadata loader behind the denominator, the stack denominator and the
+  Cluster-B count, the Migration & Deprecation gate, the external
   validators' reuse check) reads its binding and names no path;
 - no test-skill file names a flat artifact path, in either spelling of the
   flat folder, and only the §4c line check names the version folder's map;
@@ -36,10 +37,20 @@ take, and run each prose command against the real helper:
 - the workspace drift guard (#588 item 4): init.md §5b runs
   skf-check-workspace-drift.py once per source tree instead of git by hand;
 - the Quick-tier scan and the workspace layout (#584): coverage-check.md
-  pipes the payload stage-helper-payload.py reads from disk into
-  skf-extract-public-api.py --mode quick (for a skill quick-skill built)
-  and into skf-detect-workspaces.py, and the source access protocol's
+  runs skf-extract-public-api.py --mode quick on the files by path (for a
+  skill quick-skill built), pipes the payload stage-helper-payload.py reads
+  from disk into skf-detect-workspaces.py, and the source access protocol's
   monorepo tests read the detector's answer.
+
+They keep the scoring inputs scripted (#613, #540, #596): every script of
+the coverage and score steps reads the run files the one before it wrote,
+by path, in a run folder init.md creates and report.md removes, and the
+prose commands run end to end against the real scripts, from the citation
+census to compute-score.py reading every score file; the inventory a
+subagent returns is validated from its saved file and re-dispatched once
+before `inventory-invalid` halts the run; tooling health is `toolingStatus`,
+never `analysisConfidence`; and scoring-rules.md, customize.toml and SKILL.md
+keep no copy of the scoring rules and no override of them.
 
 They also keep coherence-check section 5 on the integration entries
 create-stack-skill emits (#544): only the cross-cutting and library-pair
@@ -47,8 +58,9 @@ entries are integration points, the first criterion accepts the wiring
 evidence of the stack's mode (file:line citations and key files in code
 mode, a `[from skill: ...]` line citing each constituent's exports in
 compose mode, whatever the constituent's type) and needs no fenced code
-block, scoring-rules.md says the same, and the producer formats the
-criterion names are pinned, so a change there fails here.
+block, section 5 is the one home of that rule (scoring-rules.md points at
+it), and the producer formats the criterion names are pinned, so a change
+there fails here.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -100,6 +112,17 @@ PROSE_SCRIPTS = {
     "{extractPublicApiHelper}": SCRIPTS / "skf-extract-public-api.py",
     "{detectWorkspacesHelper}": SCRIPTS / "skf-detect-workspaces.py",
     "{stageHelperPayloadScript}": TEST_SKILL / "scripts" / "stage-helper-payload.py",
+    "{validateInventoryScript}": TEST_SKILL / "scripts" / "validate-inventory.py",
+    "{coverageInputsScript}": TEST_SKILL / "scripts" / "load-coverage-inputs.py",
+    "{scoreSignaturesScript}": TEST_SKILL / "scripts" / "score-signatures.py",
+    "{reconcileScript}": TEST_SKILL / "scripts" / "reconcile-coverage.py",
+    "{coherenceScript}": TEST_SKILL / "scripts" / "check-metadata-coherence.py",
+    "{numeratorVerifyScript}": TEST_SKILL / "scripts" / "verify-declared-numerator.py",
+    "{scoringScript}": TEST_SKILL / "scripts" / "compute-score.py",
+    "{coherenceAggregationScript}": TEST_SKILL / "scripts" / "aggregate-coherence.py",
+    "{externalScoreScript}": TEST_SKILL / "scripts" / "combine-external-scores.py",
+    "{locateExportSegmentsScript}": TEST_SKILL / "scripts" / "locate-export-segments.py",
+    "{gapLedgerScript}": TEST_SKILL / "scripts" / "gap-ledger.py",
 }
 
 PROVENANCE = "provenance-map.json"
@@ -133,12 +156,12 @@ COMPOSE_EVIDENCE = (
 # provenance map or an evidence report.
 READ_SITES = [
     (SOURCE_ACCESS, "Local absent, provenance-map exists:**", "**Cross-reference with metadata.json:**", PROVENANCE),
-    (COVERAGE, "### 2b. Zero-Exports Guard", "### 2c.", PROVENANCE),
-    (COVERAGE, "**Cluster B", "**Delegate the drift arithmetic", PROVENANCE),
+    (COVERAGE, "### 2b. Resolve the Denominator and Guard Zero Exports", "### 2c.", PROVENANCE),
+    (COVERAGE, "**States 2 to 4 (no local source):**", "### 2b.", PROVENANCE),
     (MIGRATION, "## Gate Check", "## Scope of Section 4b", EVIDENCE),
     (EXTERNAL, "### 1b. Check for Recent Validation Results", "**Staleness check:**", EVIDENCE),
 ]
-READ_SITE_IDS = ["state-2", "stack-denominator", "cluster-b", "migration-gate", "validator-reuse"]
+READ_SITE_IDS = ["state-2", "metadata-loader", "state-2-surface", "migration-gate", "validator-reuse"]
 
 
 def _read(path: Path) -> str:
@@ -632,9 +655,8 @@ def test_the_prose_drift_command_runs(tmp_path, pin, allow, status, code):
 # --------------------------------------------------------------------------
 
 
-QUICK_CMD = ('uv run {stageHelperPayloadScript} extract-public-api --source-root "{source_path}" '
-             '--language <language> --manifest <manifest path> --entry <entry path> '
-             '| uv run {extractPublicApiHelper} --mode quick')
+QUICK_CMD = ('uv run {extractPublicApiHelper} --mode quick --language <language> --source-root "{source_path}" '
+             '--manifest-file <manifest path> --entry-file <entry path>')
 WORKSPACES_CMD = ('uv run {stageHelperPayloadScript} detect-workspaces --source-root "{source_path}" '
                   '| uv run {detectWorkspacesHelper}')
 
@@ -665,10 +687,81 @@ def test_quick_tier_parses_a_quick_skill_skill_with_its_parser():
     assert '`{"file": "<entry path>", "exports_found": [' in flow
     for by_hand in ("exports_documented", "missing_docs", "by name matching", "`kotlin`"):
         assert by_hand not in flow, by_hand
-    # What the parser skips is read by eye and named in the report.
-    for form in ("`from ... import`", "`pub use`", "`export *`", "`async def`"):
+    # The parser reads re-exports, async declarations and CommonJS itself; its
+    # warnings name what the entry file alone cannot give, read by eye.
+    for form in ("`from ... import`", "`pub use`", "`export * as`", "`async def`", "`module.exports`"):
         assert form in flow, form
+    for warned in ("`export * from`", "a star import", "a non-literal `__all__` part", "`pub use x::*`",
+                   "`module.exports = require(...)`"):
+        assert warned in flow, warned
+    assert "Read by eye only the statements its warnings name" in flow
     assert flow.count("read by eye") + flow.count("read them by eye") >= 2
+    # Its output reaches the surface by path.
+    assert f'{QUICK_CMD} > "{{run_dir}}/quick-<n>.json"' in flow
+    assert QUICK_SURFACE_CMD in flow
+    # A name read by eye carries the entry file that holds it, so the brief's
+    # scope globs can place it.
+    assert "save the names they give as a per-file result for the entry file" in flow
+    assert "--name" not in flow
+
+
+QUICK_SURFACE_CMD = ('uv run {coverageInputsScript} surface --quick "{run_dir}/quick-<n>.json" '
+                     '[--per-file "{run_dir}/per-file-<n>.json"] '
+                     '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] '
+                     '--metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] '
+                     '--output "{run_dir}/surface.json"')
+
+
+def test_the_prose_quick_tier_surface_reads_the_brief(tmp_path):
+    """determinism-5: a Quick-tier surface gets its scope sets, candidates and
+    deflation guard from the brief, with no extraction."""
+    source = _write_tree(tmp_path / "src", {
+        "package.json": '{"name": "demo", "version": "1.2.3"}\n',
+        "src/index.ts": "export function fetchData(url: string) {}\nexport function helper() {}\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    values = {"{source_path}": source.as_posix(), "<language>": "ts", "<manifest path>": "package.json",
+              "<entry path>": "src/index.ts"}
+    proc = _run(QUICK_CMD, values, tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    (run / "quick-1.json").write_bytes(proc.stdout)
+    forge = tmp_path / "forge-data"
+    _write_tree(forge / "demo", {"skill-brief.yaml": "name: demo\nscope:\n  include: ['src/**']\n"
+                                                     "  tier_a_include: ['src/index.ts']\n"})
+    skill = _write_tree(tmp_path / "skill", {"metadata.json": json.dumps(
+        {"skill_type": "single", "exports": ["fetchData"], "stats": {"effective_denominator": 1}})})
+    values = {"{run_dir}": run.as_posix(), "{forge_data_folder}": forge.as_posix(), "{skill_name}": "demo",
+              "{resolved_skill_package}": skill.as_posix(), "<n>": "1"}
+    command = _choose(_command(COVERAGE, "surface --quick"), keep=("--brief",))
+    surface = _exec(command, values, tmp_path)
+    assert surface["sets"]["all"] == ["fetchData", "helper"], "metadata.json adds no name to a source read"
+    assert surface["sets"]["tier_a_include"] == ["fetchData", "helper"]
+    assert surface["candidates"]["tierAIncludeUnion"] == 2
+    assert surface["guards"]["deflation"]["applicable"] is True
+
+
+def test_signatures_are_scored_over_the_denominator_set():
+    """Type Coverage counts the types of the set the denominator counts, so the
+    score runs in §2b, after the clause picks that set."""
+    text = _read(COVERAGE)
+    section2b = _slice(text, "### 2b. Resolve the Denominator", "### 2c. Reconcile")
+    assert section2b.index("**Pick the denominator.**") < section2b.index("**Score the signatures**")
+    command = _command(COVERAGE, "uv run {scoreSignaturesScript} score")
+    assert "--surface-set <set>" in command and command in section2b
+    assert "uv run {scoreSignaturesScript} score" not in _slice(text, "### 2. Analyze Source Code", "### 2b.")
+    summary = _flow(_slice(text, "### Coverage Summary", "### Category Scores"))
+    assert "each entry of `signatures.json` `warnings`" in summary
+    # The scalar is read from the loader's file, never typed in.
+    assert "--denominator-value" not in text
+    assert '--denominator-source scalar --coverage-inputs "{run_dir}/coverage-inputs.json"' in text
+
+
+def test_a_run_with_no_local_source_names_its_skip():
+    flags = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
+    assert "`metadata-only` or `remote-only`, States 3 and 4" in flags
+    docs_only = _flow(_slice(_read(COVERAGE), "**A docs-only run**", "**Docs-only skill detected.**"))
+    assert "§4's Export Coverage line and its `Denominator: docs-only completeness` annotation" in docs_only
 
 
 def test_the_prose_quick_command_runs(tmp_path):
@@ -699,9 +792,9 @@ def test_workspace_layout_comes_from_the_detector():
 
 
 @pytest.mark.parametrize("start, end", [
-    ("- **Stratified-scope monorepo packages", "**Resolution order:**"),
-    ("**Trigger (either fires):**", "**Denominator:**"),
-    ("- **Multi-entry (exports-map) packages", "**Denominator:**"),
+    ("- **Stratified-scope monorepo packages", "Resolution order:"),
+    ("- **Pattern-reference apps", "The denominator is"),
+    ("- **Multi-entry (exports-map) packages", "Installers reach"),
 ], ids=["stratified-scope", "pattern-reference", "multi-entry"])
 def test_each_monorepo_test_reads_the_detector(start, end):
     clause = _slice(_read(SOURCE_ACCESS), start, end)
@@ -807,15 +900,283 @@ def test_producer_formats_match_the_criterion():
     assert "```" not in entry
 
 
-def test_scoring_rules_say_the_same():
-    section = _flow(_slice(_read(SCORING), "## Coherence Score Aggregation (Contextual Mode)", "## Result Determination"))
-    # "This is the documented contract" still follows the formula it refers to.
-    assert ("If no integration patterns exist, combined coherence equals reference validity. "
-            "This is the documented contract.") in section
-    assert ("A pattern is one entry under Cross-Cutting Patterns or Library Pair Integrations in the stack's "
-            "Integration Patterns section; the Hub Library Connections summaries are not patterns.") in section
-    assert "integration-completeness criteria in `references/coherence-check.md` §5" in section
-    assert "the wiring evidence the stack's mode records, not a code example" in section
-    assert "In a code-mode stack, the evidence is `file:line` citations and key files." in section
-    assert f"In a compose-mode stack, it is {COMPOSE_EVIDENCE}" in section
-    assert "A fenced code block is not required." in section
+def test_coherence_section_5_is_the_one_home_of_the_rule():
+    """The wave-1 leanness-2 handoff: scoring-rules.md no longer restates the
+    pattern rule or the coherence split; it points at section 5 and the script."""
+    section = _flow(_coherence_5())
+    assert "Each Cross-Cutting Patterns entry and each Library Pair Integrations entry" in section
+    assert COMPOSE_EVIDENCE in section and "A fenced code block is not required in either mode" in section
+    # §5c names the script as the formula's home; with no pattern, coherence is reference validity.
+    aggregate = _flow(_slice(_read(COHERENCE), "### 5c. Calculate Coherence Scores", "### 6."))
+    assert "is the one home of the formula and its weights" in aggregate
+    scoring = _flow(_read(SCORING))
+    for gone in ("## Coherence Score Aggregation", "Hub Library Connections", "0.6", "## Category Weights",
+                 "## Result Determination", "Pass threshold:** 80%"):
+        assert gone not in scoring, gone
+    pointers = _slice(scoring, "## Where the Scoring Rules Live", "## Gap Severity")
+    for owner in ("`scripts/compute-score.py`", "`scripts/aggregate-coherence.py`", "coherence-check.md §5",
+                  "`scripts/reconcile-coverage.py`", "`docsOnly` branch", "`scripts/score-signatures.py`",
+                  "`{defaultThreshold}`"):
+        assert owner in pointers, owner
+
+
+
+# --------------------------------------------------------------------------
+# #613, #540, #596: the scoring inputs are scripted and read by path
+# --------------------------------------------------------------------------
+
+
+SCORE = REFS / "score.md"
+DETECT = REFS / "detect-mode.md"
+CUSTOMIZE = TEST_SKILL / "customize.toml"
+SCRIPTS_DIR = TEST_SKILL / "scripts"
+RUN_FOLDER = "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"
+OPTIONAL_RE = re.compile(r" \[(--[^\[\]]+)\]")
+
+
+def _command(path: Path, needle: str) -> str:
+    """The one fenced command line of `path` that holds `needle`."""
+    lines = [line.strip() for line in _fence(_read(path), needle).splitlines() if needle in line]
+    assert len(lines) == 1, (path.name, needle, lines)
+    return lines[0]
+
+
+def _choose(command: str, keep: tuple[str, ...] = ()) -> str:
+    """Keep the `[--flag ...]` groups that name a flag in `keep`, drop the others."""
+    return OPTIONAL_RE.sub(lambda m: " " + m.group(1) if m.group(1).split()[0] in keep else "", command)
+
+
+def test_the_run_folder_is_created_at_the_lock_and_removed_at_both_ends():
+    lock = _flow(_slice(_read(INIT), "**6b. Act on the result:**", "**6c. Create `{outputFile}`"))
+    assert f"bind `{{run_dir}}` ← `{RUN_FOLDER}`" in lock
+    assert f'mkdir -p "{RUN_FOLDER}"' in lock and "release the run lock (SKILL.md Workflow Rules), then HALT" in lock
+    section7 = _flow(_slice(_read(REPORT), "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
+    assert section7.count(f'rm -rf "{RUN_FOLDER}"') == 2, "both ways a run ends remove it"
+    bypass = _slice(section7, "**`--no-health-check` flag bypass", "Resolve `{healthCheckFile}`")
+    assert bypass.index(RELEASE) < bypass.index("rm -rf") < bypass.index("exit the workflow")
+    row = next(line for line in _read(SKILL_MD).splitlines() if line.startswith("| **Outputs** |"))
+    assert "`{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}/`" in row
+
+
+def test_no_payload_is_echoed_into_a_scoring_script():
+    """determinism-4: a subagent response and every list reach the scripts by path, never in a shell string."""
+    for path in (COVERAGE, SCORE):
+        text = _read(path)
+        for echoed in ("<subagent raw response>", "echo '<JSON>'", "| uv run {reconcileScript}",
+                       "| uv run {coherenceScript}", "| uv run {numeratorVerifyScript}", "| uv run {scoringScript}",
+                       "| uv run {validateInventoryScript}"):
+            assert echoed not in text, (path.name, echoed)
+    flow = _flow(_read(COVERAGE))
+    assert "`{run_dir}/inventory-response.txt` with the Write tool" in flow
+    assert "`{run_dir}/signatures-<n>.txt` with the Write tool" in flow
+
+
+def test_score_reads_the_category_scores_from_files():
+    section2 = _flow(_slice(_read(SCORE), "### 2. The Category Score Files", "### 3. Apply"))
+    assert "never read back out of the report" in section2
+    for name in ("coverage.json", "signatures.json", "coherence.json", "external.json", "surface.json"):
+        assert f"`{name}`" in section2, name
+    command = _command(SCORE, "uv run {scoringScript}")
+    for flag in ('--coverage "{run_dir}/coverage.json"', '[--signatures "{run_dir}/signatures.json"]',
+                 '[--coherence "{run_dir}/coherence.json"]', '--external "{run_dir}/external.json"',
+                 '[--surface "{run_dir}/surface.json"]'):
+        assert flag in command, flag
+    body = _read(SCORE)
+    for gone in ('"scores": {', "max(0, exportCoverage - 10)", "calculated manually", "§4b in step 3",
+                 "{scoringRulesFile}", "then re-flips to PASS"):
+        assert gone not in body, gone
+
+
+def test_the_inventory_contract_lists_the_validators_kinds():
+    validator = runpy_module(SCRIPTS_DIR / "validate-inventory.py")
+    section = _flow(_slice(_read(COVERAGE), "### 1. Extract Documented Exports", "#### 1a."))
+    listed = re.search(r"each `kind` is one of (.+?); every entry", section).group(1)
+    assert re.findall(r"`([a-z]+)`", listed) == list(validator.VALID_KINDS)
+    assert "every entry carries the `description`" in section
+
+
+def test_an_invalid_inventory_is_redispatched_once_then_halts_with_its_reason():
+    section = _flow(_slice(_read(COVERAGE), "#### 1a. Parent-Side Schema Validation", "### 1b."))
+    assert "re-dispatch the §1 subagent once, with the script's `violations[]` appended" in section
+    assert "re-dispatch the §1 subagent once, with the absent names appended" in section
+    assert 'HALT with `halt_reason: "inventory-invalid"`' in section
+    line = next(line for line in _read(COVERAGE).splitlines() if '"halt_reason":"inventory-invalid"' in line)
+    envelope = json.loads(line.split(": ", 1)[1])
+    assert (envelope["status"], envelope["exit_code"], envelope["report_path"]) == ("error", 1, "{outputFile}")
+    contract = _flow(_slice(_read(SKILL_MD), "## Result Contract (Headless)", "## On Activation"))
+    assert '`"inventory-invalid"`' in contract
+    assert "every HALT in the coverage and coherence steps except `inventory-invalid`" in contract
+
+
+def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
+    command = _command(COVERAGE, "uv run {extractPublicApiHelper} --mode full")
+    assert command == ('uv run {extractPublicApiHelper} --mode full --source-root "{source_path}" '
+                       '--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml" --tier {detected_tier} '
+                       '--head-cap 0 --output "{run_dir}/extract-full.json"')
+    forge = _flow(_slice(_read(COVERAGE), "**Forge Tier (ast-grep available):**", "**Deep Tier"))
+    # The fallback is decided from the JSON, and a recipe's internal match is never on the surface.
+    assert "Decide what to do from the JSON, not from the exit code" in forge
+    assert "`extraction.fallback.needed`" in forge and "`extraction.readByEye`" in forge
+    assert "the recipes' internal matches are never part of it" in forge
+    assert "reads the full declaration at `{file}:{line}`" in forge
+    for gone in ("exports_documented", "missing_docs"):
+        assert gone not in forge, gone
+
+
+def test_tooling_health_is_tooling_status_only():
+    for path in sorted(TEST_SKILL.rglob("*.md")):
+        text = _read(path)
+        assert "analysis_confidence: degraded" not in text, path.name
+        assert "degraded|" not in text and "|degraded" not in text, path.name
+    template = _fence(_read(INIT), "workflowType: 'test-skill'")
+    assert "analysisConfidence: ''" in template
+    assert "toolingStatus: '{ok|frontmatter-validator-timeout}'" in template
+    timeout = _flow(_slice(_read(INIT), "**3b. Run the validator", "Parse the JSON output."))
+    assert "`tooling_status: frontmatter-validator-timeout`" in timeout and "set `tooling_status: ok`" in timeout
+    frontmatter = _flow(_slice(_read(SCORE), "### 7. Update Output Frontmatter", "### 8."))
+    assert "`analysisConfidence: '{full|provenance-map|metadata-only|remote-only|docs-only}'`" in frontmatter
+    assert "`toolingStatus: '{ok|frontmatter-validator-timeout}'`" in frontmatter
+    assert "Always pass `toolingStatus`: any value other than `ok` fires Cap 1" in _flow(_read(SCORE))
+
+
+def test_no_scoring_rule_is_overridable_or_restated():
+    toml = _read(CUSTOMIZE)
+    assert "output_formats_path" not in toml and "scoring_rules_path" not in toml
+    comment = _flow(re.sub(r"(?m)^#\s?", "", toml[toml.index("# Pass threshold"):toml.index("default_threshold = 80")]))
+    assert "forge-auto, forge, forge-quick and campaign runs" in comment
+    assert "a run a cap forced to FAIL stays FAIL at any threshold" in comment
+    for path in sorted(TEST_SKILL.rglob("*.md")):
+        text = _read(path)
+        assert "{scoringRulesPath}" not in text and "{outputFormatsPath}" not in text, path.name
+    detect = _flow(_read(DETECT))
+    assert "Tier-Dependent Scoring" not in detect and "set nothing here" in detect
+    assert "Quick-tier weight adjustment" not in _read(COVERAGE)
+
+
+def runpy_module(path: Path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("skf_" + path.stem.replace("-", "_"), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# A --mode full result for a package whose entry point exports fetchData,
+# helper and Options; internalThing is a recipe match no entry point exports.
+EXTRACTION = {
+    "mode": "full", "status": "ok", "files_in_scope": 2, "truncated": False, "files_without_recipes": {},
+    "file_issues": [], "errors": [],
+    "scope": {"include": ["src/**"], "exclude": [], "tier_a_include": None},
+    "exports": [
+        {"export_name": "fetchData", "export_type": "function", "source_file": "src/index.ts", "source_line": 1,
+         "signature_line": "export function fetchData(url: string): string {"},
+        {"export_name": "Options", "export_type": "interface", "source_file": "src/index.ts", "source_line": 2,
+         "signature_line": "export interface Options {"},
+        {"export_name": "helper", "export_type": "function", "source_file": "src/helper.ts", "source_line": 1,
+         "signature_line": "export function helper(x: number, y?: number): number {"},
+        {"export_name": "internalThing", "export_type": "function", "source_file": "src/helper.ts",
+         "source_line": 2, "signature_line": "export function internalThing(): void {}"},
+    ],
+    "entry_points": {"files": [{"language": "typescript", "file": "src/index.ts", "subpath": "."}]},
+    "entry_point_diff": {
+        "public": [
+            {"name": "Options", "entry": "src/index.ts", "via": "declaration", "file": "src/index.ts", "line": 2},
+            {"name": "fetchData", "entry": "src/index.ts", "via": "declaration", "file": "src/index.ts", "line": 1},
+            {"name": "helper", "entry": "src/index.ts", "via": "re-export", "file": "src/helper.ts", "line": 1},
+        ],
+        "internal": [{"name": "internalThing", "source_file": "src/helper.ts", "source_line": 2}],
+        "extraction_gaps": [], "outside_scope": [],
+    },
+    "counts": {"exports_public_api": 3, "exports_internal": 1, "effective_denominator": 3,
+               "effective_denominator_basis": "scope.include"},
+    "arms": {"monorepo": False, "specific_modules": False, "multi_subpath_exports": False},
+}
+
+
+def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
+    """Run one prose command (an `echo '<json>' | uv run ...` pipe included) and return its JSON."""
+    stdin = b""
+    if command.startswith("echo '"):
+        payload, command = command[len("echo '"):].split("' | ", 1)
+        for key, value in values.items():
+            payload = payload.replace(key, value)
+        stdin = payload.encode("utf-8")
+    m = re.fullmatch(r"uv run (\{\w+\}) (.*)", command)
+    assert m, command
+    rest = m.group(2)
+    for key, value in values.items():
+        rest = rest.replace(key, value)
+    assert not re.search(r"\{\w+\}|<[a-z][^>]*>", rest), f"unfilled placeholder in {rest!r}"
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS[m.group(1)]), *shlex.split(rest)], cwd=cwd,
+                          input=stdin, capture_output=True, check=False)
+    assert proc.returncode == 0, (command, proc.stdout.decode("utf-8"), proc.stderr.decode("utf-8"))
+    return json.loads(proc.stdout)
+
+
+def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
+    """The coverage step's commands, then the external score and step 5's, as the prose writes them:
+    each script reads the run files the one before it wrote, and compute-score.py scores from them."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n\n"
+                    "`fetchData(url)` fetches [AST:src/index.ts:L1]. `helper(x)` helps. `Options` configures.\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory-response.txt").write_bytes(("```json\n" + json.dumps({"exports": [
+        {"name": "fetchData", "kind": "function", "params": "url: string", "return_type": "string",
+         "description": "Fetches the user's data; it's \"cached\"."},
+        {"name": "helper", "kind": "function", "params": "x: number", "return_type": "number", "description": "Helps."},
+        {"name": "Options", "kind": "interface", "description": "Configures."},
+    ], "cross_check_mismatches": []}) + "\n```\n").encode("utf-8"))
+    (run / "extract-full.json").write_bytes(json.dumps(EXTRACTION).encode("utf-8"))
+    metadata = skill / "metadata.json"
+    metadata.write_bytes(json.dumps({"skill_type": "single", "exports": ["fetchData", "helper", "Options"],
+                                     "stats": {"exports_public_api": 3, "exports_documented": 3,
+                                               "effective_denominator": 4}}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{ledgerFile}": (tmp_path / "test-findings-20260101T000000Z-abcdef12.json").as_posix()}
+
+    census = _exec(_command(COVERAGE, "uv run {coverageInputsScript} census"), values, tmp_path)
+    assert census["docsOnly"] is False
+    validated = _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)
+    assert validated["valid"] is True and (run / "inventory.json").is_file()
+    surface = _exec(_choose(_command(COVERAGE, "surface --extraction")), values, tmp_path)
+    assert surface["sets"]["all"] == ["Options", "fetchData", "helper"]
+    plan = _exec(_command(COVERAGE, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
+    assert [f["file"] for f in plan["files"]] == ["src/helper.ts", "src/index.ts"]
+    (run / "signatures-1.txt").write_bytes(json.dumps({"file": "src/helper.ts", "signature_mismatches": [
+        {"name": "helper", "line": 1, "source_sig": "(x: number, y?: number) => number",
+         "documented_sig": "(x: number) => number", "issue": "missing optional parameter 'y'"}]}).encode("utf-8"))
+    (run / "signatures-2.txt").write_bytes(json.dumps({"file": "src/index.ts",
+                                                       "signature_mismatches": []}).encode("utf-8"))
+    signatures = _exec(_command(COVERAGE, "uv run {scoreSignaturesScript} score").replace(
+        '--results "{run_dir}/signatures-<n>.txt"',
+        '--results "{run_dir}/signatures-1.txt" --results "{run_dir}/signatures-2.txt"').replace(
+        "<set>", "all"), values, tmp_path)
+    assert (signatures["signatureAccuracy"], signatures["typeCoverage"]) == (50.0, 100.0)
+    appended = _exec(_command(COVERAGE, '--input "{run_dir}/signature-gaps.json"'), values, tmp_path)
+    assert appended["appended"] == ["GAP-001"]
+    inputs = _exec(_choose(_command(COVERAGE, "uv run {coverageInputsScript} metadata")), values, tmp_path)
+    assert inputs["inflationSignature"] is False
+    numerator = _exec(_command(COVERAGE, "uv run {numeratorVerifyScript}"), values, tmp_path)
+    assert numerator["skipped"] is True
+    scalar = _exec(_command(COVERAGE, "--denominator-source scalar"), values, tmp_path)
+    assert (scalar["documented"], scalar["denominator"]) == (3, 4), "the scalar comes from coverage-inputs.json"
+    coverage = _exec(_command(COVERAGE, "--denominator-source barrel").replace("<set>", "all"), values, tmp_path)
+    assert (coverage["documented"], coverage["denominator"], coverage["exportCoverage"]) == (3, 3, 100.0)
+    coherence = _exec(_command(COVERAGE, "uv run {coherenceScript}"), values, tmp_path)
+    assert coherence["findings"] == []
+    external = _exec(_command(EXTERNAL, "uv run {externalScoreScript}").replace(
+        "<score or null>", "80", 1).replace("<score or null>", "null"), values, tmp_path)
+    assert external["externalScore"] == 80.0
+
+    flags = {"mode": "naive", "tier": "Forge", "docsOnly": False, "state2": False, "stackSkill": False,
+             "referenceApp": False, "threshold": 80, "analysisConfidence": "full", "toolingStatus": "ok"}
+    command = _choose(_command(SCORE, "uv run {scoringScript}"), keep=("--signatures",))
+    command = command.replace("'<the §3a JSON>'", shlex.quote(json.dumps(flags)))
+    score = _exec(command, values, tmp_path)
+    assert score["input"]["scores"] == {"exportCoverage": 100.0, "signatureAccuracy": 50.0, "typeCoverage": 100.0,
+                                        "coherence": None, "externalValidation": 80.0}
+    # naive weights 45/25/20/10: 45 + 12.5 + 20 + 8
+    assert (score["totalScore"], score["result"]) == (85.5, "PASS")
+    assert "effectiveResult" not in score

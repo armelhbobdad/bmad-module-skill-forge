@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill now decides whether a skill is docs-only by counting the citations it writes (only `[EXT:...]` links, with no `[AST:...]`, `[SRC:...]` or `[from skill: ...]` citation), and computes a docs-only skill's Export Coverage in `reconcile-coverage.py`, the script every other skill's coverage already comes from: complete documented items over documented items, where an item is complete when it has a description and, for a function or method, its parameters and return type. A missing description counts as an incomplete item, never as a broken inventory. Before, the docs-only verdict and the completeness ratio were worked out by hand, so the score of a docs-only skill, most of which is Export Coverage once Signature Accuracy and Type Coverage are skipped, can shift on its next test.
+issues: [540]

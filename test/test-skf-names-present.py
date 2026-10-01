@@ -164,3 +164,50 @@ def test_the_cli(args):
         assert result.returncode == 0 and "--drop-absent" in result.stdout
     else:
         assert result.returncode == 2 and result.stdout == ""
+
+
+@pytest.mark.parametrize("text, absent", [
+    ("call `get(url)`", False), ("the target", True), ("getAll()", True),
+], ids=["whole-name", "inside-target", "prefix-of-getAll"])
+def test_a_name_inside_a_longer_identifier_is_absent(tmp_path, text, absent):
+    """skf-test-skill credits a name only as a whole name, so the check is the same."""
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "SKILL.md").write_bytes(f"# demo\n\n{text}\n".encode("utf-8"))
+    result = check(make_map(tmp_path, [{"export_name": "get", "source_library": "liba"}]), package)
+    assert result.returncode == (1 if absent else 0), result.stderr
+    assert [a["export_name"] for a in json.loads(result.stdout)["absent"]] == (["get"] if absent else [])
+
+
+def _module(path: Path, name: str):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+VALIDATE_INVENTORY = SCRIPTS.parent.parent / "skf-test-skill" / "scripts" / "validate-inventory.py"
+# The first text writes each name whole; the second holds `get`, `state`,
+# `then` and `new` only inside longer identifiers.
+BOUNDARY_TEXTS = (
+    "call `get(url)` on the target, then getAll(); `$state` and .then and `Type::new` and get_; the café\n",
+    "the target, getAll() and $states; promise.thenable, renew, get_x\n",
+)
+
+
+@pytest.mark.parametrize("name", [
+    "get", "getAll", "target", "arg", "$state", "state", ".then", "then", "Type::new", "new", "get_", "get_x",
+    "ge", "café",
+])
+def test_the_whole_name_rule_is_the_scorers(name):
+    """skf-names-present.py copies validate-inventory.py's whole-name match;
+    the two must agree on every boundary, `get` against `target` and `getAll`
+    included."""
+    scorer = _module(VALIDATE_INVENTORY, "validate_inventory_names_parity")
+    helper = _module(SCRIPT, "skf_names_present_parity")
+    assert helper.NAME_CHARS == scorer.IDENT_CHARS
+    for text in BOUNDARY_TEXTS:
+        assert helper.name_written(name, text) == bool(scorer.name_pattern(name).search(text)), (name, text)
+    assert not helper.name_written("get", BOUNDARY_TEXTS[1]), "`get` is not found in `target` or `getAll`"

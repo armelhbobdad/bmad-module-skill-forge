@@ -1316,14 +1316,14 @@
       "mode": "contextual",
       "tier": "Deep",
       "threshold": 90,
-      "analysisConfidence": "degraded",
       "scores": {
         "exportCoverage": 95,
         "signatureAccuracy": 95,
         "typeCoverage": 95,
         "coherence": 95,
         "externalValidation": 95
-      }
+      },
+      "toolingStatus": "python3-missing"
     },
     "expected_output": {
       "input": {
@@ -1368,10 +1368,10 @@
       "threshold": 90,
       "result": "PASS",
       "weightSum": 100.0,
-      "effectiveResult": "PASS",
-      "capReason": "tooling degraded — capped below threshold until helper restored",
-      "thresholdFallback": true,
-      "originalThreshold": 90
+      "effectiveResult": "FAIL",
+      "capReason": "tooling degraded (toolingStatus: python3-missing): capped below threshold until the tooling is restored",
+      "thresholdFallback": false,
+      "originalThreshold": null
     }
   },
   {
@@ -1440,6 +1440,284 @@
       "capReason": "docs-only without external validators — capped below threshold",
       "thresholdFallback": false,
       "originalThreshold": null
+    }
+  },
+  {
+    "name": "suite_y_timeout_cap_threshold_80",
+    "input": {
+      "mode": "contextual",
+      "tier": "Deep",
+      "threshold": 80,
+      "analysisConfidence": "full",
+      "toolingStatus": "frontmatter-validator-timeout",
+      "scores": {
+        "exportCoverage": 90,
+        "signatureAccuracy": 90,
+        "typeCoverage": 90,
+        "coherence": 90,
+        "externalValidation": 90
+      }
+    },
+    "expected_output": {
+      "input": {
+        "mode": "contextual",
+        "tier": "Deep",
+        "docsOnly": false,
+        "state2": false,
+        "stackSkill": false,
+        "threshold": 80,
+        "scores": {
+          "exportCoverage": 90,
+          "signatureAccuracy": 90,
+          "typeCoverage": 90,
+          "coherence": 90,
+          "externalValidation": 90
+        }
+      },
+      "activeCategories": [
+        "exportCoverage",
+        "signatureAccuracy",
+        "typeCoverage",
+        "coherence",
+        "externalValidation"
+      ],
+      "skippedCategories": [],
+      "skipReasons": {},
+      "weights": {
+        "exportCoverage": 36.0,
+        "signatureAccuracy": 22.0,
+        "typeCoverage": 14.0,
+        "coherence": 18.0,
+        "externalValidation": 10.0
+      },
+      "weightedScores": {
+        "exportCoverage": 32.4,
+        "signatureAccuracy": 19.8,
+        "typeCoverage": 12.6,
+        "coherence": 16.2,
+        "externalValidation": 9.0
+      },
+      "totalScore": 90.0,
+      "threshold": 80,
+      "result": "PASS",
+      "weightSum": 100.0,
+      "effectiveResult": "FAIL",
+      "capReason": "tooling degraded (toolingStatus: frontmatter-validator-timeout): capped below threshold until the tooling is restored",
+      "thresholdFallback": false,
+      "originalThreshold": null
+    }
+  },
+  {
+    "name": "suite_z_capped_fail_no_fallback_above_80",
+    "input": {
+      "mode": "contextual",
+      "tier": "Deep",
+      "threshold": 90,
+      "analysisConfidence": "full",
+      "toolingStatus": "frontmatter-validator-timeout",
+      "scores": {
+        "exportCoverage": 85,
+        "signatureAccuracy": 85,
+        "typeCoverage": 85,
+        "coherence": 85,
+        "externalValidation": 85
+      }
+    },
+    "expected_output": {
+      "input": {
+        "mode": "contextual",
+        "tier": "Deep",
+        "docsOnly": false,
+        "state2": false,
+        "stackSkill": false,
+        "threshold": 90,
+        "scores": {
+          "exportCoverage": 85,
+          "signatureAccuracy": 85,
+          "typeCoverage": 85,
+          "coherence": 85,
+          "externalValidation": 85
+        }
+      },
+      "activeCategories": [
+        "exportCoverage",
+        "signatureAccuracy",
+        "typeCoverage",
+        "coherence",
+        "externalValidation"
+      ],
+      "skippedCategories": [],
+      "skipReasons": {},
+      "weights": {
+        "exportCoverage": 36.0,
+        "signatureAccuracy": 22.0,
+        "typeCoverage": 14.0,
+        "coherence": 18.0,
+        "externalValidation": 10.0
+      },
+      "weightedScores": {
+        "exportCoverage": 30.6,
+        "signatureAccuracy": 18.7,
+        "typeCoverage": 11.9,
+        "coherence": 15.3,
+        "externalValidation": 8.5
+      },
+      "totalScore": 85.0,
+      "threshold": 90,
+      "result": "FAIL",
+      "weightSum": 100.0,
+      "effectiveResult": "FAIL",
+      "capReason": "tooling degraded (toolingStatus: frontmatter-validator-timeout): capped below threshold until the tooling is restored",
+      "thresholdFallback": false,
+      "originalThreshold": null
+    }
+  },
+  {
+    "name": "suite_aa_state2_undercount_deduction",
+    "input": {
+      "mode": "contextual",
+      "tier": "Deep",
+      "state2": true,
+      "analysisConfidence": "provenance-map",
+      "toolingStatus": "ok",
+      "state2Counts": {
+        "provenance": 40,
+        "metadata": 45,
+        "union": 48
+      },
+      "scores": {
+        "exportCoverage": 90,
+        "signatureAccuracy": null,
+        "typeCoverage": null,
+        "coherence": 85,
+        "externalValidation": 80
+      }
+    },
+    "expected_output": {
+      "input": {
+        "mode": "contextual",
+        "tier": "Deep",
+        "docsOnly": false,
+        "state2": true,
+        "stackSkill": false,
+        "threshold": 80,
+        "scores": {
+          "exportCoverage": 90,
+          "signatureAccuracy": null,
+          "typeCoverage": null,
+          "coherence": 85,
+          "externalValidation": 80
+        }
+      },
+      "activeCategories": [
+        "exportCoverage",
+        "coherence",
+        "externalValidation"
+      ],
+      "skippedCategories": [
+        "signatureAccuracy",
+        "typeCoverage"
+      ],
+      "skipReasons": {
+        "signatureAccuracy": "State 2 (provenance-map)",
+        "typeCoverage": "State 2 (provenance-map)"
+      },
+      "weights": {
+        "exportCoverage": 56.25,
+        "signatureAccuracy": 0,
+        "typeCoverage": 0,
+        "coherence": 28.13,
+        "externalValidation": 15.63
+      },
+      "weightedScores": {
+        "exportCoverage": 45.0,
+        "signatureAccuracy": 0,
+        "typeCoverage": 0,
+        "coherence": 23.91,
+        "externalValidation": 12.5
+      },
+      "totalScore": 81.41,
+      "threshold": 80,
+      "result": "PASS",
+      "weightSum": 100.01,
+      "state2Deduction": {
+        "divergencePct": 20.0,
+        "applied": true,
+        "rawExportCoverage": 90,
+        "exportCoverage": 80
+      },
+      "scoringNotes": [
+        "State 2 undercount risk acknowledged: 10-point deduction applied to Export Coverage (raw: 90%, adjusted: 80%; provenance and metadata diverge by 20.0%)"
+      ]
+    }
+  },
+  {
+    "name": "suite_ab_naive_forge_metadata_only",
+    "input": {
+      "mode": "naive",
+      "tier": "Forge",
+      "docsOnly": false,
+      "state2": false,
+      "stackSkill": false,
+      "referenceApp": false,
+      "threshold": 80,
+      "analysisConfidence": "metadata-only",
+      "toolingStatus": "ok",
+      "scores": {
+        "exportCoverage": 90,
+        "signatureAccuracy": null,
+        "typeCoverage": null,
+        "coherence": null,
+        "externalValidation": 80
+      }
+    },
+    "expected_output": {
+      "input": {
+        "mode": "naive",
+        "tier": "Forge",
+        "docsOnly": false,
+        "state2": false,
+        "stackSkill": false,
+        "threshold": 80,
+        "scores": {
+          "exportCoverage": 90,
+          "signatureAccuracy": null,
+          "typeCoverage": null,
+          "coherence": null,
+          "externalValidation": 80
+        }
+      },
+      "activeCategories": [
+        "exportCoverage",
+        "externalValidation"
+      ],
+      "skippedCategories": [
+        "signatureAccuracy",
+        "typeCoverage",
+        "coherence"
+      ],
+      "skipReasons": {
+        "signatureAccuracy": "no local source (State 3/4)",
+        "typeCoverage": "no local source (State 3/4)"
+      },
+      "weights": {
+        "exportCoverage": 81.82,
+        "signatureAccuracy": 0,
+        "typeCoverage": 0,
+        "coherence": 0,
+        "externalValidation": 18.18
+      },
+      "weightedScores": {
+        "exportCoverage": 73.64,
+        "signatureAccuracy": 0,
+        "typeCoverage": 0,
+        "coherence": 0,
+        "externalValidation": 14.54
+      },
+      "totalScore": 88.18,
+      "threshold": 80,
+      "result": "PASS",
+      "weightSum": 100.0
     }
   }
 ]

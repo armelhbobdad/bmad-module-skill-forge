@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill drops the `scoring_rules_path` and `output_formats_path` settings: its scripts own the scoring rules, and the Gap Severity table and the ledger record format decide what blocks export, so a house-style copy either changed nothing or could change the hard gate. A `_bmad/custom/skf-test-skill.toml` that sets them is now ignored. A threshold above 80 (`default_threshold`, `--threshold` or a pipeline's default) no longer turns a FAIL that a cap forced into a PASS: the threshold fallback, which accepts a run at the 80% floor and writes an evidence report, now takes only a run that no cap failed.
+migration: |
+  Remove `scoring_rules_path` and `output_formats_path` from `_bmad/custom/skf-test-skill.toml` and `_bmad/custom/skf-test-skill.user.toml`; set `default_threshold` to change the pass threshold. A run a cap failed passes only once its cause is fixed: restore the tooling that `toolingStatus` names, or give a docs-only skill an external validation score by installing skill-check.
+issues: [596]
