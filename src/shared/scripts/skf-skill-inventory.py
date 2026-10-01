@@ -314,6 +314,8 @@ FORGE_VERSION_FILES = FORGE_VERSION_ANCHORS | frozenset({
     "evidence-report-fallback.md", "extraction-snapshot.json", ".manual-inventory.json",
     ".test-skill.lock"})
 FORGE_REPORT_RE = re.compile(r"^(test-report|drift-report)(-.+)?\.md$")
+# test-skill's gap ledger, one per run (skf-test-skill scripts/gap-ledger.py).
+TEST_FINDINGS_RE = re.compile(r"^test-findings-.+\.json$")
 
 
 # Keep identical to _has_forge_evidence in skf-merge-ccc-exclusions.py
@@ -358,7 +360,8 @@ def _has_forge_evidence(group_dir: Path, name: str) -> bool:
 def _is_forge_version_name(entry):
     """True for a name SKF writes into a forge version folder."""
     return (entry in FORGE_VERSION_FILES or bool(FORGE_REPORT_RE.match(entry))
-            or bool(RESULT_JSON_RE.match(entry)) or entry.endswith("-tmp"))
+            or bool(TEST_FINDINGS_RE.match(entry)) or bool(RESULT_JSON_RE.match(entry))
+            or entry.endswith("-tmp"))
 
 
 def _is_forge_root_name(entry, evidence):
@@ -366,12 +369,14 @@ def _is_forge_root_name(entry, evidence):
 
     A brief or a result file always is. The legacy flat artifacts (a
     provenance map, evidence report, extraction rules or test or drift
-    report at the group root) count only beside other evidence.
+    report, or a test-skill gap ledger, at the group root) count only beside
+    other evidence.
     """
     if (entry.startswith("skill-brief.yaml") or entry == ".brief-draft.json"
             or RESULT_JSON_RE.match(entry)):
         return True
-    return evidence and (entry in FORGE_VERSION_ANCHORS or bool(FORGE_REPORT_RE.match(entry)))
+    return evidence and (entry in FORGE_VERSION_ANCHORS or bool(FORGE_REPORT_RE.match(entry))
+                         or bool(TEST_FINDINGS_RE.match(entry)))
 
 
 def _holds_no_file(folder):

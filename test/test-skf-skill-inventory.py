@@ -1084,7 +1084,7 @@ FORGE_FILES = (
     "notes/skill-brief.yaml", "notes/NOTES.md", "notes/my-source-snapshots/src.tar",
     "vnotes/skill-brief.yaml", "vnotes/1.0.0/provenance-map.json", "vnotes/1.0.0/NOTES.md",
     "legacybrief/skill-brief.yaml", "legacybrief/provenance-map.json",
-    "legacybrief/test-report-legacybrief-1.md",
+    "legacybrief/test-report-legacybrief-1.md", "legacybrief/test-findings-r1.json",
     "legacy/provenance-map.json",
     "other/config.toml", "other/data/x.csv",
     "deep/a/b/c/foo-result.json",
@@ -1093,7 +1093,7 @@ FORGE_FILES = (
     "tmpfile/cache/build-tmp",
     "tslock/1.0.0/.test-skill.lock",
     "tsdone/1.0.0/.test-skill.lock", "tsdone/1.0.0/test-report-tsdone-r1.md",
-    "tsdone/1.0.0/skf-test-skill-result-latest.json",
+    "tsdone/1.0.0/skf-test-skill-result-latest.json", "tsdone/1.0.0/test-findings-r1.json",
     "renamedrep/1.0.0/test-report-oldname-r1.md",
     "renamedrep/1.0.0/skf-test-skill-result-latest.json",
     "resnotes/1.0.0/skf-test-skill-result-latest.json", "resnotes/1.0.0/NOTES.md",
@@ -2171,8 +2171,9 @@ def _purge_fixture(tmp_path: Path, links: bool) -> tuple[Path, Path]:
         _make_version(skills, name, "1.0.0", MARKED)
         _link_active(skills / name / "active", "1.0.0")
     _make_version(skills, "clean", "0.9.0", MARKED)
+    # test-skill leaves its gap ledger in each version folder it tested.
     for rel in ("clean/skill-brief.yaml", "clean/1.0.0/provenance-map.json",
-                "clean/0.9.0/provenance-map.json"):
+                "clean/1.0.0/test-findings-r1.json", "clean/0.9.0/provenance-map.json"):
         _write(forge / rel)
     _make_version(skills, "rc", "1.0.0-rc")  # no marker: a foreign `1.0.0-rc/`
     _write(skills / "vnotes" / "1.0.0" / "NOTES.md")  # a foreign `1.0.0/NOTES.md`
@@ -2332,6 +2333,7 @@ def _rename_fixture(tmp_path: Path, links: bool) -> tuple[Path, Path]:
     _make_flat(skills, "module", extra=("references/guide.md",))
     _write(skills / "afile")
     for rel in ("clean/skill-brief.yaml", "clean/1.0.0/provenance-map.json",
+                "clean/1.0.0/test-findings-r1.json",
                 "forgemixed/skill-brief.yaml", "forgemixed/NOTES.md",
                 "forgeforeign/config.toml", "improvement-queue/q.json"):
         _write(forge / rel)
