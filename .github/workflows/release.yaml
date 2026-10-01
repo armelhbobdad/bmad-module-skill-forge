@@ -119,31 +119,22 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      - name: Ensure npm CLI supports trusted publishing
-        run: |
-          echo "Node: $(node --version); bundled npm: $(npm --version)"
-          # Side-prefix install — avoids the arborist rebuild race that bites
-          # `npm install -g npm@latest` on Node 22.22.2's bundled npm 10.9.7
-          # (old arborist cannot find its own promise-retry after the global
-          # tree has been partially overwritten by the new npm mid-install).
-          INSTALL_DIR="$RUNNER_TEMP/npm-tp"
-          mkdir -p "$INSTALL_DIR"
-          npm install --prefix "$INSTALL_DIR" --no-save npm@latest
-          echo "$INSTALL_DIR/node_modules/.bin" >> "$GITHUB_PATH"
-          echo "Upgraded npm: $("$INSTALL_DIR/node_modules/.bin/npm" --version)"
-
+      # OIDC trusted publishing needs npm 11.5.1 or later (issue #565). The
+      # run publishes with the npm that ships with the Node version .nvmrc
+      # selects, and no step installs another, so the npm major moves only
+      # when a pull request moves .nvmrc. This step prints both versions and
+      # stops every dispatch, the resume path included, before anything is
+      # committed, tagged or published when that npm is below the floor.
+      # Should a Node line ever ship an npm below it, install one exact npm
+      # version before this step, never @latest.
       - name: Verify npm version floor for OIDC trusted publishing
-        # Runs in a fresh step so $GITHUB_PATH from the previous step takes effect.
-        # Bare `npm` here asserts BOTH (a) PATH propagation worked (the side-prefix
-        # install is actually first on PATH, not masked by the Node-bundled npm)
-        # AND (b) the resolved version meets the OIDC trusted-publishing floor
-        # (>=11.5.1). Fails fast before tag-push if either guarantee is absent.
         run: |
+          NODE_VERSION=$(node --version)
           NPM_VERSION=$(npm --version)
-          echo "Resolved npm (via PATH): $NPM_VERSION"
+          echo "Node: $NODE_VERSION; bundled npm: $NPM_VERSION"
           MIN_VERSION="11.5.1"
           if [[ "$(printf '%s\n%s\n' "$MIN_VERSION" "$NPM_VERSION" | sort -V | head -n1)" != "$MIN_VERSION" ]]; then
-            echo "::error::npm $NPM_VERSION is below the OIDC trusted-publishing floor ($MIN_VERSION). Either \$GITHUB_PATH propagation failed (bare \`npm\` resolved to the Node-bundled version) or npm@latest regressed below the floor."
+            echo "::error::npm $NPM_VERSION, the one bundled with Node $NODE_VERSION, is below the OIDC trusted-publishing floor ($MIN_VERSION), so the run stopped before anything was committed, tagged or published. Fix .nvmrc: in a pull request, move it to a Node version whose bundled npm is $MIN_VERSION or later, then dispatch again."
             exit 1
           fi
 

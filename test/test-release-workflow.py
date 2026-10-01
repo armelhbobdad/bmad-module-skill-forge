@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """release.yaml: the retry-safe check wait, the cleanup after a failed run,
-the version, dist-tag and commit steps, the resume path, and the required
-checks compared with the ruleset before the bump.
+the version, dist-tag and commit steps, the resume path, the required
+checks compared with the ruleset before the bump, and the npm version floor.
 
-Issues #563, #564, #566 and #570. The main-dispatch path of
+Issues #563, #564, #565, #566 and #570. The main-dispatch path of
 .github/workflows/release.yaml only runs for real on a `--ref main` dispatch,
 which is also a real npm publish, so these tests run the steps' own `run:`
 scripts instead. Each script is read from the workflow with PyYAML and run
@@ -78,6 +78,12 @@ Covers:
     end to end, with gh answering for the ruleset, a ruleset that disagrees
     with quality.yaml stops it, naming the missing and the extra checks,
     before anything is committed
+  - Verify npm version floor for OIDC trusted publishing (issue #565): it
+    runs on every dispatch right after Setup Node.js (which reads .nvmrc),
+    prints Node and its bundled npm, passes from 11.5.1 up (a two-digit
+    minor compared as a number) and fails below it naming .nvmrc as the
+    fix; no step installs npm or writes $GITHUB_PATH, release.yaml names no
+    npm@latest, and no comment describes Node 22.22.2 or its npm 10.9.7
 
 The behaviour tests need bash and jq (both on the GitHub-hosted Ubuntu
 runner) and are skipped on Windows. The version step's tests also need node
@@ -129,6 +135,7 @@ RESUME_TAG = "Create and push the tag (resume)"
 GUARD = "Refuse to bump past an unpublished release"
 GATE = "Check the version bump against the change fragments"
 REQUIRED_CHECKS = "Check the required checks against the ruleset"
+NPM_FLOOR = "Verify npm version floor for OIDC trusted publishing"
 TAG = "Create and push tag"
 MERGE_SHA = "b" * 40
 DISPATCH_SHA = "f" * 40
@@ -1335,12 +1342,7 @@ PR_FLOW = [
     "Auto-merge bot PR",
     "Wait for merge completion",
 ]
-SETUP = [
-    "Checkout",
-    "Setup Node.js",
-    "Ensure npm CLI supports trusted publishing",
-    "Verify npm version floor for OIDC trusted publishing",
-]
+SETUP = ["Checkout", "Setup Node.js", NPM_FLOOR]
 CUT_OUTPUTS = {
     "version": {"new_version": "3.0.0", "dist_tag": "latest"},
     "temp_push": {"temp_branch": TEMP_BRANCH},
@@ -1741,3 +1743,91 @@ def test_a_ruleset_that_disagrees_with_quality_yaml_stops_the_run_naming_each_ch
     assert "  reported by a quality.yaml job, but not required, so it gates nothing: `docs-links`" in result.out
     assert "  required, but no quality.yaml job reports it" in result.out
     assert result.out.count("`lint`") == 1
+
+
+# --------------------------------------------------------------------------
+# Verify npm version floor for OIDC trusted publishing (issue #565)
+# --------------------------------------------------------------------------
+
+
+def floor_tools(node_version: str, npm_version: str) -> dict[str, list[dict]]:
+    """node and npm answering `--version` as setup-node's Node and its bundled npm would."""
+    return {
+        "node": [{"match": "--version", "answers": [ok(node_version + "\n")]}],
+        "npm": [{"match": "--version", "answers": [ok(npm_version + "\n")]}],
+    }
+
+
+@needs_shell
+@pytest.mark.parametrize(
+    "npm_version",
+    [
+        pytest.param("11.5.1", id="at the floor"),
+        # A string compare would put 11.10.0 below 11.5.1.
+        pytest.param("11.10.0", id="two-digit minor"),
+        pytest.param("11.19.0", id="Node 24 in the v2.2.0 run"),
+        pytest.param("12.0.2", id="next major"),
+    ],
+)
+def test_the_floor_check_prints_node_and_its_bundled_npm_and_passes_from_11_5_1(tmp_path, npm_version):
+    result = run_step(tmp_path, NPM_FLOOR, {}, **floor_tools("v24.21.0", npm_version))
+    assert result.code == 0, result.out
+    assert f"Node: v24.21.0; bundled npm: {npm_version}" in result.out
+    assert "::error::" not in result.out
+    assert result.called("npm") == [["npm", "--version"]]
+
+
+@needs_shell
+@pytest.mark.parametrize(
+    ("node_version", "npm_version"),
+    [
+        pytest.param("v24.0.0", "11.5.0", id="just below"),
+        pytest.param("v22.22.2", "10.9.7", id="Node 22 npm"),
+    ],
+)
+def test_the_floor_check_fails_below_11_5_1_and_names_nvmrc_as_the_fix(tmp_path, node_version, npm_version):
+    result = run_step(tmp_path, NPM_FLOOR, {}, **floor_tools(node_version, npm_version))
+    assert result.code == 1, result.out
+    assert f"Node: {node_version}; bundled npm: {npm_version}" in result.out
+    message = (
+        f"::error::npm {npm_version}, the one bundled with Node {node_version}, is below the OIDC "
+        "trusted-publishing floor (11.5.1), so the run stopped before anything was committed, tagged or "
+        "published. Fix .nvmrc: in a pull request, move it to a Node version whose bundled npm is 11.5.1 or later"
+    )
+    assert message in result.out
+    # The npm that ships with Node is the only one: nothing to blame on PATH.
+    assert "PATH" not in result.out
+
+
+def test_the_floor_check_runs_on_every_dispatch_right_after_setup_node():
+    names = [s["name"] for s in steps()]
+    assert names[: len(SETUP)] == SETUP
+    assert "if" not in step(NPM_FLOOR)
+    assert step("Setup Node.js")["with"]["node-version-file"] == ".nvmrc"
+    for ref, bump, outputs in (
+        ("refs/heads/main", "major", CUT_OUTPUTS),
+        ("refs/heads/feat/x", "alpha", {"version": {"new_version": "3.0.1-alpha.0", "dist_tag": "alpha"}}),
+        ("refs/heads/main", "resume", resume_outputs()),
+    ):
+        ran = steps_that_run(ref, bump, outputs)
+        assert ran.index(NPM_FLOOR) < ran.index("Install dependencies") < ran.index(PUBLISH), (ref, bump)
+
+
+def test_no_step_installs_npm_so_the_publish_uses_the_one_node_ships():
+    # npm@latest put a major nobody chose on the v2.2.0 publish (11.19.0
+    # bundled, 12.0.2 installed). A step that installs npm must pin one
+    # exact version; none is needed while Node 24 ships 11.19.0.
+    assert "npm@latest" not in WORKFLOW.read_text(encoding="utf-8")
+    for s in steps():
+        run = s.get("run", "")
+        assert not re.search(r"\bnpm\s+(?:install|i|add|update|up)\b", run), s["name"]
+        assert "GITHUB_PATH" not in run, s["name"]
+
+
+def test_no_comment_describes_node_22_or_its_npm():
+    # The side-prefix install was written for Node 22.22.2 and its npm
+    # 10.9.7; .nvmrc selects Node 24 now.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "22.22.2" not in text
+    assert "10.9.7" not in text
+    assert "side-prefix" not in text.lower()
