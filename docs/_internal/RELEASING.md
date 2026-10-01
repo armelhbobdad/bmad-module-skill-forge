@@ -23,7 +23,9 @@ For background on GitHub rulesets vs legacy branch protection, see the [GitHub r
 | `code_quality`           | Blocks merge on `severity: errors` from GitHub code-quality checks.                                                        |
 | `required_status_checks` | Merge blocked until every `quality.yaml` check passes (names below).                                                    |
 
-**Required status checks (10):** sourced from `.github/workflows/quality.yaml` job keys. Matrix jobs expand to `jobname (matrix-value)`:
+**Required status checks:** one per check a job of `.github/workflows/quality.yaml` reports. A job reports one check, named by its `name:` or else by its key; a job with a one-dimension matrix reports one per value, `key (value)`. `tools/check-required-checks.js` derives the names from the workflow and compares them with this list:
+
+<!-- required-checks:start -->
 
 - `prettier`
 - `eslint`
@@ -36,7 +38,18 @@ For background on GitHub rulesets vs legacy branch protection, see the [GitHub r
 - `python (windows-latest)`
 - `docs-links`
 
-**Coupling with `quality.yaml`:** if that workflow renames a job or changes the `strategy.matrix.os` for `validate` or `python`, the ruleset's `required_status_checks` list must be updated in lock-step — otherwise merges to `main` will either block on a check name that no longer reports, or silently pass without the renamed check. Update both in the same PR.
+<!-- required-checks:end -->
+
+**Coupling with `quality.yaml`:** the jobs of that workflow, this list and the ruleset's `required_status_checks` list must agree. A check the ruleset requires that no job reports blocks every pull request, and keeps a release's bot PR waiting until the `Wait for required status checks` step of `release.yaml` times out, after the release commit is pushed. A job the ruleset does not require gates nothing: a pull request can merge with it red. Two checks keep the lists in step:
+
+- On every pull request, `npm run test:docs-links-tool` (the `Test the docs link guard` step of the required `validate` job, and `npm test`) runs `node tools/check-required-checks.js --releasing`. It fails when this list and the checks the jobs report differ, naming each missing and extra check. A pull request that renames, adds or removes a job, or changes a matrix value, therefore updates this list, and the ruleset's list with it (fetch the ruleset, change its `rules`, `PUT` it back, as in [§ Restore from a saved baseline](#restore-from-a-saved-baseline)).
+- A release dispatched from `main` runs `node tools/check-required-checks.js --ruleset` after `Run tests and validation` and before `Bump version`. It reads the live `Default` ruleset by name, as the `Wait for required status checks` step does, and stops the run with nothing committed or pushed when the ruleset and the jobs differ, naming each check missing from the ruleset and each extra one.
+
+The tool stops instead of guessing on a job whose check names it cannot derive: a matrix with several dimensions, with `include` or `exclude`, or whose values are not plain strings; an expression in `name:`; a call to a reusable workflow. Teach it the shape in the pull request that adds one. To compare the live ruleset by hand (needs `gh` signed in):
+
+```bash
+node tools/check-required-checks.js --ruleset --repo armelhbobdad/bmad-module-skill-forge
+```
 
 **`strict_required_status_checks_policy: false`** — PR branches are not forced to be up-to-date with `main` before merging. This avoids constant rebases on a low-traffic repo. Flip to `true` if concurrent merges start producing logical conflicts the checks can't catch.
 
@@ -205,9 +218,10 @@ Release notes come from the change fragments in `changes/` (one YAML file per us
 git checkout main && git pull --tags
 npm run changes:preview -- --bump <alpha|beta|rc|patch|minor|major>
 node tools/release-state.js guard --bump <alpha|beta|rc|patch|minor|major>
+node tools/check-required-checks.js --ruleset --repo armelhbobdad/bmad-module-skill-forge
 ```
 
-The preview prints the fragments added since the last stable tag (`git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*'`), any file in `changes/` to fix, the covered-surface changes against that tag from `tools/covered-surfaces.js` (hard, additive and review groups), the minimum bump with each reason for it, the version the dispatch will produce, the release gate's verdict for that bump, and the exact block the release will write. `node tools/release-state.js guard` gives the verdict of the step that runs before the gate on `main`, which refuses a `minor` or `major` while `main` carries an unpublished version (see [§ The release gate](#the-release-gate)); outside Actions it only prints. Fix a missing or mistyped fragment by pull request, then preview again. Read the review group as well. It lists first any flag that left every flag row while its workflow's Markdown still names it: if the workflow no longer accepts that flag, add a `breaking` fragment that names it. A new halt reason, an exit code given another meaning or changed flag text listed there can also be a breaking change that a fragment calls `fixed`.
+The preview prints the fragments added since the last stable tag (`git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*'`), any file in `changes/` to fix, the covered-surface changes against that tag from `tools/covered-surfaces.js` (hard, additive and review groups), the minimum bump with each reason for it, the version the dispatch will produce, the release gate's verdict for that bump, and the exact block the release will write. `node tools/release-state.js guard` gives the verdict of the step that runs before the gate on `main`, which refuses a `minor` or `major` while `main` carries an unpublished version (see [§ The release gate](#the-release-gate)); outside Actions it only prints. `node tools/check-required-checks.js --ruleset` gives the verdict of the check a `main` dispatch runs after its tests (see [§ The release gate](#the-release-gate)). Fix a missing or mistyped fragment by pull request, then preview again. Read the review group as well. It lists first any flag that left every flag row while its workflow's Markdown still names it: if the workflow no longer accepts that flag, add a `breaking` fragment that names it. A new halt reason, an exit code given another meaning or changed flag text listed there can also be a breaking change that a fragment calls `fixed`.
 
 Each pull request brings its own fragments, so the preview normally finds nothing missing: the required `em-dash` check runs `npm run changes:pr` on every pull request (see [CONTRIBUTING.md](../../CONTRIBUTING.md#the-pull-request-check)). It fails a pull request that changes the code the package ships (`src/`, `tools/cli/`, `tools/skf-npx-wrapper.js`) or `.npmignore` with no fragment of its own and no `Changelog: none (<reason>)` line in a commit message, one that removes a covered item no `breaking` fragment on it names, one that adds a covered item no `added` or `breaking` fragment on it covers, and one whose fragments are invalid or edit, rename or copy a released one. A pending fragment a pull request only edits counts only for the covered items it names in backticks. It compares each branch with its own merge base, not with the last stable tag, so the preview and the gate stay the check of the release as a whole: a pull request merged before the check existed, a `Changelog: none` line that was wrong (one line covers a whole branch), a user-visible change in what the check does not read (`package.json`, such as a raised `engines.node` floor or a new runtime dependency, `README.md` or the shipped `docs/`), and a change that a halt reason or a changed flag text reveals only in the review group are theirs to catch. The bot PR is exempt: its branch is `release/bot/*` of this repository, and its checks run through `workflow_dispatch`, where the step does not run, so a dispatch run's `em-dash` success does not include this check.
 
@@ -229,6 +243,8 @@ Keep `## [Unreleased]` in `CHANGELOG.md` empty. The release inserts the new bloc
 - a prerelease cannot reach the minimum (see the next section).
 
 A refused run has committed and pushed nothing: fix the fragments by pull request and dispatch again. There is no override. If the surface diff is wrong, fix `tools/covered-surfaces.js` and its tests.
+
+After `Run tests and validation`, a dispatch from `main` runs `Check the required checks against the ruleset` (`node tools/check-required-checks.js --ruleset`) before `Bump version`. It stops the run, with nothing committed or pushed, when the live `Default` ruleset requires a check that no job of `quality.yaml` reports, or does not require one that a job reports, and names each one. Without it, a run whose ruleset requires a check that no job reports would push the release commit and open the bot PR, then wait for that check until the `Wait for required status checks` step times out. Bring the ruleset or `quality.yaml` back in step ([§ Branch Protection on `main`](#branch-protection-on-main)) and dispatch again. A prerelease from another branch opens no bot PR and skips the check.
 
 After the tests, the `Write release notes and CHANGELOG.md` step renders the same fragments. A stable release adds the block under `## [Unreleased]` in `CHANGELOG.md`, leaving every older release byte-identical, and every release writes `release_notes.md` (the GitHub Release body) and `release_review.md` (the **Review before approving** section of the bot PR: a checklist, why the minimum is what it is, the covered-surface changes and the notes). At gate 2, read that section and the `CHANGELOG.md` diff before approving. The same section is added to the run summary: a prerelease cut from a feature branch has no bot PR and so no gate 2, and the summary is the only place its review is shown, after the release is published.
 

@@ -56,6 +56,7 @@ Write no em dashes (U+2014) in anything you add, including commit messages: use 
 1. Edit `src/shared/tool-requirements.yaml`, not the table.
 2. Run `node tools/tool-requirements.js --write` to regenerate the table.
 3. Run `npm run validate:tool-requirements` (`node tools/tool-requirements.js --check`). It names the file and line of every copy that no longer agrees with the list: the Node.js and Python minimums in `README.md` (its install line and Python badge), `docs/` and this file, `engines.node` in `package.json`, `.nvmrc`, the `node-version` and `python-version` values in `.github/workflows/`, the `ast-grep-cli==` pin in `test:python`, and the README Acknowledgements rows. Fix those copies by hand.
+4. Add a change fragment when a `minimum` changes, as [Which type](changes/README.md#which-type) in `changes/README.md` says. Raising a minimum, or giving a tool its first one, needs a `breaking` fragment that names the tool by its `name` in backticks, such as `ast-grep`: `npm run changes:pr` refuses the branch without one. Lowering or removing a minimum needs an `added` fragment (or a `breaking` one): the check takes no other type for it. A change to `tested` alone is no covered item, but the file ships, so the branch still needs a fragment or a `Changelog: none (<reason>)` line (see [The pull request check](#the-pull-request-check)).
 
 ## Workflow for Changes
 
@@ -118,8 +119,8 @@ Write flags, statuses, codes and file names in backticks: a release that removes
 The required `em-dash` check runs `npm run changes:pr` on every pull request. It compares your branch, from its merge base with the base branch to `HEAD`, and fails when:
 
 - the branch changes the code the npm package ships (anything under `src/` or `tools/cli/`, and `tools/skf-npx-wrapper.js`) or `.npmignore`, which decides what ships, and has no change fragment of its own;
-- a covered item the branch removes (a schema enum value or property, a Ferris menu code, a pipeline alias or a flag) is not named in backticks by a `breaking` fragment on the branch;
-- a covered item the branch adds (one of those, a preference key or an exit code) has no `added` or `breaking` fragment on the branch;
+- a covered item the branch removes (a schema enum value or property, a Ferris menu code, a pipeline alias or a flag), or a tool minimum it raises or gives a tool for the first time, is not named in backticks by a `breaking` fragment on the branch (a tool by its `name`);
+- a covered item the branch adds (one of those, a preference key or an exit code), or a tool minimum it lowers or removes, has no `added` or `breaking` fragment on the branch;
 - a fragment the branch adds or edits is not valid, or the branch edits, renames or copies a fragment an earlier release shipped.
 
 A fragment on the branch is one it adds. A fragment it edits that no release has shipped yet, such as another pull request's pending one, counts only for the covered items it names in backticks: a follow-up that removes a flag can name it in the pending `breaking` fragment it extends, and then needs no other fragment, but an edit that names none of the branch's covered items never stands in for a fragment of its own.

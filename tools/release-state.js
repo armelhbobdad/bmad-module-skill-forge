@@ -293,7 +293,11 @@ function ghJson(io, what, args, valid) {
   });
 }
 
-/** The required status checks of the Default ruleset, found by name as the Wait for required status checks step does. */
+/**
+ * The required status checks of the Default ruleset, found by name as the
+ * Wait for required status checks step does. tools/check-required-checks.js
+ * compares them with the jobs of quality.yaml before a release bumps.
+ */
 function requiredContexts(io, repo) {
   const rulesets = ghJson(io, `Listing the rulesets of ${repo}`, ['api', `repos/${repo}/rulesets`], Array.isArray);
   const ruleset = rulesets.find((candidate) => candidate && candidate.name === 'Default');
@@ -769,11 +773,13 @@ module.exports = {
   checksNotGreen,
   decideGuard,
   decideResume,
+  defaultIo,
   gatherGuard,
   gatherResume,
   main,
   notesDate,
   passesMinor,
   releaseCommit,
+  requiredContexts,
   resumeOutputs,
 };
