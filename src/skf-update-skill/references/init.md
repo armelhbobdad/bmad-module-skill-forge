@@ -6,10 +6,12 @@ manualSectionRulesFile: 'references/manual-section-rules.md'
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
-# Resolve `{skillInventoryHelper}` to the first existing path. §1 step 4 runs
-# it with `--skill` before a flat skill moves: only a flat skill whose
-# metadata.json carries an SKF marker (`flat_skf`) is migrated. If neither
-# exists, §6c records no source version.
+# Resolve `{skillInventoryHelper}` to the first existing path. §1 lists the
+# skills SKF generated when the invocation names none (interactive only), and
+# step 4 runs it with `--skill` before a flat skill moves: only a flat skill
+# whose metadata.json carries an SKF marker (`flat_skf`) is migrated. If
+# neither exists, §1 shows its prompt without the list and §6c records no
+# source version.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
@@ -41,12 +43,33 @@ Load the existing skill and all its provenance data, detect whether this is an i
 
 ## Rules
 
-- Focus only on loading existing artifacts and establishing the baseline — read-only operations, except the flat-to-versioned migration in §1 and the private source tree §6b prepares (a folder of this run's own, never the shared workspace clone)
+- Focus only on loading existing artifacts and establishing the baseline: read-only operations, except the flat-to-versioned migration in §1, the cleanup of an interrupted update §1b finds, and the private source tree §6b prepares (a folder of this run's own, never the shared workspace clone)
 - Do not begin change detection (Step 02)
 
 ## Steps
 
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved.
+
+```bash
+uv run {runStateHelper} halt --run-dir "{run_dir}" \
+    [--tree "{source_tree}"] \
+    [--lock "{forge_data_folder}/{skill_name}/.skf-update.lock" --owner "{lock_owner}"] \
+    [--emit] <<'SKF_JSON'
+{"status": "<status>", "phase": "<phase>", "path": "<path; leave the key out when the halt names none>", "reason": "<reason>", "skill_name": "<{skill_name}, or unknown before §1 resolves it>", "version": "<the metadata.json version, or unknown before §2 reads it>", "previous_version": "<the same>", "update_mode": "<normal, gap-driven or degraded; normal before §1 decides>"}
+SKF_JSON
+```
+
+Pass `--tree` once §6b has bound `{source_tree}`, `--lock` and `--owner` once §1b has bound `{lock_owner}`, and `--emit` in `{headless_mode}`. It removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. The emitter adds `files_written: []`. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "init:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
+
+The halt leaves `{run_dir}` in place. No HALT in this step adds a `headless_decisions[]` entry: a halt is not an auto-resolved gate.
+
 ### 1. Request Skill Path
+
+**The invocation's skill.** When `{requested_skill}` is set (SKILL.md On Activation), it answers the question below in either mode, and the prompt is not shown.
+
+**No skill passed, interactive:** offer the skills SKF generated. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and, from `{project-root}`, run `uv run {skillInventoryHelper} "{skills_output_folder}"`. Above the prompt, list, numbered, the `name` and `active_version` of each `skills[]` entry whose `skf_skill` is true; a number answers with that skill's name. When no candidate resolves, the command fails or prints no JSON, or no entry qualifies, show the prompt alone.
+
+**No skill passed, headless:** there is no one to answer, and update-skill never guesses a skill. HALT (halt procedure: `status: "blocked"`, `phase: "init:skill-name"`, `path: "{skills_output_folder}"`, `reason: "input-missing: a headless run needs the skill's name or folder path as its argument"`) and display "**No skill to update.** A headless run takes the skill's name or folder path as its argument, for example `@Ferris US <skill> --headless`."
 
 "**Which skill would you like to update?**
 
@@ -60,7 +83,7 @@ Provide either:
 - `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
 - `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact, and a re-extract halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it
 
-**Skill:** {user provides path or name}"
+**Skill:** {user provides a number from the list, a name or a path}"
 
 **Version-Aware Path Resolution:**
 1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
@@ -68,8 +91,8 @@ Provide either:
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — bind `{active_version}` to the version it names and resolve to `{skill_group}/active/{skill-name}/`
 4. If neither: fall back to the flat path `{skills_output_folder}/{skill-name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
    - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
-   - **`{group_flat_skf}` is true:** if the invocation carries `--detect-only` or `--dry-run` (read them from the invocation here; the flag handling below comes later), do not migrate and HALT: those modes never move a skill, and every later step reads the versioned forge workspace, which a flat skill does not have yet. Display "**`{skill-name}` still uses the flat layout — nothing was moved.** `--detect-only` and `--dry-run` never migrate a skill, and they need the versioned layout. Run `@Ferris US {skill-name}` once without them, or AS, TS or EX, to move it into that layout, then re-run with the flag." This runs before the §1b lock, so there is no lock to release. In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `version` and `previous_version` = `"unknown"`, `update_mode: "normal"`, `files_written: []`, `error: {phase: "init:read-only-flat-layout", path: "{skills_output_folder}/{skill-name}/", reason: "flat-layout: read-only modes never migrate a skill; run once without --detect-only or --dry-run"}`, and exit. No `headless_decisions[]` entry. Otherwise auto-migrate per `knowledge/version-paths.md` migration rules.
-   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output — nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or update it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. This runs before the §1b lock, so there is no lock to release. In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `version` and `previous_version` = `"unknown"`, `update_mode: "normal"`, `files_written: []`, `error: {phase: "init:ownership-gate", path: "{skills_output_folder}/{skill-name}/", reason: "not-skf-output: {the reason the message shows}"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
+   - **`{group_flat_skf}` is true:** if the invocation carries `--detect-only` or `--dry-run` (read them from the invocation here; the flag handling below comes later), do not migrate and HALT: those modes never move a skill, and every later step reads the versioned forge workspace, which a flat skill does not have yet. Display "**`{skill-name}` still uses the flat layout: nothing was moved.** `--detect-only` and `--dry-run` never migrate a skill, and they need the versioned layout. Run `@Ferris US {skill-name}` once without them, or AS, TS or EX, to move it into that layout, then re-run with the flag." This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:read-only-flat-layout"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "flat-layout: read-only modes never migrate a skill; run once without --detect-only or --dry-run"`, with `version` and `previous_version` `"unknown"`. Otherwise auto-migrate per `knowledge/version-paths.md` migration rules.
+   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output: nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or update it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:ownership-gate"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "not-skf-output: {the reason the message shows}"`, with `version` and `previous_version` `"unknown"`.
 5. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
 6. Bind `{baseline_version}` to the pre-update version — for an update this is the version being updated, i.e. the `{active_version}` steps 1–3 resolved (the flat-path fallback in step 4 has no version, so use the package version read from metadata.json in §2). Step 2 §1c passes `{baseline_version}` to `skf-provenance-gap-dispatch.py` as a required argument; leaving it unbound makes the helper search a wrong/empty directory and silently return `no-report`, dropping the major-version off-ramp.
 
@@ -97,7 +120,7 @@ Pass `--version` only when steps 1-3 above bound `{active_version}` (the flat fa
 
 **If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes, jump directly to step 7 (report) — skip re-extract, merge, validate, and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before §0.a runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only` — workspace drift guard runs in step 3 §0.a, which is skipped").
 
-**If `--dry-run` was provided:** set `dry_run_mode: true` in workflow context. After step 3 (re-extract) completes, jump directly to step 7 (report) — skip merge, validate, and write. The report emits what would change with `status: "dry-run"` in the envelope. No artifact on disk is modified — `--dry-run` is the "show me what an update would do without committing" mode.
+**If `--dry-run` was provided:** set `dry_run_mode: true` in workflow context. After step 3 (re-extract) completes, jump directly to step 7 (report): skip merge, validate, and write. The report emits what would change with `status: "dry-run"` in the envelope. No artifact on disk is modified, in any mode (a repair from a test report and a docs-only skill included), and step 2 reports each skill brief amendment it would make as proposed instead of writing it: `--dry-run` is the "show me what an update would do without committing" mode.
 
 **If BOTH `--detect-only` AND `--dry-run` were provided:** `--detect-only` wins (it's the more restrictive). Warn the user once: "`--detect-only` supersedes `--dry-run`; re-extract is skipped." Set `detect_only_mode: true`, ignore `dry_run_mode`.
 
@@ -107,45 +130,49 @@ Pass `--version` only when steps 1-3 above bound `{active_version}` (the flat fa
 
 Two concurrent `skf-update-skill` runs against the same `{forge_data_folder}/{skill_name}/` can corrupt provenance: one would write metadata.json mid-way through the other's extraction. The run lock is separate from the `.skf-workspace.lock` on the source clone, which only write.md §6b takes.
 
-Resolve `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`; it stays bound for the rest of the run. From `{project-root}`, run:
+Resolve `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`; it stays bound for the rest of the run. The lock's owner carries this run's `{run_id}`, the name of its run folder, so a later update that finds the lock stale knows which run folder holds what this run wrote. From `{project-root}`, run:
 
 ```bash
 uv run {runLockHelper} acquire \
     --lock "{forge_data_folder}/{skill_name}/.skf-update.lock" \
-    --owner "update-skill:{skill_name}" \
+    --owner "update-skill:{skill_name}:{run_id}" \
     --stale-after 60
 ```
 
 It prints one JSON line. Dispatch on its exit code:
 
-- **0** (`acquired` true): bind `{lock_owner}` ← `owner`, the owner with its run id; every renewal and release passes that value. When `stale_replaced` is not null, this run replaced a stale lock, left by a run that stopped without releasing it or held by one still waiting at a gate, whose renewal will then halt. Display the helper's `message` and add `run-lock-replaced: {stale_replaced.held_by} since {stale_replaced.held_since}` to `warnings[]` (`an unnamed owner` in place of a null `held_by`, as in a lock file an older SKF version wrote).
-- **3** (`acquired` false): another run holds a fresh lock. HALT: display "**Another update of {skill_name} is in progress.** {message}", with the helper's `message`, which names that run, the lock file to delete when no update of the skill is running and when the lock goes stale. In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "halted-for-concurrent-run"`, `version` and `previous_version` = `"unknown"` (§2 reads metadata.json later), `update_mode` from this run, `files_written: []`, `error: {phase: "init:concurrency-guard", path: "{forge_data_folder}/{skill_name}/.skf-update.lock", reason: "another update in progress: {message}"}`, and exit. This run took no lock, so it releases none. **No `headless_decisions[]` entry**: this is a hard halt before any gate fires.
-- **No candidate resolves, any other exit, or no JSON:** HALT with status `blocked`: display "**The run lock could not be taken:** {the `message` the helper printed on stderr, or 'skf-run-lock.py is missing; re-install SKF'}". In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with the fields above and `error: {phase: "init:concurrency-guard", path: "{forge_data_folder}/{skill_name}/.skf-update.lock", reason: "run-lock-failed: {that message}"}`, and exit. No lock was taken, so none is released.
+- **0** (`acquired` true): bind `{lock_owner}` ← `owner`; every renewal and release passes that value. When `stale_replaced` is not null, this run replaced a stale lock, left by a run that stopped without releasing it or held by one still waiting at a gate, whose renewal will then halt. Display the helper's `message` and add `run-lock-replaced: {stale_replaced.held_by} since {stale_replaced.held_since}` to `warnings[]` (`an unnamed owner` in place of a null `held_by`, as in a lock file an older SKF version wrote), then clean up after it as below.
+- **3** (`acquired` false): another run holds a fresh lock. HALT (halt procedure: `status: "halted-for-concurrent-run"`, `phase: "init:concurrency-guard"`, `path: "{forge_data_folder}/{skill_name}/.skf-update.lock"`, `reason: "another update in progress: {message}"`, with `version` and `previous_version` `"unknown"`, since §2 reads metadata.json later) and display "**Another update of {skill_name} is in progress.** {message}", with the helper's `message`, which names that run, the lock file to delete when no update of the skill is running and when the lock goes stale. This run took no lock, so it releases none.
+- **No candidate resolves, any other exit, or no JSON:** HALT (halt procedure: `status: "blocked"`, `phase: "init:concurrency-guard"`, `path: "{forge_data_folder}/{skill_name}/.skf-update.lock"`, `reason: "run-lock-failed: {that message}"`) and display "**The run lock could not be taken:** {the `message` the helper printed on stderr, or 'skf-run-lock.py is missing; re-install SKF'}". No lock was taken, so none is released.
+
+**Clean up an interrupted update.** When `stale_replaced.held_by` is not null, the update that held the lock may have stopped without finishing (a crash, a killed session, or a wait at a gate past the stale time) and left what it was writing half done: a gap-driven repair's package edited in place, or a new version folder the `active` link never reached. Undo it now, rather than stopping later at "version already exists". From `{project-root}`, run the helper SKILL.md On Activation resolved, with that owner exactly as the acquire printed it:
+
+```bash
+uv run {runStateHelper} rollback \
+    --run-root "{project-root}/_bmad-output/.skf-run" \
+    --owner "{stale_replaced.held_by}" \
+    --skill "{skill_name}" \
+    --remove-run-dir
+```
+
+It finds that run's folder by the run id in the owner (`update-skill:{skill_name}:<run id>`), reads what the run recorded before its first write, restores a repair's package (with the version's provenance map, evidence report and skill brief) from the snapshot it took, removes the version folders it created (never one the `active` link names), and deletes its run folder (only a `.skf-run/skf-update-skill-<run id>` folder: it refuses a run id that would lead anywhere else); a run that finished its writes, or never began them, needs nothing undone. An owner of another skill or workflow, or one with no run id (an older SKF's lock), has no run folder: `status` `no-run-folder`, and nothing to report. On exit 0 with any other `status`, add `interrupted-run-cleaned: {stale_replaced.held_by}: {status}; restored {restored}; removed {removed}` to `warnings[]` and tell the user in one line what was put back. On any other exit, or no JSON, add `interrupted-run-not-cleaned: {stale_replaced.held_by}: {its failed[] or message}` and go on: a version folder it left then stops step 4 §6b, whose message says which folders to delete.
 
 **Release contract:**
 
-- Every exit after this section releases the lock, so a run that halts does not block the next one: step 8 on the normal path, every later step's halts per SKILL.md's Workflow Rules, and in this step §2's and §3's ABORTs, the Stack Skill Guard, the headless halts of §4 and §6 and the §6b source tree halts, each of which first runs, from `{project-root}`:
-
-  ```bash
-  uv run {runLockHelper} release \
-      --lock "{forge_data_folder}/{skill_name}/.skf-update.lock" \
-      --owner "{lock_owner}"
-  ```
-
-  It never stops on the result: when the command fails or prints no JSON, it adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to the `warnings[]` of the envelope it emits. A release deletes the lock only while `{lock_owner}` holds it, so it never removes a lock another run took; the read-only modes take no lock and release none.
+- Every exit after this section releases the lock, so a run that halts does not block the next one: step 8 on a run that reaches it, and every other exit through the halt procedure of the step file it fires in: in this step §2's ABORTs, the Stack Skill Guard, §3, the §4 and §6 halts and the §6b source tree halts, and every later step's halts through their own. The release never stops on the result: when it fails or prints no JSON, the halt helper adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to its envelope's `warnings[]`. A release deletes the lock only while `{lock_owner}` holds it, so it never removes a lock another run took; the read-only modes take no lock and release none.
 - A crashed or killed run leaves its lock until it goes stale. A run that waits at a gate past that time can lose its lock to the next update, so merge.md §6b and write.md §2 renew the lock before the run writes the skill, and halt `halted-for-concurrent-run` when this run no longer holds it.
-- The private source tree §6b prepares has its own contract: step 8 removes it, every HALT or ABORT after §6b removes it first (SKILL.md Workflow Rules), and a later run's §6b removes a tree a crashed or abandoned run left behind once it is seven days old.
+- The private source tree §6b prepares has its own contract: step 8 removes it, every HALT or ABORT after §6b removes it first (the halt procedure of its step file), and a later run's §6b removes a tree a crashed or abandoned run left behind once it is seven days old.
 
 ### 2. Validate Required Artifacts
 
 **Check SKILL.md exists:**
 - Load `{resolved_skill_package}/SKILL.md`
-- If missing: **ABORT** — "No SKILL.md found at `{resolved_skill_package}`. Run create-skill first."
+- If missing: HALT (halt procedure: `status: "blocked"`, `phase: "init:validate-artifacts"`, `path: "{resolved_skill_package}/SKILL.md"`, `reason: "no SKILL.md in the skill package"`): "No SKILL.md found at `{resolved_skill_package}`. Run create-skill first."
 
 **Check metadata.json exists:**
 - Load `{resolved_skill_package}/metadata.json`
 - Extract: `name`, `skill_type` (single or stack), `version`, `generation_date`, `confidence_tier`, `source_type`, `scope_type` and `language` (when present), `source_repo`, `source_root`, `source_ref`, `source_commit`
-- If missing: **ABORT** — "No metadata.json found. This skill may have been created manually. Run create-skill to generate provenance data."
+- If missing: HALT (halt procedure: `status: "blocked"`, `phase: "init:validate-artifacts"`, `path: "{resolved_skill_package}/metadata.json"`, `reason: "no metadata.json in the skill package"`): "No metadata.json found. This skill may have been created manually. Run create-skill to generate provenance data."
 
 **Detect skill type from metadata:**
 - If `skill_type == "single"` or absent: flag as single skill
@@ -160,7 +187,7 @@ After loading metadata.json, check `skill_type`:
   **To update this stack skill**, run `skf-create-stack-skill` with the same project path. It will re-analyze manifests (code-mode) or re-read constituent skills (compose-mode) and produce an updated stack.
   
   If you came here from an audit report, the drift report identifies which constituent libraries changed — use that to decide whether re-composition is needed."
-- Exit the workflow (do not proceed to step 2)
+- Then HALT (halt procedure: `status: "blocked"`, `phase: "init:stack-skill-guard"`, `path: "{resolved_skill_package}"`, `reason: "stack-skill: a stack skill is re-composed with skf-create-stack-skill, never updated"`): the redirect ends the run, and step 2 never runs
 
 **This guard is the single gate for stack skills** — every stack is redirected to `skf-create-stack-skill` here, before step 2, and no flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses it. Every later stage therefore runs against a single skill only and carries no stack-merge branch.
 
@@ -168,21 +195,19 @@ After loading metadata.json, check `skill_type`:
 
 **Load `{sidecar_path}/forge-tier.yaml`:**
 - Extract: `tier` (Quick, Forge, Forge+, or Deep), available tools
-- If missing: **ABORT** — "No forge-tier.yaml found. Run setup first to detect available tools."
+- If missing: HALT (halt procedure: `status: "blocked"`, `phase: "init:forge-tier"`, `path: "{sidecar_path}/forge-tier.yaml"`, `reason: "no forge-tier.yaml; run setup first"`): "No forge-tier.yaml found. Run setup first to detect available tools."
 
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
 
 **Determine analysis capabilities:**
 - **Quick:** text pattern matching only → T1-low confidence
 - **Forge:** AST structural extraction → T1 for each export an ast-grep rule matches, T1-low for each export read by eye
-- **Forge+:** AST structural extraction + CCC semantic ranking → the same labels as Forge (with ccc signals)
+- **Forge+:** AST structural extraction, plus a CCC check of rename candidates in a local source (step 2 Category C) → the same labels as Forge
 - **Deep:** AST + QMD semantic enrichment → the same labels as Forge, plus T2
 
 ### 4. Load Provenance Map
 
-**Load `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path it loaded, which step 2's helpers read:
-- Extract: export list, file mappings, extraction timestamps, confidence tiers
-- Calculate provenance age (days since last extraction)
+**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path found. Do not load the map into context: the steps that need it read the file themselves (step 2's helpers, step 3's spot-checks and step 6's `apply`). Read from it only what §7 shows: the number of `entries[]` (`{export_count}`) and the provenance age, the days since its `last_update`, else its `generated_at`.
 
 **If provenance map missing at both paths:**
 
@@ -196,11 +221,19 @@ Without a provenance map, update-skill cannot perform targeted change detection.
 Select: [D] Degraded / [X] Abort"
 
 - If D: set `degraded_mode = true`, proceed with full extraction scope
-- If X: **ABORT**
+- If X: HALT (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "no provenance map; the user chose to run create-skill first"`)
 
-**In `{headless_mode}` without `--allow-degraded` (default):** do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction: choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. Halt instead: run §1b's release (the read-only modes took no lock), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:load-provenance-map", path: "{forge_version}/provenance-map.json", reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"}`, and exit. No `headless_decisions[]` entry: this is a hard halt, not an auto-resolved gate.
+**In `{headless_mode}` without `--allow-degraded` (default):** do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction: choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. HALT instead (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"`).
 
-**In `{headless_mode}` with `--allow-degraded` (`allow_degraded: true`):** the operator pre-authorized the lossy rebuild for this run, so treat it as an auto-resolved [D] rather than a halt. Set `degraded_mode = true`, proceed with full extraction scope, and append to in-context `headless_decisions[]`: `{gate: "init.degraded-rebuild", default_action: "X", taken_action: "D", reason: "headless: --allow-degraded pre-authorized degraded full re-extraction", evidence: "no provenance map at {forge_version}/provenance-map.json or flat fallback"}`. Continue to step 2.
+**In `{headless_mode}` with `--allow-degraded` (`allow_degraded: true`):** the operator pre-authorized the lossy rebuild for this run, so treat it as an auto-resolved [D] rather than a halt. Set `degraded_mode = true`, proceed with full extraction scope, and record the decision in the run's decision log, from `{project-root}`:
+
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+{"gate": "init.degraded-rebuild", "default_action": "X", "taken_action": "D", "reason": "headless: --allow-degraded pre-authorized degraded full re-extraction", "evidence": {"provenance_map": "<{forge_version}/provenance-map.json, with / separators>", "flat_fallback": "missing"}}
+SKF_JSON
+```
+
+Continue to step 2.
 
 ### 4b. Offer an Unconsumed Test Report
 
@@ -262,13 +295,13 @@ Provide the current source code path:
 
 Bind `{source_root}` to the path the user gives.
 
-**In `{headless_mode}`:** there is no operator to supply a path. Halt: run §1b's release (the read-only modes took no lock), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:resolve-source-path", path: "{source_root}", reason: "source_root from metadata.json is invalid or inaccessible and no interactive path can be supplied"}`, and exit. No `headless_decisions[]` entry: this is a hard halt, not an auto-resolved gate.
+**In `{headless_mode}`:** there is no operator to supply a path. HALT (halt procedure: `status: "blocked"`, `phase: "init:resolve-source-path"`, `path: "{source_root}"`, `reason: "source_root from metadata.json is invalid or inaccessible and no interactive path can be supplied"`).
 
 ### 6b. Prepare the Source Tree
 
 A skill forged from a remote repository at Forge tier or above records, as its `source_root`, the clone SKF keeps for that repository. Every SKF run on the repository shares that clone and leaves it at the commit it needed, so this run never reads it as it stands. `{sourceTreeHelper}` gives the run a private tree at one commit — the commit `{source_ref}` points to upstream now, or the tag, branch, `HEAD` or commit `--target-ref` names — and lists the files git changed between `{source_commit}` and that commit. Change detection, re-extraction, merge's file copies and write's citation check all read that tree. The helper never writes to the shared clone — step 6 moves the clone at the end of a real update — so this section runs in every mode.
 
-Resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`; it stays bound for the rest of the run (every later HALT and step 8 use it). Bind `{tree_timeout}` to the seconds the helper may take: `100` when your shell tool stops a command after two minutes or you do not know its limit, otherwise a little under that limit, such as `540` under a 10-minute limit — a first fetch of a large repository is slow. The helper stops itself within `--timeout` seconds and still prints its result, so give the command a shell timeout longer than `{tree_timeout}`. From `{project-root}`, run:
+Resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`. Bind `{tree_timeout}` to the seconds the helper may take: `100` when your shell tool stops a command after two minutes or you do not know its limit, otherwise a little under that limit, such as `540` under a 10-minute limit: a first fetch of a large repository is slow. The helper stops itself within `--timeout` seconds and still prints its result, so give the command a shell timeout longer than `{tree_timeout}`. From `{project-root}`, run:
 
 ```bash
 uv run {sourceTreeHelper} open \
@@ -299,7 +332,7 @@ Dispatch on `{source_tree_status}`:
 - **`unavailable`** (exit 3): no commit to read could be obtained (`{source_tree_reason}` is `invalid-ref`, `git-unavailable`, `upstream-unreachable`, `ref-not-found`, `fetch-failed`, `checkout-failed`, `tree-folder-failed` or `timed-out`). When it is `timed-out` and your shell tool allows a command longer than `{tree_timeout}` seconds, raise `{tree_timeout}` toward that limit, run the command once more and dispatch on that result. Otherwise HALT before any step reads source; display `{source_tree_message}`. The helper leaves no tree behind.
 - **No candidate resolves, or the command exits 1 or 2, or prints no JSON:** HALT with `{source_tree_reason}` = `helper-failed` and `{source_tree_message}` = "skf-source-tree.py did not finish: {the first stderr line; 'the shell stopped it before it printed a result' when your shell tool's timeout ended it; or 'it is missing; re-install SKF'}". A tree a stopped run left behind is removed by a later run once it is seven days old. Reading the shared clone as it stands is what this section exists to prevent.
 
-**Every §6b HALT:** run §1b's release (the read-only modes took no lock). In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `version` and `previous_version` = the metadata.json `version`, `update_mode` from this run, `files_written: []`, `error: {phase: "init:source-tree", path: "{source_repo}", reason: "{source_tree_reason}: {source_tree_message}"}`, and exit. No `headless_decisions[]` entry: this is a hard halt, not an auto-resolved gate.
+**Every §6b HALT** runs the halt procedure with `status: "blocked"`, `phase: "init:source-tree"`, `path: "{source_repo}"`, `reason: "{source_tree_reason}: {source_tree_message}"`, and `version` and `previous_version` the metadata.json `version`. No `headless_decisions[]` entry: this is a hard halt, not an auto-resolved gate.
 
 ### 6c. Detect the Source Version
 
@@ -354,5 +387,11 @@ Steps 6 and 7 reuse `{source_display}` and `{source_commit_line}`.
 
 Present "**Select:** [C] Continue to Change Detection" and wait for the user to confirm; on [C], load, read the full file, then execute {nextStepFile}.
 
-**Headless (`{headless_mode}` true):** auto-continue and append to in-context `headless_decisions[]` (step 7 surfaces it in `SKF_UPDATE_RESULT_JSON`): `{gate: "init.update-confirmation", default_action: "C", taken_action: "C", reason: "headless: no user to prompt"}`. Entry shape: `src/shared/scripts/schemas/skf-update-result-envelope.v1.json`.
+**Headless (`{headless_mode}` true):** auto-continue and record the decision in the run's decision log, from `{project-root}` (the emitter checks it against `shared/scripts/schemas/skf-update-result-envelope.v1.json`, and step 7's line carries it):
+
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
+{"gate": "init.update-confirmation", "default_action": "C", "taken_action": "C", "reason": "headless: no user to prompt"}
+SKF_JSON
+```
 

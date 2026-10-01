@@ -47,6 +47,6 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
    - `refused`: run the command once more with `--tree` set to the exact `tree` value `open` printed, and bind its result the same way.
    - `left`, `refused` again, or the command fails or prints no JSON: tell the user in one line "The private source tree {source_tree} was not removed ({source_tree_close}, {source_tree_close_warnings}); a later update removes it once it is seven days old.", then continue.
 
-1c. **Remove this update's run folder** `{run_dir}`, which step 2 created, in every mode (`--detect-only` and `--dry-run` included), when `{run_dir}` is bound: from `{project-root}`, run `rm -rf "{run_dir}"`. It holds only the helper files steps 2 and 3 passed between them. When it fails, tell the user in one line "The run folder {run_dir} was not removed; delete it.", then continue.
+1c. **Remove this update's run folder** `{run_dir}` in every mode (`--detect-only` and `--dry-run` included), when `{run_dir}` is bound: from `{project-root}`, run `rm -rf "{run_dir}"`. It holds this run's state, its decision log and warnings (step 7 listed the warnings in a read-only run's report, a headless run's line carried both, and a finished run's result files hold both), and the helper files steps 2 to 6 passed between them; write.md §6a already dropped the snapshot a gap-driven repair took. When it fails, tell the user in one line "The run folder {run_dir} was not removed; delete it.", then continue.
 
 2. Load `{nextStepFile}`, read it fully, then execute it.

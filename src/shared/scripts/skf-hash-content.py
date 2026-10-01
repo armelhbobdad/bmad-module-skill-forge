@@ -82,6 +82,30 @@ Subcommands:
       The inventory may be the object emitted by `manual-inventory` OR a bare
       `blocks[]` array (handles both shapes).
 
+  manual-inventory-amend --inventory <inventory.json> --plan <plan.json>
+                         --output <amended-inventory.json>
+      Apply the user's [MANUAL] conflict decisions to a captured inventory,
+      so the post-merge check verifies what the user approved instead of
+      the pre-merge blocks. The plan is
+        {"decisions": [
+          {"name": "...", "action": "keep" | "remove" | "edit",
+           "content_file": "<path>" | "content": "<text>"}, ...]}
+      `remove` (an [R]emove or an orphan the user removed) drops every
+      block of that name; `edit` (an [E]dit) rehashes the one block of that
+      name from the approved interior: the bytes of `content_file` (a path
+      relative to the plan's folder, or absolute), or `content` encoded as
+      UTF-8, exactly the bytes the merged file holds between the markers,
+      newlines included. `keep` and a block the plan does not name stay as
+      captured. Writes the amended inventory ({blocks[], count}, the shape
+      `manual-inventory` emits) to --output through a temporary file and a
+      rename, then prints
+        {"output": "...", "count": N, "removed": [names],
+         "edited": [names], "kept": [names]}
+      A plan with no decisions copies the inventory. A plan that names a
+      block the inventory does not hold, decides one name twice, edits a
+      name that several blocks share, or gives an edit no content (or both
+      forms) is refused with exit 1 and nothing written.
+
   compare-constituent-hashes <provenance-map.json> [--skills-root <root>]
       Constituent-drift detection for compose-mode stack skills. Replaces the
       per-constituent read + SHA-256 + compare loop at
@@ -126,6 +150,8 @@ CLI examples:
       --provenance-map /path/to/provenance-map.json
   uv run skf-hash-content.py manual-inventory SKILL.md
   uv run skf-hash-content.py manual-verify --inventory inventory.json SKILL.md
+  uv run skf-hash-content.py manual-inventory-amend --inventory inventory.json \\
+      --plan manual-plan.json --output amended-inventory.json
 
 Exit codes:
   0  — operation succeeded (including: file in compare missing on disk, its
@@ -466,6 +492,102 @@ def manual_verify(inventory_path: Path, skill_md_path: Path) -> dict:
     return classify_manual_blocks(inv_blocks, cur_blocks)
 
 
+_PLAN_ACTIONS = ("keep", "remove", "edit")
+
+
+def _load_plan(plan_path: Path) -> list[dict]:
+    """The decisions[] of a manual plan. Raises ValueError on malformed input."""
+    try:
+        data = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ValueError(f"failed to read plan file {plan_path}: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("decisions"), list):
+        raise ValueError(f"plan file {plan_path} must be an object with a `decisions` array")
+    decisions = data["decisions"]
+    for d in decisions:
+        if not isinstance(d, dict) or not isinstance(d.get("name"), str) or not d["name"].strip():
+            raise ValueError(f"every decision in {plan_path} needs a non-empty `name`: {d!r}")
+        if d.get("action") not in _PLAN_ACTIONS:
+            raise ValueError(f"decision for {d['name']!r}: `action` must be one of "
+                             f"{', '.join(_PLAN_ACTIONS)}, got {d.get('action')!r}")
+    return decisions
+
+
+def _edited_interior(decision: dict, plan_dir: Path) -> bytes:
+    """The approved interior bytes of an `edit` decision."""
+    has_file, has_text = "content_file" in decision, "content" in decision
+    if has_file == has_text:
+        raise ValueError(f"edit of {decision['name']!r} needs exactly one of `content_file` and `content`")
+    if has_text:
+        if not isinstance(decision["content"], str):
+            raise ValueError(f"edit of {decision['name']!r}: `content` must be a string")
+        return decision["content"].encode("utf-8")
+    raw = decision["content_file"]
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"edit of {decision['name']!r}: `content_file` must be a path")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = plan_dir / path
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"edit of {decision['name']!r}: cannot read {path}: {exc}") from exc
+
+
+def amend_inventory(inv_blocks: list[dict], decisions: list[dict], plan_dir: Path) -> tuple[list[dict], dict]:
+    """The inventory blocks with the plan's decisions applied, and what changed.
+
+    Pure apart from reading each edit's content file. Raises ValueError for
+    a plan the inventory cannot take (see the module docstring).
+    """
+    names = [b.get("name") for b in inv_blocks]
+    seen: set[str] = set()
+    by_name: dict[str, dict] = {}
+    for d in decisions:
+        name = d["name"]
+        if name in seen:
+            raise ValueError(f"the plan decides {name!r} twice")
+        seen.add(name)
+        if name not in names:
+            raise ValueError(f"the plan names {name!r}, which the inventory does not hold")
+        if d["action"] == "edit" and names.count(name) > 1:
+            raise ValueError(f"the plan edits {name!r}, which {names.count(name)} blocks share")
+        by_name[name] = d
+    out: list[dict] = []
+    for block in inv_blocks:
+        decision = by_name.get(block.get("name"))
+        if decision is None or decision["action"] == "keep":
+            out.append(dict(block))
+        elif decision["action"] == "edit":
+            out.append({**block, "content_hash": sha256_of_bytes(_edited_interior(decision, plan_dir))})
+    changes = {action: [d["name"] for d in decisions if d["action"] == key]
+               for action, key in (("removed", "remove"), ("edited", "edit"), ("kept", "keep"))}
+    return out, changes
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write `text` to `path` through a temporary file and one rename."""
+    tmp = path.with_name(f".{path.name}.skf-tmp")
+    try:
+        tmp.write_bytes(text.encode("utf-8"))
+        tmp.replace(path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def manual_inventory_amend(inventory_path: Path, plan_path: Path, output_path: Path) -> dict:
+    """Write the amended inventory to `output_path` and return the summary."""
+    inv_blocks = load_inventory_blocks(inventory_path)
+    decisions = _load_plan(plan_path)
+    blocks, changes = amend_inventory(inv_blocks, decisions, plan_path.parent)
+    _write_atomic(output_path, json.dumps({"blocks": blocks, "count": len(blocks)}, indent=2) + "\n")
+    return {"output": output_path.as_posix(), "count": len(blocks), **changes}
+
+
 # --------------------------------------------------------------------------
 # Constituent-hash comparison (compose-mode stack drift)
 # --------------------------------------------------------------------------
@@ -676,6 +798,28 @@ def _cmd_manual_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_manual_inventory_amend(args: argparse.Namespace) -> int:
+    inventory, plan, output = Path(args.inventory), Path(args.plan), Path(args.output)
+    for label, path in (("inventory", inventory), ("plan", plan)):
+        if not path.is_file():
+            print(f"error: {label} not found: {path}", file=sys.stderr)
+            return 1
+    if not output.parent.is_dir():
+        print(f"error: output folder not found: {output.parent}", file=sys.stderr)
+        return 1
+    try:
+        result = manual_inventory_amend(inventory, plan, output)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"error: cannot write {output}: {exc}", file=sys.stderr)
+        return 1
+    json.dump(result, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
 def _cmd_compare_constituents(args: argparse.Namespace) -> int:
     provenance = Path(args.provenance_map)
     skills_root = Path(args.skills_root)
@@ -741,6 +885,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="path to the manual-inventory JSON captured before the write",
     )
     p_ver.set_defaults(func=_cmd_manual_verify)
+
+    p_amend = sub.add_parser(
+        "manual-inventory-amend",
+        help="apply the user's [MANUAL] remove and edit decisions to a captured inventory",
+    )
+    p_amend.add_argument("--inventory", required=True, help="the manual-inventory JSON captured before the merge")
+    p_amend.add_argument("--plan", required=True, help="the plan JSON holding the user's decisions")
+    p_amend.add_argument("--output", required=True, help="where to write the amended inventory JSON")
+    p_amend.set_defaults(func=_cmd_manual_inventory_amend)
 
     p_con = sub.add_parser(
         "compare-constituent-hashes",

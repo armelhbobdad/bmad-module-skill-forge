@@ -1,7 +1,8 @@
 ---
 nextStepFile: 'write.md'
-# Resolve `{hashContentHelper}` to the first existing path; HALT if neither
-# candidate exists. Check B uses its `manual-verify` subcommand to verify the
+# `{hashContentHelper}`: the path merge.md §4 resolved, which halts when
+# neither candidate exists, so this step never halts on it. Check B uses its
+# `manual-verify` subcommand to verify the
 # merged (on-disk) SKILL.md against the byte-exact [MANUAL] inventory captured
 # in step 1 §5 — the deterministic replacement for the LLM byte-identity
 # eyeball, which could silently pass a subtly truncated block.
@@ -47,7 +48,7 @@ Skill-check requires written files on disk. This check is deferred to step 6 sec
 
 **Check B — [MANUAL] Section Integrity:**
 
-Run the deterministic [MANUAL]-integrity verifier against the step-1 §5 inventory — do not eyeball byte-identity (a subtly truncated block reads as intact to the eye):
+Run the deterministic [MANUAL]-integrity verifier against `{manual_inventory}`, the step-1 §5 inventory as step 4 §4 amended it with the user's [R]emove and [E]dit decisions (none when the merge was clean). Do not eyeball byte-identity (a subtly truncated block reads as intact to the eye):
 
 ```bash
 uv run {hashContentHelper} manual-verify {skill_package}/SKILL.md \
