@@ -23,25 +23,8 @@ It must be preserved during any update operation.
 ### Rules
 
 1. **Never delete or modify content between [MANUAL] markers without the user's merge §4 [R]emove or [E]dit decision**: treat it as immutable otherwise. The decision is recorded in the run's manual plan, and the post-merge check verifies the blocks against the inventory that plan amends
-2. **Preserve marker positions** — if the surrounding generated content moves, the [MANUAL] block moves with its logical parent section
-3. **Orphan detection** — if the parent section is deleted (export removed), flag as WARNING and present to user
-4. **Multiple [MANUAL] blocks** — a single SKILL.md may have multiple [MANUAL] sections; preserve all
-5. **Nested [MANUAL] forbidden** — [MANUAL] blocks cannot be nested; if detected, flag as ERROR
+2. **Preserve marker positions**: if the surrounding generated content moves, the [MANUAL] block moves with its logical parent section
+3. **Multiple [MANUAL] blocks**: a single SKILL.md may have multiple [MANUAL] sections; preserve all
+4. **Nested [MANUAL] forbidden**: [MANUAL] blocks cannot be nested; if detected, flag as ERROR
 
-### Conflict Types
-
-| Conflict                                       | Severity | Resolution                                            |
-|------------------------------------------------|----------|-------------------------------------------------------|
-| Regenerated content overlaps [MANUAL] position | HIGH     | Present both versions, user chooses                   |
-| Parent section deleted                         | WARNING  | Flag orphaned [MANUAL], user decides keep/remove      |
-| [MANUAL] references deleted export             | MEDIUM   | Flag stale reference, suggest update                  |
-| New export inserted adjacent to [MANUAL]       | LOW      | Auto-resolve: place new content before [MANUAL] block |
-
-### Preservation Algorithm
-
-1. Extract all [MANUAL] blocks with their section-name identifiers
-2. Map each block to its parent section (by heading hierarchy)
-3. Perform merge on generated content only
-4. Re-insert [MANUAL] blocks at their mapped positions
-5. If position conflict: halt and present to user
-6. If clean insert: auto-place and continue
+merge.md §3 and §4 name the conflicts (ORPHAN, STALE_REFERENCE, POSITION) and how each is resolved.

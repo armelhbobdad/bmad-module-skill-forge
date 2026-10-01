@@ -22,8 +22,8 @@ Two patterns recur across the update-skill workflow's stage prose:
   3. **[MANUAL]-section integrity** — the update-skill workflow's headline
      Workflow Rule is "[MANUAL] sections survive regeneration with zero
      content loss." init.md §5 captures a pre-write inventory of every
-     `<!-- [MANUAL:name] --> … <!-- [/MANUAL:name] -->` block; write.md §1
-     (HALT gate) and validate.md Check B verify the post-merge SKILL.md
+     `<!-- [MANUAL:name] --> … <!-- [/MANUAL:name] -->` block; merge.md §6b,
+     write.md §1 (HALT gate) and write.md §7 verify the merged SKILL.md
      against it. Doing that by an LLM marker-count + eyeball can silently
      pass a block whose interior was truncated (marker count unchanged).
      The `manual-inventory` / `manual-verify` subcommands extract each block

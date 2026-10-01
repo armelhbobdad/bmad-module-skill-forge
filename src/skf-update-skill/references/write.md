@@ -18,33 +18,34 @@ descriptionGuardProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
   - '{project-root}/src/shared/scripts/skf-description-guard.py'
 # Resolve `{updateActiveSymlinkHelper}` to the first existing path; HALT if
-# neither candidate exists. §5b uses it to atomically flip the active
-# symlink; §6 uses it (verify mode) to confirm the post-state. Without
-# the helper, §5b's "rm and recreate" pattern leaves a brief window where
+# neither candidate exists. §8 uses it to atomically flip the active
+# symlink; §8a uses it (verify mode) to confirm the post-state. Without
+# the helper, an "rm and recreate" pattern would leave a brief window where
 # concurrent readers see a missing symlink.
 updateActiveSymlinkProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
   - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
 # Resolve `{verifyProvenanceCompletenessHelper}` to the first existing path.
-# Advisory: if neither resolves, §2 and §6a look up no node kind and §6a runs
+# Advisory: if neither resolves, §2 and §6 look up no node kind and §6 runs
 # its by-hand set comparison, since the files it checks are already written.
 verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # Resolve `{extractionPatternsData}` to the first existing path. If neither
-# exists, look up no kind: list each finding that needs one as a WARN.
+# exists, §2 relabels nothing and §6 fixes no node kind: list each label
+# violation and each node-kind finding as a WARN.
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
   - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
 # Resolve `{atomicWriteHelper}` to the first existing path. Advisory: if
-# neither resolves, §6a fixes no node kind and lists each one as a WARN.
+# neither resolves, §6 fixes no node kind and lists each one as a WARN.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 # Resolve `{hashContentHelper}` to the first existing path; HALT if neither
-# candidate exists. §1 uses its `manual-verify` subcommand to verify the
-# post-merge file against the byte-exact [MANUAL] inventory captured in step 1
-# §5; a marker-count comparison would pass a block whose interior was truncated
+# candidate exists. §1 and §7 use its `manual-verify` subcommand to verify
+# SKILL.md against the byte-exact [MANUAL] inventory step 4 §4 amended; a
+# marker-count comparison would pass a block whose interior was truncated
 # without changing the marker count.
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
@@ -57,7 +58,7 @@ hashContentProbeOrder:
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
-# Resolve `{sourceTreeHelper}` to the first existing path. §6b uses its
+# Resolve `{sourceTreeHelper}` to the first existing path. §9 uses its
 # `advance` subcommand to move the workspace clone to the commit §2
 # recorded. If neither path exists, skip the call and continue: it never
 # gates the workflow.
@@ -71,11 +72,11 @@ sourceTreeProbeOrder:
 cccGitHygieneProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
   - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
-# Resolve `{checkWorkspaceDriftHelper}` to the first existing path. §6b
+# Resolve `{checkWorkspaceDriftHelper}` to the first existing path. §9
 # passes it to the advance, which moves the workspace clone only when the
 # helper confirms the clone still holds the skill's previous commit. If
 # neither path exists, run the advance without `--drift-helper`: it then
-# leaves an existing clone where it is (`head-unverified`), and §6b warns.
+# leaves an existing clone where it is (`head-unverified`), and §9 warns.
 checkWorkspaceDriftProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
   - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
@@ -92,22 +93,27 @@ buildChangeManifestProbeOrder:
 compareDocHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
+# Resolve `{validateOutputHelper}` to the first existing path when §7 finds no
+# skill-check. If neither exists, §7 records the spec check as skipped.
+validateOutputProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
+  - '{project-root}/src/shared/scripts/skf-validate-output.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
 
-# Step 6: Write Updated Files
+# Step 5: Write Updated Files
 
 ## STEP GOAL:
 
-Verify the merged SKILL.md that step 4 section 6b wrote to disk, then write the derived artifacts (metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, and the active symlink).
+Verify the merged SKILL.md that step 4 section 6b wrote to disk, write the derived artifacts (metadata.json, provenance-map.json, evidence-report.md, context-snippet.md), check the written package, and only then point the active symlink at the new version.
 
 ## Rules
 
 - Focus only on verifying merged files and writing derived artifacts — merge content was already written in step 4
-- Do not modify merged SKILL.md or `references/` content, apart from §6a's citation line and prefix fixes outside `[MANUAL]` blocks: any mismatch detected during verification triggers HALT, not repair
+- Do not modify merged SKILL.md or `references/` content, apart from §6's citation line and prefix fixes outside `[MANUAL]` blocks, and §7's `skill-check check --fix` edits and body split, which moves no section that holds a `[MANUAL]` block; §7 re-checks the [MANUAL] blocks after them. Any mismatch detected during verification triggers HALT, not repair
 - Do not skip provenance map update — critical for future audits
-- HALT immediately on verification failure before writing any derived artifact — a partial-write skill package is worse than an unchanged one
+- HALT immediately on verification failure: §1 halts before any derived artifact is written, and §8 points the `active` link at the new version only after §6 and §7, the last checks that can halt, so every halt in this step rolls back a version no reader sees yet. A partial-write skill package is worse than an unchanged one
 
 ## Steps
 
@@ -122,13 +128,15 @@ uv run {runStateHelper} halt --run-dir "{run_dir}" \
 SKF_JSON
 ```
 
-Pass `--tree` when init.md §6b bound `{source_tree}`, always `--lock` and `--owner`, and `--emit` in `{headless_mode}`. Until §6a closes the window, the helper first undoes what this run wrote: in gap-driven mode it restores the package, the version's provenance map and evidence report, and the skill brief from the snapshot step 4 §6b took; in every other mode it removes the version folders step 4 created, unless §5b already pointed the `active` link at them, which keeps that version, now the skill's live one (its `kept`). Then it removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`rollback-incomplete`, `source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. Tell the user in one line what it restored, removed or kept, and name each path its `failed[]` lists for the user to restore or delete by hand. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "write:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
+Pass `--tree` when init.md §6b bound `{source_tree}`, always `--lock` and `--owner`, and `--emit` in `{headless_mode}`. Until §10 closes the window, the helper first undoes what this run wrote: in gap-driven mode it restores the package, the version's provenance map and evidence report, and the skill brief from the snapshot step 4 §6b took; in every other mode it removes the version folders step 4 created, unless the `active` link already names them (§8), which keeps that version, now the skill's live one (its `kept`). Then it removes the private source tree, releases the run lock (never one another run holds) and, with `--emit`, prints the halt's `SKF_UPDATE_RESULT_JSON:` line through the shared emitter, which adds the decisions recorded so far, the `error` object and a warning for each step the helper could not finish (`rollback-incomplete`, `source-tree-not-removed`, `run-lock-not-released`); it never stops on a result. Tell the user in one line what it restored, removed or kept, and name each path its `failed[]` lists for the user to restore or delete by hand. Write each payload value as a JSON string: escape `"` and `\`, and write every path with `/`. Display the line it prints verbatim. When it exits 1 and its message names the payload, fix the payload once and run it again, which redoes nothing already done; when it still fails or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. A HALT that names no payload (a helper the frontmatter says to HALT without, resolving to no path) takes `status: "blocked"`, `phase: "write:<the helper's file name>"` and `reason: "<the helper's file name> is missing; re-install SKF"`.
 
 The halt leaves `{run_dir}` in place.
 
+A `Write` or `Edit` call in §2 to §5 that errors (permission denied, disk full, path invalid) HALTs with status `halted-for-write-failure`: the halt procedure takes `phase: "write:artifact-write"`, `path: "{the file that failed}"`, `reason: "<the error>"`. §6 checks what `metadata.json` and `provenance-map.json` hold.
+
 ### 0. Description Guard Protocol
 
-**Used by:** §7 (`skill-check check --fix` and `skill-check split-body --write`), and any future tool invocation that may modify SKILL.md's frontmatter on disk.
+**Used by:** §7 (`skill-check check --fix` and `skill-check split-body --write`).
 
 Resolve `{descriptionGuardProtocol}` ← first existing path in `{descriptionGuardProtocolProbeOrder}` and load it for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The load is advisory: if neither path exists, continue, because the rules below are all this step needs from it. The deterministic phases are executed via `{descriptionGuardHelper}` — §7 invokes the helper at the capture and verify-restore points around every `skill-check` call.
 
@@ -136,18 +144,16 @@ Resolve `{descriptionGuardProtocol}` ← first existing path in `{descriptionGua
 
 **Empty-snapshot rule.** `verify-restore` refuses an empty or whitespace-only `--captured-description` (exit 1, file untouched). Never re-run it with the empty value: writing it back would blank the field the guard protects. If the merged description is still in context (the in-context SKILL.md copy), re-run `verify-restore` with that value. Otherwise record `description_guard_restored: false` and `description_guard_refused: empty-capture` with the tool name; the evidence report (§4) renders that as a fired guard, not as a clean run.
 
-Update-skill does not run the optional post-restore frontmatter re-validation today — the post-write checks in §1 catch downstream issues, and a `restored: true` outcome is already surfaced through the evidence report (§4).
-
 ### 1. Verify SKILL.md Write
 
 SKILL.md was written in step 4 section 6b. Verify the write landed intact before proceeding to any derived-artifact writes.
 
 - Verify the resolved `{skill_package}` path matches the version directory step 4 wrote to (outside gap-driven mode, step 4 §6b created `{skill_group}/{new_version}/` and rebound `{skill_package}` and `{forge_version}` to the new version)
-- Run the deterministic [MANUAL]-integrity verifier against the byte-exact inventory step 4 §4 amended with the user's [MANUAL] decisions (the step-1 §5 inventory, when there were none):
+- Run the deterministic [MANUAL]-integrity verifier against the byte-exact inventory step 4 §4 amended with the user's [MANUAL] decisions (the step 1 §5 inventory, when there were none):
 
   ```bash
-  uv run {hashContentHelper} manual-verify {skill_package}/SKILL.md \
-      --inventory {manual_inventory}
+  uv run {hashContentHelper} manual-verify "{skill_package}/SKILL.md" \
+      --inventory "{manual_inventory}"
   ```
 
   The verdict JSON is `{"preserved":[...], "modified":[...], "missing":[...], "moved":[...], "ok":bool}`. A `modified` block is one whose byte-exact interior changed (an interior truncation); a `missing` block lost its markers entirely; a `moved` block is byte-identical but relocated with its logical parent section (clean — does not fail the gate). `ok == (modified empty AND missing empty)`.
@@ -181,9 +187,9 @@ uv run {runLockHelper} acquire \
 Update `{skill_package}/metadata.json`:
 - **First, apply any queued `metadata_patches[]`** (staged by merge Priority 8b from gap-driven `metadata update` entries): apply each surgical patch described in the gap's remediation (reconcile a divergent count, add an explanatory stat, etc.) *before* the automatic recount below, so the recount overrides only the fields it owns and the patch survives for any field it does not. If a patch and the recount disagree on a field the recount owns (e.g., `exports_documented`), the recount wins — log the divergence so a still-stale stat surfaces in the report rather than being silently overwritten.
 - **For gap-driven rescopes** (`DELETED_EXPORT` / verification `rescoped`): the removed exports are already dropped from the `exports` array below, and `stats` recompute from that reduced surface: never set a `stats` count by hand to match the documented total. The reduction is justified by the `brief.scope.exclude` + `scope.amendments[]` (`action: "excluded"`) step 4 §6b wrote from step 2's rule R1; the recount simply reflects the smaller surface.
-- Update `version` to `{new_version}`, the version step 4 §6b chose: **if `update_mode == "gap-driven"`, that is the unchanged version**: the skill is being repaired against the same source commit, so of the fields that mark an update only `generation_date` below changes, and step 4 wrote into the existing version directory (step 1 §6c records no source version in gap-driven mode). Otherwise it is the version whose folder step 4 §6b created: `{source_version_detected}` when step 1 §6c recorded `source_version_detected`, else the next patch version. Never pick another value here: `version` must name the folder `metadata.json` sits in, the one §5b points the `active` link at. From here on `{version}` is `{new_version}`.
+- Update `version` to `{new_version}`, the version step 4 §6b chose: **if `update_mode == "gap-driven"`, that is the unchanged version**: the skill is being repaired against the same source commit, so of the fields that mark an update only `generation_date` below changes, and step 4 wrote into the existing version directory (step 1 §6c records no source version in gap-driven mode). Otherwise it is the version whose folder step 4 §6b created: `{source_version_detected}` when step 1 §6c recorded `source_version_detected`, else the next patch version. Never pick another value here: `version` must name the folder `metadata.json` sits in, the one §8 points the `active` link at. From here on `{version}` is `{new_version}`.
 - Update `generation_date` timestamp to the current UTC time to the second, `YYYY-MM-DDTHH:MM:SSZ`, read from the clock (`date -u +%Y-%m-%dT%H:%M:%SZ`), never typed: step 1 §4b offers a test report only when it is newer. It is the only update bookkeeping metadata.json carries, in every mode: §3's update operation block records `last_update` and `update_type` in provenance-map.json. Write neither key into metadata.json, and remove a `last_update` or `update_type` an older SKF version left there, so metadata.json never keeps the date or type of an earlier update beside the map's current one.
-- **Record the source commit** (when `{source_tree_status}` is `ready` or `offline`): set `source_commit` to `{target_commit}`, the commit every step of this run read, and, when `{target_ref_override}` is set, `source_ref` to `{target_ref}`. Leave `source_root` as metadata.json records it — it names the clone SKF keeps for the repository; never write `{source_tree}` or any other path of this run into an artifact. For any other source (a local folder, gap-driven mode, docs-only) leave `source_commit` and `source_ref` unchanged. The in-context `{source_commit}` stays the value init.md §6 read; §6b needs it.
+- **Record the source commit** (when `{source_tree_status}` is `ready` or `offline`): set `source_commit` to `{target_commit}`, the commit every step of this run read, and, when `{target_ref_override}` is set, `source_ref` to `{target_ref}`. Leave `source_root` as metadata.json records it: it names the clone SKF keeps for the repository; never write `{source_tree}` or any other path of this run into an artifact. For any other source (a local folder, gap-driven mode, docs-only) leave `source_commit` and `source_ref` unchanged. The in-context `{source_commit}` stays the value init.md §6 read; §9 needs it.
 - Update `exports` array to reflect current export list
 - **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins): the same helper sibling create-skill compiles them with, so create and update emit byte-identical stats for identical inputs. The helper owns all the arithmetic: it bins each provenance `entries[]` row once by its `signature_source` tier into `confidence_distribution.{t1,t1_low,t2,t3}`, sets `exports_documented` = the entry count for the library shape (for a reference app, the Pattern Surface row count; see **Shape** below), and derives `exports_total` = `exports_public_api` + `exports_internal`, `public_api_coverage` = documented / public_api (`null` if public_api is 0), `total_coverage` = documented / total (`null` if total is 0), plus `scripts_count` / `assets_count` from the inventory arrays. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. Do not hand-bin the distribution: binning T2 annotations + T3 doc items on top of the per-export tiers double-counts, which per-entry binning by `signature_source` makes structurally impossible. You supply only the judgment payload:
 
@@ -193,9 +199,9 @@ Update `{skill_package}/metadata.json`:
   - `scripts` / `assets`: the scripts / assets inventory arrays (or `[]` when empty) — the helper sets `scripts_count` / `assets_count` from their lengths
   - `pattern_surfaces_documented` (reference app only): the number of rows in the `## Pattern Surface` table of the merged SKILL.md, the count create-skill's compile.md §4 passes. The helper uses it as `exports_documented` and emits it as `stats.pattern_surfaces_documented`, the count test-skill measures a reference app's coverage by.
 
-  **Public API counts under the drift override** (`{workspace_drift_status}` is `overridden`, step 3 §0.a): count nothing at `{source_root}`, which is HEAD, not the pinned commit. Pass as `exports_public_api` and `exports_internal` the values `{skill_package}/metadata.json` records in `stats` once the queued `metadata_patches[]` above are applied (0 for one it does not record, with a WARN). No gap that reaches this step under the override changes the public API: step 3's drift gate halted on every new, modified or rescoped export.
+  **Public API counts under the drift override** (`{workspace_drift_status}` is `overridden`, step 3 §0.a): count nothing at `{source_root}`, which is HEAD, not the pinned commit. Pass as `exports_public_api` and `exports_internal` the values `{skill_package}/metadata.json` records in `stats` once the queued `metadata_patches[]` above are applied (0 for one it does not record, with a WARN).
 
-  **Shape:** read `scope_type` from `{skill_package}/metadata.json` before this section rewrites it (create-skill records the brief's `scope.type` there). When it is `reference-app`, pass `--shape reference-app` and put `pattern_surfaces_documented` in the payload, as create-skill's compile.md §4 does; for any other `scope_type`, or none, pass no `--shape` (the helper's default, the library shape). A stack never reaches this step: init.md's Stack Skill Guard redirects it.
+  **Shape:** read `scope_type` from `{skill_package}/metadata.json` before this section rewrites it (create-skill records the brief's `scope.type` there). When it is `reference-app`, pass `--shape reference-app` and put `pattern_surfaces_documented` in the payload, as create-skill's compile.md §4 does; for any other `scope_type`, or none, pass no `--shape` (the helper's default, the library shape).
 
   **Invoke** — since the helper reads `entries[]`, stage §3's `provenance-map.json` write first (§3 does not depend on these stats):
 
@@ -213,7 +219,7 @@ Update `{skill_package}/metadata.json`:
 
   Write the returned `stats` and `confidence_distribution` objects into `metadata.json` **verbatim**. If the helper reports `coherence.ok: false`, fix the provenance map and re-run the helper; never hand-edit the stats. A `confidence_distribution` violation means some provenance entries carry a missing or unrecognized `signature_source` (§3 must write it on every entry).
 
-  **Label violations.** A violation whose `field` is `provenance.entries[<i>].<field>` means entry `<i>` (its `export_name` is in the violation) carries a label its `extraction_method` does not allow. Relabel that entry to match its method, never the reverse: set `confidence`, `signature_source` and `ast_node_type` to the violation's `expected` value, and where `expected` is `non-null`, record the `kind` the matching ast-grep recipe declares. Leave a known `extraction_method` as it is. When the violation is on `extraction_method` itself (unknown or missing), set it to the method of the tool that produced the entry, `ast-grep` or `source-read` (so `direct-read` becomes `source-read`), and fix the labels the next run reports. **Where the kind and the tool come from:** take the `kind` of the recipe this run's extraction record names for the export (`ast_recipe`), as `{extractionPatternsData}` declares it. When the record names no recipe, or for an entry this run did not extract (one carried over from an earlier map), look the kind up: from `{project-root}`, run `uv run {verifyProvenanceCompletenessHelper} kind-at --source-root "{source_root}" --file "{source_file}" --line {source_line} --name "{export_name}" --recipes "{extractionPatternsData}"`, and record the `kind` it prints when `status` is `found`. On any other status (`ambiguous`, `no-match`, `incomplete` or a `skipped-` one), an exit 2, or no local source tree, never invent a kind: leave that violation in place and list it as a WARN with the status. **Under the drift override** (`{workspace_drift_status}` is `overridden`, step 3 §0.a) run no recipe at `{source_root}`, so no `kind-at`: HEAD is not the pinned commit, so a kind read there says nothing about the entry. Leave each violation that needs a kind from the tree in place and list it as a WARN ending ` (drift override: HEAD {head_short_sha} is not pinned {pinned_short_sha})`; a relabel that reads nothing from the tree still applies. With the status `ok` or `skipped`, run the lookup as above. When the run cannot tell which tool produced an entry whose method is unknown or missing, set `source-read`: T1 needs evidence that an ast-grep rule matched. Rewrite `{forge_version}/provenance-map.json` with the relabeled entries, re-run the helper with the same payload and `--shape`, and write the `stats` and `confidence_distribution` it returns: a relabeled `signature_source` moves the distribution, and a violation left as a WARN does not block the write. This relabel applies to every entry the helper flags, including a gap-driven `verified` entry (§3). Record the relabeled export names, and each WARN left, as `{provenance_relabels}` in workflow context: the update report lists them under its Confidence Tier Breakdown (report.md), so no entry moves from T1 to T1-low unannounced.
+  **Label violations.** A violation whose `field` is `provenance.entries[<i>].<field>` means entry `<i>` (its `export_name` is in the violation) carries a label its `extraction_method` does not allow: relabel it by the `## Relabel Rule` section of `{extractionPatternsData}`, with `{source_root}` as the tree its node-kind lookup reads. **Under the drift override** (`{workspace_drift_status}` is `overridden`, step 3 §0.a) run no recipe at `{source_root}`, so no `kind-at`: HEAD is not the pinned commit, so a kind read there says nothing about the entry. Leave each violation that needs a kind from the tree in place and list it as a WARN ending ` (drift override: HEAD {head_short_sha} is not pinned {pinned_short_sha})`; a relabel that reads nothing from the tree still applies. With the status `ok` or `skipped`, run the lookup as the rule says. Rewrite `{forge_version}/provenance-map.json` with the relabeled entries, re-run the helper with the same payload and `--shape`, and write the `stats` and `confidence_distribution` it returns: a relabeled `signature_source` moves the distribution, and a violation left as a WARN does not block the write. This relabel applies to every entry the helper flags, including a gap-driven `verified` entry (§3). Record the relabeled export names, and each WARN left, as `{provenance_relabels}` in workflow context: the update report lists them under its Confidence Tier Breakdown (report.md), so no entry moves from T1 to T1-low unannounced.
 
 **A docs-only skill's document hashes.** When step 2 wrote `{run_dir}/doc-hashes.json` (its docs-only branch), record the new hash of each document it found changed, after the writes above, so the next update compares against the documents this one read. Resolve `{compareDocHashesHelper}` ← first existing path in `{compareDocHashesProbeOrder}` and, from `{project-root}`, run:
 
@@ -259,7 +265,7 @@ What `apply` writes, so no step re-does it:
 
 - **Every entry this step writes or rewrites carries a `signature_source` (`T1` / `T1-low` / `T2` / `T3`)**: the tier that contributed the structural signature, matching create-skill's entry contract, set from the tool that produced it: an ast-grep match contributes `T1` (with `confidence: T1` and the recipe's `ast_node_type`), and a signature read by eye (`extraction_method: source-read`) contributes `T1-low` at any tier (with `ast_node_type: null`), never `T1`. §2's stats helper bins each entry on this field. An entry the run left alone keeps its exact value, apart from §2's relabel, and a rewritten one keeps every key the update does not set.
 - **Normal mode** (`incremental`): a renamed export takes its new `export_name`; a modified one its `params[]`, `return_type`, `source_line`, `confidence`, `extraction_method` and `ast_node_type` from the fresh extraction; a moved one its `source_file` and `source_line`; a deleted export, and every entry of a deleted file, is removed; a new export, and each export of an added file, gets a full entry (`export_name`, `export_type`, `params[]`, `return_type`, `source_file`, `source_line`, `confidence`, `extraction_method`, `ast_node_type`, `signature_source`). A docs-only skill's re-fetched documents replace the entries of each changed URL.
-- **Gap-driven mode** (`no_reextraction` true, step 3 §0): one write per verification record. A `verified` export the map holds stays byte-identical; a `moved` one takes the `source_line` (and `source_file`) the spot-check found, the line that defines the export; a `re-extracted` one (step 3 §0a) gets a full entry from its AST record; a `rescoped` one is removed. A cited `NEW_EXPORT` or `MODIFIED_EXPORT` the map does not hold, whose spot-check found its definition line and whose public-reachability gate passed, gets one `source-read` entry (`confidence: T1-low`, `extraction_method: source-read`, `ast_node_type: null`, `signature_source: T1-low`) at the line its `source_citation` names (`verified`) or at `new_location` (`moved`), at most one per `export_name` and `source_file`, with `export_type`, `params[]` and `return_type` from step 4's `merge-records.json`. An `unknown` `NEW_EXPORT` the map does not hold with a `Medium`, `Low` or `Info` severity gets an entry from merge's records with no `source_file` or `source_line`. A `missing` export, an `unknown` one the map holds, and an `unknown` `MOVED_EXPORT` stay as they are, for a person: `apply` names each in its `warnings` (`{export_name}: {outcome}`, ending with the test report's definition lines for a rule R5 gap, and naming the drift under the override). Under the drift override no line moves or is pinned: step 3's drift gate halted on every `NEW_EXPORT` and `MODIFIED_EXPORT` before merge.
+- **Gap-driven mode** (`no_reextraction` true, step 3 §0): one write per verification record. A `verified` export the map holds stays byte-identical; a `moved` one takes the `source_line` (and `source_file`) the spot-check found, the line that defines the export; a `re-extracted` one (step 3 §0a) gets a full entry from its AST record; a `rescoped` one is removed. A cited `NEW_EXPORT` or `MODIFIED_EXPORT` the map does not hold, whose spot-check found its definition line and whose public-reachability gate passed, gets one `source-read` entry (`confidence: T1-low`, `extraction_method: source-read`, `ast_node_type: null`, `signature_source: T1-low`) at the line its `source_citation` names (`verified`) or at `new_location` (`moved`), at most one per `export_name` and `source_file`, with `export_type`, `params[]` and `return_type` from step 4's `merge-records.json`. An `unknown` `NEW_EXPORT` the map does not hold with a `Medium`, `Low` or `Info` severity gets an entry from merge's records with no `source_file` or `source_line`. A `missing` export, an `unknown` one the map holds, and an `unknown` `MOVED_EXPORT` stay as they are, for a person: `apply` names each in its `warnings` (`{export_name}: {outcome}`, ending with the test report's definition lines for a rule R5 gap, and naming the drift under the override).
 - **Degraded mode** (`full`): every export the extraction found gets an entry.
 - **`file_entries[]`**: a MODIFIED_FILE row takes the hash Category D read; a DELETED_FILE row is removed; each NEW_FILE script or asset gets a row (`file_name`, `file_type`, `source_file`, `confidence: "T1-low"`, `extraction_method: "file-copy"`, `content_hash`, hashed under `{source_root}`); each document `promoted_docs_new[]` holds gets a `doc` row (`file_name` `docs/authoritative/{path}`, `extraction_method: "promoted-authoritative"`, the hash step 2 §1b read).
 
@@ -315,11 +321,19 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - [MANUAL] sections preserved: {count}
 - Conflicts resolved: {count}
 
+### Scope and Targeted Re-Extraction
+- Authoritative files: {authoritative_files_mirror, or none}
+- Scope reconciliation before detection: {scope_reconciliation_pre, or none}
+- Scope reconciliation after detection: {scope_reconciliation_post, or none}
+- Targeted re-extraction: {targeted_reextraction, or none}
+
 ### Validation Summary
-- Spec compliance: {PASS/WARN/FAIL}
-- [MANUAL] integrity: {PASS/WARN/FAIL}
-- Confidence tiers: {PASS/WARN/FAIL}
-- Provenance: {PASS/WARN/FAIL}
+- Spec compliance: {PASS/WARN/FAIL/SKIP} (quality score {score}/100)
+- [MANUAL] integrity: {PASS/FAIL}
+- Confidence tiers: {PASS/WARN}
+- Provenance: {PASS/WARN}
+- Diff: {new} new, {fixed} fixed issues, or SKIP
+- Security: {PASS/WARN/SKIP}
 
 ### Description Guard
 - Restored: {true/false}
@@ -332,6 +346,10 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - Triggers fired: {list or —}
 - Notes: {one-sentence detail or —}
 ```
+
+**Scope and Targeted Re-Extraction population:** read `{run_dir}/evidence-records.jsonl`, where step 2 (§1b, §1c and §2.2) and step 3 (§0a) appended their records, one JSON line each. Write each record under its key as it was recorded, and `none` for a key no line holds (or when the file does not exist), so a headless decision such as a deletion-ratio continue stays visible after the run.
+
+**Validation Summary population:** §4 writes `[MANUAL] integrity` from §1's `manual-verify` verdict (`PASS` when `ok`) and `Confidence tiers` from §2 (`PASS` when the stats helper reported no label violation, else `WARN` naming `{provenance_relabels}`), with placeholders for the rest. §6 fills `Provenance`, and §7 fills `Spec compliance`, `Diff` and `Security`, each in the on-disk report, as §5 fills the Context Snippet sub-block.
 
 **Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, and what changed, based on the recorded `description_guard_diff_kind`). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state — except when `description_guard_refused == "empty-capture"` (§0's empty-snapshot rule): then set `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`, so a refused restore is distinguishable from a run where the guard never fired. Same field semantics and populator logic as create-skill step 6 §8.
 
@@ -351,7 +369,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **Record the decision on the on-disk evidence report:** open `{forge_version}/evidence-report.md` (written by §4 with placeholder values in the `### Context Snippet` sub-block) and update that sub-block under the Update Operation section just written. Set `Regenerated: true|false`, fill `Triggers fired:` with the list of triggers that fired (or `—` when none), and write a one-sentence `Notes:` entry. See §4's "Context Snippet population" note for field semantics.
 
-**If no trigger fired:** skip regeneration — do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §5b.
+**If no trigger fired:** skip regeneration: do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §6.
 
 **If at least one trigger fired:** regenerate the snippet using the format from `skf-create-skill/assets/skill-sections.md` (pipe-delimited indexed format).
 
@@ -361,56 +379,9 @@ Pull values for the regenerated snippet from the updated metadata.json (version,
 
 Write the regenerated snippet to `{skill_package}/context-snippet.md`, preserving file permissions.
 
-### 5b. Update Active Symlink
+### 6. Provenance Completeness
 
-Flip `{skill_group}/active` to point at the current `{version}` via the helper. The call is **always** run — atomic, idempotent, and verified in one shot. The helper's no-op path handles the "version did not change" case (gap-driven mode, or no source drift) without writing to disk:
-
-```bash
-uv run {updateActiveSymlinkHelper} update \
-    --skill-group {skill_group} \
-    --version {version}
-```
-
-The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, missing-target}` and a pre-formatted `log_message`. Log the message to the evidence report.
-
-**Dispatch on `status`:**
-
-- **`ok`** (exit 0): symlink already points at `{version}` — no disk write. Continue to §6.
-- **`flipped`** (exit 0): symlink was atomically updated (temp-and-replace). Continue to §6.
-- **`missing-target`** (exit 2): `{skill_group}/{version}/` directory does not exist on disk. HALT — display `halt_message` verbatim. This indicates §4 §6b did not write the version directory before §5b ran (a workflow bug, not a user error).
-- **`mismatch`** (exit 2): re-read after flip showed the symlink still points elsewhere. HALT — display `halt_message`. Should be impossible because the helper uses `os.replace` (atomic rename); a mismatch here indicates filesystem-level interference (concurrent writer, broken FUSE mount).
-
-Both exit-2 halts carry status `halted-for-write-failure`; the halt procedure takes `phase: "write:active-symlink"`, `path: "{skill_group}/active"`, `reason: "<status>: <halt_message>"`. Its rollback removes the new version (the `active` link does not name it) or, in gap-driven mode, restores the package from the snapshot.
-
-### 6. Verify Derived Artifact Writes
-
-SKILL.md was verified in section 1 (written by step 4 section 6b). This section verifies the artifacts this step wrote: `metadata.json`, `provenance-map.json`, `evidence-report.md`, `context-snippet.md`, and the `active` symlink from §5b.
-
-For each derived artifact:
-- Read back the file
-- Confirm content matches expected output
-- Report verification status
-
-**Active symlink verification:** run `{updateActiveSymlinkHelper} verify --skill-group {skill_group} --version {version}` — read-only check that the symlink resolves to the version just written to `metadata.json` in §2. This closes the §5b gap where a silent skip would otherwise leave the manifest and symlink divergent — the symlink is the fallback resolver for consumers that don't read the manifest (see `knowledge/version-paths.md` §Reading Workflows step 5), so a `mismatch` must fail the step, not warn. Applies in every mode — gap-driven runs do not bump `version`, but the symlink must still point to the current `version`, otherwise a prior partial run left it pointing elsewhere.
-
-"**Write Verification:**
-
-| File | Status |
-|------|--------|
-| SKILL.md | {VERIFIED in section 1} |
-| metadata.json | {VERIFIED/FAILED} |
-| provenance-map.json | {VERIFIED/FAILED} |
-| evidence-report.md | {VERIFIED/FAILED} |
-| context-snippet.md | {VERIFIED/FAILED} |
-| {skill_group}/active symlink | {VERIFIED/FAILED} (readlink → {resolved_version}, expected {version}) |
-
-**On symlink `mismatch` (helper exit 2):** HALT with status `halted-for-write-failure`. Do not proceed to §7 post-write validation or §8 menu. Display the helper's `halt_message` verbatim: it already includes the diverged target, the expected version, and the recovery command. The halt procedure takes `phase: "write:verify-active-symlink"`, `path: "{skill_group}/active"`, `reason: "mismatch: <halt_message>"`. This matches the severity of the other four artifact checks: silent divergence here mis-routes any downstream consumer that uses the symlink fallback.
-
-**All files written and verified.**"
-
-### 6a. Provenance Completeness (Check D — Deferred from Step 05)
-
-`validate.md` Check D (Provenance Completeness) is a deterministic set-diff plus citation resolution, and it needs both `metadata.json` (written in §2) and `provenance-map.json` (written in §3) on disk — neither exists at validate time, so the check is deferred here. Run it against the just-written artifacts via `{verifyProvenanceCompletenessHelper}`:
+Provenance completeness is a deterministic set-diff plus citation resolution over `metadata.json` (§2) and `provenance-map.json` (§3). Run it against the just-written artifacts via `{verifyProvenanceCompletenessHelper}`:
 
 ```bash
 uv run {verifyProvenanceCompletenessHelper} verify \
@@ -422,7 +393,7 @@ uv run {verifyProvenanceCompletenessHelper} verify \
     -o "{forge_data_folder}/{skill_name}/.skf-update-verify.json"
 ```
 
-The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. When `{source_root}` is null, empty or a URL (a docs-only skill), leave out the `--source-root` line: an empty flag value fails the helper's arguments, and the citation check must still run. When `{source_tree_status}` is `ready` or `offline`, `{source_root}` is still the tree init.md §6b prepared (step 8 removes it), so citations resolve against the commit §2 recorded. It writes its JSON to `{forge_data_folder}/{skill_name}/.skf-update-verify.json`, beside the §1b lock (each run overwrites it). **Read that JSON and do NOT recompute the set operations by eye, since an LLM set-diff can silently pass a dropped or orphaned entry:**
+The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. When `{source_root}` is null, empty or a URL (a docs-only skill), leave out the `--source-root` line: an empty flag value fails the helper's arguments, and the citation check must still run. When `{source_tree_status}` is `ready` or `offline`, `{source_root}` is still the tree init.md §6b prepared (step 7 removes it), so citations resolve against the commit §2 recorded. It writes its JSON to `{forge_data_folder}/{skill_name}/.skf-update-verify.json`, beside the §1b lock (each run overwrites it). **Read that JSON and do NOT recompute the set operations by eye, since an LLM set-diff can silently pass a dropped or orphaned entry:**
 
 - `missing[]` — documented exports (metadata `exports[]`) with no provenance entry: a coverage gap.
 - `orphaned[]` — provenance `entries[].export_name` whose export was removed but the entry remains.
@@ -433,7 +404,7 @@ The helper reads its `--source-root` (falling back to the provenance map's own `
 - `summary.skill_citations_scanned` and `summary.skill_citations_matched`: when citations were scanned and none matched, no citation names a path and line the map records (the citations use another root), so the prefix check compared nothing. List that as a WARN.
 - `node_kinds[]`: `ast-grep` entries whose `ast_node_type` is not shaped like a kind or that the ast-grep CLI does not know as a node kind of the entry's language (`invalid-kind`), or whose kind is `ERROR` (`error-kind`). Each gives the entry's `entry_index`, `export_name`, `source_file`, `source_line`, `ast_node_type` and `language`. `summary.node_kind_check` is `skipped-no-ast-grep` when no ast-grep CLI is on PATH, or `skipped-unrecognized-ast-grep` when the ast-grep found does not reject a kind no grammar has: either way ast-grep judged no kind. `node_kinds_unchecked[]` lists, with a `reason`, the entries whose kind ast-grep could not judge, and `summary.node_kind_check_skipped` counts the ast-grep entries in files ast-grep has no language for: list each unchecked entry, and the skipped count, as a WARN.
 
-When the helper exits 2 it writes no JSON: record `Provenance: WARN (not run: verifier error)` with its stderr in the evidence report's Validation Summary and continue to §6b. When the second run below exits 2, record the fixes already applied and `second run: verifier error` the same way and continue to §6b.
+When the helper exits 2 it writes no JSON: record `Provenance: WARN (not run: verifier error)` with its stderr in the evidence report's Validation Summary and continue to §7. When the second run below exits 2, record the fixes already applied and `second run: verifier error` the same way and continue to §7.
 
 **Fix the findings that have one answer**, in this order, then run the command above once more:
 
@@ -449,22 +420,93 @@ When the helper exits 2 it writes no JSON: record `Provenance: WARN (not run: ve
    ```
 
    Pass `--no-line-moves` when `{workspace_drift_status}` is `overridden` (step 3 §0.a): the tree read is not the recorded commit, so its lines prove nothing about the map. `fix` prints `applied[]` (each fix it made), `left_as_warn[]` (each finding it left for a person, with its `why`), `files_written[]` and `manual_verify` (the SKILL.md [MANUAL] blocks checked against `{manual_inventory}` after its writes).
-   - **`manual_verify.ok` is false** (a [MANUAL] block changed): HALT with status `halted-for-manual-mismatch`. The halt procedure takes `phase: "write:verify-manual-integrity"`, `path: "{skill_package}/SKILL.md"`, `reason: "[MANUAL] blocks changed after the provenance fixes: ..."`, as §1's does. Alert the user: "**[MANUAL] section integrity failure after the provenance fixes.** Blocks modified (interior changed): {modified}. Blocks missing (markers lost): {missing}. Verified against the inventory `{manual_inventory}`. {outside gap-driven mode: §5b already made this version the active one, so the halt kept it: restore the listed blocks in `{skill_package}/SKILL.md` from the unchanged previous version, `{skill_group}/{baseline_version}/{skill_name}/SKILL.md`; in gap-driven mode: the halt restored the package from the snapshot step 4 took, so the skill is as it was before this repair}."
+   - **`manual_verify.ok` is false** (a [MANUAL] block changed): HALT with status `halted-for-manual-mismatch`. The halt procedure takes `phase: "write:verify-manual-integrity"`, `path: "{skill_package}/SKILL.md"`, `reason: "[MANUAL] blocks changed after the provenance fixes: ..."`, as §1's does. Alert the user: "**[MANUAL] section integrity failure after the provenance fixes.** Blocks modified (interior changed): {modified}. Blocks missing (markers lost): {missing}. Verified against the inventory `{manual_inventory}`. {manual_recovery}", with `{manual_recovery}` as §1 gives it: §8 has not pointed the `active` link at a new version yet, so this halt rolls back as §1's does.
    - **Exit 2** (no JSON; its stderr line names any file it already wrote): record `Provenance: WARN (not fixed: verifier error)` with that line, re-read each file it names into context, and go on to step 2.
    - **Otherwise:** re-read each file in `files_written[]` into the in-context copies (the merged SKILL.md and `references/` content and §3's provenance map), so later sections and the report read the fixed text, and add `SKILL.md` and `provenance-map.json` to `files_written[]` (report.md §5b) when `fix` wrote them.
 2. **Node kinds.** For each `node_kinds[]` item, take the entry at its `entry_index` in `{forge_version}/provenance-map.json` as step 1 left it (its `export_name` and `source_file` confirm it). When this run's extraction record (re-extract.md `Per-file extractions` or a §0a `re-extracted` record) names the recipe that matched that export (`ast_recipe`), set the entry's `ast_node_type` to the `kind` that recipe declares in `{extractionPatternsData}` (its ast-grep Patterns list gives the kind of a `find_code` pattern). When no record names one (a `verified` or `moved` entry has none), look the kind up at the entry's `source_file` and `source_line`: from `{project-root}`, run `uv run {verifyProvenanceCompletenessHelper} kind-at --source-root "{source_root}" --file "{source_file}" --line {source_line} --name "{export_name}" --recipes "{extractionPatternsData}"` and set the `kind` it prints when `status` is `found`. List a WARN, with the status, for any other status or an exit 2, when there is no local source tree, or when `{workspace_drift_status}` is `overridden` (step 3 §0.a: the tree read is not the recorded commit, so run no `kind-at`). Never invent a kind, and never change `extraction_method` to clear the finding. Write the map with `python3 {atomicWriteHelper} write --target {forge_version}/provenance-map.json` (resolve it ← first existing path in `{atomicWriteProbeOrder}`, the new map on stdin); if neither path resolves, fix no node kind and list each one as a WARN. Apply the same change to §3's in-context map, and add `provenance-map.json` to `files_written[]`.
 
 These fixes apply to any entry, a gap-driven `verified` or `moved` entry included (§3). Fix nothing else: each `left_as_warn[]` item stays for a person to decide, and so do `missing` / `orphaned` exports. A `line-not-definition` item with an empty `definition_lines` is never fixed: list its export as unverified.
 
-Map the re-run's `status` to the `Provenance:` line of the §4 evidence report's Validation Summary: `PASS` when `status == "pass"`, `WARN` when `status == "findings"` (this is the persistent record: step 5 §5's table was rendered before the provenance map existed, so it necessarily showed this row as deferred). For a reference app that status comes from its stale lines, citation prefixes and node kinds alone (`summary.set_diff` `not-applicable`): note `set diff not applicable: reference app` in the Validation Summary, never as a WARN. Provenance findings are **advisory**: they do not block the update. In the evidence report's Validation Summary, list the source lines, citation prefixes and node kinds this section fixed (`fix`'s `applied[]` and step 2's kinds) and the unverified exports, then each `left_as_warn[]` item and each other `missing` / `orphaned` / `stale` / `citations` / `node_kinds` finding the re-run still reports as a WARN so the user can decide, and note `source lines not checked: no local source tree` when `stale_check` was `skipped-no-source-root`, `node kinds not checked: no ast-grep CLI` or `node kinds not checked: unrecognized ast-grep` when `node_kind_check` was `skipped-no-ast-grep` or `skipped-unrecognized-ast-grep`, each `node_kinds_unchecked[]` entry with its `reason`, and `summary.node_kind_check_skipped` when it is above 0. Add each of those WARNs, the unverified exports and each entry of `{provenance_spot_check_warnings}` (§3) to the envelope's `warnings[]` with a `provenance:` prefix (for example `provenance: search line 26 does not define it; definition lines 27, 31`).
+Map the re-run's `status` to the `Provenance:` line of the §4 evidence report's Validation Summary: `PASS` when `status == "pass"`, `WARN` when `status == "findings"`. For a reference app that status comes from its stale lines, citation prefixes and node kinds alone (`summary.set_diff` `not-applicable`): note `set diff not applicable: reference app` in the Validation Summary, never as a WARN. Provenance findings are **advisory**: they do not block the update. In the evidence report's Validation Summary, list the source lines, citation prefixes and node kinds this section fixed (`fix`'s `applied[]` and step 2's kinds) and the unverified exports, then each `left_as_warn[]` item and each other `missing` / `orphaned` / `stale` / `citations` / `node_kinds` finding the re-run still reports as a WARN so the user can decide, and note `source lines not checked: no local source tree` when `stale_check` was `skipped-no-source-root`, `node kinds not checked: no ast-grep CLI` or `node kinds not checked: unrecognized ast-grep` when `node_kind_check` was `skipped-no-ast-grep` or `skipped-unrecognized-ast-grep`, each `node_kinds_unchecked[]` entry with its `reason`, and `summary.node_kind_check_skipped` when it is above 0. Add each of those WARNs, the unverified exports and each entry of `{provenance_spot_check_warnings}` (§3) to the envelope's `warnings[]` with a `provenance:` prefix (for example `provenance: search line 26 does not define it; definition lines 27, 31`).
 
 **Under the drift override** (`{workspace_drift_status}` is `overridden`, step 3 §0.a), the verifier read `{source_root}` at HEAD, not the pinned commit, and a file or line missing at HEAD may still be at the pinned commit: end the `Provenance:` line of the Validation Summary, and each WARN this section lists for a `stale[]` finding (`file-missing`, `line-out-of-bounds`, `line-invalid`, `line-not-definition`), an unverified export or a finding `fix` left as `line-moves-skipped`, with ` (drift override: HEAD {head_short_sha} is not pinned {pinned_short_sha})`.
 
-**Close the rollback window.** Once the re-run above has run (or §6a's fallback below), this run's writes stand: from `{project-root}`, run `uv run {runStateHelper} finish --run-dir "{run_dir}"`. It marks the run finished, then deletes the snapshot: from then on a halt undoes nothing. When it fails or prints no JSON, add `run-state-not-finished: {its message}` to `warnings[]`: no step after this one halts, and step 8 removes the run folder.
-
 **Graceful degradation:** if neither probe path resolves (no `uv` / script available), fall back to the manual set comparison the script encapsulates: enumerate metadata `exports[]` and provenance `entries[].export_name` (canonicalizing internal names through `reexport_map`), diff the two sets for missing/orphaned entries, and spot-check that each `source_file:source_line` still points at a real line in the source tree. Skip the set diff for a reference app (`scope_type: reference-app` in `{skill_package}/metadata.json`), as the helper does: its `exports[]` is empty by design while its entries follow each citation, so spot-check the lines only and note `set diff not applicable: reference app`. The definition-line, citation-prefix and node-kind checks do not run in this fallback, and nothing is fixed: record `line, citation and node-kind checks not run: verifier missing` in the Validation Summary. Prefer the script: it does this deterministically.
 
-### 6b. Move the Workspace Clone to the Recorded Commit
+### 7. Run Post-Write Validation
+
+skill-check runs once per update, here, against the written package. Check that it is available, never assume it: run `npx skill-check -h`.
+
+**Description Guard Protocol:** every invocation below that may modify SKILL.md (`skill-check check --fix` and any `split-body` write) must run inside the four-phase guard defined in §0. Invoke `{descriptionGuardHelper}` at the capture and verify-restore points around each call:
+
+```bash
+# Phase 1: capture before any frontmatter-touching tool call
+uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md"
+# stash returned `description` as `guarded_description`
+
+# Phase 2: run the tool (skill-check --fix, split-body --write)
+
+# Phases 3+4: verify and restore after the tool call
+uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" \
+    --captured-description "{guarded_description}"
+```
+
+Do not rely on per-call ad-hoc preservation logic: use the helper.
+
+**If skill-check is available:**
+
+- Run `npx skill-check check "{skill_package}" --fix --format json` **inside the §0 guard**. One call validates the package against the spec, scores it, fixes what has one answer and runs the security scan (on unless `--no-security-scan` is passed). Read the JSON, not the exit code: the quality score (`scores[].score`, the entry matching the skill, or a top-level `qualityScore` on an older skill-check), the remaining `diagnostics[]`, `fixed[]` and the security findings. When the scan could not run (no `SNYK_TOKEN`), record `Security: SKIP (SNYK_TOKEN not configured)`.
+- **Context sync after --fix:** if `fixed[]` is non-empty, re-read the SKILL.md `--fix` changed into the in-context copy, so the report does not work from a copy that differs from the file on disk. The §0 guard has already restored `description` if it diverged.
+- If `body.max_lines` is reported, prefer a selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). **Never move a section that holds a `[MANUAL]` block:** init.md §5 inventories SKILL.md only, so a block moved to `references/` would leave the next update's inventory. Fall back to `npx skill-check split-body "{skill_package}" --write`, **inside the §0 guard** (it can also touch frontmatter), only when SKILL.md holds no `[MANUAL]` block (§1's verdict lists none): it moves every section. Verify anchors resolve after a split.
+- When a previous version is on disk (outside gap-driven mode), run `npx skill-check diff "{skill_group}/{baseline_version}/{skill_name}" "{skill_package}"` and record its new and fixed issues as informational; otherwise record `Diff: SKIP`.
+
+**Re-check the [MANUAL] blocks** once `--fix` and any split have run, from `{project-root}`:
+
+```bash
+uv run {hashContentHelper} manual-verify "{skill_package}/SKILL.md" \
+    --inventory "{manual_inventory}"
+```
+
+On `ok` false, HALT with status `halted-for-manual-mismatch`, as §1 does. The halt procedure takes `phase: "write:verify-manual-integrity"`, `path: "{skill_package}/SKILL.md"`, `reason: "[MANUAL] blocks changed after skill-check: modified {modified}; missing {missing}"`. Alert the user: "**[MANUAL] section integrity failure after skill-check.** Blocks modified (interior changed): {modified}. Blocks missing (markers lost): {missing}. Verified against the inventory `{manual_inventory}`. {manual_recovery}", with `{manual_recovery}` as §1 gives it: §8 has not pointed the `active` link at a new version yet, so this halt rolls back as §1's does.
+
+**If skill-check is unavailable:** record `Diff: SKIP` and `Security: SKIP (skill-check unavailable)`, and check the structure by script instead: resolve `{validateOutputHelper}` ← first existing path in `{validateOutputProbeOrder}` and, from `{project-root}`, run `uv run {validateOutputHelper} "{skill_package}"`. Record `Spec compliance: PASS (skf-validate-output.py)` when it reports no issue, and `Spec compliance: WARN (skf-validate-output.py)` with each issue it reports otherwise; when no candidate resolves, record `Spec compliance: SKIP (skill-check unavailable, no validator)`. Nothing here changes SKILL.md, so the [MANUAL] re-check above does not run.
+
+Record the results in the evidence report's Validation Summary (§4): `Spec compliance` from the score and the remaining `diagnostics[]`, `Diff` and `Security`, with any `description_guard_restored` event the §0 protocol recorded. They are advisory: do not block on warnings.
+
+### 8. Update the Active Symlink
+
+Flip `{skill_group}/active` to point at the current `{version}` via the helper, now that §6 and §7 have checked the written package. The call is **always** run: atomic, idempotent, and verified in one shot. The helper's no-op path handles the "version did not change" case (gap-driven mode, or no source drift) without writing to disk:
+
+```bash
+uv run {updateActiveSymlinkHelper} update \
+    --skill-group {skill_group} \
+    --version {version}
+```
+
+The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, missing-target}` and a pre-formatted `log_message`. Log the message to the evidence report.
+
+**Dispatch on `status`:**
+
+- **`ok`** (exit 0): symlink already points at `{version}`, so no disk write. Continue to §8a.
+- **`flipped`** (exit 0): symlink was atomically updated (temp-and-replace). Continue to §8a.
+- **`missing-target`** (exit 2): `{skill_group}/{version}/` does not exist on disk, so step 4 §6b did not create it. HALT and display `halt_message` verbatim.
+- **`mismatch`** (exit 2): the link still points elsewhere after the flip. HALT and display `halt_message` verbatim.
+
+Both exit-2 halts carry status `halted-for-write-failure`; the halt procedure takes `phase: "write:active-symlink"`, `path: "{skill_group}/active"`, `reason: "<status>: <halt_message>"`. Its rollback removes the new version (the `active` link does not name it) or, in gap-driven mode, restores the package from the snapshot.
+
+### 8a. Verify the Active Symlink
+
+Check, read-only, that the `active` link resolves to the version §2 wrote to `metadata.json`, in every mode (consumers that do not read the export manifest fall back to the link, `knowledge/version-paths.md` §Reading Workflows step 5):
+
+```bash
+uv run {updateActiveSymlinkHelper} verify \
+    --skill-group {skill_group} \
+    --version {version}
+```
+
+On `mismatch` (exit 2), HALT with status `halted-for-write-failure` and display the helper's `halt_message` verbatim: it names the diverged target, the expected version and the recovery command. The halt procedure takes `phase: "write:verify-active-symlink"`, `path: "{skill_group}/active"`, `reason: "mismatch: <halt_message>"`.
+
+### 9. Move the Workspace Clone to the Recorded Commit
 
 Run only when `{source_tree_status}` is `ready` and `{workspace_clone}` is not null. test-skill and audit-skill read the skill's source from metadata.json `source_root`, the clone SKF keeps for this repository, and test-skill compares its HEAD with the `source_commit` §2 just wrote. From `{project-root}`, resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`, `{cccGitHygieneHelper}` ← first existing path in `{cccGitHygieneProbeOrder}` and `{checkWorkspaceDriftHelper}` ← first existing path in `{checkWorkspaceDriftProbeOrder}`, then run:
 
@@ -493,39 +535,11 @@ Bind `{advance_status}` ← `status`, `{advance_skip_reason}` ← `skip_reason`,
 
 This section never halts: the skill is written, and only the clone test-skill reads is out of step.
 
-### 7. Run Post-Write Validation (Deferred from Step 05)
+### 10. Close the Rollback Window
 
-External tool checks deferred from step 5 now run against the written files.
+Once §9 has run, this run's writes stand: from `{project-root}`, run `uv run {runStateHelper} finish --run-dir "{run_dir}"`. It marks the run finished, then deletes the snapshot: from then on a halt undoes nothing. When it fails or prints no JSON, add `run-state-not-finished: {its message}` to `warnings[]`: no step after this one halts, and step 7 removes the run folder.
 
-**Description Guard Protocol:** every invocation below that may modify SKILL.md (`skill-check check --fix` and any `split-body` write) must run inside the four-phase guard defined in §0. Invoke `{descriptionGuardHelper}` at the capture and verify-restore points around each call:
+### 11. Route to Next Step
 
-```bash
-# Phase 1 — capture before any frontmatter-touching tool call
-uv run {descriptionGuardHelper} capture {skill_package}/SKILL.md
-# stash returned `description` as `guarded_description`
-
-# Phase 2 — run the tool (skill-check --fix, split-body --write, etc.)
-
-# Phases 3+4 — verify and restore after the tool call
-uv run {descriptionGuardHelper} verify-restore {skill_package}/SKILL.md \
-    --captured-description "{guarded_description}"
-```
-
-Do not rely on per-call ad-hoc preservation logic — use the helper.
-
-**If skill-check available:**
-
-- Run: `npx skill-check check {skill_package} --fix --format json --no-security-scan` **inside the §0 guard**.
-- **Context sync after --fix:** If `fixed[]` is non-empty (i.e., `--fix` modified files on disk), re-read the modified SKILL.md to update the in-context copy. This prevents silent divergence between the in-context SKILL.md and the on-disk version that report will reference. The §0 guard has already restored `description` if divergent; the re-read picks up any other fix-corrected content.
-- If `body.max_lines` reported, prefer selective split — extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). **If falling back to `npx skill-check split-body {skill_package} --write`, run it inside the §0 guard** — split-body can also touch frontmatter. Verify anchors resolve after split.
-- Run: `npx skill-check diff` if original version was preserved.
-- Run: `npx skill-check check {skill_package} --format json` for security scan. (Read-only; guard not required.)
-
-Record findings in the evidence report (section 4), including any `description_guard_restored` events recorded by the §0 protocol. These are advisory — do not block on warnings.
-
-**If skill-check unavailable:** Skip with note — structural checks from step 5 are sufficient.
-
-### 8. Route to Next Step
-
-This step auto-proceeds — no user choices. Once all files have been written and verified and post-write validation is complete, display "**Proceeding to report...**", then load, fully read, and execute `{nextStepFile}` to display the change report.
+This step auto-proceeds: no user choices. Once §10 has run, display "**Proceeding to report...**", then load, fully read, and execute `{nextStepFile}` to display the change report.
 

@@ -10,7 +10,7 @@ skillInventoryProbeOrder:
 
 <!-- Config: communicate in {communication_language}. -->
 
-# Step 7: Report
+# Step 6: Report
 
 ## STEP GOAL:
 
@@ -26,7 +26,7 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 
 ### 1. Handle No-Change Shortcut
 
-**If routed here from step 02 with no changes detected:**
+**If routed here from step 2 with no changes detected:**
 
 "**Update Skill Report: {skill_name}**
 
@@ -59,7 +59,7 @@ List under **Warnings:** each warning the run recorded (`{run_dir}/warnings.json
 
 ### 1a. Handle Detect-Only Mode
 
-**If `detect_only_mode` is true (routed here from detect-changes.md §6):**
+**If `detect_only_mode` is true (routed here from detect-changes.md §5):**
 
 "**Update Skill Report: {skill_name} — Detect-Only Mode**
 
@@ -68,7 +68,7 @@ List under **Warnings:** each warning the run recorded (`{run_dir}/warnings.json
 
 The change manifest below describes what would be updated. No artifact was modified — re-run without `--detect-only` to apply.
 
-{render the change manifest summary table from detect-changes.md §5, plus the per-file detail section, read from `{run_dir}/change-manifest.json`}
+{render the change manifest, read from `{run_dir}/change-manifest.json`: §2's Changes Applied table, plus the per-file detail section}
 
 {the warnings the run recorded, read from `{run_dir}/warnings.jsonl`: **Proposed skill brief amendments (not written):** each `proposed-amendment:` one, as the decision that would amend `skill-brief.yaml`; **Warnings:** each other one}
 
@@ -89,7 +89,7 @@ In `{headless_mode}`, print the line as §5b says, with `status: "detect-only"` 
 
 The change manifest below shows what was detected; re-extraction ran to compute the planned merge but neither merge nor write executed. No artifact was modified.
 
-{render the change manifest summary AND the re-extraction summary (what merge+validate+write WOULD have done), read from `{run_dir}/change-manifest.json` and `{run_dir}/reextract-records.json`}
+{render the change manifest summary AND the re-extraction summary (what merge and write WOULD have done), read from `{run_dir}/change-manifest.json` and `{run_dir}/reextract-records.json`}
 
 {the warnings the run recorded, read from `{run_dir}/warnings.jsonl`: **Proposed skill brief amendments (not written):** each `proposed-amendment:` one, as the decision that would amend `skill-brief.yaml` (a rescope's, rule R1, among them); **Warnings:** each other one}
 
@@ -137,10 +137,8 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 - `re-extract.md §0.a` accepted a drifted workspace under `--allow-workspace-drift` (`{workspace_drift_status}` is `overridden`; this row is where the report shows §0.a's override warning) → ` (workspace drift accepted: spot-checks read HEAD {head_short_sha}, not pinned {pinned_short_sha}; no provenance line moved or pinned)`
 - init.md §6b could not reach upstream and compared the pinned commit (`{source_tree_status}` is `offline`) → ` (upstream not reached: compared the pinned commit only)`
 - init.md §6b could not read `{source_commit}`, so every tracked file was re-checked (`{source_diff_status}` is `unavailable` in a source tree) → ` (file list unavailable: every tracked file re-checked)`
-- write.md §6b left the workspace clone where it was (`{advance_status}` is `skipped`) → ` (source clone not moved: {advance_skip_reason})`
+- write.md §9 left the workspace clone where it was (`{advance_status}` is `skipped`) → ` (source clone not moved: {advance_skip_reason})`
 - Several fired: concatenate the parenthetical notes with `; ` between them
-
-These signals also appear in `warnings[]` on the headless envelope; the Mode row makes them visible to interactive users who scan the report without parsing the envelope.
 
 ### Changes Applied
 
@@ -186,22 +184,26 @@ These signals also appear in `warnings[]` on the headless envelope; the Mode row
 | Orphans removed | {count} |
 | **Integrity** | {VERIFIED / count issues} |"
 
-### 3. Present Validation Findings (If Any)
+### 3. Present Validation Findings
 
-**If validation findings exist from step 05:**
+Read the Validation Summary write.md recorded for this update in `{forge_version}/evidence-report.md`: `[MANUAL] integrity` from write.md §1's `manual-verify` verdict, `Confidence tiers` from §2's relabels, `Provenance` from §6, and `Spec compliance`, `Diff` and `Security` from §7.
+
+**If any row is WARN or FAIL:**
 
 "### Validation Findings
 
 | Check | Status | Issues |
 |-------|--------|--------|
-| Spec compliance | {PASS/WARN/FAIL} | {count} |
-| [MANUAL] integrity | {PASS/WARN/FAIL} | {count} |
-| Confidence tiers | {PASS/WARN/FAIL} | {count} |
-| Provenance | {PASS/WARN/FAIL} | {count} |
+| Spec compliance | {PASS/WARN/FAIL/SKIP} | {count} (quality score {score}/100) |
+| [MANUAL] integrity | {PASS/FAIL} | {count} |
+| Confidence tiers | {PASS/WARN} | {count} |
+| Provenance | {PASS/WARN} | {count} |
+| Diff | {SKIP, or new and fixed counts} | {new} |
+| Security | {PASS/WARN/SKIP} | {count} |
 
 {List specific findings if WARN or FAIL}"
 
-**If all validations passed:** "### Validation: All checks passed."
+**Otherwise:** "### Validation: All checks passed{, with each SKIP row and its reason}."
 
 ### 4. Show Files Updated
 
@@ -239,7 +241,7 @@ When `warnings[]` holds `workspace-clone-not-updated`, add: "- test-skill stops 
 
 ### 5b. Result Contract
 
-The shared emitter writes the result contract and prints the line; never type either. Stage the payload in the run folder, from the files this run wrote rather than from memory (`{run_dir}/change-manifest.json` for the counts, write.md §6's verified list for `files_written`, step 5's verdicts for `validation_status`):
+The shared emitter writes the result contract and prints the line; never type either. Stage the payload in the run folder, from the files this run wrote rather than from memory (`{run_dir}/change-manifest.json` for the counts, the artifacts write.md wrote for `files_written`, the Validation Summary §3 read for `validation_status`):
 
 ```bash
 cat > "{run_dir}/result-context.json" <<'SKF_JSON'
@@ -260,12 +262,12 @@ It writes the per-run record `{forge_version}/update-skill-result-{YYYYMMDD-HHmm
 SKF_UPDATE_RESULT_JSON: {"skf_update": {"status": "success", "skill_name": ..., "version": ..., "previous_version": ..., "update_mode": ..., "files_written": [...], "headless_decisions": [...], "warnings": [...], "error": null}}
 ```
 
-In `{headless_mode}`, display that line verbatim: it is the run's structured channel, and the per-run JSON is the full record on disk. An interactive run runs the command for its result files and need not show the line. When the emitter exits non-zero and its `message` names the payload, fix the payload once and run it again; a write it could not make adds `result_file_write_failed` to the line's `warnings[]`.
+In `{headless_mode}`, display that line verbatim. An interactive run runs the command for its result files and need not show the line. When the emitter exits non-zero and its `message` names the payload, fix the payload once and run it again; a write it could not make adds `result_file_write_failed` to the line's `warnings[]`.
 
 - `status`: `"success"` here; §1 stages `"no-changes"`, §1a `"detect-only"` and §1b `"dry-run"`; a halt prints its own `halted-for-*` or `blocked` line through its step's halt procedure and never reaches this step. The full enum lives in the schema.
 - `headless_decisions[]`: every gate's record in the run's decision log (init.md §4 degraded-rebuild and §8 confirmation, detect-changes.md §1b / §1c / §2.2, merge.md §8). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gate auto-resolved.
 - `error`: null on every exit this step prints. A halt's line carries `{phase, path?, reason}`, and pipelines branch on `error !== null` for non-zero exit semantics.
-- `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category})` for each gap detect-changes.md §0 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (re-extract.md §0.a), `run-state-not-finished` and `provenance:` entries (write.md §3 and §6a: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
+- `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category})` for each gap detect-changes.md §0 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (re-extract.md §0.a), `run-state-not-finished` and `provenance:` entries (write.md §3 and §6: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
 
 **Post-finalization hook.** A finished run, this one or §1's no-change exit, fires the hook; `--detect-only`, `--dry-run` and a halt never do (customize.toml says so). If `{onCompleteCommand}` (resolved in SKILL.md On Activation §4 from `workflow.on_complete`) is non-empty, invoke it after the emitter wrote both result files:
 

@@ -8,6 +8,7 @@ file_entries, with [MANUAL] paths set aside and kind carried through.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -143,8 +144,12 @@ class TestLoadTracked:
 
 
 def run_cli(provenance: str, stdin: str) -> subprocess.CompletedProcess:
+    return run_args([provenance], stdin)
+
+
+def run_args(args: list[str], stdin: str = "") -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(SCRIPT_PATH), provenance],
+        [sys.executable, str(SCRIPT_PATH), *args],
         input=stdin,
         capture_output=True,
         text=True,
@@ -182,6 +187,47 @@ class TestCli:
         prov.write_text(json.dumps({"something_else": []}))
         proc = run_cli(str(prov), json.dumps(detect()))
         assert proc.returncode == 2
+
+
+class TestArgparse:
+    """argparse documents the CLI (#601); arguments, output and exit 2 stay as they were."""
+
+    def test_help_documents_the_cli(self) -> None:
+        proc = run_args(["--help"])
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.startswith("usage: skf-new-file-diff.py [-h] provenance-map-path")
+        for token in ("detect JSON on stdin", '"new_files"', '"skipped_manual"', '"already_tracked"',
+                      "Exit codes:", "2  bad input"):
+            assert token in proc.stdout, token
+
+    def test_help_is_ascii(self) -> None:
+        # No _force_utf8 needed: --help prints only ASCII, so a cp1252 console prints it as is.
+        proc = run_args(["--help"])
+        assert proc.returncode == 0 and proc.stdout and proc.stdout.isascii(), proc.stderr
+
+    @pytest.mark.parametrize("args", [[], ["a.json", "b.json"], ["--provenance", "a.json"]],
+                             ids=["no-argument", "two-arguments", "unknown-flag"])
+    def test_usage_error_is_a_json_error_with_exit_2(self, args: list[str]) -> None:
+        proc = run_args(args, json.dumps(detect()))
+        assert proc.returncode == 2
+        assert proc.stdout == ""
+        error = json.loads(proc.stderr)["error"]
+        assert error.startswith("usage: skf-new-file-diff.py <provenance-map-path>  (detect JSON on stdin): ")
+
+    def test_one_positional_argument(self) -> None:
+        parser = mod._build_parser()
+        positionals = [a for a in parser._actions if not a.option_strings]
+        assert [a.dest for a in positionals] == ["provenance_map"]
+        assert {s for a in parser._actions for s in a.option_strings} == {"-h", "--help"}
+
+    def test_main_reads_its_own_argv(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        prov = tmp_path / "prov.json"
+        prov.write_bytes(json.dumps({"file_entries": [{"source_file": "scripts/old.py"}]}).encode("utf-8"))
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(detect(scripts=["scripts/old.py", "scripts/new.py"]))))
+        assert mod.main(["skf-new-file-diff.py", str(prov)]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["new_files"] == [{"source_file": "scripts/new.py", "kind": "script"}]
+        assert out["already_tracked"] == ["scripts/old.py"]
 
 
 if __name__ == "__main__":

@@ -5,12 +5,12 @@
 """SKF Update Active Symlink — atomic + idempotent + verified flip of
 {skill_group}/active to point at a target version directory.
 
-`skf-update-skill/references/write.md §5b` previously asked the LLM to
+update-skill's `write.md` (its active-link step) previously asked the LLM to
 "create or update the active symlink at {skill_group}/active pointing
 to the new {version}; if the symlink already exists, remove it first
 and recreate". That two-step (`rm` then `ln`) leaves a brief window
 where the symlink doesn't exist — readers that resolve `active`
-mid-update see a `FileNotFoundError`. §6 then re-reads the symlink
+mid-update see a `FileNotFoundError`. A second check then re-reads the symlink
 to verify it points where expected and halts on divergence.
 
 This helper consolidates the two steps into one workflow-specific
@@ -142,7 +142,7 @@ def _envelope_missing_target(skill_group: Path, version: str) -> dict:
         "halt_message": (
             f"Cannot point {skill_group / ACTIVE_NAME} at `{version}` — "
             f"target directory `{skill_group / version}` does not exist on "
-            "disk. Verify the version directory was written before §5b runs."
+            "disk. Verify the version directory was written before the flip runs."
         ),
     }
 
@@ -190,7 +190,7 @@ def _envelope_mismatch(skill_group: Path, version: str, current: str | None) -> 
         "halt_message": (
             f"Active symlink divergence. `{skill_group / ACTIVE_NAME}` "
             f"resolves to `{cur}` but metadata.json reports `version: "
-            f"{version}`. §5b did not apply. Re-point the symlink manually "
+            f"{version}`. The flip did not apply. Re-point the symlink manually "
             f"(`ln -sfn {version} {skill_group / ACTIVE_NAME}`) or re-run "
             "update-skill, then re-verify."
         ),

@@ -1,7 +1,6 @@
 ---
-nextStepFile: 'validate.md'
+nextStepFile: 'write.md'
 manualSectionRulesFile: 'references/manual-section-rules.md'
-mergeConflictRulesFile: 'references/merge-conflict-rules.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first
 # existing path wins. HALT if neither resolves when §6b creates a version
@@ -35,7 +34,7 @@ Merge freshly extracted export data into the existing SKILL.md content while pre
 
 - Focus only on merging extractions into existing skill content
 - Never delete or modify [MANUAL] section content without the user's section 4 [R]/[E] decision
-- Write the merged files to disk at section 6b, once §6b has recorded what this run writes (`{runStateHelper}` `begin`), and verify the merged SKILL.md against the [MANUAL] inventory the user approved before it is published: in a staged version folder outside gap-driven mode, in `{run_dir}` in gap-driven mode. Claude Code's Edit/Write tools commit on call, so there is no held-in-memory "edit plan" primitive; subsequent steps validate and verify against the on-disk files
+- Write the merged files to disk at section 6b, once §6b has recorded what this run writes (`{runStateHelper}` `begin`), and verify the merged SKILL.md against the [MANUAL] inventory the user approved before it is published: in a staged version folder outside gap-driven mode, in `{run_dir}` in gap-driven mode. Later steps verify the files on disk
 - If [MANUAL] conflicts detected: halt and present to user (headless: HALT, nothing written). If clean merge: auto-proceed
 
 ## Steps
@@ -57,12 +56,11 @@ The halt leaves `{run_dir}` in place.
 
 ### 1. Load Merge Rules
 
-Load {manualSectionRulesFile} for [MANUAL] detection and preservation patterns.
-Load {mergeConflictRulesFile} for the conflict-resolution strategy table (the change-category actions and priority order live in §3 below).
+Load {manualSectionRulesFile} for [MANUAL] detection and preservation patterns. The change-category actions and their priority order are in §3 below, and the conflict handling in §4.
 
 ### 2. Extract [MANUAL] Blocks
 
-From the [MANUAL] inventory captured in step 01:
+From the [MANUAL] inventory captured in step 1:
 - Extract every `<!-- [MANUAL:section-name] -->` ... `<!-- [/MANUAL:section-name] -->` block
 - Map each block to its parent section heading
 - Store blocks in a preservation map keyed by section-name
@@ -78,8 +76,7 @@ Apply merge in the following priority order:
 - Check if deleted export has attached [MANUAL] blocks
 - If [MANUAL] attached: flag as ORPHAN conflict (do not remove)
 - If no [MANUAL]: remove generated content cleanly
-- **Gap-driven rescopes** (`DELETED_EXPORT` from detect-changes §0 rule R1, verification `rescoped`) are processed here with the same removal. §6b writes the entry's `rescope` (its `scope.amendments[]` entry, `action: "excluded"`, and its `scope.exclude` path) to the skill brief before SKILL.md, and step 6 removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). Step 3 §0 HALTs on a rescope that carries no `rescope`, so no unscoped removal reaches here.
-- **Gap-driven, under the drift override:** no `DELETED_EXPORT` reaches this priority: step 3's drift gate halted on every rescope.
+- **Gap-driven rescopes** (`DELETED_EXPORT` from detect-changes §0 rule R1, verification `rescoped`) are processed here with the same removal. §6b writes the entry's `rescope` (its `scope.amendments[]` entry, `action: "excluded"`, and its `scope.exclude` path) to the skill brief before SKILL.md, and step 5 removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). Step 3 §0 HALTs on a rescope that carries no `rescope`, so no unscoped removal reaches here.
 
 **Priority 2 — Process MOVED exports:**
 - Update file:line citations in generated content
@@ -97,14 +94,12 @@ Apply merge in the following priority order:
 - Preserve [MANUAL] blocks adjacent to the export
 - Check for position conflicts (new content shifts [MANUAL] block)
 - If position conflict: flag as POSITION conflict
-- **Gap-driven, under the drift override** (step 3 §0.a `{workspace_drift_status}` is `overridden`): no `MODIFIED_EXPORT` reaches this priority. Its fresh signature, parameters and return type could only be read at HEAD, so step 3's drift gate halted on it before merge.
 
 **Priority 5 — Process NEW exports:**
 - Append new export content to appropriate section
 - Place before any [MANUAL] blocks at section boundary
 - No conflicts expected (new content, no existing [MANUAL])
 - **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (step 3 §0 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check found that line by the verifier's text rules, not by an ast-grep recipe, so the prefix is `SRC`, never `AST`.
-- **Gap-driven, under the drift override:** no `NEW_EXPORT` reaches this priority either. Step 3's drift gate halted on every one before merge, whatever its severity and whether the provenance map holds it.
 
 **Priority 6 — Process script/asset file changes (from Category D in change manifest):**
 
@@ -199,7 +194,7 @@ uv run {hashContentHelper} manual-inventory-amend \
     --output "{run_dir}/manual-inventory.json"
 ```
 
-It writes the step-1 inventory without the blocks the user removed and with each edited block hashed from its approved interior. Rebind `{manual_inventory}` ← `{run_dir}/manual-inventory.json`: §6b's staged check, validate.md Check B, write.md §1 and write.md §6a's `fix` verify against it, so they check what the user approved and nothing else. On exit 1 or no JSON (a plan that names a block the inventory does not hold, or an edit with no interior), or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "merge:manual-plan"`, `path: "{run_dir}/manual-plan.json"`, its stderr as `reason`).
+It writes the step 1 inventory without the blocks the user removed and with each edited block hashed from its approved interior. Rebind `{manual_inventory}` ← `{run_dir}/manual-inventory.json`: §6b's staged check, write.md §1, write.md §6's `fix` and write.md §7's re-check verify against it, so they check what the user approved and nothing else. On exit 1 or no JSON (a plan that names a block the inventory does not hold, or an edit with no interior), or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "merge:manual-plan"`, `path: "{run_dir}/manual-plan.json"`, its stderr as `reason`).
 
 ### 6. Compile Merge Results
 
@@ -219,7 +214,7 @@ Merge Results:
   manual_orphans_removed: [count]
 ```
 
-In gap-driven mode, write what step 6's `apply` reads from merge to `{run_dir}/merge-records.json`: for each `NEW_EXPORT` or `MODIFIED_EXPORT` the provenance map does not hold and no `re-extracted` record covers (a cited export whose spot-check pinned a line, and a `Medium`, `Low` or `Info` one recorded `unknown`), the `export_type`, `params` and `return_type` its merged documentation gives, leaving out each one it does not:
+In gap-driven mode, write what step 5's `apply` reads from merge to `{run_dir}/merge-records.json`: for each `NEW_EXPORT` or `MODIFIED_EXPORT` the provenance map does not hold and no `re-extracted` record covers (a cited export whose spot-check pinned a line, and a `Medium`, `Low` or `Info` one recorded `unknown`), the `export_type`, `params` and `return_type` its merged documentation gives, leaving out each one it does not:
 
 ```bash
 cat > "{run_dir}/merge-records.json" <<'SKF_JSON'
@@ -229,7 +224,7 @@ SKF_JSON
 
 ### 6b. Write Merged Files to Disk
 
-Write the merged content produced by sections 3–4 to disk now. Later steps read from these files for validation and verification. The write must happen exactly once, here.
+Write the merged content produced by sections 3–4 to disk now. Later steps read these files from disk. The write must happen exactly once, here.
 
 **Renew the run lock** before anything below writes: this run may have waited at a gate past the time init.md §1b's lock goes stale. From `{project-root}`, run the acquire init.md §1b ran, with this run's own owner and the `{runLockHelper}` §1b resolved:
 
@@ -273,7 +268,7 @@ uv run {runLockHelper} acquire \
 
   Exit 3 (`status` `exists`) is the version-exists halt in step 1 below, with the folder its `path` names. Any other non-zero exit, or no JSON: HALT with status `halted-for-write-failure` before writing anything (halt procedure: `phase: "merge:run-state"`, `path: "{run_dir}"`, its message as `reason`).
 
-**Create the version folder** (every mode but gap-driven). Each version keeps a folder of its own (`knowledge/version-paths.md`), so the previous version stays on disk unchanged and step 6 §5b can point the `active` link at the new one:
+**Create the version folder** (every mode but gap-driven). Each version keeps a folder of its own (`knowledge/version-paths.md`), so the previous version stays on disk unchanged and step 5 §8 can point the `active` link at the new one:
 
 1. **Never overwrite a version.** When `begin` above exited 3, `{skill_group}/{new_version}/` or `{forge_data_folder}/{skill_name}/{new_version}/` already exists: HALT with status `halted-for-write-failure` before writing anything: "**Version {new_version} of {skill_name} already exists** at `{the folder that exists}`. Update Skill writes each version into a folder of its own, never overwrites one, and updates the version the `active` link names, which is not {new_version}. If an earlier update stopped after creating {new_version}, delete `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/` by hand, then re-run. If you keep {new_version} on purpose, move both folders out of the way by hand before updating. Drop Skill removes a single version only when the export manifest lists it (`@Ferris DS {skill_name}`, choose {new_version}, with `--purge`); for a skill that was never exported it can only drop every version." The halt procedure takes `phase: "merge:new-version-folder"`, `path: "{the folder that exists}"`, `reason: "version {new_version} already exists; update-skill never overwrites a version"`; its rollback removes nothing, since `begin` recorded nothing. An interrupted update's folders rarely reach this halt: the next update's init.md §1b removes them when it takes over that run's stale lock.
 2. **Stage the package.** Resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and, from `{project-root}`, run:
@@ -299,7 +294,7 @@ uv run {runLockHelper} acquire \
    ```
 
    It renames the staged folder to `{skill_group}/{new_version}/` in one step, so no reader ever sees a half-copied version.
-6. **Create the forge folder** `{forge_data_folder}/{skill_name}/{new_version}/` and copy `provenance-map.json`, `evidence-report.md` and `extraction-rules.yaml` from `{forge_version}` into it, each when it exists: step 6 updates the provenance map and appends this update to the evidence report there, and audit-skill reads the extraction rules there. Test reports, drift reports and result files belong to the version they were made for and stay where they are.
+6. **Create the forge folder** `{forge_data_folder}/{skill_name}/{new_version}/` and copy `provenance-map.json`, `evidence-report.md` and `extraction-rules.yaml` from `{forge_version}` into it, each when it exists: step 5 updates the provenance map and appends this update to the evidence report there, and audit-skill reads the extraction rules there. Test reports, drift reports and result files belong to the version they were made for and stay where they are.
 7. **Rebind** `{skill_package}` ← `{skill_group}/{new_version}/{skill_name}` and `{forge_version}` ← `{forge_data_folder}/{skill_name}/{new_version}`. Every later step reads and writes the new version there; `{manual_inventory}` keeps the amended path §4 bound.
 
 If no `{atomicWriteProbeOrder}` candidate resolves, or the stage, copy, write, publish or forge-folder step fails, HALT with status `halted-for-write-failure`, naming the failed step (for a missing helper: "skf-atomic-write.py is missing; re-install SKF"). The halt procedure takes `phase: "merge:new-version-folder"`, `path: "{skill_group}/{new_version}"`, `reason: "<the failed step>: <its error>"`; its rollback removes what this section created, `{version_staging}`, `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`, none of which existed before `begin` recorded them. The previous version is unchanged.
@@ -318,28 +313,20 @@ If no `{atomicWriteProbeOrder}` candidate resolves, or the stage, copy, write, p
 3. **Copy it over the package.** Copy `{run_dir}/SKILL.md` to `{skill_package}/SKILL.md`, and write any `references/*.md` the merge changed (merge Priority 8) into `{skill_package}/references/`.
 
 **Do NOT write here:**
-- `metadata.json`, `provenance-map.json`, `evidence-report.md` — derived from merge + validation output, written by step 6 sections 2–4 (the version folder above only copies the previous version's files, which step 6 then rewrites)
-- `context-snippet.md` — regenerated from the on-disk SKILL.md + metadata.json by step 6 section 5
+- `metadata.json`, `provenance-map.json`, `evidence-report.md`: derived from the merge output, written by step 5 sections 2–4 (the version folder above only copies the previous version's files, which step 5 then rewrites)
+- `context-snippet.md`: regenerated from the on-disk SKILL.md + metadata.json by step 5 section 5
 
-**Halt-on-tool-failure:** If any `Edit`/`Write` call or copy errors (permission denied, disk full, path invalid, etc.), HALT with status `halted-for-write-failure` and report the failure; do not proceed to step 5 validation. The halt procedure takes `phase: "merge:write-skill-md"`, `path: "{the file that failed}"`, `reason: "<the error>"`, and its rollback puts the skill back as it was: it removes `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/` when this run created them, and in gap-driven mode restores the package and the brief from the snapshot.
+**Halt-on-tool-failure:** If any `Edit`/`Write` call or copy errors (permission denied, disk full, path invalid, etc.), HALT with status `halted-for-write-failure` and report the failure; do not proceed to step 5. The halt procedure takes `phase: "merge:write-skill-md"`, `path: "{the file that failed}"`, `reason: "<the error>"`, and its rollback puts the skill back as it was: it removes `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/` when this run created them, and in gap-driven mode restores the package and the brief from the snapshot.
 
-### 7. Display Merge Summary
+### 7. Report Progress
 
-"**Merge Complete:**
+Display one line from §6's counts: "**Merged:** {exports_updated} updated, {exports_added} added, {exports_removed} removed, {manual_sections_preserved} [MANUAL] sections preserved, {manual_conflicts_resolved} conflicts resolved." The report (step 6) shows the full counts.
 
-| Metric | Count |
-|--------|-------|
-| Exports updated | {count} |
-| Exports added | {count} |
-| Exports removed | {count} |
-| [MANUAL] sections preserved | {count} |
-| Conflicts resolved | {count} |"
+### 8. Route to Write
 
-### 8. Gate to Validation
+**Clean merge (no conflicts):** display "**Clean merge: proceeding to write...**", then load, read the full file, and execute {nextStepFile} (auto-proceed).
 
-**Clean merge (no conflicts):** display "**Clean merge — proceeding to validation...**", then load, read the full file, and execute {nextStepFile} (auto-proceed).
-
-**Conflicts were resolved (user interaction occurred):** present "**Merge complete with conflict resolution. Select:** [C] Continue to Validation" and wait for the user to confirm before loading {nextStepFile}.
+**Conflicts were resolved (user interaction occurred):** present "**Merge complete with conflict resolution. Select:** [C] Continue to Write" and wait for the user to confirm before loading {nextStepFile}.
 
 **Headless (`{headless_mode}` true):** a headless run reaches this gate only with a clean merge (§4 halts on a conflict before anything is written). Auto-continue and record the decision, from `{project-root}`:
 
