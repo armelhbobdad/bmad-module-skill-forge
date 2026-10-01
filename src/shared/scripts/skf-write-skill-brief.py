@@ -22,7 +22,9 @@ Subcommands:
           src/shared/scripts/schemas/skill-brief.v1.json, apply
           version-precedence rules, render the canonical YAML, and
           atomically write to --target. Emits a JSON success envelope
-          on stdout.
+          on stdout. With --base-brief, the context is a brief already
+          on disk instead, with the changes the other two flags give
+          (see "Base brief form" below).
 
   amend   Read answers as JSON on stdin and apply them to the brief
           already at --target: set scope.registry_path and
@@ -122,6 +124,21 @@ Flat input form (`--from-flat`):
     "source_ref":           null | "v0.5.0"
   }
 
+Base brief form (`write --base-brief <file> [--doc-urls-file <file>]
+[--patch-file <file>]`):
+
+  The context is the brief in --base-brief (a skill-brief.yaml), so a
+  caller that rewrites a brief never retypes it and no field it holds is
+  dropped. --doc-urls-file replaces its doc_urls with the `doc_urls` of
+  that file (the output of skf-merge-doc-urls.py). --patch-file lays a
+  JSON object of changes over it: an object merges key by key, null
+  removes the key, and any other value (a string, a list) replaces it.
+  version_resolved is the patch's version_resolved, else the result's
+  `version`, so the version the brief holds (or the one the patch sets)
+  is written; a brief with a target_version needs the patch to change
+  both. stdin is not read, and --from-flat does not apply. A date the
+  YAML holds unquoted is read as its ISO text.
+
 Output (success):
 
   {
@@ -176,6 +193,7 @@ skf-forge-tier-rw.py.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -682,19 +700,90 @@ def flat_to_nested(flat: dict[str, Any]) -> dict[str, Any]:
     return nested
 
 
-def cmd_write(target: Path, from_flat: bool = False) -> int:
-    raw = sys.stdin.read()
-    if not raw or not raw.strip():
-        _die("write: empty stdin (expected JSON brief context)")
-    try:
-        ctx = json.loads(raw)
-    except json.JSONDecodeError as e:
-        _die(f"write: invalid JSON on stdin: {e}")
-    if not isinstance(ctx, dict):
-        _die("write: context payload must be a JSON object")
+def _plain(value: Any) -> Any:
+    """A YAML-loaded value with each unquoted date turned into its ISO text."""
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    return value
 
-    if from_flat:
-        ctx = flat_to_nested(ctx)
+
+def _overlay(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """`patch` laid over `base`: an object merges key by key, null removes the key, any other value replaces."""
+    merged = dict(base)
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        elif isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _overlay(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _read_json_object(path: Path, flag: str) -> dict[str, Any]:
+    try:
+        raw = path.read_bytes()
+    except OSError as e:
+        _die(f"write: cannot read the {flag} file {path}: {e}", code=2)
+    try:
+        data = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        _die(f"write: the {flag} file {path} is not JSON: {e}")
+    if not isinstance(data, dict):
+        _die(f"write: the {flag} file {path} must hold a JSON object")
+    return data
+
+
+def base_context(base_brief: Path, doc_urls_file: Path | None, patch_file: Path | None) -> dict[str, Any]:
+    """The write context of the base brief form (see the module docstring)."""
+    try:
+        original = base_brief.read_bytes()
+    except OSError as e:
+        _die(f"write: cannot read the base brief {base_brief}: {e}", code=2)
+    try:
+        brief = yaml.safe_load(original.decode("utf-8-sig"))
+    except (UnicodeDecodeError, yaml.YAMLError) as e:
+        _die(f"write: the base brief {base_brief} is not YAML: {e}")
+    if not isinstance(brief, dict):
+        _die(f"write: the base brief {base_brief} holds no brief mapping")
+    ctx = _plain(brief)
+    if doc_urls_file is not None:
+        merged = _read_json_object(doc_urls_file, "--doc-urls-file")
+        if "doc_urls" not in merged:
+            _die(f"write: the --doc-urls-file file {doc_urls_file} holds no doc_urls", field="doc_urls")
+        ctx["doc_urls"] = merged["doc_urls"]
+    if patch_file is not None:
+        ctx = _overlay(ctx, _read_json_object(patch_file, "--patch-file"))
+    if ctx.get("version_resolved") is None:
+        ctx["version_resolved"] = ctx.get("version")
+    return ctx
+
+
+def cmd_write(target: Path, from_flat: bool = False, base_brief: Path | None = None,
+              doc_urls_file: Path | None = None, patch_file: Path | None = None) -> int:
+    if base_brief is not None:
+        if from_flat:
+            _die("write: --from-flat and --base-brief exclude each other")
+        ctx = base_context(base_brief, doc_urls_file, patch_file)
+    elif doc_urls_file is not None or patch_file is not None:
+        _die("write: --doc-urls-file and --patch-file change a --base-brief")
+    else:
+        raw = sys.stdin.read()
+        if not raw or not raw.strip():
+            _die("write: empty stdin (expected JSON brief context)")
+        try:
+            ctx = json.loads(raw)
+        except json.JSONDecodeError as e:
+            _die(f"write: invalid JSON on stdin: {e}")
+        if not isinstance(ctx, dict):
+            _die("write: context payload must be a JSON object")
+
+        if from_flat:
+            ctx = flat_to_nested(ctx)
 
     warnings = validate_context(ctx)
     resolved_version = resolve_version(ctx)
@@ -815,6 +904,14 @@ def main() -> int:
             "assembly site in step 5."
         ),
     )
+    p_write.add_argument("--base-brief", type=Path, metavar="FILE",
+                         help="start from the brief in FILE (a skill-brief.yaml) instead of reading stdin")
+    p_write.add_argument("--doc-urls-file", type=Path, metavar="FILE",
+                         help="with --base-brief: replace doc_urls with the doc_urls of FILE "
+                              "(skf-merge-doc-urls.py output)")
+    p_write.add_argument("--patch-file", type=Path, metavar="FILE",
+                         help="with --base-brief: lay the JSON object in FILE over the brief "
+                              "(objects merge, null removes, other values replace)")
 
     p_amend = sub.add_parser(
         "amend",
@@ -827,7 +924,8 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.cmd == "write":
-        return cmd_write(args.target, from_flat=args.from_flat)
+        return cmd_write(args.target, from_flat=args.from_flat, base_brief=args.base_brief,
+                         doc_urls_file=args.doc_urls_file, patch_file=args.patch_file)
     if args.cmd == "amend":
         return cmd_amend(args.target)
     return 2

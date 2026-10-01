@@ -465,6 +465,37 @@ class TestTree:
         out = _mod().probe_tree("acme", "lib", "-x")
         assert (out["status"], out["cause"], script.calls) == ("unavailable", "ref-not-found", [])
 
+    def test_out_writes_the_listing_and_prints_the_rest(self, script, tmp_path, capsys):
+        """brief-skill step 2 reads status, count and truncated from stdout and leaves the paths to --tree-file."""
+        script.gh[_tree_path()] = ("ok", _tree_json(truncated=True))
+        listing = tmp_path / "tree.json"
+        assert _mod().main(["tree", "--repo", "acme/lib", "--out", str(listing)]) == 0
+        printed = json.loads(capsys.readouterr().out)
+        written = json.loads(listing.read_text(encoding="utf-8"))
+        assert written["tree"] == ["package.json", "src/a.ts"] and "tree" not in printed
+        assert printed == {key: value for key, value in written.items() if key != "tree"}
+        assert (printed["status"], printed["count"], printed["truncated"]) == ("ok", 2, True)
+        proc = subprocess.run([sys.executable, str(SCRIPTS / "skf-detect-language.py"), "--tree-file", str(listing)],
+                              capture_output=True, text=True, check=True)
+        assert json.loads(proc.stdout)["language"] == "javascript"
+
+    def test_out_on_an_unreadable_repository_still_writes_the_listing(self, script, tmp_path, capsys):
+        script.gh[_tree_path()] = ("missing",)
+        script.api[_tree_path()] = ("not-found",)
+        script.api[REPO] = ("not-found",)
+        script.api[OWNER] = ("ok", "{}")
+        listing = tmp_path / "tree.json"
+        assert _mod().main(["tree", "--repo", "acme/lib", "--out", str(listing)]) == 3
+        printed = json.loads(capsys.readouterr().out)
+        assert (printed["status"], printed["cause"]) == ("unavailable", "gh-missing") and "tree" not in printed
+        assert json.loads(listing.read_text(encoding="utf-8"))["tree"] == []
+
+    def test_out_to_a_folder_that_does_not_exist_is_an_error(self, script, tmp_path, capsys):
+        script.gh[_tree_path()] = ("ok", _tree_json())
+        assert _mod().main(["tree", "--repo", "acme/lib", "--out", str(tmp_path / "no" / "tree.json")]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == "" and json.loads(captured.err)["status"] == "error"
+
     def test_output_pipes_into_detect_language(self, script):
         script.gh[_tree_path()] = ("ok", _tree_json())
         out = _mod().probe_tree("acme", "lib", "HEAD")

@@ -31,17 +31,13 @@ After `qmd embed` completes, verify the collection was embedded:
 
 ## Registry Update (Delegated to Script)
 
-Build the entry JSON and pipe it to the `register-qmd-collection` subcommand:
+Stage the entry in the run folder through a quoted heredoc, then run the `register-qmd-collection` subcommand on the file. Add `"status": "pending"` to the object only when embed verification failed:
 
 ```bash
-echo '{
-  "name": "{skill-name}-brief",
-  "type": "brief",
-  "source_workflow": "brief-skill",
-  "skill_name": "{skill-name}",
-  "created_at": "{current ISO date}"
-  // include "status": "pending" only when embed verification failed
-}' | uv run {forgeTierRwHelper} register-qmd-collection --target {forgeTierFile}
+cat > "{run_dir}/qmd-entry.json" <<'SKF_JSON'
+{"name": "{skill-name}-brief", "type": "brief", "source_workflow": "brief-skill", "skill_name": "{skill-name}", "created_at": "{current ISO date}"}
+SKF_JSON
+uv run {forgeTierRwHelper} register-qmd-collection --target {forgeTierFile} < "{run_dir}/qmd-entry.json"
 ```
 
 The script handles the upsert deterministically (replace existing entry with same `name`, else append) and preserves all other forge-tier state (tools, tier, ccc_index, ccc_index_registry, other qmd_collections entries) — no need to reason about YAML re-rendering or section comments.

@@ -96,17 +96,20 @@ Assemble the brief context as a **flat** JSON object — every approved value is
   "scripts_intent":   null | "{detect|none|free-text}",
   "assets_intent":    null | "{detect|none|free-text}",
   "source_authority": null | "{official|community|internal}",
-  "target_ref":       null | "{explicit git ref — ratify only}",
+  "target_ref":       null | "{the explicit git ref: step 1's /tree/<ref>/ URL, or hydrated on a ratify run}",
   "source_ref":       null | "{resolved git ref — ratify only}"
 }
 ```
 
-**Ratify mode (`ratify_mode: true`):** step 2 never re-derives the version on a ratify run (an [R] pass analyzes the brief's ref but keeps the hydrated version): the version was hydrated from the upstream brief at step 1 §3.1a (interactive) or the §8 GATE `from_brief` route (headless). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds. Likewise carry `target_ref`/`source_ref`, `scope_tier_a_include`/`scope_amendments` and `scope_registry_path`/`scope_ui_variants`/`scope_demo_patterns` from the hydrated brief (all null on a derive run) so the writer round-trips the monorepo git ref, the stratified tier-A surface, the amendment audit log, and a component library's registry file, design system variants and demo globs instead of dropping them.
+**Ratify mode (`ratify_mode: true`):** step 2 never re-derives the version on a ratify run (an [R] pass analyzes the brief's ref but keeps the hydrated version): the version was hydrated from the upstream brief at step 1 §3.1a (interactive) or the §8 GATE `from_brief` route (headless). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds. Likewise carry `target_ref`, `source_ref`, `scope_tier_a_include`/`scope_amendments` and `scope_registry_path`/`scope_ui_variants`/`scope_demo_patterns` from the hydrated brief (on a derive run all null but `target_ref`, which step 1 sets from a `/tree/<ref>/` URL and steps 2 and 3 analyzed) so the writer round-trips the monorepo git ref, the stratified tier-A surface, the amendment audit log, and a component library's registry file, design system variants and demo globs instead of dropping them.
 
-Pipe it into the writer script with the `--from-flat` flag:
+Stage it in the run folder, then run the writer on the file with the `--from-flat` flag:
 
 ```bash
-echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {resolved-target-path} --from-flat
+cat > "{run_dir}/brief-context.json" <<'SKF_JSON'
+<the brief context above, as one JSON object>
+SKF_JSON
+uv run {writeSkillBriefHelper} write --target {resolved-target-path} --from-flat < "{run_dir}/brief-context.json"
 ```
 
 The script translates flat → nested internally, drops the null optional fields, and runs the same schema validation and atomic write as before — pass every key always, the writer decides what reaches the YAML.
@@ -129,7 +132,7 @@ The script:
 
 **On success:** capture `brief_path` and `version` from the response envelope (§4b, §6 and §6b need them), and add each entry of its `warnings[]` to `workflow_warnings[]`.
 
-**Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f` — silent on absent). The draft was a step 1 §7 checkpoint covering the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
+**Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f`, silent on absent). The draft was the checkpoint step 1 §7b and step 3 §5c wrote for the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
 
 ### 3b. QMD Collection Registration (Deep Tier Only)
 
@@ -198,4 +201,10 @@ When `{onCompleteCommand}` is empty (bundled default), skip this section entirel
 
 ### 7. Chain to Health Check
 
-Once the brief file has been written and the success summary displayed, load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
+Once the brief file has been written and the success summary displayed, remove the run folder step 1 §1 created, with what the run staged in it (the guard keeps the command to that folder):
+
+```bash
+case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac
+```
+
+Then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: do not stop here even though the summary reads as final.

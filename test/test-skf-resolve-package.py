@@ -260,6 +260,36 @@ class TestParseTarget:
             assert set(mod.parse_target(raw)) == keys
         assert set(mod.KINDS) == {"github", "package", "registry-page", "other-host", "local-path", "unparsed"}
 
+    @pytest.mark.parametrize("raw, made", [
+        pytest.param("skill-brief.yaml", "file", id="a-brief-file-here"),
+        pytest.param("briefs/skill-brief.yaml", "file", id="a-brief-file-in-a-folder"),
+        pytest.param("forge-data/zod", "dir", id="an-owner-repo-shaped-folder"),
+        pytest.param("zod", "dir", id="a-package-shaped-folder"),
+        pytest.param("My Projects/lib", "dir", id="a-folder-with-a-space"),
+    ])
+    def test_local_first_reads_what_is_on_disk_as_a_local_path(self, raw, made, tmp_path, monkeypatch):
+        """brief-skill's target prompt: a relative path that exists is a local path whatever its shape."""
+        monkeypatch.chdir(tmp_path)
+        assert mod.parse_target(raw)["kind"] != "local-path"  # its shape alone reads it as something else
+        target = tmp_path.joinpath(*raw.split("/"))
+        if made == "file":
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"name: demo\n")
+        else:
+            target.mkdir(parents=True)
+        assert mod.parse_target(raw, local_first=True) == _parsed("local-path", path=raw) | {"input": raw}
+
+    def test_local_first_leaves_a_target_that_is_not_on_disk_to_its_shape(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        for raw in ("zod", "requests==2.31.0", "https://github.com/o/r", "vercel/next.js", "a sentence", "",
+                    "file:///nowhere/at/all", "nul\x00byte"):
+            assert mod.parse_target(raw, local_first=True) == mod.parse_target(raw), raw
+        home = tmp_path / "home"
+        (home / "lib").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        assert mod.parse_target("~/lib", local_first=True)["path"] == "~/lib"
+
 
 class TestSkillName:
     """The name quick-skill writes a skill under must pass skf-validate-frontmatter.py
@@ -769,6 +799,14 @@ class TestCli:
         assert mod.main(["parse-target"]) == 0
         out = json.loads(capsys.readouterr().out)
         assert (out["kind"], out["input"]) == ("unparsed", text.strip())
+
+    def test_parse_target_local_first_from_the_flag(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "skill-brief.yaml").write_bytes(b"name: demo\n")
+        assert mod.main(["parse-target", "--target", "skill-brief.yaml", "--local-first"]) == 0
+        assert json.loads(capsys.readouterr().out)["kind"] == "local-path"
+        assert mod.main(["parse-target", "--target", "skill-brief.yaml"]) == 0
+        assert json.loads(capsys.readouterr().out)["kind"] == "package"
 
     def test_the_script_runs_as_a_program(self):
         result = subprocess.run([sys.executable, str(SCRIPT), "parse-target"], input=b"requests==2.31",

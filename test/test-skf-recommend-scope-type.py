@@ -7,8 +7,9 @@ recommendation. It reads no free text. Tests build payloads inline and
 call recommend() directly, plus subprocess cases for the CLI and its
 --tree-file, --registry-files and --entry-dir inputs, and checks that the
 call scope-definition.md documents works: its payload is one the script
-accepts, and its bash block, run with a fake gh, reads the registry file
-and exits with the script's status.
+accepts, and its bash block, run with a fake gh on the file list step 2
+staged in the run folder, reads the registry file and exits with the
+script's status.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import pytest
 REPO = Path(__file__).parent.parent
 SCRIPT_PATH = REPO / "src" / "shared" / "scripts" / "skf-recommend-scope-type.py"
 SCOPE_DEFINITION = REPO / "src" / "skf-brief-skill" / "references" / "scope-definition.md"
+ANALYZE_TARGET = REPO / "src" / "skf-brief-skill" / "references" / "analyze-target.md"
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
 # The documented block is POSIX shell; on Windows `bash` may be WSL's launcher.
@@ -782,23 +784,33 @@ def test_documented_calls_pass_the_tree_and_registry_files_by_file_and_no_free_t
 
 
 def _run_documented_block(tmp_path: Path, listing: str) -> subprocess.CompletedProcess:
-    """Run the GitHub block with the probe's listing given and a fake gh that serves a registry."""
+    """Run the GitHub block on step 2's staged listing, with a fake gh that serves a registry."""
     block = _documented_block()
     heredoc = HEREDOC_RE.search(block)
     block = block[:heredoc.start("body")] + _fill(heredoc.group("body")) + block[heredoc.end("body"):]
-    listing_file = tmp_path / "listing.json"
-    listing_file.write_bytes(listing.encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "tree.json").write_bytes(listing.encode("utf-8"))
     block = block.replace("uv run {recommendScopeTypeHelper}", f'"{sys.executable}" "{SCRIPT_PATH}"')
-    block = re.sub(r"uv run \{githubProbeHelper\} tree [^>\n]*", f'cat "{listing_file}" ', block)
+    block = block.replace("{run_dir}", run_dir.as_posix())
     block = block.replace("{owner}/{repo}", "o/r").replace("{analysis_ref}", "main")
     assert "{recommendScopeTypeHelper}" not in block and "{githubProbeHelper}" not in block
+    assert not re.findall(r"\{[A-Za-z_]+\}", block), "every placeholder of the block is filled"
     fake_gh = "gh() { printf '%s\\n' 'export const registry: Component[] = [];'; }\n"
-    temp = tmp_path / "temp"
-    temp.mkdir()
-    proc = subprocess.run([BASH, "-c", fake_gh + block], capture_output=True, text=True, encoding="utf-8",
-                          timeout=60, check=False, env={**os.environ, "TMPDIR": str(temp)})
-    assert list(temp.iterdir()) == [], "the block removes its temporary folder"
-    return proc
+    return subprocess.run([BASH, "-c", fake_gh + block], capture_output=True, text=True, encoding="utf-8",
+                          timeout=60, check=False)
+
+
+def test_documented_block_reads_the_staged_listing_and_lists_nothing_itself():
+    """Step 2 staged the file list in the run folder: the block reads it there and never lists the repository again."""
+    block = _documented_block()
+    assert "{githubProbeHelper}" not in block and "mktemp" not in block
+    assert block.count('--tree-file "{run_dir}/tree.json"') == 2
+    assert '--entry-dir "{run_dir}/files"' in block
+    text = SCOPE_DEFINITION.read_text(encoding="utf-8")
+    assert "githubProbeProbeOrder" not in text
+    [local] = [line for line in text.splitlines() if line.startswith("- **A local source, or step 2's clone.**")]
+    assert '--entry-dir "{source_path}"' in local and "{run_dir}/clone" in local
 
 
 @pytest.mark.skipif(not POSIX_BASH, reason="runs the documented block in a POSIX bash")
@@ -810,11 +822,13 @@ def test_documented_block_reads_the_fetched_registry_file(tmp_path):
     assert out["scope_type"] == "component-library"
     assert out["signals"]["registry_path"] == REGISTRY
     assert out["signals"]["contents_inspected"] is True
+    # the registry file was fetched into the run folder, laid out like the repository
+    assert (tmp_path / "run" / "files").joinpath(*REGISTRY.split("/")).is_file()
 
 
 @pytest.mark.skipif(not POSIX_BASH, reason="runs the documented block in a POSIX bash")
 def test_documented_block_exits_with_the_scripts_status(tmp_path):
-    """A failed listing: the call exits 2 with the listing's message, as the failed-call bullet says."""
+    """A listing the script refuses: the call exits 2 with the listing's message, as the failed-call bullet says."""
     listing = json.dumps({"status": "unavailable", "cause": "unreachable", "tree": [],
                           "message": "Could not reach GitHub to read o/r (timeout); try again later."})
     proc = _run_documented_block(tmp_path, listing)
@@ -825,19 +839,19 @@ def test_documented_block_exits_with_the_scripts_status(tmp_path):
 
 @pytest.mark.skipif(not POSIX_BASH or GIT is None, reason="runs the documented git listing in a POSIX bash")
 def test_documented_local_listing_keeps_a_non_ascii_path(tmp_path):
-    """git quotes a non-ASCII path unless core.quotePath is off; the listing must name the file as it is."""
-    text = SCOPE_DEFINITION.read_text(encoding="utf-8")
-    [command] = re.findall(r'`(git -C "<folder>"[^`]*)`', text)
+    """git quotes a non-ASCII path unless core.quotePath is off; step 2's listing must name the file as it is."""
+    text = ANALYZE_TARGET.read_text(encoding="utf-8")
+    [command] = [line.strip() for line in text.splitlines() if line.strip().startswith('git -C "{source_path}"')]
     registry = "src/ui-ü/registry.ts"
     repo = _entry_dir(tmp_path, {registry: "export const registry: Component[] = [];\n"})
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
     subprocess.run([GIT, "-C", str(repo), "add", "-A"], check=True, capture_output=True)
-    work = tmp_path / "work"
-    work.mkdir()
-    subprocess.run([BASH, "-c", command.replace("<folder>", str(repo)).replace("$work", str(work))],
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    subprocess.run([BASH, "-c", command.replace("{source_path}", str(repo)).replace("{run_dir}", str(run_dir))],
                    check=True, capture_output=True)
     body = json.dumps({"signals": NO_SIGNALS, "mode": "interactive"})
-    proc = run_cli("--tree-file", str(work / "tree.json"), "--entry-dir", str(repo), stdin=body)
+    proc = run_cli("--tree-file", str(run_dir / "tree.json"), "--entry-dir", str(repo), stdin=body)
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)
     assert out["scope_type"] == "component-library"

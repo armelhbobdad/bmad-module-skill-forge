@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  An `[auto]` brief (`BS[auto]` after `skf-analyze-source`) now keeps every field of the upstream brief, the scope rationale, tier-A list, amendments, registry path, UI variants and demo patterns included, instead of writing some of them empty, and its edit option rewrites only the fields the user changes.
+issues: [592]

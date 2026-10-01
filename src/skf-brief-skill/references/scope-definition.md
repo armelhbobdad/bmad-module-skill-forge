@@ -3,9 +3,11 @@ nextStepFile: 'confirm-brief.md'
 recommendScopeTypeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-recommend-scope-type.py'
   - '{project-root}/src/shared/scripts/skf-recommend-scope-type.py'
-githubProbeProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-github-probe.py'
-  - '{project-root}/src/shared/scripts/skf-github-probe.py'
+extractPublicApiProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+analyzeStepFile: 'analyze-target.md'
+draftCheckpointFile: 'references/draft-checkpoint.md'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -19,6 +21,8 @@ partyModeSkill: '/bmad-party-mode'
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
 - **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules — revise in place, do not append.
+- **Staged inputs.** Step 2 staged the repository in the run folder: its file list at `{run_dir}/tree.json` and the files it fetched under `{run_dir}/files/`. §2c and §3c read them there.
+- **Resumed draft:** a run that resumed a draft at step 4 (draft-checkpoint.md Half 1) and came here through step 4's `[R]` has not run step 2 in this session. When `source_type` is `source` and `{run_dir}/tree.json` does not exist, load, read entire file, then execute {analyzeStepFile} first: it stages the analysis again at `{analysis_ref}` and chains back here.
 - **Ratify run (`ratify_mode: true`):** the hydrated brief's selections are the prior selections of the re-entry rule above, and the intent that §1 shows and §2c classifies is the change the user asked for when choosing [R], read with the hydrated `description`. For a source brief, step 2 has analyzed the brief's repository and §2c runs the recommender on that analysis: its `scope_type` and `matched_heuristic` replace the hydrated `recommended` and `heuristic`, and the §2c capture rules set the rest of `scope.rationale` from this pass (a brief without one gets one).
 
 ## Sequence
@@ -30,8 +34,8 @@ partyModeSkill: '/bmad-party-mode'
 Based on the analysis, here's what we're working with:
 
 - **Target:** {repo}
-- **Language:** {detected language}
-- **Modules found:** {count} — {list names}
+- **Language:** {language from step 2: the detected or confirmed one, or `documentation` for a docs-only target}
+- **Modules found:** {module_count from step 2 §4.3} ({list names}; none for a docs-only target)
 - **Your intent:** {user intent from step 01}
 {If scope hints from step 01:}
 - **Your initial scope hints:** {hints}"
@@ -49,6 +53,7 @@ Which pages should be included in the skill? (Enter numbers, or 'all')
 Any additional documentation URLs to add?"
 
 Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
+- `language`: step 2 §0's `{language}` (`documentation`, unless a `language_hint` was supplied), shown again in the §5 summary and written by step 5
 - `scope.type: "docs-only"`
 - `scope.include`: confirmed doc URLs
 - `scope.notes: "Generated from external documentation. All content is T3 confidence."`
@@ -81,7 +86,7 @@ Load `{scopeTemplatesPath}` for the scope type options ([F], [M], [P], [C], [R])
 
 **Recommend a scope type — don't present the five options as equal weight.** SKILL.md states this workflow "steers toward the smaller, sharper version when scope is unclear" — surface that opinion at decision time. Use the analysis from step 2 and the user's intent from step 1 to pick the best-fit recommendation, then present the menu with that option marked as the suggested default.
 
-**Resolve `{recommendScopeTypeHelper}`** from `{recommendScopeTypeProbeOrder}`; first existing path wins. HALT if no candidate exists. For a GitHub source, resolve `{githubProbeHelper}` from `{githubProbeProbeOrder}`; first existing path wins; with none, the call below runs on the `[]` listing of a failed call.
+**Resolve `{recommendScopeTypeHelper}`** from `{recommendScopeTypeProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 **Delegate the recommendation to `{recommendScopeTypeHelper}`**: it reads no free text, so what the intent asks for is your judgment, passed as three signals.
 
@@ -95,34 +100,31 @@ Load `{scopeTemplatesPath}` for the scope type options ([F], [M], [P], [C], [R])
 
 Judge the meaning, never a word: a negated or contrasted mention sets nothing ("the whole library, not just the parser" names no module; "the client library, not a demo app or starter template" wants no wiring pattern), and a word inside another word is not that word ("Kickstarter-style" says nothing about a starter). A signal the intent does not state stays `false` (or `[]`).
 
-**Run the recommender in one Bash call**; it reads the file list through `--tree-file` and the registry files (`registry.ts`, `components.ts` and their `.tsx` forms) through `--entry-dir`, never a list or a file typed into the payload. For a GitHub source:
+**Run the recommender in one Bash call**; it reads step 2's file list through `--tree-file` and the registry files (`registry.ts`, `components.ts` and their `.tsx` forms) through `--entry-dir`, never a list or a file typed into the payload. For a GitHub source, the loop fetches the registry files the listing holds into `{run_dir}/files` at `{analysis_ref}`:
 
 ```bash
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-uv run {githubProbeHelper} tree --repo "{owner}/{repo}" --ref "{analysis_ref}" > "$work/tree.json"
-uv run {recommendScopeTypeHelper} --tree-file "$work/tree.json" --registry-files | while IFS= read -r rel; do
-  mkdir -p "$work/files/$(dirname "$rel")"
-  gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$rel?ref={analysis_ref}" > "$work/files/$rel" || rm -f "$work/files/$rel"
+uv run {recommendScopeTypeHelper} --tree-file "{run_dir}/tree.json" --registry-files | while IFS= read -r rel; do
+  mkdir -p "{run_dir}/files/$(dirname "$rel")"
+  gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$rel?ref={analysis_ref}" > "{run_dir}/files/$rel" || rm -f "{run_dir}/files/$rel"
 done
-uv run {recommendScopeTypeHelper} --tree-file "$work/tree.json" --entry-dir "$work/files" <<'SKF_SCOPE_PAYLOAD'
+uv run {recommendScopeTypeHelper} --tree-file "{run_dir}/tree.json" --entry-dir "{run_dir}/files" <<'SKF_SCOPE_PAYLOAD'
 {
   "signals": {
     "wants_wiring_pattern": <true|false>,
     "named_module_subset": [<module names, or nothing>],
     "wants_narrow_api": <true|false>
   },
-  "module_count": <count from step 2 §4.3>,
-  "export_count": <count from step 2 §4.3>,
+  "module_count": <module_count from step 2 §4.3>,
+  "export_count": <the number of exports step 2 §4.3 lists>,
   "source_type": "source",
   "mode": "interactive"
 }
 SKF_SCOPE_PAYLOAD
 ```
 
-- **A local source, or step 2's clone.** For a local path, or `{tmp_dir}` when step 2 cloned the repository on `[L]`, list that folder and read its registry files in place: replace the probe line with `git -C "<folder>" -c core.quotePath=false ls-files > "$work/tree.json"` (outside a git work tree: `(cd "<folder>" && find . -type f -not -path './.git/*' -not -path '*/node_modules/*') > "$work/tree.json"`), drop the fetch loop, and pass `--entry-dir "<folder>"`.
+- **A local source, or step 2's clone.** For a local path, or `{run_dir}/clone` when step 2 cloned the repository on `[L]`, drop the fetch loop and pass the folder itself, `--entry-dir "{source_path}"`: its registry files are read in place.
 - **`mode`.** `"interactive"` lets a registry file's contents decide the component-registry rule (10+ entries or a `Component[]` annotation), so a file whose contents could not be read does not count; the §6 headless GATE passes `"headless"`, which counts such a file by its presence.
-- **A failed call.** The call prints one JSON object, or exits 2 and names the problem on stderr. For a payload key or signal the script does not accept, fix the payload and run the call again. For a tree listing that failed (the stderr line carries the listing's own message), do not retry the network: run the call again with `printf '[]' > "$work/tree.json"` in place of the listing line, and log `"warn: scope-type recommendation ran without the file list ({message}); the component-registry check did not run"`. Interactively, show that warning with the recommendation, so the user can still pick [C].
+- **A failed call.** The call prints one JSON object, or exits 2 and names the problem on stderr. For a payload key or signal the script does not accept, fix the payload and run the call again. For a file list it cannot read (the stderr line names the listing's problem), run the call again with `--tree-file "{run_dir}/tree-empty.json"` after `printf '[]' > "{run_dir}/tree-empty.json"`, and log `"warn: scope-type recommendation ran without the file list ({message}); the component-registry check did not run"`, adding it to `workflow_warnings[]`. Interactively, show that warning with the recommendation, so the user can still pick [C].
 
 The script returns `{scope_type, matched_heuristic, signals, rationale}`. Use `rationale` directly — it already names the specific signals that fired.
 
@@ -160,7 +162,24 @@ Carry the `monorepo_workspace` path forward from step 02 §1b into the `scope.no
 
 **Applies when a monorepo subpackage's `scope.include` uses coarse directory globs (`packages/foo/src/**`, `bin/**`) rather than an explicit file list.** Coarse globs also sweep in internal-only files (build scripts, state-store impls, generated config) that the package's public entry barrel never re-exports. `skf-create-skill` scores coverage against the *authoring* surface, and `skf-test-skill` re-derives that surface from the brief to guard against a deflated coverage denominator — so when the coarse-glob union is much larger than the documented export count and the brief names no narrower surface, the test gate inflates the denominator and an otherwise-complete skill scores as if it had large coverage gaps.
 
-Head this off by capturing the authoring surface as **`scope.tier_a_include`**: the concrete source files whose named exports the package's public entry barrel (`index.ts`, `lib.rs`, `__init__.py`) actually re-exports. Derive the candidate list by tracing the entry barrel's re-export targets (the entry-point file was fetched in step 02), present it for the user to confirm or adjust, and store the confirmed list as `scope.tier_a_include`. List the definition files, not the umbrella barrel itself — a barrel re-exports the whole package, so including it widens the surface instead of narrowing it.
+Head this off by capturing the authoring surface as **`scope.tier_a_include`**: the concrete source files whose named exports the package's public entry barrel (`index.ts`, `lib.rs`, `__init__.py`) actually re-exports. List the definition files, not the umbrella barrel itself: a barrel re-exports the whole package, so including it widens the surface instead of narrowing it.
+
+- **Forge tier and above: the recipe runner traces the barrel.** It follows every re-export, `export *` and star import from the package's entry points to the file that defines each name. Resolve `{extractPublicApiHelper}` from `{extractPublicApiProbeOrder}` (first existing path wins). It reads the source on disk, at `{source_path}`: a local source, or step 2's `[L]` clone. For a GitHub source step 2 did not clone, the source folder is `{run_dir}/clone`, a clone of only the folders the globs name: step 2 §1's `[L]` clone command with `--sparse` added (and `--filter=blob:none`, which its commit-SHA form already carries), then, right after it (for a commit SHA, before its checkout), `git -C "{run_dir}/clone" sparse-checkout set "<folder>"`, one folder per `scope.include` glob (the part before its first wildcard). From `{project-root}`, run the runner over the confirmed globs, one `--include` per `scope.include` glob and one `--exclude` per `scope.exclude` glob:
+
+  ```bash
+  uv run {extractPublicApiHelper} --mode full --source-root "<source folder>" --include "<include glob>" --exclude "<exclude glob>" --language "{language}" -o "{run_dir}/tier-a.json"
+  ```
+
+  The candidates are the files that define a name an entry point passes on (`reexport_targets`), less the entry points themselves (`entry_points.files[].file`). Print them, one per line:
+
+  ```bash
+  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); entries = {f["file"] for f in d["entry_points"]["files"]}; print("\n".join(sorted({t["file"] for t in d["reexport_targets"] if t["file"]} - entries)))' "{run_dir}/tier-a.json"
+  ```
+
+  Once the runner has run, whatever its exit, remove a clone this section made (`rm -rf "{run_dir}/clone"`).
+- **Quick tier, or a runner that cannot trace** (it exits 3 when no ast-grep is installed, 1 or 2 when the scan fails), or a clone that fails (remove what it left, `rm -rf "{run_dir}/clone"`): read the entry barrel step 2 fetched and list its re-export targets by eye, and add `warn: tier-A surface listed by hand ({the reason})` to `workflow_warnings[]`.
+
+Present the candidate list for the user to confirm or adjust (headless: keep it as it is), and store the confirmed list as `scope.tier_a_include`.
 
 `scope.tier_a_include` does not change what gets extracted (that still follows `scope.include` / `scope.exclude`); it only pins the coverage denominator so the create-side and test-side counts agree without a mid-test hand-edit. Leave it unset when `scope.include` is already an explicit file list, or when the target is not a monorepo subset — there the coarse-glob union and the authoring surface coincide and no narrowing is needed.
 
@@ -209,6 +228,10 @@ Wait for confirmation. Make adjustments if requested.
 
 Record the response as `scripts_intent` and `assets_intent` in the brief. Default to `detect` if user does not respond or skips.
 
+### 5c. Draft Checkpoint (interactive only)
+
+When the flow is interactive, load `{draftCheckpointFile}` and follow Half 2 (Checkpoint Write) again, now with this step's scope decisions, so a run interrupted between here and step 5 resumes at step 4 instead of redoing the analysis and the scope. A re-entry from step 4 `[R]` rewrites the draft with the revised scope. Headless runs and ratify runs skip this section.
+
 ### 6. Present MENU OPTIONS
 
 Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Continue to Brief Confirmation [X] Cancel and exit
@@ -218,7 +241,7 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 - IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
-- IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — no files have been written yet. `[X]` is interactive-only; the headless GATE never reaches this branch.
+- IF X: Treat as user-cancellation. Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). No brief was written; a draft §5c or step 1 saved stays for a later resume. `[X]` is interactive-only; the headless GATE never reaches this branch.
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#6-present-menu-options)
 
 #### Execution rules:

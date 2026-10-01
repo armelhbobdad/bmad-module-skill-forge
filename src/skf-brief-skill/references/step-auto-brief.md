@@ -52,20 +52,9 @@ The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}`.
 - **`valid: false`**: the upstream brief is malformed. Emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Upstream brief at `{brief_path}` is invalid: {first error message}.**"
 - **`valid: true`**: proceed with the parsed `brief` payload. Log any non-empty `warnings[]` and add each to `workflow_warnings[]` as `<field>: <message>`.
 
-Extract from the parsed brief:
-- `skill_name` ← `brief.name`
-- `version` ← `brief.version`
-- `source_repo` ← `brief.source_repo`
-- `language` ← `brief.language`
-- `scope_type` ← `brief.scope.type`
-- `forge_tier` ← `brief.forge_tier`
-- `description` ← `brief.description`
-- `created` ← `brief.created`
-- `created_by` ← `brief.created_by`
-- All scope fields: `scope.include`, `scope.exclude`, `scope.notes`, `scope.rationale`, `scope.amendments`, `scope.tier_a_include`
-- Optional fields: `source_type`, `source_authority`, `doc_urls`, `target_version`, `target_ref`, `source_ref`, `scripts_intent`, `assets_intent`
+Nothing the upstream brief carries is rebuilt or dropped: §4's writer starts from the upstream brief file itself. That covers the top-level fields (`name`, `version`, `source_type`, `source_repo`, `language`, `description`, `forge_tier`, `created`, `created_by`, `source_authority`, `doc_urls`, `target_version`, `target_ref`, `source_ref`, `scripts_intent`, `assets_intent`) and all scope fields: `scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.rationale`, `scope.amendments`, `scope.tier_a_include`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`. The sections below read `skill_name` ← `brief.name`, `source_repo` ← `brief.source_repo`, `scope_type` ← `brief.scope.type` and `source_type` ← `brief.source_type`.
 
-**Docs-only check:** If `source_type` is `docs-only` in the parsed brief, skip §2 (Run Doc Detection) and §3 (Enrich Brief with Detected Docs) — the doc URL is already in the brief's `doc_urls`. Log: "Docs-only brief — skipping repo-based doc detection. Doc URLs provided by upstream." Proceed directly to §4 (Validate Enriched Brief). All brief fields (`source_type`, `source_authority`, `doc_urls`, `scope_type`) must pass through unmodified.
+**Docs-only check:** If `source_type` is `docs-only` in the parsed brief, skip §2 (Run Doc Detection) and §3 (Enrich Brief with Detected Docs): the doc URL is already in the brief's `doc_urls`. Log: "Docs-only brief: skipping repo-based doc detection. Doc URLs provided by upstream." Proceed directly to §4 (Write Enriched Brief). All brief fields (`source_type`, `source_authority`, `doc_urls`, `scope_type`) must pass through unmodified.
 
 ### 2. Run Doc Detection
 
@@ -101,61 +90,32 @@ For each detected doc entry, create a brief `doc_urls` entry:
     - `"docs_folder"` → `"Docs Folder"`
 - `source` ← coarse provenance derived from `detected_via` (per the `skill-brief.v1.json` `doc_urls[].source` enum): `homepageUrl` → `homepage`, `readme_link` → `readme-detection`, `pages_api` → `pages-api`, `docs_folder` → `docs-folder`. This marks the entry as opportunistically detected, distinct from a registry-guaranteed corpus.
 
-**Merge via the canonical helper.** Resolve `{mergeDocUrlsHelper}` from `{mergeDocUrlsProbeOrder}` (first existing path wins; HALT if neither exists). Pass the upstream brief's `doc_urls` as `existing` and the entries just mapped above as `detected`:
+**Merge via the canonical helper.** Resolve `{mergeDocUrlsHelper}` from `{mergeDocUrlsProbeOrder}` (first existing path wins; HALT if neither exists). Stage its input in the run folder, the upstream brief's `doc_urls` as `existing` and the entries just mapped above as `detected`, then run it on the file:
 
 ```bash
-echo '{"scope_type": "{scope_type}", "existing": {upstream brief doc_urls JSON, [] if none}, "detected": {mapped detected entries JSON}}' \
-  | uv run {mergeDocUrlsHelper}
+cat > "{run_dir}/doc-urls.json" <<'SKF_JSON'
+{"scope_type": "<scope_type>", "existing": <the upstream brief's doc_urls, [] if none>, "detected": <the mapped detected entries>}
+SKF_JSON
+uv run {mergeDocUrlsHelper} < "{run_dir}/doc-urls.json" > "{run_dir}/doc-urls-merged.json"
 ```
+
+The redirect keeps the helper's output in `{run_dir}/doc-urls-merged.json`: §4 hands the writer that file, and the suppressed entries below are read from it.
 
 The helper returns `{"doc_urls": [...], "suppressed": [...]}`. It deduplicates by **normalized** URL (lowercase host, strip a trailing `/index.html` and any trailing `/`), so a seeded `…/book/` and a README's `…/book/index.html` collapse to one entry; existing/corpora-seeded entries always win and keep their `source: language-registry`, so the registry-vs-detected distinction survives the merge. For a **whole-language reference** (`scope_type == "full-library"` AND ≥1 `existing` entry has `source: language-registry`) it additionally suppresses README noise on a corpus host: non-corpus path segments (`/whatsnew/`, `/contribute`, `/wiki/`) and non-primary-locale duplicates of a kept page (`/ja/master/` when `/en/master/` is kept). Ordinary skills (any other `scope_type`, or no registry corpora) pass through with dedup only — no suppression. Use the returned `doc_urls` as the brief's merged list.
 
 **Log suppressed entries.** When `suppressed` is non-empty, log one line per entry — `"info: suppressed {url} ({reason})"` — so the operator can see what the whole-language noise filter dropped (never drop silently). The N==0 DEGRADED case (a whole-language repo whose registry returned no corpora) carries no `language-registry` entry, so suppression stays inactive and its README docs are kept — this is intentional (there is no canonical corpus host to filter against).
 
-### 4. Validate Enriched Brief
-
-Assemble the enriched brief context as a flat JSON object following the write-brief §3 contract:
-
-```json
-{
-  "name":             "{skill_name}",
-  "target_version":   "{target_version or null}",
-  "detected_version": null,
-  "source_type":      "{source_type or 'source'}",
-  "source_repo":      "{source_repo}",
-  "language":         "{language}",
-  "description":      "{description}",
-  "forge_tier":       "{forge_tier}",
-  "created":          "{created}",
-  "created_by":       "{created_by}",
-  "scope_type":       "{scope_type}",
-  "scope_include":    ["{scope.include patterns}"],
-  "scope_exclude":    ["{scope.exclude patterns}"],
-  "scope_notes":      "{scope.notes or ''}",
-  "scope_rationale":  null,
-  "scope_tier_a_include": null,
-  "scope_amendments":     null,
-  "doc_urls":         [{"url": "...", "label": "...", "source": "..."}],
-  "scripts_intent":   "{scripts_intent or null}",
-  "assets_intent":    "{assets_intent or null}",
-  "source_authority": "{source_authority or null}",
-  "target_ref":       "{target_ref or null}",
-  "source_ref":       "{source_ref or null}",
-  "version_resolved": "{version}"
-}
-```
-
-The `version_resolved` key pins the output to the upstream brief's version — without it, the writer's precedence logic falls through to `1.0.0` since `target_version` and `detected_version` are both null on the auto path.
-
-### 5. Write Enriched Brief
+### 4. Write Enriched Brief
 
 **Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-Write the enriched brief through the canonical writer:
+Write the enriched brief through the canonical writer. It starts from the upstream brief file (`--base-brief`), keeps every field and the version it holds, replaces `doc_urls` with the merged list (`--doc-urls-file`), validates the result and writes it atomically:
 
 ```bash
-echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --from-flat
+uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --base-brief "{brief_path}" --doc-urls-file "{run_dir}/doc-urls-merged.json"
 ```
+
+Leave `--doc-urls-file` out when §2 and §3 were skipped or found nothing.
 
 **On script failure (non-zero exit):**
 - Exit 1 (validation/invariant): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2).
@@ -163,6 +123,6 @@ echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {forge_dat
 
 **On success:** Capture `brief_path` and `version` from the response envelope for step-auto-validate's envelope emission, and add each entry of its `warnings[]` to `workflow_warnings[]`.
 
-### 6. Chain to Auto-Validate
+### 5. Chain to Auto-Validate
 
 Load, read fully, then execute {nextStepFile} to present the auto-brief validation gate, where the user can approve, edit, or reject the brief before the pipeline continues. Do this only after the enriched brief has been written and validated.

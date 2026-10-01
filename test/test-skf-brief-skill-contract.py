@@ -42,6 +42,7 @@ WRITE_BRIEF = REFERENCES / "write-brief.md"
 AUTO_BRIEF = REFERENCES / "step-auto-brief.md"
 AUTO_VALIDATE = REFERENCES / "step-auto-validate.md"
 ANALYZE_TARGET = REFERENCES / "analyze-target.md"
+GATHER_INTENT = REFERENCES / "gather-intent.md"
 HEALTH_CHECK = REFERENCES / "health-check.md"
 QMD_REGISTRATION = REFERENCES / "qmd-collection-registration.md"
 PORTFOLIO_CHECK = REFERENCES / "portfolio-similarity-check.md"
@@ -58,10 +59,8 @@ POSIX_BASH = BASH is not None and sys.platform != "win32"
 HEREDOC_RE = re.compile(r"<<'(?P<tag>[A-Z_]+)'\n(?P<body>.*?)\n(?P=tag)\n", re.DOTALL)
 # The halt command each halt site names, with its halt_reason beside it.
 HALT_CALL = "`uv run {emitBriefEnvelopeHelper} emit --target stderr`"
-# The step files whose halts call the emitter where they stop. gather-intent.md,
-# step 1's main file, still points its halts at write-brief.md; the SKILL.md
-# Halt Contract covers them until it joins this list.
-HALT_SITE_FILES = (ANALYZE_TARGET, AUTO_BRIEF, AUTO_VALIDATE, WRITE_BRIEF)
+# The step files whose halts call the emitter where they stop.
+HALT_SITE_FILES = (GATHER_INTENT, ANALYZE_TARGET, AUTO_BRIEF, AUTO_VALIDATE, WRITE_BRIEF)
 HALT_LINE_RE = re.compile(r'halt_reason: "(?P<reason>[a-z-]+)".*\bHALT\b.*?exit code (?P<code>\d+)')
 HOOK_CALL = "{onCompleteCommand} --result-path={brief_path}"
 # A warning with a single quote, which would end an `echo '...'` payload.
@@ -271,14 +270,28 @@ def test_every_halt_site_emits_its_envelope_before_it_stops():
             # The envelope first, then the halt.
             assert re.search(re.escape(HALT_CALL) + r".*\bthen (?:HARD )?HALT\b", line), where
             assert int(match.group("code")) == SETTINGS["exit_codes"][match.group("reason")], where
-    # analyze-target 4, step-auto-brief 4, step-auto-validate 2, write-brief 3
-    assert sites == 13, sites
+    # gather-intent 5, analyze-target 5, step-auto-brief 4, step-auto-validate 2, write-brief 3
+    assert sites == 19, sites
 
 
 def test_write_brief_points_step_one_halts_at_the_halt_contract():
-    """gather-intent.md's halts still name write-brief.md section 4b; that section sends them on."""
+    """write-brief.md section 4b sends a step 1 or 2 halt to the SKILL.md Halt Contract, which owns `unknown`."""
     section = _section(_read(WRITE_BRIEF), "### 4b. Result Envelope (Headless)")
     assert "steps 1 and 2" in section and "SKILL.md Halt Contract" in section and "`unknown`" in section
+
+
+def test_step_one_halts_emit_in_headless_and_auto_mode_alike():
+    """The Halt Contract fires on {headless_mode} or {auto_mode}: no step 1 halt narrows it to headless,
+    points at write-brief.md section 4b or restates the `unknown` placeholder rule."""
+    text = _read(GATHER_INTENT)
+    assert "In headless mode, emit" not in text
+    assert "§4b" not in text and "step 5 section 4b" not in text and "placeholder convention" not in text
+    [auto] = [line for line in text.splitlines() if "brief_path` is not available" in line]
+    assert HALT_CALL in auto and '`halt_reason: "input-missing"`' in auto and '`"auto"`' in auto
+    # The validators' {field, message} warnings reach the envelope as one line each.
+    valid = [line for line in text.splitlines() if line.lstrip().startswith("- **`valid: true`**")]
+    headless = [line for line in valid if "workflow_warnings[]" in line]
+    assert len(headless) == 2 and all(f"`{OBJECT_WARNING}`" in line for line in headless), valid
 
 
 # --------------------------------------------------------------------------
