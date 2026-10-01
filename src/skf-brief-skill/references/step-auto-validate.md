@@ -182,6 +182,7 @@ Hydrate brief context variables from the auto-brief on disk, using the same fiel
 - `language` ← `brief.language`; `description` ← `brief.description`; `forge_tier` ← `brief.forge_tier`
 - `created` ← `brief.created`; `created_by` ← `brief.created_by`
 - `scope.type` / `scope.include` / `scope.exclude` / `scope.tier_a_include` / `scope.notes` / `scope.rationale` / `scope.amendments` ← `brief.scope.*` (preserve `tier_a_include` and the `amendments` log verbatim — do not re-derive or drop them)
+- `scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*` (a component library's registry file, design system variants and demo globs: preserve all three verbatim)
 - `scripts_intent` ← `brief.scripts_intent`; `assets_intent` ← `brief.assets_intent`
 
 Set `ratify_mode: true` and `ratify_source_path: {forge_data_folder}/{skill_name}/skill-brief.yaml` in workflow context.

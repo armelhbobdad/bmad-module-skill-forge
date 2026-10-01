@@ -94,3 +94,12 @@ def test_ratify_hydration_keeps_the_component_library_fields():
     flat_keys = flat_keys[:flat_keys.index(")")]
     for field in ("registry_path", "ui_variants", "demo_patterns"):
         assert f'"scope_{field}"' in flat_keys, field
+    # the writer payload names the three flat keys, and a ratify run carries them
+    write = _read(REFERENCES / "write-brief.md")
+    [carry] = [line for line in write.splitlines() if line.startswith("**Ratify mode (`ratify_mode: true`):**")]
+    for field in ("registry_path", "ui_variants", "demo_patterns"):
+        assert f'"scope_{field}":' in write, field
+        assert f"`scope_{field}`" in carry, field
+    # the [auto] reject path hydrates them too, as it claims to follow §3.1a's mapping
+    auto = _read(REFERENCES / "step-auto-validate.md")
+    assert "`scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*`" in auto
