@@ -5,25 +5,38 @@
 # ///
 """SKF Find Cycles — enumerate the simple directed cycles in a pair graph.
 
-`skf-verify-stack`'s `integrations.md` §4 (Cross-Reference Each Integration
-Pair → Cycle detection) asks the LLM to build a directed pair graph — an edge
-`A → B` exists when skill A literally cites skill B via Check 4 — and then to
-"run cycle detection (DFS with visited + recursion stack)", appending one
-synthetic `Risky` verdict row per circular integration dependency found.
+`skf-verify-stack`'s `integrations.md` (Cross-Reference Each Integration
+Pair, Cycle detection) reads a directed pair graph: an edge `A -> B` exists
+when skill A literally cites skill B (Check 4), one edge per citing direction
+of the SKILL.md scanner's citations file. It appends one synthetic `Risky`
+verdict row per cycle this helper lists. analyze-source runs it over import
+edges, where two units that import each other are a mutual dependency.
 
-Deciding *which* edges exist is a semantic judgment (Check-4 literal-citation
-analysis) and stays in the prompt. But once the edge set is fixed, the set of
-directed cycles is fully determined — a graph traversal with exactly one
-correct answer per edge set. In-prompt DFS silently misses real multi-hop
-cycles or invents spurious ones as the pair count grows; this helper makes the
-traversal deterministic and unit-testable. The prompt hands over the edges as
-JSON and appends the synthetic rows from `cycles[]` — no traversal by hand.
+Deciding *which* edges exist is a semantic judgment (Check 4 drops a direction
+whose hits name only a common word) and stays in the prompt, which hands it
+over as --exclude-edges. Once the edge set is fixed, the set of directed
+cycles is fully determined: a graph traversal with exactly one correct answer
+per edge set. In-prompt DFS silently misses real multi-hop cycles or invents
+spurious ones as the pair count grows; this helper makes the traversal
+deterministic and unit-testable, so nothing is traversed or filtered by hand.
 
 Subcommand:
-  find --edges <json-file-or-'-'>
-      --edges  path to the edges JSON, or '-' to read from stdin.
+  find --edges <json-file-or-'-'> [--exclude-edges <json-file-or-'-'>]
+       [--skip-mutual]
+      --edges          path to the edges JSON, or '-' to read from stdin.
+      --exclude-edges  path to a JSON of the same shape, or '-' to read it
+                       from stdin (not both inputs): each edge it lists is
+                       left out of --edges before the traversal (an edge it
+                       lists that --edges lacks changes nothing).
+      --skip-mutual    leave out every cycle whose edges all have their
+                       reverse in the edge set: two skills that cite each
+                       other (["A", "B", "A"]), or a loop of such pairs,
+                       give Check 4 evidence for their pairs, not a circular
+                       dependency. A cycle with a one-way edge, and a
+                       self-loop, stays.
 
-      Input shape (the Check-4 citation edges, one [from, to] pair each):
+      Input shape (the Check-4 citation edges, one [from, to] pair each;
+      other keys, such as the citations file's, are ignored):
         {"edges": [["A", "B"], ["B", "C"], ["C", "A"], ...]}
 
       Emit JSON:
@@ -41,6 +54,8 @@ Subcommand:
 
 CLI examples:
   uv run skf-find-cycles.py find --edges edges.json
+  uv run skf-find-cycles.py find --edges citations.json \\
+      --exclude-edges rejected.json --skip-mutual
   echo '{"edges": [["A","B"],["B","A"]]}' | uv run skf-find-cycles.py find --edges -
 
 Exit codes:
@@ -114,14 +129,30 @@ def _canonicalize(cycle_nodes: list[str]) -> tuple[str, ...]:
     return min(rotations)
 
 
-def find_cycles(edges: list[tuple[str, str]]) -> dict:
+def _mutual_only(cycle: tuple[str, ...], linked: set[tuple[str, str]]) -> bool:
+    """True when every edge of the cycle has its reverse in the edge set."""
+    n = len(cycle)
+    return all((cycle[(i + 1) % n], cycle[i]) in linked for i in range(n))
+
+
+def exclude_edges(
+    edges: list[tuple[str, str]], excluded: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Drop every occurrence of each excluded (from, to) edge, keeping order."""
+    drop = set(excluded)
+    return [edge for edge in edges if edge not in drop]
+
+
+def find_cycles(edges: list[tuple[str, str]], *, skip_mutual: bool = False) -> dict:
     """Enumerate every simple directed cycle in the edge set.
 
     Deterministic: same edge set → byte-identical output. Runs a DFS from each
     node (in sorted order) tracking the current recursion path; whenever the
     walk returns to its start node a cycle is recorded, canonicalised to its
     minimal rotation, and de-duplicated. Graphs here are small pair graphs, so
-    the exhaustive enumeration is inexpensive.
+    the exhaustive enumeration is inexpensive. With `skip_mutual`, a cycle
+    built only from mutual edges (A -> B -> A, or a longer loop whose every
+    edge has its reverse) is not recorded; a self-loop is.
     """
     # Build sorted, de-duplicated adjacency for deterministic traversal.
     adj: dict[str, list[str]] = {}
@@ -152,6 +183,10 @@ def find_cycles(edges: list[tuple[str, str]]) -> dict:
     for start in sorted(nodes):
         dfs(start, start, [start], {start})
 
+    if skip_mutual:
+        linked = set(edges)
+        seen = {c for c in seen if len(c) == 1 or not _mutual_only(c, linked)}
+
     # Stable output order: by cycle length, then lexicographically.
     ordered = sorted(seen, key=lambda c: (len(c), c))
     cycles = [list(c) + [c[0]] for c in ordered]
@@ -163,30 +198,45 @@ def find_cycles(edges: list[tuple[str, str]]) -> dict:
 # --------------------------------------------------------------------------
 
 
-def _read_source(source: str) -> str:
+def _read_source(source: str, flag: str = "--edges") -> str:
     """Read text from a file path or stdin (if source == '-')."""
     if source == "-":
         try:
             return sys.stdin.read()
         except OSError as exc:
-            raise InputError(f"failed to read --edges from stdin: {exc}") from exc
+            raise InputError(f"failed to read {flag} from stdin: {exc}") from exc
     path = Path(source)
     if not path.is_file():
-        raise InputError(f"--edges file not found: {path}")
+        raise InputError(f"{flag} file not found: {path}")
     try:
         return path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise InputError(f"failed to read --edges file {path}: {exc}") from exc
+        raise InputError(f"failed to read {flag} file {path}: {exc}") from exc
 
 
-def _cmd_find(args: argparse.Namespace) -> int:
-    text = _read_source(args.edges)
+def _load_edges(source: str, flag: str) -> list[tuple[str, str]]:
+    text = _read_source(source, flag)
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise InputError(f"malformed JSON in --edges input: {exc}") from exc
-    edges = parse_edges(payload)
-    result = find_cycles(edges)
+        raise InputError(f"malformed JSON in {flag} input: {exc}") from exc
+    try:
+        return parse_edges(payload)
+    except InputError as exc:
+        if flag == "--edges":
+            raise
+        raise InputError(f"{flag}: {exc}") from exc
+
+
+def _cmd_find(args: argparse.Namespace) -> int:
+    if args.edges == "-" and args.exclude_edges == "-":
+        raise InputError(
+            "--edges and --exclude-edges cannot both read from stdin ('-')"
+        )
+    edges = _load_edges(args.edges, "--edges")
+    if args.exclude_edges is not None:
+        edges = exclude_edges(edges, _load_edges(args.exclude_edges, "--exclude-edges"))
+    result = find_cycles(edges, skip_mutual=args.skip_mutual)
     if args.verbose:
         print(
             f"analyzed {len(edges)} edge(s); found {result['cycle_count']} cycle(s)",
@@ -217,6 +267,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "path to the edges JSON, or '-' for stdin. "
             'Shape: {"edges": [["<from>", "<to>"], ...]}'
+        ),
+    )
+    p_find.add_argument(
+        "--exclude-edges",
+        default=None,
+        help=(
+            "path to a JSON of the same shape, or '-' for stdin (not with "
+            "--edges -): each edge it lists is left out of --edges before "
+            "the traversal"
+        ),
+    )
+    p_find.add_argument(
+        "--skip-mutual",
+        action="store_true",
+        help=(
+            "leave out every cycle whose edges all have their reverse in the "
+            "edge set (A cites B and B cites A, or a loop of such pairs); a "
+            "cycle with a one-way edge stays"
         ),
     )
     p_find.add_argument(

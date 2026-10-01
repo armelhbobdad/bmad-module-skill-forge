@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract of skf-verify-stack's envelope, halts, run folder and helpers (#587, #593, #598).
+"""Contract of skf-verify-stack's envelope, halts, run folder, helpers and inputs (#587, #593, #594, #596, #598).
 
 No test runs a stage file, so these run the commands the stage files document
 and pin the prose around them:
@@ -27,20 +27,32 @@ and pin the prose around them:
 - the documented pipeline runs on a fixture: the enumerate inventory in the run
   folder, --expect-hashes naming a skill changed mid-run, the SKILL.md scanner
   reading that inventory (source basenames as aliases) for Check 4, its
-  citations file into the cycle finder, and the tally counting each cycle as a
-  Risky row;
+  citations file into the cycle finder as integrations.md calls it (rejected
+  directions left out, two skills that cite each other no cycle), and the
+  tally counting each cycle as a Risky row;
+- a cycle row names `cycle` and its chain, so the delta never merges it into
+  the pair row of two of its skills;
 - a pair of one skill is dropped before the scanner and the tally, which both
   refuse it, and a pair whose skill changed mid-run is a Risky row;
-- coverage matches the enumerate source basenames, and the requirements stage
-  reads the step 3 summaries, never a SKILL.md.
+- coverage finds the skills the document names, by name or source basename,
+  through the shared mentions helper, and runs it again with each term the
+  model matched to a skill under a common alias, so the integrations stage
+  judges the candidate pairs of every Covered skill; the requirements stage
+  reads the step 3 summaries, never a SKILL.md;
+- the integration rules, the coverage patterns and the report folder are no
+  customize.toml settings, the report template's comment names what the
+  schema fixes, and a path a flag gave is never asked for again.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
+import shlex
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import jsonschema
@@ -56,6 +68,8 @@ EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 ENUMERATE = SCRIPTS / "skf-enumerate-stack-skills.py"
 SCANNER = SCRIPTS / "skf-scan-skill-md-structure.py"
 FIND_CYCLES = SCRIPTS / "skf-find-cycles.py"
+COMENTION = SCRIPTS / "skf-comention-pairs.py"
+REPORT_DELTA = SKILL / "scripts" / "skf-report-delta.py"
 TALLY = SKILL / "scripts" / "skf-coverage-tally.py"
 PIPELINE_GATE = SRC / "skf-forger" / "scripts" / "pipeline-gate.py"
 EXIT_CODES = REFERENCES / "exit-codes.md"
@@ -531,11 +545,21 @@ def _skill(root: Path, name: str, body: str, source_repo: str | None = None) -> 
     (folder / "metadata.json").write_bytes(json.dumps(metadata).encode("utf-8"))
 
 
+def _documented_find_args(run_dir: Path) -> list[str]:
+    """The cycle finder's arguments as integrations.md calls it, for this run folder."""
+    text = _read(REFERENCES / "integrations.md")
+    [line] = [line.strip() for line in text.splitlines() if line.strip().startswith("uv run {cycleFinderHelper} find ")]
+    command = line.split(" > ", 1)[0].replace("{run_dir}", run_dir.as_posix())
+    return shlex.split(command)[3:]
+
+
 def test_the_documented_pipeline_runs_end_to_end(tmp_path):
     skills = tmp_path / "skills"
     # oms-cognee is cited by its repository name, react-query and zod cite each
-    # other (a cycle), and zod's `next step` is only the common word.
-    _skill(skills, "oms-cognee", "# Cognee\n\nMemory graph.\n", "https://github.com/topoteretes/cognee.git")
+    # other (Check 4 evidence, no cycle), react-query, oms-cognee and zod cite
+    # round in a cycle, and zod's `next step` is only the common word.
+    _skill(skills, "oms-cognee", "# Cognee\n\nMemory graph, validated with zod.\n",
+           "https://github.com/topoteretes/cognee.git")
     _skill(skills, "react-query", "# React Query\n\nValidate with zod schemas.\nStore results in Cognee.\n")
     _skill(skills, "zod", "# Zod\n\nPairs with react-query.\nThe next step parses.\n")
     run_dir = _run_dir(tmp_path)
@@ -549,7 +573,7 @@ def test_the_documented_pipeline_runs_end_to_end(tmp_path):
     cognee = next(s for s in inventory["skills"] if s["name"] == "oms-cognee")
     assert cognee["source_repo_basename"] == "cognee"  # the coverage stage's match
 
-    pairs = {"pairs": [["react-query", "zod"], ["oms-cognee", "react-query"]]}
+    pairs = {"pairs": [["react-query", "zod"], ["oms-cognee", "react-query"], ["oms-cognee", "zod"]]}
     (run_dir / "integration-pairs.json").write_bytes(json.dumps(pairs).encode("utf-8"))
     # The scanner reads the inventory itself: its source basenames are aliases.
     scan = _run([SCANNER, "cross-reference", "--skills", inventory_file,
@@ -563,19 +587,34 @@ def test_the_documented_pipeline_runs_end_to_end(tmp_path):
     assert ("zod", "react-query") in by_direction and ("react-query", "zod") in by_direction
     assert ("oms-cognee", "react-query") not in by_direction
 
-    # The finder reads the citations file as it is.
-    found = _run([FIND_CYCLES, "find", "--edges", run_dir / "citations.json"])
+    assert ("oms-cognee", "zod") in by_direction
+
+    # The finder reads the citations file as it is, as integrations.md calls
+    # it: Check 4 rejected no direction, and the mutual citation of
+    # react-query and zod is no cycle.
+    args = _documented_find_args(run_dir)
+    assert args[:3] == ["find", "--edges", (run_dir / "citations.json").as_posix()]
+    rejected = run_dir / "rejected-edges.json"
+    rejected.write_bytes(json.dumps({"edges": []}).encode("utf-8"))
+    found = _run([FIND_CYCLES, *args])
     assert found.returncode == 0, found.stderr
     (run_dir / "cycles.json").write_bytes(found.stdout.encode("utf-8"))
-    assert json.loads(found.stdout)["cycles"] == [["react-query", "zod", "react-query"]]
+    assert json.loads(found.stdout)["cycles"] == [["oms-cognee", "zod", "react-query", "oms-cognee"]]
 
     rows = {"rows": [{"lib_a": "react-query", "lib_b": "zod", "verdict": "Verified"},
-                     {"lib_a": "oms-cognee", "lib_b": "react-query", "verdict": "Verified"}]}
+                     {"lib_a": "oms-cognee", "lib_b": "react-query", "verdict": "Verified"},
+                     {"lib_a": "oms-cognee", "lib_b": "zod", "verdict": "Verified"}]}
     tally = _run([TALLY, "--kind", "integrations", "--cycles", run_dir / "cycles.json", "--stdin"],
                  stdin=json.dumps(rows))
     assert tally.returncode == 0, tally.stdout
     counts = json.loads(tally.stdout)
-    assert (counts["pairs_verified"], counts["pairs_risky"], counts["row_count"]) == (2, 1, 3)
+    assert (counts["pairs_verified"], counts["pairs_risky"], counts["row_count"]) == (3, 1, 4)
+
+    # A direction Check 4 rejects as a common word leaves the cycle.
+    rejected.write_bytes(json.dumps({"edges": [["oms-cognee", "zod"]]}).encode("utf-8"))
+    found = _run([FIND_CYCLES, *args])
+    assert found.returncode == 0, found.stderr
+    assert json.loads(found.stdout) == {"cycles": [], "cycle_count": 0}
 
     # A skill changed mid-run is found by its metadata_hash, not a modification time.
     (skills / "zod" / "metadata.json").write_bytes(
@@ -634,7 +673,9 @@ def test_integrations_takes_check_4_and_the_edges_from_the_scanner():
     assert ('uv run {scanSkillMdStructureHelper} cross-reference --skills "{inventoryFile}" '
             '--skills-root "{skills_output_folder}" --pairs "{run_dir}/integration-pairs.json"') in text
     assert "citation-skills.json" not in text and "aliases" not in text
-    assert 'uv run {cycleFinderHelper} find --edges "{run_dir}/citations.json" > "{run_dir}/cycles.json"' in text
+    assert ('uv run {cycleFinderHelper} find --edges "{run_dir}/citations.json" '
+            '--exclude-edges "{run_dir}/rejected-edges.json" --skip-mutual > "{run_dir}/cycles.json"') in text
+    assert "cycle-edges.json" not in text and "form a cycle too" not in text
     assert "a Check-4 judgment" not in text and "Build the directed pair graph in the prompt" not in text
     # The matching rule lives in the scanner and the rules file, not here.
     check4 = _section(text, "### 4. Cross-Reference Each Integration Pair", "**Each verdict includes:**")
@@ -661,13 +702,149 @@ def test_init_persists_the_inventory_in_the_run_folder():
     assert "Capture mtime" not in init
 
 
-def test_coverage_matches_the_enumerate_source_basenames():
+MENTIONS_CALL = 'uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - > "{docMentionsFile}"'
+
+
+def _mentions_skills(inventory: dict) -> list[dict]:
+    """The --skills array coverage.md pipes: each name, its source basenames as aliases."""
+    return [{"name": s["name"],
+             "aliases": [s[k] for k in ("source_repo_basename", "source_root_basename") if s.get(k)]}
+            for s in inventory["skills"]]
+
+
+def test_coverage_names_skills_through_the_mentions_helper(tmp_path):
+    coverage = _read(REFERENCES / "coverage.md")
+    frontmatter = _frontmatter(coverage)
+    assert ("comentionProbeOrder:\n"
+            "  - '{project-root}/_bmad/skf/shared/scripts/skf-comention-pairs.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-comention-pairs.py'\n") in frontmatter
+    assert "docMentionsFile: '{run_dir}/doc-mentions.json'" in frontmatter
+    extract = _section(coverage, "### 2. Extract Technology References", "### 3.")
+    assert MENTIONS_CALL in extract
+    assert "`source_repo_basename` and `source_root_basename` that are not null" in extract
+    assert "each other name a persistent fact gives the skill" in extract
+    assert '(exit code 3, `halt_reason: "resolution-failure"`) at phase `coverage:mentions`' in extract
+    # No hand scan for skill names and no hand equality on the source basenames.
+    match = _section(coverage, "### 3. Cross-Reference Against Skills", "**Detect a deliberate-removal signal")
+    assert "A `mentioned` skill matches its own row" in match
+    for stale in ("Direct name matching", "for equality with", "extract the basename",
+                  "strip any trailing `.git` suffix"):
+        assert stale not in coverage, stale
+    extras = _section(coverage, "### 4. Detect Extra Skills", "### 5.")
+    assert "`unmentioned` or `fenced_only`" in extras and "`source_repo_basename` is null" in extras
+    note = _section(coverage, "{IF a skill of the helper's `fenced_only` list is Extra:}", "### 6.")
+    assert "has the `info` string `mermaid`" in note
+
+    # The call runs as documented, on the inventory step 1 writes.
+    skills = tmp_path / "skills"
+    _skill(skills, "oms-cognee", "# Cognee\n", "https://github.com/topoteretes/cognee.git")
+    _skill(skills, "react-query", "# React Query\n")
+    _skill(skills, "zod", "# Zod\n")
+    enum = _run([ENUMERATE, "enumerate", skills, "--reliability"])
+    assert enum.returncode == 0, enum.stderr
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(("# App\n\n## Data\n\nReact Query caches what Cognee returns.\n\n"
+                     "```mermaid\ngraph LR\n  zod --> app\n```\n").encode("utf-8"))
+    proc = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"],
+                stdin=json.dumps(_mentions_skills(json.loads(enum.stdout))))
+    assert proc.returncode == 0, proc.stderr
+    mentions = json.loads(proc.stdout)
+    # "Cognee" names oms-cognee by its repository; "React Query" is no skill
+    # name or alias, so the model's own detection reads it under an alias.
+    assert mentions["mentioned"] == ["oms-cognee"]
+    assert mentions["fenced_only"] == ["zod"] and mentions["unmentioned"] == ["react-query"]
+    assert [b["info"] for b in mentions["fenced_blocks"]] == ["mermaid"]
+    assert mentions["candidates"] == []
+
+    # The second run §3 documents: the document's "React Query" is now an
+    # alias of react-query, so the skill is named and its pair is a candidate.
+    rerun = _with_alias(_mentions_skills(json.loads(enum.stdout)), "react-query", "React Query")
+    proc = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"], stdin=json.dumps(rerun))
+    assert proc.returncode == 0, proc.stderr
+    mentions = json.loads(proc.stdout)
+    assert mentions["mentioned"] == ["oms-cognee", "react-query"]
+    assert [(c["a"], c["b"]) for c in mentions["candidates"]] == [("oms-cognee", "react-query")]
+
+
+def _with_alias(skills: list[dict], name: str, term: str) -> list[dict]:
+    """The --skills array of coverage.md's second run: the model's term added to the skill's aliases."""
+    return [{**s, "aliases": [*s["aliases"], term]} if s["name"] == name else s for s in skills]
+
+
+def test_a_skill_the_model_matches_under_a_common_alias_reaches_the_pairs(tmp_path):
     coverage = _read(REFERENCES / "coverage.md")
     match = _section(coverage, "### 3. Cross-Reference Against Skills", "**Detect a deliberate-removal signal")
-    assert "`source_repo_basename` or `source_root_basename`" in match
-    assert "extract the basename" not in coverage and "strip any trailing `.git` suffix" not in coverage
-    extras = _section(coverage, "### 4. Detect Extra Skills", "### 5.")
-    assert "`source_repo_basename` is null" in extras
+    rerun = _section(match, "**Run the mentions helper again when the model matched a skill.**", "\n\n")
+    assert "add the technology's term, as the document writes it, to that skill's `aliases`" in rerun
+    assert "run the §2 `mentions` command once more with the extended array, overwriting `{docMentionsFile}`" in rerun
+    assert "take §2's skill rows from the new file" in rerun
+    assert "labelled with its `name`, replaces the technology's" in rerun
+    extras = _section(coverage, "### 4. Detect Extra Skills", "**Subdivide")
+    assert "as §3 left it" in extras and "matched by no technology" not in extras
+    # The integrations stage reads the same file, so the pair reaches it.
+    claims = _section(_read(REFERENCES / "integrations.md"), "### 2. Extract Integration Claims", "### 3.")
+    assert "`candidates[]` in `{docMentionsFile}`" in claims
+
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes("# App\n\n## Data\n\nPrisma connects to PostgreSQL over TCP.\n".encode("utf-8"))
+    skills = [{"name": "postgres", "aliases": []}, {"name": "prisma", "aliases": []}]
+    first = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"], stdin=json.dumps(skills))
+    assert first.returncode == 0, first.stderr
+    first_out = json.loads(first.stdout)
+    # "PostgreSQL" is no skill name: only the model's common-alias match finds it.
+    assert first_out["mentioned"] == ["prisma"] and first_out["unmentioned"] == ["postgres"]
+    assert first_out["candidates"] == []
+    second = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"],
+                  stdin=json.dumps(_with_alias(skills, "postgres", "PostgreSQL")))
+    assert second.returncode == 0, second.stderr
+    second_out = json.loads(second.stdout)
+    assert second_out["mentioned"] == ["postgres", "prisma"] and second_out["unmentioned"] == []
+    [candidate] = second_out["candidates"]
+    assert (candidate["a"], candidate["b"]) == ("postgres", "prisma")
+    assert "Prisma connects to PostgreSQL" in candidate["evidence"][0]["unit_excerpt"]
+
+
+def test_integrations_judges_the_mentions_candidates(tmp_path):
+    text = _read(REFERENCES / "integrations.md")
+    assert "docMentionsFile: '{run_dir}/doc-mentions.json'" in _frontmatter(text)
+    claims = _section(text, "### 2. Extract Integration Claims", "### 3.")
+    assert "`candidates[]` in `{docMentionsFile}`" in claims
+    assert "`unit_excerpt`, with its `header` and `unit_line`" in claims
+    assert "the quoted `unit_excerpt` of the evidence entry" in claims
+    # The stage reads no document and keeps no verb list or Mermaid pointer.
+    for stale in ('"connects to"', "Look for data flow descriptions", "Mermaid Diagram Handling",
+                  "{coveragePatternsData}", "Parse the architecture document"):
+        assert stale not in text, stale
+    # A candidate carries the unit that names both skills, as the stage quotes it.
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes("# App\n\n## Data\n\nThe api service validates every payload with zod.\n".encode("utf-8"))
+    skills = [{"name": "api", "aliases": []}, {"name": "zod", "aliases": []}]
+    proc = _run([COMENTION, "mentions", "--doc", doc, "--skills", "-"], stdin=json.dumps(skills))
+    assert proc.returncode == 0, proc.stderr
+    [candidate] = json.loads(proc.stdout)["candidates"]
+    assert (candidate["a"], candidate["b"]) == ("api", "zod")
+    [evidence] = candidate["evidence"]
+    assert evidence["header"] == "Data" and evidence["unit_line"] == 5
+    assert "validates every payload with zod" in evidence["unit_excerpt"]
+
+
+def test_a_cycle_row_never_merges_into_a_pair_row():
+    text = _read(REFERENCES / "integrations.md")
+    rows = _section(text, "**For each cycle**", "**Count the verdicts deterministically.**")
+    assert "`lib_a` is `cycle`, `lib_b` the arrow chain rendered from the cycle's node path" in rows
+    risky = _section(_read(REFERENCES / "synthesize.md"), "**Risky integration (from Step 03):**", "**Plausible integration")
+    assert "`cycle` in its `lib_a`, the chain in its `lib_b`" in risky
+    # The delta keys rows on their two libraries: the cycle row stays its own row.
+    spec = importlib.util.spec_from_file_location("skf_report_delta_contract", REPORT_DELTA)
+    delta = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(delta)
+    pair = {"libA": "react-query", "libB": "zod", "verdict": "Verified"}
+    cycle = {"libA": "cycle", "libB": "oms-cognee → zod → react-query → oms-cognee", "verdict": "Risky"}
+    out = delta.compute({"previous": {"coverage": [], "integration": [pair]},
+                         "current": {"coverage": [], "integration": [pair, cycle]}})
+    assert out["unchanged"] == ["react-query ↔ zod"]
+    assert out["new"] == ["cycle ↔ oms-cognee → zod → react-query → oms-cognee"]
+    assert out["regressedCount"] == 0
 
 
 def test_requirements_reads_the_step_3_summaries_not_skill_md():
@@ -688,3 +865,109 @@ def test_the_rules_file_says_the_scanner_runs_check_4():
     # What a hit matches is the scanner's rule (its docstring), not restated here.
     assert "never inside a longer name" not in check4 and "`source_repo`" not in check4
     assert "`{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md`" in rules
+
+
+# --- The customization surface keeps only settings that take effect (#596) -------------
+
+
+def test_customize_toml_keeps_only_settings_that_take_effect():
+    raw = _read(SKILL / "customize.toml")
+    workflow = tomllib.loads(raw)["workflow"]
+    assert sorted(workflow) == ["activation_steps_append", "activation_steps_prepend", "on_complete",
+                                "persistent_facts", "report_template_path"]
+    for removed in ("integration_rules_path", "coverage_patterns_path", "output_folder_path"):
+        assert f"{removed} =" not in raw, removed
+    # Extra aliases go through persistent_facts, and the comment says how the
+    # bundled project-context.md entry is kept from steering a run.
+    facts = _section(raw, "# Persistent facts", "persistent_facts = [")
+    assert "Extra aliases go here" in facts and "as aliases of that skill" in facts
+    assert "cannot remove it" in facts
+    # The report folder is the forge data folder, and the comment says so.
+    assert "the report always lands in {forge_data_folder}" in raw
+
+
+def test_the_report_template_comment_names_what_the_schema_fixes():
+    raw = _read(SKILL / "customize.toml")
+    comment = _section(raw, "# The template step 1", "report_template_path =")
+    assert "Default: assets/feasibility-report-template.md" in comment
+    assert '`schemaVersion: "1.0"`' in comment
+    template = _read(SKILL / "assets" / "feasibility-report-template.md")
+    headings = [line for line in template.splitlines() if line.startswith("## ")]
+    assert headings == ["## Executive Summary", "## Coverage Analysis", "## Integration Verdicts",
+                        "## Recommendations", "## Evidence Sources"]
+    flat = " ".join(line.lstrip("#").strip() for line in comment.splitlines())
+    for heading in headings:
+        assert f"`{heading}`" in flat, heading
+    for table in ("| lib_a | lib_b | verdict | rationale |",
+                  "| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |"):
+        assert table in template and f"`{table}`" in flat, table
+    assert "(`schema-violation`)" in comment
+
+
+def test_no_stage_reads_a_removed_setting():
+    for path in [SKILL / "SKILL.md", *sorted(REFERENCES.glob("*.md"))]:
+        text = _read(path)
+        for stale in ("{integrationRulesPath}", "{coveragePatternsPath}", "integration_rules_path",
+                      "coverage_patterns_path", "output_folder_path"):
+            assert stale not in text, f"{_rel(path)}: {stale}"
+    # Each stage loads the bundled file by its path from the skill root.
+    assert "coveragePatternsData: 'references/coverage-patterns.md'" in _frontmatter(_read(REFERENCES / "coverage.md"))
+    integrations = _frontmatter(_read(REFERENCES / "integrations.md"))
+    assert "integrationRulesData: 'references/integration-verification-rules.md'" in integrations
+    assert "coveragePatternsData" not in integrations
+    for name in ("coverage-patterns.md", "integration-verification-rules.md"):
+        assert (REFERENCES / name).is_file(), name
+    # The report folder is the forge data folder, always.
+    skill = _read(SKILL / "SKILL.md")
+    assert "Bind `{outputFolderPath}` ← `{forge_data_folder}`, always (no setting moves it)" in skill
+    assert "`{reportTemplatePath}` ← `workflow.report_template_path` if non-empty" in skill
+    assert "four scalars" not in skill and "Stash all four" not in skill
+
+
+def test_init_checks_the_forge_data_folder_before_probing_it():
+    init = _read(REFERENCES / "init.md")
+    preflight = _section(init, "**Pre-flight: run folder and write probe.**", "**Bind `{project_slug}`.**")
+    check = preflight.index('(exit code 3, `halt_reason: "forge-folder-unconfigured"`) at phase `init:forge-data-folder`')
+    assert check < preflight.index('printf \'probe\' > "{outputFolderPath}/.skf-write-probe"')
+    assert init.count("forge-folder-unconfigured") == 1
+    assert "step 1 pre-flight (forge_data_folder unconfigured" in _read(EXIT_CODES)
+
+
+# --- A path the invocation gave is never asked for again (#594) ------------------------
+
+
+def test_activation_binds_the_inputs_in_every_mode():
+    skill = _read(SKILL / "SKILL.md")
+    bind = next(line for line in skill.splitlines() if "**Bind the inputs**" in line)
+    assert "in every mode" in bind
+    for variable, flag in (("{architecture_doc_path}", "--architecture-doc"), ("{prd_path}", "--prd"),
+                           ("{previous_report_path}", "--previous-report")):
+        assert f"`{variable}` ← " in bind and f"`{flag}`" in bind, variable
+        flags = next(line for line in skill.splitlines() if line.startswith("| **Flags** |"))
+        assert f"`{flag} <path>`" in flags, flag
+    inputs = next(line for line in skill.splitlines() if line.startswith("| **Inputs** |"))
+    for name in ("architecture_doc_path", "prd_path", "previous_report_path"):
+        assert name in inputs, name
+
+
+def test_step_1_asks_only_for_what_no_flag_answered():
+    init = _read(REFERENCES / "init.md")
+    accept = _section(init, "### 1. Accept Input Documents", "**Validate the architecture document**")
+    assert "**Ask only for what no flag answered.**" in accept
+    assert "is used in every mode and never asked for again" in accept
+    assert "only the numbered lines whose input is null" in accept
+    gate = next(line for line in accept.splitlines() if "**GATE [default: use args]**" in line)
+    assert '(exit code 2, `halt_reason: "input-missing"`) at phase `init:input-documents`' in gate
+    # A run every flag answered shows no prompt, so there is nothing to wait for.
+    assert gate.startswith("When the prompt shows, wait for user input")
+    # The old gate read the flags in headless only.
+    assert "if `{headless_mode}` and `--architecture-doc` was provided" not in init
+    previous = _section(init, "**Resolve the previous report.**", "```bash")
+    assert "`--provided` set to `{previous_report_path}` when it is set" in previous
+    bookkeeping = next(line for line in init.splitlines() if line.startswith("- `architectureDoc` ← "))
+    assert "`{architecture_doc_path}`" in bookkeeping and "`prdDoc` ← `{prd_path}`" in bookkeeping
+    # The summary table reads the variables activation and step 1 bind.
+    summary = _section(init, "### 5. Display Initialization Summary", "**Skill Inventory:**")
+    assert "| **Architecture Doc** | {architecture_doc_path} |" in summary
+    assert "| **PRD Document** | {prd_path or 'Not provided: requirements pass will be skipped'} |" in summary
+    assert "{prd_doc" not in init and "{architecture_doc}" not in init

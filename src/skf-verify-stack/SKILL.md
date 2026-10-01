@@ -80,6 +80,8 @@ When `{headless_mode}` is true, step 6 prints one `SKF_VERIFY_STACK_RESULT_JSON:
 
 3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
+   **Bind the inputs** in every mode: `{architecture_doc_path}` ← the `--architecture-doc` value, `{prd_path}` ← `--prd` and `{previous_report_path}` ← `--previous-report`, each null when its flag is absent. init.md §1 asks only for those still null.
+
 4. **Resolve workflow customization.** Run:
 
    ```bash
@@ -93,16 +95,9 @@ When `{headless_mode}` is true, step 6 prints one `SKF_VERIFY_STACK_RESULT_JSON:
    - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
    - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
 
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly: its `report_template_path` is an empty string.
 
-   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the four scalars, if the merged value is empty or absent, use the bundled default:
-
-   - `{reportTemplatePath}` ← `workflow.report_template_path` if non-empty, else `assets/feasibility-report-template.md`
-   - `{integrationRulesPath}` ← `workflow.integration_rules_path` if non-empty, else `references/integration-verification-rules.md`
-   - `{coveragePatternsPath}` ← `workflow.coverage_patterns_path` if non-empty, else `references/coverage-patterns.md`
-   - `{outputFolderPath}` ← `workflow.output_folder_path` if non-empty, else `{forge_data_folder}`
-
-   Stash all four as workflow-context variables. Stage files reference them directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default.
+   Apply the path-scalar fallback now so stage files don't repeat it: `{reportTemplatePath}` ← `workflow.report_template_path` if non-empty, else `assets/feasibility-report-template.md`. An empty or absent value falls through to that default, and init.md §4 loads the variable as it is. Bind `{outputFolderPath}` ← `{forge_data_folder}`, always (no setting moves it): the report and its `-latest` copy go where create-stack-skill and refine-architecture look for them, and step 1 finds the earlier reports there.
 
    The same merge resolves `workflow.on_complete` (default empty = no-op); report.md §5 executes it, if non-empty, at the terminal stage.
 

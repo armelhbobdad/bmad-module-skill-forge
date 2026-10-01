@@ -8,24 +8,13 @@ atomicWriteProbeOrder:
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
-# The skill inventory §2 writes and every later stage reads from disk, in the
-# run folder the pre-flight creates.
 inventoryFile: '{run_dir}/skill-inventory.json'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
-# Resolve `{enumerateStackSkillsHelper}` by probing
-# `{enumerateStackSkillsProbeOrder}` in order (installed SKF module path
-# first, src/ dev-checkout fallback); first existing path wins. §2 calls
-# it for the deterministic inventory of the skills SKF generated
-# (cascade-resolved exports, metadata-hash for change-detection, the
-# exports-source confidence, the evidence tier, and `not_skf_output` for
-# the rest). If neither candidate exists, §2 halts (resolution-failure).
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
   - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
-# The shared feasibility-report helper holds the slug rule every consumer
-# of this report applies; the section before §1 binds `{project_slug}` from it.
 validateFeasibilityReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
   - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
@@ -69,6 +58,8 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-verify-stack --target stder
 SKF_VS_HALT
 ```
 
+Then check that `forge_data_folder`, which `{outputFolderPath}` names, was resolved from config.yaml and is non-empty. If it is undefined or empty: "**Cannot proceed.** `forge_data_folder` is not configured in config.yaml. Re-run [SF] Setup Forge to initialize." HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`) at phase `init:forge-data-folder`.
+
 Then verify `{outputFolderPath}` is writable: a read-only mount, full disk, or permissions-denied path otherwise only surfaces at §4's atomic write, after the user has gone through the input prompts.
 
 ```bash
@@ -89,30 +80,32 @@ Bind `{project_slug}` ← `projectSlug`, whatever `status` says: this run needs 
 
 ### 1. Accept Input Documents
 
-"**Verify Stack — Feasibility Analysis** (read-only — never modifies your skills, architecture doc, or PRD).
+**Ask only for what no flag answered.** A path the invocation gave (`{architecture_doc_path}`, `{prd_path}`, `{previous_report_path}`, bound at activation) is used in every mode and never asked for again. An interactive run with any of the three still null shows this prompt, with only the numbered lines whose input is null:
+
+"**Verify Stack: Feasibility Analysis** (read-only: never modifies your skills, architecture doc, or PRD).
 
 If you meant to *generate* skills first, type `cancel` and run `[CS] Create Skill` or `[QS] Quick Skill`. Otherwise, please provide the following:
-1. **Architecture document path** (REQUIRED) — your project's architecture doc
-2. **PRD or vision document path** (OPTIONAL) — for requirements coverage analysis
+1. **Architecture document path** (REQUIRED): your project's architecture doc
+2. **PRD or vision document path** (OPTIONAL): for requirements coverage analysis
 3. **Previous feasibility report path** (OPTIONAL): a timestamped report from an earlier run, for delta comparison. Leave it empty to compare against the most recent one found.
 
 Or type `cancel` / `exit` / `:q` at any prompt to abort cleanly."
 
-Wait for user input. **GATE [default: use args]**: if `{headless_mode}` and `--architecture-doc` was provided, use that path and auto-proceed, log: "headless: using provided architecture path". If `--prd` and/or `--previous-report` were provided, consume them at the corresponding sub-validations below. If `--architecture-doc` is absent in headless: HALT (exit code 2, `halt_reason: "input-missing"`) at phase `init:input-documents`.
+When the prompt shows, wait for user input, and bind each answer to its variable (an empty answer leaves an optional one null). **GATE [default: use args]**: headless asks nothing. With `{architecture_doc_path}` set it auto-proceeds and logs "headless: using provided architecture path"; with it null: HALT (exit code 2, `halt_reason: "input-missing"`) at phase `init:input-documents`. A null `{prd_path}` skips the requirements pass, and a null `{previous_report_path}` compares against the newest earlier report.
 
 - If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q` at any sub-prompt below: Display "Cancelled — no analysis was performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 
-**Validate architecture document:**
+**Validate the architecture document** (`{architecture_doc_path}`):
 - Confirm the file exists and is readable
 - If missing or unreadable → "Architecture document not found at `{path}`. Provide a valid path."
 - HALT (exit code 2, `halt_reason: "input-invalid"`) at phase `init:architecture-doc`, with `"path"` set to the path given, if the user cannot provide a valid path; a headless run has no one to ask, so it halts at once.
 
-**Validate PRD document (if provided):**
+**Validate the PRD (when `{prd_path}` is set):**
 - Confirm the file exists and is readable
-- If missing → "PRD document not found at `{path}`. Proceeding without PRD — requirements pass will be skipped."
+- If missing → "PRD document not found at `{path}`. Proceeding without PRD: the requirements pass will be skipped." Set `{prd_path}` to null.
 - Store PRD availability as `prdAvailable: true|false`
 
-**Resolve the previous report.** Run the previous-report helper, with `--provided` set to the path when `--previous-report` or the prompt gave one, and without it otherwise:
+**Resolve the previous report.** Run the previous-report helper, with `--provided` set to `{previous_report_path}` when it is set, and without it otherwise:
 
 ```bash
 uv run {previousReportScript} --folder "{outputFolderPath}" --slug "{project_slug}" --timestamp "{timestamp}" [--provided "<path>"]
@@ -151,9 +144,7 @@ If the command exits non-zero, HALT (exit code 3, `halt_reason: "resolution-fail
 
 The helper reads only the skills SKF generated (its `--help` says how it picks each package and resolves its exports). The later stages read these fields of each `skills[]` entry: `name` (the folder name), `path` (the package, relative to `{skills_output_folder}`), `exports`, `exports_source`, `confidence` (from the exports source, not metadata's `confidence_tier`), `evidence_tier` (`T1`, `T1-low`, `T2` or `T3`, one scale for every skill type), `confidence_tier`, `metadata_schema_version`, `language` (a string, or a list for a stack), `exports_documented`, `source_repo_basename` and `source_root_basename`, so no stage opens `metadata.json`. `warnings[]` names per-skill problems, each starting `<name>: `. The file is `skill_inventory` (used by §3, §4, §5, the coverage and integrations stages, and synthesize's delta and Evidence Sources table), and bind `{not_skf_output}` ← `not_skf_output`, `{inventory_reliable}` ← `inventory_reliable`, `{warning_count}` ← `warning_count`, `{skill_count}` ← `skill_count` and `{inventory_warnings}` ← `warnings`. When `{not_skf_output}` is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}". Those folders, such as a module's own skills in a shared skills folder, are not in `skills[]` and count toward neither `{skill_count}` nor `{warning_count}`.
 
-`--reliability` adds `inventory_reliable` (bool), `unreliable_ratio` (float), `skill_count` and `warning_count`, over the skills SKF generated and their warnings.
-
-**Failure-budget guard:** If `{inventory_reliable}` is false, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) at phase `init:inventory` with: "Inventory scan unreliable: {warning_count} warning(s) across {skill_count} skill(s) SKF generated: {inventory_warnings}. Fix the skills named there (re-save an unreadable `metadata.json` as plain UTF-8 JSON or restore it from version control, and regenerate a skill whose exports are missing), then re-run [VS]." The helper's threshold is chosen so a single malformed skill in a small 3-5 skill inventory does not trip the halt.
+**Failure-budget guard:** If `{inventory_reliable}` is false, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) at phase `init:inventory` with: "Inventory scan unreliable: {warning_count} warning(s) across {skill_count} skill(s) SKF generated: {inventory_warnings}. Fix the skills named there (re-save an unreadable `metadata.json` as plain UTF-8 JSON or restore it from version control, and regenerate a skill whose exports are missing), then re-run [VS]."
 
 ### 3. Validate Minimum Requirements
 
@@ -161,11 +152,6 @@ The helper reads only the skills SKF generated (its `--help` says how it picks e
 - At least 2 skills SKF generated must exist (`{skill_count}`; a stack requires multiple libraries)
 - If fewer than 2 → "**Cannot proceed.** Only {skill_count} skill(s) SKF generated were found in `{skills_output_folder}`. A stack requires at least 2 skills. Generate more skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]." When `{not_skf_output}` is non-empty, append: "Skipped (not SKF output): {not_skf_output}."
 - HALT (exit code 5, `halt_reason: "insufficient-skills"`) at phase `init:skill-count`.
-
-**Check forge_data_folder:**
-- Verify `forge_data_folder` was resolved from config.yaml and is non-empty
-- If undefined or empty → "**Cannot proceed.** `forge_data_folder` is not configured in config.yaml. Re-run [SF] Setup Forge to initialize."
-- HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`) at phase `init:forge-data-folder`.
 
 ### 4. Create Feasibility Report
 
@@ -193,7 +179,7 @@ This skill produces the feasibility report schema defined in `{feasibilitySchema
 - `prdAvailable: true|false` (from section 1 validation)
 
 **Populate producer-local bookkeeping keys (not part of the consumer contract):**
-- `architectureDoc`, `prdDoc` (or "none"), `previousReport` (or empty string)
+- `architectureDoc` ← `{architecture_doc_path}`, `prdDoc` ← `{prd_path}` (or "none"), `previousReport` (or empty string)
 - `skillsAnalyzed: {skill_count}`
 - `stepsCompleted: ['init']`
 
@@ -208,8 +194,8 @@ On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `
 | Field | Value |
 |-------|-------|
 | **Skills Loaded** | {skill_count} |
-| **Architecture Doc** | {architecture_doc} |
-| **PRD Document** | {prd_doc or 'Not provided — requirements pass will be skipped'} |
+| **Architecture Doc** | {architecture_doc_path} |
+| **PRD Document** | {prd_path or 'Not provided: requirements pass will be skipped'} |
 | **Previous Report** | {previousReport or 'Not provided — no delta comparison'} |
 
 **Skill Inventory:**

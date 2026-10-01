@@ -1,7 +1,6 @@
 ---
 nextStepFile: 'requirements.md'
-integrationRulesData: '{integrationRulesPath}'
-coveragePatternsData: '{coveragePatternsPath}'
+integrationRulesData: 'references/integration-verification-rules.md'
 coverageTallyScript: 'scripts/skf-coverage-tally.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
@@ -27,6 +26,7 @@ emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 inventoryFile: '{run_dir}/skill-inventory.json'
+docMentionsFile: '{run_dir}/doc-mentions.json'
 ---
 
 <!-- Config: communicate in {communication_language}. Append the Integration Verdicts section to the report in {document_output_language}. -->
@@ -40,7 +40,7 @@ Cross-reference API surfaces between library pairs that the architecture documen
 ## Rules
 
 - Focus only on integration pair verification using skill API surfaces
-- Do not evaluate requirements coverage (Step 04) or parse Mermaid diagrams
+- Do not evaluate requirements coverage (Step 04) or read the architecture document again: step 2's mentions run holds its candidate pairs
 - Every verdict must include evidence citations from the skills
 
 ## MANDATORY SEQUENCE
@@ -65,19 +65,11 @@ Extract: verification checks (language boundary, protocol compatibility, type co
 
 **Source preference:** If a stack skill assembled by `skf-create-stack-skill` is present in the inventory and its manifest (`bmad-skill-manifest.yaml` or its `metadata.json`) declares `integration_patterns`, use THAT as the primary source of integration claims. Record `source: stack manifest` on each resulting pair. Fall back to prose co-mention (below) only when no such manifest is available, and record `source: prose co-mention` on those pairs.
 
-Parse the architecture document for statements describing two or more technologies working together.
-
-**Detection method — prose-based co-mention analysis (fallback only):**
-- Identify sentences or paragraphs where two or more technology names appear together
-- Look for integration verbs: "connects to", "communicates with", "wraps", "extends", "consumes", "produces", "bridges", "integrates with", "sits between"
-- Look for data flow descriptions: "{A} sends data to {B}", "{A} results are consumed by {B}"
-- Look for layer boundary descriptions: "{A} at the API layer connects to {B} at the data layer"
-
-**Mermaid Diagram Handling:** See `{coveragePatternsData}` → "Mermaid Diagram Handling" for the canonical rule (single source of truth). Summary: do not parse Mermaid diagram syntax for co-mention detection; use only prose text.
+**Prose co-mention (fallback only):** step 2's mentions run already found the candidate pairs. Take each entry of `candidates[]` in `{docMentionsFile}` whose two skills (`a` and `b`) are both Covered in Step 02, and judge it from its `evidence[]` (`unit_excerpt`, with its `header` and `unit_line`): it is an integration claim when an entry describes an *integration relationship* (data flowing between the two, one wrapping, bridging, extending or consuming the other, or a layer boundary connecting them), not mere co-mention in the same text. A pair outside `candidates[]` is not claimed: no paragraph names both, the document only lists them together, or it draws them only in fenced code, such as a Mermaid diagram, which the mentions helper never reads.
 
 **Build integration pairs list:**
 - Each pair: `{library_a, library_b, architectural_context}`
-- `architectural_context`: the quoted text or paraphrased description of their relationship
+- `architectural_context`: the quoted `unit_excerpt` of the evidence entry that shows the relationship (for a stack manifest pair, its `integration_patterns` entry)
 
 **Filter:** Only include pairs where BOTH libraries have a corresponding skill (Covered in Step 02). Skip pairs involving Missing skills: they cannot be verified. Drop a pair whose two technologies step 2 matched to the same skill: it is one library, with no integration to verify, and §5 lists it.
 
@@ -112,7 +104,7 @@ For every skill step 2 matched to a Covered technology (the Skill Match column),
 
 **These two lists are inferred from prose, not declared** (no skill's `metadata.json` has `protocols` or `data_formats`), so they are weak evidence: Check 2 reads them as `{integrationRulesData}` says.
 
-**Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`, `capabilities`). Reject responses missing required keys and exclude that skill from pair evaluation and from the requirements stage; if more than **20%** (same failure-budget threshold as step 1 §2; see the justification there) of subagent calls return malformed JSON, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) at phase `integrations:api-surfaces` with "API-surface extraction unreliable: more than 20% of subagent reads returned malformed JSON. Re-run [VS] after skills stabilize."
+**Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`, `capabilities`). Reject responses missing required keys and exclude that skill from pair evaluation and from the requirements stage; if more than **20%** of subagent calls return malformed JSON, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) at phase `integrations:api-surfaces` with "API-surface extraction unreliable: more than 20% of subagent reads returned malformed JSON. Re-run [VS] after skills stabilize."
 
 **Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context. Write the accepted summaries to `{run_dir}/skill-summaries.json`, one JSON array: the requirements stage reads them from there, so they survive context compaction.
 
@@ -151,20 +143,20 @@ If no candidate exists, or the command exits non-zero, HALT (exit code 3, `halt_
 - For `Verified`: the Check 4 citation from `{run_dir}/citations.json`, its `substring` and `line` in the citing skill's SKILL.md with the hit's `excerpt` (e.g., `"react-query"` at line 42 of `next`'s SKILL.md)
 - **Tier annotation:** For each contributing skill, append `(evidence from a {evidence_tier} skill)` with that skill's `evidence_tier` from `skill_inventory` (e.g., `(evidence from a T1 skill)`), so reviewers weigh the evidence by the tier its skill rests on.
 
-**Cycle detection (after all pairs evaluated):** an edge `A → B` exists when skill A literally cites skill B (Check 4), so two skills that cite each other form a cycle too. The traversal is deterministic and is delegated to the shared helper (the in-prose DFS misses real multi-hop cycles or invents spurious ones as the pair count grows).
+**Cycle detection (after all pairs evaluated):** an edge `A → B` exists when skill A literally cites skill B (Check 4). Two skills that cite each other are not a cycle: their mutual citation is Check 4 evidence for their own pair, and a loop built only from such pairs is no cycle either. The traversal is deterministic and is delegated to the shared helper (the in-prose DFS misses real multi-hop cycles or invents spurious ones as the pair count grows).
 
-1. **Take the edges from the scan:** the `edges` of `{run_dir}/citations.json` (one `[from, to]` pair per citing direction) are the input the finder reads. When Check 4 rejected every hit of a direction as a common word, write `{run_dir}/cycle-edges.json` as `{"edges": [...]}` with the same edges less those directions, and pass it as `--edges` below instead.
+1. **Record the rejected directions:** write `{run_dir}/rejected-edges.json` as `{"edges": [["<from>", "<to>"], ...]}`, one entry per citing direction of `{run_dir}/citations.json` whose every hit Check 4 rejected as a common word, and `{"edges": []}` when it rejected none.
 2. **Resolve `{cycleFinderHelper}`** from `{cycleFinderProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `integrations:cycles`. Enumerate cycles deterministically (run `uv run {cycleFinderHelper} find --help` for the contract):
 
    ```bash
-   uv run {cycleFinderHelper} find --edges "{run_dir}/citations.json" > "{run_dir}/cycles.json"
+   uv run {cycleFinderHelper} find --edges "{run_dir}/citations.json" --exclude-edges "{run_dir}/rejected-edges.json" --skip-mutual > "{run_dir}/cycles.json"
    ```
-   The script writes:
+   It reads the `edges` of the citations file (one `[from, to]` pair per citing direction), leaves out the rejected directions and every cycle whose edges are all mutual citations, and writes:
    ```json
    {"cycles": [["A", "B", "C", "A"], ...], "cycle_count": N}
    ```
-   Each `cycles[]` entry is a closed node path (first node repeated at the end); every simple directed cycle appears exactly once, de-duplicated across rotations. With no pair it writes an empty list.
-3. **For each cycle** in `cycles[]`, append a synthetic row to the verdict table with verdict `Risky` and rationale "circular integration dependency detected: `{A → B → C → A}`" (render the arrow chain from the cycle's node path). Do not otherwise modify the individual pair verdicts.
+   Each `cycles[]` entry is a closed node path (first node repeated at the end) through three or more skills, with at least one one-way citation; every such cycle appears exactly once, de-duplicated across rotations. With no pair it writes an empty list.
+3. **For each cycle** in `cycles[]`, append a synthetic row to the verdict table: `lib_a` is `cycle`, `lib_b` the arrow chain rendered from the cycle's node path (`A → B → C → A`), verdict `Risky`, rationale "circular integration dependency detected: `A → B → C → A`". The `cycle` keeps the row apart from every pair row: the next run's delta keys rows on their two libraries. Do not otherwise modify the individual pair verdicts.
 
 **Count the verdicts deterministically.** Rating each pair is judgment; counting the rows of the canonical table has one correct answer, so delegate it. Write `{run_dir}/verdict-rows.json` as `{"rows": [{"lib_a": "…", "lib_b": "…", "verdict": "Verified|Plausible|Risky|Blocked"}, …]}`, one row per pair and no cycle row, and run:
 

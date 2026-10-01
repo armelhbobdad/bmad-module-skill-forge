@@ -592,7 +592,7 @@ def test_docs_give_the_verdicts_the_rollup_returns():
     for token in ("**Source preference:** If a stack skill assembled by `skf-create-stack-skill` is present in the "
                   "inventory and its manifest", "declares `integration_patterns`, use THAT as the primary source",
                   "Fall back to prose co-mention (below) only when no such manifest is available",
-                  "do not parse Mermaid diagram syntax for co-mention detection"):
+                  "draws them only in fenced code, such as a Mermaid diagram, which the mentions helper never reads"):
         assert token in integrations, token
     verdicts = _paragraph(_slice(_read(WORKFLOWS), "### Verify Stack (VS)", "**Agent:**"), "**Verdicts:**")
     for token in ("every integration pair is `Verified`",
