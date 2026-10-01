@@ -25,15 +25,41 @@ The five-shape heuristic ladder (apply in order, first match wins):
 CLI:
   uv run src/shared/scripts/skf-shape-detect.py \\
       --repo-url <url> --manifests <path1,path2,...>
+  uv run src/shared/scripts/skf-shape-detect.py \\
+      --repo-url <url> --manifests <path1,path2,...> --tree-file <file>
 
 Input:
   --repo-url      repository URL (required; context only, no cloning)
   --manifests     comma-separated local file paths to manifest files (may be
                   empty when a tree-level signal is supplied instead)
+  --tree-file     the repository's whole file list (`-` reads it from stdin),
+                  read by skf-detect-language.py's read_tree_file() (the
+                  sibling in this folder, which must sit beside this
+                  script), whose --tree-file text lists the listings it
+                  reads (`git -c core.quotePath=false ls-tree -r --name-only
+                  HEAD` prints one). The script finds the tree-level signals
+                  in it itself (tree_signals()), in place of --grammar-files
+                  and --tree-paths
   --grammar-files comma-separated repo-relative grammar files (*.y, *.g4,
                   *.pest, Grammar/python.gram, ...); a whole-language signal
   --tree-paths    comma-separated repo-relative directory/structural signals
                   harvested from the clone (compiler/ dir, lexer/parser/ast)
+Passing --tree-file with --grammar-files or --tree-paths is an error.
+
+tree_signals() reads every file of the listing and every folder that holds
+one, so no caller's filter drops a path the gates accept (a root
+`grammar.js`, `Python/ceval.c`, `check.go`), but leaves out a path with a
+hidden segment or a segment of _NON_CORE_PATH_SEGMENTS (tests and fixtures,
+docs, examples, benchmarks, scripts and tools): a CI workflow's check.yml,
+scripts/check.sh or a test fixture's vm.js is not the repository's own
+code. The grammar files are the paths _is_grammar_file() accepts at most
+_GRAMMAR_MAX_DEPTH segments deep (a grammar deeper in the tree is a vendored
+or test fixture), and the tree paths are every folder (with a trailing /)
+and every file, which the compiler-folder, triad and corroborating-member
+gates of _whole_language_tree() then judge: the triad among the paths near a
+compiler folder, the corroborating member anywhere. A listing that says it
+was cut short (a GitHub tree's `truncated`) adds the signal
+`tree_truncated`.
 
 Output (JSON on stdout):
   shape         library-API | reference-app | language-reference
@@ -46,12 +72,14 @@ Output (JSON on stdout):
 Exit codes:
   0  shape classified (not unknown)
   1  unknown shape (no heuristic matched)
-  2  error (invalid args, missing/unreadable files, parse failure)
+  2  error (invalid args, missing/unreadable files, a tree listing that
+     cannot be read, holds no path or reports a failure, parse failure)
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -100,6 +128,9 @@ _GRAMMAR_EXTS = frozenset({
     ".ungram",
 })
 _GRAMMAR_BASENAMES = frozenset({"grammar.js", "grammar.json", "python.gram"})
+# A grammar file deeper than this many path segments is a vendored or test
+# fixture, not the repo's own grammar (Grammar/python.gram is 2 deep).
+_GRAMMAR_MAX_DEPTH = 4
 
 # Concrete parsers a repo CONSUMES. If a repo's own runtime deps contain one of
 # these it delegates parsing — a formatter/linter/bundler, never a
@@ -247,9 +278,14 @@ def _whole_language_tree(tree_paths: list[str]) -> tuple[str, str] | None:
           ``_COMPILER_DIRS_CASE`` (case-sensitive ``Parser``). A file named
           ``Parser.js`` or ``compiler.dart`` never satisfies this; a bare
           ``src/`` / ``lib/`` / ``src/language/`` directory never does either.
-      (D) a lexer+parser+AST triad, parser MANDATORY, at least 2 of 3 present.
-      (W) a corroborating codegen / VM / type-checker member, so a markdown or
-          CSS library (lexer+parser+AST only) does not qualify.
+      (D) a lexer+parser+AST triad, parser MANDATORY, at least 2 of 3 present,
+          among the members NEAR that compiler directory (_near_compiler_dir):
+          a large library's lexer and parser in an unrelated corner of the
+          tree (PyTorch's TorchScript frontend beside its torch/compiler/ API
+          package) are no compiler's triad.
+      (W) a corroborating codegen / VM / type-checker member anywhere in the
+          tree, so a markdown or CSS library (lexer+parser+AST only) does not
+          qualify.
 
     Gates G (delegating consumer) and L (markup identity) depend on manifest
     data and are applied by the caller.
@@ -258,15 +294,13 @@ def _whole_language_tree(tree_paths: list[str]) -> tuple[str, str] | None:
         return None
 
     compiler_dirs: list[str] = []
-    stems: set[str] = set()
-    basenames: set[str] = set()
+    members_of: list[tuple[str, str, str]] = []  # (path, basename, stem)
     for tp in tree_paths:
         norm = tp.rstrip("/")
         if not norm:
             continue
         base = norm.rsplit("/", 1)[-1]
-        basenames.add(base)
-        stems.add(base.rsplit(".", 1)[0].lower() if "." in base else base.lower())
+        members_of.append((norm, base, base.rsplit(".", 1)[0].lower() if "." in base else base.lower()))
         if tp.endswith("/"):
             low = norm.lower()
             if any(low == m or low.endswith("/" + m) for m in _COMPILER_DIRS) or \
@@ -277,26 +311,95 @@ def _whole_language_tree(tree_paths: list[str]) -> tuple[str, str] | None:
     if not compiler_dirs:
         return None
 
-    # (D) — triad, parser mandatory, >= 2 of 3
-    lexer = bool(stems & _LEXER_STEMS) or "rustc_lexer" in basenames
-    parser = bool(stems & _PARSER_STEMS) or "rustc_parse" in basenames
-    binder, checker = "binder" in stems, "checker" in stems
-    ast = (bool(stems & _AST_STEMS) or "rustc_ast" in basenames
-           or (binder and checker))
-    if not parser or (lexer + parser + ast) < 2:
-        return None
-
-    # (W) — corroborating compiler-grade member
+    # (W): a corroborating compiler-grade member, anywhere in the tree
+    stems = {stem for _, _, stem in members_of}
     w = bool(stems & (_CODEGEN_STEMS | _VM_STEMS | _CHECK_STEMS)) or \
-        any(b.startswith("rustc_codegen") for b in basenames)
+        any(base.startswith("rustc_codegen") for _, base, _ in members_of)
     if not w:
         return None
 
-    members = ",".join(
-        m for m, present in (("lexer", lexer), ("parser", parser), ("ast", ast))
-        if present
-    )
-    return compiler_dirs[0], members
+    # (D): a triad near a compiler directory, parser mandatory, >= 2 of 3
+    for compiler_dir in compiler_dirs:
+        near = [(base, stem) for path, base, stem in members_of if _near_compiler_dir(path, compiler_dir)]
+        stems = {stem for _, stem in near}
+        basenames = {base for base, _ in near}
+        lexer = bool(stems & _LEXER_STEMS) or "rustc_lexer" in basenames
+        parser = bool(stems & _PARSER_STEMS) or "rustc_parse" in basenames
+        ast = (bool(stems & _AST_STEMS) or "rustc_ast" in basenames
+               or ("binder" in stems and "checker" in stems))
+        if parser and (lexer + parser + ast) >= 2:
+            members = ",".join(
+                m for m, present in (("lexer", lexer), ("parser", parser), ("ast", ast))
+                if present
+            )
+            return compiler_dir, members
+    return None
+
+
+def _near_compiler_dir(path: str, compiler_dir: str) -> bool:
+    """Whether a tree path is near a compiler directory, for gate D: the
+    directory itself or a path under it, or a path at most two levels below
+    the directory that holds it (CPython's Parser/ has Python/ast.c beside
+    it, the Go port's internal/compiler/ has internal/parser/parser.go)."""
+    if path == compiler_dir or path.startswith(compiler_dir + "/"):
+        return True
+    parent = compiler_dir.rsplit("/", 1)[0] if "/" in compiler_dir else ""
+    if parent and not path.startswith(parent + "/"):
+        return False
+    return path[len(parent) + 1 if parent else 0:].count("/") <= 1
+
+
+def tree_signals(files: list[str]) -> tuple[list[str], list[str]]:
+    """(grammar files, tree paths) of a repository's whole file list, the
+    tree-level inputs of detect(): the grammar files _is_grammar_file()
+    accepts at most _GRAMMAR_MAX_DEPTH segments deep, and every folder (with
+    a trailing /) then every file as tree paths, so the gates of
+    _whole_language_tree(), not a name filter, decide what counts. A path
+    with a hidden segment or a segment of _NON_CORE_PATH_SEGMENTS (tests and
+    fixtures, docs, examples, benchmarks, scripts and tools) is left out of
+    both: a CI workflow, a script or a test fixture is not the repository's
+    own code. An entry that ends in / is a folder."""
+    grammar: set[str] = set()
+    dirs: set[str] = set()
+    names: set[str] = set()
+    for raw in files:
+        entry = raw.strip()
+        parts = [p for p in entry.split("/") if p and p != "."]
+        if not parts or any(p.startswith(".") or p.lower() in _NON_CORE_PATH_SEGMENTS for p in parts):
+            continue
+        path = "/".join(parts)
+        if entry.endswith("/"):
+            dirs.add(path + "/")
+        else:
+            names.add(path)
+            if len(parts) <= _GRAMMAR_MAX_DEPTH and _is_grammar_file(path):
+                grammar.add(path)
+        for depth in range(1, len(parts)):
+            dirs.add("/".join(parts[:depth]) + "/")
+    return sorted(grammar), sorted(dirs) + sorted(names)
+
+
+_SIBLINGS: dict[str, Any] = {}
+
+
+def _sibling(filename: str) -> Any:
+    """A helper of this folder, loaded once as a module: skf-detect-language.py
+    reads a --tree-file listing. Raises ImportError when it does not sit
+    beside this script."""
+    module = _SIBLINGS.get(filename)
+    if module is None:
+        path = Path(__file__).resolve().parent / filename
+        name = "skf_" + filename.removeprefix("skf-").removesuffix(".py").replace("-", "_")
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {filename} beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except (OSError, SyntaxError) as exc:
+            raise ImportError(f"cannot load {filename} beside {Path(__file__).name}: {exc}") from exc
+        _SIBLINGS[filename] = module
+    return module
 
 
 # ---------------------------------------------------------------------------
@@ -1095,7 +1198,7 @@ def _force_utf8(*streams) -> None:
 
 
 def main(argv: list[str]) -> int:
-    _force_utf8(sys.stdout, sys.stderr)
+    _force_utf8(sys.stdin, sys.stdout, sys.stderr)
     parser = argparse.ArgumentParser(
         description="Classify a repo into a known skill shape from its manifest files.",
     )
@@ -1103,7 +1206,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--manifests", required=True,
         help="Comma-separated local file paths to manifest files (may be empty "
-             "when --grammar-files or --tree-paths carry the signal)",
+             "when --tree-file, --grammar-files or --tree-paths carry the signal)",
+    )
+    parser.add_argument(
+        "--tree-file", default=None,
+        help="The repository's whole file list: JSON (a `tree` list, or a list) or "
+             "one path per line; - reads stdin. Replaces --grammar-files and --tree-paths",
     )
     parser.add_argument(
         "--grammar-files", default="",
@@ -1120,10 +1228,25 @@ def main(argv: list[str]) -> int:
     manifest_paths = [p.strip() for p in args.manifests.split(",") if p.strip()]
     grammar_files = [p.strip() for p in args.grammar_files.split(",") if p.strip()]
     tree_paths = [p.strip() for p in args.tree_paths.split(",") if p.strip()]
+    truncated = False
+    if args.tree_file is not None:
+        if grammar_files or tree_paths:
+            _die("pass the tree once: --tree-file, or --grammar-files and --tree-paths", "INVALID_ARGS")
+        try:
+            files, truncated = _sibling("skf-detect-language.py").read_tree_file(args.tree_file)
+        except (ImportError, ValueError) as exc:  # ValueError: the sibling's TreeListingError
+            _die(str(exc), "TREE_FILE_ERROR")
+        grammar_files, tree_paths = tree_signals(files)
     if not manifest_paths and not grammar_files and not tree_paths:
-        _die("--manifests requires at least one path", "MISSING_MANIFESTS")
-
-    result = detect(args.repo_url, manifest_paths, grammar_files, tree_paths)
+        if args.tree_file is None:
+            _die("--manifests requires at least one path", "MISSING_MANIFESTS")
+        # The listing holds only paths tree_signals() leaves out (hidden,
+        # tests, docs, scripts): no signal to classify.
+        result = {"shape": "unknown", "signals": [], "confidence": 0.0, "export_count": 0, "package_count": 0}
+    else:
+        result = detect(args.repo_url, manifest_paths, grammar_files, tree_paths)
+    if truncated:
+        result["signals"].append("tree_truncated")
     json.dump(result, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
 

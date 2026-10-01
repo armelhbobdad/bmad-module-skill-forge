@@ -164,10 +164,10 @@ CI re-runs everything on the PR. A green local run and a red CI run means (a) yo
 
 Maintainers only — if you're not cutting a release, skip this section.
 
-- **Canonical path:** `.github/workflows/release.yaml`, triggered via GitHub Actions → Run workflow → choose `version_bump` (`alpha` / `beta` / `rc` / `patch` / `minor` / `major`). That is the only supported route — OIDC-backed publish, required-reviewer gate on the `release` environment, auto-provenance on the npm tarball.
+- **Canonical path:** `.github/workflows/release.yaml`, triggered via GitHub Actions → Run workflow → choose `version_bump` (`alpha` / `beta` / `rc` / `patch` / `minor` / `major`, or `resume` on `main` to finish a cut whose bot PR merged but whose tag, npm publish or GitHub Release is missing: see [Scenario H](docs/_internal/RELEASING.md#scenario-h-bot-pr-merged-but-the-version-was-not-published)). That is the only supported route: OIDC-backed publish, required-reviewer gate on the `release` environment, auto-provenance on the npm tarball.
 - **Before dispatch:** run `npm run changes:preview -- --bump <type>` on an up-to-date `main`. The workflow's release gate refuses a `version_bump` below the minimum the preview prints, before anything is committed.
 
-See [docs/\_internal/RELEASING.md](docs/_internal/RELEASING.md) for the full procedure — branch-protection rules, the `release` environment with its required-reviewer gate, npm Trusted Publisher registration, and the seven-scenario [rollback playbook](docs/_internal/RELEASING.md#rollback-playbook).
+See [docs/\_internal/RELEASING.md](docs/_internal/RELEASING.md) for the full procedure: branch-protection rules, the `release` environment with its required-reviewer gate, npm Trusted Publisher registration, and the [rollback playbook](docs/_internal/RELEASING.md#rollback-playbook).
 
 ## Adding a New Workflow Skill
 

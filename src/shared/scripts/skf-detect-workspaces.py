@@ -4,12 +4,15 @@
 # ///
 """SKF Detect Workspaces — pure detector for monorepo / multi-package layouts.
 
-Takes a JSON payload on stdin describing a target repo's file tree plus the
-contents of a small set of root manifests, and returns whether a workspace
-layout is present, which manifest kind drives it, and the list of resolved
-workspaces. The helper does NO file I/O — the caller (typically
-skf-brief-skill step 2 §1b) fetches files via `gh api` / local filesystem
-and pipes the relevant content in.
+Takes a target repo's file tree plus the contents of a small set of root
+manifests, and returns whether a workspace layout is present, which manifest
+kind drives it, and the list of resolved workspaces. detect() does no file
+I/O: the CLI reads the tree and the manifests from a JSON payload (stdin or
+--json), or from the files --tree-file and --manifest-dir name, so a caller
+(skf-brief-skill step 2 §1b, skf-test-skill's coverage check) can stage them
+instead of typing a tree or a manifest into a shell string. With --snapshot
+it prints the facts the tree gives an analysis instead (see "Tree snapshot"
+below).
 
 Detection runs in priority order; the first matching detector wins:
 
@@ -68,21 +71,117 @@ Output JSON shape (stdout):
     "warnings":      ["..."]
   }
 
+`warnings` also names each root manifest whose content a detector reads
+(CONTENT_MANIFESTS) that the tree lists but `manifests` does not hold: the
+detector that needs it cannot run, so a workspace layout it would find is
+missed.
+
+CLI:
+  uv run skf-detect-workspaces.py < payload.json
+  uv run skf-detect-workspaces.py --json '{"tree": [...], "manifests": {...}}'
+  uv run skf-detect-workspaces.py --tree-file <file> --manifest-files
+  uv run skf-detect-workspaces.py --tree-file <file> [--manifest-dir <dir>]
+  uv run skf-detect-workspaces.py --tree-file <file> [--manifest-dir <dir>] \\
+      --snapshot [--root <folder>]
+
+--tree-file reads the tree from a file (`-` reads it from stdin) through
+skf-detect-language.py's read_tree_file() (the sibling in this folder, which
+must sit beside this script), whose --tree-file text lists the listings it
+reads; one that holds no path is refused. With --tree-file, stdin is never
+read for the payload: `manifests` comes with --json or --manifest-dir, or is
+empty, and the payload may not carry `tree` as well. When the listing says
+it was cut short (a GitHub tree's `truncated`), `warnings` says so: a
+workspace whose manifest the listing lacks is not found.
+
+--manifest-files prints the root manifests the --tree-file listing holds
+whose content a detector reads (CONTENT_MANIFESTS), one repo path per line
+with LF endings on every platform (nothing when there are none), and exits:
+a shell loop fetches exactly those files into the folder --manifest-dir then
+reads.
+
+--manifest-dir reads `manifests` from a folder laid out like the repository,
+a local checkout or the folder the --manifest-files paths were fetched into:
+each root manifest of CONTENT_MANIFESTS the tree lists, then the manifest of
+each workspace found, which names it. A file missing there, larger than
+MAX_MANIFEST_BYTES or not UTF-8 was not supplied. Passing `manifests` in the
+payload as well is an error.
+
+Tree snapshot (--snapshot)
+--------------------------
+
+The facts an analysis of the repository, or of one folder of it (--root,
+such as a workspace path), reads from the tree, counted by the script so no
+caller counts or samples a long listing by hand. It takes the same inputs:
+
+  {
+    "root":                "" | "<folder>",  the folder described ("" for
+                                             the repository)
+    "truncated":           bool,   the --tree-file listing says it was cut
+                                   short (a GitHub tree's `truncated`); the
+                                   counts are then lower bounds, and a
+                                   workspace may be missed
+    "file_count":          N,      files under the root
+    "source_file_count":   N,      of those, the source files: the
+                                   extensions skf-detect-language.py's
+                                   extension-frequency rule counts
+    "dir_count":           N,      folders under the root
+    "top_level_files":     [...],  names of the files directly in the root
+    "top_level_dirs":      [...],  names of the folders directly in the root
+    "manifest_kind":       the workspace layout the detectors find at the
+                           repository root (null without one, and with
+                           --root)
+    "workspaces":          [...],  its workspaces, as detection lists them
+    "module_root":         "" | "<folder>",  where the module candidates are
+    "module_candidates":   [{"path": "<folder>", "file_count": N,
+                             "source_file_count": N}, ...],  each folder
+                                   directly in module_root but hidden ones,
+                                   with the files and source files under it
+    "registry_candidates": [...],  repo paths of the component registry
+                                   files under the root
+    "warnings":            [...]   the detection warnings at the repository
+                                   root
+  }
+
+Modules. Which folders are the modules is the caller's judgment, so the
+snapshot names none: it lists the candidates and what they hold. The module
+root is the root's `src/` folder, else its `lib/` folder, else the root
+itself, followed down while it holds no file and exactly one folder (hidden
+ones and NON_MODULE_DIRS aside) that holds folders of its own (a Python
+`src/<package>/` layout, or Java's `src/main/java/com/acme/`). The modules
+are the workspaces when the detectors find some, else the candidates that
+hold the library's own code (a folder with no source file, or of tests,
+docs, examples, scripts, build tooling or CI, is none); a candidate that
+holds most of the source files is the package itself (pandas/ at the root of
+pandas), and a snapshot with --root <it> lists its own candidates. The count
+of the modules picked is skf-recommend-scope-type.py's `module_count` input.
+
+Registry candidates are the files the component-registry rule of
+skf-recommend-scope-type.py reads (registry.ts, components.ts and their .tsx
+forms, at any depth), found by that script's own rule (the sibling in this
+folder, which must sit beside this script).
+
 Exit codes:
 
   0  success (regardless of is_monorepo value)
   1  payload error (malformed top-level JSON shape)
-  2  stdin / argparse / JSON-decode error
+  2  input error: empty stdin, invalid JSON, a bad or conflicting flag
+     (argparse), the tree or the manifests passed twice, a tree listing that
+     cannot be read, holds no path or reports a failure, a sibling script that
+     cannot be loaded, or a --root under which the tree lists no file
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import importlib.util
 import json
+import os
+import posixpath
 import re
 import sys
 import tomllib
+from pathlib import Path
 from typing import Optional
 
 
@@ -97,6 +196,25 @@ RECOGNISED_MANIFESTS = (
     "build.gradle.kts",
     "pom.xml",
 )
+# Root manifests whose content a detector reads (nx.json counts by its place
+# in the tree alone): --manifest-files lists them, --manifest-dir reads them,
+# and a warning names each one the tree lists that was not supplied.
+CONTENT_MANIFESTS = ("package.json", "pnpm-workspace.yaml", "lerna.json", "rush.json", "Cargo.toml")
+MAX_MANIFEST_BYTES = 1024 * 1024
+# Folders a snapshot's module root is never followed down through (names
+# matched in lower case): tests, test helpers and fixtures, docs and sites,
+# examples, playgrounds and benchmarks, build output, vendored dependencies
+# and caches, and non-code resources. They still appear among the module
+# candidates, with what they hold: which folders are modules is the
+# caller's judgment.
+NON_MODULE_DIRS = frozenset({
+    "test", "tests", "__tests__", "testing", "spec", "specs", "testdata", "fixture", "fixtures", "e2e",
+    "test-utils", "test_utils", "testutils", "__testutils__",
+    "doc", "docs", "website", "www", "example", "examples", "demo", "demos", "sample", "samples",
+    "playground", "playgrounds", "bench", "benches", "benchmark", "benchmarks", "scripts",
+    "build", "dist", "out", "target", "coverage", "node_modules", "vendor", "__pycache__",
+    "resources",
+})
 
 
 # --------------------------------------------------------------------------
@@ -345,14 +463,10 @@ def detect_rush(
     tree: set[str], manifests: dict[str, str], warnings: list[str]
 ) -> Optional[list[dict]]:
     """Rush: rush.json's `projects[]`, each a `projectFolder` with a
-    package.json in the tree, named by its `packageName`."""
+    package.json in the tree, named by its `packageName`. A rush.json the
+    tree lists without its content is named in detect()'s warnings."""
     content = manifests.get("rush.json")
     if content is None:
-        if "rush.json" in tree:
-            warnings.append(
-                "rush.json is in the tree but its content was not supplied: "
-                "pass it under manifests to resolve the Rush projects"
-            )
         return None
     try:
         data = json.loads(_strip_json_comments(content))
@@ -558,6 +672,12 @@ def detect(payload: dict) -> dict:
     if not isinstance(manifests, dict):
         return {"_payload_error": "missing or non-dict 'manifests' field"}
     tree: set[str] = {_normalise_path(p) for p in tree_raw if isinstance(p, str) and p.strip()}
+    for name in CONTENT_MANIFESTS:
+        if name in tree and name not in manifests:
+            warnings.append(
+                f"{name} is in the tree but its content was not supplied: pass it under manifests "
+                "(or with --manifest-dir) so the detectors can read it"
+            )
 
     for kind, detector in DETECTORS:
         result = detector(tree, manifests, warnings)
@@ -578,28 +698,256 @@ def detect(payload: dict) -> dict:
     }
 
 
-def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Detect monorepo / workspace layouts from a tree + manifests payload.")
-    parser.add_argument("--json", help="Inline JSON payload (otherwise read from stdin).")
-    args = parser.parse_args(argv)
+# --------------------------------------------------------------------------
+# Tree snapshot
+# --------------------------------------------------------------------------
 
-    raw = args.json
-    if raw is None:
-        raw = sys.stdin.read()
+
+def _module_root(files: list[str], dirs: set[str]) -> str:
+    """The folder whose own folders are a snapshot's module candidates,
+    relative to the folder the snapshot describes: its `src/`, else its
+    `lib/`, else the folder itself, followed down while it holds no file
+    and exactly one folder (hidden ones and NON_MODULE_DIRS aside), which
+    holds folders of its own (a wrapper such as a Python `src/<package>/`,
+    never a lone `src/components/`)."""
+    children: dict[str, list[str]] = {}
+    for folder in dirs:
+        name = posixpath.basename(folder)
+        if not name.startswith(".") and name.lower() not in NON_MODULE_DIRS:
+            children.setdefault(posixpath.dirname(folder), []).append(folder)
+    holds_files = {posixpath.dirname(f) for f in files}
+    base = next((d for d in ("src", "lib") if d in dirs), "")
+    while True:
+        found = children.get(base, [])
+        if len(found) != 1 or base in holds_files or not children.get(found[0]):
+            return base
+        base = found[0]
+
+
+def snapshot(tree: list, manifests: dict, root: str = "", truncated: bool = False) -> dict:
+    """The facts the tree gives an analysis of `root` ("" for the
+    repository): see "Tree snapshot" in the module docstring. Raises
+    ValueError when the tree lists no file under a `root` given, and
+    ImportError when skf-detect-language.py or skf-recommend-scope-type.py
+    does not sit beside this script."""
+    root = _normalise_path(root.strip())
+    root = "" if root == "." else root
+    prefix = f"{root}/" if root else ""
+    files = sorted({p for p in (_normalise_path(p) for p in tree if isinstance(p, str) and p.strip())
+                    if p.startswith(prefix)})
+    if root and not files:
+        raise ValueError(f"the tree lists no file under --root {root}")
+    is_source = _sibling("skf-detect-language.py").is_source_file
+    rel = [p[len(prefix):] for p in files]
+    dirs = {"/".join(parts[:depth]) for parts in (r.split("/") for r in rel) for depth in range(1, len(parts))}
+    detected = {"manifest_kind": None, "workspaces": [], "warnings": []}
+    if not root:
+        detected = detect({"tree": files, "manifests": manifests})
+    base = _module_root(rel, dirs)
+    # (files, source files) under each folder directly in the module root
+    counts: dict[str, list[int]] = {}
+    for path in rel:
+        rest = path[len(base) + 1:] if base else path
+        if (base and not path.startswith(base + "/")) or "/" not in rest or rest.startswith("."):
+            continue
+        tally = counts.setdefault(rest.split("/", 1)[0], [0, 0])
+        tally[0] += 1
+        tally[1] += int(is_source(path))
+    module_root = prefix + base if base else root
+    return {
+        "root":                root,
+        "truncated":           truncated,
+        "file_count":          len(files),
+        "source_file_count":   sum(1 for path in rel if is_source(path)),
+        "dir_count":           len(dirs),
+        "top_level_files":     sorted(r for r in rel if "/" not in r),
+        "top_level_dirs":      sorted(d for d in dirs if "/" not in d),
+        "manifest_kind":       detected["manifest_kind"],
+        "workspaces":          detected["workspaces"],
+        "module_root":         module_root,
+        "module_candidates":   [
+            {"path": f"{module_root}/{name}" if module_root else name,
+             "file_count": tally[0], "source_file_count": tally[1]}
+            for name, tally in sorted(counts.items())
+        ],
+        "registry_candidates": _sibling("skf-recommend-scope-type.py")._find_registry_files(files),
+        "warnings":            detected["warnings"],
+    }
+
+
+# --------------------------------------------------------------------------
+# Files: the tree listing, the manifests, the sibling scripts
+# --------------------------------------------------------------------------
+
+
+_SIBLINGS: dict[str, object] = {}
+
+
+def _sibling(filename: str):
+    """A helper of this folder, loaded once as a module: skf-detect-language.py
+    reads a --tree-file listing, and skf-recommend-scope-type.py names the
+    component registry files a snapshot lists. Raises ImportError when it
+    does not sit beside this script."""
+    module = _SIBLINGS.get(filename)
+    if module is None:
+        path = Path(__file__).resolve().parent / filename
+        name = "skf_" + filename.removeprefix("skf-").removesuffix(".py").replace("-", "_")
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {filename} beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except (OSError, SyntaxError) as exc:
+            raise ImportError(f"cannot load {filename} beside {Path(__file__).name}: {exc}") from exc
+        _SIBLINGS[filename] = module
+    return module
+
+
+def read_manifest_dir(folder: str, paths: list[str]) -> dict[str, str]:
+    """{repo path: text} of each of `paths` read from `folder`, a folder laid
+    out like the repository. A path outside the repository, or a file
+    missing there, larger than MAX_MANIFEST_BYTES or not UTF-8, is left
+    out: its content was not supplied."""
+    out: dict[str, str] = {}
+    for rel in dict.fromkeys(paths):
+        if rel.startswith("/") or ".." in rel.split("/"):
+            continue
+        path = os.path.join(folder, *rel.split("/"))
+        try:
+            if os.path.getsize(path) > MAX_MANIFEST_BYTES:
+                continue
+            with open(path, "rb") as fh:
+                out[rel] = fh.read().decode("utf-8-sig")
+        except (OSError, UnicodeDecodeError):
+            continue
+    return out
+
+
+def _listed(tree: object) -> set[str]:
+    return {_normalise_path(p) for p in tree if isinstance(p, str)} if isinstance(tree, list) else set()
+
+
+def _fail(message: str, code: int) -> int:
+    print(json.dumps({"error": message}), file=sys.stderr)
+    return code
+
+
+def _force_utf8(*streams) -> None:
+    """Reconfigure the streams to UTF-8, keeping each one's error handler: a
+    default Windows console reads stdin as cp1252, which cannot carry a
+    UTF-8 payload or tree listing. For stdin this must run before the first
+    read. Skips in-process test doubles without reconfigure()."""
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
+def _decode(raw: str) -> tuple[Optional[dict], Optional[str], int]:
+    """(payload, error message, exit code) of a JSON payload's text."""
     if not raw.strip():
-        print(json.dumps({"error": "empty input"}), file=sys.stderr)
-        return 2
-
+        return None, "empty input", 2
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as e:
-        print(json.dumps({"error": f"json decode error: {e}"}), file=sys.stderr)
-        return 2
+        return None, f"json decode error: {e}", 2
+    if not isinstance(payload, dict):
+        return None, "the payload must be a JSON object", 1
+    return payload, None, 0
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    _force_utf8(sys.stdin, sys.stdout)
+    parser = argparse.ArgumentParser(description="Detect monorepo / workspace layouts from a tree + manifests payload.")
+    parser.add_argument("--json", help="Inline JSON payload (otherwise read from stdin).")
+    parser.add_argument(
+        "--tree-file",
+        help="the repository's file list: JSON (a `tree` list, or a list) or one path per line; - reads stdin. "
+             "With --tree-file <file>, stdin is not read: pass the manifests with --manifest-dir or --json",
+    )
+    parser.add_argument(
+        "--manifest-dir",
+        help="a folder laid out like the repository that holds the manifests (read as `manifests`)",
+    )
+    parser.add_argument(
+        "--manifest-files",
+        action="store_true",
+        help="print the root manifests of the --tree-file listing whose content the detectors read, "
+             "one path per line, and exit",
+    )
+    parser.add_argument(
+        "--snapshot",
+        action="store_true",
+        help="print the tree snapshot (counts, top-level entries, workspaces, module candidates, registry files) "
+             "instead",
+    )
+    parser.add_argument("--root", help="with --snapshot: the folder to describe (default: the repository)")
+    args = parser.parse_args(argv)
+    if args.manifest_files and (args.tree_file is None or args.json is not None or args.manifest_dir is not None
+                                or args.snapshot or args.root is not None):
+        return _fail("--manifest-files lists the root manifests of --tree-file and reads nothing else", 2)
+    if args.root is not None and not args.snapshot:
+        return _fail("--root names the folder --snapshot describes: pass --snapshot", 2)
+
+    truncated = False
+    if args.tree_file is not None:
+        try:
+            tree, truncated = _sibling("skf-detect-language.py").read_tree_file(args.tree_file)
+        except (ImportError, ValueError) as e:  # ValueError: the sibling's TreeListingError
+            return _fail(str(e), 2)
+        if args.manifest_files:
+            listed = _listed(tree)
+            if hasattr(sys.stdout, "reconfigure"):
+                sys.stdout.reconfigure(newline="\n")  # a shell loop reads the lines: no CR on Windows
+            sys.stdout.write("".join(f"{name}\n" for name in CONTENT_MANIFESTS if name in listed))
+            return 0
+        payload: dict = {}
+        if args.json is not None:
+            payload, message, code = _decode(args.json)
+            if message:
+                return _fail(message, code)
+        if "tree" in payload:
+            return _fail("pass the tree once: in the payload or with --tree-file, not both", 2)
+        payload["tree"] = tree
+        if args.manifest_dir is None:
+            payload.setdefault("manifests", {})
+    else:
+        payload, message, code = _decode(args.json if args.json is not None else sys.stdin.read())
+        if message:
+            return _fail(message, code)
+    if args.manifest_dir is not None:
+        if "manifests" in payload:
+            return _fail("pass the manifests once: in the payload or with --manifest-dir, not both", 2)
+        listed = _listed(payload.get("tree"))
+        payload["manifests"] = read_manifest_dir(args.manifest_dir, [n for n in CONTENT_MANIFESTS if n in listed])
+        found = detect(payload)
+        if found.get("workspaces"):
+            # Each workspace's own manifest names it.
+            payload["manifests"].update(
+                read_manifest_dir(args.manifest_dir, [ws["manifest"] for ws in found["workspaces"]]))
+
+    if args.snapshot:
+        if not isinstance(payload.get("tree"), list):
+            return _fail("missing or non-list 'tree' field", 1)
+        if not isinstance(payload.get("manifests"), dict):
+            return _fail("missing or non-dict 'manifests' field", 1)
+        try:
+            out = snapshot(payload["tree"], payload["manifests"], args.root or "", truncated)
+        except (ImportError, ValueError) as e:  # a missing sibling, or a --root without files
+            return _fail(str(e), 2)
+        print(json.dumps(out, separators=(",", ":")))
+        return 0
 
     result = detect(payload)
     if "_payload_error" in result:
-        print(json.dumps({"error": result["_payload_error"]}), file=sys.stderr)
-        return 1
+        return _fail(result["_payload_error"], 1)
+    if truncated:
+        result["warnings"].append(
+            "the --tree-file listing was cut short (truncated): a workspace whose manifest it does not list is missed")
 
     print(json.dumps(result, separators=(",", ":")))
     return 0

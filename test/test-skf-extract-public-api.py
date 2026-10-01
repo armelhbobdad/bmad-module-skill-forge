@@ -16,6 +16,7 @@ it.
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import io
 import json
@@ -469,7 +470,7 @@ class TestExtract:
         assert all("placeholder" not in w for w in result["warnings"])
 
     def test_scanner_failure_recorded_as_warning(self, monkeypatch):
-        def boom(content, source_file):
+        def boom(content, source_file, warnings):
             raise RuntimeError("scanner exploded")
 
         # Replace the python scanner's slot in the dispatch table.
@@ -522,6 +523,558 @@ class TestCli:
         monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
         rc = mod.main([])
         assert rc == 1
+
+
+# --------------------------------------------------------------------------
+# Quick mode: the export forms each scanner reads or warns about (#592)
+# --------------------------------------------------------------------------
+
+
+def _scan(scanner, content: str, source_file: str) -> tuple[list[tuple[str, str]], list[str]]:
+    warnings: list[str] = []
+    exports = scanner(content, source_file, warnings)
+    assert all(e["source_file"] == source_file for e in exports)
+    return [(e["name"], e["type"]) for e in exports], warnings
+
+
+class TestQuickPythonForms:
+    def test_reexports_async_defs_and_the_package_imports(self):
+        src = (
+            "from typing import TYPE_CHECKING, Any\n"
+            "from .core import Engine, run as start\n"
+            "from mypkg.tools import tool\n"
+            "from otherpkg import Foreign\n"
+            "from . import sub\n"
+            "import json\n"
+            "if TYPE_CHECKING:\n    from .hints import Hint\n"
+            "VERSION = '1.0'\n"
+            "async def fetch(url): return url\n"
+            "def configure(): pass\n"
+            "class Client: pass\n"
+            "def _private(): pass\n"
+        )
+        names, warnings = _scan(mod.scan_exports_python, src, "src/mypkg/__init__.py")
+        # Foreign and Any come from other packages, Hint only under TYPE_CHECKING
+        assert names == [("Engine", "re-export"), ("start", "re-export"), ("tool", "re-export"),
+                         ("sub", "re-export"), ("fetch", "def"), ("configure", "def"), ("Client", "class")]
+        assert warnings == []
+
+    def test_dunder_all_however_it_is_built(self):
+        src = (
+            "from .core import Engine\n"
+            "from ._impl import helper as public_helper\n"
+            "import json\n"
+            "VERSION: str = '1.0'\n"
+            "__all__ = ('Engine', 'VERSION')\n"
+            "__all__ += ['public_helper', 'configure']\n"
+            "__all__.append('json')\n"
+            "__all__.extend(['from_star', '_hidden', 'Engine'])\n"
+            "def configure(): pass\n"
+            "async def unlisted(): pass\n"
+        )
+        names, _ = _scan(mod.scan_exports_python, src, "pkg/__init__.py")
+        # the names bound by assignment, imported or bound nowhere in the file count as __all__ lists them
+        assert names == [("Engine", "re-export"), ("VERSION", "variable"), ("public_helper", "re-export"),
+                         ("configure", "def"), ("json", "module"), ("from_star", "re-export")]
+
+    @pytest.mark.parametrize(
+        "src,line",
+        [
+            pytest.param("from .events import *\nfrom . import events\n__all__ = (events.__all__ +\n    ['run'])\n"
+                         "def run(): pass\n", 3, id="another-modules-all"),
+            pytest.param("__all__ = ['run']\nfrom . import unix\n__all__ += unix.__all__\ndef run(): pass\n", 3,
+                         id="augmented"),
+            pytest.param("__all__ = [n for n in dir() if not n.startswith('_')]\n", 1, id="computed"),
+            pytest.param("__all__ = ['a']\n__all__.extend(NAMES)\n", 2, id="extended"),
+        ],
+    )
+    def test_an_all_built_from_another_module_is_warned(self, src, line):
+        """asyncio builds its __all__ from its submodules' __all__: the file
+        alone cannot give those names, so quick mode says so."""
+        _, warnings = _scan(mod.scan_exports_python, src, "pkg/__init__.py")
+        assert warnings == [
+            f"pkg/__init__.py line {line}: `__all__` takes names quick mode cannot read (another module's `__all__`, "
+            "or a list built at run time): read the names it exports by eye"
+        ]
+
+    def test_a_star_import_from_the_package_is_warned(self):
+        src = "from .star import *\nfrom os.path import *\nfrom pkg.more import *\ndef run(): pass\n"
+        names, warnings = _scan(mod.scan_exports_python, src, "src/pkg/__init__.py")
+        assert names == [("run", "def")]
+        assert warnings == [
+            "src/pkg/__init__.py line 1: `from .star import *` passes on names from a module quick mode does not "
+            "read: pass that module as an entry too, or read it by eye",
+            "src/pkg/__init__.py line 3: `from pkg.more import *` passes on names from a module quick mode does not "
+            "read: pass that module as an entry too, or read it by eye",
+        ]
+
+    @pytest.mark.parametrize("entry", ["acme/cloud/storage/__init__.py", "src/acme/cloud/storage/__init__.py"])
+    def test_a_nested_package_names_itself_by_its_dotted_path(self, entry):
+        """A nested or namespace package imports its own modules by the
+        dotted path of its folders, not by its last folder alone."""
+        src = (
+            "from acme.cloud.storage.blob import Blob\n"
+            "from acme.cloud.storage.client import *\n"
+            "from cloud.storage.retry import Retry\n"
+            "from storage import Bucket\n"
+            "from acme.cloud.other import Thing\n"
+            "from acme.cloud.storage_utils import Helper\n"
+        )
+        names, warnings = _scan(mod.scan_exports_python, src, entry)
+        assert names == [("Blob", "re-export"), ("Retry", "re-export"), ("Bucket", "re-export")]
+        assert warnings == [
+            f"{entry} line 2: `from acme.cloud.storage.client import *` passes on names from a module quick mode "
+            "does not read: pass that module as an entry too, or read it by eye"
+        ]
+
+    def test_newer_syntax_is_read_from_the_text(self):
+        src = "type Alias = int\nasync def f[T](x: T) -> T: ...\nclass Box[T]: pass\nfrom .m import (x,\n    y as w)\n"
+        names, warnings = _scan(mod.scan_exports_python, src, "pkg/__init__.py")
+        assert names == [("f", "def"), ("Box", "class"), ("x", "re-export"), ("w", "re-export")]
+        # a Python older than the syntax reads the names from the text, and says so
+        assert len(warnings) == (1 if sys.version_info < (3, 12) else 0)
+        assert all("cannot parse it" in w for w in warnings)
+
+
+class TestQuickRustForms:
+    def test_qualified_functions_and_pub_use(self):
+        src = (
+            "//! This crate's API: pub fn in_a_comment() {}\n"
+            "pub const fn f() -> u32 { 0 }\n"
+            "pub async fn fetch<'a>(s: &'a str) -> &'a str { s }\n"
+            "pub unsafe fn raw() {}\n"
+            'pub extern "C" fn ffi() {}\n'
+            "pub const C: u32 = 0;\n"
+            "pub use crate::client::{Client, Builder as ClientBuilder, self as client_mod};\n"
+            "pub use serde::Serialize;\n"
+            "pub use crate::hidden as _;\n"
+            "pub mod client;\n"
+            "impl Client {\n    pub fn method(&self) {}\n}\n"
+            "pub(crate) fn internal() {}\n"
+            "pub struct Config;\n"
+        )
+        names, warnings = _scan(mod.scan_exports_rust, src, "src/lib.rs")
+        # `pub const fn f` is the fn f (the old scanner named it `fn`); a method is no top-level export
+        assert names == [("f", "fn"), ("fetch", "fn"), ("raw", "fn"), ("ffi", "fn"), ("C", "const"),
+                         ("Client", "re-export"), ("ClientBuilder", "re-export"), ("client_mod", "re-export"),
+                         ("Serialize", "re-export"), ("client", "mod"), ("Config", "struct")]
+        assert warnings == []
+
+    def test_exported_macros(self):
+        src = (
+            "#[macro_export]\nmacro_rules! my_vec { () => {} }\n"
+            "/// docs\n#[macro_export(local_inner_macros)]\n#[doc(hidden)]\nmacro_rules! other { () => {} }\n"
+            "macro_rules! private_one { () => {} }\n"
+            "mod inner {\n    #[macro_export]\n    macro_rules! from_inner { () => {} }\n}\n"
+            "pub fn f() {}\n"
+        )
+        names, warnings = _scan(mod.scan_exports_rust, src, "src/lib.rs")
+        # a #[macro_export] macro is exported at the crate root wherever it sits
+        assert names == [("my_vec", "macro"), ("other", "macro"), ("from_inner", "macro"), ("f", "fn")]
+        assert warnings == []
+
+    def test_a_glob_pub_use_is_warned(self):
+        names, warnings = _scan(mod.scan_exports_rust, "pub use self::prelude::*;\npub fn f() {}\n", "src/lib.rs")
+        assert names == [("f", "fn")]
+        assert warnings == ["src/lib.rs line 1: `pub use self::prelude::*` passes on names from a module quick mode "
+                            "does not read: pass that module as an entry too, or read it by eye"]
+
+
+class TestQuickJsForms:
+    def test_declaration_forms(self):
+        src = (
+            "// export const commented = 1;\n"
+            "export async function load() {}\n"
+            "export let counter = 0;\n"
+            "export var legacy = 'it\\'s';\n"
+            "export abstract class Base {}\n"
+            "export declare const VERSION: string;\n"
+            "export declare function declared(): void;\n"
+            "export function* gen() {}\n"
+            "export function *gen2() {}\n"
+            "export default async function main() {}\n"
+            "export const enum Color { Red }\n"
+            "export declare namespace NS {}\n"
+            "export default class extends Base {}\n"
+            "export const a = 1, b = f(1, 2), c = { d: 1, e: [2, 3] },\n  g = (x, y) => x;\n"
+            "export let h, i: number;\n"
+            "export declare const j: Map<string, number>, k: string;\n"
+            "export const l = 1\nexport const m = 2\n"
+        )
+        names, warnings = _scan(mod.scan_exports_js, src, "src/index.ts")
+        # every declarator of a const, let or var statement, never a key or an argument inside it
+        assert names == [("load", "function"), ("counter", "let"), ("legacy", "var"), ("Base", "class"),
+                         ("VERSION", "const"), ("declared", "function"), ("gen", "function"), ("gen2", "function"),
+                         ("main", "function"), ("Color", "enum"), ("NS", "namespace"), ("a", "const"),
+                         ("b", "const"), ("c", "const"), ("g", "const"), ("h", "let"), ("i", "let"), ("j", "const"),
+                         ("k", "const"), ("l", "const"), ("m", "const")]
+        # the anonymous class is the module's default export, which has no name to list
+        assert warnings == ["src/index.ts line 13: `export default` is an anonymous function or class: the module's "
+                            "default export has no name here"]
+
+    @pytest.mark.parametrize(
+        "src,warning",
+        [
+            pytest.param("export default function () {}\n", "is an anonymous function or class", id="function"),
+            pytest.param("export default function* () {}\n", "is an anonymous function or class", id="generator"),
+            pytest.param("export default async () => 1;\n", "is an anonymous function or class", id="async-arrow"),
+            pytest.param("export default () => 1\n", "is an anonymous function or class", id="arrow"),
+            pytest.param("export default { a, b };\n", "is set to an expression", id="object"),
+            pytest.param("export default connect(state)(View);\n", "is set to an expression", id="call"),
+        ],
+    )
+    def test_an_anonymous_or_expression_default_is_warned(self, src, warning):
+        names, warnings = _scan(mod.scan_exports_js, "const a = 1, b = 2;\n" + src, "src/index.ts")
+        assert names == []
+        assert len(warnings) == 1 and warnings[0].startswith("src/index.ts line 2: `export default` ")
+        assert warning in warnings[0]
+
+    def test_a_destructuring_export_is_warned(self):
+        names, warnings = _scan(mod.scan_exports_js, "export const { a, b: c } = obj;\nexport let [x] = pair;\n",
+                                "src/index.ts")
+        assert names == []
+        assert warnings == [
+            "src/index.ts line 1: `export const` destructures, and quick mode does not read the names it binds: "
+            "read them by eye",
+            "src/index.ts line 2: `export let` destructures, and quick mode does not read the names it binds: "
+            "read them by eye",
+        ]
+
+    @pytest.mark.parametrize(
+        "src,names",
+        [
+            pytest.param("const s = 'x'.replace(/\\/*$/, '');\nexport function b() {}\n", [("b", "function")],
+                         id="a-slash-star-in-a-regex"),
+            pytest.param("const r = /[/*'\"]/g;\nexport function c() {}\nconst d = a / b / c;\nexport function e() {}\n",
+                         [("c", "function"), ("e", "function")], id="a-class-and-division"),
+            pytest.param("function f(y) { return /\\/*x/.test(y); }\nexport function g() {}\n", [("g", "function")],
+                         id="after-return"),
+            pytest.param("const el = <Box x={1} />; // export const fake = 1\nexport function h() {}\n",
+                         [("h", "function")], id="a-jsx-self-closing-tag"),
+        ],
+    )
+    def test_a_regular_expression_opens_no_comment_or_string(self, src, names):
+        """`/\\/*$/` is a regular expression: read as a `/*`, it hid every
+        export up to the next `*/` without a word."""
+        assert _scan(mod.scan_exports_js, src, "src/index.ts") == (names, [])
+
+    def test_star_exports_lists_and_the_default_name(self):
+        src = (
+            "export * from './utils';\n"
+            'export * as helpers from "./helpers";\n'
+            "export type * from './types';\n"
+            "export { a, b as c, type T, default as D } from './x';\n"
+            "export type { Shape } from './shapes';\n"
+            "function helper() {}\n"
+            "export default helper;\n"
+        )
+        names, warnings = _scan(mod.scan_exports_js, src, "src/index.ts")
+        assert names == [("helpers", "namespace"), ("a", "re-export"), ("c", "re-export"), ("T", "re-export"),
+                         ("D", "re-export"), ("Shape", "re-export"), ("helper", "function")]
+        assert warnings == [
+            "src/index.ts line 1: `export * from './utils'` passes on names from a module quick mode does not read: "
+            "pass that module as an entry too, or read it by eye",
+            "src/index.ts line 3: `export * from './types'` passes on names from a module quick mode does not read: "
+            "pass that module as an entry too, or read it by eye",
+        ]
+
+    def test_commonjs_module_exports_object(self):
+        src = (
+            "'use strict';\n"
+            "const util = require('./util');\n"
+            "function create(opts) {}\n"
+            "class Store {}\n"
+            "const VERSION = '1.0';\n"
+            "module.exports = {\n"
+            "  create,\n  Store,\n  VERSION,\n  'kebab-name': 1,\n"
+            "  helper: function () {},\n  arrow: (x) => x,\n  method() {},\n"
+            "  get getter() { return 1; },\n  async asyncMethod() {},\n"
+            "  nested: { a: 1, b: [1, 2] },\n  [computed]: 2,\n  ...util,\n"
+            "};\n"
+            "module.exports.extra = class Extra {};\n"
+            "exports.more = (a, b) => a + b;\n"
+            "exports.__esModule = true;\n"
+        )
+        names, warnings = _scan(mod.scan_exports_js, src, "index.js")
+        assert names == [("create", "function"), ("Store", "class"), ("VERSION", "const"), ("kebab-name", "variable"),
+                         ("helper", "function"), ("arrow", "function"), ("method", "function"),
+                         ("getter", "function"), ("asyncMethod", "function"), ("nested", "variable"),
+                         ("extra", "class"), ("more", "function")]
+        assert warnings == ["index.js line 6: the `module.exports` object's `...util` passes on names from a module "
+                            "quick mode does not read: pass that module as an entry too, or read it by eye"]
+
+    @pytest.mark.parametrize(
+        "src,names,warning",
+        [
+            pytest.param("function createApplication() {}\nmodule.exports = createApplication;\n",
+                         [("createApplication", "function")], None, id="a-local-name"),
+            pytest.param("module.exports = function debounce(fn) {};\n", [("debounce", "function")], None,
+                         id="a-named-function"),
+            pytest.param("module.exports = class Queue {};\n", [("Queue", "class")], None, id="a-named-class"),
+            pytest.param("module.exports = require('./lib/express');\n", [],
+                         "`module.exports = require('./lib/express')` passes on names", id="a-require"),
+            pytest.param("module.exports = function (req, res) {};\n", [], "is an anonymous function or class",
+                         id="an-anonymous-function"),
+            pytest.param("module.exports = (x) => x;\n", [], "is an anonymous function or class", id="an-arrow"),
+            pytest.param("module.exports = createApp();\n", [], "is set to an expression", id="an-expression"),
+        ],
+    )
+    def test_commonjs_module_exports_value(self, src, names, warning):
+        found, warnings = _scan(mod.scan_exports_js, src, "index.js")
+        assert found == names
+        if warning is None:
+            assert warnings == []
+        else:
+            assert len(warnings) == 1 and warning in warnings[0] and warnings[0].startswith("index.js line ")
+
+    def test_express_exports_its_application_function(self):
+        """Express's lib/express.js line 27 sets the package's one function
+        export through `exports = module.exports = ...`."""
+        src = (
+            "var proto = require('./application');\n"
+            "var req = require('./request');\n"
+            "exports = module.exports = createApplication;\n"
+            "function createApplication() {\n  var app = function(req, res, next) {};\n  return app;\n}\n"
+            "exports.application = proto;\n"
+            "exports.request = req;\n"
+            "module.exports = exports = createApplication;\n"
+        )
+        names, warnings = _scan(mod.scan_exports_js, src, "lib/express.js")
+        assert names == [("createApplication", "function"), ("application", "var"), ("request", "var")]
+        assert warnings == []
+
+    @pytest.mark.parametrize(
+        "src,lines",
+        [
+            pytest.param("'use strict';\n\nif (process.env.NODE_ENV === 'production') {\n"
+                         "  module.exports = require('./cjs/react.production.js');\n} else {\n"
+                         "  module.exports = require('./cjs/react.development.js');\n}\n",
+                         {4: "./cjs/react.production.js", 6: "./cjs/react.development.js"}, id="react-npm-index"),
+            pytest.param("/**\n * Detect Electron renderer\n */\n\nif (typeof process === 'undefined') {\n"
+                         "\tmodule.exports = require('./browser.js');\n} else {\n"
+                         "\tmodule.exports = require('./node.js');\n}\n",
+                         {6: "./browser.js", 8: "./node.js"}, id="debug-src-index"),
+        ],
+    )
+    def test_a_module_exports_in_a_branch_is_warned(self, src, lines):
+        """React's packages/react/npm/index.js and debug's src/index.js pick
+        their export in an if/else: each branch is named, not dropped."""
+        names, warnings = _scan(mod.scan_exports_js, src, "index.js")
+        assert names == []
+        assert warnings == [
+            f"index.js line {line}: `module.exports = require('{spec}')` passes on names from a module quick mode "
+            "does not read: pass that module as an entry too, or read it by eye"
+            for line, spec in lines.items()
+        ]
+
+    def test_an_assignment_in_a_block_is_warned(self):
+        src = (
+            "(function (root, factory) {\n"
+            "  if (typeof module === 'object' && module.exports) {\n"
+            "    exports = module.exports = factory();\n"
+            "  }\n"
+            "}(this, function () { return {}; }));\n"
+            "if (debug) exports.trace = trace;\n"
+            "module.exports.version = '1.0';\n"
+        )
+        names, warnings = _scan(mod.scan_exports_js, src, "umd.js")
+        assert names == [("version", "variable")]
+        assert warnings == [
+            "umd.js line 3: `exports` is assigned inside a block or a condition: read the names it exports by eye",
+            "umd.js line 6: `exports.trace` is assigned inside a block or a condition: read the names it exports by eye",
+        ]
+
+    def test_typescript_commonjs_output_lists_its_export_chain(self):
+        """tsc's CommonJS output names every export in the chain it opens
+        with: no name of it is warned as nested, or dropped."""
+        src = (
+            '"use strict";\n'
+            'Object.defineProperty(exports, "__esModule", { value: true });\n'
+            "exports.parse = exports.stringify = exports.VERSION = void 0;\n"
+            'var x_1 = require("./x");\n'
+            'Object.defineProperty(exports, "stringify", { enumerable: true, get: function () { return x_1.stringify; } });\n'
+            "function parse() {}\n"
+            "exports.parse = parse;\n"
+        )
+        names, warnings = _scan(mod.scan_exports_js, src, "dist/index.js")
+        assert names == [("parse", "variable"), ("stringify", "variable"), ("VERSION", "variable")]
+        assert warnings == []
+
+    @pytest.mark.parametrize(
+        "src,names,warning",
+        [
+            pytest.param("declare class Client {}\nexport = Client;\n", [("Client", "class")], None, id="a-name"),
+            pytest.param("export = { parse, stringify };\nfunction parse() {}\n",
+                         [("parse", "function"), ("stringify", "variable")], None, id="an-object"),
+            pytest.param("export = function () {};\n", [], "`export =` is an anonymous function or class",
+                         id="anonymous"),
+        ],
+    )
+    def test_typescript_export_assignment(self, src, names, warning):
+        found, warnings = _scan(mod.scan_exports_js, src, "index.d.ts")
+        assert found == names
+        assert warnings == ([] if warning is None else [warnings[0]])
+        if warning is not None:
+            assert warning in warnings[0]
+
+    def test_the_forms_reach_the_envelope_warnings(self):
+        result = mod.extract({"language": "ts", "manifest": {"path": "package.json", "content": '{"name": "x"}'},
+                              "entries": [{"path": "src/index.ts", "content": "export * from './a';\n"}]})
+        assert result["exports"] == []
+        assert any("`export * from './a'`" in w for w in result["warnings"])
+
+
+# --------------------------------------------------------------------------
+# Quick mode: --manifest-file and --entry-file (#592)
+# --------------------------------------------------------------------------
+
+RUST_LIB = (
+    "//! This skill's crate: lifetimes like 'a and \"quotes\" stay as they are.\n"
+    "pub fn parse<'a>(input: &'a str) -> &'a str { input }\n"
+    "pub use crate::inner::{Token, Span as Range};\n"
+)
+CARGO = '[package]\nname = "demo"\nversion = "0.3.0"\ndescription = "it\'s a demo"\n[dependencies]\nserde = "1"\n'
+
+
+def _stage(root: Path, files: dict[str, str | bytes]) -> Path:
+    """Write `files` under `root` as bytes, a folder laid out like the repository."""
+    for rel, content in files.items():
+        path = root.joinpath(*rel.split("/"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content if isinstance(content, bytes) else content.encode("utf-8"))
+    return root
+
+
+def _quick(capsys, *argv: str) -> tuple[int, dict | None]:
+    code = mod.main(["--mode", "quick", *argv])
+    out = capsys.readouterr().out
+    return code, json.loads(out) if out.strip() else None
+
+
+class TestQuickFiles:
+    def test_the_files_give_what_the_payload_gives(self, tmp_path, capsys, monkeypatch):
+        root = _stage(tmp_path / "staged", {"Cargo.toml": CARGO, "src/lib.rs": RUST_LIB})
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))  # never read
+        code, from_files = _quick(capsys, "--language", "rust", "--source-root", str(root),
+                                  "--manifest-file", "Cargo.toml", "--entry-file", "src/lib.rs")
+        assert code == 0
+        from_payload = mod.extract({"language": "rust", "manifest": {"path": "Cargo.toml", "content": CARGO},
+                                    "entries": [{"path": "src/lib.rs", "content": RUST_LIB}], "mode": "quick"})
+        assert from_files == from_payload
+        assert (from_files["package_name"], from_files["description"], from_files["dependencies"]) == (
+            "demo", "it's a demo", ["serde"])
+        assert [(e["name"], e["source_file"]) for e in from_files["exports"]] == [
+            ("parse", "src/lib.rs"), ("Token", "src/lib.rs"), ("Range", "src/lib.rs")]
+
+    def test_a_source_file_with_an_apostrophe_reaches_the_parser_unchanged(self, tmp_path):
+        """The bytes on disk are the text the parser reads: no shell string
+        or JSON escaping stands between them."""
+        js = "export const greeting = 'it\\'s';\nexport function say(msg = \"don't\") {}\n"
+        py = 'def run():\n    """This skill\'s entry point."""\n'
+        root = _stage(tmp_path / "staged", {"src/lib.rs": RUST_LIB, "index.js": js, "pkg/__init__.py": py})
+        args = argparse.Namespace(source_root=str(root), manifest_file=None, language=["rust"],
+                                  entry_file=["src/lib.rs", "./index.js", "pkg/__init__.py", "src/lib.rs"])
+        payload = mod._quick_files_payload(args)
+        # each path as given, written with /, and each file read once
+        assert [(e["path"], e["content"]) for e in payload["entries"]] == [
+            ("src/lib.rs", RUST_LIB), ("index.js", js), ("pkg/__init__.py", py)]
+        assert payload["manifest"] == {"path": "", "content": ""}
+        assert [e["name"] for e in mod.scan_exports_js(js, "index.js")] == ["greeting", "say"]
+        assert [e["name"] for e in mod.scan_exports_python(py, "pkg/__init__.py")] == ["run"]
+
+    def test_without_source_root_the_paths_are_read_as_given(self, tmp_path, capsys, monkeypatch):
+        _stage(tmp_path, {"pyproject.toml": '[project]\nname = "foo"\nversion = "1.0"\n',
+                          "foo/__init__.py": "def hello(): pass\n"})
+        monkeypatch.chdir(tmp_path)
+        code, out = _quick(capsys, "--language", "python", "--manifest-file", "pyproject.toml",
+                           "--entry-file", "foo/__init__.py")
+        assert code == 0
+        assert (out["package_name"], out["exports"]) == (
+            "foo", [{"name": "hello", "type": "def", "source_file": "foo/__init__.py"}])
+
+    def test_a_byte_order_mark_goes_and_a_bad_byte_is_replaced(self, tmp_path, capsys):
+        root = _stage(tmp_path, {"package.json": b'\xef\xbb\xbf{"name": "bom"}',
+                                 "index.js": b"export const ok = 'caf\xe9';\n"})
+        code, out = _quick(capsys, "--language", "js", "--source-root", str(root),
+                           "--manifest-file", "package.json", "--entry-file", "index.js")
+        assert (code, out["package_name"], [e["name"] for e in out["exports"]]) == (0, "bom", ["ok"])
+        args = argparse.Namespace(source_root=str(root), manifest_file="package.json", language=["js"],
+                                  entry_file=["index.js"])
+        payload = mod._quick_files_payload(args)
+        assert payload["manifest"]["content"] == '{"name": "bom"}'
+        assert payload["entries"][0]["content"] == "export const ok = 'caf\ufffd';\n"
+
+    def test_an_entry_alone_needs_no_manifest(self, tmp_path, capsys):
+        root = _stage(tmp_path, {"lib.go": "package demo\n\nfunc Run() {}\n"})
+        code, out = _quick(capsys, "--language", "go", "--source-root", str(root), "--entry-file", "lib.go")
+        assert code == 0
+        assert out["exports"] == [{"name": "Run", "type": "func", "source_file": "lib.go"}]
+        assert any("no manifest content" in w for w in out["warnings"])
+
+    @pytest.mark.parametrize(
+        "argv,message",
+        [
+            pytest.param(["--entry-file", "src/lib.rs"], "take one --language", id="no-language"),
+            pytest.param(["--language", "rust", "--language", "go", "--entry-file", "src/lib.rs"],
+                         "take one --language", id="two-languages"),
+        ],
+    )
+    def test_the_file_inputs_take_one_language(self, argv, message, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "quick", *argv])
+        assert exc.value.code == 2
+        assert message in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "flag,value,message",
+        [
+            pytest.param("--entry-file", "missing.rs", "cannot read --entry-file missing.rs", id="missing"),
+            pytest.param("--entry-file", "src", "cannot read --entry-file src", id="a-folder"),
+            pytest.param("--entry-file", "../outside.rs", "leads outside --source-root", id="outside"),
+            pytest.param("--manifest-file", "ABSOLUTE", "must be relative to --source-root", id="absolute"),
+        ],
+    )
+    def test_a_file_that_cannot_be_read_exits_2(self, tmp_path, capsys, flag, value, message):
+        root = _stage(tmp_path / "staged", {"src/lib.rs": "pub fn f() {}\n"})
+        _stage(tmp_path, {"outside.rs": "pub fn g() {}\n"})
+        if value == "ABSOLUTE":
+            value = (root / "src" / "lib.rs").as_posix()
+        code = mod.main(["--mode", "quick", "--language", "rust", "--source-root", str(root), flag, value])
+        captured = capsys.readouterr()
+        assert (code, captured.out) == (2, "")
+        assert message in captured.err
+
+    def test_a_source_root_that_is_no_folder_exits_2(self, tmp_path, capsys):
+        code = mod.main(["--mode", "quick", "--language", "rust", "--source-root", str(tmp_path / "absent"),
+                         "--entry-file", "src/lib.rs"])
+        assert code == 2 and "--source-root is not a folder" in capsys.readouterr().err
+
+    def test_an_unknown_language_exits_1(self, tmp_path, capsys):
+        root = _stage(tmp_path, {"main.f90": "program x\nend program x\n"})
+        code, out = _quick(capsys, "--language", "fortran", "--source-root", str(root), "--entry-file", "main.f90")
+        assert code == 1 and "unknown language" in out["_error"]
+
+    def test_quick_file_flags_are_quick_mode_only(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "full", "--source-root", ".", "--entry-file", "a.py"])
+        assert exc.value.code == 2
+        assert "quick mode only" in capsys.readouterr().err
+
+    def test_source_root_and_language_need_the_file_inputs_in_quick_mode(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--language", "rust"])
+        assert exc.value.code == 2
+        assert "--manifest-file or --entry-file" in capsys.readouterr().err
+
+    def test_the_cli_reads_the_files(self, tmp_path):
+        root = _stage(tmp_path / "staged", {"Cargo.toml": CARGO, "src/lib.rs": RUST_LIB})
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--mode", "quick", "--language", "rust", "--source-root", str(root),
+             "--manifest-file", "Cargo.toml", "--entry-file", "src/lib.rs"],
+            capture_output=True, text=True, encoding="utf-8", timeout=60, stdin=subprocess.DEVNULL,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert [e["name"] for e in json.loads(proc.stdout)["exports"]] == ["parse", "Token", "Range"]
 
 
 # --------------------------------------------------------------------------
@@ -1069,6 +1622,8 @@ class TestTextReaders:
     def test_blank_keeps_the_lines_and_the_code(self) -> None:
         js = "a // c\nb = '// x' /* y\nz */ c\n"
         assert mod._blank(js, "js") == "a     \nb = '    '     \n     c\n"
+        # a regular expression's insides go, a division stays
+        assert mod._blank("x = s.split(/\\/*'/) / 2;\n", "js") == "x = s.split(/    /) / 2;\n"
         go = "x := `\nfunc Hidden() {}\n` // c\nfunc Shown() {}\n"
         assert mod._blank(go, "go").splitlines()[1:] == [" " * 16, "`" + " " * 5, "func Shown() {}"]
         rust = "/* a /* b */ c */ pub fn f() { let q = '\"'; let s = r#\"pub fn g\"#; }\n"

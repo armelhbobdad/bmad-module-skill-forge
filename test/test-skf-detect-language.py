@@ -464,3 +464,217 @@ def test_cli_stdin_emits_detected_languages():
     out = json.loads(proc.stdout)
     assert out["language"] == "typescript"
     assert out["detected_languages"] == ["typescript", "rust"]
+
+
+# --------------------------------------------------------------------------
+# --tree-file (issue #592): the tree comes from a staged listing, whole
+# --------------------------------------------------------------------------
+
+RECOMMENDER_PATH = SCRIPT_PATH.parent / "skf-recommend-scope-type.py"
+TS_TREE = ["package.json", "tsconfig.json", "src/index.ts"]
+
+
+def _load(path: Path, name: str):
+    loaded = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(loaded)
+    loaded.loader.exec_module(module)
+    return module
+
+
+def _tree_file(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "tree.json"
+    path.write_bytes(text.encode("utf-8"))
+    return path
+
+
+def run_cli(*args: str, stdin: str = "") -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), *args],
+        input=stdin.encode("utf-8"),
+        capture_output=True,
+        timeout=60,
+    )
+
+
+def _out(proc: subprocess.CompletedProcess) -> dict:
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+    return json.loads(proc.stdout.decode("utf-8"))
+
+
+# Every listing skf-recommend-scope-type.py's --tree-file reads.
+LISTINGS = [
+    pytest.param(
+        json.dumps({"status": "ok", "repo": "o/r", "ref": "HEAD", "tree": TS_TREE, "count": 3, "truncated": False}),
+        id="github-probe-output",
+    ),
+    pytest.param(
+        json.dumps({"sha": "abc", "truncated": False, "tree": [
+            {"path": "src", "type": "tree"},
+            *({"path": p, "type": "blob", "mode": "100644"} for p in TS_TREE),
+        ]}),
+        id="git-trees-response",
+    ),
+    pytest.param(json.dumps({"tree": TS_TREE}), id="gh-jq-object"),
+    pytest.param(json.dumps(TS_TREE), id="json-list"),
+    pytest.param("".join(f"{p}\n" for p in TS_TREE), id="git-ls-files-lines"),
+    pytest.param("".join(f"./{p}\r\n" for p in TS_TREE) + "\r\n", id="find-dot-lines-crlf"),
+    pytest.param("[locale]/page.tsx\n{slug}/view.ts\n" + "\n".join(TS_TREE), id="lines-opening-with-brackets"),
+    pytest.param("\ufeff" + json.dumps({"tree": TS_TREE}), id="json-with-bom"),
+]
+
+
+@pytest.mark.parametrize("listing", LISTINGS)
+def test_tree_file_formats_reach_the_rule_walk(tmp_path, listing):
+    out = _out(run_cli("--tree-file", str(_tree_file(tmp_path, listing))))
+    assert (out["language"], out["detection_source"]) == ("typescript", "package.json + tsconfig.json present")
+
+
+@pytest.mark.parametrize("listing", LISTINGS)
+def test_the_listing_reader_reads_what_the_recommender_reads(tmp_path, listing):
+    """skf-recommend-scope-type.py's --tree-file and this reader take the
+    same listings to the same paths."""
+    recommender = _load(RECOMMENDER_PATH, "skf_recommend_scope_type_for_parity")
+    text = _tree_file(tmp_path, listing).read_text(encoding="utf-8-sig")
+    assert mod.parse_tree_listing(text, "in t")[0] == recommender._parse_tree_listing(text, "in t")
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [
+        pytest.param("\ufeff" + json.dumps({"tree": TS_TREE}), id="json"),
+        pytest.param("\ufeff" + "".join(f"{p}\r\n" for p in TS_TREE), id="lines"),
+    ],
+)
+def test_a_byte_order_mark_on_stdin_is_dropped(listing):
+    """Windows PowerShell 5.1 writes a byte order mark into a pipe: the
+    listing read through `--tree-file -` is the same listing."""
+    out = _out(run_cli("--tree-file", "-", stdin=listing))
+    assert (out["language"], out["detection_source"]) == ("typescript", "package.json + tsconfig.json present")
+    assert mod.parse_tree_listing(listing, "on stdin") == (TS_TREE, False)
+
+
+def test_the_listing_reader_reports_a_cut_short_github_tree():
+    paths, truncated = mod.parse_tree_listing(json.dumps({"status": "ok", "tree": ["a.py"], "truncated": True}), "x")
+    assert (paths, truncated) == (["a.py"], True)
+    assert mod.parse_tree_listing(json.dumps({"tree": [{"path": "a.py", "type": "blob"}], "truncated": True}),
+                                  "x") == (["a.py"], True)
+    # a line listing cannot say it was cut short
+    assert mod.parse_tree_listing("a.py\nb.py\n", "x") == (["a.py", "b.py"], False)
+
+
+def test_tree_file_dash_reads_the_listing_from_stdin():
+    listing = "\n".join(["Cargo.toml", "docs/package.json", "docs/tsconfig.json"])
+    out = _out(run_cli("--tree-file", "-", "--json", json.dumps({"workspace_signal": "cargo-workspace"}),
+                       stdin=listing))
+    assert (out["language"], out["detected_languages"]) == ("rust", ["rust"])
+
+
+def test_tree_file_takes_the_signal_from_a_flag_never_from_stdin(tmp_path):
+    """With --tree-file, stdin is never read for the payload: a
+    workspace_signal piped in changes nothing (the help says so), while
+    --workspace-signal or --json decides, and passing it twice is refused."""
+    tree_file = _tree_file(tmp_path, "Cargo.toml\ndocs/package.json\ndocs/tsconfig.json\n")
+    signal = json.dumps({"workspace_signal": "cargo-workspace"})
+    assert _out(run_cli("--tree-file", str(tree_file), stdin=signal))["language"] == "typescript"
+    assert _out(run_cli("--tree-file", str(tree_file), "--workspace-signal", "cargo-workspace"))["language"] == "rust"
+    assert _out(run_cli("--tree-file", str(tree_file), "--json", signal))["language"] == "rust"
+    # a JS-family manifest_kind carries no override, as in the payload
+    assert _out(run_cli("--tree-file", str(tree_file), "--workspace-signal", "npm-workspaces"))["language"] == "typescript"
+    twice = run_cli("--tree-file", str(tree_file), "--workspace-signal", "cargo-workspace", "--json", signal)
+    assert twice.returncode == 2
+    assert "pass workspace_signal once" in twice.stderr.decode("utf-8")
+    help_text = run_cli("--help").stdout.decode("utf-8")
+    assert "stdin is not read" in " ".join(help_text.split())
+
+
+def test_the_workspace_signal_flag_joins_a_stdin_payload():
+    out = _out(run_cli("--workspace-signal", "python-multi-package",
+                       stdin=json.dumps({"tree": ["pyproject.toml", "web/package.json"]})))
+    assert (out["language"], out["detected_languages"]) == ("python", ["python"])
+
+
+def test_a_tree_past_10000_files_is_read_whole(tmp_path):
+    """A tree of more than 10,000 files reaches the rule walk whole: the
+    manifests that decide are the last two paths, after 12,000 Python files
+    that would win the extension count on their own."""
+    paths = [f"pkg{i // 100}/mod{i}.py" for i in range(12000)] + ["package.json", "tsconfig.json"]
+    probe = _tree_file(tmp_path, json.dumps({"status": "ok", "tree": paths, "count": len(paths), "truncated": False}))
+    assert _out(run_cli("--tree-file", str(probe)))["language"] == "typescript"
+    lines = tmp_path / "tree.txt"
+    lines.write_bytes("".join(f"{p}\n" for p in paths).encode("utf-8"))
+    assert _out(run_cli("--tree-file", str(lines)))["language"] == "typescript"
+    # the same list cut at 10,000 paths misses them
+    assert mod.detect({"tree": paths[:10000]})["language"] == "python"
+
+
+def test_a_non_ascii_path_survives_a_cp1252_console(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--tree-file", "-"],
+        input="Cargo.toml\nsrc/café.rs\n".encode("utf-8"),
+        capture_output=True,
+        timeout=60,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+    assert json.loads(proc.stdout.decode("utf-8"))["language"] == "rust"
+
+
+@pytest.mark.parametrize(
+    "listing,message",
+    [
+        pytest.param(
+            json.dumps({"status": "unavailable", "cause": "unreachable", "tree": [],
+                        "message": "Could not reach GitHub to read o/r (timeout); try again later."}),
+            "Could not reach GitHub",
+            id="failed-probe",
+        ),
+        pytest.param(json.dumps({"message": "Not Found", "status": "404"}), "Not Found", id="gh-api-error"),
+        pytest.param(json.dumps({"message": "Bad credentials"}), "no list of paths", id="no-tree-key"),
+        pytest.param("", "is empty", id="empty"),
+        pytest.param("  \n", "is empty", id="blank"),
+        pytest.param('{"tree": [', "not valid JSON", id="truncated-json"),
+        pytest.param("[]", "holds no file path", id="no-path"),
+        pytest.param(json.dumps({"status": "ok", "repo": "o/r", "tree": [], "count": 0, "truncated": False}),
+                     "holds no file path", id="probe-with-no-path"),
+        pytest.param(json.dumps({"sha": "abc", "truncated": False, "tree": [{"path": "src", "type": "tree"}]}),
+                     "holds no file path", id="git-trees-with-no-blob"),
+        pytest.param("./\n./\n", "holds no file path", id="lines-with-no-path"),
+    ],
+)
+def test_unusable_tree_file_dies_with_2(tmp_path, listing, message):
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, listing)))
+    assert proc.returncode == 2
+    assert message in proc.stderr.decode("utf-8")
+    assert proc.stdout == b""
+
+
+def test_missing_tree_file_dies_with_2(tmp_path):
+    proc = run_cli("--tree-file", str(tmp_path / "absent.json"))
+    assert proc.returncode == 2
+    assert "cannot read --tree-file" in proc.stderr.decode("utf-8")
+
+
+def test_tree_given_twice_dies_with_2(tmp_path):
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, "Cargo.toml\n")), "--json", json.dumps({"tree": ["go.mod"]}))
+    assert proc.returncode == 2
+    assert "pass the tree once" in proc.stderr.decode("utf-8")
+
+
+def test_the_reader_raises_on_a_failed_listing():
+    with pytest.raises(mod.TreeListingError, match="reports a failure"):
+        mod.parse_tree_listing(json.dumps({"status": "unavailable", "message": "gone"}), "on stdin")
+
+
+@pytest.mark.parametrize(
+    "path,source",
+    [
+        pytest.param("src/app.TS", True, id="upper-case-extension"),
+        pytest.param("lib/mod.py", True, id="python"),
+        pytest.param("README.md", False, id="docs"),
+        pytest.param("src/.py", False, id="hidden-name"),
+        pytest.param("Makefile", False, id="no-extension"),
+    ],
+)
+def test_is_source_file_follows_the_extension_rule(path, source):
+    """skf-detect-workspaces.py's tree snapshot counts source files with it."""
+    assert mod.is_source_file(path) is source
