@@ -70,7 +70,7 @@ To move to a newer (or older) SKF version, run the installer again in your proje
 npx bmad-module-skill-forge@latest install
 ```
 
-The installer reads the installed version from your manifest and shows the change in the prompt, for example `v0.10.0 → v1.0.0 available`. Pick **Update** to replace the SKF files while keeping your `config.yaml` and your forge state (tier and preferences). The option label names the direction you're moving (upgrade, reinstall of the same version, or downgrade), so you always see exactly what you're about to apply. Pick **Fresh install** to remove the installed SKF files in `_bmad/skf/` and answer the install questions again, with your previous answers filled in. Neither option touches the skills you generated or your forge state. Afterwards, run `@Ferris SF` so SKF re-detects your tools.
+The installer reads the installed version from your manifest and shows the change in the prompt, for example `v0.10.0 → v1.0.0 available`. Pick **Update** to replace the SKF files while keeping your `config.yaml` and your forge state (tier and preferences). The option label names the direction you're moving (upgrade, reinstall of the same version, or downgrade), so you always see exactly what you're about to apply. Pick **Fresh install** to remove the installed SKF files in `_bmad/skf/` and answer the install questions again, with your previous answers filled in. Neither option touches the skills you generated or your forge state. The installer then prints its [tool report](#the-tool-report). Afterwards, run `@Ferris SF` so SKF re-detects your tools.
 
 > The `@latest` suffix forces npx to fetch the newest published version instead of reusing a cached copy from a previous run.
 
@@ -78,9 +78,24 @@ The installer reads the installed version from your manifest and shows the chang
 
 Run these from your project folder:
 
-- `npx bmad-module-skill-forge@latest update` refreshes SKF files without asking questions. It keeps `config.yaml` and your forge state (tier and preferences).
-- `npx bmad-module-skill-forge status` shows the installation, its IDEs, your forge tier, the detected tools and the output folders.
+- `npx bmad-module-skill-forge@latest update` refreshes SKF files without asking questions. It keeps `config.yaml` and your forge state (tier and preferences). It then prints the [tool report](#the-tool-report), followed by the update notice when a newer SKF version is published.
+- `npx bmad-module-skill-forge status` shows the installation, its IDEs, your forge tier and the tools the last setup detected. Below them it prints the [tool report](#the-tool-report), which lists each tool installed now against its minimum version, with the command that upgrades it, and then the output folders.
 - `npx bmad-module-skill-forge uninstall` lists what it will remove and asks first. It removes SKF, your forge state in `_bmad/_memory/forger-sidecar/`, `_skf-learn/` and the SKF skills in your IDE skill folders. It keeps the skills you generated, your `forge-data/`, and the SKF section in `CLAUDE.md`, `AGENTS.md` or `.cursorrules`.
+
+### The tool report
+
+After a successful `install` or `update`, and in `status`, the installer checks the tools SKF uses and prints one line per tool: the version it found and how that version compares with the tool's minimum. For example:
+
+```
+  Tools
+    Node.js   24.21.0  ok
+    ast-grep  0.42.2   upgrade to >= 0.45.3   npm install -g @ast-grep/cli@latest
+    ccc       -        optional, Forge+ tier  https://github.com/cocoindex-io/cocoindex-code
+```
+
+Each tool reads `ok`, `upgrade to >= <minimum>` with the command that upgrades it, `missing` or `optional` with where to get it, or `installed, version unknown` when SKF cannot read its version. The minimums are the ones in the [Prerequisites](#prerequisites-full-reference) table. The check waits at most about 3 seconds for the tools to answer and never changes the command's exit code. It runs no tool from your project folder and never runs `npx`, so `tessl` and `skill-check`, which SKF runs through `npx`, read as optional when they are not installed.
+
+A tier tool below its minimum does not count toward your tier. With an ast-grep older than 0.45.3, `@Ferris SF` leaves you at Quick, whatever else you have installed. Setup's FORGE STATUS report then shows an upgrade line for the tool, and a headless setup adds a `tool_below_minimum` warning to its `SKF_SETUP_RESULT_JSON` envelope. Upgrade the tool and run `@Ferris SF` again. A tool with no minimum, or one whose version SKF cannot read, never lowers your tier.
 
 ---
 
@@ -94,7 +109,7 @@ Run these from your project folder:
 @Ferris SF
 ```
 
-This detects your tools, sets your capability tier (Quick, Forge, Forge+ or Deep, depending on which tools you have), and initializes the forge environment. Run it once per project, and again whenever you install or remove one of the tools listed under [Prerequisites](#prerequisites-full-reference), so SKF picks up the change.
+This detects your tools and their versions, sets your capability tier (Quick, Forge, Forge+ or Deep, depending on which tools you have; a tool counts only at its minimum version or newer, so an ast-grep older than 0.45.3 leaves you at Quick), and initializes the forge environment. Run it once per project, and again whenever you install, upgrade or remove one of the tools listed under [Prerequisites](#prerequisites-full-reference), so SKF picks up the change.
 
 ### 2. Generate your first skill
 
@@ -167,7 +182,7 @@ Analyzes your project's dependencies and generates a consolidated stack skill wi
 
 ## Prerequisites (full reference)
 
-Most users only need Node.js, Python, and `uv`. The other tools unlock more capabilities, and SKF detects which ones you have and sets your tier automatically. You can install them later: run `@Ferris SF` again afterwards and your tier goes up.
+Most users only need Node.js, Python, and `uv`. The other tools unlock more capabilities, and Setup detects which ones you have and their versions, and sets your tier automatically. You can install them later: run `@Ferris SF` again afterwards and your tier goes up.
 
 <!-- tool-requirements:start -->
 <!-- Generated from src/shared/tool-requirements.yaml by `node tools/tool-requirements.js --write`: edit that file, not this table. -->
@@ -191,7 +206,7 @@ Most users only need Node.js, Python, and `uv`. The other tools unlock more capa
 
 **Minimum** is the oldest version SKF supports, and **Tested on** lists the versions SKF's own runs use: CI, the install smoke test or a named release run. `none` means SKF sets no minimum for the tool yet, and `not recorded` means no SKF run has recorded a version of it yet.
 
-Setup picks your tier from the tools it finds: Quick needs none of them, Forge needs ast-grep, Forge+ needs ast-grep and ccc, and Deep needs ast-grep, gh and qmd.
+Setup picks your tier from the tools it finds: Quick needs none of them, Forge needs ast-grep, Forge+ needs ast-grep and ccc, and Deep needs ast-grep, gh and qmd. A tool counts toward a tier only at its **Minimum** version or newer, so an ast-grep older than 0.45.3 leaves you at Quick (see [The tool report](#the-tool-report)).
 
 Security scanning via Snyk is optional and requires an Enterprise plan; it does not affect your tier level.
 

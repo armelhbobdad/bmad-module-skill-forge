@@ -106,7 +106,7 @@ This is the highest-value integration. BMM's architect agent works from assumpti
 
 **SKF commands:** `@Ferris QS <library>` per declared dependency, then `@Ferris VS`, then `@Ferris RA` on any gaps or failures. Once the architecture holds, `@Ferris SS` can compose a stack skill from those skills and the refined architecture, before any code exists.
 
-**What flows back:** A feasibility report that gives each pair of libraries a verdict (Verified, Plausible, Risky, or Blocked) and the whole stack an overall verdict (FEASIBLE, CONDITIONALLY_FEASIBLE, or NOT_FEASIBLE), with evidence from the skills behind every verdict. RA then writes a refined copy of your architecture document that fills gaps, flags issues, and suggests improvements, each backed by API evidence from the skills. Your original document is left unchanged.
+**What flows back:** A feasibility report that gives each pair of libraries a verdict (Verified, Plausible, Risky, or Blocked) and the whole stack an overall verdict (FEASIBLE, CONDITIONALLY_FEASIBLE, or NOT_FEASIBLE), with evidence from the skills behind every verdict. A pair is Verified only when one of its two skills cites the other, and FEASIBLE needs every pair verified. VS takes the pairs from a stack skill's `integration_patterns` when one is in the inventory, and otherwise from your document's prose, never from a Mermaid diagram. When it finds no pair between two or more covered technologies (they appear only in a diagram, say), the verdict is CONDITIONALLY_FEASIBLE, with a recommendation to describe them in prose: nothing was verified. Even with no coverage at all, or every pair Blocked, VS finishes its report, with NOT_FEASIBLE and a recommendation for each gap. RA then writes a refined copy of your architecture document that fills gaps, flags issues, and suggests improvements, each backed by API evidence from the skills. Your original document is left unchanged.
 
 **Why now, not later:** Running VS after Implementation has started means your stories are already built on an unverified foundation. The loop below is designed to iterate cheaply *before* code gets written.
 
@@ -115,7 +115,7 @@ flowchart TD
     ARCH[BMM: create-architecture draft] --> GEN["SKF: Create Skill | Quick Skill<br/>(per declared dependency)"]
     GEN --> VS[SKF: Verify Stack]
     VS -->|FEASIBLE| READY[BMM: check-implementation-readiness]
-    VS -->|gaps or blocked pairs| RA[SKF: Refine Architecture]
+    VS -->|"gaps, unverified integrations<br/>or blocked pairs"| RA[SKF: Refine Architecture]
     RA -.->|refined draft| VS
     RA --> READY
 

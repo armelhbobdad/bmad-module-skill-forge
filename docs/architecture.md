@@ -140,7 +140,9 @@ forge-data/{skill-name}/
     ├── evidence-report.md      # Build audit trail
     ├── extraction-rules.yaml   # Language-specific ast-grep schema
     ├── test-report-{skill-name}-{run_id}.md   # Written by Test Skill
+    ├── test-findings-{run_id}.json            # Test Skill's gap ledger, which its hard gate reads
     ├── drift-report-{timestamp}.md            # Written by Audit Skill
+    ├── .skf-audit/{timestamp}/                # The JSON each audit scored its drift from
     └── {workflow}-result-latest.json          # Machine-readable result of the last run
 ```
 

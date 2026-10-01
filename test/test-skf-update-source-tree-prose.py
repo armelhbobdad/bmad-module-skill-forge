@@ -1747,6 +1747,26 @@ def test_override_is_described_where_the_flag_is():
         assert "\u2014" not in text
 
 
+def test_docs_say_a_rescope_halts_under_the_override():
+    """Both docs pages say a rescope halts under the override, as re-extract.md's drift gate does (#557).
+
+    Its public API recount needs the pinned tree, the brief amendment stays and the message names it, and a run
+    that still goes ahead keeps the public API counts metadata.json records.
+    """
+    gate = _drift_gate()
+    assert "- `a public API recount from the tree (rule R1)`: a rescope (`DELETED_EXPORT`);" in gate
+    assert "A rescope's amendment, which step 2 wrote to the skill brief (rule R1), stays there, and the message " \
+           "names it" in gate
+    assert "write.md \u00a72 keeps the public API counts metadata.json records" in _zero_a()
+    gap_driven = ("`--allow-workspace-drift`", "Update Skill with `--from-test-report`")
+    for name in ("verifying-a-skill.md", "workflows.md"):
+        line = _doc_line(name, *gap_driven)
+        rescope = _slice(line, "A rescope (", "the message names it")
+        for token in ("stops", "the same way", "public API", "needs the pinned tree", "amendment", "already wrote"):
+            assert token in rescope, (name, token)
+        assert "the stats keep the public API counts `metadata.json` records" in line, name
+
+
 # --------------------------------------------------------------------------
 # Gap-driven routing: blocking gaps with no path, split-body findings
 # --------------------------------------------------------------------------

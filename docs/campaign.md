@@ -44,15 +44,17 @@ Ask Ferris to run `campaign`, or call the `skf-campaign` skill directly.
 
 ### What Setup Asks For
 
-Setup asks for a campaign name and, for each library:
+An interactive Setup opens with one question: give the targets in whatever form you have them, such as a manifest or `campaign-brief.yaml` path, a pasted list or repository URLs. Add a campaign name, and the path to a `_campaign-directive.md` file or to your architecture document, if you have them.
+
+Setup then drafts the campaign and shows it once for you to correct: the campaign name (your project name unless you gave one), the directive and architecture paths, and one table of the targets with these columns:
 
 - `name`: the skill name
 - `repo_url`: the GitHub repository
-- `tier`: `A` (full pipeline) or `B` (quick batch), see [Tier A vs Tier B](#tier-a-vs-tier-b)
-- `pin`: a version tag or branch, or empty for the latest release
-- `depends_on`: the other skills in this campaign that it depends on
+- `tier`: `A` (full pipeline) or `B` (quick batch), see [Tier A vs Tier B](#tier-a-vs-tier-b). `A` unless you say otherwise
+- `pin`: a version tag or branch, or empty for the latest release (the default)
+- `depends_on`: the other skills in this campaign that it depends on, none by default
 
-You can also give the path to a `_campaign-directive.md` file and to your architecture document. Setup then asks whether to send anonymized quality findings to the shared improvement queue; the default is no.
+After your corrections, Setup asks only about what is still missing or ambiguous, such as a target with no repository URL or a dependency that names no target, all in one question.
 
 To skip these questions, pass the list as a manifest file with `--manifest`:
 
@@ -93,7 +95,7 @@ Verification and Refinement use the architecture document path you gave at Setup
 
 ### campaign-brief.yaml
 
-A machine-readable summary of the campaign, written during Setup from what you enter (or from `--brief` or `--manifest`). It holds the campaign name; each library's repository URL, tier, version pin and dependencies; the quality gate; where health findings go; the architecture document path; and your notes. Later stages read the repository URLs from it, and a fresh session uses it to pick the campaign back up.
+A machine-readable summary of the campaign, written during Setup from what you enter (or from `--brief` or `--manifest`). It holds the campaign name; each library's repository URL, tier, version pin and dependencies, and any language or scope hint its source gave; the quality gate; the architecture document path; and your notes. Later stages read the repository URLs from it, and a fresh session uses it to pick the campaign back up.
 
 ### _campaign-state.yaml
 
@@ -130,7 +132,7 @@ Campaign ships a `customize.toml` file that you can tune without forking the ski
 
 - **Quality-gate values**: `quality_gate_hard`, `quality_gate_soft_target` and `quality_gate_soft_fallback` (see [Quality Gates](#quality-gates) below).
 - **`campaign_workspace_path`**: moves the whole campaign folder (state, backup, brief, batch input, archive, report and decision log), for example to a shared volume. Empty means the default, `{forge_data_folder}/_campaign`.
-- **`persistent_facts`**: plain sentences or `file:` references (globs allowed) added to every skill's kickoff message, so house style and guardrails reach the whole campaign. By default it loads every `project-context.md` in your project.
+- **`persistent_facts`**: plain sentences or `file:` references (globs allowed) added to every skill's kickoff message, so house style and guardrails reach the whole campaign. By default it loads every `project-context.md` in your project. A `file:` path with no glob character that names no file stops the campaign at its first Tier A kickoff with exit code 2, while a glob that matches nothing adds nothing.
 - **Template overrides**: `report_template_path`, `kickoff_template_path` and `brief_template_path` point to your own copies of the templates.
 - **`on_complete`**: a command run with `--report-path=<path>` after the report is written. If it fails, the failure is logged and the campaign still succeeds.
 - **`activation_steps_prepend` / `activation_steps_append`**: extra steps run before or after activation, for org-wide checks or loading context.
@@ -145,7 +147,7 @@ See the skill's [SKILL.md](https://github.com/armelhbobdad/bmad-module-skill-for
 
 One quality bar applies to every skill in the campaign. It has three parts:
 
-- **Hard gate** (`zero-critical-high`): a skill may have no critical or high-severity findings. The test step (`skf-test-skill`) fails a skill that has any. The campaign marks that skill failed and writes the reason to the decision log. Skills that depend on it wait at the dependency gate, and the other skills carry on.
+- **Hard gate** (`zero-critical-high`): a skill may have no critical or high-severity findings, such as a wrong or fabricated signature or a broken reference. The test step (`skf-test-skill`) fails a skill that has any. The campaign marks that skill failed and writes the reason to the decision log. Skills that depend on it wait at the dependency gate, and the other skills carry on. A missing export does not trip this gate: Test Skill rates it Medium, so it lowers the skill's score instead (see [Gap severities](/docs/verifying-a-skill.md#gap-severities)).
 - **Soft target** (default 90%): the score a skill should reach.
 - **Soft fallback** (default 80%): the floor. A skill that scores at or above the fallback but below the target still passes. A skill below the fallback fails.
 
