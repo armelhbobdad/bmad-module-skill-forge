@@ -1226,6 +1226,60 @@ class TestAmend:
         proc = _amend(tmp_target, _answers())
         assert proc.returncode == 1 and "holds no scope mapping" in proc.stderr
 
+    # create-skill step 3's authoritative-files protocol records its decisions through amend (#593).
+
+    def _auth_amendment(self, action: str = "promoted") -> dict:
+        return {"path": "AGENTS.md", "action": action, "reason": "r", "heuristic": "AGENTS.md",
+                "date": "2026-10-01", "workflow": "skf-create-skill"}
+
+    def test_include_appends_a_literal_path_once(self, tmp_target):
+        _written_brief(tmp_target)
+        old = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["include"]
+        payload = {"include": ["AGENTS.md", "AGENTS.md"], "amendments": [self._auth_amendment()]}
+        proc = _amend(tmp_target, payload)
+        assert proc.returncode == 0, proc.stderr
+        result = json.loads(proc.stdout)
+        assert (result["included"], result["set"], result["appended"]) == (["AGENTS.md"], [], 1)
+        assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]["include"] == [*old, "AGENTS.md"]
+        again = _amend(tmp_target, {"include": ["AGENTS.md"]})
+        assert json.loads(again.stdout)["included"] == []
+
+    def test_an_empty_include_stays_empty(self, tmp_target):
+        """An empty scope.include covers every file: one appended path would narrow it to that file."""
+        tmp_target.parent.mkdir(parents=True)
+        tmp_target.write_bytes(b"name: demo\nscope:\n  type: full-library\n  include: []\n  exclude: []\n  notes: ''\n")
+        proc = _amend(tmp_target, {"include": ["AGENTS.md"], "amendments": [self._auth_amendment()]})
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["included"] == []
+        scope = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]
+        assert scope["include"] == [] and scope["amendments"][0]["action"] == "promoted"
+
+    def test_a_headless_deferral_is_recorded(self, tmp_target):
+        _written_brief(tmp_target)
+        proc = _amend(tmp_target, {"amendments": [self._auth_amendment("deferred-headless")]})
+        assert proc.returncode == 0, proc.stderr
+        scope = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["scope"]
+        assert scope["amendments"][-1]["action"] == "deferred-headless"
+
+    @pytest.mark.parametrize("include", ["AGENTS.md", [""], [3]], ids=["string", "blank", "number"])
+    def test_a_bad_include_exits_1_and_touches_nothing(self, tmp_target, include):
+        before = _written_brief(tmp_target)
+        proc = _amend(tmp_target, {"include": include})
+        assert proc.returncode == 1 and "include must be an array of non-empty paths" in proc.stderr, proc.stderr
+        assert tmp_target.read_bytes() == before
+
+    def test_an_amendment_that_adds_a_schema_error_is_refused(self, tmp_target):
+        """Only an error the amendment adds is refused, never one the brief already held."""
+        spec = importlib.util.spec_from_file_location("skf_write_skill_brief_amend", SCRIPT_PATH)
+        writer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(writer)
+        _written_brief(tmp_target)
+        good = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))
+        broken = {**good, "version": "not-semver"}
+        assert writer._added_errors(good, good) == []
+        assert writer._added_errors(broken, broken) == []
+        assert writer._added_errors(good, broken)
+
 
 # --------------------------------------------------------------------------
 # write --base-brief: rewrite a brief on disk without retyping it

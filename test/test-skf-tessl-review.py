@@ -830,7 +830,7 @@ COUNT_WORDS = {3: ("three", "third"), 4: ("four", "fourth"), 5: ("five", "fifth"
                7: ("seven", "seventh"), 8: ("eight", "eighth")}
 VALIDATOR_CMD = 'uv run {frontmatterValidator} "<staging-skill-dir>/SKILL.md" --forbid-angle-brackets'
 SANITIZE_CMD = 'uv run {descriptionGuardHelper} sanitize "<staging-skill-dir>/SKILL.md"'
-HALT_MESSAGE = "Description sanitization failed — "
+HALT_MESSAGE = "Description sanitization failed: "
 STOPPED = "failed — stopped before skf-tessl-review.py reported a result"
 # A call the shell tool stops replaces the pending values the calls before it bound.
 SHELL_FALLBACK = ("If the shell tool stops a call before it prints its JSON, or it prints none, make that the last "
@@ -973,16 +973,19 @@ class TestWorkflowWiring:
                         "`{angle_brackets_sanitized}` ← `sanitized`",
                         "`{sanitized_description}` ← `description`"):
             assert binding in check
-        assert 'summary.halt_reason: "description-angle-brackets"' in check
-        assert f'HALT** with: "{HALT_MESSAGE}' in check
+        assert "(exit code 5, `description-angle-brackets`, phase `validate`;" in check
+        assert ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" '
+                '--target stderr < "{run_dir}/halt.json"`): "' + HALT_MESSAGE) in check
         assert "--captured-description" not in check, "the description never goes through the shell"
         hook = _section(text, "**This skill's post-restore re-validation hook:**", "### 1. Check Tool Availability")
         assert "--forbid-angle-brackets" not in hook, "§6 owns the check; the §0 hook must not flip Schema to FAIL"
         comment = _section(_frontmatter_text(VALIDATE), "# Resolve `{frontmatterValidator}`",
                            "frontmatterValidatorProbeOrder:")
-        assert "HALT if neither resolves" in comment
-        halts = _section(_read(CS / "references" / "report.md"), "### Result Contract on HARD HALT", "### 6. ")
-        assert "`description-angle-brackets`" in halts and "frontmatter-validator helper unresolved" in halts
+        assert "HALT (exit code 3, helper-missing) if neither resolves" in comment
+        schema = json.loads(_read(REPO / "src" / "shared" / "scripts" / "schemas" /
+                                  "skf-create-skill-result-envelope.v1.json"))
+        codes = schema["$defs"]["skf-envelope"]["const"]["exit_codes"]
+        assert codes["description-angle-brackets"] == 5 and codes["helper-missing"] == 3
 
     def test_description_check_contract(self, tmp_path):
         """The §6 commands, run for real, find and clear the angle brackets."""
@@ -1017,7 +1020,7 @@ class TestWorkflowWiring:
 
     def test_troubleshooting_heading_matches_the_halt(self):
         check = _section(_read(VALIDATE), "### 6. Description Angle-Bracket Check", "### 6b. Tessl Review (optional)")
-        heading = f'### "{HALT_MESSAGE.split(" — ")[0]}"'
+        heading = f'### "{HALT_MESSAGE.split(":")[0]}"'
         assert heading in _read(REPO / "docs" / "troubleshooting.md")
         assert HALT_MESSAGE in check
 

@@ -471,6 +471,22 @@ class TestCli:
 
 PROTOCOL_MD = REPO_ROOT / "src" / "shared" / "references" / "description-guard-protocol.md"
 # (step file, first heading after §0, evidence-report section, description kind)
+# How §0 says `capture` reads the description, and which copy the empty-snapshot rule
+# re-runs with: create-skill's step 7 promotes the staged file, so it keeps no
+# in-context copy of SKILL.md, only of the description compile sanitized.
+CAPTURE_PHRASES = {
+    "create-skill": ("Bind `{guarded_description}` ← `description` from each `capture`, which reads the staged "
+                     "`<staging-skill-dir>/SKILL.md` just before the tool that may rewrite it."),
+    "update-skill": ("Bind `{guarded_description}` ← `description` from each `capture`, run while "
+                     "the in-context SKILL.md copy matches the file on disk."),
+}
+SNAPSHOT_PHRASES = {
+    "create-skill": ("If the description compile §2a sanitized is still in context (an in-context copy of the "
+                     "description, not of the file), re-run `verify-restore` with that value."),
+    "update-skill": ("If the merged description is still in context (the in-context SKILL.md copy), "
+                     "re-run `verify-restore` with that value."),
+}
+
 GUARD_STEPS = {
     "create-skill": (
         REPO_ROOT / "src" / "skf-create-skill" / "references" / "validate.md",
@@ -561,8 +577,7 @@ class TestGuardStepProse:
         path, end, report, _ = GUARD_STEPS[step]
         section = _section0(path, end)
         for phrase in (
-            "Bind `{guarded_description}` ← `description` from each `capture`, run while "
-            "the in-context SKILL.md copy matches the file on disk.",
+            CAPTURE_PHRASES[step],
             "Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` "
             "from each `verify-restore`.",
             "When `{guard_restored}` is true, set the in-context `description` to "
@@ -581,15 +596,14 @@ class TestGuardStepProse:
         assert "`{description_guard_diff_kind}`" not in text
 
     def test_section0_states_the_empty_snapshot_rule(self, step: str) -> None:
-        path, end, report, kind = GUARD_STEPS[step]
+        path, end, report, _ = GUARD_STEPS[step]
         section = _section0(path, end)
         rule = _slice(section, "**Empty-snapshot rule.**", "\n")
         for phrase in (
             "`verify-restore` refuses an empty or whitespace-only `--captured-description` "
             "(exit 1, file untouched).",
             "Never re-run it with the empty value",
-            f"If the {kind} description is still in context (the in-context SKILL.md copy), "
-            "re-run `verify-restore` with that value.",
+            SNAPSHOT_PHRASES[step],
             "Otherwise record `description_guard_restored: false` and "
             "`description_guard_refused: empty-capture` with the tool name",
             f"the evidence report ({report}) renders that as a fired guard, not as a clean run.",

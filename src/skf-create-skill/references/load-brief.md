@@ -1,12 +1,12 @@
 ---
-nextStepFile: 'ecosystem-check.md'
+nextStepFile: 'sub/ccc-discover.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 preferencesFile: '{sidecar_path}/preferences.yaml'
-# Resolve `{validateBriefSchemaHelper}` to the first existing path; HALT if
-# neither candidate exists. §3 relies on the helper for deterministic
-# schema-conformance checks (required fields, regex patterns, enum
-# membership, docs-only conditional rules) so this stage does not re-run
-# those checks in prose.
+# Resolve `{validateBriefSchemaHelper}` to the first existing path; HALT
+# (exit code 3, helper-missing) if neither exists. §3 relies on the helper
+# for deterministic schema-conformance checks (required fields, regex
+# patterns, enum membership, docs-only conditional rules) so this stage
+# does not re-run those checks in prose.
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
@@ -23,16 +23,32 @@ To load and validate the skill-brief.yaml compilation config, resolve the source
 ## Rules
 
 - Focus only on loading brief, resolving source, and determining tier — do not begin extraction or compilation
-- Do not write any output files — this step only loads and validates
+- Write nothing but the brief's run folder (§0), the decisions recorded in it, and `batch_active: false` in `batch-state.yaml` when §2 finds a stale `--batch` checkpoint: this step loads and validates
 
 ## MANDATORY SEQUENCE
+
+### 0. Start the Run Folder
+
+Every brief gets a run folder of its own, a `--batch` run's next brief included: the decisions recorded in it and the staged envelope payloads belong to this brief. Create it:
+
+```bash
+mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-create-skill-XXXXXXXX"
+```
+
+Bind `{run_dir}` ← the path it prints. Step 8 deletes it once the brief finishes; a halted brief keeps it. If it cannot be created, **HARD HALT** (exit code 4, `write-failed`, phase `load-brief`): display "**Create Skill cannot start: the run folder could not be created.** {the first stderr line}" and emit with nothing to stage in:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --target stderr <<'SKF_JSON'
+{"phase": "load-brief", "halt_reason": "write-failed", "reason": "<that message, one line>", "summary": {"halt_reason": "write-failed", "evidence_report": null}}
+SKF_JSON
+```
 
 ### 1. Load Forge Tier
 
 Load `{forgeTierFile}` completely.
 
 **If file does not exist:**
-Halt with: "Forge halted: No forge configuration found. Run [SF] Setup Forge first to detect tools and set your tier."
+**HARD HALT** (exit code 3, `forge-tier-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Forge halted: No forge configuration found. Run [SF] Setup Forge first to detect tools and set your tier."
 
 **If file exists:**
 Extract and report:
@@ -42,12 +58,12 @@ Extract and report:
 
 **Apply tier override:** Read `{preferencesFile}`. If `tier_override` is set and is one of the exact valid tier values (`Quick`, `Forge`, `Forge+`, `Deep`), use it instead of the detected tier. **If `tier_override` is set but is not one of those four values:** log a warning — "Unknown tier_override `{value}` in preferences.yaml; falling back to detected tier `{detected_tier}`. Valid values: Quick, Forge, Forge+, Deep." — and use the detected tier. Never silently apply an unknown override value, and never map it heuristically to a tier.
 
-**Record the decision:** append an entry to the in-context `headless_decisions[]` buffer (initialize to `[]` at the start of this step if absent) whenever a non-interactive choice is made automatically — both the valid-override path AND the rejected-override path:
+**Record the decision** in the run sink per the Workflow Rules, in every mode, on the valid-override path and on the rejected-override path alike: stage the object as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 
-- Valid override applied: `{step: "load-brief", gate: "tier-override", decision: "apply", value: "{tier_override}", rationale: "explicit preferences.yaml tier_override", timestamp: {ISO}}`
-- Invalid override rejected: `{step: "load-brief", gate: "tier-override", decision: "reject-invalid", value: "{tier_override}", fallback: "{detected_tier}", rationale: "tier_override not in {Quick,Forge,Forge+,Deep}", timestamp: {ISO}}`
+- Valid override applied: `{"step": "load-brief", "gate": "tier-override", "decision": "apply", "value": "{tier_override}", "rationale": "explicit preferences.yaml tier_override", "timestamp": "{ISO}"}`
+- Invalid override rejected: `{"step": "load-brief", "gate": "tier-override", "decision": "reject-invalid", "value": "{tier_override}", "fallback": "{detected_tier}", "rationale": "tier_override not in Quick, Forge, Forge+, Deep", "timestamp": "{ISO}"}`
 
-These entries stay in the in-context buffer until §3 establishes the on-disk auto-decision sink and seeds it with the buffer-so-far; from then on every later gate's decision is appended to the sink as it lands (per the headless Workflow Rule). Step 5 §7 renders the sink into the evidence-report `## Auto-Decisions` table and step 6 §8 reconciles it, so reviewers can audit every silent choice even on a run long enough to compact the in-context buffer before step 5.
+Step 5 §7 renders the sink into the evidence report's `## Auto-Decisions` table, so reviewers can audit every silent choice.
 
 ### 2. Discover Skill Brief
 
@@ -64,15 +80,19 @@ These entries stay in the in-context buffer until §3 establishes the on-disk au
     If both hold, load the brief at `brief_list[current_index]` (resuming a batch loop from step 8). If **either** check fails, the checkpoint is stale (briefs renamed, moved, or deleted between runs; index off the end after a partial failure). Log a warning — "Stale batch checkpoint — current_index={i}, brief_list length={n}, brief_exists={bool}. Resetting and re-discovering." — then set `batch_active: false` in `batch-state.yaml` and fall through to the no-checkpoint branch below.
   - If no checkpoint exists or `batch_active` is false: search specified directory for all `skill-brief.yaml` files, list discovered briefs with skill names, store list for batch loop processing, and load the FIRST brief
 
+**Bind `{brief_path}`** ← the path of the `skill-brief.yaml` this section loaded: the path given, `{forge_data_folder}/{skill-name}/skill-brief.yaml` for a skill name, or under `--batch` the brief at `brief_list[current_index]` (the first brief discovered on a new batch), never the batch folder. Later steps hand it to their helpers (`--brief`, `amend --target`).
+
 **If no brief found:**
-Halt with: "No skill brief found. Run [BS] Brief Skill to create one, or use [QS] Quick Skill for brief-less generation."
+**HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "No skill brief found. Run [BS] Brief Skill to create one, or use [QS] Quick Skill for brief-less generation."
 
 ### 3. Validate Brief Structure
+
+Resolve `{validateBriefSchemaHelper}` ← first existing path in `{validateBriefSchemaProbeOrder}`. If neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot validate the brief: skf-validate-brief-schema.py is missing. Re-install SKF, then re-run create-skill."
 
 Run the deterministic schema validator — it checks required fields, regex patterns (`name`, `version`), enum membership (`source_type`, `source_authority`, `forge_tier`, `scope.type`), type correctness, the docs-only conditional rule (`doc_urls` ≥ 1 when `source_type == "docs-only"`), and the version-non-empty-or-whitespace rule:
 
 ```bash
-uv run {validateBriefSchemaHelper} <path-to-skill-brief.yaml>
+uv run {validateBriefSchemaHelper} "{brief_path}"
 ```
 
 The helper emits:
@@ -87,23 +107,13 @@ The helper emits:
 }
 ```
 
-**If `valid` is false:** HALT and display the first error's `message` field verbatim — the helper already formats messages in the "Brief validation failed: ..." form the user expects. For halt-reasons:
+**If `valid` is false:** **HARD HALT** (exit code 2, `{halt_reason}`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with the helper's `halt_reason` and the first error's `message` as the halt message, and display that `message` verbatim: the helper already formats messages in the "Brief validation failed: ..." form the user expects. For halt-reasons:
 
 - `brief-missing` — the brief path doesn't exist. Display the helper's message (it includes the `Run [BS] Brief Skill` redirect).
 - `brief-malformed` — the YAML failed to parse. Display the helper's message.
 - `brief-invalid` — schema or conditional-rule violation. Display the first `errors[].message`. Multiple errors may appear; the user typically fixes one source and re-runs.
 
 **If `valid` is true:** continue with `brief` (the parsed object) for downstream sections. Surface any `warnings[]` to the user but do not halt.
-
-**Establish the auto-decision sink (durable headless audit).** The brief is now confirmed, so create the on-disk audit sink at `{sidecar_path}/auto-decisions.jsonl` — one compact JSON object per line — and seed it with whatever is already in the in-context `headless_decisions[]` buffer (the §1 tier-override row, or nothing if none fired). This truncates any stale sink a prior brief left behind:
-
-```bash
-: > {sidecar_path}/auto-decisions.jsonl          # truncate / create empty
-# then, for each entry already in headless_decisions[], append its compact JSON:
-printf '%s\n' '{decision-json}' >> {sidecar_path}/auto-decisions.jsonl
-```
-
-From here on, **every time a later gate appends an auto-decision to `headless_decisions[]`, append that same object as a line to this sink the moment it lands** (the on-landing append the headless Workflow Rule mandates). The array is tiny, so the append costs nothing and keeps a complete on-disk copy across the token-heavy step 3→5 extraction window — the point where a long component-library run can compact the in-context buffer. Step 5 §7 renders this sink into the evidence-report `## Auto-Decisions` table and step 6 §8 reconciles it, so the audit table and `auto_decision_count` stay complete even when the buffer is lost.
 
 **Field reference (for human readers):**
 
@@ -124,7 +134,7 @@ The complete contract — required fields, optional fields, types, and rules —
 - Store resolved: local path as `source_root`, file listing
 
 **If source cannot be resolved:**
-Halt with: "Source not found: `{source_repo}`. Verify the repository exists and is accessible."
+**HARD HALT** (exit code 3, `source-not-found`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Source not found: `{source_repo}`. Verify the repository exists and is accessible."
 
 ### 5. Report Initialization
 
@@ -139,7 +149,7 @@ Display initialization summary:
 **Tier:** {tier} — {tier_description}
 **Tools:** {available_tools_list}
 
-Proceeding to ecosystem check..."
+Proceeding to extraction..."
 
 Where tier_description follows positive capability framing:
 - Quick: "Source reading and spec validation"

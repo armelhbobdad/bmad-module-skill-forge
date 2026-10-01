@@ -413,7 +413,7 @@ MUST_FIND = [
     ("src/skf-rename-skill/references/execute.md", "skf-atomic-write.py", "write"),
     ("src/skf-rename-skill/references/execute.md", "skf-manifest-ops.py", "rename"),
     ("src/skf-create-skill/references/report.md", "skf-atomic-write.py", "write"),
-    ("src/skf-create-skill/references/authoritative-files-protocol.md", "skf-atomic-write.py", "write"),
+    ("src/skf-create-skill/references/authoritative-files-protocol.md", "skf-write-skill-brief.py", "amend"),
     ("src/shared/references/description-guard-protocol.md", "skf-description-guard.py", "capture"),
     ("src/skf-quick-skill/references/finalize.md", "skf-atomic-write.py", "flip-link"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-atomic-write.py", "commit-dir"),

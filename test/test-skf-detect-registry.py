@@ -543,7 +543,7 @@ class TestComponentExtractionProse:
         assert "score >= 7" not in _text() and "score < 7" not in _text()
 
     def test_headless_gate_reads_headless_accept(self):
-        gate = next(line for line in _phase(2).splitlines() if 'gate: "registry-confirm"' in line)
+        gate = next(line for line in _phase(2).splitlines() if '"gate": "registry-confirm"' in line)
         assert "`{headless_mode}` is true and `headless_accept` is true" in gate
         assert "If `headless_accept` is false in headless mode, auto-reject the candidate" in gate
         assert "below the auto-accept threshold\"" in gate

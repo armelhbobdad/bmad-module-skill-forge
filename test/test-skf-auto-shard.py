@@ -1,10 +1,13 @@
 """Structural integration tests for auto-shard at 400-line ceiling (story 3.4).
 
 Validates step-auto-shard.md exists with correct frontmatter, the 400-line
-threshold constant, Tier 1 preservation names, Tier 2 heading pattern,
-cross-reference link format, step chain from step-doc-sources.md, Stages
-table in SKILL.md, §-prefixed sections, context logging variables,
-structural contract, prohibition constraints, and safety-net integrity.
+budget it passes skf-shard-body.py, the Tier 2 heading pattern and
+cross-reference format it describes, the step chain from
+step-doc-sources.md, the Stages table in SKILL.md, the context logging
+variables, the structural contract, the prohibition constraints and the
+validate.md safety net. The script owns the counting and the extraction, so
+the step keeps no manual fallback that narrates them (#599), and each of its
+halts emits the create-skill envelope (#593).
 """
 
 from __future__ import annotations
@@ -75,36 +78,49 @@ class TestThresholdConstant:
             "step-auto-shard.md must reference the 400-line threshold"
         )
 
-    def test_threshold_in_skip_condition(self, text: str) -> None:
-        assert re.search(r"body_line_count.*<=\s*400", text), (
-            "step-auto-shard.md must have a skip condition at 400 lines"
+    def test_budget_is_passed_to_the_script(self, text: str) -> None:
+        assert "uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --budget 400" in text, (
+            "step-auto-shard.md must run the shard script with the 400-line budget"
         )
 
 
 # ---------------------------------------------------------------------------
-# step-auto-shard.md — Tier 1 Section Names Listed for Preservation
+# step-auto-shard.md: No Manual Fallback; the Trim Rule Lives in §0
 # ---------------------------------------------------------------------------
 
 
-class TestTier1PreservationNames:
+class TestNoManualFallback:
+    """The script owns counting and extraction; no run reaches a by-hand copy (#599)."""
+
     @pytest.fixture(scope="class")
     def text(self) -> str:
         return _read(STEP_AUTO_SHARD)
 
-    TIER_1_NAMES = [
-        "Overview",
-        "Quick Start",
-        "Common Workflows",
-        "Key API Summary",
-        "Key Types",
-        "Architecture at a Glance",
-    ]
+    def test_no_manual_fallback(self, text: str) -> None:
+        assert "Manual fallback" not in text and "by hand as documented below" not in text
+        assert "body_line_count" not in text, "the script counts the body, not the prose"
+        for heading in ("### §2.", "### §3.", "### §4.", "### §5.", "### §6."):
+            assert heading not in text, heading
 
-    @pytest.mark.parametrize("name", TIER_1_NAMES)
-    def test_tier1_name_listed(self, text: str, name: str) -> None:
-        assert name in text, (
-            f"step-auto-shard.md must list Tier 1 section '{name}' for preservation"
-        )
+    def test_sections_are_the_script_and_the_chain(self, text: str) -> None:
+        assert re.findall(r"^### (§\d+)\. ", text, re.MULTILINE) == ["§0", "§1"]
+
+    def test_under_budget_bullet_holds_the_trim_rule(self, text: str) -> None:
+        bullet = next(line for line in text.splitlines() if "`under_budget` is false" in line)
+        assert "Trim `## Key API Summary` and `## Architecture at a Glance`" in bullet
+        assert "never moving a Tier 1 section to `references/`" in bullet
+        assert "run the script again and take `body_lines_after` from it" in bullet
+        assert "§4" not in bullet, "the bullet states the rule, it points nowhere"
+
+    def test_halts_emit_the_envelope(self, text: str) -> None:
+        body = text.split("\n---\n", 1)[1]
+        halts = [line for line in body.splitlines() if "HARD HALT" in line]
+        assert len(halts) == 3, halts
+        for reason in ("`helper-missing`", "`tier1-not-preserved`", "`shard-xref-broken`"):
+            line = next(h for h in halts if reason in h)
+            assert ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" '
+                    '--target stderr < "{run_dir}/halt.json"`') in line, reason
+            assert "phase `auto-shard`" in line, reason
 
 
 # ---------------------------------------------------------------------------
@@ -202,25 +218,6 @@ class TestSkillMdStagesTable:
 
 
 # ---------------------------------------------------------------------------
-# step-auto-shard.md — §-Prefixed Sections
-# ---------------------------------------------------------------------------
-
-
-class TestSectionPrefixedSections:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_AUTO_SHARD)
-
-    EXPECTED_SECTIONS = ["§1", "§2", "§3", "§4", "§5"]
-
-    @pytest.mark.parametrize("section", EXPECTED_SECTIONS)
-    def test_section_prefix_exists(self, text: str, section: str) -> None:
-        assert section in text, (
-            f"step-auto-shard.md must have a {section}-prefixed section"
-        )
-
-
-# ---------------------------------------------------------------------------
 # step-auto-shard.md — Context Logging Variables
 # ---------------------------------------------------------------------------
 
@@ -297,52 +294,23 @@ class TestAutoShardRules:
 
 
 # ---------------------------------------------------------------------------
-# step-auto-shard.md — Tier 1 Conditional Sections Listed
+# step-auto-shard.md: §1 Auto-Proceed Section
 # ---------------------------------------------------------------------------
 
 
-class TestTier1ConditionalSections:
+class TestAutoShardChain:
     @pytest.fixture(scope="class")
     def text(self) -> str:
         return _read(STEP_AUTO_SHARD)
 
-    CONDITIONAL_TIER_1 = [
-        "Migration & Deprecation Warnings",
-        "CLI",
-        "Scripts & Assets",
-        "Manual Sections",
-    ]
-
-    @pytest.mark.parametrize("name", CONDITIONAL_TIER_1)
-    def test_conditional_tier1_listed(self, text: str, name: str) -> None:
-        assert name in text, (
-            f"step-auto-shard.md must list conditional Tier 1 section '{name}'"
+    def test_auto_proceed_section_exists(self, text: str) -> None:
+        assert "### §1. Auto-Proceed" in text, (
+            "step-auto-shard.md must have a §1 Auto-Proceed section"
         )
 
-    def test_component_catalog_alternative(self, text: str) -> None:
-        assert "Component Catalog" in text, (
-            "step-auto-shard.md must list Component Catalog as Key API Summary alternative"
-        )
-
-
-# ---------------------------------------------------------------------------
-# step-auto-shard.md — §6 Auto-Proceed Section
-# ---------------------------------------------------------------------------
-
-
-class TestAutoShardSection6:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(STEP_AUTO_SHARD)
-
-    def test_section_6_exists(self, text: str) -> None:
-        assert "§6" in text, (
-            "step-auto-shard.md must have a §6 Auto-Proceed section"
-        )
-
-    def test_next_step_file_reference_in_section_6(self, text: str) -> None:
+    def test_next_step_file_reference(self, text: str) -> None:
         assert re.search(r"\{nextStepFile\}", text), (
-            "step-auto-shard.md §6 must reference {nextStepFile} for chain continuation"
+            "step-auto-shard.md §1 must reference {nextStepFile} for chain continuation"
         )
 
 

@@ -29,7 +29,7 @@ To fetch temporal context (issues, PRs, changelogs, release notes) from the sour
 - Deep tier only — Quick, Forge, and Forge+ tiers skip this step entirely and silently
 - GitHub repositories only — other source types degrade gracefully
 - Do not halt the workflow if fetching or indexing fails
-- Do not modify extraction data from step 3: this step only writes the temporal feeder folder, the fetch folder that replaces it, and the QMD collection indexed from it
+- Do not modify the extraction inventory step 3 wrote: this step only reads its `top_exports`, and writes the temporal feeder folder, the fetch folder that replaces it, and the QMD collection indexed from it
 
 ## MANDATORY SEQUENCE
 
@@ -70,12 +70,10 @@ Skip to section 5 (auto-proceed).
 
 ### 3. Fetch Temporal Context
 
-Fetch through the helper, from `{project-root}`. Pass the extraction inventory's `top_exports[]` as a JSON list for the targeted issue searches; when it is empty or missing (docs-only mode, or a source extraction with no public exports), leave out `--exports -` and the heredoc:
+Fetch through the helper, from `{project-root}`. `--exports` names the extraction inventory step 3 §5 wrote, `{extraction_inventory}`: the helper reads its `top_exports` for the targeted issue searches, and an empty list (docs-only mode, or a source extraction with no public exports) runs none:
 
 ```bash
-uv run {fetchTemporalHelper} fetch --repo "{temporal_repo}" --feeder "{temporal_feeder}" --exports - <<'SKF_TOP_EXPORTS'
-{top_exports as a JSON list}
-SKF_TOP_EXPORTS
+uv run {fetchTemporalHelper} fetch --repo "{temporal_repo}" --feeder "{temporal_feeder}" --exports "{extraction_inventory}"
 ```
 
 It fetches into a fresh folder beside `{temporal_feeder}` and replaces the feeder with it only when the fetch returned something (`uv run {fetchTemporalHelper} --help` describes the files it writes and the swap).

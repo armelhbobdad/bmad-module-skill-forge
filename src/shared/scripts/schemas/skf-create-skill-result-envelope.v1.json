@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-create-skill-result-envelope.v1.json",
+  "title": "SKF_CREATE_SKILL_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document skf-create-skill prints, prefixed with the literal 'SKF_CREATE_SKILL_RESULT_JSON: ': on stdout when step 8 (report) finishes a brief, once per brief of a --batch run, and on stderr at every HARD HALT of steps 1 to 7. The shared emitter (skf-emit-result-envelope.py) builds each line from the payload a step stages in the brief's run folder, folds in the auto-decisions and warnings the run recorded there, derives exit_code from halt_reason, stamps timestamp, run_id and result_path, and checks the line against this schema, so the model never types it. The skill's SKILL.md Workflow Rules give the halt command, and references/report.md the finished run's.",
+  "$defs": {
+    "skf-envelope": {
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "const": {
+        "workflow": "skf-create-skill",
+        "prefix": "SKF_CREATE_SKILL_RESULT_JSON",
+        "wrapper": null,
+        "halt_status": "failed",
+        "exit_codes": {
+          "brief-missing": 2,
+          "brief-malformed": 2,
+          "brief-invalid": 2,
+          "forge-tier-missing": 3,
+          "source-not-found": 3,
+          "helper-missing": 3,
+          "docs-unreachable": 3,
+          "write-failed": 4,
+          "staging-unreadable": 4,
+          "not-skf-output": 5,
+          "flat-layout": 5,
+          "tier1-not-preserved": 5,
+          "shard-xref-broken": 5,
+          "description-angle-brackets": 5,
+          "references-missing": 5,
+          "active-link-blocked": 5,
+          "halted-for-brief-refinement": 6
+        },
+        "success_exit_code": 0,
+        "result_file": "create-skill-result"
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "exit_code",
+    "phase",
+    "halt_reason",
+    "error",
+    "outputs",
+    "summary",
+    "skill_package",
+    "timestamp",
+    "run_id",
+    "result_path",
+    "headless_decisions",
+    "warnings"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "partial", "failed"],
+      "description": "'success' when step 8 finished the brief, 'partial' when it finished a source brief whose extraction found no export (summary.warning 'zero-exports'), 'failed' at every HARD HALT, also one after step 7 promoted the package (skill_package and outputs then name what is on disk)."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5, 6],
+      "description": "Derived from halt_reason: null gives 0; brief-missing, brief-malformed and brief-invalid 2; forge-tier-missing, source-not-found, helper-missing and docs-unreachable 3; write-failed and staging-unreadable 4; not-skf-output, flat-layout, tier1-not-preserved, shard-xref-broken, description-angle-brackets, references-missing and active-link-blocked 5; halted-for-brief-refinement 6."
+    },
+    "phase": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "The step slug where the HARD HALT fired: load-brief, extract, component-extraction, fetch-docs, compile, doc-sources, auto-shard, validate or generate-artifacts. Null on a finished run."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "brief-missing",
+        "brief-malformed",
+        "brief-invalid",
+        "forge-tier-missing",
+        "source-not-found",
+        "helper-missing",
+        "docs-unreachable",
+        "write-failed",
+        "staging-unreadable",
+        "not-skf-output",
+        "flat-layout",
+        "tier1-not-preserved",
+        "shard-xref-broken",
+        "description-angle-brackets",
+        "references-missing",
+        "active-link-blocked",
+        "halted-for-brief-refinement"
+      ],
+      "description": "Null on a finished run. The failure class of a HARD HALT, the same value as error.code and summary.halt_reason: pipelines branch on it without parsing the message."
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "brief-missing",
+                "brief-malformed",
+                "brief-invalid",
+                "forge-tier-missing",
+                "source-not-found",
+                "helper-missing",
+                "docs-unreachable",
+                "write-failed",
+                "staging-unreadable",
+                "not-skf-output",
+                "flat-layout",
+                "tier1-not-preserved",
+                "shard-xref-broken",
+                "description-angle-brackets",
+                "references-missing",
+                "active-link-blocked",
+                "halted-for-brief-refinement"
+              ],
+              "description": "The halt_reason."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The halt's reason, the one-line form of the message the step displayed."
+            },
+            "phase": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The step slug where the halt fired."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The file or folder the halt names, when it names one (a missing helper's probe path, the folder a write or the ownership check refused)."
+            },
+            "details": {
+              "description": "Optional halt-specific context, such as the Tier 1 sections a split moved (details.tier1_missing) or the doc URLs that failed (details.failed_urls)."
+            }
+          }
+        }
+      ],
+      "description": "Null on a finished run. The failure of a HARD HALT."
+    },
+    "outputs": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "properties": {
+        "skill_md": { "type": "string", "minLength": 1, "description": "Path of {skill_package}/SKILL.md." },
+        "context_snippet": { "type": "string", "minLength": 1, "description": "Path of {skill_package}/context-snippet.md." },
+        "metadata": { "type": "string", "minLength": 1, "description": "Path of {skill_package}/metadata.json." },
+        "references": { "type": "string", "minLength": 1, "description": "Path of the {skill_package}/references/ folder." },
+        "provenance_map": { "type": "string", "minLength": 1, "description": "Path of {forge_version}/provenance-map.json." },
+        "evidence_report": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path of {forge_version}/evidence-report.md, which holds the Auto-Decisions table."
+        },
+        "extraction_rules": { "type": "string", "minLength": 1, "description": "Path of {forge_version}/extraction-rules.yaml." }
+      },
+      "description": "The files the brief's run wrote, by kind. Empty at a HARD HALT before step 7 promoted the package; a later halt lists what is on disk."
+    },
+    "summary": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "properties": {
+        "skill_name": { "type": "string", "minLength": 1, "description": "The brief's name, the skill's folder name." },
+        "version": { "type": "string", "minLength": 1, "description": "The version folder the run wrote." },
+        "forge_tier": {
+          "type": "string",
+          "enum": ["Quick", "Forge", "Forge+", "Deep"],
+          "description": "The tier the run compiled at, after any tier_override."
+        },
+        "exports_documented": { "type": "integer", "minimum": 0, "description": "metadata.json stats.exports_documented." },
+        "confidence_distribution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t1", "t1_low", "t2", "t3"],
+          "properties": {
+            "t1": { "type": "integer", "minimum": 0 },
+            "t1_low": { "type": "integer", "minimum": 0 },
+            "t2": { "type": "integer", "minimum": 0 },
+            "t3": { "type": "integer", "minimum": 0 }
+          },
+          "description": "metadata.json confidence_distribution, as skf-render-metadata-stats.py computed it."
+        },
+        "auto_decision_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The decisions the run took without asking, as recorded in its run folder: every gate a headless run resolved by its default, and step 1's tier override in any mode. The rows of the evidence report's Auto-Decisions table; 0 when there were none."
+        },
+        "warning": {
+          "type": "string",
+          "enum": ["zero-exports"],
+          "description": "Set with status 'partial': a source brief's extraction found no export and the run went on."
+        },
+        "halt_reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "At a HARD HALT, the halt_reason again, where the halt line carried it before the envelope had a schema."
+        },
+        "evidence_report": {
+          "type": ["string", "null"],
+          "description": "At a HARD HALT, {forge_version}/evidence-report.md once step 7 promoted it, else null."
+        }
+      },
+      "description": "On a finished run, the facts a pipeline branches on. At a HARD HALT, halt_reason and evidence_report."
+    },
+    "skill_package": {
+      "type": ["string", "null"],
+      "description": "Absolute path of {skill_package} once step 7 promoted it; null before, and at the step 7 ownership halts (the refused folder is in error.path)."
+    },
+    "timestamp": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO-8601 UTC time the emitter stamped from the clock."
+    },
+    "run_id": {
+      "type": ["string", "null"],
+      "description": "The brief's run folder id, stamped by the emitter (each brief of a --batch run has its own); null for a halt before the run folder exists."
+    },
+    "result_path": {
+      "type": ["string", "null"],
+      "description": "The per-run create-skill-result-<YYYYMMDD-HHmmss>.json this envelope's call wrote in {forge_version}, beside its -latest copy, or null when it wrote none (every halt before step 7 created {forge_version})."
+    },
+    "headless_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step", "gate", "decision", "rationale", "timestamp"],
+        "properties": {
+          "step": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The step whose gate decided: load-brief, extract or component-extraction."
+          },
+          "gate": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The gate: tier-override, tag-choice, review-gate, zero-exports, demo-exclusion, registry-confirm, provide-or-skip-registry, or authoritative-file:<path> (one decision per authoritative file a headless run deferred)."
+          },
+          "decision": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action the run took, such as 'C', 'Y', 'S', 'apply' or 'deferred-headless'."
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional: the value the decision applied, such as the tier_override or the tag chosen."
+          },
+          "fallback": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional: what the run used instead, such as the detected tier when an override was rejected."
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why, for example 'headless mode: no human to confirm scope or ref'."
+          },
+          "timestamp": {
+            "type": "string",
+            "minLength": 1,
+            "description": "ISO-8601 time the gate decided."
+          }
+        }
+      },
+      "description": "One entry per decision the run took without asking, recorded in the run folder's sink the moment its gate decided: every gate a headless run resolved by its default, and step 1's tier override in any mode. The evidence report's Auto-Decisions table renders the same entries. Empty when there were none."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Non-fatal anomalies the run recorded in its run folder, one string each, such as customization_resolver_unavailable. Empty when none."
+    }
+  }
+}

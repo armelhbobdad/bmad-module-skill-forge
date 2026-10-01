@@ -60,7 +60,7 @@ Outcomes, from `tag_resolution.status`:
 When resolve prints `ambiguous`, it read nothing, and `tag_resolution.candidates` lists the matching tags in the priority order above. This is the one choice tag resolution leaves to you:
 
 - Ask: "Multiple tags match version {tag_resolution.requested}: {candidates}. Which one should I use?", adding "or should I fall back to HEAD?" for an implicit version, and "Setting `target_ref` in the brief skips this question next time." Wait for the selection.
-- **GATE [default: first candidate]**: under `{headless_mode}`, take the first candidate, log "headless: tag {tag} chosen from {candidates} for version {tag_resolution.requested}", and record the auto-decision per the Workflow Rules (step `extract`, gate `tag-choice`, decision `{tag}`, rationale "headless mode: first matching tag in priority order").
+- **GATE [default: first candidate]**: under `{headless_mode}`, take the first candidate, log "headless: tag {tag} chosen from {candidates} for version {tag_resolution.requested}", and record the auto-decision per the Workflow Rules (step `extract`, gate `tag-choice`, decision `{tag}`): stage `{"step": "extract", "gate": "tag-choice", "decision": "{tag}", "rationale": "headless mode: first matching tag in priority order", "timestamp": "{ISO}"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 
 Step 3 §2b then runs resolve again with the chosen tag (or `HEAD`) as `--target-ref`.
 

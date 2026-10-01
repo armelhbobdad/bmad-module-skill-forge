@@ -913,12 +913,14 @@ class TestTemporalFeederNotice:
         assert "{" not in notice, notice
 
     def test_notice_reaches_the_evidence_report(self) -> None:
-        file_6 = _section(_read(GENERATE_ARTIFACTS), "**File 6:**", "**File 7:**")
-        assert "`## Remaining Warnings`" in file_6
-        assert "`{temporal_feeder_notice}`" in file_6
+        """Step 7 promotes the staged evidence report as it is, so step 6 writes the notice into it."""
+        report = _section(_read(VALIDATE_FILE), "### 8. Update Evidence Report", "```markdown")
+        assert "under `## Remaining Warnings`" in report
+        assert "`{temporal_feeder_notice}` when step 5c set it" in report
+        assert "{temporal_feeder_notice}" not in _read(GENERATE_ARTIFACTS)
 
     def test_notice_reads_as_no_correction(self) -> None:
-        """Step 7 writes the notice into the evidence report, itself a doc-rot feeder."""
+        """Step 6 writes the notice into the evidence report, itself a doc-rot feeder."""
         scan = _load_script(SCAN_DOC_ROT_PY, "scan_doc_rot_feeder_notice")
         assert scan.scan_text(_feeder_notice(), "evidence-report.md") == []
 

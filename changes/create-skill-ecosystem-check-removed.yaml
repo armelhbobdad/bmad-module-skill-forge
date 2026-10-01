@@ -1,0 +1,5 @@
+type: changed
+scope: skf-create-skill
+summary: |
+  Create Skill no longer runs an ecosystem check. The stage looked for an existing official skill in an agentskills.io registry that has no API, so it never found a match and never asked anything; the run now goes from loading the brief straight to extraction. The other steps keep their numbers.
+issues: [599]

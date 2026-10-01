@@ -65,6 +65,8 @@ RENAME_EXECUTE = "src/skf-rename-skill/references/execute.md"
 DROP_REPORT = "src/skf-drop-skill/references/report.md"
 CS_GENERATE = "src/skf-create-skill/references/generate-artifacts.md"
 CS_REPORT = "src/skf-create-skill/references/report.md"
+CS_SKILL = "src/skf-create-skill/SKILL.md"
+CS_SCHEMA = "src/shared/scripts/schemas/skf-create-skill-result-envelope.v1.json"
 QS_WRITE = "src/skf-quick-skill/references/write-and-validate.md"
 QS_HALT_CONTRACT = "src/skf-quick-skill/references/halt-contract.md"
 SS_GENERATE = "src/skf-create-stack-skill/references/generate-output.md"
@@ -72,7 +74,7 @@ SS_SKILL = "src/skf-create-stack-skill/SKILL.md"
 # Each writer step file, with the markers of its first write: the ownership
 # check must come before every one of them.
 WRITER_SITES = {
-    CS_GENERATE: ("create the following directories",),
+    CS_GENERATE: ("promote --stage",),
     QS_WRITE: ("create the skill output directories", "`{skill_package}/metadata.json` exists, confirm with user"),
     SS_GENERATE: ("stage-dir --target {skill_package}", "mkdir -p {forge_version}"),
 }
@@ -88,7 +90,7 @@ CONTRACT_FILES = {
     "src/skf-test-skill/SKILL.md": ("not-skf-output",),
     QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
     SS_SKILL: ("not-skf-output", "flat-layout"),
-    CS_REPORT: ("not-skf-output", "flat-layout", "description-angle-brackets"),
+    CS_SCHEMA: ("not-skf-output", "flat-layout", "description-angle-brackets"),
 }
 PROBE_ORDER = (
     "skillInventoryProbeOrder:\n"
@@ -601,9 +603,11 @@ def test_writer_ownership_halt_writes_nothing_on_disk():
     exit_codes = _section(contract, "## Exit Codes", "## Result Contract")
     assert "state-conflict" in _row(exit_codes, "| 9 ")
     assert "writes no result file" in _read(QS_WRITE)
-    halt = _section(_read(CS_REPORT), "### Result Contract on HARD HALT", "### 6.")
-    assert "the §1 ownership refusal" in halt and "writes no result file" in halt
-    assert '`uv run {atomicWriteHelper} write --target "{forge_version}/create-skill-result-latest.json"`' in halt
+    first = _section(_read(CS_GENERATE), "### 1. Check Ownership", "### 2. ")
+    refusal = next(p for p in first.split("\n\n") if p.startswith("Each refusal is a **HARD HALT**"))
+    assert "leaves out `--result-dir`" in refusal and "--result-dir" not in refusal.split("`)")[0]
+    rule = next(line for line in _read(CS_SKILL).splitlines() if "Every HARD HALT in steps 1 to 7" in line)
+    assert 'adding `--result-dir "{forge_version}"` once step 7 has created `{forge_version}`' in rule
     assert "ownership halt" in _read("src/skf-quick-skill/references/batch-mode.md")
     assert '"exit_code":5,"halt_reason":"not-skf-output"' in _read(SS_GENERATE)
 
@@ -617,16 +621,25 @@ def test_create_skill_gate_uses_the_working_version():
     assert "`{version}` is the working version" in first
 
 
-@pytest.mark.parametrize("rel", [CS_GENERATE, QS_WRITE])
-def test_writers_write_metadata_first(rel):
-    deliverables = _section(_read(rel), "### 2. Write Deliverables", "### 3. ")
+def test_writers_write_metadata_first():
+    deliverables = _section(_read(QS_WRITE), "### 2. Write Deliverables", "### 3. ")
     assert "Write File 3 (`metadata.json`) first" in deliverables
+
+
+def test_create_skill_swaps_the_whole_package_in():
+    """create-skill builds the package beside its target and swaps it in, so no
+    interrupted run leaves a package without its metadata.json marker."""
+    promote = _section(_read(CS_GENERATE), "### 3. Promote the Staged Skill", "### 4. ")
+    assert "The package is built beside its target and swapped in, so a reader never sees half of it." in promote
+    helper = _read("src/shared/scripts/skf-promote-staged.py")
+    assert '_atomic(["stage-dir", "--target", str(package)])' in helper
+    assert '_atomic(["commit-dir", "--target", str(package)])' in helper
 
 
 def test_create_skill_batch_advances_past_a_refused_brief():
     first = _section(_read(CS_GENERATE), "### 1. Check Ownership", "### 2. ")
     assert "`refused`" in first and "`current_index` set to the next brief" in first
-    batch = _section(_read(CS_REPORT), "### 5. Batch Mode Status", "### Result Contract")
+    batch = _section(_read(CS_REPORT), "### 6. Batch Mode Status", "### 7. ")
     assert "refused" in batch
 
 

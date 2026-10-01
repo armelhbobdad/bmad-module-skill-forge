@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["pyyaml"]
+# dependencies = ["pyyaml", "jsonschema>=4.0"]
 # ///
 """SKF Write Skill Brief — Schema-validated atomic writer for skill-brief.yaml.
 
@@ -28,11 +28,14 @@ Subcommands:
 
   amend   Read answers as JSON on stdin and apply them to the brief
           already at --target: set scope.registry_path and
-          scope.demo_patterns, append the entries to scope.amendments,
-          check those fields as write does, copy the brief to
-          <target>.bak, and write it atomically. Every other field keeps
-          its value and its place; comments are not kept (the .bak copy
-          holds them). create-skill step 3d records its answers so.
+          scope.demo_patterns, append literal paths to scope.include,
+          append the entries to scope.amendments, refuse an amendment
+          that adds a skill-brief.v1.json error (skf-validate-brief-schema.py's
+          rules), copy the brief to <target>.bak, and write it atomically.
+          Every other field keeps its value and its place; comments are
+          not kept (the .bak copy holds them). create-skill step 3d
+          records its answers so, and step 3's authoritative-files
+          protocol its promote, skip and headless-deferral decisions.
 
 Context payload shape (consumed by `write`):
 
@@ -154,6 +157,7 @@ Answers payload (consumed by `amend`), each key optional, one at least:
   {
     "registry_path": "registry/index.ts",
     "demo_patterns": ["**/examples/**"],
+    "include":       ["docs/llms.txt"],
     "amendments":    [{"path": "...", "action": "...", "category": "...",
                        "reason": "...", "evidence": "...",
                        "date": "2026-10-01", "workflow": "..."}]
@@ -162,6 +166,11 @@ Answers payload (consumed by `amend`), each key optional, one at least:
   Each amendment needs a non-empty path, action, reason and workflow and
   an ISO date; category, when given, is a non-empty string.
 
+  `include` holds literal paths, each appended to scope.include unless the
+  list already holds it. An empty scope.include already covers every file,
+  so it stays empty: appending one path would narrow the scope to that
+  file. The output's `included` lists the paths appended.
+
 Output of `amend` (success):
 
   {
@@ -169,6 +178,7 @@ Output of `amend` (success):
     "brief_path": "/abs/path/skill-brief.yaml",
     "backup":     "/abs/path/skill-brief.yaml.bak",
     "set":        ["registry_path", "demo_patterns"],   # the fields given
+    "included":   ["docs/llms.txt"],                    # paths appended to scope.include
     "appended":   <integer>,                            # amendment entries
     "bytes":      <integer>
   }
@@ -180,7 +190,8 @@ Exit codes:
   0  — success
   1  — validation failure (bad context, schema violation, invariant
        violation, version-precedence underflow with no fallback path)
-       or, for amend, a bad payload or a brief with no scope mapping
+       or, for amend, a bad payload, a brief with no scope mapping or
+       an amendment that adds a skill-brief.v1.json error
   2  — I/O failure (atomic write failed, parent directory not writable)
        or, for amend, a brief that cannot be read or a backup that
        cannot be written
@@ -194,6 +205,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import importlib.util
 import json
 import os
 import re
@@ -809,7 +821,32 @@ def cmd_write(target: Path, from_flat: bool = False, base_brief: Path | None = N
     return 0
 
 
-AMEND_FIELDS = ("registry_path", "demo_patterns", "amendments")
+AMEND_FIELDS = ("registry_path", "demo_patterns", "include", "amendments")
+BRIEF_VALIDATOR = Path(__file__).resolve().parent / "skf-validate-brief-schema.py"
+
+
+def _brief_errors(brief: dict[str, Any]) -> list[dict[str, Any]]:
+    """What skf-validate-brief-schema.py reports for `brief` as it would read it on disk."""
+    spec = importlib.util.spec_from_file_location("skf_validate_brief_schema", BRIEF_VALIDATOR)
+    if spec is None or spec.loader is None:
+        _die(f"amend: cannot load {BRIEF_VALIDATOR.name}", code=2)
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    return validator.validate_brief(yaml.safe_load(render_yaml(brief)))["errors"]
+
+
+def _added_errors(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
+    """The schema errors `after` has that `before` did not: an amend refuses
+    only what it breaks, never a brief for an error it already held."""
+    known = {json.dumps(e, sort_keys=True) for e in _brief_errors(before)}
+    return [e for e in _brief_errors(after) if json.dumps(e, sort_keys=True) not in known]
+
+
+def _check_include(paths: Any) -> list[str]:
+    """The literal paths of an amend payload's `include`."""
+    if not isinstance(paths, list) or not all(isinstance(p, str) and p.strip() for p in paths):
+        _die("amend: include must be an array of non-empty paths", field="scope.include")
+    return paths
 
 
 def _check_amendments(entries: Any) -> list[dict[str, Any]]:
@@ -838,7 +875,7 @@ def cmd_amend(target: Path) -> int:
     except json.JSONDecodeError as e:
         _die(f"amend: invalid JSON on stdin: {e}")
     if not isinstance(payload, dict):
-        _die("amend: stdin must be a JSON object holding registry_path, demo_patterns or amendments")
+        _die("amend: stdin must be a JSON object holding registry_path, demo_patterns, include or amendments")
     unknown = sorted(set(payload) - set(AMEND_FIELDS))
     if unknown:
         _die(f"amend: unknown field(s) {unknown}; expected some of {list(AMEND_FIELDS)}")
@@ -846,6 +883,7 @@ def cmd_amend(target: Path) -> int:
     if not given:
         _die("amend: nothing to amend")
     entries = _check_amendments(payload["amendments"]) if "amendments" in given else []
+    include = _check_include(payload["include"]) if "include" in given else []
 
     try:
         original = target.read_bytes()
@@ -857,6 +895,7 @@ def cmd_amend(target: Path) -> int:
         _die(f"amend: {target} is not a YAML brief: {e}")
     if not isinstance(brief, dict) or not isinstance(brief.get("scope"), dict):
         _die(f"amend: {target} holds no scope mapping", field="scope")
+    before = yaml.safe_load(render_yaml(brief))
     scope = brief["scope"]
     if entries:
         existing = scope.get("amendments")
@@ -867,6 +906,17 @@ def cmd_amend(target: Path) -> int:
         if field in given:
             scope[field] = payload[field]
     _check_component_fields(scope)
+    included: list[str] = []
+    current = scope.get("include")
+    if include and isinstance(current, list) and current:
+        for path in include:
+            if path not in current and path not in included:
+                included.append(path)
+        scope["include"] = [*current, *included]
+    errors = _added_errors(before, brief)
+    if errors:
+        _die(f"amend: the amendment breaks skill-brief.v1.json: {errors[0].get('message')}",
+             field=errors[0].get("field"))
 
     backup = target.with_name(target.name + ".bak")
     try:
@@ -878,7 +928,8 @@ def cmd_amend(target: Path) -> int:
         "status": "ok",
         "brief_path": str(target.resolve()),
         "backup": str(backup.resolve()),
-        "set": [field for field in given if field != "amendments"],
+        "set": [field for field in given if field in ("registry_path", "demo_patterns")],
+        "included": included,
         "appended": len(entries),
         "bytes": bytes_written,
     }))
@@ -917,7 +968,8 @@ def main() -> int:
         "amend",
         help=(
             "Apply answers (JSON on stdin) to an existing brief: set scope.registry_path and "
-            "scope.demo_patterns, append scope.amendments entries, keep a .bak copy, atomic write"
+            "scope.demo_patterns, append paths to scope.include and entries to scope.amendments, "
+            "check the brief schema, keep a .bak copy, atomic write"
         ),
     )
     p_amend.add_argument("--target", type=Path, required=True, help="Path to the skill-brief.yaml to amend")

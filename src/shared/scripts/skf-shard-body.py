@@ -5,11 +5,11 @@
 # ///
 """SKF Shard Body — deterministic auto-shard of an oversized SKILL.md body.
 
-Replaces the in-prompt line-counting / boundary-detection / size-sort /
-file-write / blockquote-replacement surgery that `skf-create-skill`'s
-`references/step-auto-shard.md` §1–§5 and `references/validate.md` §4
-otherwise perform by hand (LLM line-counting is the least reliable
-deterministic op — it silently ships an over-budget body or wrongly HALTs).
+Owns the line counting, the section boundaries, the size sort, the file
+writes and the blockquote replacements of `skf-create-skill`'s
+`references/step-auto-shard.md` §0 (which runs it on every pass and keeps no
+by-hand fallback) and `references/validate.md` §4: counted by eye, an
+over-budget body ships silently or the step halts for nothing.
 
 What it does (single positional invocation):
 
@@ -112,8 +112,9 @@ _HEADING_RE = _load_heading_re()
 
 
 # --------------------------------------------------------------------------
-# Canonical Tier-1 headings (mirror step-auto-shard.md §3). Any that were
-# inline before extraction must remain inline after.
+# The canonical Tier-1 headings: this list is the one source, which
+# step-auto-shard.md §0 relies on. Any that were inline before extraction
+# must remain inline after.
 # --------------------------------------------------------------------------
 
 

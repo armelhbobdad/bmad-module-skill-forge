@@ -36,12 +36,16 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Pipeline-integration hook invoked after the final report (step 8) and the
-# result JSON / metadata.json are finalized. The command is called as:
+# Pipeline-integration hook invoked by step 8 (report) once a brief's result
+# contract is written, after its compilation report. The value is a shell
+# command, run from {project-root}, not an agent instruction: a shell cannot
+# run a skill such as test-skill or export-skill. It is called as:
 #   <on_complete> --result-path=<{forge_version}/create-skill-result-latest.json>
-# Useful for Slack notifications, dashboard ingest, CI hooks, or chaining a
-# downstream skill (TS test-skill, EX export). Failures are logged to
-# workflow_warnings[] but never fail the workflow.
+# Under --batch it runs once per brief, each time with that brief's result
+# file; a brief that halts, or whose result file was not written, gets no
+# call. Useful for a Slack or email notifier, dashboard ingest, a CI script
+# or a git-add wrapper. A failure is reported on its own line and never
+# fails the brief.
 #
 # Empty string = no-op (default).
 

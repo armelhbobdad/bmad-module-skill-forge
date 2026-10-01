@@ -4,9 +4,10 @@ skillSectionsData: 'assets/skill-sections.md'
 assemblyRulesData: 'assets/compile-assembly-rules.md'
 # Resolve `{renderMetadataStatsHelper}` by probing `{renderMetadataStatsProbeOrder}`
 # in order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. HALT if neither resolves — the metadata `stats` block and
-# `confidence_distribution` are computed values that must not be hand-binned
-# (the historical 147 ≠ 59 miscount lived exactly here).
+# existing path wins. HALT (exit code 3, helper-missing) if neither
+# resolves: the metadata `stats` block and `confidence_distribution` are
+# computed values that must not be hand-binned (the historical 147 ≠ 59
+# miscount lived exactly here).
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
@@ -16,6 +17,12 @@ renderMetadataStatsProbeOrder:
 verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
+# Resolve `{extractionInventoryHelper}` to the first existing path. §1 reads
+# the inventory's counts through its `summary`; step 3 §5 already halted
+# when neither path exists.
+extractionInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
 # Resolve `{extractionPatternsData}` to the first existing path, as step 3 did.
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
@@ -44,9 +51,21 @@ To assemble the complete skill content from the extraction inventory and enrichm
 
 Load `{skillSectionsData}` and `{assemblyRulesData}` completely. These define the agentskills.io-compliant format and detailed assembly rules for all output artifacts.
 
+Then load `{extraction_inventory}` (`{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`) completely: the extraction inventory step 3 §5 wrote, with the T3 items step 3c and the T2 annotations step 4 added. Compile from this file, not from what context still holds of steps 3 and 4: its `exports[]` (an export marked `internal: true` stays out of `metadata.json`'s `exports[]`), `top_exports`, `t2_annotations`, `t3_items`, `scripts_inventory`, `assets_inventory`, `intent_mapping`, `promoted_docs`, `authoritative_files_scan`, `counts`, `arms`, `aggregates`, `co_imports` and `warnings` (a component library's `component_catalog` too) are every input below. Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and, from `{project-root}`, run `uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"`: bind `{inventory_counts}` ← its `counts`, which §7 reads.
+
+For a whole-language reference, also load `{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json`, the index step 3c §4a wrote, and build `language_guide[]` from it: for each of its `language_guide` entries, in order, `{url, label, prose}`, where `prose` is the substantive body (narrative, idioms, usage examples, conceptual reference) of the pages its `pages` lists in its `docs_folder`, lightly trimmed of navigation and boilerplate, each block cited `[EXT:{url}]`, and `null` when `pages` is empty (the fetch failed). When the file is missing, or a page it lists is gone, display "The Language Guide from step 3c is missing ({the file or page}): assembling without it." and leave `language_guide[]` empty: `{assemblyRulesData}`'s empty-guide guard then assembles a standard library skill.
+
 ### 1a. Create Staging Directory
 
-Create `_bmad-output/.skf-stage/{skill-name}/` (and `_bmad-output/.skf-stage/{skill-name}/references/`), under `.skf-stage` so it never collides with a `skills_output_folder` or `forge_data_folder` set to `_bmad-output`: SKF never reads a `.skf-` name as a skill. All artifacts produced in sections 2–7 below are written here:
+Create `_bmad-output/.skf-stage/{skill-name}/` (and `_bmad-output/.skf-stage/{skill-name}/references/`) under `{project-root}`, empty, under `.skf-stage` so it never collides with a `skills_output_folder` or `forge_data_folder` set to `_bmad-output`: SKF never reads a `.skf-` name as a skill. Remove what an earlier run of this skill left there first, since step 7 promotes the whole folder; the inventory and the runner JSON beside it stay:
+
+```bash
+rm -rf "{project-root}/_bmad-output/.skf-stage/{skill-name}" && mkdir -p "{project-root}/_bmad-output/.skf-stage/{skill-name}/references"
+```
+
+If the command fails, **HARD HALT** (exit code 4, `write-failed`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staging folder: "Cannot create the staging folder `_bmad-output/.skf-stage/{skill-name}/`: {the first stderr line}."
+
+All artifacts produced in sections 2 to 7 below are written here:
 
 - `SKILL.md`
 - `context-snippet.md`
@@ -55,7 +74,7 @@ Create `_bmad-output/.skf-stage/{skill-name}/` (and `_bmad-output/.skf-stage/{sk
 - `provenance-map.json`
 - `evidence-report.md`
 
-This is the `<staging-skill-dir>` referenced by step 6 (`npx skill-check check`, the description angle-bracket check, and Tessl Review when the user opted in, which uploads a copy holding only `SKILL.md`, `references/`, `scripts/` and `assets/`). Step-07 reads from the in-context copies (resynced by step 6 after any `--fix` modifications) and writes to the final versioned layout.
+This is the `<staging-skill-dir>` referenced by step 6 (`npx skill-check check`, the description angle-bracket check, and Tessl Review when the user opted in, which uploads a copy holding only `SKILL.md`, `references/`, `scripts/` and `assets/`). Steps 5a to 6 edit the files here, and step 7 promotes this folder byte for byte: what it holds when step 6 ends is what ships.
 
 ### 1b. Signature Fidelity Rule
 
@@ -72,7 +91,7 @@ This rule applies to every section including Tier 1 Key API Summary, Tier 2 Full
 
 Assemble each section in order using the assembly rules data file (`{assemblyRulesData}`). The data file specifies frontmatter format, Tier 1 section details (Sections 1-8, including conditional Section 7b for scripts/assets), Tier 2 section details (Sections 9-11), and assembly ordering rules. Follow it exactly. Assemble Section 7b (Scripts & Assets) only if `scripts_inventory` or `assets_inventory` is non-empty.
 
-**Shape-specific overrides:** the assembly-rules file defines gated override blocks for `component-library`, `reference-app`, and **whole-language reference** skills. Apply the override whose gate matches this brief. A whole-language reference is gated on `assembly_shape: "whole-language-reference"` (a `doc_urls` entry with `source: language-registry`, as step 3c §1 determined and as `skf-derive-assembly-shape.py` reports) and uses the `language_guide[]` artifact step 3c §4a retained — it foregrounds the Language Guide and demotes compiler internals. When no override gate matches, assemble the standard library-export layout unchanged.
+**Shape-specific overrides:** the assembly-rules file defines gated override blocks for `component-library`, `reference-app`, and **whole-language reference** skills. Apply the override whose gate matches this brief. A whole-language reference is gated on `assembly_shape: "whole-language-reference"` (a `doc_urls` entry with `source: language-registry`, as step 3c §1 determined and as `skf-derive-assembly-shape.py` reports) and uses the `language_guide[]` step 3c §4a wrote to `{skill-name}.language-guide.json` (§1): it foregrounds the Language Guide and demotes compiler internals. When no override gate matches, assemble the standard library-export layout unchanged.
 
 ### 2a. Description Sanitization Pass
 
@@ -115,9 +134,9 @@ Following the structure from the skill-sections data file:
 - Set `source_commit` from resolved source (if available)
 - Set `source_ref` from resolved source ref (tag name, branch, or `HEAD`; null if unavailable)
 - Set `scope_type` from the brief's `scope.type` value verbatim (`full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, or `docs-only`). **Always emit this field.** `skf-test-skill` keys reference-app handling on `metadata.json.scope_type == "reference-app"` — both the scoring redistribution (Signature Accuracy / Type Coverage marked N/A) and the coverage-check §4b count-coherence skip. Omitting it silently mis-scores a reference-app skill as a library (zero-export barrel HALT or false metadata-drift findings). The value is informational for the other scope types (consumers only branch on `reference-app`), but emit it for all so the producer/consumer contract holds.
-- **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins). The helper owns all the arithmetic — binning each provenance entry once by its `signature_source` tier, summing the bins, and computing every coverage ratio — and returns the finished `stats` + `confidence_distribution` objects to write into `metadata.json` verbatim. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. You supply only the judgment payload below.
+- **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot compute the metadata stats: skf-render-metadata-stats.py is missing. Re-install SKF, then re-run create-skill."). The helper owns all the arithmetic (binning each provenance entry once by its `signature_source` tier, summing the bins, and computing every coverage ratio) and returns the finished `stats` + `confidence_distribution` objects to write into `metadata.json` verbatim. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. You supply only the judgment payload below.
 
-  **Judgment payload (passed as JSON on stdin):** the counts come from step 3 §4b, which took them from the recipe runner's `counts` (or counted the entry points itself without them); what you decide is whether `effective_denominator` applies.
+  **Judgment payload (passed as JSON on stdin):** the counts come from the inventory's `counts`, which step 3 §4b took from the recipe runner's `counts` (or counted from the entry points itself without them); what you decide is whether `effective_denominator` applies.
   - `exports_public_api`: `counts.exports_public_api`, the public names the package's entry points export (`outside_scope` ones included), never the provenance-map entry count, which misses the exports extraction did not find
   - `exports_internal`: `counts.exports_internal`, the exports the recipes found that no entry point exports or makes reachable
   - `scripts` / `assets`: the `scripts_inventory` / `assets_inventory` arrays (or `[]` when empty) — the helper sets `stats.scripts_count` / `stats.assets_count` from their lengths
@@ -148,7 +167,7 @@ Following the structure from the skill-sections data file:
 
   Write the returned `stats` and `confidence_distribution` verbatim. The helper derives `exports_documented` (the documented-export count = provenance `entries[]` count), `exports_total` = `exports_public_api` + `exports_internal`, `public_api_coverage` = documented / public_api (`null` if public_api is 0), `total_coverage` = documented / total (`null` if total is 0), and bins `confidence_distribution.{t1, t1_low, t2, t3}` by each entry's `signature_source`, **each entry counted exactly once**, so the four bins provably sum to the documented-export count. This structurally prevents the recurring miscount where binning ~8 T2 annotations + ~80 T3 doc items on top of 59 exports produced a distribution summing to 147 ≠ 59 (`skf-test-skill` coverage-check §4b flags that sum as an internal-consistency defect). If the helper reports `coherence.ok: false`, fix the provenance map and re-run the helper; never hand-edit the stats. A `confidence_distribution` violation means some provenance entries carry a missing or unrecognized `signature_source`, and a `stats.scripts_count` / `stats.assets_count` violation means a file-entry count disagrees.
 
-  **Label violations.** A violation whose `field` is `provenance.entries[<i>].<field>` means entry `<i>` (its `export_name` is in the violation) carries a label its `extraction_method` does not allow: relabel it by the Relabel Rule in `{extractionPatternsData}` (labels follow the method, a node kind comes from the recipe that matched, never invented, and a violation the rule cannot settle stays as a WARN), resolving `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` for its `kind-at` lookup. Apply the same relabel to the in-context compiled map (generate-artifacts.md §3 writes `provenance-map.json` from it), write the relabeled map back to `<staging-skill-dir>/provenance-map.json`, re-run the helper, and write the `stats` and `confidence_distribution` it returns: a relabeled `signature_source` moves the distribution, and a violation left as a WARN does not block the write. Note the relabeled export names, and each WARN left, in the evidence report's Remaining Warnings (§7).
+  **Label violations.** A violation whose `field` is `provenance.entries[<i>].<field>` means entry `<i>` (its `export_name` is in the violation) carries a label its `extraction_method` does not allow: relabel it by the Relabel Rule in `{extractionPatternsData}` (labels follow the method, a node kind comes from the recipe that matched, never invented, and a violation the rule cannot settle stays as a WARN), resolving `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` for its `kind-at` lookup. Write the relabeled map back to `<staging-skill-dir>/provenance-map.json`, the copy step 7 promotes, re-run the helper, and write the `stats` and `confidence_distribution` it returns: a relabeled `signature_source` moves the distribution, and a violation left as a WARN does not block the write. Note the relabeled export names, and each WARN left, in the evidence report's Remaining Warnings (§7).
 - Set `description` from the SKILL.md frontmatter `description` field (already assembled in section 2)
 - Set `language` from source analysis (e.g., `"typescript"`, `"python"`) — use the primary language of the entry point file
 - Set `ast_node_count` to the number of exports ast-grep matched (the recipe runner's `aggregates.exports`) when ast-grep ran, otherwise omit
@@ -182,7 +201,7 @@ Group functions logically by module, file, or functional area.
 
 ### 6. Build provenance-map.json Content
 
-One entry per extracted export: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type, signature_source ("T1"|"T1-low"|"T2"|"T3", the tier that contributed the structural signature).
+One entry per export of the inventory's `exports[]`: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type, signature_source ("T1"|"T1-low"|"T2"|"T3", the tier that contributed the structural signature).
 
 Label each entry by the tool that produced it, at every forge tier:
 
@@ -195,7 +214,7 @@ Label each entry by the tool that produced it, at every forge tier:
 
 - `scripts_inventory` → `file_type: "script"`, `extraction_method: "file-copy"`, stored in `{skill_package}/scripts/` by step 7
 - `assets_inventory` → `file_type: "asset"`, `extraction_method: "file-copy"`, stored in `{skill_package}/assets/` by step 7
-- `promoted_docs` (from step 3 §2a) → `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, **not** copied into the skill package by step 7. The source file stays at its original path; only the provenance tracking entry is written. `content_hash` was pre-computed by §2a.
+- `promoted_docs` (the inventory's, from step 3 §2a) → `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, **not** copied into the skill package by step 7. The source file stays at its original path; only the provenance tracking entry is written. `content_hash` was pre-computed by §2a.
 
 Each `file_entries[]` row has the same shape regardless of `file_type`: `{file_name, file_type, source_file, content_hash, confidence, extraction_method}`. See `{skillSectionsData}` for full schema and the canonical list of `file_type` values.
 
@@ -203,11 +222,21 @@ Each `file_entries[]` row has the same shape regardless of `file_type`: `{file_n
 
 Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), warnings. For validation-specific fields (Schema, Frontmatter, Body, Security, Description angle brackets, Tessl Review, Metadata, Provenance labels, Provenance lines), insert the placeholder text `[PENDING: populated by step 6]`. Step-06 will replace these placeholders with actual results. See `{skillSectionsData}` for full template. Use the same `{skf_version}` value resolved in section 4 when populating the Tool Versions block.
 
-**Frontmatter — pinned fields:** emit YAML frontmatter at the top of `evidence-report.md` with at minimum `skill_name`, `generated`, `forge_tier`, and `t2_future_count`. Compute `t2_future_count` as the count of forward-looking (T2-future) temporal annotations in the enrichment data produced by step 4 (`qmd query` + temporal classification). **Emit `t2_future_count: 0` when no T2-future annotations exist** — omission is indistinguishable from "no data" for downstream consumers and would silently flip the skf-test-skill §2b/§5b migration-section gate into Case 2/3 for a Case-1 skill. This frontmatter is the authoritative detection contract — `migration-section-rules.md` Case Rules parse it deterministically rather than grepping prose.
+**Frontmatter, pinned fields:** emit YAML frontmatter at the top of `evidence-report.md` with at minimum `skill_name`, `generated`, `forge_tier`, and `t2_future_count`. Take `t2_future_count` from `{inventory_counts}.t2_future` (§1): the T2 annotations step 4 classified `T2-future`, counted by the helper. **Emit `t2_future_count: 0` when no T2-future annotations exist**: omission is indistinguishable from "no data" for downstream consumers and would silently flip the skf-test-skill §2b/§5b migration-section gate into Case 2/3 for a Case-1 skill. This frontmatter is the authoritative detection contract: `migration-section-rules.md` Case Rules parse it deterministically rather than grepping prose.
 
-**Auto-Decisions section (render from the durable sink):** render the `## Auto-Decisions` section into `evidence-report.md` from the **union of the on-disk auto-decision sink** (`{sidecar_path}/auto-decisions.jsonl`, established at step 1 §3 and appended to on every gate landing) **and the in-context `headless_decisions[]` buffer** — read the sink's JSON lines, union them with the buffer keyed on `step`+`gate` so nothing is duplicated or dropped, and emit one row per entry in the table format documented in step 6 §8. The sink is authoritative: on a long component-library run the in-context buffer may have compacted across the token-heavy step 3→5 extraction window, but the sink carries every decision written as it landed (step 1 tier-override, step 2 ecosystem gate, step 3 zero-exports, step 3d component-extraction gates). This step is the first point `evidence-report.md` is written to disk (staging dir, §8 below). No gate fires after this step; step 6 §8 re-reconciles idempotently. If the union is empty (no decision has fired), emit the section with the single line `No auto-decisions — workflow ran interactively (or all gates had no match to auto-resolve).`.
+**Auto-Decisions section (render from the run sink):** render the `## Auto-Decisions` section into `evidence-report.md` from `{run_dir}/headless-decisions.jsonl`, the run's one decision trail: one row per line, in file order, in the table format below. Every decision the run took without asking is there, written the moment it was taken (step 1 tier-override, step 3 tag-choice, step 3's deferred authoritative files, step 3 review-gate, step 3 and step 3c zero-exports, step 3d component-extraction gates), however much of the run context compacted since. No gate records a decision after this step. When the file is missing or empty, emit the section with the single line `No auto-decisions: the workflow ran interactively, or no gate had to resolve on its own.`
+
+```
+## Auto-Decisions
+
+| Step | Gate | Decision | Rationale | Timestamp |
+|------|------|----------|-----------|-----------|
+| {step} | {gate} | {decision}{value?} | {rationale} | {timestamp} |
+```
+
+Also write the inventory's `authoritative_files_scan` record into the evidence report. When the inventory's `intent_mapping` is not empty (a free-text `scripts_intent` or `assets_intent`, step 3 §4c), write one line per kind into the evidence report, so a reader sees which detected files the intent left out: `{kind} intent "{intent}": kept {each kept source file, or none}; left out {each left_out source file, or none}`. This step is the first point `evidence-report.md` is written to disk (staging dir, §8 below).
 
 ### 8. Auto-Proceed
 
-No user interaction. Once all content is assembled in context and written to the staging directory `_bmad-output/.skf-stage/{skill-name}/` (no final files in `skills/` or `forge-data/` yet), load `{nextStepFile}`, read it fully, then execute it. `extraction-rules.yaml` is generated by step 7 from extraction data — do not create it here.
+No user interaction. Once all content is written to the staging directory `_bmad-output/.skf-stage/{skill-name}/` (no final files in `skills/` or `forge-data/` yet), load `{nextStepFile}`, read it fully, then execute it. `extraction-rules.yaml` is generated by step 7 from the inventory's `extraction_rules`: do not create it here.
 

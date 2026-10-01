@@ -6,26 +6,15 @@ tierDegradationRulesData: 'references/tier-degradation-rules.md'
 sourceResolutionData: 'references/source-resolution-protocols.md'
 authoritativeFilesProtocol: 'references/authoritative-files-protocol.md'
 cccIndexCheckData: 'references/ccc-index-check.md'
-# Probe installed SKF module path first, src/ dev-checkout fallback. At first
-# use below, resolve `{atomicWriteHelper}` to the first existing path; HALT if
-# neither candidate exists — losing atomic-write guarantees is not an option.
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# Resolve `{detectScriptsAssetsHelper}` to the first existing path; HALT if
-# neither candidate exists. §4c relies on the helper for deterministic
-# script/asset detection (file walk, SHA-256 hashing, header-comment purpose
-# extraction); falling back to prose-driven detection would lose hash stability.
+entryPointsByHandData: 'references/entry-points-by-hand.md'
+# Each probe order lists the installed path first, then the src/ dev-checkout
+# path; the first existing path wins. §4c: deterministic script and asset
+# detection, with stable hashes.
 detectScriptsAssetsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-scripts-assets.py'
   - '{project-root}/src/shared/scripts/skf-detect-scripts-assets.py'
-# Resolve `{resolveAuthoritativeFilesHelper}` to the first existing path;
-# HALT if neither exists. §2a uses it to scan the source tree for
-# authoritative AI documentation files, classify each against scope
-# filters + amendments, and load previews + content hashes — all five
-# deterministic phases in one call. Falling back to prose-driven file
-# walking + glob matching + hashing would let the LLM drift on the
-# heuristic list and miss auth-doc files at deeper directory depths.
+# §2a: the authoritative-files scan, classification, previews and hashes in
+# one call.
 resolveAuthoritativeFilesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-authoritative-files.py'
   - '{project-root}/src/shared/scripts/skf-resolve-authoritative-files.py'
@@ -36,31 +25,35 @@ resolveAuthoritativeFilesProbeOrder:
 cccGitHygieneProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
   - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
-# Resolve `{sourceTreeHelper}` to the first existing path. §2b reads a remote
-# source at Forge tier or above through it, into a private tree at one
-# commit, and step 7 and every HALT after §2b remove that tree with it. If
-# neither path exists, §2b degrades that source to source reading.
+# §2b reads a remote source into a private tree through it, and step 7 and
+# every HALT after §2b remove the tree; without it §2b reads the source by
+# eye.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
-# Resolve `{mergeCccExclusionsHelper}` to the first existing path. §2b's
-# deferred ccc discovery prepares the workspace clone's settings.yml with it;
-# if neither path exists, that discovery is skipped.
+# §2b's deferred ccc discovery prepares the clone's settings.yml; skipped
+# without it.
 mergeCccExclusionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
-# Resolve `{extractPublicApiHelper}` to the first existing path. §4 runs it
-# in --mode full: it is the recipe runner of the AST Extraction Protocol in
-# `{extractionPatternsData}`. If neither path exists, §4 follows the
-# protocol's fallback.
+# §4's recipe runner (--mode full); without it §4 follows the protocol's
+# fallback.
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
-# Resolve `{extractionPatternsData}` to the first existing path; HALT if
-# neither exists. Steps 5 and 6 bind it the same way.
+# Steps 5 and 6 bind it the same way.
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
   - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
+# §3 and §5 write the inventory through it (`init`, `patch`, `add`, `set`);
+# steps 3c and 4 append with its `add`, and step 7 writes the rules with it.
+extractionInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-extraction-inventory.py'
+# §2a's protocol records each decision in the brief through its `amend`.
+writeSkillBriefProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
+  - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -74,20 +67,20 @@ To extract all public exports, function signatures, type definitions, and co-imp
 ## Rules
 
 - Focus only on extracting exports, signatures, types from source code — do not compile SKILL.md
-- Do not write any output files: extraction stays in context, apart from the JSON the recipe runner writes beside the staging folder (§4)
+- Write only beside the staging folder (the recipe runner's JSON, §4, the detector's JSON, §4c, and the extraction inventory, §5), and the brief only through §2a's protocol
 - Every extracted item must have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
 
 ## MANDATORY SEQUENCE
 
 ### 1. Load Extraction Patterns
 
-Resolve `{extractionPatternsData}` ← first existing path in `{extractionPatternsDataProbeOrder}` and load it completely. Identify the strategy for the current forge tier.
+Resolve `{extractionPatternsData}` ← first existing path in `{extractionPatternsDataProbeOrder}` and load it completely, for the current tier's strategy. If neither path exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot extract: extraction-patterns.md is missing. Re-install SKF, then re-run create-skill."
 
 ### 2. Apply Scope Filters
 
 From the brief, apply scope and pattern filters:
 
-- `scope.type` — determines what to extract (e.g., `full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, `docs-only`). Use `reference-app` when the source is a whole app and the skill's value is wiring patterns rather than public exports (embedded-sidecar reference apps, CLI-demo repos, integration-pattern demonstrators). `reference-app` triggers the compile-assembly overrides in `assets/compile-assembly-rules.md` that replace "Key API Summary" with a "Pattern Surface" section and make `stats.exports_documented` semantics pattern-oriented. Do not pick `full-library` for reference apps — downstream assembly will remap wiring onto export slots, producing fuzzy counts and an awkward SKILL.md.
+- `scope.type`: what to extract (`full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app` or `docs-only`). A `reference-app` brief documents a whole app's wiring patterns rather than public exports: it triggers the compile-assembly overrides in `assets/compile-assembly-rules.md`, which replace "Key API Summary" with a "Pattern Surface" section and make `stats.exports_documented` count patterns.
 - `scope.include` — file globs to include
 - `scope.exclude` — file globs to exclude
 
@@ -97,7 +90,7 @@ Sections 2b and 2a follow in that order: §2b resolves the source to a local tre
 
 ### 2b. Resolve Source Access
 
-**Start clean:** first, for every brief, docs-only included, set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null and `{resolved-source-path}` to `{source_root}` (null for a docs-only brief), so that in a `--batch` run one brief's source never carries into the next.
+**Start clean:** first, for every brief, docs-only included, set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null and `{resolved-source-path}` to `{source_root}` (null for a docs-only brief), so that in a `--batch` run one brief's source never carries into the next. Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json` and `{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json`, and run `rm -f "{extraction_inventory}" "{detected_json}" "{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json"`: §4c, §5 and step 3c write this run's, and step 5 never reads an earlier run's Language Guide.
 
 **If `source_type: "docs-only"`:** skip the rest of §2b: there is no source to resolve. Proceed directly to §2c (component library delegation, which is itself skipped for docs-only) and then §3 (Check for Docs-Only Mode). Tag resolution, reading the source into a tree, source-commit capture, version reconciliation, and deferred CCC discovery all require a source tree and have nothing to do in docs-only mode.
 
@@ -177,21 +170,11 @@ If `{ccc_discovery}` is empty or not in context: proceed with existing file orde
 
 **Remote source guard:** if `source_root` is still a remote URL after §2b, there is no local tree to walk, and the helper refuses a source root that is not a directory. That happens for a Quick-tier remote source, which §2b never clones, and for a remote source §2b could not read into a tree, which it falls back to reading like Quick tier. Skip the scan and continue to §2c: record `authoritative_files_scan: {not_scanned: "remote source not cloned"}` for the evidence report and display "**Authoritative files scan skipped:** `{source_repo}` was not cloned in this run, so authoritative AI documentation files (`llms.txt`, `AGENTS.md` and the like) outside the brief's scope were not looked for. A run with a local tree (a local checkout, or a remote source cloned at Forge tier or higher) scans them."
 
-Load `{authoritativeFilesProtocol}` and execute it. The full protocol (heuristic scan list, helper invocation, classification dispatch, prompt flow, P/S/U decision-apply, summary, provenance-map handoff, downstream consumption) lives there.
-
-Briefly: scan the source tree for authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) that the brief's scope filters may have excluded. The `{resolveAuthoritativeFilesHelper}` helper does the deterministic work (walk, scope diff, amendment reconcile, preview load, hashing); the LLM applies the resulting `unresolved[]` prompt loop. Promoted decisions are persisted to the brief immediately so re-runs replay deterministically.
+Load `{authoritativeFilesProtocol}` and execute it: it scans the source tree for authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules` and the like) the brief's scope filters left out, and records each decision in the brief at once, so re-runs replay it.
 
 ### 2c. Component Library Delegation
 
-**Skip this section if `source_type` is `"docs-only"` — docs-only skills do not use component extraction.**
-
-**If `scope.type: "component-library"` in the brief:**
-
-"**Component library detected.** Delegating to specialized extraction strategy for registry-first, props-focused extraction."
-
-Load and execute `{componentExtractionStepFile}` completely. When that step completes, it returns control here. Resume at section 5 (Build Extraction Inventory) with the enriched extraction data and `component_catalog[]` from the component extraction step.
-
-**Otherwise:** Continue with standard extraction below.
+Skip this section for a `docs-only` brief. When `scope.type` is `"component-library"`, display "**Component library detected.** Delegating to specialized extraction strategy for registry-first, props-focused extraction.", load and execute `{componentExtractionStepFile}` completely, and when it returns control here resume at section 5 (Build Extraction Inventory) with its extraction data and `component_catalog[]`. Otherwise continue with standard extraction below.
 
 ### 3. Check for Docs-Only Mode
 
@@ -199,7 +182,13 @@ Load and execute `{componentExtractionStepFile}` completely. When that step comp
 
 "**Docs-only mode:** No source code to extract. Documentation content will be fetched from `doc_urls` in step 3c."
 
-Build an empty extraction inventory with zero exports. **Set `top_exports = []` explicitly in context** — downstream steps (notably §3b targeted searches and step 4 enrichment fan-out) must see an empty list rather than an undefined/missing field so they can short-circuit deterministically. Set `extraction_mode: "docs-only"` in context. Auto-proceed through Gate 2 (section 6) — display the empty inventory and note that T3 content will be produced by the doc-fetcher step.
+Start the empty inventory with §5's `init` (resolve `{extractionInventoryHelper}` and halt as §5 says), from `{project-root}`:
+
+```bash
+uv run {extractionInventoryHelper} init --inventory "{extraction_inventory}" --skill "{name}" --mode docs-only --tier "{tier}"
+```
+
+It writes `extraction_mode: "docs-only"` with no export and no `top_exports`: steps 3b and 4 skip their per-export work on it, and step 3c merges its T3 items into it. When it fails twice, halt as §5 says. Auto-proceed through Gate 2 (section 6): display the empty inventory and note that the doc-fetcher step produces the T3 content.
 
 **If `source_type: "source"` (default):** Continue with extraction below.
 
@@ -245,128 +234,107 @@ After extraction, validate the collected exports against the package's actual pu
 **When the recipe runner extracted (§4: its JSON's `status` is `ok` or `incomplete`, and `scope.languages` is not empty),** its `entry_point_diff` is this check: do not read the entry points or diff the sets yourself. It read each package's entry points, traced each re-exported name to the file that defines it, and diffed those names with the recipe matches (`skf-extract-public-api.py --help` lists the entry points it reads):
 
 - `public`: the package's public names, which `metadata.json`'s `exports[]` lists. In a language with no entry point, or only empty ones (`entry_points.by_language`), every export the recipes found is public.
-- `internal`: exports the recipes found that no entry point exports or makes reachable: mark them internal and keep them out of `metadata.json`'s `exports[]`.
+- `internal`: exports the recipes found that no entry point exports or makes reachable. §5's `init` marks each `internal: true` in the inventory, and step 5 keeps them out of `metadata.json`'s `exports[]`.
 - `extraction_gaps`: names an entry point exports that no recipe found: read each by eye at its `file` and `line` (T1-low), or trace it (§4) when it has no `file`.
 - `outside_scope`: names an entry point exports that are defined in files outside the brief's scope. Display each of the runner's `warnings` (one names each `package.json` `exports` subpath whose entry point is outside the files in scope) and list these names with them: widen `scope.include` before extraction, or this surface stays undocumented while `exports_public_api` still counts it, so `public_api_coverage` drops (only `effective_denominator`, for the curated-subset shapes, leaves it out).
 
-Record its `counts` (`exports_public_api`, `exports_internal`, `effective_denominator` and `effective_denominator_basis`) and `arms` for step 5 §4. Files you read by eye because no recipe reads their language (`files_without_recipes`) are outside this diff and these counts: read their entry points as **Otherwise** says and add their names to the counts.
+§5's `init` records its `counts` (`exports_public_api`, `exports_internal`, `effective_denominator` and `effective_denominator_basis`) and `arms` for step 5 §4. Files you read by eye because no recipe reads their language (`files_without_recipes`) are outside this diff and these counts: read their entry points as **Otherwise** says, add their names to the counts, and send the counts you changed with §5's `set`.
 
-**Otherwise** (Quick tier, extraction by source reading, a brief whose language no recipe reads included, or the protocol's fallback), read the entry points yourself (when the runner's JSON has `status: no-ast-grep`, its `entry_points.files` lists them, and record its `arms` for step 5 §4) and compare them with the extracted exports, then count `exports_public_api` (the entry points' public names) and `exports_internal` (every other non-underscore export) for step 5 §4:
-
-- **Python:** Read `{source_root}/__init__.py` — extract imports to build the public export list. Compare against AST results:
-  - In AST but not entry point → mark as internal (exclude from `metadata.json` exports)
-  - In entry point but not AST → flag as extraction gap (trace via re-export protocol)
-- **TypeScript/JS:** Read `index.ts`/`index.js` — same comparison logic.
-- **Rust:** Read `lib.rs` — extract `pub use` items. Same logic. **Go:** Scan for exported (capitalized) identifiers.
-
-**Multi-entry packages (`exports` map / declaration-file entry points).** A single per-language entry-point read misses public surface that a package ships through its `package.json` `exports` map — especially committed `.d.ts` / `.d.mts` declaration files that resolve **outside** the conventional source dir (e.g. a monorepo package whose `./macro` subpath maps to `macro/index.d.mts`, listed in `files[]` but not under `src/`). When the in-scope package declares an `exports` map:
-
-- Resolve each `exports` subpath to its target file and treat that file — and any committed `.d.ts` / `.d.mts` declaration it resolves to — as an authoritative public entry point, reading it the same way as the primary barrel above even when it lives outside `src/`.
-- If a resolved `exports` subpath target falls **outside** the brief's `scope.include` globs, surface a note: `"warn: public entry point {path} (exports subpath '{subpath}') resolves outside scope.include: widen scope.include before extraction, or this surface stays undocumented while exports_public_api still counts it, so public_api_coverage drops (only effective_denominator, for the curated-subset shapes, leaves it out)."` Widening `scope.include` here keeps the documented surface aligned with the `effective_denominator` that compile.md §4 derives from those same globs, without mid-run scope surgery.
-
-Use the entry point as the authoritative source for `metadata.json`'s `exports[]` array.
-
-**If entry point is missing or unreadable:** Skip validation with a warning.
+**Otherwise** (Quick tier, extraction by source reading, a brief whose language no recipe reads included, or the protocol's fallback), read the entry points yourself (when the runner's JSON has `status: no-ast-grep`, its `entry_points.files` lists them, and §5's `init` records its `arms` for step 5 §4): load `{entryPointsByHandData}`, which only this branch reads, compare and count as it says, and send the `counts` (and, without the runner's JSON, the `arms`) with §5's `set`.
 
 ### 4c. Detect and Inventory Scripts/Assets
 
-**Default resolution:** If `scripts_intent` is absent from the brief, treat as `"detect"` (auto-detection). If `assets_intent` is absent, treat as `"detect"`. Only an explicit `"none"` value disables detection.
-
-Invoke the deterministic detector — it implements the heuristics from `{extractionPatternsTracingData}` (directory conventions, shebang signals, `package.json` `bin` entry-points, asset filename patterns, binary-extension exclusion, generated-path pruning) so this stage doesn't re-derive them per-run:
+The brief's `scripts_intent` and `assets_intent` are each `"detect"` (also when absent), `"none"` or free text describing the files wanted. The detector takes only `detect` or `none`: pass `none` for `"none"`, else `detect`. Resolve `{detectScriptsAssetsHelper}` ← first existing path in `{detectScriptsAssetsProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot detect scripts and assets: skf-detect-scripts-assets.py is missing. Re-install SKF, then re-run create-skill." The detector implements the heuristics of `{extractionPatternsTracingData}`. From `{project-root}`, write its JSON to `{detected_json}` (bound in §2b), which §5's `init` reads:
 
 ```bash
-uv run {detectScriptsAssetsHelper} detect <source-root> \
-    --scripts-intent <scripts_intent> \
-    --assets-intent <assets_intent> \
+mkdir -p "{project-root}/_bmad-output/.skf-stage"
+uv run {detectScriptsAssetsHelper} detect "{source_root}" \
+    --scripts-intent {detect|none} \
+    --assets-intent {detect|none} \
     [--scope-include "<glob1>,<glob2>,..."] \
-    [--max-lines 500]
+    [--max-lines 500] > "{detected_json}"
 ```
 
-The helper emits JSON on stdout:
+It writes `scripts_inventory[]` and `assets_inventory[]` (each entry with `name`, `source_file`, `purpose`, `content_hash`, `confidence`, `lines` and `size_flag`), `scripts_skipped`, `assets_skipped` and `stats`.
 
-```json
-{
-  "scripts_inventory": [ {name, source_file, purpose, language, content_hash, confidence, lines, size_flag}, ... ],
-  "assets_inventory":  [ {name, source_file, purpose, type,     content_hash, confidence, lines, size_flag}, ... ],
-  "scripts_skipped": <bool>,
-  "assets_skipped":  <bool>,
-  "stats": { "scripts_found": N, "assets_found": M, "files_scanned": K }
-}
-```
+**If it exits non-zero** (a `{source_root}` that is no local folder, as for a remote source read by eye): warn "Scripts and assets were not detected: {the first stderr line}", send the warning with §5's `add --field warnings` for §6 and the evidence report, and run §5's `init` without `--detected`: the inventories stay empty.
 
-Merge `scripts_inventory[]` and `assets_inventory[]` into the running extraction inventory verbatim — entries already carry `confidence: "T1-low"` and `content_hash` (sha256:...). Records with `size_flag: "oversized"` should be surfaced in §6 (Extraction Summary) so the user can confirm before bundling. If both `scripts_skipped` and `assets_skipped` are true, the helper performs no walk and §4c is effectively a no-op.
+**Otherwise** §5's `init` takes every entry, unchanged and already `T1-low` with its `content_hash`, which is the inventory for a `"detect"` intent. For a free-text intent, choose the entries that match it and, after `init`, send them with §5's `set` as `{"intent_mapping": {"scripts": {"intent": "<the text>", "kept": [source_file, ...]}}}`, `"assets"` the same way: the helper keeps only those entries and records the others as the mapping's `left_out`, which §6 lists and step 5 writes into the evidence report. §6 surfaces each `size_flag: "oversized"` entry before bundling.
 
 ### 5. Build Extraction Inventory
 
-Compile all extracted data into a structured inventory:
+`{extraction_inventory}` (bound in §2b, beside the staging folder, never inside the skill) is the run's extraction record: steps 3b to 7 read it, and steps 3c and 4 add to it, instead of a copy held in context. `{extractionInventoryHelper}` writes it, each call atomically: the runner's and the detector's records go in as those tools wrote them, and you send only what you produced. Resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot write the extraction inventory: skf-extraction-inventory.py is missing. Re-install SKF, then re-run create-skill." Run each call below from `{project-root}`.
 
-**Per-export entry:**
-- Function/type name
-- Full signature with types
-- Parameters (name, type, required/optional)
-- Return type
-- Source file and line number
-- Provenance citation (`[AST:...]` or `[SRC:...]`)
-- Confidence tier: T1 for an export an ast-grep rule matched, T1-low for an export read by eye
-- `extraction_method`: the tool that produced the entry, `ast-grep` or `source-read`
-- `ast_node_type`: the `kind` the matching recipe or pattern declares, or `null` for an export read by eye
-- `ast_recipe`: the recipe that matched it (its `id` in `{extractionPatternsData}`, or the pattern of a `find_code` call), or `null` for an export read by eye. validate.md §7a reads it to repair a node kind ast-grep does not know
+**Start the inventory** with `init`, which replaces any file at `{extraction_inventory}`:
 
-An export the recipe runner returned takes its name, `source_file`, `source_line`, `citation`, `ast_recipe`, `ast_node_type` and `export_type` from the runner's record unchanged.
+```bash
+uv run {extractionInventoryHelper} init --inventory "{extraction_inventory}" --skill "{name}" --mode {source|component-library} --tier "{tier}" [--extraction "{extraction_json}"] [--detected "{detected_json}"]
+```
 
-**Aggregate counts:** when the runner ran, take them from its JSON and add the exports read by eye; otherwise count the inventory:
-- Total files scanned: the runner's `files_in_scope` (else §2's filtered file count)
-- Total exports found: `aggregates.exports`, plus the exports read by eye
-- Exports by type (functions, types/interfaces, constants): `aggregates.by_type`, plus the exports read by eye
-- Confidence breakdown: T1 is `aggregates.t1`, the runner's exports; T1-low counts the exports read by eye
-- `top_exports[]` — sorted list of the top 10-20 public API function names by prominence (import frequency or documentation position). This named field is consumed by step 3b for targeted temporal fetching and cache fingerprinting.
+Pass `--mode component-library` for a component library (§2c), else `source`. Pass `--extraction` when §4's runner left a JSON at `{extraction_json}`, and `--detected` when §4c's detector exited 0. From the runner's JSON, `init` writes each export as the runner recorded it (T1, `ast-grep`, with its `source_file`, `source_line`, `citation`, `ast_recipe`, `ast_node_type` and `export_type`), marked `internal: true` when §4b's `internal` lists it; `files_scanned` (the runner's `files_in_scope`); its `aggregates`, `counts` and `arms`; `extraction_rules` (its `recipe_set`, the `recipes` ids, its `scope` and `ast_grep.version`), from which step 7 writes `extraction-rules.yaml`; and the runner warnings in `warnings`, one line each: the head-cap warning (§4), each `errors[]` item, each `file_issues[]` file, each extension `files_without_recipes` counts, and each of its `warnings`. From the detector's JSON it writes `scripts_inventory` and `assets_inventory`.
 
-**Runner warnings (when it ran):** keep for §6 and the evidence report the head-cap warning when `truncated` is true (§4), each `errors[]` item ("ast-grep did not finish on {files} files from `{first_file}` ({detail}): exports in them may be missing"), each `file_issues[]` file read by eye, each extension `files_without_recipes` counts ("{N} `{ext}` files in scope are in a language no recipe reads"), and each entry of its `warnings`.
+**Then send what you produced**, each call with its JSON payload on stdin, leaving out a call with nothing to send:
 
-**Extraction rules (for step 7's `extraction-rules.yaml`):** the runner's `recipe_set`, the `recipes[]` ids it ran, its `scope` and `ast_grep.version`.
+- **Signatures** (`patch`): for each runner export, the full signature, the parameters (name, type, required or optional) and the return type you read from the source at its `source_line`. It sets only those three fields, matches each entry on `export_name` and `source_file`, and lists in `unmatched` and `ambiguous` the entries it could not place: correct those and send them again.
+- **Exports read by eye** (`add --field exports`): each export §4 or §4b read by eye (an extraction gap, a `file_issues` file, a language no recipe reads, or every export when the runner did not run), with its `export_name`, `export_type`, `signature`, `params`, `return_type`, `source_file`, `source_line` and `[SRC:...]` citation. The helper labels it T1-low (`source-read`, with `ast_node_type` and `ast_recipe` null) unless the entry carries its own labels, as a `find_code` match of the protocol's fallback does (T1, `ast-grep`, the `kind` its recipe or pattern declares, and the pattern as its `ast_recipe`). A component library (§2c) sends the props interfaces, components and shared types step 3d recorded this way, with the labels step 3d gave them.
+- **Warnings you raise** (`add --field warnings`): a list of strings, such as a degradation reason (§2b, §4), the detector's failure (§4c) or a file you could not read.
+- **The rest** (`set`), in one JSON object: `top_exports`, the 10 to 20 public API function names by prominence (import frequency or documentation position), which step 3b's targeted temporal fetch reads; `co_imports` (Forge tier and above), the libraries commonly imported alongside the exports, with integration point suggestions; `promoted_docs` and `authoritative_files_scan`, §2a's records; `intent_mapping` for a free-text intent (§4c); a component library's `component_catalog`; and, when the runner did not run, `files_scanned` (§2's filtered file count) and the `counts` and `arms` §4b recorded. `counts` and `arms` merge into what is there, so after the runner send only a count you changed.
 
-**Script/asset counts (when detected):**
-- `scripts_found`: count of scripts detected
-- `assets_found`: count of assets detected
+```bash
+uv run {extractionInventoryHelper} patch --inventory "{extraction_inventory}" <<'SKF_INVENTORY'
+[{"export_name": "...", "source_file": "...", "signature": "...", "params": [], "return_type": "..."}]
+SKF_INVENTORY
+uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field exports <<'SKF_INVENTORY'
+[{"export_name": "...", "export_type": "...", "signature": "...", "params": [], "return_type": "...", "source_file": "...", "source_line": 0, "citation": "[SRC:...]"}]
+SKF_INVENTORY
+uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field warnings <<'SKF_INVENTORY'
+["..."]
+SKF_INVENTORY
+uv run {extractionInventoryHelper} set --inventory "{extraction_inventory}" <<'SKF_INVENTORY'
+{"top_exports": [], "co_imports": [], "promoted_docs": [], "authoritative_files_scan": null}
+SKF_INVENTORY
+uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"
+```
 
-**Co-import patterns (Forge/Deep only):**
-- Libraries commonly imported alongside extracted exports
-- Integration point suggestions
+A call that exits non-zero changes nothing: fix what its `message` names and run it again. An entry the inventory already holds is not added twice (`duplicates`), so a call run again is safe. When a call fails twice, **HARD HALT** (exit code 4, `write-failed`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path": "{extraction_inventory}"`: "Cannot write the extraction inventory `{extraction_inventory}`: {the helper's message}. Check permissions and disk space."
+
+The summary's `counts` give §6 its numbers: `files_scanned`, `exports`, `by_type`, `t1`, `t1_low`, `co_imports`, `scripts` and `assets`.
 
 ### 6. Present Extraction Summary (Gate 2)
 
-**Docs-only note:** If `docs_only_mode` is active (`extraction_mode: "docs-only"`), display a brief note explaining that T3 content will be added by the doc-fetcher step (step 3c), then auto-proceed past this gate. Example: "Docs-only mode: extraction inventory is empty. Documentation content will be fetched from `doc_urls` in step 3c. Auto-proceeding."
+**Docs-only note:** for `extraction_mode: "docs-only"`, display "Docs-only mode: extraction inventory is empty. Documentation content will be fetched from `doc_urls` in step 3c. Auto-proceeding." and auto-proceed past this gate.
 
-**Zero-export sanity check (source mode):** If `extraction_mode != "docs-only"` AND `export_count == 0` AND the brief declares no `doc_urls`, an empty extraction is almost always an error — a wrong branch/tag, an over-narrow `scope.include`, or a failed AST run — not a valid empty surface. Do not let this sail through to a green report. Surface a distinct warning at the gate:
+**Zero-export sanity check (source mode):** If `extraction_mode != "docs-only"` AND the §5 summary counts no export (its `exports` is 0) AND the brief declares no `doc_urls` (step 3c applies this check to a brief whose every `doc_urls` fetch failed), the empty extraction is almost always an error, not a valid empty surface. Surface a distinct warning at the gate:
 
 "**⚠️ Zero public exports extracted.** A source-type brief produced no documented surface and declares no `doc_urls`. This usually means a scope/branch/tag mismatch (wrong `target_version`, over-narrow `scope.include`) or a failed AST run — the compiled skill would document nothing. Verify the brief's source ref and scope before continuing.
 
 **[C] Continue anyway** — compile an empty surface (default)"
 
-Under `{headless_mode}`, do not auto-pass silently: set `status: "partial"` and `summary.warning: "zero-exports"` on the result contract (carried to step 8's record), log `"headless: zero public exports extracted — likely scope/branch/tag mismatch, continuing"`, append a `headless_decisions[]` entry `{step: "extract", gate: "zero-exports", decision: "C", rationale: "headless mode — zero exports, no human to confirm scope/ref", timestamp: {ISO}}` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3), and proceed. The distinct warning string surfaces the worst kind of failure (looks green, isn't) where a human or automator can act on it.
+Under `{headless_mode}`, do not auto-pass silently: log `"headless: zero public exports extracted, likely a scope, branch or tag mismatch; continuing"`, stage `{"step": "extract", "gate": "zero-exports", "decision": "C", "rationale": "headless mode: zero exports, no human to confirm scope or ref", "timestamp": "{ISO}"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (the Workflow Rules' record), and proceed. Step 8 reports a run whose sink holds this decision as `status: "partial"` with `summary.warning: "zero-exports"`, so a run that looks green but is not reaches a person or a pipeline.
 
-Display the extraction findings for user confirmation:
+Display the extraction findings for user confirmation, the numbers from the §5 summary's `counts` and the lists from `{extraction_inventory}`:
 
 "**Extraction complete.**
 
-**Files scanned:** {file_count}
-**Exports found:** {export_count} ({function_count} functions, {type_count} types, {constant_count} constants)
-**Confidence:** {t1_count} T1 (AST-verified), {t1_low_count} T1-low (source reading)
+**Files scanned:** {files_scanned}
+**Exports found:** {exports} ({by_type, each as its count and `export_type`})
+**Confidence:** {t1} T1 (AST-verified), {t1_low} T1-low (source reading)
 **Tier used:** {tier}
-**Co-import patterns:** {pattern_count} detected
-{if scripts_found > 0: **Scripts detected:** {scripts_found}}
-{if assets_found > 0: **Assets detected:** {assets_found}}
+**Co-import patterns:** {co_imports} detected
+{if scripts > 0: **Scripts detected ({scripts}):** each kept entry as `{name}` (`{source_file}`): {purpose}, marked when `size_flag` is oversized}
+{if assets > 0: **Assets detected ({assets}):** the same way}
+{for a free-text intent: the files its `intent_mapping` left out}
 
 **Top exports:**
 {list top 10 exports with signatures}
 
-{warnings: the runner warnings §5 kept, and any file skipped or degraded}
+{warnings: the inventory's `warnings`}
 
 Review the extraction summary above, then confirm to continue."
 
 ### 7. Gate 2 — Confirm Extraction
 
-Docs-only mode (`extraction_mode: "docs-only"`) needs no confirmation — auto-proceed to `{nextStepFile}`.
+Docs-only mode (`extraction_mode: "docs-only"`) needs no confirmation: auto-proceed to `{nextStepFile}`.
 
-Otherwise this is a confirmation gate: halt after the §6 summary and wait for the user to continue (they may ask about the results first). **GATE [default: continue]** — under `{headless_mode}`, auto-proceed and log "headless: auto-approve extraction summary". On continue, load `{nextStepFile}`, read it fully, then execute it.
+Otherwise halt after the §6 summary and wait for the user to continue (they may ask about the results first). **GATE [default: continue]**: under `{headless_mode}`, auto-proceed, log "headless: auto-approve extraction summary", stage `{"step": "extract", "gate": "review-gate", "decision": "continue", "rationale": "headless mode: no person to review the extraction summary", "timestamp": "{ISO}"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (the Workflow Rules' record). On continue, load `{nextStepFile}`, read it fully, then execute it.
 

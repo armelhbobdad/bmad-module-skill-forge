@@ -301,10 +301,12 @@ def test_every_halt_after_resolution_removes_the_tree():
     close = 'uv run {sourceTreeHelper} close --tree "{source_tree}"'
     update = _slice(_read(AUTH_PROTOCOL), "- **[U] Update:**", "6. **Summary.**")
     assert f"When `{{source_tree}}` is set, first run `{close}` from `{{project-root}}`" in update
-    halt = _slice(_read(REPORT), "### Result Contract on HARD HALT", "**For every HARD HALT under")
-    assert halt.index("**Remove the private source tree first.**") < halt.index("The success-variant contract")
-    assert "headless or not" in halt and f"run `{close}` from `{{project-root}}`" in halt
-    for path in (EXTRACT, GENERATE, REPORT):
+    # the envelope rule sits beside the tree rule in SKILL.md, which every step keeps in context
+    rules = _read(CS_SKILL).splitlines()
+    tree_rule = rules.index(rule)
+    assert "Every HARD HALT in steps 1 to 7 emits the result envelope" in rules[tree_rule + 1]
+    assert "### Result Contract on HARD HALT" not in _read(REPORT)
+    for path in (EXTRACT, GENERATE):
         order = _frontmatter(path)["sourceTreeProbeOrder"]
         assert order == ["{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py",
                          "{project-root}/src/shared/scripts/skf-source-tree.py"], path.name
@@ -485,7 +487,11 @@ def test_registry_changes_only_through_the_helper(path):
     assert frontmatter["forgeTierRwProbeOrder"][-1] == "{project-root}/src/shared/scripts/skf-forge-tier-rw.py"
     assert frontmatter["forgeTierConfig"] == "{sidecar_path}/forge-tier.yaml"
     assert "holds `{sidecar_path}/forge-tier.yaml.lock` for its one read-modify-write" in text
-    if path != GENERATE:
+    if path == FETCH_DOCS:
+        # the atomic writer saves only the Language Guide beside the inventory, never the registry
+        calls = re.findall(r"\{atomicWriteHelper\} write --target (\S+)", text)
+        assert calls == ['"{language_guide_json}"'], calls
+    elif path != GENERATE:
         assert "atomicWriteProbeOrder" not in frontmatter and "{atomicWriteHelper}" not in text
 
 
