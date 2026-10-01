@@ -23,9 +23,14 @@
  *   of the base; a failure prints a fragment to fill in that fails until its
  *   marked sentences are rewritten; the base resolves as the em dash check's
  *   does, and a shallow clone that hides the merge base says so;
- * - the extractors against this checkout (all 16 SKILL.md files read, `CA`
- *   and `--target-ref` found, `write_failure` gone, and every workflow that
- *   had flags at the pinned commit still has flags);
+ * - the extractors against this checkout (all 16 SKILL.md files and every
+ *   references/invocation-contract.md read, `CA` and `--target-ref` found,
+ *   `write_failure` gone, and every workflow that had flags at the pinned
+ *   commit still has flags);
+ * - flag rows are read from references/invocation-contract.md as from
+ *   SKILL.md, and from no other reference file: a row lifted from one to the
+ *   other moves no flag, and lifting every Invocation Contract section of this
+ *   checkout changes no covered item;
  * - a flag whose row is deleted while its workflow's Markdown still names it
  *   is a review item, listed first; a flag no file of its workflow names is
  *   hard, and so is one named only in a helper call, another program's
@@ -33,7 +38,8 @@
  *   new name enters them is a possible rename, also hard;
  * - tool minimums in src/shared/tool-requirements.yaml: a raised or new one
  *   is hard and needs a breaking fragment that names the tool, a lowered or
- *   removed one is additive, and a tested version is no surface; every
+ *   removed one is additive and needs an added or breaking fragment (a
+ *   changed one does not do), and a tested version is no surface; every
  *   minimum v3.0.0 sets is named by a breaking fragment;
  * - backtests against the real history: v1.9.0..v2.0.0 finds only the
  *   `onboard` removal, v2.0.0..v2.0.1 finds skf-campaign's flags moved out of
@@ -1875,6 +1881,79 @@ test('diffSurfaces: a flag no file of its workflow names any more is hard, whate
   assert.ok(!result.review.some((finding) => finding.change === 'moved-out'), describeFindings(result.review));
 });
 
+// skf-setup with its Invocation Contract in SKILL.md, and the same contract
+// lifted into references/invocation-contract.md behind a one-line pointer.
+const CONTRACT_ROWS =
+  '| Aspect | Detail |\n|---|---|\n| **Flags** | `--headless` / `-H` (skip prompts); `--quiet` (envelope only); `--dry-run` (plan only) |\n| **Inputs** | `--tier=<Quick\\|Forge>` (pick a tier) |\n';
+const CONTRACT_IN_SKILL = {
+  'src/skf-setup/SKILL.md': `# Setup\n\n## Invocation Contract\n\n${CONTRACT_ROWS}\n## On Activation\n\nLoad \`references/detect.md\`.\n`,
+  'src/skf-setup/references/detect.md': 'Parse flags: `{quiet_mode}` is true on `--quiet`, `{dry_run}` on `--dry-run`.\n',
+};
+const CONTRACT_LIFTED = {
+  ...CONTRACT_IN_SKILL,
+  'src/skf-setup/SKILL.md':
+    '# Setup\n\n## Invocation Contract\n\nHeadless callers: see `references/invocation-contract.md`.\n\n## On Activation\n\nLoad `references/detect.md`.\n',
+  'src/skf-setup/references/invocation-contract.md': `# Invocation Contract\n\n${CONTRACT_ROWS}`,
+};
+
+test('extractSurfaces: the flag rows of references/invocation-contract.md are read, those of other reference files are not', () => {
+  const found = surfaces.extractSurfaces(
+    memoryTree({
+      ...CONTRACT_LIFTED,
+      'src/skf-setup/SKILL.md': '# Setup\n\n| **Flags** | `--headless` (from SKILL.md) |\n',
+      'src/skf-setup/references/headless-contract.md': '| **Flags** | `--not-read` (another reference file) |\n',
+      'src/skf-setup/references/sub/invocation-contract.md': '| **Flags** | `--nested` (not the contract file) |\n',
+      'src/skf-drop-skill/SKILL.md': '# Drop\n',
+      'src/skf-drop-skill/references/invocation-contract.md': '| **Flags** | `--purge` (delete every version) |\n',
+    }),
+  );
+  const flags = [...found.items.values()].filter((item) => item.kind === 'flag');
+  assert.deepStrictEqual(flags.map((item) => `${item.workflow} ${item.token}`).sort(), [
+    'skf-drop-skill --purge',
+    'skf-setup --dry-run',
+    'skf-setup --headless',
+    'skf-setup --quiet',
+    'skf-setup --tier',
+    'skf-setup -H',
+  ]);
+  const headless = flags.find((item) => item.token === '--headless');
+  assert.strictEqual(headless.where, 'src/skf-setup/SKILL.md, src/skf-setup/references/invocation-contract.md');
+  assert.strictEqual(headless.detail, '--headless from skill md --headless /', 'one item, with the text of both rows, SKILL.md first');
+  assert.strictEqual(flags.find((item) => item.token === '--quiet').where, 'src/skf-setup/references/invocation-contract.md');
+  assert.deepStrictEqual(found.skillFiles, ['src/skf-drop-skill/SKILL.md', 'src/skf-setup/SKILL.md']);
+  assert.deepStrictEqual(found.contractFiles, [
+    'src/skf-drop-skill/references/invocation-contract.md',
+    'src/skf-setup/references/invocation-contract.md',
+  ]);
+});
+
+test('diffSurfaces: a flag row lifted from SKILL.md into references/invocation-contract.md, or moved back, is no change', () => {
+  const none = { hard: [], additive: [], review: [] };
+  assert.deepStrictEqual(diffTrees(CONTRACT_IN_SKILL, CONTRACT_LIFTED), none);
+  assert.deepStrictEqual(diffTrees(CONTRACT_LIFTED, CONTRACT_IN_SKILL), none);
+});
+
+test('diffSurfaces: in a lifted contract, a flag that leaves the rows is removed and one that enters them added', () => {
+  const head = {
+    ...CONTRACT_LIFTED,
+    'src/skf-setup/references/invocation-contract.md': CONTRACT_LIFTED['src/skf-setup/references/invocation-contract.md'].replace(
+      '`--dry-run` (plan only)',
+      '`--target-ref <ref>` (pin a ref)',
+    ),
+    'src/skf-setup/references/detect.md': 'Parse flags: `{quiet_mode}` is true on `--quiet`.\n',
+  };
+  const result = diffTrees(CONTRACT_IN_SKILL, head);
+  assert.deepStrictEqual(
+    result.hard.map((finding) => finding.text),
+    ['skf-setup: flag `--dry-run` removed'],
+  );
+  assert.deepStrictEqual(
+    result.additive.map((finding) => finding.text),
+    ['skf-setup: flag `--target-ref` added'],
+  );
+  assert.deepStrictEqual(result.review, [], describeFindings(result.review));
+});
+
 // --- Tool minimums (src/shared/tool-requirements.yaml) ---
 
 const TOOL_LIST = 'src/shared/tool-requirements.yaml';
@@ -1983,6 +2062,29 @@ test('pr: a raised tool minimum needs a breaking fragment that names the tool', 
   assert.match(named.out, /tool minimum `ast-grep` raised from 0\.45\.3 to 0\.46\.0 {2}\[named in changes\/raise-ast-grep\.yaml]/);
 });
 
+test('pr: a lowered or removed tool minimum needs an added or breaking fragment, never a changed one (CONTRIBUTING.md Tool Versions)', () => {
+  const found = diffTrees(
+    { [TOOL_LIST]: toolList({ ast_grep: ['ast-grep', '0.45.3'], qmd: ['qmd', '2.0'] }) },
+    { [TOOL_LIST]: toolList({ ast_grep: ['ast-grep', '0.44'], qmd: ['qmd', null] }) },
+  );
+  assert.deepStrictEqual(
+    found.additive.map((finding) => finding.change),
+    ['lowered', 'removed'],
+  );
+  const failures = (type) =>
+    changes.evaluatePullRequest({
+      touched: [TOOL_LIST],
+      fragments: [{ ...frag(type, { scope: 'requirements' }), status: 'A' }],
+      surfaces: found,
+    }).failures;
+  for (const type of ['added', 'breaking']) assert.deepStrictEqual(failures(type), [], type);
+  for (const type of ['changed', 'fixed']) {
+    const refused = failures(type).join('\n');
+    assert.match(refused, /`ast-grep` lowered from 0\.45\.3 to 0\.44, and no added or breaking fragment on this branch covers it/, type);
+    assert.match(refused, /`qmd` removed \(was 2\.0\), and no added or breaking fragment on this branch covers it/, type);
+  }
+});
+
 test('backtest v2.2.0..working tree: a breaking fragment names every tool minimum since v2.2.0', () => {
   if (!needRefs(['v2.2.0'])) return 'skip';
   const minimums = surfaces.compareRefs(ROOT, 'v2.2.0', null).hard.filter((finding) => finding.kind === 'tool-minimum');
@@ -2022,15 +2124,58 @@ test('covered-surfaces CLI: a ref that does not resolve exits 2', () => {
 
 // --- Floors on this checkout ---
 
-test('real tree: all 16 workflow SKILL.md files are read', () => {
+test('real tree: all 16 workflow SKILL.md files and every references/invocation-contract.md are read', () => {
   const found = surfaces.extractSurfaces(surfaces.workingTree(ROOT));
-  const onDisk = fs
-    .readdirSync(path.join(ROOT, 'src'))
-    .filter((name) => name.startsWith('skf-') && fs.existsSync(path.join(ROOT, 'src', name, 'SKILL.md')))
-    .map((name) => `src/${name}/SKILL.md`)
-    .sort();
-  assert.strictEqual(onDisk.length, 16);
-  assert.deepStrictEqual(found.skillFiles, onDisk);
+  const onDisk = (file) =>
+    fs
+      .readdirSync(path.join(ROOT, 'src'))
+      .filter((name) => name.startsWith('skf-') && fs.existsSync(path.join(ROOT, 'src', name, file)))
+      .map((name) => `src/${name}/${file}`)
+      .sort();
+  assert.strictEqual(onDisk('SKILL.md').length, 16);
+  assert.deepStrictEqual(found.skillFiles, onDisk('SKILL.md'));
+  assert.ok(found.contractFiles.includes('src/skf-brief-skill/references/invocation-contract.md'), found.contractFiles.join(', '));
+  assert.deepStrictEqual(found.contractFiles, onDisk('references/invocation-contract.md'));
+});
+
+/**
+ * The surface files of this checkout before and after a lift of every
+ * SKILL.md "## Invocation Contract" section to the end of the workflow's
+ * references/invocation-contract.md, behind a one-line pointer, as #600 lifts
+ * the headless-only contracts.
+ */
+function liftEveryInvocationContract() {
+  const tree = surfaces.workingTree(ROOT);
+  const before = {};
+  for (const file of tree.files.filter((name) => surfaces.isSurfaceFile(name))) before[file] = tree.read(file);
+  const after = { ...before };
+  for (const [file, text] of Object.entries(before)) {
+    const skill = /^src\/(skf-[^/]+)\/SKILL\.md$/.exec(file);
+    const start = skill ? text.search(/^## Invocation Contract[ \t]*$/m) : -1;
+    if (start === -1) continue;
+    const next = text.slice(start + 3).search(/^## /m);
+    const end = next === -1 ? text.length : start + 3 + next;
+    const contract = `src/${skill[1]}/references/invocation-contract.md`;
+    after[file] =
+      `${text.slice(0, start)}## Invocation Contract\n\nHeadless callers: see \`references/invocation-contract.md\`.\n\n${text.slice(end)}`;
+    after[contract] = `${before[contract] ?? '# Invocation Contract\n'}\n${text.slice(start, end)}`;
+  }
+  return { before, after };
+}
+
+test('real tree: lifting every Invocation Contract section into references/invocation-contract.md changes no covered item', () => {
+  const { before, after } = liftEveryInvocationContract();
+  const base = surfaces.extractSurfaces(memoryTree(before));
+  const head = surfaces.extractSurfaces(memoryTree(after));
+  const inContracts = (found) =>
+    [...found.items.values()].filter((item) => item.kind === 'flag' && item.where.includes('/references/invocation-contract.md')).length;
+  assert.ok(
+    inContracts(head) > inContracts(base),
+    'no SKILL.md flag row is left to lift: every contract was lifted, so this test no longer exercises the move',
+  );
+  const result = surfaces.diffSurfaces(base, head);
+  const all = [...result.hard, ...result.additive, ...result.review];
+  assert.deepStrictEqual(all, [], describeFindings(all));
 });
 
 test('real tree: CA, --target-ref and the other surfaces v3.0.0 adds are found, write_failure is gone', () => {

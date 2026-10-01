@@ -19,8 +19,10 @@
  *   "Deprecated alias:" line still counts as present.
  * - Flags: every --flag or -X that opens a backticked span, and every bare
  *   --flag, in the Flags, Inputs, Headless inputs, Headless flag and
- *   Overrides rows of each workflow's SKILL.md (src/skf-<name>/SKILL.md),
- *   with the text around it. Where each workflow's Markdown (SKILL.md,
+ *   Overrides rows of each workflow's SKILL.md (src/skf-<name>/SKILL.md)
+ *   and of its references/invocation-contract.md, the home of a headless
+ *   contract lifted out of SKILL.md (a row moved from one to the other moves
+ *   no flag), with the text around it. Where each workflow's Markdown (SKILL.md,
  *   references/ at any depth, templates/, assets/) still names a flag is
  *   read too: a --flag as a whole token anywhere, a -X when it opens a
  *   backticked span. Three kinds of mention do not count, because they do
@@ -92,6 +94,7 @@ const PIPELINE_CONTRACTS = 'src/shared/references/pipeline-contracts.md';
 const PREFERENCES = 'src/forger/preferences.yaml';
 const MODULE_CONFIG = 'src/module.yaml';
 const WORKFLOW_SKILL = /^src\/(skf-[^/]+)\/SKILL\.md$/;
+const WORKFLOW_CONTRACT = /^src\/(skf-[^/]+)\/references\/invocation-contract\.md$/;
 const WORKFLOW_REFERENCE = /^src\/(skf-[^/]+)\/references\/[^/]+\.md$/;
 const WORKFLOW_MARKDOWN = /^src\/(skf-[^/]+)\/.+\.md$/;
 const EM_DASH = String.fromCodePoint(0x20_14);
@@ -395,7 +398,7 @@ const FLAG_IN_BACKTICKS = /`((--[a-z][a-z0-9-]*|-[A-Za-z])(?![\w-])[^`]*)`/g;
 // skf-create-skill's Inputs row. Short flags are only read in backticks: a
 // bare "-X" is too easy to find in prose.
 const BARE_LONG_FLAG = /(?<![\w`-])(--[a-z][a-z0-9-]*)(?![\w-])/g;
-// The rows of a SKILL.md table that list a workflow's flags.
+// The rows of a SKILL.md or invocation-contract.md table that list a workflow's flags.
 const FLAG_ROW = /^\|\s*\*\*(Flags|Inputs|Headless inputs|Headless flag|Overrides)\*\*\s*\|/;
 
 /**
@@ -428,24 +431,43 @@ function flagsInRow(row) {
   return flags;
 }
 
+/**
+ * The flags of each workflow's flag rows, read from its SKILL.md and then from
+ * its references/invocation-contract.md, where a headless contract lifted out
+ * of SKILL.md keeps its rows (skf-brief-skill's Inputs row): a row moved from
+ * one file to the other moves no flag. A flag in the rows of both files is
+ * one item, with the text of both, SKILL.md's first.
+ *
+ * @returns {{skillFiles: string[], contractFiles: string[]}} the files read
+ */
 function flagItems(tree, add) {
-  const skillFiles = [];
-  for (const file of tree.files) {
-    const match = WORKFLOW_SKILL.exec(file);
-    if (!match) continue;
-    const text = tree.read(file);
-    if (text === null) continue;
-    skillFiles.push(file);
-    const flags = new Map();
-    for (const line of text.split('\n')) {
+  const readable = (pattern) => tree.files.filter((file) => pattern.test(file) && tree.read(file) !== null);
+  const skillFiles = readable(WORKFLOW_SKILL);
+  const contractFiles = readable(WORKFLOW_CONTRACT);
+  const workflows = new Map();
+  for (const file of [...skillFiles, ...contractFiles]) {
+    const workflow = workflowOf(file);
+    if (!workflows.has(workflow)) workflows.set(workflow, new Map());
+    const flags = workflows.get(workflow);
+    for (const line of tree.read(file).split('\n')) {
       if (!FLAG_ROW.test(line)) continue;
       for (const [flag, description] of flagsInRow(line)) {
-        flags.set(flag, flags.has(flag) ? `${flags.get(flag)} ${description}` : description);
+        const found = flags.get(flag);
+        if (found) {
+          found.description = `${found.description} ${description}`;
+          if (found.files.at(-1) !== file) found.files.push(file);
+        } else {
+          flags.set(flag, { description, files: [file] });
+        }
       }
     }
-    for (const [flag, description] of flags) add({ kind: 'flag', workflow: match[1], token: flag, where: file, detail: description });
   }
-  return skillFiles;
+  for (const [workflow, flags] of workflows) {
+    for (const [flag, { description, files }] of flags) {
+      add({ kind: 'flag', workflow, token: flag, where: files.join(', '), detail: description });
+    }
+  }
+  return { skillFiles, contractFiles };
 }
 
 // A long flag named as a whole token, in backticks or not: `--brief <file>`,
@@ -611,8 +633,8 @@ function toolMinimumItems(tree, add) {
 /**
  * Every covered item of one tree.
  *
- * @returns {{items: Map<string, object>, skillFiles: string[], schemaFiles: string[], workflows: string[],
- *   flagMentions: Map<string, string[]>}}
+ * @returns {{items: Map<string, object>, skillFiles: string[], contractFiles: string[], schemaFiles: string[],
+ *   workflows: string[], flagMentions: Map<string, string[]>}}
  */
 function extractSurfaces(tree) {
   const items = new Map();
@@ -632,12 +654,12 @@ function extractSurfaces(tree) {
   const schemaFiles = schemaItems(tree, workflows, add);
   menuItems(tree, add);
   aliasItems(tree, add);
-  const skillFiles = flagItems(tree, add);
+  const { skillFiles, contractFiles } = flagItems(tree, add);
   exitCodeItems(tree, add);
   haltItems(tree, add);
   keyItems(tree, add);
   toolMinimumItems(tree, add);
-  return { items, skillFiles, schemaFiles, workflows, flagMentions: flagMentions(tree) };
+  return { items, skillFiles, contractFiles, schemaFiles, workflows, flagMentions: flagMentions(tree) };
 }
 
 // --- Diff ---
