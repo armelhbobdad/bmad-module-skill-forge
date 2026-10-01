@@ -17,7 +17,6 @@ Renames a skill across all its versions with transactional safety — copy to th
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
 - **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root: install layout puts both at `{project-root}/_bmad/skf/`. The `shared/health-check.md` chained from the terminal step and the envelope schema `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json` use this convention.
-- **Shared context-file rebuild:** `references/execute.md` §7 resolves the context files and rebuilds their managed sections through `shared/scripts/skf-rebuild-managed-sections.py` (`resolve-targets`, `check`, `assemble --renamed`, `replace`), the helper export-skill writes them with, so the three skills that write the section produce the same bytes from one IDE mapping (`shared/data/ide-context-files.json`). `skf-export-skill/assets/managed-section-format.md` documents that format.
 
 ## Role
 
@@ -30,9 +29,9 @@ These rules apply to every step in this workflow:
 - Never delete the old skill directories until the new name has been fully materialized and verified
 - Never proceed past a verification failure — roll back (delete new directories) and halt
 - Never allow a rename to collide with an existing skill name
-- Never rename a folder SKF did not generate: select.md §4a takes the rename verdict for the skill folder and its forge folder from the inventory helper, which refuses a flat-layout skill and a forge folder that also holds other files or that is a link, is not a folder, or cannot be listed, and leaves any other forge folder SKF did not generate under the old name
+- Never rename a folder SKF did not generate: select.md §4a takes that verdict from the inventory helper
 - Only load one step file at a time — never preload future steps
-- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread, **except** for the atomicity and commit-gate safety helpers that execute.md §0 resolves: a missing one there is a HARD HALT (exit 4), never an LLM fall-through, because hand-driven writes/scans would silently regress the transactional guarantees that keep a failed rename recoverable. The same holds for the select.md §4a ownership check: without the inventory helper it refuses the rename (exit 5), never deciding by hand whether SKF generated a folder. And select.md §1 halts (exit 4) without the run-lock or envelope helper
+- Every helper is required: select.md §1, §5's validator call and execute.md §0 halt (exit 4) without one, and no stage does a helper's write, scan or check by hand
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
@@ -42,31 +41,13 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Select & Validate | references/select.md | No (confirm) |
-| 2 | Execute Rename | references/execute.md | No (confirm) |
+| 2 | Execute Rename | references/execute.md | Yes |
 | 3 | Report | references/report.md | Yes |
 | 4 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
 
-| Aspect | Detail |
-|--------|--------|
-| **Inputs** | old_name [required], new_name [required] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + validation + display the §8 confirmation block, then exit with `status="dry-run"`: no run lock, no copy, no manifest re-key, no delete, no result file). Useful for verifying the rename plan before the irreversible §8 (delete old) section. |
-| **Gates** | step 1: Input Gate [use args] x2, Confirm Gate [Y] |
-| **Outputs** | Renamed skill directories, updated manifest, updated context files, `{new_name}/rename-skill-result-{YYYYMMDD-HHmmss}.json` (UTC) and `{new_name}/rename-skill-result-latest.json`; a halt keeps its run folder under `{project-root}/_bmad-output/.skf-run/` |
-| **Concurrency** | select.md §4b takes the run lock `{forge_data_folder}/.skf-rename-{old_name}.lock` through `skf-run-lock.py`. While another rename of the same `old_name` holds a lock that has not gone stale (60 minutes after it was taken or renewed), the run HALTs with `halt_reason: "halted-for-concurrent-run"` (exit 5). Every exit releases it; `--dry-run` takes none. |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. The §6 source-authority warning HALTs by default in headless when `source_authority="official"`; set `force_source_authority_in_headless = "true"` in `customize.toml` to auto-acknowledge and proceed (the override is recorded in `headless_decisions[]`). |
-| **Exit codes** | Stable per-failure-class codes — see `references/exit-codes.md` |
-
-## Result Contract (Headless)
-
-When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout** before chaining to step 4, the `--dry-run` exit (select.md §8) emits it on **stdout** with `status: "dry-run"`, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`. The model never types the line: each site passes its payload to the shared emitter, `shared/scripts/skf-emit-result-envelope.py`, which checks it against `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json`:
-
-```
-SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null,"headless_decisions":[],"run_id":"…","result_path":"…|null"}
-```
-
-`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §9 stores decisions, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-rename"`, `"not-skf-output"`, `"flat-layout"`, `"name-collision"`, `"source-authority-blocked"`, `"halted-for-concurrent-run"`, `"copy-failed"`, `"verify-failed"`, `"manifest-write-failed"`, `"write-failed"`, `"user-cancelled"`. (§7 context-file rebuild is best-effort and never halts, so it has no `halt_reason`.) `exit_code` matches `references/exit-codes.md`. `headless_decisions` is the audit trail of confirmation gates auto-resolved under `{headless_mode}`, each entry `{gate, default_action, taken_action, reason}` (the §6 source-authority override and the §8 auto-confirm); it is `[]` in interactive runs and whenever no gate was auto-resolved before the envelope was emitted. The schema describes the other fields: `versions_renamed`, `run_id`, `result_path`, a halt's `error` and the optional `warnings`.
+Headless callers: the inputs, flags, gate map, outputs, concurrency rule and `SKF_RENAME_SKILL_RESULT_JSON` result envelope live in `references/invocation-contract.md`, and the exit codes in `references/exit-codes.md`. Interactive runs do not need them.
 
 ## On Activation
 
@@ -75,7 +56,11 @@ SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
    - `snippet_skill_root_override` (optional string): when set, the context-file rebuild in step 2 passes it to `assemble` as `--skill-root-override`, so every row's `root:` takes it instead of the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
+2. **Bind the invocation once**, in every mode:
+   - `{headless_mode}`: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
+   - `{acknowledge_official}`: true if `--acknowledge-official` was passed, else false.
+   - `{dry_run}`: true if `--dry-run` was passed, else false.
+   - `{old_name_arg}` and `{new_name_arg}`: the current name and the new name the invocation supplied, as arguments or in a request such as "rename cognee to cognee-ai", each null when absent. select.md §4 and §5 take a supplied name in either mode instead of asking for it.
 
 3. **Resolve workflow customization.** Run:
 
@@ -94,11 +79,11 @@ SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|
 
    Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, the bundled default applies:
 
-   - `{forceSourceAuthorityInHeadless}` ← `workflow.force_source_authority_in_headless` (empty or non-`"true"` = HALT in headless on `"official"` source-authority)
+   - `{forceSourceAuthorityInHeadless}` ← true when `workflow.force_source_authority_in_headless` is `"true"` or the TOML boolean `true`, else false (a headless run halts on an `"official"` skill unless it passes `--acknowledge-official`)
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — step 3 skips the post-completion hook invocation)
 
    Stash both as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
 
-   Then apply the resolved array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (entries prefixed `file:` are paths or globs whose contents load as facts — the bundled default loads any `project-context.md` so rename-policy and public-name-stability guardrails stay in mind); and after activation completes, execute each entry in `workflow.activation_steps_append` in order.
+   Then apply the resolved array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (entries prefixed `file:` are paths or globs whose contents load as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off); and after activation completes, execute each entry in `workflow.activation_steps_append` in order.
 
 4. Load, read the full file, and then execute `references/select.md` to begin the workflow.

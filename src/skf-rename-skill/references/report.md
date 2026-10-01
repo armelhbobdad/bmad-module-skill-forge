@@ -109,7 +109,7 @@ When `{headless_mode}` is true, display `{result_line}` verbatim on its own line
 
 ### 3. Post-Completion Hook (optional)
 
-If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) and `{result_path}` is not null, invoke it with the per-run result file §1 wrote:
+If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) and `{result_path}` is not null, run it as a shell command from `{project-root}` with the per-run result file §1 wrote:
 
 ```bash
 {onCompleteCommand} --result-path="{result_path}"

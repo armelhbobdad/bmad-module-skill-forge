@@ -82,7 +82,7 @@ WRITER_SITES = {
 WRITER_SKILLS = ("src/skf-create-skill/SKILL.md", "src/skf-quick-skill/SKILL.md", SS_SKILL)
 CONTRACT_FILES = {
     "src/skf-drop-skill/references/invocation-contract.md": ("not-skf-output",),
-    "src/skf-rename-skill/SKILL.md": ("not-skf-output", "flat-layout"),
+    "src/skf-rename-skill/references/invocation-contract.md": ("not-skf-output", "flat-layout"),
     "src/skf-rename-skill/references/exit-codes.md": ("not-skf-output", "flat-layout"),
     "src/skf-export-skill/references/result-envelope.md": ("not-skf-output",),
     "src/skf-export-skill/references/invocation-contract.md": ("not-skf-output",),
@@ -430,7 +430,8 @@ def test_rename_ownership_check_precedes_the_lock():
                     "`{rename_detail}` ← `detail`", "`{rename_entries}` ← `offending_entries`"):
         assert binding in check, binding
     assert "`{target_errors}` ← `errors`" in check, "a link is not a missing marker"
-    assert "without `{skillInventoryHelper}`" in check, "a missing helper must fail closed"
+    assert "without `{skillInventoryHelper}`" not in check, "§1 halts on a missing helper before §4a runs"
+    assert "When the call exits non-zero, or its result has no `rename_check`" in check, "a failed check fails closed"
     reasons = _inventory_reasons("rename_check")
     assert reasons == {"reserved-name", "absent", "foreign", "mixed", "flat-layout", "forge-link",
                        "forge-not-a-folder", "forge-unreadable", "forge-mixed"}
@@ -479,7 +480,11 @@ def test_rename_recreates_active_with_flip_link():
     assert 'then rm -f "{new_skill_group}/active"' in fix, "a link is removed as a link, never followed"
     assert 'elif [ -e "{new_skill_group}/active" ]; then rm -rf "{new_skill_group}/active"' in fix
     assert "bind `{active_link_kind}` ← `kind`" in fix and "bind `{flip_error}` ← `message`" in fix
-    assert "active.skf-lock" in fix and "mklink /J" in fix
+    assert "it refuses to replace an `active` that is a real folder, so remove the copied entry first" in fix
+    assert "Never create the link with `ln -s`: Git Bash on Windows without symlink rights writes a copy" in fix
+    assert execute.count("Git Bash") == 1, "the ln -s reason is given once"
+    for mechanics in ("active.skf-lock", "mklink /J", "temporary name", "os.symlink"):
+        assert mechanics not in fix, "the helper's docstring holds how flip-link works"
     for stale in ("active.lock", "flock", "four cases", "no silent fallback", "{captured stderr}", "python3"):
         assert stale not in fix, stale
     assert fix.count('halt_reason: "write-failed"') == 1
@@ -794,7 +799,8 @@ def test_rename_recovery_deletes_only_a_copy():
     assert "only when it holds a copy of" in ask
     assert "rm -rf {skills_output_folder}/{new_name} {forge_data_folder}/{new_name}" not in ask
     assert "**Reserved name.**" in ask
-    assert "holding nothing a copy of it could not" in ask, "the fallback fingerprint needs a copy"
+    assert "If `{renameNameValidator}` cannot run" not in ask, "§5 has no in-prompt validator"
+    assert "holding nothing a copy of it could not" not in ask
 
 
 def test_getting_started_ownership_sentence():
@@ -962,7 +968,7 @@ RENAME_FORGE_REFUSAL = "is a link, is not a folder, or cannot be listed"
 RENAME_FORGE_SURFACES = {
     "src/knowledge/version-paths.md": (2, ('refuses one that is `"mixed"` or a link',
                                            "entries SKF did not write or is a link.")),
-    "src/skf-rename-skill/SKILL.md": (1, ("also holds other files or is a link,",)),
+    "src/skf-rename-skill/SKILL.md": (0, ("also holds other files or is a link,",)),
     "src/skf-rename-skill/references/exit-codes.md": (1, ("or a linked forge folder",)),
     "docs/workflows.md": (2, ("also holds other files or is a link",)),
     "docs/troubleshooting.md": (1, ("(rename also refuses one that is a link)",)),
@@ -1160,7 +1166,7 @@ def test_export_reads_the_manifest_only_through_the_helper():
     assert parse.index("**Read the export manifest**") < parse.index("**Skill Path Discovery")
     assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`): "**Export manifest is corrupt**' in parse
     assert "`python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`" in _read(EXPORT_SNIPPET)
-    assert "python3 {manifestOpsHelper} {skills_output_folder} read" in _section(
+    assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
         _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
     verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 6. ")
     assert "python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}" in verify
@@ -1231,7 +1237,7 @@ def test_rename_rolls_back_only_up_to_the_manifest_rekey():
     assert "as the reason no context file was rebuilt" not in rebuild
     assert "{if context_files_failed is non-empty:}" in _read("src/skf-rename-skill/references/report.md")
     assert "best-effort and never halts" in _read("src/skf-rename-skill/references/exit-codes.md")
-    assert "§7 context-file rebuild is best-effort and never halts" in _read(RENAME_SKILL)
+    assert "§7 context-file rebuild is best-effort and never halts" in _read(RENAME_CONTRACT)
     assert "If any step fails before the final delete" not in _read(RENAME_SELECT)
 
 
@@ -1415,6 +1421,7 @@ def test_drop_and_rename_calls_name_what_the_operation_removed():
 RENAME_REPORT = "src/skf-rename-skill/references/report.md"
 RENAME_HEALTH = "src/skf-rename-skill/references/health-check.md"
 RENAME_EXIT_CODES = "src/skf-rename-skill/references/exit-codes.md"
+RENAME_CONTRACT = "src/skf-rename-skill/references/invocation-contract.md"
 RUN_LOCK_PY = SRC / "shared" / "scripts" / "skf-run-lock.py"
 EMITTER_PY = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
 VALIDATOR_PY = SRC / "skf-rename-skill" / "scripts" / "skf-validate-rename-name.py"
@@ -1727,8 +1734,8 @@ def test_rename_every_halt_site_matches_the_schema_exit_code(tmp_path):
 
 
 def test_rename_contract_lists_the_schema_halt_reasons():
-    skill = _read(RENAME_SKILL)
-    contract = _section(skill, "## Result Contract (Headless)", "## On Activation")
+    assert "## Result Contract" not in _read(RENAME_SKILL), "#600: the headless contract lives in one place"
+    contract = _section(_read(RENAME_CONTRACT), "## Result Contract (Headless)", None)
     listed = set(re.findall(r'`"([a-z-]+)"`', _section(contract, "`halt_reason` is one of:", "(§7")))
     enum = {r for r in _schema()["properties"]["halt_reason"]["enum"] if r is not None}
     assert listed == enum
@@ -1899,7 +1906,10 @@ def test_rename_counts_come_from_the_helper_results():
     assert "across the {number of `renamed_versions`} version(s) it checked" in verify
     # §6's flag and report line say whether the re-key ran, as §9's manifest_rekeyed does.
     manifest = _section(execute, "### 6. Update Export Manifest", "### 7. ")
-    assert "Set context flag `manifest_updated = true` when the helper ran and exited 0, else `false`" in manifest
+    assert "Set context flag `manifest_rekeyed = true` when the helper ran and exited 0, else `false`" in manifest
+    assert "Set `manifest_rekeyed = false` and `manifest_backup = null`" in manifest
+    for rel in (RENAME_EXECUTE, RENAME_REPORT):
+        assert "manifest_updated" not in _read(rel), f"{rel}: one manifest flag name (#600)"
     assert 'When it skipped the call: "**Manifest unchanged:** it has no `exports.{old_name}` entry."' in manifest
 
 
@@ -1941,7 +1951,7 @@ def test_rename_names_the_recovery_after_the_rekey(tmp_path):
     """#587: a rename interrupted after the manifest re-key is named at the next run, with the
     commands that finish it, instead of a dead-end collision that invites a third name."""
     ask = _section(_read(RENAME_SELECT), "### 5. Ask for New Name", "### 6. Source Authority Check")
-    recovery = _section(ask, "**Recovery after the manifest re-key.**", "**If `{renameNameValidator}` cannot run**")
+    recovery = _section(ask, "**Recovery after the manifest re-key.**", None)
     for needle in ("When `interrupted_after_rekey` is true", "`leftover_folders`", "in both modes",
                    'uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" '
                    '--root "{forge_data_folder}" {each path in leftover_folders, quoted}',
@@ -1949,7 +1959,7 @@ def test_rename_names_the_recovery_after_the_rekey(tmp_path):
                    'HALT (exit code 5, `halt_reason: "name-collision"`, `emit-halt` phase `select:validate-new-name`)'):
         assert needle in recovery, needle
     assert "When `interrupted_after_rekey` is true, take the recovery halt below the list, in both modes" in ask
-    # The fingerprint is the validator's: the in-prompt fallback (which W5 removes) does not redo it.
+    # The fingerprint is the validator's: no in-prompt fallback redoes it.
     assert "the fingerprint after the re-key" not in ask
     assert "stopped after re-keying the export manifest" in _read(RENAME_EXIT_CODES)
     # The documented commands on a rename that stopped after the re-key: the validator names the

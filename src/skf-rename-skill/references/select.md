@@ -1,36 +1,18 @@
 ---
 nextStepFile: 'execute.md'
-# Resolve `{manifestOpsHelper}` by probing `{manifestOpsProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §2 reads the manifest with its `read` action (v1 migration and a
-# file that does not parse reported as JSON), and §7 uses its
-# `affected-versions` action to enumerate the versions a rename must touch:
-# the union of manifest version keys and on-disk version dirs, deduped and
-# semver-sorted (numeric, so 0.10.0 precedes 0.9.0). Unlike execute.md's write
-# helpers this one is not atomicity-critical: if neither path resolves, §2
-# and §7 fall back to the prompt.
+# §1 resolves each probe order below (installed SKF module path first,
+# src/ dev-checkout fallback; the first existing path wins).
+# {manifestOpsHelper}: the §2 `read` and the §7 `affected-versions`.
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
-# Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}`
-# (installed SKF module path first, src/ dev-checkout fallback). §3 uses it to
-# enumerate the rename candidates: the union of manifest `exports` and on-disk
-# skill directories, each with its version list, active version and
-# `skf_skill`. §4a runs its `--rename-check`, the rename verdict for the skill
-# folder and its forge folder, so a rename never moves a folder SKF did not
-# generate, and §6 its `resolve` (the version's metadata.json). If neither
-# path resolves, §3 lists manifest skills only and §4a refuses the rename.
+# {skillInventoryHelper}: the §3 listing, §4a `--rename-check`, §6 `resolve`.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-# `{renameNameValidator}` is this skill's own deterministic new-name gate. §5
-# uses it for the format / length / identity / collision checks (one correct
-# answer per (name, filesystem, manifest) state) and the two recovery
-# fingerprints, a rename interrupted before or after its manifest re-key; §5
-# falls back to the same checks in-prompt if Python is unavailable.
+# {renameNameValidator}: this skill's own new-name gate, run in §5.
 renameNameValidator: 'scripts/skf-validate-rename-name.py'
-# §1 resolves `{runLockHelper}` and `{emitEnvelopeHelper}` from these orders;
-# §4b and the halt procedure use them.
+# {runLockHelper} and {emitEnvelopeHelper}: §4b and the halt procedure.
 runLockProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
   - '{project-root}/src/shared/scripts/skf-run-lock.py'
@@ -80,7 +62,7 @@ The halt leaves `{run_dir}` in place.
 
 ### 1. Start the Run
 
-Resolve, as one batch of file-existence checks, `{runLockHelper}` ← first existing path in `{runLockProbeOrder}` and `{emitEnvelopeHelper}` ← first existing path in `{emitEnvelopeProbeOrder}`; both stay bound for the rest of the run. From `{project-root}`, take the run id:
+Resolve, as one batch of file-existence checks, `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`, `{emitEnvelopeHelper}` ← first existing path in `{emitEnvelopeProbeOrder}`, `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` and `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`; all four stay bound for the rest of the run. From `{project-root}`, take the run id:
 
 ```bash
 uv run {runLockHelper} run-id
@@ -95,40 +77,37 @@ for dir in "{run_dir}" "{skills_output_folder}" "{forge_data_folder}"; do
 done
 ```
 
-- When either helper has no existing candidate, or `run-id` exits non-zero or prints no JSON: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:start-run`) with "**Rename Skill cannot start:** {`skf-run-lock.py` is missing, `skf-emit-result-envelope.py` is missing, or the helper's error}. Nothing was changed. Re-install SKF, then re-run." With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.
+- When a helper has no existing candidate, or `run-id` exits non-zero or prints no JSON: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:start-run`) with "**Rename Skill cannot start:** {the missing helper (`skf-run-lock.py`, `skf-emit-result-envelope.py`, `skf-manifest-ops.py` or `skf-skill-inventory.py`), or the helper's error}. Nothing was changed. Re-install SKF, then re-run." With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.
 - When the loop exits non-zero: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:write-probe`, with the folder its stderr names as `path`) with "**Cannot write to `{that folder}`.** Nothing was changed. Check that the path exists as a folder you can write to and that the disk has free space, then re-run."
 
 ### 2. Read Export Manifest
 
-**Resolve `{manifestOpsHelper}`** ← first existing path in `{manifestOpsProbeOrder}`, and read the manifest through it rather than by eye: the helper migrates v1 to v2, normalizes `platforms` to `ides`, and reports a file that does not parse:
+Read the manifest through `{manifestOpsHelper}`, never by eye: it migrates v1 to v2, normalizes `platforms` to `ides`, and reports a file that does not parse:
 
 ```bash
-python3 {manifestOpsHelper} {skills_output_folder} read
+uv run {manifestOpsHelper} {skills_output_folder} read
 ```
 
 - **`status == "error"`** (the file exists but does not parse): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file before renaming." HALT (exit code 3, `halt_reason: "manifest-corrupt"`, `emit-halt` phase `select:read-manifest`, with the manifest as `path`).
 - **`status == "ok"`**: use `result.manifest` (already in the v2 shape) as `manifest` for the rest of this step. Set `manifest_exists = true` when `manifest.exports` has at least one entry, else `false` (a missing file reads back as an empty `exports`). With no entry, §3's on-disk scan is the whole roster: drafted or never-exported skills can still be renamed, and step 2 §6 has no manifest entry to re-key.
-
-**If neither `{manifestOpsProbeOrder}` candidate resolves:** read the manifest file in-prompt: a missing or empty file, or one with no `exports` entries, is `manifest_exists = false`; a file with `exports` entries is `true` (no `schema_version` field means v1: treat each entry as a single active version); a file that is not valid JSON takes the corrupt-manifest HALT above.
+- **No JSON on stdout** (the helper could not run): HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:read-manifest`) with "**Rename Skill cannot read the export manifest:** {the helper's stderr}. Nothing was changed. Re-install SKF, then re-run."
 
 ### 3. List Available Skills
 
-Enumerate every skill available for rename deterministically. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
+Enumerate every skill available for rename deterministically:
 
 ```bash
 uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}
 ```
 
-Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `skf_skill`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle: annotate it "(not in manifest)". The §4a rename check decides whether the skill the user picks can move. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_skf_output}".
+Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `skf_skill`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle: annotate it "(not in manifest)". The §4a rename check decides whether the skill the user picks can move. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_skf_output}". When the call prints no JSON, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:list-skills`) with "**Rename Skill cannot list the skills:** {the helper's stderr}. Nothing was changed. Re-install SKF, then re-run."
 
-**If `{skillInventoryHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): build the list from the manifest `exports` only (if `manifest_exists`), reading each one's `active_version` and version count. Folders on disk that are absent from `exports` are not offered: without the helper SKF cannot check that it generated them, and §4a refuses the rename in this mode.
+**If the list to display is empty** (no `skills[]` entry whose `skf_skill` is true):
 
-**If the list to display is empty** (no `skills[]` entry whose `skf_skill` is true, or, without `{skillInventoryHelper}`, no manifest `exports` entry):
-
-- When `old_name` was supplied as an argument and it is in `{not_skf_output}` (empty without `{skillInventoryHelper}`), take the §4a refusal for a folder SKF did not generate first, in either mode (exit code 5, `halt_reason: "not-skf-output"`, `emit-halt` phase `select:ownership-check`, with `old_name: "{old_name}"` in its payload).
+- When `{old_name_arg}` is set and it is in `{not_skf_output}`, take the §4a refusal for a folder SKF did not generate first, in either mode (exit code 5, `halt_reason: "not-skf-output"`, `emit-halt` phase `select:ownership-check`, with `old_name: "{old_name}"` in its payload).
 - Otherwise halt with "**Rename Skill: nothing to rename.** No skill SKF generated was found in `{skills_output_folder}/`. Run `[CS] Create Skill` first." When `{not_skf_output}` is non-empty, append: "Left untouched (not SKF output): {not_skf_output}." HALT (exit code 3, `halt_reason: "nothing-to-rename"`, `emit-halt` phase `select:list-skills`).
 
-Display the list, one line per skill as `{name} ({n} versions, active: {active_version})` (append "(not in manifest)" for orphans):
+Display the list only when §4 asks for the skill, one line per skill as `{name} ({n} versions, active: {active_version})` (append "(not in manifest)" for orphans):
 
 ```
 **Rename Skill — select target**
@@ -143,15 +122,17 @@ Not offered (not SKF output): my-module-skill
 
 ### 4. Ask Which Skill
 
+**GATE [default: use args]**: When `{old_name_arg}` is set, it is the input below in either mode, and the question is not shown. Otherwise, in `{headless_mode}`, HALT (exit code 2, `halt_reason: "input-missing"`, `emit-halt` phase `select:ask-old-name`): "headless mode requires old_name argument." Otherwise display the §3 list and ask:
+
 "**Which skill would you like to rename?**
 Enter the skill name or its number from the list above, or `cancel` / `exit` / `:q` to abort."
 
-Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]**: If `{headless_mode}` and old skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT (exit code 2, `halt_reason: "input-missing"`, `emit-halt` phase `select:ask-old-name`): "headless mode requires old_name argument."
+Wait for user input. Accept either the numeric index or the skill name (exact match); `{old_name_arg}` must be a name.
 
 - If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: Display "Cancelled: no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`, `emit-halt` phase `select:ask-old-name`).
 - **If the input names a folder in `{not_skf_output}`:** take the §4a refusal for a folder SKF did not generate.
 - **If the user's input does not match any listed skill:**
-  - **Interactive:** Re-display the list and ask again.
+  - **Interactive:** say that it matches no listed skill, display the §3 list and ask again.
   - **Headless (`{headless_mode}` is true):** the supplied `old_name` argument matches no listed skill and there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`, `emit-halt` phase `select:ask-old-name`): "headless mode: old_name argument `{supplied value}` does not match any listed skill."
 
 Store the selection as `old_name`.
@@ -164,18 +145,18 @@ Rename copies the whole `{skills_output_folder}/{old_name}/` folder and its forg
 uv run {skillInventoryHelper} "{skills_output_folder}" --skill {old_name} --rename-check --forge-data-folder "{forge_data_folder}"
 ```
 
-From its `rename_check`, bind `{rename_verdict}` ← `verdict`, `{rename_reason}` ← `reason`, `{rename_detail}` ← `detail`, `{rename_entries}` ← `offending_entries`, `{target_errors}` ← `errors`, `{forge_move}` ← `forge_move`, `{forge_left_in_place}` ← `forge_left_in_place` and `{same_folder}` ← `same_folder`. The helper applies the rules below in order, to the skill folder and, unless both settings name one folder, to its forge folder, and returns the first that refuses. When §3 ran without `{skillInventoryHelper}`, the call exits non-zero, or its result has no `rename_check` (an installed `skf-skill-inventory.py` older than the flag), refuse with rule 1.
+From its `rename_check`, bind `{rename_verdict}` ← `verdict`, `{rename_reason}` ← `reason`, `{rename_detail}` ← `detail`, `{rename_entries}` ← `offending_entries`, `{target_errors}` ← `errors`, `{forge_move}` ← `forge_move`, `{forge_left_in_place}` ← `forge_left_in_place` and `{same_folder}` ← `same_folder`. The helper applies the rules below in order, to the skill folder and, unless both settings name one folder, to its forge folder, and returns the first that refuses. When the call exits non-zero, or its result has no `rename_check` (an installed `skf-skill-inventory.py` older than the flag), refuse with rule 1.
 
 When `{rename_verdict}` is not `"ok"`, display the message of the rule that applies and HALT (exit code 5, `halt_reason: "{rename_verdict}"`, `emit-halt` phase `select:ownership-check`, with `old_name: "{old_name}"` in its payload): `not-skf-output`, or `flat-layout` for rule 4. No lock is held yet (§4b takes it), so the halt releases none.
 
-1. No verdict (no helper, a failed call, or no `rename_check`) → `not-skf-output`: "**SKF cannot check that it generated `{old_name}`** because `skf-skill-inventory.py` is missing, or the installed one has no rename check. Nothing was changed. Re-install SKF and re-run the rename."
+1. No verdict (a failed call, or no `rename_check`) → `not-skf-output`: "**SKF cannot check that it generated `{old_name}`:** the rename check of `skf-skill-inventory.py` failed, or the installed one has none. Nothing was changed. Re-install SKF and re-run the rename."
 2. `{rename_reason}` is `foreign`, `reserved-name` or `absent` (no skill SKF generated at `{skills_output_folder}/{old_name}`) → `not-skf-output`: "**`{old_name}` is not SKF output: nothing was changed.** `{skills_output_folder}/{old_name}/` has no SKF marker in its `metadata.json`, so SKF will not rename it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{old_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When `{target_errors}` is non-empty (for example, the folder is a link), or the reason is `reserved-name` or `absent`, show `{rename_detail}` in place of the marker sentence.
 3. `mixed` → `not-skf-output`: "**`{skills_output_folder}/{old_name}/` also holds entries SKF did not generate:** {rename_entries}. Nothing was changed. Rename moves and then deletes the whole folder, so SKF will not rename it. Move those entries out of the folder and re-run. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
 4. `flat-layout` → `flat-layout`: "**`{old_name}` still uses the flat layout.** Nothing was changed. Rename works on the versioned layout only: run `@Ferris TS {old_name}` (or US, AS or EX) once to move it into that layout, then re-run the rename."
 5. `forge-link`, `forge-not-a-folder` or `forge-unreadable` (the forge folder is a link, is not a folder, or cannot be listed) → `not-skf-output`: "**SKF will not move `{forge_data_folder}/{old_name}`:** {rename_detail}. Nothing was changed." For `forge-link`, add: "SKF never moves or deletes through a link: the copy would take the files from where the link points, and removing the old name or rolling back would empty that folder. Replace the link with the folder it points to, then re-run." Otherwise (the path is not a folder, or SKF cannot list it), add: "Rename moves a forge folder only when it is a folder SKF can read. Move that path out of the way or fix its permissions, then re-run."
 6. `forge-mixed` → `not-skf-output`: "**`{forge_data_folder}/{old_name}/` also holds entries SKF did not generate:** {rename_entries}. Nothing was changed. Rename moves and then deletes the whole forge folder, so SKF will not rename it. Move those entries out of the folder and re-run."
 
-When no rule applies, `{forge_move}` and `{forge_left_in_place}` come from the helper. A link at or above `{forge_data_folder}` itself is the user's configuration; SKF checks the forge folder and everything in it (a linked folder inside it makes it `"mixed"`). Then continue to §4b.
+When no rule applies, `{forge_move}` and `{forge_left_in_place}` come from the helper. Then continue to §4b.
 
 ### 4b. Concurrency Guard
 
@@ -209,25 +190,27 @@ A crashed run's lock goes stale 60 minutes after it was taken or last renewed, s
 
 ### 5. Ask for New Name
 
+**GATE [default: use args]**: When `{new_name_arg}` is set, it is the candidate in either mode, and the question is not shown. Otherwise, in `{headless_mode}`, HALT (exit code 2, `halt_reason: "input-missing"`, `emit-halt` phase `select:ask-new-name`): "headless mode requires new_name argument." Otherwise ask:
+
 "**What is the new name for this skill?**
 The new name must be kebab-case: lowercase alphanumeric with hyphens, 1-64 characters, matching the regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` (starts and ends with a lowercase letter or digit; a single letter or digit is valid). Or type `cancel` / `exit` / `:q` to abort."
 
-Wait for user input. Trim whitespace. **GATE [default: use args]**: If `{headless_mode}` and new_name was provided as argument: use it and auto-proceed through validation. If not provided, HALT (exit code 2, `halt_reason: "input-missing"`, `emit-halt` phase `select:ask-new-name`): "headless mode requires new_name argument."
+Wait for user input. Trim whitespace.
 
 - If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: display "Cancelled: no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`, `emit-halt` phase `select:ask-new-name`).
 
-**Validate the candidate deterministically.** Run `{renameNameValidator}` (a per-skill helper, always shipped with the skill) — it applies format, length, identity, and collision in that order and returns the verdict as JSON:
+**Validate the candidate deterministically** with `{renameNameValidator}`, which applies format, length, identity and collision in that order and returns the verdict as JSON:
 
 ```bash
-python3 {renameNameValidator} \
+uv run {renameNameValidator} \
   --old-name {old_name} --new-name {candidate} \
   --skills-output-folder {skills_output_folder} \
   --forge-data-folder {forge_data_folder}
 ```
 
-The checks: **format** = the kebab regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` (the module's canonical rule, same as `skf-validate-output.py` / `skf-validate-brief-inputs.py`, so a digit-leading name like `3d-tools` renames cleanly); **length** = 1-64 characters (agentskills.io spec); **identity** = differs from `{old_name}`; **collision** = the name is not a manifest `exports` key or an entry in `{skills_output_folder}` or `{forge_data_folder}` (a file or link counts), and not `improvement-queue`.
+When it prints no JSON, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:validate-new-name`) with "**Rename Skill cannot check the new name:** {the validator's stderr}. Nothing was changed. Re-install SKF, then re-run."
 
-Read `valid`, `first_failure`, `checks`, `interrupted_rename`, `interrupted_after_rekey` and `leftover_folders`. If `valid` is true, store the input as `new_name` and proceed to §6. When `interrupted_after_rekey` is true, take the recovery halt below the list, in both modes. Otherwise branch on `first_failure`. Interactive: display the message and re-ask. Headless: HALT with the mapped code:
+Read `valid`, `first_failure`, `checks`, `interrupted_rename`, `interrupted_after_rekey` and `leftover_folders`. If `valid` is true, store the input as `new_name` and proceed to §6. When `interrupted_after_rekey` is true, take the recovery halt below the list, in both modes. Otherwise branch on `first_failure`. Interactive: display the message and ask the question above again, also when the candidate came from `{new_name_arg}`. Headless: HALT with the mapped code:
 
 - **`format`** → "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting and ending with a lowercase letter or digit. Try again." (headless HALT: exit code 2, `halt_reason: "input-invalid"`, `emit-halt` phase `select:validate-new-name`)
 - **`length`** → "**Invalid name length.** The new name must be 1-64 characters. Try again." (headless HALT: exit code 2, `halt_reason: "input-invalid"`, `emit-halt` phase `select:validate-new-name`)
@@ -236,11 +219,9 @@ Read `valid`, `first_failure`, `checks`, `interrupted_rename`, `interrupted_afte
 
 **Recovery after the manifest re-key.** When `interrupted_after_rekey` is true, an earlier rename of `{old_name}` to `{new_name}` stopped between its manifest re-key and its delete, and `leftover_folders` lists the old folders it left. Re-asking would invite a third name and a second copy of the skill, so in both modes display "**An earlier rename of `{old_name}` to `{new_name}` stopped after it moved the export manifest to `{new_name}`.** `{new_name}` is the renamed skill, and these old folders are still on disk: {leftover_folders}. Nothing was changed. If `{old_name}` is not a skill you want to keep, finish that rename: delete them with SKF's checked delete, `uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" --root "{forge_data_folder}" {each path in leftover_folders, quoted}`, then run `[EX] Export Skill` to rebuild the context files that may still name `{old_name}`." and HALT (exit code 5, `halt_reason: "name-collision"`, `emit-halt` phase `select:validate-new-name`).
 
-**If `{renameNameValidator}` cannot run** (Python/`uv` unavailable): apply the same four checks in the same order in the prompt: the kebab regex, the 1-64 length bound, inequality with `{old_name}`, and the collision lookup (the three sources plus the reserved name), plus the interrupted-rename fingerprint: the new name collides only on disk (not in the manifest, not reserved), `{skills_output_folder}/{old_name}` is still a folder, `{skills_output_folder}/{new_name}` is a folder holding nothing a copy of it could not (every entry in it also exists in `{skills_output_folder}/{old_name}`, of the same kind, with at most a version's `{old_name}/` package renamed to `{new_name}/`), and `{forge_data_folder}/{new_name}` exists only when `{forge_data_folder}/{old_name}` does. Use the identical messages and halt mapping.
-
 ### 6. Source Authority Check
 
-Read `source_authority` from the `metadata.json` of the version `resolve` picks (the manifest's `active_version`, or the `active` link's when the manifest lags it), with `{skillInventoryHelper}` from §3:
+Read `source_authority` from the `metadata.json` of the version `resolve` picks (the manifest's `active_version`, or the `active` link's when the manifest lags it):
 
 ```bash
 uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {old_name} --forge-data-folder "{forge_data_folder}"
@@ -260,36 +241,34 @@ registry will still get the original name. Rename is a LOCAL operation only — 
 does not rename anything at the registry.
 ```
 
-Ask: "**Continue anyway?** [Y/N] (or `cancel` / `exit` / `:q` to abort)"
+**GATE [default: HALT in headless]**: When `{acknowledge_official}` is true, `--acknowledge-official` answers this warning for this run in either mode: set `source_authority_override = true` and proceed without asking. Otherwise, in `{headless_mode}`, proceed only when `{forceSourceAuthorityInHeadless}` is true (set `source_authority_override = true`); when it is not, HALT (exit code 5, `halt_reason: "source-authority-blocked"`, `emit-halt` phase `select:source-authority`) with "**`{old_name}` is an official skill** (its `source_authority` is `official`). Nothing was changed. To rename it in a headless run, pass `--acknowledge-official` with the invocation, or set `force_source_authority_in_headless` to `true` in your team or personal customization of skf-rename-skill to approve every headless rename of an official skill." Otherwise ask: "**Continue anyway?** [Y/N] (or `cancel` / `exit` / `:q` to abort)"
 
 Wait for response.
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → display "**Cancelled.** No changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`, `emit-halt` phase `select:source-authority`).
 - **If `Y`** → proceed. Set `source_authority_override = true`.
 
-**Headless behavior:** If `{headless_mode}` is true and `{forceSourceAuthorityInHeadless}` is not `"true"`, HALT (exit code 5, `halt_reason: "source-authority-blocked"`, `emit-halt` phase `select:source-authority`): the safe default protects against silent registry divergence on `published`-tagged skills. When it is `"true"`, auto-proceed and record the decision in the run sink. From `{project-root}`:
+**Record a headless pass.** When `{headless_mode}` is true and the run proceeded past the warning, record the decision in the run sink, with `{source_authority_reason}` ← `--acknowledge-official flag` when `{acknowledge_official}` is true, else `force_source_authority_in_headless override`. From `{project-root}`:
 
 ```bash
 cat > "{run_dir}/decision.json" <<'SKF_DECISION'
-{"gate": "source-authority", "default_action": "halt", "taken_action": "proceed", "reason": "force_source_authority_in_headless override"}
+{"gate": "source-authority", "default_action": "halt", "taken_action": "proceed", "reason": "{source_authority_reason}"}
 SKF_DECISION
 uv run {emitEnvelopeHelper} record --workflow skf-rename-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
 ```
 
-When `record` exits non-zero, the override cannot reach the audit trail: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:source-authority`) with its message.
+When `record` exits non-zero, the decision cannot reach the audit trail: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:source-authority`) with its message.
 
 **If `source_authority` is absent, or any value other than `"official"`:** skip the warning and proceed.
 
 ### 7. Enumerate Affected Versions
 
-Resolve `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (installed SKF module path first, `src/` dev-checkout fallback). Enumerate every version the rename must touch deterministically via its `affected-versions` action:
+Enumerate every version the rename must touch, the manifest's and the ones on disk, through the `affected-versions` action of `{manifestOpsHelper}`:
 
 ```bash
-python3 {manifestOpsHelper} {skills_output_folder} affected-versions {old_name}
+uv run {manifestOpsHelper} {skills_output_folder} affected-versions {old_name}
 ```
 
-Read the JSON result. Store `affected_versions` = `result.affected_versions` and `affected_versions_count` = `result.count`. The helper unions the manifest's `exports.{old_name}.versions` keys with the on-disk version directories under `{skills_output_folder}/{old_name}` (every entry that is not the `active` symlink), so it handles both manifest-tracked and orphaned on-disk versions, deduplicates, and applies a **numeric** semver-descending sort (so `0.10.0` correctly precedes `0.9.0`, which a lexical sort gets wrong). An incomplete union would risk leaving a version internally un-renamed in the new copy — a leftover that step 2 §5 only catches for the versions it was told about.
-
-**If `{manifestOpsHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): compute `affected_versions` in the prompt instead — read every key under `exports.{old_name}.versions` in the manifest, list every directory under `{skills_output_folder}/{old_name}` that is not `active`, union the two sets, and sort descending (newest first, comparing version components numerically). Store the list as `affected_versions` and its length as `affected_versions_count`.
+Store `affected_versions` = `result.affected_versions` (newest first) and `affected_versions_count` = `result.count`. When it prints no JSON, or its `status` is not `"ok"`, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:affected-versions`) with "**Rename Skill cannot list the versions of `{old_name}`:** {its `error`, or the helper's stderr}. Nothing was changed."
 
 Also bind the four outer paths, each without a trailing `/`:
 
