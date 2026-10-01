@@ -613,7 +613,7 @@ def test_docs_give_the_verdicts_the_rollup_returns():
 def test_refine_architecture_documents_the_report_lookup_and_its_halt():
     """RA offers the newest [VS] report it finds, and stops with exit 2 on a report that breaks the contract."""
     init = _read(RA_REFS / "init.md")
-    for token in ("--locate", "`feasibility-report-<slug>-latest.md`", "press Enter to use it",
+    for token in ("--locate", "the `-latest` report", "press Enter to use it",
                   "`--vs-report-path none` answers the report question", 'halt_reason: "input-invalid"',
                   "a `schemaVersion` other than `1.0`", "a second verdict table", "`unknownTokens`"):
         assert token in init, token
