@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  Under `--batch`, a HARD HALT in steps 1 to 7 now ends only its brief even after a context compaction, and from step 3 on it also closes the private source tree, so the batch summary is still written and the remaining briefs still compile.

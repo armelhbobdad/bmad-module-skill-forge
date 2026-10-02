@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  Create Skill's documentation fetch no longer tells a whole-language reference to skip the step that keeps the registry pages and writes the Language Guide index, so the compiled skill keeps its foregrounded Language Guide instead of being assembled as a standard library skill.

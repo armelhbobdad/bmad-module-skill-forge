@@ -87,7 +87,7 @@ To use this skill immediately, add the context snippet to your CLAUDE.md:
 
 ### 5. Result Contract and Post-Completion Hook
 
-Every brief that reaches this step gets its own result contract and `on_complete` call, each brief of a `--batch` run included. A HARD HALT in steps 1 to 7 never reaches this step: it emits its envelope where it fires, by the SKILL.md Workflow Rules, and writes its result file there once step 7 has created `{forge_version}`.
+Every brief that reaches this step gets its own result contract and `on_complete` call, each brief of a `--batch` run included. A HARD HALT in steps 1 to 7 never reaches this step: it emits its envelope where it fires, as its HALT line says, and writes its result file there once step 7 has created `{forge_version}`.
 
 **Write the result contract through the emitter.** `{emitEnvelopeHelper}` (SKILL.md On Activation) writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (a stable path for pipeline consumers; a copy, not a symlink), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it. First read the run sink, from `{project-root}`:
 

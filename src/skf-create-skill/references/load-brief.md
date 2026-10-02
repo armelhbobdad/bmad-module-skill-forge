@@ -10,6 +10,10 @@ preferencesFile: '{sidecar_path}/preferences.yaml'
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
+# HARD HALT helper (Rules).
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -24,6 +28,7 @@ To load and validate the skill-brief.yaml compilation config, resolve the source
 
 - Focus only on loading brief, resolving source, and determining tier — do not begin extraction or compilation
 - Write nothing but the brief's run folder (§0) and the decisions recorded in it: this step loads and validates
+- A HARD HALT emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 

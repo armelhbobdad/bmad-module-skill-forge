@@ -8,6 +8,10 @@ healthCheckStepFile: 'health-check.md'
 quickBatchProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-quick-batch.py'
   - '{project-root}/src/shared/scripts/skf-quick-batch.py'
+# HARD HALT helper (Execution).
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -18,7 +22,7 @@ With `--batch`, create-skill compiles every brief the paths after the flag name,
 
 ## Execution
 
-Resolve `{quickBatchHelper}` ← the first existing path in `{quickBatchProbeOrder}`. The helper names the batch run folder, `{batch_dir}`, after the briefs: the same briefs always get the same folder, so a batch a session ended mid-way is found again (run `--batch` with the same briefs and it goes on with the brief it was working on, which compiles again from the start), and a batch of other briefs, from another terminal, never touches it. After a compaction, `{batch_dir}` is the parent folder of the brief's `{run_dir}`, and §1's `start` run again with the same briefs prints it without changing the batch.
+Resolve `{quickBatchHelper}` ← the first existing path in `{quickBatchProbeOrder}`, and `{emitEnvelopeHelper}`, which every HARD HALT here emits through, ← the first existing path in `{emitEnvelopeProbeOrder}` when it is not bound. The helper names the batch run folder, `{batch_dir}`, after the briefs: the same briefs always get the same folder, so a batch a session ended mid-way is found again (run `--batch` with the same briefs and it goes on with the brief it was working on, which compiles again from the start), and a batch of other briefs, from another terminal, never touches it. After a compaction, `{batch_dir}` is the parent folder of the brief's `{run_dir}`, and §1's `start` run again with the same briefs prints it without changing the batch.
 
 ### 1. Start the Batch
 
@@ -56,7 +60,7 @@ If it exits non-zero (the brief's run folder cannot be created, or the batch fil
 
 ### 3. Record the Brief
 
-Every brief ends here: step 8 §6 sends a finished brief here, and every HARD HALT of steps 1 to 7 returns here after its envelope (the SKILL.md Workflow Rules). Control returns here even when the step that ended the brief reads as the end of the run. Record it:
+Every brief ends here: step 8 §6 sends a finished brief here, and every HARD HALT of steps 1 to 7 returns here after its envelope (each stage's Rules say so). Control returns here even when the step that ended the brief reads as the end of the run. Record it:
 
 ```bash
 uv run {quickBatchHelper} record --run-dir "{batch_dir}" --batch {batch} --target stderr

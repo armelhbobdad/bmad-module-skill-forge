@@ -602,7 +602,9 @@ class TestComponentExtractionProse:
         assert '--files-from "{scan_list}"' in call
         assert 'pass `--brief "{brief_file}"` in place of `--files-from "{scan_list}"`' in phase_4
         assert "A `missing` or `unreadable` issue is a listed file the runner could not read" in phase_4
-        fallback = phase_4[phase_4.index("**On exit 1, 2 or 3"):phase_4.index("**Step 1 ")]
+        # it acts on the JSON's status, as the protocol does, never on the exit code
+        assert "Act on the JSON's `status`, never on the exit code." in phase_4
+        fallback = phase_4[phase_4.index("**On `no-ast-grep`"):phase_4.index("**Step 1 ")]
         assert "load `{extractionPatternsData}`" in fallback
         assert "AST Extraction Protocol" in fallback
 

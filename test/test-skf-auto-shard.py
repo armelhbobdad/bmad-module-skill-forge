@@ -114,7 +114,8 @@ class TestNoManualFallback:
 
     def test_halts_emit_the_envelope(self, text: str) -> None:
         body = text.split("\n---\n", 1)[1]
-        halts = [line for line in body.splitlines() if "HARD HALT" in line]
+        # the halt sites; the Rules bullet that every one of them follows names no reason of its own
+        halts = [line for line in body.splitlines() if "**HARD HALT**" in line]
         assert len(halts) == 3, halts
         for reason in ("`helper-missing`", "`tier1-not-preserved`", "`shard-xref-broken`"):
             line = next(h for h in halts if reason in h)

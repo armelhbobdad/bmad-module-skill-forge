@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  A component-library skill's `extraction-rules.yaml` now records the `component-library` recipe set and the recipes the runner ran, and its extraction inventory carries the runner's exports, counts and warnings as the runner wrote them.

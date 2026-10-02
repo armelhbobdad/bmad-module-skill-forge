@@ -25,6 +25,11 @@ These tests keep the steps on the scripts:
 - §2 builds the filtered file list by hand only where a step reads it, and
   §4b and §5 read the runner's entry-point diff, aggregates and truncation
   flag, and compile §4 its counts and arms, never a hand count;
+- step 3d's component-library runner writes to the same {extraction_json},
+  which §2b binds and removes for every brief, outside the scratch folder
+  step 3d removes, so §5's `init` seeds a component library's inventory and
+  extraction rules from it too, and step 3d acts on its `status`, never its
+  exit code (step 5b determinism-1);
 - the protocol runs the runner where a step gives its command, so a step
   that gives none (audit-skill's re-index) still runs the recipes; a CCC
   ranking orders only the files read one at a time, which every file that
@@ -42,8 +47,10 @@ runner call that fails on its input leaves no JSON, so a stale one is never
 read. With the pinned ast-grep on PATH, the documented runner call extracts
 a small tree (a top-level `test_x.py` falls to `**/test_*`), reads no file
 of a `language: java` brief, every runner field the prose reads is in its
-JSON, a public name past the head cap comes back as an extraction gap, and
-the relabel rule's `kind-at` call finds the recipe's kind.
+JSON, a public name past the head cap comes back as an extraction gap, the
+documented step 3d call's JSON seeds a component library's inventory and
+extraction rules, and the relabel rule's `kind-at` call finds the recipe's
+kind.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -68,6 +75,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC = REPO_ROOT / "src"
 REFS = SRC / "skf-create-skill" / "references"
 EXTRACT = REFS / "extract.md"
+COMPONENT = REFS / "component-extraction.md"
 COMPILE = REFS / "compile.md"
 VALIDATE = REFS / "validate.md"
 PATTERNS = REFS / "extraction-patterns.md"
@@ -76,6 +84,7 @@ KNOWLEDGE = SRC / "knowledge"
 SCRIPTS = SRC / "shared" / "scripts"
 RUNNER = SCRIPTS / "skf-extract-public-api.py"
 VERIFIER = SCRIPTS / "skf-verify-provenance-completeness.py"
+INVENTORY = SCRIPTS / "skf-extraction-inventory.py"
 
 # every step that binds the patterns file binds it to a path that resolves
 # from {project-root}, where `kind-at` reads it, as update-skill's write.md does
@@ -183,10 +192,15 @@ def _block(text: str, prefix: str) -> list[str]:
 
 
 def _binding(text: str, name: str) -> str:
-    """What the prose binds `{name}` to: bind `{name}` ← `<value>`."""
-    found = re.findall(r"bind `\{" + re.escape(name) + r"\}` ← `([^`]+)`", text)
+    """What the prose binds `{name}` to: `{name}` ← `<value>`."""
+    found = re.findall(r"`\{" + re.escape(name) + r"\}` ← `([^`]+)`", text)
     assert len(found) == 1, f"expected one binding of {{{name}}}, found {found}"
     return found[0]
+
+
+def _extraction_json() -> str:
+    """The runner JSON's path, which §2b's start clean binds for §4 and step 3d."""
+    return _binding(_section(EXTRACT, "2b"), "extraction_json")
 
 
 def _fill(command: str, values: dict[str, str]) -> list[str]:
@@ -271,8 +285,11 @@ def test_section_4_runs_the_protocol_through_the_runner() -> None:
     tiers = re.findall(r"`(Quick|Forge\+?|Deep)`", _read(REFS / "load-brief.md"))
     assert set(tiers) == set(RUNNER_MOD.TIERS), tiers
     assert "resolve `{extractPublicApiHelper}` ← first existing path in `{extractPublicApiProbeOrder}`" in four
-    # the runner's JSON sits beside the staging folder, never in the skill
-    assert _binding(four, "extraction_json") == STAGE + "{skill-name}.extraction.json"
+    # the runner's JSON sits beside the staging folder, never in the skill; §2b binds it
+    assert _extraction_json() == STAGE + "{skill-name}.extraction.json"
+    assert "`{extraction_json}` ←" not in four
+    assert ("it writes `{extraction_json}` (bound in §2b, beside the staging folder step 5 creates, never inside "
+            "the skill)") in four
     # the step acts on the JSON, never on the exit code, and points at the one list of fallback cases
     assert ("A JSON at `{extraction_json}` after the call is this call's: read it, in parts when it is large, "
             "and act on its `status` and fields") in four
@@ -292,7 +309,7 @@ def test_section_4_makes_the_folder_and_removes_a_stale_json() -> None:
     block = _block(four, RUNNER_CALL)
     assert block[:2] == [MKDIR_CALL, RM_EXTRACTION] and block[2].startswith(RUNNER_CALL), block
     folder = shlex.split(MKDIR_CALL)[2]
-    assert _binding(four, "extraction_json").rpartition("/")[0] == folder
+    assert _extraction_json().rpartition("/")[0] == folder
     assert ("create that folder (the runner creates no folder) and remove the JSON an earlier run left there, "
             "then call the runner") in four
 
@@ -421,6 +438,67 @@ def test_inventory_counts_come_from_the_runner() -> None:
             "`source_line`, `citation`, `ast_recipe`, `ast_node_type` and `export_type`)") in five
     assert "The summary's `counts` give §6 its numbers" in five
     assert "{warnings: the inventory's `warnings`}" in _section(EXTRACT, "6")
+
+
+def _phase_4() -> str:
+    """component-extraction.md's Phase 4, where step 3d runs the component-library recipes."""
+    return _slice(_read(COMPONENT), "### Phase 4: Props-First Extraction", "### Phase 5:")
+
+
+def test_step_3d_writes_the_runner_json_step_3_seeds_from() -> None:
+    """Step 5b determinism-1: step 3d's runner writes to the {extraction_json}
+    §5 passes to `init --extraction`, beside the staging folder and outside
+    the scratch folder Phase 6 removes, so `init` seeds a component library's
+    inventory with the runner's exports, counts and extraction rules, and the
+    model sends only what it read by eye, the Props fields and the catalog.
+    §2b binds the path and removes it for every brief, so a JSON there is
+    this run's even when no runner candidate resolves."""
+    phase_4 = _phase_4()
+    assert "`{extraction_json}` ←" not in phase_4
+    assert "it writes `{extraction_json}`, which step 3 §2b bound beside the staging folder" in phase_4
+    assert _extraction_json() == STAGE + "{skill-name}.extraction.json"
+    assert 'rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" ' in _section(EXTRACT, "2b")
+    block = _block(phase_4, RUNNER_CALL)
+    assert block[:2] == [MKDIR_CALL, RM_EXTRACTION] and block[2].startswith(RUNNER_CALL), block
+    call = block[2]
+    assert call.endswith('-o "{extraction_json}"') and "--recipe-set component-library" in call, call
+    _parses(RUNNER_MOD._build_parser(), _fill(call, {
+        "extractPublicApiHelper": "runner.py", "source_root": "src", "scan_list": "files.txt", "tier": "Forge",
+        "extraction_json": "out.json"}))
+    text = _read(COMPONENT)
+    assert "{component_scan}/extraction.json" not in text
+    assert "Phase 4's runner JSON at `{extraction_json}`" in _slice(text, "## Rules", "## MANDATORY SEQUENCE")
+    five = _section(EXTRACT, "5")
+    assert ("Pass `--extraction` when §4's runner, or step 3d's Phase 4 for a component library, left a JSON at "
+            "`{extraction_json}`") in five
+    assert "with the labels step 3d gave them" not in five
+    assert ("A component library (§2c) sends here only the exports step 3d read by eye (Quick tier, a `file_issues` "
+            "file, or the runner's fallback); it sends each Props interface's fields with `patch` as `params`, and "
+            "`component_catalog` with `set`.") in five
+    assert ("for each function export whose `params` the runner left null (and each Props interface of a component "
+            "library)") in five
+    six = _slice(text, "### Phase 6:", "## RETURN PROTOCOL")
+    assert "keep the aggregate counts below in context for step 5's `metadata.json` stats" in six
+    assert "- `params`: each field as `{name, type, default, optional, description}`, sent with `patch`" in six
+
+
+def test_step_3d_acts_on_the_runner_status() -> None:
+    """Step 3d reads the runner's JSON as extract §4 does: by its `status`,
+    never its exit code, so an `incomplete` run keeps its exports (which §5
+    seeds) and no recipe runs again by hand; and the runner's warnings reach
+    Gate 2 once, through `init`, so Phase 6 composes no head-cap message."""
+    phase_4 = _phase_4()
+    assert "Act on the JSON's `status`, never on the exit code. **On `ok` or `incomplete`**" in phase_4
+    assert "On exit" not in phase_4
+    assert ("**On `no-ast-grep`, or with no JSON at `{extraction_json}`** (an input error, or no candidate "
+            "resolves): load `{extractionPatternsData}`") in phase_4
+    assert ("Step 3 §5's `init` records the runner's warnings, and Gate 2 shows them: the head-cap warning when "
+            "`truncated` is true") in phase_4
+    text = _read(COMPONENT)
+    assert "Phase 6 says so" not in text
+    assert "head cap" not in _slice(text, "### Phase 6:", "## RETURN PROTOCOL")
+    # the protocol's own status rule, which step 3d follows
+    assert "Act on its `status`, not its exit code" in _read(PATTERNS)
 
 
 # --------------------------------------------------------------------------
@@ -811,7 +889,7 @@ def _runner_output(tmp_path: Path, tree: dict[str, str] = SOURCE_TREE, extra: tu
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_bytes(text.encode("utf-8"))
     four = _section(EXTRACT, "4")
-    out = _binding(four, "extraction_json").replace("{project-root}", tmp_path.as_posix())
+    out = _extraction_json().replace("{project-root}", tmp_path.as_posix())
     out = out.replace("{skill-name}", "demo")
     # the folder the documented `mkdir -p` makes, and nothing more
     mkdir = _fill(_call(four, "mkdir -p "), {"project-root": tmp_path.as_posix()})
@@ -913,6 +991,74 @@ def test_every_runner_field_the_prose_reads_is_in_its_json(tmp_path: Path) -> No
     assert documented, "the runner documents no status"
     statuses = _slice(patterns, "Act on its `status`, not its exit code:", "\n").split(":", 1)[1]
     assert set(re.findall(r"`([a-z-]+)`, ", statuses)) == set(re.findall(r'"([a-z-]+)"', documented.group(1)))
+
+
+COMPONENT_TREE = {
+    "components/ui/button.tsx": ("export interface ButtonProps {\n  variant?: string\n}\n\n"
+                                 "export function Button(props: ButtonProps) {\n  return null\n}\n"),
+    "components/ui/card.tsx": ("interface CardProps {\n  title: string\n}\n\n"
+                               "const Card = (props: CardProps) => null\n\nexport { Card }\nexport type { CardProps }\n"),
+}
+
+
+@needs_ast_grep
+def test_the_component_runner_json_seeds_the_inventory(tmp_path: Path) -> None:
+    """The documented step 3d block, then §5's `init --mode component-library
+    --extraction`: the inventory holds the runner's exports, counts and
+    warnings as it wrote them, a Props interface takes its fields through
+    `patch` (its JSDoc description included, which the Tier 2 Props table
+    reads), and step 7's `rules` writes the component-library recipe set
+    and the recipes the runner ran into extraction-rules.yaml."""
+    root = tmp_path / "source"
+    for rel, text in COMPONENT_TREE.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+    scan_list = tmp_path / "kept.txt"
+    scan_list.write_bytes("".join(f"{rel}\n" for rel in COMPONENT_TREE).encode("utf-8"))
+    phase_4 = _phase_4()
+    out = _extraction_json().replace("{project-root}", tmp_path.as_posix())
+    out = out.replace("{skill-name}", "demo")
+    Path(_fill(_call(phase_4, "mkdir -p "), {"project-root": tmp_path.as_posix()})[2]).mkdir(parents=True)
+    _rm(_call(phase_4, "rm -f "), {"extraction_json": out})
+    words = _fill(_call(phase_4, RUNNER_CALL), {
+        "extractPublicApiHelper": "runner.py", "source_root": root.as_posix(), "scan_list": scan_list.as_posix(),
+        "tier": "Forge", "extraction_json": out})
+    result = _run(words, RUNNER, tmp_path)
+    assert result.returncode == 0, result.stderr
+    runner = json.loads(Path(out).read_text(encoding="utf-8"))
+    assert runner["recipe_set"] == "component-library" and runner["exports"], runner["status"]
+
+    inventory = tmp_path / "_bmad-output" / ".skf-stage" / "demo.inventory.json"
+
+    def _helper(*args: str, stdin: str | None = None) -> dict:
+        proc = subprocess.run([sys.executable, str(INVENTORY), *args, "--inventory", str(inventory)], input=stdin,
+                              capture_output=True, text=True, encoding="utf-8", cwd=tmp_path, check=False)
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+    _helper("init", "--skill", "demo", "--mode", "component-library", "--tier", "Forge", "--extraction", out)
+    data = json.loads(inventory.read_text(encoding="utf-8"))
+    assert data["exports"] == runner["exports"]
+    assert (data["counts"], data["arms"], data["files_scanned"]) == (runner["counts"], runner["arms"],
+                                                                     runner["files_in_scope"])
+    assert data["extraction_rules"]["recipe_set"] == "component-library"
+    assert data["extraction_rules"]["recipes"] == [r["id"] for r in runner["recipes"]]
+    props = next(e for e in data["exports"] if e["export_name"] == "ButtonProps")
+    fields = [{"name": "variant", "type": "string", "default": None, "optional": True,
+               "description": "The look of the button."}]
+    patched = _helper("patch", stdin=json.dumps([{"export_name": "ButtonProps", "source_file": props["source_file"],
+                                                  "params": fields}]))
+    assert (patched["patched"], patched["unmatched"], patched["ambiguous"]) == (1, [], [])
+    data = json.loads(inventory.read_text(encoding="utf-8"))
+    assert next(e for e in data["exports"] if e["export_name"] == "ButtonProps")["params"] == fields
+    rules_target = tmp_path / "extraction-rules.yaml"
+    proc = subprocess.run([sys.executable, str(INVENTORY), "rules", "--inventory", str(inventory), "--language",
+                           "typescript", "--target", str(rules_target)], capture_output=True, text=True,
+                          encoding="utf-8", cwd=tmp_path, check=False)
+    assert proc.returncode == 0, proc.stderr
+    rules = yaml.safe_load(rules_target.read_text(encoding="utf-8"))
+    assert (rules["extraction_mode"], rules["recipe_set"]) == ("component-library", "component-library")
+    assert "react-props-interfaces" in rules["recipes"] and rules["ast_grep_version"]
 
 
 @needs_ast_grep

@@ -16,6 +16,13 @@
   nothing fetched halts before compile (docs-unreachable).
 - Under --batch a HARD HALT ends only its brief, and batch-mode.md's halts
   before the first brief carry their own phase (#585, #594).
+- Every stage that can halt after step 3 §2b states in its own Rules that
+  the halt closes the private source tree and, under --batch, returns to
+  batch-mode.md §3, and binds both helpers it needs for that, so a halt after
+  a compaction that dropped SKILL.md still ends only its brief; step 1 and
+  batch-mode.md bind the emitter too (step 5b architecture-1).
+- Gate 2 and both zero-export gates offer [R] Refine the brief, a HARD HALT
+  with halted-for-brief-refinement (step 5b enhancement-1).
 - validate §4 splits the body by one rule set (#600), and customize.toml
   names its override files by {project-root} and says how to drop the
   persistent_facts default (#596).
@@ -30,6 +37,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 CS = REPO / "src" / "skf-create-skill"
@@ -45,6 +53,17 @@ EMIT_HALT_RESULT = ('`uv run {emitEnvelopeHelper} emit-halt --workflow skf-creat
 HALT_RE = re.compile(r"\*\*HARD HALT\*\* \(exit code (\d), `([^`]+)`, phase `([a-z-]+)`")
 PHASES = {"load-brief", "extract", "component-extraction", "fetch-docs", "compile", "doc-sources", "auto-shard",
           "validate", "generate-artifacts", "batch-mode"}
+# The stages whose HARD HALTs can fire once step 3 §2b has bound the private
+# source tree. load-brief.md halts before it, batch-mode.md is the loop the
+# halts return to, and extract.md runs the authoritative-files protocol under
+# its own Rules.
+TREE_HALT_STAGES = ("extract.md", "sub/fetch-docs.md", "compile.md", "step-doc-sources.md", "step-auto-shard.md",
+                    "validate.md", "generate-artifacts.md")
+TREE_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py",
+              "{project-root}/src/shared/scripts/skf-source-tree.py"]
+EMIT_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py",
+              "{project-root}/src/shared/scripts/skf-emit-result-envelope.py"]
+BATCH_RETURN = "return to `references/batch-mode.md` §3, even when the halt reads as the end of the run"
 
 
 def _read(path: Path) -> str:
@@ -61,6 +80,15 @@ def _body(path: Path) -> str:
 def _section(text: str, start: str, end: str | None) -> str:
     begin = text.index(start)
     return text[begin:text.index(end, begin + len(start))] if end else text[begin:]
+
+
+def _frontmatter(path: Path) -> dict:
+    text = _read(path)
+    return yaml.safe_load(text[4:text.index("\n---\n", 4)])
+
+
+def _rules(path: Path) -> str:
+    return _section(_body(path), "## Rules", "## MANDATORY SEQUENCE")
 
 
 def _schema() -> dict:
@@ -134,6 +162,77 @@ def test_every_schema_reason_has_a_halt_site():
     for reason in _exit_codes():
         assert (reason in used or (reason in ("brief-malformed", "brief-invalid") and f"`{reason}`" in load_brief)
                 or (reason in ("not-skf-output", "flat-layout") and f'halt_reason: "{reason}"' in generate)), reason
+
+
+def test_every_halting_stage_closes_the_tree_and_returns_to_the_batch():
+    """Step 5b architecture-1: a halt in steps 3 to 7 works without SKILL.md,
+    which a compaction in a long --batch run can drop. Each stage's own Rules
+    close the private source tree and send the halt back to batch-mode.md §3,
+    and its frontmatter binds the tree helper and the emitter again, so the
+    halt ends only its brief and the batch still writes its summary. Step 1,
+    which halts before the tree exists, and batch-mode.md, the loop every
+    halt returns to, bind the emitter the same way."""
+    halting = {path.relative_to(REFS).as_posix() for path, _ in _halt_lines()}
+    assert halting - {"batch-mode.md", "load-brief.md", "authoritative-files-protocol.md"} == set(TREE_HALT_STAGES)
+    for name in TREE_HALT_STAGES:
+        rules = [line for line in _rules(REFS / name).splitlines()
+                 if line.startswith("- A HARD HALT, once step 3 §2b has bound `{source_tree}`")]
+        assert len(rules) == 1, name
+        for token in ('first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` '
+                      "(resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints",
+                      "emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not "
+                      "bound", f"After its envelope, under `--batch` it ends only this brief: {BATCH_RETURN}."):
+            assert token in rules[0], (name, token)
+        frontmatter = _frontmatter(REFS / name)
+        assert frontmatter["sourceTreeProbeOrder"] == TREE_PROBE, name
+        assert frontmatter["emitEnvelopeProbeOrder"] == EMIT_PROBE, name
+    # step 1 halts before the tree exists, but its halts find the emitter and, under --batch, end only the brief
+    load_brief = [line for line in _rules(REFS / "load-brief.md").splitlines() if line.startswith("- A HARD HALT")]
+    assert load_brief == ["- A HARD HALT emits through `{emitEnvelopeHelper}`, resolved from "
+                          "`{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` "
+                          f"it ends only this brief: {BATCH_RETURN}."], load_brief
+    # batch-mode.md, the loop every halt returns to, halts through the emitter too
+    execution = _section(_read(REFS / "batch-mode.md"), "## Execution", "### 1.")
+    assert ("`{emitEnvelopeHelper}`, which every HARD HALT here emits through, ← the first existing path in "
+            "`{emitEnvelopeProbeOrder}` when it is not bound") in execution
+    for name in ("load-brief.md", "batch-mode.md"):
+        assert _frontmatter(REFS / name)["emitEnvelopeProbeOrder"] == EMIT_PROBE, name
+    record = _section(_read(REFS / "batch-mode.md"), "### 3. Record the Brief", "### 4.")
+    assert "every HARD HALT of steps 1 to 7 returns here after its envelope (each stage's Rules say so)" in record
+    five = _section(_read(REFS / "report.md"), "### 5. Result Contract", "### 6.")
+    assert "it emits its envelope where it fires, as its HALT line says" in five
+    for path in STEP_FILES:
+        assert "SKILL.md Workflow Rules" not in _read(path), path.name
+
+
+def test_the_refine_exit_stops_the_run_at_both_zero_export_gates():
+    """Step 5b enhancement-1: Gate 2, when it shows the zero-export or the
+    head-cap warning, and step 3c's zero-export gate offer [R] Refine the
+    brief, a HARD HALT with halted-for-brief-refinement (exit 6) that names
+    the fix. The stage's Rules close the tree first and, under --batch, end
+    only the brief; a headless run keeps the [C] default."""
+    extract = _read(REFS / "extract.md")
+    six = _section(extract, "### 6. Present Extraction Summary", "### 7.")
+    assert "**[C] Continue anyway**: compile an empty surface (default)\n**[R] Refine the brief**: stop here\"" in six
+    assert '"gate": "zero-exports", "decision": "C"' in six
+    seven = _section(extract, "### 7. Gate 2", None)
+    assert ("When §6 showed the zero-export or the head-cap warning, also offer **[R] Refine the brief**: stop "
+            "here. **GATE [default: continue]**") in seven
+    assert '"gate": "review-gate", "decision": "continue"' in seven
+    docs = _read(REFS / "sub" / "fetch-docs.md")
+    zero = next(line for line in docs.splitlines() if line.startswith('- **`source_type: "source"`, `counts.exports` is 0'))
+    assert "offer **[C] Continue anyway** or **[R] Refine the brief**: stop here. **GATE [default: C]**" in zero
+    # step 3c also names `doc_urls`: every fetch of it failed there
+    for text, phase, fix in ((seven, "extract", "`scope.include` or `target_version`"),
+                             (zero, "fetch-docs", "`scope.include`, `target_version` or `doc_urls`")):
+        halt = next(line for line in text.splitlines() if "`halted-for-brief-refinement`" in line)
+        match = HALT_RE.search(halt)
+        assert match and match.groups() == ("6", "halted-for-brief-refinement", phase), halt[:90]
+        assert EMIT_HALT in halt
+        assert f"Fix {fix} in the brief (or re-run `skf-brief-skill`), then re-run `skf-create-skill`." in halt
+    assert _exit_codes()["halted-for-brief-refinement"] == 6
+    gates = next(line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |"))
+    assert "step 3: Review Gate [C]/[R]" in gates and "step 3c: Zero-Export Gate [C]/[R]" in gates
 
 
 def test_the_promotion_and_post_promotion_halts_write_their_result_file():
@@ -349,9 +448,10 @@ def test_the_documented_result_payload_is_schema_valid(tmp_path):
 def test_the_inventory_is_written_at_the_end_of_extraction():
     extract = _read(REFS / "extract.md")
     assert "extraction stays in context" not in extract
-    assert ("Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json` "
-            "and `{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json`, and run "
-            '`rm -f "{extraction_inventory}" "{detected_json}" '
+    assert ("Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, "
+            "`{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json` and "
+            "`{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, and run "
+            '`rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" '
             '"{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json"`') in extract
     five = _section(extract, "### 5. Build Extraction Inventory", "### 6.")
     helper = 'uv run {extractionInventoryHelper} '
@@ -423,6 +523,11 @@ def test_the_language_guide_is_an_index_of_kept_pages():
     assert '{"docs_folder": "{docs_staging}", "language_guide": [{"url": "...", "label": "...", "pages": ["page-1.md"]}]}' \
         in four_a
     assert '"prose": "..."' not in four_a
+    # §4 sends a whole-language reference's registry corpora to §4a, the index's only writer (step 5b leanness-1)
+    four = _section(docs, "### 4. Extract API Information", "### 4a.")
+    assert "skip §4a" not in docs
+    assert ("So for these briefs, extract no per-export items from the registry corpora (`source: language-registry`): "
+            "§4a below keeps their pages as the Language Guide.") in four
     five_c = _section(docs, "### 5c.", "### 6.")
     assert "and the brief is not a whole-language reference** (`whole_language_reference` false)" in five_c
     compile_one = _section(_read(REFS / "compile.md"), "### 1. Load Data Files", "### 1a.")

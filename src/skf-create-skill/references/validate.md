@@ -67,6 +67,13 @@ relabelRuleData: 'references/relabel-rule.md'
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
   - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
+# HARD HALT helpers (Rules).
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -85,6 +92,7 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 - If skill-check unavailable: skip validation, add warning to evidence report
 - Ignore non-zero exit codes from skill-check if JSON output shows 0 errors
 - Tessl Review (§6b) is optional and advisory: it never halts, never asks the user anything and never changes the staged files, and SKF applies none of its suggestions
+- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
