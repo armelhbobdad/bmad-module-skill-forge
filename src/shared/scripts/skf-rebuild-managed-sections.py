@@ -63,9 +63,17 @@ Action-first actions (the action name comes first):
                 skipped and listed in `malformed_files`; an unreadable one is
                 an error.
   root-probe <snippet-file>... --reference-root .claude/skills/
+             [--project-root DIR]
                 Read each snippet's first line, parse its `root:` prefix
                 (trailing `{skill-name}/` stripped), collect the unique
-                `observed_prefixes`, and flag `mismatch` against the reference.
+                `observed_prefixes`, and flag `mismatch` against the reference,
+                with the skills that differ in `mismatched_skills`. A draft
+                root (`skills/{skill-name}/`, which every workflow that builds
+                a skill writes before an export chooses the real one) counts
+                as no evidence: its skill is listed in `draft_roots`. With
+                --project-root, `disk_root` names the root under DIR that
+                holds every mismatched skill's SKILL.md (the reference first,
+                then the one observed prefix), or is null.
   assemble <context-file> --skills-folder DIR --skill-root PREFIX
            [--skill-root-override PREFIX] [--include NAME@VERSION]...
            [--snippet NAME=FILE]... [--snippet-dir DIR] [--renamed OLD:NEW]
@@ -157,6 +165,11 @@ ROW_HEADER_PATTERN = re.compile(
 )
 # The `root:` field of a snippet's first line: `…|root: {prefix}{skill-name}/`.
 SNIPPET_ROOT_PATTERN = re.compile(r"root:\s*(?P<root>\S.*?)\s*$")
+# The draft root create-skill, create-stack-skill, quick-skill and update-skill
+# write into every snippet they build, whatever the project's layout, and the
+# legacy form older drafts carry. Export replaces it, so root-probe reads it
+# as no evidence of where an export pointed the skill.
+DRAFT_ROOT_FORMS = ("skills/{name}/", "skills/{name}/active/{name}/")
 # The line only the stack snippet template has.
 STACK_LINE_PATTERN = re.compile(r"^\|stack:", re.MULTILINE)
 
@@ -590,15 +603,33 @@ def cmd_orphan_detect(context_files, exported_skills):
     return {"status": "ok", "orphan_managed_rows": orphan_rows, "malformed_files": malformed}
 
 
-def cmd_root_probe(snippet_files, reference_root):
+def _holds_skill(project_root, prefix, name):
+    """True when the folder `prefix` names under `project_root` holds `name`'s
+    SKILL.md: flat, as `npx skills add` installs it, or through the `active`
+    link of SKF's versioned layout."""
+    base = Path(project_root, prefix, name)
+    return (base / "SKILL.md").is_file() or (base / "active" / name / "SKILL.md").is_file()
+
+
+def cmd_root_probe(snippet_files, reference_root, project_root=None):
     """Observe snippet root prefixes and flag mismatch against a reference.
 
     Reads the first line of each snippet that exists, parses its `root:` value,
     strips the trailing `{skill-name}/` to recover the prefix, and collects the
-    unique prefixes. `mismatch` is True when any observed prefix differs from
-    `reference_root`. Deterministic: observed_prefixes sorted.
+    unique prefixes. A root in the draft form (DRAFT_ROOT_FORMS) is no
+    evidence of where an export pointed the skill: the snippet is left out and
+    its skill listed in `draft_roots`. `mismatch` is True when any observed
+    prefix differs from `reference_root`, and `mismatched_skills` names the
+    skills whose prefix does. Deterministic: every list sorted.
+
+    With `project_root`, `disk_root` says which folder on disk holds the
+    mismatched skills: `reference_root` when it holds every one, else the one
+    observed prefix when only one was observed and it holds every one, else
+    None (also when nothing mismatched).
     """
     observed = set()
+    drafts = set()
+    mismatched = []  # (skill name or None, prefix)
     for sf in snippet_files:
         content, err = read_context_file(sf)
         if err:
@@ -607,21 +638,38 @@ def cmd_root_probe(snippet_files, reference_root):
         header = ROW_HEADER_PATTERN.match(first_line)
         root_match = SNIPPET_ROOT_PATTERN.search(first_line)
         if not root_match:
-            continue  # no root: field — skip
+            continue  # no root: field, skip
         root_value = root_match.group("root")
+        name = header.group("name") if header else None
+        if name and root_value in {form.format(name=name) for form in DRAFT_ROOT_FORMS}:
+            drafts.add(name)
+            continue
         prefix = root_value
-        if header:
-            suffix = header.group("name") + "/"
-            if root_value.endswith(suffix):
-                prefix = root_value[: -len(suffix)]
+        if name and root_value.endswith(name + "/"):
+            prefix = root_value[: -len(name + "/")]
         observed.add(prefix)
+        if prefix != reference_root:
+            mismatched.append((name, prefix))
     observed_prefixes = sorted(observed)
-    return {
+    result = {
         "status": "ok",
         "reference_root": reference_root,
         "observed_prefixes": observed_prefixes,
-        "mismatch": any(p != reference_root for p in observed_prefixes),
+        "mismatch": bool(mismatched),
+        "mismatched_skills": sorted({name for name, _ in mismatched if name}),
+        "draft_roots": sorted(drafts),
     }
+    if project_root is not None:
+        def held_by(prefix):
+            return all(name and _holds_skill(project_root, prefix, name) for name, _ in mismatched)
+
+        disk_root = None
+        if mismatched and held_by(reference_root):
+            disk_root = reference_root
+        elif mismatched and len(observed_prefixes) == 1 and held_by(observed_prefixes[0]):
+            disk_root = observed_prefixes[0]
+        result["disk_root"] = disk_root
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1098,6 +1146,11 @@ def _action_parser(action):
             required=True,
             help="Reference skill root prefix to compare observed prefixes against",
         )
+        parser.add_argument(
+            "--project-root",
+            help="The project the roots are relative to: report in disk_root which root holds "
+            "the mismatched skills",
+        )
     elif action == "assemble":
         parser = argparse.ArgumentParser(
             prog=prog,
@@ -1188,7 +1241,7 @@ def _run_action_first(argv):
     if action == "orphan-detect":
         result = cmd_orphan_detect(args.context_files, args.exported_skills)
     elif action == "root-probe":
-        result = cmd_root_probe(args.snippet_files, args.reference_root)
+        result = cmd_root_probe(args.snippet_files, args.reference_root, args.project_root)
     elif action == "assemble":
         includes = [item for group in args.include for item in group]
         names = [name for name, _ in includes]

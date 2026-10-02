@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -148,3 +149,65 @@ def test_unknown_op_exits_2():
 def test_humanize_bad_int_exits_2():
     res = _run("humanize", "notanumber")
     assert res.returncode == 2
+
+
+# --- argparse CLI (#601) ----------------------------------------------------
+
+
+def _usage_error(res: subprocess.CompletedProcess) -> str:
+    """The JSON usage error on stderr, with nothing on stdout."""
+    assert res.returncode == 2
+    assert res.stdout == ""
+    err = json.loads(res.stderr)
+    assert err["status"] == "error"
+    return err["error"]
+
+
+def test_help_prints_usage():
+    res = _run("--help")
+    assert res.returncode == 0
+    assert res.stdout.startswith("usage: dir-sizes.py")
+    for op in ("sizes", "humanize"):
+        assert op in res.stdout
+
+
+@pytest.mark.parametrize("op, arg", [("sizes", "path"), ("humanize", "bytes")])
+def test_each_op_has_help(op, arg):
+    res = _run(op, "--help")
+    assert res.returncode == 0
+    assert res.stdout.startswith(f"usage: dir-sizes.py {op}")
+    assert f"[{arg} ...]" in res.stdout
+
+
+@pytest.mark.parametrize("args", [(), ("bogus", "x"), ("sizes", "--bogus")],
+                         ids=["no-op", "unknown-op", "unknown-flag"])
+def test_usage_errors_stay_json_with_exit_2(args):
+    assert _usage_error(_run(*args)).startswith("usage error: dir-sizes.py")
+
+
+def test_sizes_with_no_paths_is_zero():
+    res = _run("sizes")
+    assert res.returncode == 0
+    out = json.loads(res.stdout)
+    assert (out["paths"], out["total_bytes"], out["total_human"]) == ([], 0, "0 B")
+
+
+def test_main_help_runs_in_process(capsys):
+    with pytest.raises(SystemExit) as exc:
+        mod.main(["--help"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.startswith("usage: dir-sizes.py")
+
+
+def test_the_drop_steps_call_the_cli_it_parses():
+    """Each `{dirSizesHelper}` call select.md and execute.md document parses."""
+    references = SCRIPT.parent.parent / "references"
+    ops = []
+    for name in ("select.md", "execute.md"):
+        for line in (references / name).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line.startswith("uv run {dirSizesHelper} "):
+                continue
+            words = re.sub(r"\{[^{}]*\}", "1024", line.removeprefix("uv run {dirSizesHelper} ")).split()
+            ops.append(mod._build_parser().parse_args(words).op)
+    assert sorted(ops) == ["humanize", "sizes"]

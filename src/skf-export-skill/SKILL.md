@@ -1,13 +1,13 @@
 ---
 name: skf-export-skill
-description: Package for distribution and inject context into CLAUDE.md/AGENTS.md/.cursorrules. Use when the user requests to "export" or "package a skill."
+description: Exports an SKF skill, validating its package, writing its context snippet and updating the managed section in CLAUDE.md, AGENTS.md or .cursorrules. Use when the user requests to "export a skill" or "package a skill."
 ---
 
 # Export Skill
 
 ## Overview
 
-Packages a completed skill as an agentskills.io-compliant package, generates context snippets, and updates the managed section in CLAUDE.md/.cursorrules/AGENTS.md for platform-aware context injection. It is the sole publishing gate — create-skill/update-skill produce drafts; only export writes platform context files and distribution packages.
+Checks a completed skill against the agentskills.io export gate, writes its context snippet, and updates the managed section in CLAUDE.md/.cursorrules/AGENTS.md for platform-aware context injection. It is the sole publishing gate: create-skill and update-skill produce drafts, and only export writes the platform context files and records the skill in `.export-manifest.json`.
 
 ## Conventions
 
@@ -21,7 +21,7 @@ Packages a completed skill as an agentskills.io-compliant package, generates con
 
 ## Role
 
-You are a delivery and packaging specialist operating in Ferris's Delivery mode, collaborating with a skill developer, pairing your skill-packaging, ecosystem-compliance, and context-injection expertise with their completed skill and distribution requirements.
+You are a delivery and packaging specialist operating in Ferris's Delivery mode, collaborating with a skill developer, pairing your skill-packaging, ecosystem-compliance, and context-injection expertise with their completed skill and the context files it targets.
 
 ## Workflow Rules
 
@@ -47,22 +47,14 @@ These rules apply to every step in this workflow:
 
 ## Invocation Contract
 
-| Aspect | Detail |
-|--------|--------|
-| **Inputs** | `skill_name` [one or more, required unless `--all`] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--all` (export every non-deprecated skill in `.export-manifest.json`); `--dry-run` (stage everything but write nothing other than a headless run's scratch run folder, as **Outputs** says: the snippet, context-file and manifest changes are previewed only, no result file is written and no `on_complete` hook runs; the run completes through the terminal step with `status="dry-run"` and `manifest_path: null`) |
-| **Gates** | step 1: single Confirm Gate [C] for the whole batch | step 4: single Confirm Gate [C] for the whole batch |
-| **Outputs** | Updated `.export-manifest.json` (every skill in the batch, also when `passive_context` is off), updated context files (CLAUDE.md/AGENTS.md/.cursorrules), per-skill `context-snippet.md` (written last, after the step-4 gate), per-run result contract `export-skill-result-{YYYYMMDD-HHmmss}.json` and `export-skill-result-latest.json` (none on a dry run); in a headless run, a scratch run folder under `{project-root}/_bmad-output/.skf-run/`, which step 6 deletes (a HARD HALT keeps it) |
-| **Multi-skill mode** | Activated when more than one skill is selected (via `--all`, multi-selection, or multi-argument invocation). See `references/load-skill.md` §1c for the per-step iteration map. |
-| **Headless** | Every gate takes its default action and records it as it decides (Workflow Rules), and the run ends with one `SKF_EXPORT_RESULT_JSON` line: `references/result-envelope.md` |
-| **Exit codes** | 0 on success and on a dry run. Each HARD HALT names its exit code and `halt_reason` where it occurs (3 and `not-skf-output` for a flat skill SKF did not generate, for example); `references/result-envelope.md` maps every halt site to its code |
+Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes are in `references/invocation-contract.md`, and the `SKF_EXPORT_RESULT_JSON` envelope in `references/result-envelope.md`. Interactive runs do not need them.
 
 ## On Activation
 
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
-   - `snippet_skill_root_override` (optional string) — when set, overrides the IDE-derived `skill_root` for snippet `root:` paths. Authoring repos that keep all skills under a single on-disk folder (e.g. `skills/`) set this once so exported snippets reference the real layout instead of a per-IDE directory that does not exist. Consuming projects omit it.
+   - `snippet_skill_root_override` (optional string): when set, overrides the IDE-derived `skill_root` for snippet `root:` paths. Authoring repos that keep all skills under a single on-disk folder (e.g. `skills/`) set this once so exported snippets reference the real layout instead of a per-IDE directory that does not exist. Consuming projects omit it. Step 1's snippet-root option (d) sets it for one run without changing `config.yaml`.
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
@@ -90,9 +82,18 @@ These rules apply to every step in this workflow:
 
    **Apply the array surfaces so they are not silent no-ops:** execute each entry in `workflow.activation_steps_prepend` in order now (org-wide pre-flight such as auth, network, or compliance); treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts — the bundled default loads any `project-context.md`); then, after activation completes and before the first stage runs, execute each entry in `workflow.activation_steps_append` in order.
 
-4. **Resolve the envelope helper and create the run folder.** `{emitEnvelopeHelper}` ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. It builds every `SKF_EXPORT_RESULT_JSON` line and the result files, and records each headless auto-decision. If neither path exists, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "`skf-emit-result-envelope.py` is missing. Nothing was changed. Re-install SKF." With no emitter, a headless run displays that reason alone.
+4. **Resolve the helpers and create the run folder.** Resolve each helper to the first of its two paths that exists, the installed module first, all in parallel:
 
-   When `{headless_mode}` is true, create the run folder, whose sink holds those decisions:
+   - `{emitEnvelopeHelper}` ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. It builds every `SKF_EXPORT_RESULT_JSON` line and the result files, and records each headless auto-decision.
+   - `{manifestOpsHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py`, else `{project-root}/src/shared/scripts/skf-manifest-ops.py` (steps 1, 3 and 4).
+   - `{skillInventoryHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py`, else `{project-root}/src/shared/scripts/skf-skill-inventory.py` (step 1: the skills on disk, the version to export and a flat skill's SKF marker).
+   - `{rebuildManagedSectionsHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py`, else `{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py` (steps 1 and 4).
+   - `{validateOutputHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py`, else `{project-root}/src/shared/scripts/skf-validate-output.py` (steps 1 and 2).
+   - `{countTokensHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py`, else `{project-root}/src/shared/scripts/skf-count-tokens.py` (steps 3 and 5).
+
+   No step has a fallback for them, and a helper found missing in a step would stop the run after the user had answered a prompt, so check them all here, before any prompt or write. If one has no existing path, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "`{the missing helper's file name}` is missing. Nothing was changed. Re-install SKF." A headless run emits the error envelope per `references/result-envelope.md`, without `--run-dir`, with `skills: []`; with no emitter, it displays that reason alone.
+
+   When `{headless_mode}` is true, create the run folder, whose sink holds the headless auto-decisions:
 
    ```bash
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"

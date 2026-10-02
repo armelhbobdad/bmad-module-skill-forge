@@ -1,6 +1,6 @@
 ---
 name: skf-drop-skill
-description: Drop a specific skill version or an entire skill — soft (deprecate) or hard (purge) with platform context rebuild. Use when the user requests to "drop" or "remove a skill."
+description: Deprecates or purges a skill version or a whole skill, then rebuilds the platform context files. Use when the user requests to "drop a skill" or "remove a skill".
 ---
 
 # Drop Skill
@@ -47,27 +47,7 @@ These rules apply to every step in this workflow:
 
 ## Invocation Contract
 
-| Aspect | Detail |
-|--------|--------|
-| **Inputs** | skill_name [required], mode (deprecate/purge) [required], version (`all` or one version) [required for a skill in the manifest; a draft takes only `all`]. An argument supplied at invocation answers its step 1 prompt in either mode, so that prompt is not shown |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + display the §10 confirmation block, then exit with `status="dry-run"` — no manifest mutation, no file deletion). Useful for "show me what this would touch before I commit." |
-| **Gates** | step 1: Input Gate [use args] (§4 skill), Scope Gate [use args] (§6 version), Mode Gate [use args] (§8 mode), Confirm Gate [Y] |
-| **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories), `drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC) and `drop-skill-result-latest.json` in `{skills_output_folder}` (none for a dry run or a HALT); a run folder under `{project-root}/_bmad-output/.skf-run/`, kept only after a HALT |
-| **Headless** | Gates auto-resolve with their default action (see Workflow Rules). `forbid_purge_in_headless = "true"` in `customize.toml` stops a headless purge at On-Activation §4 (exit code 6, `halt_reason: "headless-purge-forbidden"`); select.md §6 and §8 name the `version` and `mode` arguments a headless run must pass. |
-| **Exit codes** | See "Exit Codes" below |
-
-## Exit Codes
-
-Every hard HALT exits with a stable code; the step files name the exact `halt_reason` and phase at each HALT site, and `references/headless-contract.md` describes the `SKF_DROP_SKILL_RESULT_JSON` envelope a headless run prints.
-
-| Code | Meaning              | Raised by (class) |
-| ---- | -------------------- | ----------------- |
-| 0    | success              | step 4 (terminal) |
-| 2    | input-missing / input-invalid | step 1 input gates: a missing or unmatched `skill_name`, `version` or `--mode` value (§4 / §6 / §8), or a draft skill given a specific `version` or `mode=deprecate` |
-| 3    | resolution-failure   | step 1 §2 corrupt manifest, §3 nothing to drop |
-| 4    | write-failure        | On-Activation §4 (`write-failed`); step 1 §9b, before any change (`context-rebuild-failed`); step 2 manifest write, in every mode (`manifest-write-failed`), or a purge that deleted nothing (`delete-failed`) |
-| 5    | state-conflict       | step 1 §7 active-version guard; §3, §4 or §8b ownership guard (`not-skf-output`) |
-| 6    | user-cancelled       | any interactive cancel or confirm-gate `[N]`; On-Activation headless-purge guard |
+Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF_DROP_SKILL_RESULT_JSON` envelope live in `references/invocation-contract.md`. Interactive runs do not need it.
 
 ## On Activation
 
@@ -93,17 +73,16 @@ Every hard HALT exits with a stable code; the step files name the exact `halt_re
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each scalar.
 
-   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the three scalars, if the merged value is empty or absent, the bundled default applies:
+   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, the bundled default applies:
 
-   - `{defaultMode}` ← `workflow.default_mode` (empty = always prompt; `"deprecate"` or `"purge"` = skip §8 Ask Mode)
-   - `{forbidPurgeInHeadless}` ← `workflow.forbid_purge_in_headless` (empty or non-`"true"` = no guard)
+   - `{forbidPurgeInHeadless}` ← on when `workflow.forbid_purge_in_headless` holds any value other than the empty string (a TOML `true`, `false` or `"false"` included), else off
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — step 3 skips the post-drop hook entirely)
 
-   Stash all three as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
+   Stash both as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
 
    Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents), then run `workflow.activation_steps_append` after.
 
-4. **Pre-flight: helpers, run folder, write probe and headless-purge guard.** All of it runs before the first prompt, so a broken install or a read-only folder stops the run before the user answers anything. Each HALT below names its exit code, `halt_reason` and phase: in headless mode it prints its envelope as the Halt Envelope section of `references/headless-contract.md` says, and an interactive HALT displays its message only.
+4. **Pre-flight: helpers, run folder, write probe and headless-purge guard.** All of it runs before the first prompt, so a broken install or a read-only folder stops the run before the user answers anything. Each HALT below names its exit code, `halt_reason` and phase: in headless mode it prints its envelope as the Halt Envelope section of `references/invocation-contract.md` says, and an interactive HALT displays its message only.
 
    First, resolve `{emitEnvelopeHelper}`, `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}`, each ← the first that exists of `{project-root}/_bmad/skf/shared/scripts/<script>` (installed) and `{project-root}/src/shared/scripts/<script>` (development tree), where `<script>` is `skf-emit-result-envelope.py`, `skf-manifest-ops.py` and `skf-rebuild-managed-sections.py` in turn. Then create the run folder for the envelope payloads, and bind `{run_dir}` ← the path it prints (step 3, or a `--dry-run` at the confirmation gate, deletes it; a HALT keeps it):
 
@@ -125,6 +104,6 @@ Every hard HALT exits with a stable code; the step files name the exact `halt_re
 
    On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:write-probe`, path `{skills_output_folder}`): "SKF cannot write to `{skills_output_folder}`: {the first stderr line}. Nothing was changed."
 
-   Last, the headless-purge guard. The **effective drop mode** is `"purge"` when the `mode` arg is `"purge"`, or when no `mode` arg was passed and `{defaultMode}` (§3) is `"purge"`. If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is `"true"` and the effective drop mode is `"purge"`, HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`, phase `on-activation:purge-guard`): "headless purge is forbidden by `forbid_purge_in_headless`: re-run with `mode=deprecate` (an explicit `mode` overrides `default_mode`), or unset the setting." A draft skill cannot be deprecated, so it needs an interactive run or the guard unset; select.md §8 purges a draft headless only on this effective drop mode, so this guard covers that purge too.
+   Last, the headless-purge guard. If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`, phase `on-activation:purge-guard`): "headless purge is forbidden by `forbid_purge_in_headless`: re-run with `mode=deprecate`, or empty the setting in the team or personal override that sets it." A draft skill cannot be deprecated, so it needs an interactive run or the guard off; select.md §8 purges a draft headless only on `mode=purge`, so this guard covers that purge too.
 
 5. Load, read the full file, and then execute `references/select.md` to begin the workflow.

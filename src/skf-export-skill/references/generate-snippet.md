@@ -1,21 +1,9 @@
 ---
 nextStepFile: 'update-context.md'
 snippetFormatData: '{snippetFormatPath}'
-# Resolve `{countTokensHelper}` by probing `{countTokensProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); the first
-# existing path wins. §4 measures the staged snippet draft with it
-# (char-over-four, the count step 5's token report uses), so the 300-token
-# ceiling is gated by a number, not by an estimate made in the prompt. HALT
-# if no candidate exists.
-countTokensProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py'
-  - '{project-root}/src/shared/scripts/skf-count-tokens.py'
-# Resolve `{manifestOpsHelper}` similarly. §3 reads the skill's manifest
-# entry with its `get` action, which returns it in the v2 shape whatever is
-# on disk.
-manifestOpsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
-  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# SKILL.md's On Activation resolved {countTokensHelper}, which measures the
+# staged draft in §4, and {manifestOpsHelper}, whose `get` reads the skill's
+# manifest entry in §3a.
 ---
 
 <!-- Config: communicate in {communication_language}. Generate snippet content in {document_output_language}. -->
@@ -62,7 +50,7 @@ These values will be used as a fallback in §3a if new gotchas cannot be derived
 
 ### 2.7. Resolve Skill Root Path
 
-**If `snippet_skill_root_override` is set in config.yaml:** Use its value directly as `{skill_root}` and skip the IDE-mapping lookup below. This is the authoring-repo escape hatch — repos where skills live under a single shared directory (e.g. `skills/`) that does not match any per-IDE skill root. Log: "Using snippet_skill_root_override: `{override}` — bypassing IDE mapping for snippet root path."
+**If `{snippet_skill_root_override}` is set** (by `config.yaml`, or for this run by step 1's snippet-root option (d)): use its value directly as `{skill_root}` and skip the IDE-mapping lookup below. This is the authoring-repo escape hatch, for repos where skills live under a single shared directory (e.g. `skills/`) that does not match any per-IDE skill root. Log: "Using snippet_skill_root_override: `{override}`, bypassing the IDE mapping for the snippet root path."
 
 **Otherwise (default):** Using the first entry in `target_context_files` (resolved in step 1), take its `skill_root` value. This is the IDE's actual skill directory (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`).
 
@@ -86,7 +74,7 @@ Derive new gotchas from the T2-future annotations in the evidence report at `{fo
 
 **Detect first-export state before applying carry-forward logic.** The `[CARRIED]` one-cycle expiry is meaningful only on a *re-export*. On a first export, the prior `context-snippet.md` was written by the workflow that built or updated the skill (create-skill, create-stack-skill, quick-skill or update-skill) inside the same forge cycle: those gotchas are freshly derived, not "left over from a previous export." Treating them as carry-forward primes them for premature expiry on the second export.
 
-Resolve `{manifestOpsHelper}` from `{manifestOpsProbeOrder}` (first existing path wins) and read the skill's manifest entry: `python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`. When it returns `not_found`, or an `entry` none of whose `versions` records a `last_exported`, this is a first export: set `is_first_export = true`. Otherwise `is_first_export = false`. The helper returns the entry in the v2 shape whatever is on disk, so a v1 manifest reads the same here as in step 4.
+Read the skill's manifest entry: `python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`. When it returns `not_found`, or an `entry` none of whose `versions` records a `last_exported`, this is a first export: set `is_first_export = true`. Otherwise `is_first_export = false`. The helper returns the entry in the v2 shape whatever is on disk, so a v1 manifest reads the same here as in step 4.
 
 Resolve the gotchas line by this decision tree:
 
@@ -113,7 +101,7 @@ Stack skills: apply the gotchas decision tree above unchanged, including the fir
 
 ### 4. Verify Token Count
 
-Write the generated snippet to `{export_stage_dir}/drafts/{skill-name}/context-snippet.md` with your file-write tool, resolve `{countTokensHelper}` from `{countTokensProbeOrder}` (first existing path wins), and measure the draft with it, the count step 5's token report uses:
+Write the generated snippet to `{export_stage_dir}/drafts/{skill-name}/context-snippet.md` with your file-write tool, and measure the draft with `{countTokensHelper}`, the count step 5's token report uses:
 
 ```bash
 python3 {countTokensHelper} "{export_stage_dir}/drafts/{skill-name}"
@@ -125,7 +113,7 @@ Bind `{count}` ← the `tokens` value of its `context-snippet.md` row (`len(text
 - Hard ceiling: 300 tokens (Deep tier may legitimately exceed 120 when gotchas carry load-bearing breaking-change notices)
 - If `{count}` is above 300, trim the description, the exports list or the refs, write the draft again and measure it again, until `{count}` is 300 or below. **Do NOT drop gotchas to fit**: gotchas exist precisely to deliver the "do not rely on training data" signal and are the last thing to cut
 
-When no `{countTokensProbeOrder}` candidate exists, or the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "SKF cannot measure the snippet: {`skf-count-tokens.py` is missing, or the helper's error}. Re-install SKF and re-run the export." In headless mode, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []` and `manifest_path: null`.
+When the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "SKF cannot measure the snippet: {the helper's error}. Re-install SKF and re-run the export." In headless mode, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []` and `manifest_path: null`.
 
 ### 5. Preview the Snippet
 

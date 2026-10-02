@@ -1,8 +1,8 @@
 type: breaking
 scope: skf-drop-skill
 summary: |
-  Drop Skill deletes a draft skill (one SKF made that was never exported, so the export manifest has no entry for it) only when the run asks for a purge. A draft cannot be deprecated, so `--mode deprecate`, or a `--headless` run whose `default_mode` is `deprecate`, now stops with exit `2` (`input-invalid`), and a `--headless` run with no `--mode` and an empty `default_mode` stops with exit `2` (`input-missing`). Before, Drop Skill switched each of these runs to a purge and deleted the skill, in a headless run even with `forbid_purge_in_headless` set.
+  Drop Skill deletes a draft skill (one SKF made that was never exported, so the export manifest has no entry for it) only when the run asks for a purge. A draft cannot be deprecated, so `--mode deprecate` now stops with exit `2` (`input-invalid`), and a `--headless` run with no `--mode` stops with exit `2` (`input-missing`). Before, Drop Skill switched each of these runs to a purge and deleted the skill, in a headless run even with `forbid_purge_in_headless` set.
 migration: |
   To delete a draft skill, run `@Ferris DS <name> --mode purge`; a `--headless` run also needs `forbid_purge_in_headless` unset. To keep it, change nothing.
-prs: [499]
+prs: [499, 639]
 issues: [497]

@@ -10,15 +10,16 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (audit-log emit,
+# Steps to run in On Activation step 3, after config load and headless
+# resolution and before the workflow's first step (select.md). Overrides
+# append. Use for org-wide pre-flight checks (audit-log emit,
 # ticket-reference enforcement) that must precede any rename work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run at the end of On Activation, after the prepend steps and
+# the persistent facts load, just before select.md loads. Overrides append.
+# Use for context loads or banner customization.
 
 activation_steps_append = []
 
@@ -26,30 +27,42 @@ activation_steps_append = []
 # (rename-policy reminders, public-name-stability rules, audit guardrails).
 # Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "Renames of skills tagged `published` require approval."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/rename-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
+#
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-rename-skill.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Optional post-completion hook. When non-empty, invoked with
-# `--result-path=<path>` in step 3 after the rename result JSON is
-# finalized (before the terminal health-check step). Failures are logged
-# but never fail the workflow — the rename is already committed. Use for
-# an audit-log emit, skill-registry re-index, or a post-rename notifier.
+# Optional post-completion hook: a shell command, run from {project-root}
+# in report step 3 with `--result-path=<the per-run result file the shared
+# emitter wrote>` appended, before the terminal health-check step. It is
+# skipped when the emitter wrote no result file, and a --dry-run never
+# reaches it. A hook failure is logged and never fails the rename, which is
+# already committed. Use for an audit-log emit, a skill-registry re-index or
+# a post-rename notifier.
 
 on_complete = ""
 
-# --- Optional safety + default scalars ---
+# --- Optional safety scalar ---
 #
-# Auto-acknowledge the source-authority="official" warning in headless mode.
-# Empty string = HALT in headless when source_authority is "official"
-# (the safe default — local renames diverge from any registry-published
-# name). Set to "true" to silently proceed and record the override in the
-# headless decision trail.
+# A standing approval for headless renames of skills whose
+# source_authority is "official". Empty (the default) halts such a run with
+# source-authority-blocked unless its invocation passes
+# --acknowledge-official, which approves that one run and is the preferred
+# answer: a local rename diverges from any registry-published name. Set it
+# to "true" (or the TOML boolean true) in a team or personal override to
+# let every headless rename of an official skill proceed; each run still
+# records the decision in its headless_decisions.
 
 force_source_authority_in_headless = ""

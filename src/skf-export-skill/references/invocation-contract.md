@@ -1,0 +1,15 @@
+<!-- Config: the headless contract of skf-export-skill. Interactive runs do not load it. -->
+
+# Invocation Contract
+
+The inputs, flags, gates and outputs of `skf-export-skill`, for headless callers and pipelines. `references/result-envelope.md` holds the `SKF_EXPORT_RESULT_JSON` envelope and the exit code of every halt site.
+
+| Aspect | Detail |
+|--------|--------|
+| **Inputs** | `skill_name` [one or more, required unless `--all`] |
+| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--all` (export every non-deprecated skill in `.export-manifest.json`); `--context-file <file>` (write only that context file, `CLAUDE.md`, `AGENTS.md` or `.cursorrules`, instead of every file config.yaml `ides` maps to, with the skill root of the first configured IDE that maps to it, else the one the IDE mapping gives that file; any other value halts with exit code 3, `resolution-failure`); `--dry-run` (stage everything but write nothing other than a headless run's scratch run folder, as **Outputs** says: the snippet, context-file and manifest changes are previewed only, no result file is written and no `on_complete` hook runs; the run completes through the terminal step with `status="dry-run"` and `manifest_path: null`) |
+| **Gates** | step 1 §1b, only when config.yaml sets no `snippet_skill_root_override`: the layout question when no earlier export chose a snippet root (headless: [I], the IDE skill folder), or the mismatch gate when an earlier export's root differs from the IDE mapping (headless: checks the disk, and takes (d), the earlier root for this run, when only that folder holds the skills, else (b), the IDE mapping); step 1 §6: one Confirm Gate [C] for the whole batch (headless: [C]); step 4 §3b orphaned context files (headless: keep) and §4c.1 orphaned managed-section rows (headless: preserve); step 4 §8: one Confirm Gate [C] for the whole batch (headless: [C]) |
+| **Outputs** | Updated `.export-manifest.json` (every skill in the batch, also when `passive_context` is off), updated context files (CLAUDE.md/AGENTS.md/.cursorrules), per-skill `context-snippet.md` (written last, after the step-4 gate), per-run result contract `export-skill-result-{YYYYMMDD-HHmmss}.json` and `export-skill-result-latest.json` (none on a dry run); in a headless run, a scratch run folder under `{project-root}/_bmad-output/.skf-run/`, which step 6 deletes (a HARD HALT keeps it) |
+| **Multi-skill mode** | Activated when more than one skill is selected (via `--all`, multi-selection, or multi-argument invocation). See `references/load-skill.md` §1c for the per-step iteration map. |
+| **Headless** | Every gate takes its default action and records it as it decides (SKILL.md Workflow Rules), and the run ends with one `SKF_EXPORT_RESULT_JSON` line: `references/result-envelope.md` |
+| **Exit codes** | 0 on success and on a dry run. Each HARD HALT names its exit code and `halt_reason` where it occurs (3 and `not-skf-output` for a flat skill SKF did not generate, for example); `references/result-envelope.md` maps every halt site to its code |

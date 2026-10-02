@@ -1,21 +1,10 @@
 ---
 nextStepFile: 'token-report.md'
-# Resolve `{rebuildManagedSectionsHelper}` by probing
-# `{rebuildManagedSectionsProbeOrder}` in order (installed SKF module path
-# first, src/ dev-checkout fallback); first existing path wins. It builds and
-# writes every managed section: `assemble` builds each body, `check` picks
-# the write and enforces the malformed-marker halt, `read` shows the old
-# section, and `insert` / `replace` write atomically and verify. HALT if no
-# candidate exists: a section written in the prompt loses those guarantees.
-rebuildManagedSectionsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
-  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
-# Resolve `{manifestOpsHelper}` similarly. §9b records each skill of the
-# batch with `set` (v2 schema, v1 migration and the `platforms` to `ides`
-# rename handled inside).
-manifestOpsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
-  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# SKILL.md's On Activation resolved {rebuildManagedSectionsHelper}, which
+# builds and writes every managed section (`assemble` builds each body,
+# `check` picks the write and enforces the malformed-marker halt, `read`
+# shows the old section, `insert` / `replace` write atomically and verify),
+# and {manifestOpsHelper}, whose `set` records each skill in §9b.
 ---
 
 <!-- Config: communicate in {communication_language}. Render the change preview and managed section in {document_output_language}. -->
@@ -45,14 +34,7 @@ Run §9b, then auto-proceed to {nextStepFile}.
 
 **If `passive_context: true` (default):** Continue to §2.
 
-### 2. Resolve the Helpers
-
-Resolve both in parallel (independent file-existence checks, one tool-call message):
-
-- `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}`
-- `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}`
-
-If either has no existing candidate, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "SKF cannot write the managed section safely: `{the missing helper}` is missing. Nothing was written. Re-install SKF." In headless mode, emit the error envelope per `references/result-envelope.md` with `context_files_updated: []` and `manifest_path: null`.
+### 2. Stage Folder
 
 Step 3 bound `{export_stage_dir}`, the run's folder outside the project that holds each skill's snippet draft under `drafts/`. This step stages each target's new section body under its `previews/` folder, so nothing lands beside a context file before the §8 gate, and deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) Cancel and every HALT in this step.
 
@@ -95,7 +77,7 @@ python3 {rebuildManagedSectionsHelper} assemble "{context_path}" \
   [--skill-root-override "{snippet_skill_root_override}"]
 ```
 
-Add `--skill-root-override` only when `snippet_skill_root_override` is set in `config.yaml`. `{orphan_mode}` is `keep` unless §4c.1 drops the orphan rows. The helper writes the body to the `--out` file, with no marker and no trailing newline, and prints its result as JSON. From each target's result bind `{content_file}` ← `content_file`, `{n_single}` ← `n_single` and `{n_stack}` ← `n_stack`. A non-zero exit writes nothing: HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and report `{context_file}: {error}` (for example a context file that is not UTF-8 text: the error says how to fix it). In headless mode, emit the error envelope per `references/result-envelope.md` with `context_files_updated: []` and `manifest_path: null`.
+Add `--skill-root-override` only when `{snippet_skill_root_override}` is set (by `config.yaml`, or for this run by step 1's snippet-root option (d)). `{orphan_mode}` is `keep` unless §4c.1 drops the orphan rows. The helper writes the body to the `--out` file, with no marker and no trailing newline, and prints its result as JSON. From each target's result bind `{content_file}` ← `content_file`, `{n_single}` ← `n_single` and `{n_stack}` ← `n_stack`. A non-zero exit writes nothing: HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and report `{context_file}: {error}` (for example a context file that is not UTF-8 text: the error says how to fix it). In headless mode, emit the error envelope per `references/result-envelope.md` with `context_files_updated: []` and `manifest_path: null`.
 
 When the first result's `malformed_context_files` is not empty, run the §5 `check` on those files now and take its `malformed` HALT, before §4c.1 asks anything: a target whose `<!-- SKF:BEGIN` marker no `<!-- SKF:END -->` closes is never written.
 
@@ -232,7 +214,7 @@ On success per file, report "**{context_file} updated successfully.** Verified b
 
 **`ides_written`** is the list of IDE identifiers from `config.yaml` `ides` (e.g. `claude-code`, `cursor`, `github-copilot`) whose context file §9 wrote: the `ides` of each `target_context_files` entry §9 wrote, joined, deduplicated and sorted. It is never a context file name (`CLAUDE.md`) or a skill root (`.claude/skills/`). A file §3b rewrote adds no IDE, and with passive context off `ides_written` is empty.
 
-Resolve `{manifestOpsHelper}` from `{manifestOpsProbeOrder}` when §2 did not (passive context off); when no candidate exists, HALT (exit code 4, `halt_reason: "manifest-write-failed"`): "`skf-manifest-ops.py` is missing, so the export manifest was not updated. Re-install SKF." In headless mode, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, the `context_files_updated` list and `manifest_path: null`. For each skill, run `set`, with `--ides` only when `ides_written` is not empty:
+For each skill, run `set`, with `--ides` only when `ides_written` is not empty:
 
 ```bash
 python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} [--ides {ides_written}]

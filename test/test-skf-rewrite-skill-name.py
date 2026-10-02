@@ -946,36 +946,30 @@ class TestRenameProse:
     def test_step_3c_rewrites_the_template_slots_only(self):
         three_c = _between(RENAME_EXECUTE.read_text(encoding="utf-8"),
                            "**3c. context-snippet.md**", "**3d. provenance-map.json**")
-        assert "Rewrites `{old_name}` where every SKF snippet template writes the name" in three_c
-        assert "the same rule `{verifyNoTraceHelper}` uses" in three_c
-        assert "the first word of the `|IMPORTANT:` line and its `writing {old_name} code` phrase" in three_c
+        assert "It rewrites the name where SKF's snippet template writes it" in three_c
+        assert "the header, the `|IMPORTANT:` line and each `root:` path" in three_c
         assert "Nothing else in the snippet changes" in three_c
         assert "§5 reports it and the rename rolls back rather than commit a changed snippet" in three_c
         assert "and any other mention" not in three_c
-        assert "keeps the prefix verbatim" in three_c
+        # The slot rules and the root-prefix parsing are the helper's docstring, not the step's.
+        for internal in ("keeps the prefix verbatim", "_IMPORTANT_SLOT", "flattening the legacy"):
+            assert internal not in three_c, internal
 
     def test_steps_3b_and_3d_pass_the_moved_folders(self):
         text = RENAME_EXECUTE.read_text(encoding="utf-8")
         section3 = _between(text, "### 3. Update File Contents", "### 4. ")
         assert '[--moved-folder "{folder}"]' in section3
-        moved = _between(section3, "**Moved folders (3b and 3d only).**", "Read the JSON result")
+        moved = _between(section3, "**Moved folders (3b and 3d only).**", "Check that the target file exists first")
         assert 'Pass `--moved-folder "{skills_output_folder}"`, and also `--moved-folder "{forge_data_folder}"` ' \
                "when `{forge_move}` or `{same_folder}` is true" in moved
         assert "A forge folder left in place keeps its name, so paths into it stay as they are." in moved
         three_b = _between(section3, "**3b. metadata.json**", "**3c. context-snippet.md**")
-        assert "Every string value that is a path into a moved folder, `{folder}/{old_name}/…`, " \
-               "is pointed at `{folder}/{new_name}/…`" in three_b
-        assert "file names such as `test-report-{old_name}.md` stay" in three_b
-        for phrase in ("A path counts only where it begins, at the start of the value or of a word in it, spelled as "
-                       "the folder's full path or as its last components",
-                       "so a URL or a path that only holds the folder's name further in stays",
-                       "The values that name the upstream source or a file in it never change, even when one holds "
-                       "such a path",
-                       "the source-fact keys §5 lists, `source_file` and a stack's `co_import_files`",
-                       "§5 then reports a `source_file` that names `{old_name}`"):
-            assert phrase in three_b, phrase
-        named = set(re.findall(r"`(source_[a-z_]+|co_import_files)`", three_b))
-        assert named == {"source_file", "co_import_files"}
+        assert "with the moved folders above" in three_b
+        assert "points the paths into the moved folders at `{new_name}`" in three_b
+        assert "the values that name the upstream source stay" in three_b
+        # The path-prefix rules and the source keys are the helper's docstring, not the step's.
+        assert not re.findall(r"`(source_[a-z_]+|co_import_files)`", three_b)
+        assert "A path counts only where it begins" not in three_b
         three_d = _between(section3, "**3d. provenance-map.json**", "**Rollback on any update failure")
         assert "with the moved folders above, points the paths into them at `{new_name}` as 3b does" in three_d
 
@@ -1008,11 +1002,10 @@ class TestRenameProse:
     def test_every_description_of_section_5_names_the_verifiers_source_facts(self):
         """Step §5, the knowledge file and troubleshooting list exactly the keys the helper skips."""
         keys = set(verify_mod.SOURCE_FACT_KEYS)
+        # Step §5 binds the verifier's verdict and leaves its scan rules to the helper's docstring.
         section5 = _between(RENAME_EXECUTE.read_text(encoding="utf-8"), "### 5. Verify", "### 6. ")
-        assert "in the two JSON files a match inside the value of a source-fact key, below, does not count" in section5
-        assert "§3 leaves them unchanged and the helper does not count a match inside them" in section5
-        assert "Every other value and every key outside those values still counts, and a JSON file that does not " \
-            "parse is scanned whole" in section5
+        assert "A value that names the upstream source never counts, since §3 leaves it unchanged" in section5
+        assert not re.findall(r"`(source_[a-z_]+)`", section5), "the key list is the verifier's"
         rename = _between(VERSION_PATHS.read_text(encoding="utf-8"), "### Rename (RS - Rename Skill)", "### Drop")
         assert "In the two JSON files it skips the values of the keys that name the upstream source" in rename
         trouble = _between((REPO / "docs" / "troubleshooting.md").read_text(encoding="utf-8"),
@@ -1024,5 +1017,5 @@ class TestRenameProse:
                        "`doc_sources`",
                        "The source values above and the paths of files in the source stay as they are"):
             assert phrase in trouble, phrase
-        for name, text in (("execute.md §5", section5), ("version-paths.md", rename), ("troubleshooting.md", trouble)):
+        for name, text in (("version-paths.md", rename), ("troubleshooting.md", trouble)):
             assert set(re.findall(r"`(source_[a-z_]+)`", text)) == keys, name

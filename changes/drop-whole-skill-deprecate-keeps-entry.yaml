@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-drop-skill
+summary: |
+  Deprecating a whole skill (`--mode deprecate` with `version=all`, or the deprecate option after choosing all versions) now marks every version of the skill `deprecated` in `.export-manifest.json` and keeps its entry, as the deprecate option and the drop report promise. The drop stays reversible: set a version's `status` back to `active` or `archived` and re-run Export Skill. Before, it deleted the skill's manifest entry, so there was no status to restore, the next drop listed the skill as a draft that can only be purged, and when it was the last exported skill, the next Export Skill run exported it again. A purge still deletes the entry.
+prs: [639]

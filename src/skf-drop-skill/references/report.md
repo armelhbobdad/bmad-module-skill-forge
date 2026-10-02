@@ -26,11 +26,11 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 ### 1. Determine Remaining Versions
 
-**If `is_skill_level == true`:**
+**If `is_skill_level == true` and `drop_mode == "purge"`:**
 
 Set `remaining_versions_display = "(skill fully removed)"`.
 
-**If `is_skill_level == false`:**
+**Otherwise** (one version, or a whole-skill deprecate, which keeps every version in the manifest as `deprecated`):
 
 Read the target skill's remaining versions through the `{manifestOpsHelper}` On-Activation §4 resolved, rather than re-parsing the manifest by hand:
 
@@ -113,7 +113,7 @@ The shared emitter writes the result contract (`shared/references/output-contrac
 
 - `{target_versions}` is a JSON array (e.g. `["0.5.0"]`) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried, or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
 - `{record_status}` is `"partial"` when some (but not all) purge folders failed to delete (step 2's `purge_status`); then also put step 2's `delete_failures` in `summary.delete_failures`. Otherwise it is `"success"`. A full purge failure and a failed manifest write never reach this step: step 2 HALTs with `halt_reason: "delete-failed"` or `"manifest-write-failed"`.
-- `headless_provenance` persists the §8/§10 decision trail from step 1, so an unattended run's auto-decisions survive in the durable record and a consumer can tell an operator-confirmed drop from a headless auto-confirmed one: `{headless_mode}` is the resolved boolean, `{mode_source}` the step-1 §8 value (`"--mode argument"` / `"customize.toml.workflow.default_mode"` / `"interactive-prompt"` / `"draft-skill-forced-purge"`), and `{confirm_source}` the step-1 §10 value (`"headless-auto"` / `"user-explicit"`).
+- `headless_provenance` persists the §8/§10 decision trail from step 1, so an unattended run's auto-decisions survive in the durable record and a consumer can tell an operator-confirmed drop from a headless auto-confirmed one: `{headless_mode}` is the resolved boolean, `{mode_source}` the step-1 §8 value (`"--mode argument"` / `"interactive-prompt"` / `"draft-skill-forced-purge"`), and `{confirm_source}` the step-1 §10 value (`"headless-auto"` / `"user-explicit"`).
 
 Then run, in every mode:
 
@@ -121,7 +121,7 @@ Then run, in every mode:
 uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}" --result-dir "{skills_output_folder}" < "{run_dir}/result-context.json"
 ```
 
-The emitter stamps the UTC time, the run id, the run's warnings and the auto-decisions select.md recorded (`headless_decisions`) into the record, writes it as `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json`, copies it to `{skills_output_folder}/drop-skill-result-latest.json` (the stable path pipelines read), and prints the `SKF_DROP_SKILL_RESULT_JSON:` line on stdout (field rules in `references/headless-contract.md`). Bind `{result_json_path}` ← that line's `result_path`: null when the record could not be written, and the line's `warnings` then say why. When `{headless_mode}` is true, display the line verbatim before chaining to step 4. If the helper exits non-zero, correct `result-context.json` from the `message` of its stderr JSON and run it once more; if it fails again, display "The drop result record could not be written: {message}" and go on, since the drop itself is complete.
+The emitter stamps the UTC time, the run id, the run's warnings and the auto-decisions select.md recorded (`headless_decisions`) into the record, writes it as `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json`, copies it to `{skills_output_folder}/drop-skill-result-latest.json` (the stable path pipelines read), and prints the `SKF_DROP_SKILL_RESULT_JSON:` line on stdout (field rules in `references/invocation-contract.md`). Bind `{result_json_path}` ← that line's `result_path`: null when the record could not be written, and the line's `warnings` then say why. When `{headless_mode}` is true, display the line verbatim before chaining to step 4. If the helper exits non-zero, correct `result-context.json` from the `message` of its stderr JSON and run it once more; if it fails again, display "The drop result record could not be written: {message}" and go on, since the drop itself is complete.
 
 ### Post-drop hook (optional)
 
@@ -131,7 +131,7 @@ If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 fr
 {onCompleteCommand} --result-path={result_json_path}
 ```
 
-Log success or failure to `workflow_warnings[]`, and never fail the workflow on a hook error: the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+When it exits non-zero, display "on_complete hook failed (exit {code}): {its first stderr line}" as a line of its own (after the envelope line when `{headless_mode}` is true), and never fail the workflow on a hook error: the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
 Whether or not a hook ran, then delete the run folder, whose payload the emitter has read: `rm -rf "{run_dir}"`.
 

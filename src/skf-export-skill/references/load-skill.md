@@ -1,35 +1,11 @@
 ---
 nextStepFile: 'package.md'
-# Resolve `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}` to the
-# first existing path of their probe orders (installed SKF module path first,
-# src/ dev-checkout fallback). §1 reads the export manifest through
-# `skf-manifest-ops.py` (`read`), which returns it in the v2 shape whatever
-# is on disk, and resolves the context files through `resolve-targets`, the
-# IDE mapping drop-skill and rename-skill also use.
-manifestOpsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
-  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
-rebuildManagedSectionsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
-  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
-# Resolve `{validateOutputHelper}` by probing `{validateOutputProbeOrder}` in
-# order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. §2 runs it with `--export-gate` to obtain the
-# agentskills.io export verdict — required-field presence, enum membership,
-# JSON validity, and the SKILL.md Section 7b <-> scripts/assets cross-reference
-# — as one deterministic JSON result, instead of re-deriving those checks
-# in-prompt each run. package.md §1-4 renders its status from the same verdict.
-validateOutputProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
-  - '{project-root}/src/shared/scripts/skf-validate-output.py'
-# Resolve `{skillInventoryHelper}` to the first existing path. §2 runs its
-# `resolve` action to choose the version to export and bind its paths (the
-# Manifest-lag guard included), and runs it with `--skill` before a flat
-# skill moves: only a flat skill whose metadata.json carries an SKF marker
-# (`flat_skf`) is migrated.
-skillInventoryProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
-  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# SKILL.md's On Activation resolved {manifestOpsHelper},
+# {skillInventoryHelper}, {rebuildManagedSectionsHelper} and
+# {validateOutputHelper}. §2 runs the inventory's `resolve` action to choose
+# the version to export and bind its paths (the Manifest-lag guard included),
+# and runs it with `--skill` before a flat skill moves: only a flat skill
+# whose metadata.json carries an SKF marker (`flat_skf`) is migrated.
 # Resolve `{findTestReportHelper}` to the first existing path. §4b runs its
 # `find` action for the newest finished test report of the version §2 chose.
 findTestReportProbeOrder:
@@ -58,8 +34,6 @@ To load the target skill's artifacts, validate they meet agentskills.io spec com
 
 Determine the skill(s) to export and any flags.
 
-**Resolve the helpers** in parallel: `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}`, and `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}`. If either has no existing candidate, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "`{the missing helper}` is missing. Nothing was changed. Re-install SKF." In headless, emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
-
 **Read the export manifest** on every run, through the helper, which returns it in the v2 shape whatever is on disk (an absent file reads as an empty `exports`), so a manifest that does not parse stops the run here, before any later step reads it:
 
 ```bash
@@ -75,8 +49,7 @@ Use `result.manifest.exports`. On `status: "error"` (the file does not parse), H
   - **Headless guard:** if `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`) — a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`. Emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
   - **Interactive:** discover available skills using the export manifest:
     1. List the skill names of `result.manifest.exports`
-    2. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run `uv run {skillInventoryHelper} {skills_output_folder}` once. Add every `skills[]` entry whose `skf_skill` is true and whose `flat_skf` is true or `active_version` is not null (a flat SKF skill that §2 migrates, or a versioned skill with an SKF marker and an `active` link). Leave out every other folder. Bind `{not_skf_output}` ← `not_skf_output`; when it is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}".
-    3. If no helper candidate resolves, add only the groups that have `{skills_output_folder}/{skill-name}/active/{skill-name}/SKILL.md`, and skip the flat path: without the helper SKF cannot check that a flat folder is its own.
+    2. Run `uv run {skillInventoryHelper} {skills_output_folder}` once. Add every `skills[]` entry whose `skf_skill` is true and whose `flat_skf` is true or `active_version` is not null (a flat SKF skill that §2 migrates, or a versioned skill with an SKF marker and an `active` link). Leave out every other folder. Bind `{not_skf_output}` ← `not_skf_output`; when it is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}".
 - If multiple skills are found, present the list and accept either a single selection or a comma-/space-separated multi-selection (e.g. `1, 2, 3` or `all`)
 - If no skills found, HALT (exit code 3, `halt_reason: "resolution-failure"`): "No skills found in {skills_output_folder}/. Run create-skill first." In headless, emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
 
@@ -84,7 +57,7 @@ Store the resolved selection as `skill_batch` — a list of one or more skill na
 
 **Flag Parsing:**
 - `--all` flag: Check if provided. When true and no explicit skill list was given, `skill_batch` is the full non-deprecated manifest set — or, when no manifest exists yet, the full on-disk discovery set (see the first-export fallback above).
-- `--context-file` flag: Check if explicitly provided (CLAUDE.md, .cursorrules, or AGENTS.md). Replaces the old `--platform` flag.
+- `--context-file` flag: Check if explicitly provided (CLAUDE.md, .cursorrules, or AGENTS.md); `references/invocation-contract.md` lists it.
 - `--dry-run` flag: Check if provided. Default: `false`
 
 **Context File Resolution:**
@@ -105,11 +78,11 @@ A non-zero exit (an unknown `--context-file` value, or an IDE mapping the helper
 **Context file(s):** {context-file-list} (skill root: {skill-root-list})
 **Dry Run:** {yes/no}"
 
-### 1b. Detect Snippet Root Prefix Mismatch
+### 1b. Snippet Root
 
-**Skip entirely if `snippet_skill_root_override` is set in `config.yaml`**: the authoring-repo escape hatch is already configured and any on-disk prefix that matches it is ground truth (see the override rules in `assets/managed-section-format.md`).
+**Skip this if `snippet_skill_root_override` is set in `config.yaml`**: the authoring-repo override already decides every `root:` path (see the override rules in `assets/managed-section-format.md`).
 
-**Otherwise:** load `references/preflight-snippet-root-probe.md` and follow its probe + (a) Set override / (b) Proceed with IDE mapping / (c) Cancel gate protocol. The reference handles candidate snippet collection (manifest-driven), prefix observation, the mismatch warning, and headless default ((b) Proceed). Returns control to §1c on no-mismatch fast path or after a (b) choice.
+**Otherwise:** load `references/preflight-snippet-root-probe.md` and follow it. It asks the layout question when no earlier export chose a snippet root, takes the mismatch gate when an earlier export's root differs from the IDE mapping, and states each one's headless default. It returns here on its fast path, after the layout question's [I], or after the mismatch gate's (b) or (d), where (d) binds `{snippet_skill_root_override}` for this run; continue at §1c.
 
 ### 1c. Multi-skill Mode (when `len(skill_batch) > 1`)
 
@@ -119,7 +92,7 @@ A non-zero exit (an unknown `--context-file` value, or an IDE mapping the helper
 
 ### 2. Load and Validate Skill Artifacts
 
-The inventory helper chooses the version to export and binds its paths by the Reading Workflows rules of `knowledge/version-paths.md` (the Manifest-lag guard included), so this step never reads the export manifest or the `active` link by hand. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
+The inventory helper chooses the version to export and binds its paths by the Reading Workflows rules of `knowledge/version-paths.md` (the Manifest-lag guard included), so this step never reads the export manifest or the `active` link by hand. Run:
 
 ```bash
 uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"
@@ -132,11 +105,9 @@ Bind from its `resolve` object `{resolved_version}` ← `chosen_version`, `{reso
 3. `flat-layout`: fall back to the flat path `{skills_output_folder}/{skill-name}/`, where `SKILL.md` sits at the skill folder root with no version folder yet. Check that SKF generated it before anything moves:
    - Run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
    - **`{group_flat_skf}` is true:** if `--dry-run` is set, do not migrate: use the flat folder as the resolved path (the `skill_package` bound above; `{resolved_version}` and `{forge_version}` stay null) and note "would migrate {skill-name} to the versioned layout". Otherwise auto-migrate per `knowledge/version-paths.md` migration rules, then run the `resolve` command above again and bind its values anew: they now name the version folder.
-   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output — nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or export it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. HALT with exit code 3. In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`, `halt_reason: "not-skf-output"`.
+   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, or `skills[]` has no entry): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output: nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or export it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), or the helper's `error` when the status is not `ok`. HALT with exit code 3. In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`, `halt_reason: "not-skf-output"`.
 4. `missing`, `newest-on-disk`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version named for export is on disk. `newest-on-disk` means version folders exist but neither the export manifest nor a working `active` link names one, and export publishes only a version one of them names. HALT (exit code 3, `halt_reason: "resolution-failure"`): "**`{skill-name}` has no version to export.** {the helper's `detail`, or its `error`}. Run create-skill first, or point `{skills_output_folder}/{skill-name}/active` at the version to export, then re-run." In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
 5. Any other error, or no JSON: HALT (exit code 3, `halt_reason: "resolution-failure"`) with the helper's message. In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
-
-If no helper candidate resolves, SKF can neither choose the version nor check a flat skill's marker, and nothing moves: when `{skills_output_folder}/{skill-name}/SKILL.md` exists, take item 3's **Otherwise** branch (the `not-skf-output` HALT); else HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "`skf-skill-inventory.py` is missing. Nothing was changed. Re-install SKF." In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
 
 Every later step reads the skill from `{resolved_skill_package}`.
 
@@ -150,21 +121,20 @@ Load all files from `{resolved_skill_package}`:
 - `references/` — Progressive disclosure directory
 - `context-snippet.md` — Existing snippet (will be regenerated)
 
-**Validation (deterministic — the export gate):**
+**Validation (the export gate):**
 
-Run the export gate against the resolved package. Resolve `{validateOutputHelper}` from `{validateOutputProbeOrder}` (first existing path wins):
+Run the export gate against the resolved package:
 
 ```bash
 python3 {validateOutputHelper} {resolved_skill_package} --export-gate
 ```
 
-The script emits one JSON verdict covering every check this step used to derive by hand: `SKILL.md` present and non-empty; `metadata.json` present and a valid JSON object; the required agentskills.io fields present (`name`, `version`, `skill_type`, `source_authority`, `exports`, `generation_date`, `confidence_tier`); enum membership (`skill_type` ∈ single/stack, `source_authority` ∈ official/internal/community, and `confidence_tier` on the scale of the `skill_type`: Quick/Forge/Forge+/Deep for a single skill, T1/T1-low/T2/T3 for a stack; a stack that still holds a forge tier, as older stacks do, passes with a low warning under `validation.metadata.issues`); a non-empty `exports` array (empty is a low warning, not a halt); the recommended metadata fields for the `skill_type`, each missing or empty one a low warning under `validation.metadata.recommended_missing` (`description`, `source_repo`, `language` and `tool_versions` for a single skill, plus `ast_node_count` when `confidence_distribution.t1` is above 0; `language` and `tool_versions` for a stack); and the SKILL.md Section 7b ↔ on-disk `scripts/`/`assets/` cross-reference (only a path that starts with `scripts/` or `assets/`, optionally after `./`, names a bundled file; a §7b-named file absent on disk is a high issue; an unreferenced on-disk file is a low orphan warning). Read `result` (PASS/FAIL), `export_status` (READY/WARNINGS/NOT_READY), and the issue arrays under `validation.metadata.{issues,enum_issues,recommended_missing}` and `validation.crossref_7b.{missing,orphans}`. **Retain this JSON as the export verdict**: step 2 (`package.md`) renders its status from it without re-deriving the checks.
-
-**If the script cannot run** (no `uv`/Python, e.g. claude.ai web): perform the checks listed above by hand, with the same severities; the docstring at the top of `{validateOutputHelper}` documents exactly what it verifies.
+The script emits one JSON verdict; its docstring lists every check: `SKILL.md` and `metadata.json` present and valid; the required agentskills.io fields and their enums (`confidence_tier` on the scale of the `skill_type`: Quick/Forge/Forge+/Deep for a single skill, T1/T1-low/T2/T3 for a stack, where an older stack's forge tier passes with a low warning); the recommended fields for the `skill_type`, each missing one a low warning; and the SKILL.md Section 7b (`## Scripts & Assets`) cross-reference against the package's `scripts/` and `assets/` files, where a file the section names that is absent on disk is a high issue and a file it does not name a low orphan warning. Read `result` (PASS/FAIL), `export_status` (READY/WARNINGS/NOT_READY), the issue arrays under `validation.metadata.{issues,enum_issues,recommended_missing}` and `validation.crossref_7b.{missing,orphans}`, and `validation.crossref_7b.{heading,heading_line}`, the Section 7b heading the gate matched and its line in SKILL.md. **Retain this JSON as the export verdict**: step 2 (`package.md`) renders its status from it without re-deriving the checks.
 
 **If `result` is `FAIL` / `export_status` is `NOT_READY`** (any high-severity issue in `validation.*`):
 "**Export cannot proceed.** Missing or invalid: {list the high-severity issue messages from the script's `validation.metadata.{issues,enum_issues}` and `validation.crossref_7b.missing`}
-Run create-skill to generate a complete skill first."
+{when `validation.crossref_7b.missing` is not empty:} Section 7b is the `{validation.crossref_7b.heading}` heading at line {validation.crossref_7b.heading_line} of `{resolved_skill_package}/SKILL.md`.
+Fix each one in the package: add the file Section 7b names or correct its path there, and give `metadata.json` the field or value the message names, or run update-skill or create-skill to rebuild the skill. Then re-run the export."
 Then HALT (exit code 3, `halt_reason: "resolution-failure"`). In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
 
 ### 3. Read Skill Metadata

@@ -5,14 +5,14 @@
 """Deterministic directory-size measurement for skf-drop-skill.
 
 The drop workflow twice needs a stable human label ("4.2 MB" / "812 KB"):
-select.md §9b renders the blast-radius line ahead of the confirmation gate
-from the exact recursive byte total measured here, and execute.md §4 formats
-the canonical `disk_freed` from the `bytes_freed` that skf-skill-inventory.py
-guarded-delete measured just before it deleted each folder. Summing file sizes
-and rounding a unit in the prompt has one correct answer per input, so it
-belongs here: identical input yields identical output, and the gate preview
-and the post-purge report agree on the method (they can still differ only
-because they read at different times).
+select.md section 9b renders the blast-radius line ahead of the confirmation
+gate from the exact recursive byte total measured here, and execute.md
+section 4 formats the canonical `disk_freed` from the `bytes_freed` that
+skf-skill-inventory.py guarded-delete measured just before it deleted each
+folder. Summing file sizes and rounding a unit in the prompt has one correct
+answer per input, so it belongs here: identical input yields identical
+output, and the gate preview and the post-purge report agree on the method
+(they can still differ only because they read at different times).
 
 Two operations:
 
@@ -21,14 +21,16 @@ Two operations:
                         excluded from the total). Symlinks are measured by the
                         size of the link itself, never followed.
   humanize <bytes>...   sum a set of already-measured byte counts and format
-                        one human label. execute.md §4 feeds it the
+                        one human label. execute.md section 4 feeds it the
                         `bytes_freed` of guarded-delete.
 
-Output is a single JSON object on stdout. Exit codes: 0 ok; 2 usage error
-(missing/unknown op, or a non-integer byte count for `humanize`).
+Output is a single JSON object on stdout. Exit codes: 0 ok (and --help);
+2 usage error (missing/unknown op or argument, or a non-integer byte count
+for `humanize`), reported as a JSON error on stderr.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -99,20 +101,44 @@ def _op_humanize(raw: list[str]) -> dict:
     return {"status": "ok", "op": "humanize", "total_bytes": total, "total_human": humanize_bytes(total)}
 
 
-def main(argv: list[str]) -> int:
-    if not argv:
-        print(json.dumps({"status": "error", "error": "usage: dir-sizes.py {sizes|humanize} <args>"}), file=sys.stderr)
-        return 2
-    op, args = argv[0], argv[1:]
-    if op == "sizes":
-        print(json.dumps(_op_sizes(args)))
-        return 0
-    if op == "humanize":
-        print(json.dumps(_op_humanize(args)))
-        return 0
-    print(json.dumps({"status": "error", "error": f"unknown op: {op!r}"}), file=sys.stderr)
-    return 2
+class _JsonErrorParser(argparse.ArgumentParser):
+    """Report a usage error as the same stderr JSON and exit 2 as a bad byte count.
+
+    The subcommand parsers are made with this class too, so an unknown op or
+    flag never reaches argparse's own plain-text usage.
+    """
+
+    def error(self, message: str) -> None:
+        print(json.dumps({"status": "error", "error": f"usage error: {self.prog}: {message}"}), file=sys.stderr)
+        sys.exit(2)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = _JsonErrorParser(
+        prog="dir-sizes.py",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = parser.add_subparsers(dest="op", required=True, metavar="{sizes,humanize}")
+
+    p_sizes = sub.add_parser("sizes", help="recursive byte size of each path, and their total")
+    p_sizes.add_argument("paths", nargs="*", metavar="path",
+                         help="a file or folder to measure; a link is measured as itself, never followed")
+
+    p_humanize = sub.add_parser("humanize", help="sum already-measured byte counts into one human label")
+    p_humanize.add_argument("byte_counts", nargs="*", metavar="bytes",
+                            help="an integer byte count, such as guarded-delete's bytes_freed")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    if args.op == "sizes":
+        print(json.dumps(_op_sizes(args.paths)))
+    else:
+        print(json.dumps(_op_humanize(args.byte_counts)))
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

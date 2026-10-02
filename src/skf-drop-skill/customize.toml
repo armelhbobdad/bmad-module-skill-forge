@@ -10,15 +10,18 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (audit-log emit,
-# ticket-reference enforcement) that must precede any destructive work.
+# Steps to run once On Activation has loaded config.yaml and resolved this
+# customization, before its pre-flight (helper check, run folder, write
+# probe and headless-purge guard) and before the first prompt. Overrides
+# append. Use for org-wide checks (audit-log emit, ticket-reference
+# enforcement) that must precede any destructive work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run right after the prepend steps and the persistent facts,
+# still before the pre-flight: a run that then HALTs on a missing helper,
+# an unwritable folder or the headless-purge guard has already run them.
+# Overrides append. Use for context loads or banner customization.
 
 activation_steps_append = []
 
@@ -36,28 +39,27 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Optional post-drop hook. When non-empty, invoked with
-# `--result-path=<path>` after the drop-skill result JSON is finalized
-# (references/report.md). Failures are logged to workflow_warnings[] but
-# never fail the workflow — useful for audit-log emit, a notifier, or a
-# ticket-tracker integration after an irreversible purge.
+# Optional post-drop hook: a shell command, run as
+# `<command> --result-path=<path>` once step 3 (references/report.md) has
+# written the drop's result record. It runs only after a drop whose record
+# the emitter wrote (report.md skips it when `result_path` is null), so a
+# dry run, a HALT or a failed record write never calls it. A hook that
+# exits non-zero is shown as a line of its own and never fails the drop,
+# which may already be irreversible. Useful for an audit-log emit, a
+# notifier or a ticket-tracker update after a purge.
 
 on_complete = ""
 
-# --- Optional safety + default scalars ---
+# --- Optional safety scalar ---
 #
-# Default drop mode. Empty string = always prompt the user at §8 Ask Mode.
-# Set to "deprecate" or "purge" to skip the prompt — the headless
-# auto-decision log records the override source.
-
-default_mode = ""
-
-# Hard-block hard-purge in headless mode. When set to "true", a headless
-# invocation with `mode=purge` HALTs at activation with exit code 6
-# (`halt_reason: "headless-purge-forbidden"`) instead of silently deleting
-# files. Operators must either re-run with `mode=deprecate` or unset this
-# flag for that run; a draft skill with no manifest entry cannot be
-# deprecated, so it needs the flag unset or an interactive run. Empty
-# string = no guard (default).
+# Block a purge in headless mode. Any value other than the empty string
+# turns the guard on ("true", a TOML true, and even "false" or false), so a
+# mistyped value blocks the purge rather than allowing it. With the guard
+# on, a headless run with `mode=purge` HALTs at activation with exit code 6
+# (`halt_reason: "headless-purge-forbidden"`) instead of deleting files:
+# re-run with `mode=deprecate`, or interactively. A draft skill with no
+# manifest entry cannot be deprecated, so it needs an interactive run or
+# the guard off. The drop mode has no default: every run passes `mode` or
+# answers the prompt. Empty string = no guard (default).
 
 forbid_purge_in_headless = ""

@@ -63,6 +63,7 @@ DROP_SKILL = "src/skf-drop-skill/SKILL.md"
 RENAME_SELECT = "src/skf-rename-skill/references/select.md"
 RENAME_EXECUTE = "src/skf-rename-skill/references/execute.md"
 DROP_REPORT = "src/skf-drop-skill/references/report.md"
+DROP_CONTRACT = "src/skf-drop-skill/references/invocation-contract.md"
 CS_GENERATE = "src/skf-create-skill/references/generate-artifacts.md"
 CS_REPORT = "src/skf-create-skill/references/report.md"
 CS_SKILL = "src/skf-create-skill/SKILL.md"
@@ -80,12 +81,11 @@ WRITER_SITES = {
 }
 WRITER_SKILLS = ("src/skf-create-skill/SKILL.md", "src/skf-quick-skill/SKILL.md", SS_SKILL)
 CONTRACT_FILES = {
-    "src/skf-drop-skill/references/headless-contract.md": ("not-skf-output",),
-    "src/skf-drop-skill/SKILL.md": ("not-skf-output",),
-    "src/skf-rename-skill/SKILL.md": ("not-skf-output", "flat-layout"),
+    "src/skf-drop-skill/references/invocation-contract.md": ("not-skf-output",),
+    "src/skf-rename-skill/references/invocation-contract.md": ("not-skf-output", "flat-layout"),
     "src/skf-rename-skill/references/exit-codes.md": ("not-skf-output", "flat-layout"),
     "src/skf-export-skill/references/result-envelope.md": ("not-skf-output",),
-    "src/skf-export-skill/SKILL.md": ("not-skf-output",),
+    "src/skf-export-skill/references/invocation-contract.md": ("not-skf-output",),
     "src/skf-audit-skill/references/headless-contract.md": ("not-skf-output",),
     "src/skf-test-skill/references/invocation-contract.md": ("not-skf-output",),
     QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
@@ -97,6 +97,9 @@ PROBE_ORDER = (
     "  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'\n"
     "  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'\n"
 )
+# A migrate site whose SKILL.md resolves the inventory helper On Activation,
+# which halts before any prompt when it is missing.
+ACTIVATION_INVENTORY = {"src/skf-export-skill/references/load-skill.md": "src/skf-export-skill/SKILL.md"}
 
 
 def _read(rel: str) -> str:
@@ -150,14 +153,19 @@ def test_auto_migrate_sites_are_exactly_the_four():
 def test_migrate_site_gates_before_migrating(rel):
     text = _read(rel)
     frontmatter = text.split("\n---\n", 1)[0] + "\n"
-    assert PROBE_ORDER in frontmatter, "installed path first, then the src/ path"
     rung = _flat_rung(text)
+    if rel in ACTIVATION_INVENTORY:
+        assert ("`{skillInventoryHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py`, "
+                "else `{project-root}/src/shared/scripts/skf-skill-inventory.py`") in _read(ACTIVATION_INVENTORY[rel])
+        assert "skillInventoryProbeOrder" not in frontmatter and "no helper candidate" not in rung
+    else:
+        assert PROBE_ORDER in frontmatter, "installed path first, then the src/ path"
+        assert "no helper candidate resolves" in rung, "a missing helper must fail closed"
     binding = "`{group_flat_skf}` ← `skills[0].flat_skf`"
     assert binding in rung
     assert "--skill" in rung
     assert rung.index(binding) < rung.index("migration rules"), "the gate must come before migrating"
     assert 'halt_reason: "not-skf-output"' in rung or '"halt_reason":"not-skf-output"' in rung
-    assert "no helper candidate resolves" in rung, "a missing helper must fail closed"
     assert "`{group_errors}` ← `skills[0].errors`" in rung, "a link is not a missing marker"
     assert "in place of the marker sentence" in rung
     assert "`skills_output_folder`" in rung and "/skf-setup" in rung
@@ -209,7 +217,8 @@ def test_export_discovery_keeps_only_skf_skills():
         "a flat SKF skill can have no active_version; filtering on it alone drops the skill silently")
     assert "Skipped (not SKF output)" in discovery
     assert "`{not_skf_output}` ← `not_skf_output`" in discovery
-    assert "skip the flat path" in discovery, "without the helper, no flat folder is discovered"
+    # On Activation halts when the helper is missing, so discovery has no scan without it.
+    assert "no helper candidate" not in discovery and "skip the flat path" not in discovery
     halt = _section(_read("src/skf-export-skill/references/multi-skill-mode.md"), "## Halt semantics", None)
     assert "not-skf-output" in halt
 
@@ -241,17 +250,19 @@ def test_drop_forced_purge_is_guarded():
     for needle in ('"input-invalid"', '"input-missing"', "{forbidPurgeInHeadless}", "apply §8b",
                    "On-Activation guard"):
         assert needle in draft, needle
-    # A headless purge of a draft is reached only with mode=purge or default_mode purge, which the
-    # On-Activation guard already checks, so a second forbid HALT here could never run.
+    # A headless purge of a draft is reached only with mode=purge, which the On-Activation guard
+    # already checks, so a second forbid HALT here could never run.
     assert '"headless-purge-forbidden"' not in draft
-    assert "when `{headless_mode}` is true, no `mode` argument while `{defaultMode}` is `\"deprecate\"`" in draft, (
-        "an interactive run confirms the forced purge at §10; only headless refuses a deprecate default")
+    assert "1. A `mode` argument other than `purge`: HALT" in draft
+    assert "2. `{headless_mode}` is true and no `mode` argument was passed: HALT" in draft, (
+        "an interactive run confirms the forced purge at §10; only headless needs the argument")
+    assert "{defaultMode}" not in draft and "default_mode" not in draft
     assert "leave out **[P]**" in ask_mode
 
 
 def test_drop_contract_describes_the_draft_purge_guard():
     text = _read(DROP_SKILL)
-    exit_6 = next(line for line in text.splitlines() if line.startswith("| 6 "))
+    exit_6 = next(line for line in _read(DROP_CONTRACT).splitlines() if line.startswith("| 6 "))
     assert "§8" not in exit_6, "select.md §8 no longer raises headless-purge-forbidden"
     assert "cannot see the purge" not in text
     assert "cannot be deprecated" in _section(text, "## On Activation", None)
@@ -419,7 +430,8 @@ def test_rename_ownership_check_precedes_the_lock():
                     "`{rename_detail}` ← `detail`", "`{rename_entries}` ← `offending_entries`"):
         assert binding in check, binding
     assert "`{target_errors}` ← `errors`" in check, "a link is not a missing marker"
-    assert "without `{skillInventoryHelper}`" in check, "a missing helper must fail closed"
+    assert "without `{skillInventoryHelper}`" not in check, "§1 halts on a missing helper before §4a runs"
+    assert "When the call exits non-zero, or its result has no `rename_check`" in check, "a failed check fails closed"
     reasons = _inventory_reasons("rename_check")
     assert reasons == {"reserved-name", "absent", "foreign", "mixed", "flat-layout", "forge-link",
                        "forge-not-a-folder", "forge-unreadable", "forge-mixed"}
@@ -468,7 +480,11 @@ def test_rename_recreates_active_with_flip_link():
     assert 'then rm -f "{new_skill_group}/active"' in fix, "a link is removed as a link, never followed"
     assert 'elif [ -e "{new_skill_group}/active" ]; then rm -rf "{new_skill_group}/active"' in fix
     assert "bind `{active_link_kind}` ← `kind`" in fix and "bind `{flip_error}` ← `message`" in fix
-    assert "active.skf-lock" in fix and "mklink /J" in fix
+    assert "it refuses to replace an `active` that is a real folder, so remove the copied entry first" in fix
+    assert "Never create the link with `ln -s`: Git Bash on Windows without symlink rights writes a copy" in fix
+    assert execute.count("Git Bash") == 1, "the ln -s reason is given once"
+    for mechanics in ("active.skf-lock", "mklink /J", "temporary name", "os.symlink"):
+        assert mechanics not in fix, "the helper's docstring holds how flip-link works"
     for stale in ("active.lock", "flock", "four cases", "no silent fallback", "{captured stderr}", "python3"):
         assert stale not in fix, stale
     assert fix.count('halt_reason: "write-failed"') == 1
@@ -792,7 +808,8 @@ def test_rename_recovery_deletes_only_a_copy():
     assert "only when it holds a copy of" in ask
     assert "rm -rf {skills_output_folder}/{new_name} {forge_data_folder}/{new_name}" not in ask
     assert "**Reserved name.**" in ask
-    assert "holding nothing a copy of it could not" in ask, "the fallback fingerprint needs a copy"
+    assert "If `{renameNameValidator}` cannot run" not in ask, "§5 has no in-prompt validator"
+    assert "holding nothing a copy of it could not" not in ask
 
 
 def test_getting_started_ownership_sentence():
@@ -961,7 +978,7 @@ RENAME_FORGE_REFUSAL = "is a link, is not a folder, or cannot be listed"
 RENAME_FORGE_SURFACES = {
     "src/knowledge/version-paths.md": (2, ('refuses one that is `"mixed"` or a link',
                                            "entries SKF did not write or is a link.")),
-    "src/skf-rename-skill/SKILL.md": (1, ("also holds other files or is a link,",)),
+    "src/skf-rename-skill/SKILL.md": (0, ("also holds other files or is a link,",)),
     "src/skf-rename-skill/references/exit-codes.md": (1, ("or a linked forge folder",)),
     "docs/workflows.md": (2, ("also holds other files or is a link",)),
     "docs/troubleshooting.md": (1, ("(rename also refuses one that is a link)",)),
@@ -1115,7 +1132,7 @@ def test_a_known_context_file_that_no_ide_names_is_checked_with_the_helper():
         assert "`<!-- SKF:BEGIN -->` marker" not in _read(rel), rel
     # The gate it loads names the sections update-context.md has now.
     gate = _read("src/skf-export-skill/references/orphan-context-detection.md")
-    assert "`{rebuildManagedSectionsHelper}` is the path `update-context.md` §2 resolved" in gate
+    assert "`{rebuildManagedSectionsHelper}` is the path SKILL.md's On Activation resolved" in gate
     assert "§9a" not in gate and gate.count("§4 to §9") == 3
     assert "updated ({case})" in _read("src/skf-export-skill/references/summary.md")
 
@@ -1136,7 +1153,7 @@ def test_export_records_the_manifest_with_passive_context_off():
                   "confirm the final state matches expectations", "{skills_output_folder} get {skill-name}",
                   "confirmed when `get` returns", "or `get` does not confirm"):
         assert stale not in text, stale
-    assert "also when `passive_context` is off" in _read(EXPORT_SKILL)
+    assert "also when `passive_context` is off" in _read("src/skf-export-skill/references/invocation-contract.md")
     exit_codes = _section(_read("src/skf-export-skill/references/result-envelope.md"), "## Exit Codes", None)
     exit_4 = next(line for line in exit_codes.splitlines() if line.startswith("| 4 "))
     assert "step 4 §9b manifest write → `manifest-write-failed`" in exit_4
@@ -1159,7 +1176,7 @@ def test_export_reads_the_manifest_only_through_the_helper():
     assert parse.index("**Read the export manifest**") < parse.index("**Skill Path Discovery")
     assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`): "**Export manifest is corrupt**' in parse
     assert "`python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`" in _read(EXPORT_SNIPPET)
-    assert "python3 {manifestOpsHelper} {skills_output_folder} read" in _section(
+    assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
         _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
     verify = _section(_read(DROP_EXECUTE), "### 5. Verify Final State", "### 6. ")
     assert "python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}" in verify
@@ -1175,8 +1192,9 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
     assert "until `{count}` is 300 or below" in count
     assert "stays in-prompt" not in text
     assert "by hand" not in count, "no count in the prompt: §2.8 already needs Python for the stage folder"
-    assert ('When no `{countTokensProbeOrder}` candidate exists, or the helper exits non-zero, delete the '
+    assert ('When the helper exits non-zero, delete the '
             '`{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`)') in count
+    assert "`{countTokensHelper}` ←" in _read(EXPORT_SKILL), "On Activation resolves the counter before any prompt"
     stage = _section(text, "### 2.8. Stage Folder", "### 3. ")
     assert "so a dry run leaves nothing beside a skill package or a context file" in stage
     assert "Step 4 deletes the folder on every exit, cancels and halts included." in stage
@@ -1190,7 +1208,7 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
 
 def test_export_step_4_deletes_the_stage_folder_on_every_exit():
     """A halted or cancelled export leaves no skf-export-* folder behind in the OS temp folder."""
-    helpers = _section(_read(EXPORT_UPDATE), "### 2. Resolve the Helpers", "### 3. ")
+    helpers = _section(_read(EXPORT_UPDATE), "### 2. Stage Folder", "### 3. ")
     assert ("deletes the folder on every exit: the §8 dry run and cancel, the end of §9c, the orphan-row (c) "
             "Cancel and every HALT in this step") in helpers
     cancel = _section(_read("src/skf-export-skill/references/orphan-row-detection.md"), "### (c) Cancel",
@@ -1229,7 +1247,7 @@ def test_rename_rolls_back_only_up_to_the_manifest_rekey():
     assert "as the reason no context file was rebuilt" not in rebuild
     assert "{if context_files_failed is non-empty:}" in _read("src/skf-rename-skill/references/report.md")
     assert "best-effort and never halts" in _read("src/skf-rename-skill/references/exit-codes.md")
-    assert "§7 context-file rebuild is best-effort and never halts" in _read(RENAME_SKILL)
+    assert "§7 context-file rebuild is best-effort and never halts" in _read(RENAME_CONTRACT)
     assert "If any step fails before the final delete" not in _read(RENAME_SELECT)
 
 
@@ -1413,6 +1431,7 @@ def test_drop_and_rename_calls_name_what_the_operation_removed():
 RENAME_REPORT = "src/skf-rename-skill/references/report.md"
 RENAME_HEALTH = "src/skf-rename-skill/references/health-check.md"
 RENAME_EXIT_CODES = "src/skf-rename-skill/references/exit-codes.md"
+RENAME_CONTRACT = "src/skf-rename-skill/references/invocation-contract.md"
 RUN_LOCK_PY = SRC / "shared" / "scripts" / "skf-run-lock.py"
 EMITTER_PY = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
 VALIDATOR_PY = SRC / "skf-rename-skill" / "scripts" / "skf-validate-rename-name.py"
@@ -1725,8 +1744,8 @@ def test_rename_every_halt_site_matches_the_schema_exit_code(tmp_path):
 
 
 def test_rename_contract_lists_the_schema_halt_reasons():
-    skill = _read(RENAME_SKILL)
-    contract = _section(skill, "## Result Contract (Headless)", "## On Activation")
+    assert "## Result Contract" not in _read(RENAME_SKILL), "#600: the headless contract lives in one place"
+    contract = _section(_read(RENAME_CONTRACT), "## Result Contract (Headless)", None)
     listed = set(re.findall(r'`"([a-z-]+)"`', _section(contract, "`halt_reason` is one of:", "(§7")))
     enum = {r for r in _schema()["properties"]["halt_reason"]["enum"] if r is not None}
     assert listed == enum
@@ -1897,7 +1916,10 @@ def test_rename_counts_come_from_the_helper_results():
     assert "across the {number of `renamed_versions`} version(s) it checked" in verify
     # §6's flag and report line say whether the re-key ran, as §9's manifest_rekeyed does.
     manifest = _section(execute, "### 6. Update Export Manifest", "### 7. ")
-    assert "Set context flag `manifest_updated = true` when the helper ran and exited 0, else `false`" in manifest
+    assert "Set context flag `manifest_rekeyed = true` when the helper ran and exited 0, else `false`" in manifest
+    assert "Set `manifest_rekeyed = false` and `manifest_backup = null`" in manifest
+    for rel in (RENAME_EXECUTE, RENAME_REPORT):
+        assert "manifest_updated" not in _read(rel), f"{rel}: one manifest flag name (#600)"
     assert 'When it skipped the call: "**Manifest unchanged:** it has no `exports.{old_name}` entry."' in manifest
 
 
@@ -1939,7 +1961,7 @@ def test_rename_names_the_recovery_after_the_rekey(tmp_path):
     """#587: a rename interrupted after the manifest re-key is named at the next run, with the
     commands that finish it, instead of a dead-end collision that invites a third name."""
     ask = _section(_read(RENAME_SELECT), "### 5. Ask for New Name", "### 6. Source Authority Check")
-    recovery = _section(ask, "**Recovery after the manifest re-key.**", "**If `{renameNameValidator}` cannot run**")
+    recovery = _section(ask, "**Recovery after the manifest re-key.**", None)
     for needle in ("When `interrupted_after_rekey` is true", "`leftover_folders`", "in both modes",
                    'uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" '
                    '--root "{forge_data_folder}" {each path in leftover_folders, quoted}',
@@ -1947,7 +1969,7 @@ def test_rename_names_the_recovery_after_the_rekey(tmp_path):
                    'HALT (exit code 5, `halt_reason: "name-collision"`, `emit-halt` phase `select:validate-new-name`)'):
         assert needle in recovery, needle
     assert "When `interrupted_after_rekey` is true, take the recovery halt below the list, in both modes" in ask
-    # The fingerprint is the validator's: the in-prompt fallback (which W5 removes) does not redo it.
+    # The fingerprint is the validator's: no in-prompt fallback redoes it.
     assert "the fingerprint after the re-key" not in ask
     assert "stopped after re-keying the export manifest" in _read(RENAME_EXIT_CODES)
     # The documented commands on a rename that stopped after the re-key: the validator names the

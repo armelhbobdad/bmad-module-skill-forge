@@ -217,7 +217,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
 ### 8. Ask Mode
 
-**GATE [default: use args]:** a `mode` argument answers this section in either mode, then `{defaultMode}`; the cases below say when the run HALTs instead. When `{headless_mode}` is true, record the `drop_mode` this section sets as an auto-decision before §8b runs: stage `{run_dir}/decision.json` as `{"gate": "select.mode", "default_action": "use args", "taken_action": "<drop_mode>", "reason": "<mode_source>"}` and run
+**GATE [default: use args]:** a `mode` argument answers this section in either mode, and an interactive run with none asks; the cases below say when the run HALTs instead. When `{headless_mode}` is true, record the `drop_mode` this section sets as an auto-decision before §8b runs: stage `{run_dir}/decision.json` as `{"gate": "select.mode", "default_action": "use args", "taken_action": "<drop_mode>", "reason": "<mode_source>"}` and run
 
 ```bash
 uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
@@ -227,17 +227,15 @@ The emitter folds each recorded decision into the result record's `headless_deci
 
 **If `target_in_manifest = false`:** Skip this prompt — soft-deprecate is meaningless without a manifest entry to mark, so only a purge applies. Take the first case that matches:
 
-1. A `mode` argument other than `purge`, or, when `{headless_mode}` is true, no `mode` argument while `{defaultMode}` is `"deprecate"`: HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "`{target_skill}` has no manifest entry, so there is nothing to deprecate. Re-run with `--mode purge` to delete it."
-2. `{headless_mode}` is true and nothing asked for a purge (no `mode` argument and `{defaultMode}` is empty): HALT (exit code 2, `halt_reason: "input-missing"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "headless mode: `{target_skill}` has no manifest entry, so only a purge applies; re-run with `--mode purge`."
-3. Otherwise force `drop_mode = "purge"` (record `mode_source = "draft-skill-forced-purge"`), inform the user: "**Mode forced to purge** — `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted.", and apply §8b. An interactive run still confirms the purge at §10. A headless run reaches this case only with `mode=purge` or a `{defaultMode}` of `"purge"`, which the On-Activation guard has already checked against `{forbidPurgeInHeadless}`.
+1. A `mode` argument other than `purge`: HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "`{target_skill}` has no manifest entry, so there is nothing to deprecate. Re-run with `--mode purge` to delete it."
+2. `{headless_mode}` is true and no `mode` argument was passed: HALT (exit code 2, `halt_reason: "input-missing"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "headless mode: `{target_skill}` has no manifest entry, so only a purge applies; re-run with `--mode purge`."
+3. Otherwise force `drop_mode = "purge"` (record `mode_source = "draft-skill-forced-purge"`), inform the user: "**Mode forced to purge:** `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted.", and apply §8b. An interactive run still confirms the purge at §10. A headless run reaches this case only with `mode=purge`, which the On-Activation guard has already checked against `{forbidPurgeInHeadless}`.
 
 **If `target_in_manifest = true`:**
 
-**If a `mode` argument was supplied at invocation:** an explicit `mode` arg is the per-run override and takes precedence over `{defaultMode}`. If it is `"deprecate"` or `"purge"`, set `drop_mode` from it and record the decision source `mode_source = "--mode argument"`. If a `mode` arg was supplied but is not one of `deprecate` / `purge`, HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "invalid `--mode` value `{supplied}`: expected `deprecate` or `purge`."
+**If a `mode` argument was supplied at invocation:** if it is `"deprecate"` or `"purge"`, set `drop_mode` from it and record the decision source `mode_source = "--mode argument"`. If a `mode` arg was supplied but is not one of `deprecate` / `purge`, HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "invalid `--mode` value `{supplied}`: expected `deprecate` or `purge`."
 
-**Else if `{defaultMode}` is non-empty (`"deprecate"` or `"purge"`)**: skip the prompt, set `drop_mode = "{defaultMode}"`, and record the decision source `mode_source = "customize.toml.workflow.default_mode"` for the headless decision trail.
-
-**Otherwise (interactive):** If `{headless_mode}` is true at this point (no `mode` arg and no `{defaultMode}`), there is no input to prompt for: HALT (exit code 2, `halt_reason: "input-missing"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "headless mode requires `--mode deprecate|purge` or `default_mode` in customize.toml to set the drop mode." Otherwise, prompt the user. Before showing the menu, run the §8b purge check at the current scope; when `{purge_verdict}` is not `"ok"`, leave out **[P]** and add the line "Purge is not offered: {the §8b refusal message for `{purge_reason}`}."
+**Otherwise:** If `{headless_mode}` is true (no `mode` arg), there is no input to prompt for: HALT (exit code 2, `halt_reason: "input-missing"`, phase `select:mode`), with `skill: "{target_skill}"` in the §1 halt envelope: "headless mode requires `--mode deprecate|purge` to set the drop mode." Otherwise, prompt the user. Before showing the menu, run the §8b purge check at the current scope; when `{purge_verdict}` is not `"ok"`, leave out **[P]** and add the line "Purge is not offered: {the §8b refusal message for `{purge_reason}`}."
 
 "**How should this be dropped?**
 
@@ -268,7 +266,7 @@ When §3 ran without the inventory helper, the call exits non-zero, or its resul
 - `skill-mixed-whole`: "**Purge refused: `{skills_output_folder}/{target_skill}/` also holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out of the folder and re-run. For a skill in the manifest, you can also purge a single version SKF generated, or use `--mode deprecate`. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
 - `skill-version-not-skf`: "**Purge refused: SKF did not generate `{skills_output_folder}/{target_skill}/{version}`** (it has no SKF marker in its `metadata.json`, or it is a link). Nothing was deleted. Use `--mode deprecate` to mark the version deprecated in the manifest only, or remove it yourself."
 - `skill-version-mixed`: "**Purge refused: `{skills_output_folder}/{target_skill}/{version}` also holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out and re-run, or use `--mode deprecate`."
-- `skill-foreign`, `reserved-name` or `unknown`: "**Purge refused: SKF cannot confirm that it generated `{skills_output_folder}/{target_skill}/`:** {reason}. Nothing was deleted. Use `--mode deprecate` to remove the manifest entry only, or delete the folder yourself." `{reason}` is `{purge_detail}` (it names a link, or a `metadata.json` with no SKF marker), and for `unknown` "the inventory helper is missing, or the installed `skf-skill-inventory.py` has no purge check; re-install SKF".
+- `skill-foreign`, `reserved-name` or `unknown`: "**Purge refused: SKF cannot confirm that it generated `{skills_output_folder}/{target_skill}/`:** {reason}. Nothing was deleted. Use `--mode deprecate` to mark it deprecated in the manifest only, or delete the folder yourself." `{reason}` is `{purge_detail}` (it names a link, or a `metadata.json` with no SKF marker), and for `unknown` "the inventory helper is missing, or the installed `skf-skill-inventory.py` has no purge check; re-install SKF".
 - `forge-mixed-whole`: "**Purge refused: `{forge_data_folder}/{target_skill}/` also holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out of the folder and re-run. For a skill in the manifest, you can also purge a single version SKF generated, or use `--mode deprecate`."
 - `forge-version-mixed`: "**Purge refused: `{forge_data_folder}/{target_skill}/{version}/` holds entries SKF did not generate:** {purge_entries}. Nothing was deleted. Move them out and re-run, or use `--mode deprecate`."
 
@@ -293,7 +291,7 @@ Compute three scalars to put in front of the path list at §10, so the user sees
 2. **`bytes_total`** — the on-disk size of `affected_directories`. Delegate the recursive sum and the human label to the sizing helper rather than adding file sizes in-prompt:
 
    ```bash
-   uv run {dirSizesHelper} sizes {each path in affected_directories, space-separated}
+   uv run {dirSizesHelper} sizes {each path in affected_directories, quoted, space-separated}
    ```
 
    Read `total_human` (e.g. `"4.2 MB"`) as `bytes_total` and `total_bytes` as `bytes_total_raw`; non-existent paths report `exists: false` and drop out of the total. If the helper is unavailable, fall back to `du -sb` per path: the display is best-effort. execute.md §4 measures each folder the same way (every file's size, a link counted as itself) just before it deletes it, and formats the total with the same helper for the canonical `disk_freed`, so the two differ only if files change between this gate and execution.
@@ -377,7 +375,7 @@ Store the following decisions in workflow context for step 2:
 - `drop_mode` — `"deprecate"` or `"purge"` (always `"purge"` when `target_in_manifest = false`)
 - `is_skill_level` — boolean (true if all versions; always true when `target_in_manifest = false`)
 - `affected_directories`: the absolute folder paths step 2 deletes in purge mode (or retains in deprecate mode), from the §8b purge check
-- `mode_source` — where `drop_mode` was decided, set inline at §8 (one of the four sources named there)
+- `mode_source`: where `drop_mode` was decided, set inline at §8 (one of the three sources named there)
 - `forge_left_in_place`: the forge path a purge leaves in place because SKF did not generate it, or null, from the §8b purge check
 - `target_context_files`: the §9b `resolve-targets` targets, which step 2 rebuilds
 - `confirm_source` — how the §10 gate was cleared, set inline at §10 (`"headless-auto"` or `"user-explicit"`)

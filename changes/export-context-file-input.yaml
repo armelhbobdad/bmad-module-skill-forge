@@ -1,0 +1,6 @@
+type: added
+scope: skf-export-skill
+summary: |
+  Export lists `--context-file` in its invocation contract, which now lives in `references/invocation-contract.md`, and resolves a snippet-root mismatch in a headless run by checking the disk: it keeps the root an earlier export chose, for that run, when only that folder holds the skills, and uses the IDE skill folder otherwise. Option (d), the earlier root for this run only, now reaches the snippets and the managed section. A draft snippet's `skills/<name>/` root no longer counts as a layout choice, so exporting a new or updated skill no longer raises the mismatch warning; when no earlier export chose a root, an interactive run asks one layout question and a headless run takes the IDE skill folder, recorded under the new `load-skill.snippet-root-layout` gate of `headless_decisions`. A repo whose skills live in `skills/` sets `snippet_skill_root_override: skills/` in `config.yaml`, since a `skills/<name>/` root an earlier export wrote now reads as a draft root. Export finds every helper it cannot run without, the skill inventory included, before its first prompt, so a missing one halts with exit code 4 (`context-rebuild-failed`) before you answer any question.
+prs: [639]
+issues: [594, 600]

@@ -71,13 +71,14 @@
           "gate": {
             "type": "string",
             "enum": [
+              "load-skill.snippet-root-layout",
               "load-skill.snippet-root-probe",
               "load-skill.confirmation",
               "update-context.orphan-context-files",
               "update-context.orphan-rows",
               "update-context.write-confirmation"
             ],
-            "description": "The gate that auto-resolved: step 1's snippet-root mismatch gate and confirmation gate, and step 4's orphaned context files gate, orphaned managed-section rows gate and write confirmation gate. Each gate records its decision in the run sink the moment it decides."
+            "description": "The gate that auto-resolved: step 1's snippet-root layout question (no earlier export chose a root), snippet-root mismatch gate (an earlier export's root differs from the IDE mapping, resolved by the folder on disk that holds the skills) and confirmation gate, and step 4's orphaned context files gate, orphaned managed-section rows gate and write confirmation gate. Each gate records its decision in the run sink the moment it decides."
           },
           "default_action": {
             "type": "string",

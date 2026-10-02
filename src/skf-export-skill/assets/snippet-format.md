@@ -6,7 +6,9 @@ The snippet `root:` path must reflect the IDE's actual skill directory — its `
 
 The root path in context-snippet.md on disk uses the **`skill_root` of the first entry in `target_context_files`** (resolved in step 1 from config.yaml IDE mapping). When assembling managed sections for other context files, step 4 rewrites root paths to match the target context file's skill root.
 
-**Authoring-repo override:** If `snippet_skill_root_override` is set in `config.yaml`, it replaces the IDE-mapped value for snippet generation and freezes matching prefixes against step 4 rewrites. See the "Resolution rules" section in `managed-section-format.md` for the full semantics.
+**Authoring-repo override:** If `snippet_skill_root_override` is set in `config.yaml`, or for one run by step 1's snippet-root option (d), it replaces the IDE-mapped value for snippet generation and becomes every row's root in step 4. See the "Resolution rules" section in `managed-section-format.md` for the full semantics.
+
+**A house-style copy** of this file (`snippet_format_path` in `customize.toml`) keeps the lines scripts parse: line 1 with its `root:` field, line 2's `|IMPORTANT:` start and skill name, the `|gotchas:` label with its `[CARRIED]` marker, and no bare `|` line. That setting's comment says which script reads each one.
 
 ## Format Rules
 
