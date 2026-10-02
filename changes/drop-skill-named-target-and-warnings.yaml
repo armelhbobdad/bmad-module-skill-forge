@@ -2,4 +2,5 @@ type: changed
 scope: skf-drop-skill
 summary: |
   A Drop Skill run that ends with a degraded outcome now says so in the `SKF_DROP_SKILL_RESULT_JSON` envelope and in `drop-skill-result-latest.json`, whose `warnings` list names each context file the drop could not rebuild (`context_rebuild_failed`), an `active` link a version purge left pointing at no version (`active_link_dangling`), each folder a partial purge could not delete (`delete_failed`) and each final-state check that failed (`verification_failed`), each with its error or manual fix. Before, such a run read as a plain `success`, and its report pointed at error-handling guidance that did not exist; the report now names each manual fix and lists the folders a partial purge left on disk. A run given `skill_name` now reads that skill alone and shows no list of every skill. An interactive run that stops or is cancelled at one of its questions, checks or the confirmation, or stops while it drops, now deletes its run folder under `_bmad-output/.skf-run/` instead of leaving it behind.
+prs: [646]
 issues: [591, 594, 600]
