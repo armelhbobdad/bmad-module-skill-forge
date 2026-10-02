@@ -4,4 +4,5 @@ summary: |
   `campaign-validate-state.py` now refuses a campaign state whose `started_at`, `last_updated` or `completed_at` (the campaign's, its capstone's or a skill's) is not an ISO-8601 date and time with a UTC offset, such as `2026-05-01T00:00:00Z` or `2026-05-01T00:00:00+00:00`. `campaign-state.py` stamps every one of them from the clock in UTC, so a campaign started on 3.0.0 always passes. A state written by hand before 3.0.0 with a timestamp that has no offset now stops every stage that loads it with exit code `3` (`invalid-state`), and `campaign resume` stops with exit code `9` (`corrupt-state`) when its `.bak` holds such a timestamp too.
 migration: |
   Before you resume a campaign started before 3.0.0, rewrite each `started_at`, `last_updated` and `completed_at` in `_campaign-state.yaml` and `_campaign-state.yaml.bak` as ISO-8601 with `Z` or `+00:00` (for example `2026-05-01T09:30:00Z`), then run `campaign resume`.
+prs: [641]
 issues: [587]

@@ -2,4 +2,5 @@ type: fixed
 scope: skf-verify-stack
 summary: |
   The per-run result file, `verify-stack-result-<YYYYMMDD-HHmmss>.json`, is now named after the run's own timestamp, the one in its `run_id` and in the feasibility report's file name, instead of the moment the envelope was written, so a pipeline can pair the result file with its report by name.
+prs: [641]
 issues: [593]

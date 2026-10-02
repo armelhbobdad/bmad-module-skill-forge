@@ -4,5 +4,5 @@ summary: |
   The `SKF_SETUP_RESULT_JSON` envelope no longer lists `write_failure` as a `status`. No run ever produced it: a failed write of `forge-tier.yaml`, `preferences.yaml` or the forge data folder has always ended with `status: "blocked"`. The schema now matches, and `status` is `blocked` exactly when `error` is not null.
 migration: |
   If a pipeline tests for `write_failure`, test for `blocked` and read `error.phase` instead: `step 2:write-tools` and `step 2:forge-data-dir` name the write failures. Do not read the other fields of a `blocked` envelope: they hold placeholder values.
-prs: [509]
+prs: [509, 641]
 issues: [502]

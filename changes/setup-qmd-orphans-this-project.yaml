@@ -2,3 +2,4 @@ type: fixed
 scope: skf-setup
 summary: |
   On Deep tier, setup no longer offers another project's QMD collections for removal. QMD keeps one index for every project on the machine, and setup used to call any collection with an SKF suffix that its own registry did not list an orphan, so the orphan question, or `--orphan-action=remove`, could delete collections that another SKF project still uses. A collection now counts as an orphan only when the folder QMD indexes it from lies inside this project; the question shows that folder for each one, and the removal checks it again just before it deletes a collection and leaves alone one that no longer points into this project.
+prs: [641]
