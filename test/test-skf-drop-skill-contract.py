@@ -4,7 +4,10 @@ the shared emitter builds (#593), the version input and the helpers resolved
 before the first prompt (#594), the version counts from the inventory
 helper (#597), the customization surface without `default_mode` and with a
 fail-closed purge guard (#596), the headless contract in one file outside
-SKILL.md (#600), and a whole-skill deprecate that keeps the manifest entry.
+SKILL.md (#600), a whole-skill deprecate that keeps the manifest entry, and
+the w3 re-check findings (#591, #600): the roster from one helper call, no
+roster for a named target, the degraded outcomes as warnings, an interactive
+HALT that leaves no run folder and the lean stage files.
 
 Step prose is not executed by any test, so these checks run the commands the
 drop steps document, filled in as an agent fills them, against fixtures:
@@ -16,10 +19,12 @@ drop steps document, filled in as an agent fills them, against fixtures:
   exit code is the one the schema maps its halt_reason to, every emitting HALT
   names its phase, and the contract lists the schema's halt reasons. The
   headless auto-decisions select.md records reach the result record.
-- skf-skill-inventory.py resolve gives the counts the active-version guard and
-  the blast-radius line read, and the version execute.md points `active` at
-  after a version purge (that rule is prose the agent applies, so it is
-  restated here as code and run over the helper's output).
+- drop-roster.py, the roster select.md reads in one call, gives the counts the
+  active-version guard and the blast-radius line read; skf-skill-inventory.py
+  resolve gives the version execute.md points `active` at after a version
+  purge (that rule is prose the agent applies, so it is restated here as code
+  and run over the helper's output). test-skf-drop-roster.py tests the roster
+  helper itself.
 - The prose pins: a failed manifest write halts in every mode and never reaches
   the report; `skill_name` and `version` answer their gates in both modes; the
   helpers resolve before the first prompt and no step keeps a fallback for
@@ -58,6 +63,7 @@ CONTRACTS = (CONTRACT,)
 SCRIPTS = SRC / "shared" / "scripts"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 INVENTORY = SCRIPTS / "skf-skill-inventory.py"
+ROSTER = DROP / "scripts" / "drop-roster.py"
 MANIFEST_OPS = SCRIPTS / "skf-manifest-ops.py"
 SCHEMA_PATH = SCRIPTS / "schemas" / "skf-drop-skill-result-envelope.v1.json"
 SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -448,7 +454,7 @@ def test_failed_manifest_write_halts_in_every_mode():
         assert stale not in manifest, stale
     assert "When the helper exits 0 (`status: \"ok\"`), set context flag `manifest_updated = true`." in manifest
     rules = _section(_read(REPORT), "## Rules", "## MANDATORY SEQUENCE")
-    assert "a failed manifest write HALTs in step 2" in rules
+    assert "HALTs in step 2" not in rules, "leanness-8: execute.md states the halt once"
     table = _exit_codes_table()
     exit_4 = next(line for line in table.splitlines() if line.startswith("| 4 "))
     assert "step 2 manifest write, in every mode (`manifest-write-failed`)" in exit_4
@@ -508,11 +514,10 @@ def test_required_helpers_resolve_before_the_first_prompt():
                      "manifest file in-prompt", "the in-prompt computation", "manifest in-prompt",
                      "by comparing version components numerically"):
             assert gone not in text, f"{rel}: {gone}"
-        if rel != EXECUTE:
-            assert "the `{manifestOpsHelper}` On-Activation §4 resolved" in text, rel
+    assert "the `{manifestOpsHelper}` On-Activation §4 resolved" in _read(REPORT)
     roster = _section(_read(SELECT), "### 3. List Available Skills", "### 4. ")
-    assert "**If `{skillInventoryHelper}` does not resolve:** list the `manifest.exports` skills and nothing else" \
-        in roster, "the inventory fallback stays: it changes what is offered"
+    assert ("When `{roster}.inventory` is false (the inventory helper could not run), the roster holds the manifest "
+            "skills alone") in roster, "the inventory fallback stays: it changes what is offered"
     for start, end in (("### 2. Update Export Manifest", "### 3. "), ("### 3. Rebuild Context Files", "### 4. ")):
         assert "halts before the first prompt" not in _section(execute, start, end), start
     rule = next(line for line in _read(SKILL).splitlines()
@@ -544,7 +549,8 @@ def test_the_version_argument_answers_the_scope_gate():
     assert "Validate that the version is a `{version_rows}` entry with `in_manifest` true." in scope
     assert "{its manifest versions, newest first}" not in scope and "`versions` map" not in scope
     versions = _section(_read(SELECT), "### 5. Display Version Details", "### 6. ")
-    assert "bind `{version_rows}` ← §3's `affected-versions` list for `{target_skill}`" in versions
+    assert "Bind `{version_rows}` ← the `versions` of `{target_skill}`'s roster entry" in versions
+    assert "affected-versions" not in _read(SELECT), "the roster orders the versions"
     gates = next(line for line in _contract_text(with_skill=True).splitlines() if line.startswith("| **Gates** |"))
     assert "Scope Gate [use args] (§6 version)" in gates
 
@@ -589,9 +595,13 @@ def test_no_drop_file_reads_a_default_mode():
             assert gone not in text, f"{path.name}: {gone}"
     assert not re.search(r"^\s*default_mode\s*=", _read(CUSTOMIZE), flags=re.M)
     sources = _section(_read(REPORT), "- `headless_provenance` persists", "\n")
-    assert '(`"--mode argument"` / `"interactive-prompt"` / `"draft-skill-forced-purge"`)' in sources
+    assert "`{mode_source}` and `{confirm_source}` the values step 1 set" in sources
+    mode = _section(_read(SELECT), "### 8. Ask Mode", "### 8b. ")
+    for source in ('`mode_source = "--mode argument"`', '`mode_source = "interactive-prompt"`',
+                   '`mode_source = "draft-skill-forced-purge"`'):
+        assert source in mode, source
     stored = _section(_read(SELECT), "### 11. Store Decisions in Context", "### 12. ")
-    assert "(one of the three sources named there)" in stored
+    assert "`mode_source`" in stored and "`confirm_source`" in stored
 
 
 def test_any_non_empty_forbid_value_turns_the_purge_guard_on():
@@ -734,7 +744,7 @@ def test_the_confirm_gate_cancel_is_interactive_only():
 
 
 # --------------------------------------------------------------------------
-# #597: the counts and the new active version come from the resolve helper
+# #597: the counts come from the roster, the new active version from resolve
 # --------------------------------------------------------------------------
 
 def test_no_drop_file_reads_the_version_paths_knowledge():
@@ -744,18 +754,20 @@ def test_no_drop_file_reads_the_version_paths_knowledge():
             assert "versionPathsKnowledge" not in text and "knowledge/version-paths.md" not in text, path.name
 
 
-def test_the_guard_and_the_blast_radius_read_the_resolve_counts():
+def test_the_guard_and_the_blast_radius_read_the_roster_counts():
     select = _read(SELECT)
     versions = _section(select, "### 5. Display Version Details", "### 6. ")
-    assert "Bind `{version_rows}` ← `resolve.versions`" in versions
-    assert "`{version_counts}` ← `resolve.counts`" in versions
+    assert "Bind `{version_rows}` ← the `versions` of `{target_skill}`'s roster entry" in versions
+    assert "`{version_counts}` ← its `counts`" in versions
+    assert "{skillInventoryHelper} resolve" not in versions, "the roster already holds the rows"
     guard = _section(select, "### 7. Active Version Guard", "### 8. ")
     assert "Read `{version_counts}.non_deprecated` (§5)" in guard and "above `1`" in guard
     assert "The guard never counts by hand" in guard
     assert "Count the number of OTHER versions" not in guard
+    assert "without `{version_counts}`" not in guard, "the roster always gives the counts"
     blast = _section(select, "#### 9b.", "### 10. ")
     assert "`{version_counts}.non_deprecated` (§5)" in blast and "`{version_counts}.on_disk` for a draft" in blast
-    assert "count of non-deprecated versions in" not in blast
+    assert "count of non-deprecated versions in" not in blast and "Without `{version_counts}`" not in blast
     delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
     assert "`resolve.newest_non_deprecated`" in delete and "`resolve.counts.non_deprecated`" in delete
     assert "the newest non-deprecated version in its `versions` map" not in delete
@@ -776,6 +788,18 @@ def _write_manifest(skills: Path, name: str, active: str, statuses: dict) -> Non
     (skills / ".export-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
 
 
+def _roster_entry(skills: Path, forge: Path, name: str) -> dict:
+    """The roster entry of `name`, from select.md §2's documented call with its `--skill` group kept."""
+    command = _one_command(_section(_read(SELECT), "### 2. Read the Roster", "### 3. "), "{dropRosterHelper} skills")
+    command = command.replace('[--skill "{skill_name}"]', '--skill "{skill_name}"')
+    proc = _run(command, {"dropRosterHelper": str(ROSTER), "skills_output_folder": str(skills),
+                          "forge_data_folder": str(forge), "skill_name": name})
+    result = json.loads(proc.stdout.decode("utf-8"))
+    assert proc.returncode == 0 and result["status"] == "ok", result
+    [entry] = result["skills"]
+    return entry
+
+
 def _resolve(rel: str, start: str, end: str, skills: Path, forge: Path, name: str) -> dict:
     command = _one_command(_section(_read(rel), start, end), "{skillInventoryHelper} resolve")
     proc = _run(command, {"skillInventoryHelper": str(INVENTORY), "skills_output_folder": str(skills),
@@ -789,27 +813,28 @@ def _resolve(rel: str, start: str, end: str, skills: Path, forge: Path, name: st
     ({"0.6.0": "active", "0.5.0": "archived", "0.1.0": "deprecated"}, True),
     ({"0.6.0": "active", "0.5.0": "deprecated", "0.1.0": "deprecated"}, False),
 ], ids=["another-version-kept", "only-non-deprecated"])
-def test_resolve_counts_drive_the_active_version_guard(tmp_path, statuses, refused):
+def test_roster_counts_drive_the_active_version_guard(tmp_path, statuses, refused):
     skills, forge = tmp_path / "skills", tmp_path / "forge"
     for version in statuses:
         _write_skill(skills, "cognee", version)
     _write_manifest(skills, "cognee", "0.6.0", statuses)
     forge.mkdir()
-    resolved = _resolve(SELECT, "### 5. Display Version Details", "### 6. ", skills, forge, "cognee")
-    assert [row["version"] for row in resolved["versions"]] == ["0.6.0", "0.5.0", "0.1.0"]
+    entry = _roster_entry(skills, forge, "cognee")
+    assert [row["version"] for row in entry["versions"]] == ["0.6.0", "0.5.0", "0.1.0"]
     # §7: dropping the active 0.6.0 is refused when the count is above 1.
-    assert (resolved["counts"]["non_deprecated"] > 1) is refused
+    assert (entry["counts"]["non_deprecated"] > 1) is refused
 
 
-def test_resolve_lists_a_draft_skill_by_its_folders(tmp_path):
+def test_roster_lists_a_draft_skill_by_its_folders(tmp_path):
     skills, forge = tmp_path / "skills", tmp_path / "forge"
     for version in ("0.2.0", "0.10.0"):
         _write_skill(skills, "draft", version)
     forge.mkdir()
-    resolved = _resolve(SELECT, "### 5. Display Version Details", "### 6. ", skills, forge, "draft")
-    rows = [(row["version"], row["on_disk"], row["in_manifest"]) for row in resolved["versions"]]
+    entry = _roster_entry(skills, forge, "draft")
+    rows = [(row["version"], row["on_disk"], row["in_manifest"]) for row in entry["versions"]]
     assert rows == [("0.10.0", True, False), ("0.2.0", True, False)], "newest first, 0.10.0 above 0.2.0"
-    assert (resolved["counts"]["on_disk"], resolved["counts"]["non_deprecated"]) == (2, 0)
+    assert (entry["counts"]["on_disk"], entry["counts"]["non_deprecated"]) == (2, 0)
+    assert entry["purge_only"] is True
 
 
 def _new_active(resolved: dict) -> str | None:
@@ -848,3 +873,188 @@ def test_resolve_gives_the_version_active_points_at_after_a_purge(tmp_path, acti
     shutil.rmtree(skills / "cognee" / dropped)
     resolved = _resolve(EXECUTE, "### 4. Delete Files (Purge Mode Only)", "### 5. ", skills, forge, "cognee")
     assert _new_active(resolved) == expected
+
+
+# --------------------------------------------------------------------------
+# The w3 re-check findings (#591, #600): one roster call, a named target,
+# warnings for the degraded outcomes, the run folder and lean stage files
+# --------------------------------------------------------------------------
+
+def test_the_roster_comes_from_one_helper_call():
+    """determinism-1: no hand join of the manifest, the scan and one version call per skill."""
+    select = _read(SELECT)
+    roster = _section(select, "### 2. Read the Roster", "### 3. ")
+    assert _one_command(roster, "{dropRosterHelper} skills") == (
+        'uv run {dropRosterHelper} skills "{skills_output_folder}" --forge-data-folder "{forge_data_folder}" '
+        '[--skill "{skill_name}"]')
+    assert "dropRosterHelper: 'scripts/drop-roster.py'" in select.split("\n---\n", 1)[0]
+    for stale in ("{manifestOpsHelper}", "affected-versions", "{skillInventoryHelper} {skills_output_folder}",
+                  "manifest.exports", "result.skills[]", "result.not_skf_output"):
+        assert stale not in select, stale
+    assert 'HALT (exit code 3, `halt_reason: "manifest-corrupt"`, phase `select:manifest-read`' in roster
+    assert 'HALT (exit code 4, `halt_reason: "write-failed"`, phase `select:roster`)' in roster
+    exit_4 = next(line for line in _exit_codes_table().splitlines() if line.startswith("| 4 "))
+    assert "step 1 §2 when the roster helper cannot run (`write-failed`)" in exit_4
+
+
+def test_a_named_skill_builds_no_roster_list():
+    """enhancement-4: a supplied skill_name reads one roster entry and shows no list."""
+    select = _read(SELECT)
+    roster = _section(select, "### 2. Read the Roster", "### 3. ")
+    assert "Pass `--skill` when a `skill_name` argument was supplied: the roster then holds that skill only." in roster
+    listing = _section(select, "### 3. List Available Skills", "### 4. ")
+    assert "When a `skill_name` argument was supplied, show no list: §4 takes the name." in listing
+    gate = next(line for line in _section(select, "### 4. Ask Which Skill", "### 5. ").splitlines()
+                if line.startswith("**GATE [default: use args]:**"))
+    assert "runs §2's call again without `--skill` and shows §3's list before it asks" in gate
+
+
+def test_the_skill_name_convention_has_no_second_meaning():
+    """leanness-3: SKILL.md's {skill-name} is the skill's own folder name, never a listed skill."""
+    for rel in (SELECT, EXECUTE, REPORT):
+        assert "{skill-name}" not in _read(rel), rel
+
+
+@pytest.mark.parametrize("rel", [SELECT, EXECUTE])
+def test_the_frontmatter_names_each_helper_in_one_line(rel):
+    """leanness-4: the body wires each helper where it runs; the frontmatter only binds it."""
+    front = _read(rel).split("\n---\n", 1)[0]
+    comments = [line for line in front.splitlines() if line.startswith("#")]
+    bindings = re.findall(r"^(\w+)(?:ProbeOrder)?:", front, flags=re.M)
+    assert len(comments) == len(bindings) - 1, "one comment per helper, none for nextStepFile"
+    for comment in comments:
+        assert re.fullmatch(r"# \{\w+\}: the §\d+b? .+\.", comment), comment
+    for internal in ("semver", "os.replace", "temp-symlink", "Matches skf-update-skill", "first hit wins"):
+        assert internal not in front, internal
+
+
+def test_select_cuts_the_dead_state_and_the_helper_narration():
+    """leanness-1, -6, -7 and -8."""
+    select = _read(SELECT)
+    for dead in ("manifest_exists", "bytes_total_raw", "blast_radius ="):
+        assert dead not in select, dead
+    guard = _section(select, "### 8b. Purge Guard", "### 9. ")
+    for narration in ("`0.1.0-rc/` is not version `0.1.0`", "with or without a trailing `/`",
+                      "SKF's own `improvement-queue`", "unless both settings name one folder"):
+        assert narration not in guard, narration
+    assert "The helper alone decides what a purge may delete" in guard
+    affected = _section(select, "### 9. Compute Affected Directories", "#### 9b.")
+    assert "The helper writes each path" not in affected
+    blast = _section(select, "#### 9b.", "### 10. ")
+    assert "execute.md §4 measures" not in blast and "so the user sees the scale" not in blast
+    confirm = _section(select, "### 10. Confirmation Gate", "### 11. ")
+    assert confirm.count("so the user sees the scale before scanning paths") == 1
+    assert "The wording stays the same" not in confirm
+    assert confirm.count("takes precedence over the headless auto-confirm") == 1
+    assert "(the envelope has no such field)" not in select
+    stored = _section(select, "### 11. Store Decisions in Context", "### 12. ")
+    assert len([line for line in stored.splitlines() if line.strip()]) == 2, "one sentence naming the handoff"
+    roster = _section(select, "### 2. Read the Roster", "### 3. ")
+    assert "Read every skill this drop can offer in one call:\n" in roster
+    for narration in ("the shared manifest helper", "never joins them by hand"):
+        assert narration not in roster, narration
+    listing = _section(select, "### 3. List Available Skills", "### 4. ")
+    assert "§8b allows no purge" not in listing, "§8b states its own rule for a roster without the inventory helper"
+
+
+def test_execute_cuts_the_helper_narration():
+    """leanness-5 and -6: the helpers' internals live in their docstrings."""
+    execute = _read(EXECUTE)
+    for internal in ("temp file + rename", "temp-symlink", "os.replace", "the helper has no removal action",
+                     "Step-01 forced", "no link or junction leads to", "has no `\"partial\"` value"):
+        assert internal not in execute, internal
+    delete = _section(execute, "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+    assert "**Skill-level purge:**" not in delete
+    stored = _section(execute, "### 6. Store Results in Context", "### 7. ")
+    assert len([line for line in stored.splitlines() if line.strip()]) == 2, "one sentence naming the handoff"
+
+
+def test_an_interactive_halt_deletes_the_run_folder():
+    """enhancement-5: an interactive cancel never leaves an empty run folder behind."""
+    rule = ('An interactive HALT displays its message, emits nothing and then deletes the run folder '
+            '(`rm -rf "{run_dir}"`), which nothing reads after it.')
+    for rel in (SELECT, EXECUTE):
+        assert rule in _section(_read(rel), "### 1. Halt Envelope", "### 2. "), rel
+    outputs = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Outputs** |"))
+    assert "kept only after a HALT, except an interactive HALT in step 1 or 2, which deletes it" in outputs
+    # The contract's Halt Envelope states the rule the step files repeat in their section 1.
+    envelope = _section(_read(CONTRACT), "## Halt Envelope", None)
+    assert ("An interactive HALT displays its message and emits nothing; in step 1 or 2 it then deletes the run "
+            "folder.") in envelope
+    assert "select.md and execute.md state the same rule in their section 1" in envelope
+
+
+WARNINGS = {
+    "context_rebuild_failed": ("### 3. Rebuild Context Files", "`context_rebuild_failed: {context_file}: {context_error}`"),
+    "active_link_dangling": ("### 4. Delete Files (Purge Mode Only)",
+                             "`active_link_dangling: {skills_output_folder}/{target_skill}/active: {the manual repair}`"),
+    "delete_failed": ("### 4. Delete Files (Purge Mode Only)", "`delete_failed: {path}: {error}`"),
+    "verification_failed": ("### 5. Verify Final State", "`verification_failed: {what failed}: {its manual fix}`"),
+}
+
+
+def test_each_degraded_outcome_is_recorded_as_a_warning():
+    """enhancement-2: a run that reads `success` still names what needs a manual fix."""
+    execute = _read(EXECUTE)
+    rules = _section(execute, "## Rules", "## MANDATORY SEQUENCE")
+    assert "`uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<the warning>'`" in rules
+    sections = ["### 2. ", "### 3. ", "### 4. ", "### 5. ", "### 6. "]
+    for name, (start, text) in WARNINGS.items():
+        end = sections[sections.index(start[:7]) + 1]
+        assert text in _section(execute, start, end), name
+    field = next(line for line in _read(CONTRACT).splitlines() if line.startswith("- `warnings`:"))
+    for name in (*WARNINGS, "result_file_write_failed", "customization_resolver_unavailable"):
+        assert f"`{name}: " in field, name
+    contract = _section(_read(REPORT), "### Result Contract", "### Post-drop hook")
+    assert "The payload carries no `warnings`" in contract and "the run's warnings" in contract
+    for name in WARNINGS:
+        assert name not in contract, f"{name}: invocation-contract.md lists the warnings, the report never again"
+
+
+def test_the_recorded_warnings_reach_the_envelope_and_the_record(tmp_path):
+    """The warnings step 2 records go through the documented record command into both outputs."""
+    rules = _section(_read(EXECUTE), "## Rules", "## MANDATORY SEQUENCE")
+    command = re.search(r"`(uv run \{emitEnvelopeHelper\} record [^`]+)`", rules).group(1)
+    run_dir = _run_dir(tmp_path)
+    recorded = ["context_rebuild_failed: CLAUDE.md: CLAUDE.md is not UTF-8 text",
+                "active_link_dangling: /p/skills/cognee/active: ln -sfn 0.6.0 /p/skills/cognee/active"]
+    for warning in recorded:
+        proc = _run(command.replace("<the warning>", warning), {"emitEnvelopeHelper": str(EMITTER),
+                                                                 "run_dir": str(run_dir)})
+        assert proc.returncode == 0, proc.stderr
+    contract = _section(_read(REPORT), "### Result Contract", "### Post-drop hook")
+    [template] = _fenced(contract, "json")
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    payload = _fill_json(template, {**REPORT_VALUES, "files_deleted": [], "each": "", "record_status": "success"})
+    payload["result_contract"]["outputs"] = []
+    (run_dir / "result-context.json").write_bytes(json.dumps(payload).encode("utf-8"))
+    proc = _run(_one_command(contract, "emit --workflow skf-drop-skill"),
+                {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir), "skills_output_folder": str(skills)})
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stdout)
+    assert envelope["status"] == "success" and envelope["warnings"] == recorded
+    record = json.loads((skills / "drop-skill-result-latest.json").read_text(encoding="utf-8"))
+    assert record["warnings"] == recorded
+
+
+def test_each_verification_failure_names_its_manual_fix():
+    """architecture-3: the report points at the fixes step 2 recorded, not at a missing section."""
+    report = _read(REPORT)
+    assert "error-handling guidance in step 2" not in report
+    assert "Each item above names its manual fix." in report
+    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
+    assert "A failure's manual fix: correct the `{target_skill}` entry" in verify
+    assert "the manual fix for both is to re-run `[EX] Export Skill`" in verify
+    assert "record it in `verification_errors` with its manual fix" in verify
+    rendered = _section(report, "### 2. Render the Report", "### Result Contract")
+    assert "{if delete_failures is non-empty:}- Not deleted:" in rendered
+
+
+def test_the_context_check_reads_no_snippet_text():
+    """determinism-3: §5 asks the roster helper for the dropped skill's rows, never every row's text."""
+    verify = _section(_read(EXECUTE), "### 5. Verify Final State", "### 6. ")
+    assert _one_command(verify, "{dropRosterHelper} rows") == (
+        "uv run {dropRosterHelper} rows --skill {target_skill} [--version {version}] "
+        "{each file in context_files_updated, quoted}")
+    assert "orphan-detect" not in verify and "orphan_managed_rows" not in verify

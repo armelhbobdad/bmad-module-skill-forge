@@ -22,12 +22,12 @@ Through `{detectToolsHelper}`, verify the four forge tools (ast-grep, gh, qmd, c
 
 ## Rules
 
-- Focus only on tool detection and tier calculation: write nothing but this run's folder and the detector output in it (step 2 writes the configuration)
+- Focus only on tool detection and tier calculation: write nothing but this run's folder and the detector's output and stderr in it (step 2 writes the configuration)
 - Never reimplement tool probes or the tier rules in prose: the script is authoritative
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If no path in `detectToolsProbeOrder` exists, halt with phase `step 1:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-detect-tools.py was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, and `--stderr-from` where the halt names it), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 
@@ -39,7 +39,11 @@ Create this run's folder:
 mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-setup-XXXXXXXX"
 ```
 
-Bind `{run_dir}` ← the path it prints. If the folder cannot be created, halt with phase `step 1:run-folder`, `path` `{project-root}/_bmad-output/.skf-run`, and reason `Setup cannot proceed: the run folder could not be created: <message>`, where `<message>` is the first stderr line, sanitized per the SKILL.md halt contract.
+Bind `{run_dir}` ← the path it prints. If the folder cannot be created, halt with phase `step 1:run-folder`, `path` `{project-root}/_bmad-output/.skf-run`, and reason `Setup cannot proceed: the run folder could not be created: <message>`, where `<message>` is the command's first stderr line. With no run folder to hold that stderr, a quiet run repeats the command with its stderr piped to the emitter, which fills `<message>`; a repeat that succeeds removes the folder it made, and its reason then ends `(no error message)`:
+
+```bash
+{ mkdir -p "{project-root}/_bmad-output/.skf-run" && rmdir "$(mktemp -d "{project-root}/_bmad-output/.skf-run/skf-setup-XXXXXXXX")"; } 2>&1 >/dev/null | uv run {emitEnvelopeHelper} emit-blocked --phase "step 1:run-folder" --path "{project-root}/_bmad-output/.skf-run" --reason "Setup cannot proceed: the run folder could not be created: <message>" --stderr-from -
+```
 
 Then run the detector into the folder:
 
@@ -47,14 +51,19 @@ Then run the detector into the folder:
 uv run {detectToolsHelper} --project-root "{project-root}" \
     --prior-state-from "{sidecar_path}/forge-tier.yaml" \
     [--tier-override="{tier_override}"] [--require-tier="{require_tier}"] \
-    > "{run_dir}/detect-tools.json" && cat "{run_dir}/detect-tools.json"
+    > "{run_dir}/detect-tools.json" 2> "{run_dir}/detect-tools.err" && cat "{run_dir}/detect-tools.json"
 ```
 
 Pass `--tier-override` only when `{tier_override}` (bound at activation from `preferences.yaml`) is non-null, and `--require-tier` only when `{require_tier}` is non-null, with the value exactly as activation bound it, even when it names no tier: the script rejects such a value, and the halt below then names the valid tiers.
 
 Output is one JSON document on stdout; `DETECT_OUTPUT_SCHEMA` in the helper's docstring documents it.
 
-**If the script exits non-zero or prints no JSON:** halt before section 2 with phase `step 1:detect-tools`, `path` `{project-root}`, and reason `Setup cannot proceed: tool detection failed: <message>`. `<message>` is the `message` of the stderr JSON `{"status":"error","message":...}`, or the first stderr line when stderr holds no JSON, sanitized per the SKILL.md halt contract. Under `{quiet_mode}` the blocked envelope is the only line displayed.
+**If the script exits non-zero or prints no JSON:** halt before section 2 with phase `step 1:detect-tools`, `path` `{project-root}`, and reason `Setup cannot proceed: tool detection failed: <message>`, where `<message>` is the diagnostic in `{run_dir}/detect-tools.err`: an interactive run reads that file and shows the `message` of its JSON error, else its first line. Under `{quiet_mode}` the blocked envelope is the only line displayed, and the emitter reads `<message>` from that file:
+
+```bash
+uv run {emitEnvelopeHelper} emit-blocked --phase "step 1:detect-tools" --path "{project-root}" \
+    --reason "Setup cannot proceed: tool detection failed: <message>" --stderr-from "{run_dir}/detect-tools.err"
+```
 
 ### 2. Parse Output and Set Context Flags
 
@@ -85,6 +94,8 @@ Now that section 2 has bound `{previous_tier}` and `{previous_detection_date}`, 
 **Re-run notice:** when `{previous_tier}` is non-null:
 
 "**Forge already set up here:** {previous_tier} tier, detected {previous_detection_date}. The tools were just re-probed, and setup now refreshes this project's config and ccc index. Next time, to refresh only the tier without paying the ccc re-index cost, run it with `--ccc-skip-index`."
+
+When `{require_tier_satisfied}` is `false`, end the one you display with: "`--require-tier {require_tier}` is not met: this run writes the detected tier but builds no ccc index and runs no registry hygiene."
 
 ### 4. Auto-Proceed
 

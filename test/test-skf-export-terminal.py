@@ -280,7 +280,7 @@ def test_the_documented_halt_emits_the_decisions_taken_before_it(tmp_path, halt_
     command, body = _call(ENVELOPE, "emit-halt")
     run_dir = tmp_path / ".skf-run" / "skf-export-skill-abcd1234"
     _record(run_dir, "load-skill.confirmation")
-    payload = (body.replace("<step file> §<section>", "update-context §9")
+    payload = (body.replace("<phase>", "update-context §9")
                    .replace("<the halt message>", "CLAUDE.md: the write failed its check")
                    .replace("<halt_reason>", halt_reason).replace("<name>", "zod"))
     values = {"emitEnvelopeHelper": EMITTER.as_posix(), "run_dir": run_dir.as_posix()}
@@ -408,17 +408,45 @@ def test_manifest_path_is_bound_only_once_the_manifest_is_written():
 
 
 def test_a_step_4_halt_reports_the_batch_and_what_it_wrote():
-    """A field a halt leaves out reads as empty, so every halt passes the batch it resolved."""
+    """A field a halt leaves out reads as empty, so every halt passes the batch it resolved,
+    and the fields step 4 writes follow the run's state, stated once (leanness-4)."""
     halt = _section(_read(ENVELOPE), "## Emitting a Halt", "## Exit Codes")
-    assert "Always pass `skills`, the resolved batch (`[]` only before step 1 bound `skill_batch`)" in halt
+    assert "Always pass `skills`, the resolved batch (`[]` only before step 1 bound `skill_batch`" in halt
+    assert ("Add `context_files_updated`, the context files step 4 §9 wrote before the halt, once it has "
+            "written one, and `manifest_path`, the `{manifest_path}` step 4 §9b bound, once the manifest is "
+            "written") in halt
+    assert "the emitter gives `context_files_updated` `[]` and `manifest_path` `null`" in halt
     update = _read(UPDATE)
     manifest = _section(update, "### 9b. Update Export Manifest", "### 9c. ")
-    assert ("emit the error envelope per `references/result-envelope.md` with `manifest_path: null` and the "
-            "`context_files_updated` list") in manifest
+    assert 'HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `update-context §9b`)' in manifest
     snippets = _section(update, "### 9c. Write the Snippets", None)
-    assert 'On a failed copy, HALT (exit code 4, `halt_reason: "write-failed"`)' in snippets
-    assert ("with the resolved `skills`, the `context_files_updated` list and `manifest_path` as §9b bound it"
-            in snippets)
+    assert 'On a failed copy, HALT (exit code 4, `halt_reason: "write-failed"`, phase `update-context §9c`)' in snippets
+
+
+# The step files whose HALTs leave their envelope to result-envelope.md, by the name their phases use.
+HALT_FILES = {LOAD: "load-skill", SNIPPET: "generate-snippet", UPDATE: "update-context"}
+SECTION_RE = re.compile(r"^###+ (\d+[a-z]?)\.", re.M)
+
+
+@pytest.mark.parametrize("rel", sorted(HALT_FILES), ids=sorted(HALT_FILES))
+def test_every_halt_names_its_phase_and_states_no_envelope_of_its_own(rel):
+    """leanness-4: the envelope and its defaults live in result-envelope.md; a halt
+    site names its exit code, halt_reason and the phase of the section it is in."""
+    text = _read(rel)
+    assert "envelope per" not in text and "context_files_updated: []" not in text, rel
+    assert "`manifest_path: null`" not in text and "`skills: []`" not in text, rel
+    rules = _section(text, "## Rules", "## MANDATORY SEQUENCE")
+    assert ("Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its "
+            "envelope as `references/result-envelope.md` states") in rules
+    sites = 0
+    for line in _section(text, "## MANDATORY SEQUENCE", None).split("\n"):
+        if "HALT" not in line or "halt_reason" not in line:
+            continue
+        sites += 1
+        before = text[:text.index(line)]
+        section = SECTION_RE.findall(before)[-1]
+        assert f"phase `{HALT_FILES[rel]} §{section}`" in line, (rel, section, line[:120])
+    assert sites, rel
 
 
 def test_the_dry_run_shows_the_manifest_line_where_it_runs():

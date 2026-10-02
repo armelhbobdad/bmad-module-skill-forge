@@ -18,7 +18,8 @@ To generate or update context-snippet.md for the skill in the Vercel-aligned ind
 
 - Focus only on generating the context-snippet.md content — T1-now only, no T2 annotations
 - If `passive_context: false` was detected in step 1, skip this step entirely
-- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), iterate sections 2–5 per skill. Each skill has its own prior-gotchas carry-forward state (§2.5): do not share state across skills. §2.7 resolves `{skill_root}` and §2.8 creates the stage folder once for the run (neither depends on the skill). See step 1 §1c.
+- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), iterate sections 2 to 5 per skill. Each skill has its own prior-gotchas carry-forward state (§2.5): do not share state across skills. §2.7 resolves `{skill_root}`, the snippet's root only, and §2.8 creates the stage folder once for the run (neither depends on the skill). See step 1 §1c.
+- Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its envelope as `references/result-envelope.md` states
 
 ## MANDATORY SEQUENCE
 
@@ -54,7 +55,7 @@ These values will be used as a fallback in §3a if new gotchas cannot be derived
 
 **Otherwise (default):** Using the first entry in `target_context_files` (resolved in step 1), take its `skill_root` value. This is the IDE's actual skill directory (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`).
 
-Store `{skill_root}` for use in snippet generation. The context-snippet.md written to disk uses this resolved skill root path.
+Store `{skill_root}` for use in snippet generation: it is the snippet's root only, the `root:` path of the context-snippet.md this step stages. It is not a context file's root: step 4 builds each context file's managed section with that target's own skill root, so with `ides` [claude-code, codex] the AGENTS.md rows take `.agents/skills/` while the snippet keeps `.claude/skills/`.
 
 ### 2.8. Stage Folder
 
@@ -113,7 +114,7 @@ Bind `{count}` ← the `tokens` value of its `context-snippet.md` row (`len(text
 - Hard ceiling: 300 tokens (Deep tier may legitimately exceed 120 when gotchas carry load-bearing breaking-change notices)
 - If `{count}` is above 300, trim the description, the exports list or the refs, write the draft again and measure it again, until `{count}` is 300 or below. **Do NOT drop gotchas to fit**: gotchas exist precisely to deliver the "do not rely on training data" signal and are the last thing to cut
 
-When the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`): "SKF cannot measure the snippet: {the helper's error}. Re-install SKF and re-run the export." In headless mode, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []` and `manifest_path: null`.
+When the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `generate-snippet §4`): "SKF cannot measure the snippet: {the helper's error}. Re-install SKF and re-run the export."
 
 ### 5. Preview the Snippet
 

@@ -3,7 +3,9 @@
 (#594), the per-run flag beside the standing setting for the official-source
 gate (#594, #596), the helpers resolved before the first question with no
 in-prompt fallback (#599), and one home for the headless contract with lean
-stage files and one manifest flag name (#600).
+stage files and one manifest flag name (#600), and the w3 re-check findings
+(#591): one helper call for the package rename and the in-file rewrite, and
+the manifest backup as a file in the run folder.
 
 Step prose is not executed by any test, so most checks pin the prose an agent
 follows. The source-authority decision is also run through the shared emitter,
@@ -128,11 +130,12 @@ def test_execute_keeps_what_the_model_acts_on():
     for internal in ("_HEADER_SLOT", "`source_repo`", "`co_import_files`", "temporary name", "mklink /J",
                      "Quick Skill's `source_package`", "reads it back to check the markers"):
         assert internal not in execute, internal
-    section3 = _section(execute, "### 3. Update File Contents", "### 4. ")
-    for kind in ("skill-frontmatter", "metadata-json", "context-snippet", "provenance-json"):
-        assert f"`--kind {kind}`" in section3, kind
-    assert "`rename` in `renamer`" in section3, "why the rewrite helper exists"
-    assert "record the file in `section3_warnings`" in section3 and "take the rollback below" in section3
+    section2 = _section(execute, "### 2. Rename the Packages and Rewrite the Name", "### 3. ")
+    for name in ("SKILL.md", "metadata.json", "context-snippet.md", "provenance-map.json"):
+        assert f"- **{name}**" in section2, name
+    assert "`rename` in `renamer`" in section2, "why the rewrite helper exists"
+    assert "names them in `package_warnings` and `missing_files` and goes on" in section2
+    assert "**Rollback on any other exit than 0:**" in section2
     verify = _section(execute, "### 5. Verify", "### 6. ")
     for field in ("`clean`", "`hard_matches`", "`body_warnings`", "`dir_violations`"):
         assert field in verify, field
@@ -140,13 +143,42 @@ def test_execute_keeps_what_the_model_acts_on():
     assert "Feed the staged body to the helper on stdin" in replace
 
 
-def test_execute_moves_a_package_only_when_it_is_there():
-    """leanness-3: the absent-package skip is decided before the move, and only a failed mv rolls back."""
-    inner = _section(_read(EXECUTE), "### 2. Rename Inner Version Directories", "### 3. ")
-    when = inner.index("when `{new_skill_group}/{v}/{old_name}/` exists")
-    assert when < inner.index("mv {new_skill_group}/{v}/{old_name}") < inner.index("`section2_warnings`")
-    assert "Only a failed `mv` takes the rollback below." in inner
-    assert not re.search(r"^\d\. ", inner, re.M), "one goal sentence, not a numbered sequence"
+def test_execute_renames_and_rewrites_in_one_call():
+    """w3 determinism-1: the per-version move and the per-file rewrite are one helper call; an absent
+    package or file is named, and only a failed move or rewrite rolls back."""
+    execute = _read(EXECUTE)
+    section2 = _section(execute, "### 2. Rename the Packages and Rewrite the Name", "### 3. ")
+    calls = [line for line in section2.splitlines() if "{rewriteSkillNameHelper}" in line and "uv run" in line]
+    assert calls == ['uv run {rewriteSkillNameHelper} --skill-group "{new_skill_group}" \\'], calls
+    assert '--result-to "{run_dir}/rename-rewrite.json"' in section2, "the record survives in the run folder"
+    assert "when that package is there" in section2
+    assert "Only a move, a rewrite or the record write that fails stops it" in section2
+    assert "When stdout holds no JSON (a usage error or a traceback), `{error.path}` is `{new_skill_group}`" in section2
+    for stale in ("mv {new_skill_group}", "Invoke it once per file", "Check that the target file exists first",
+                  "section2_warnings", "section3_warnings"):
+        assert stale not in execute, stale
+    for phase in ("`emit-halt` phase `execute:inner-rename`", "`emit-halt` phase `execute:rewrite`"):
+        assert phase in section2, phase
+    record = _section(execute, "### 3. Record the Rewrite", "### 4. ")
+    for binding in ("`renamed_versions` ← `renamed_versions`", "`rewrite_counts` ← `counts`"):
+        assert binding in record, binding
+    assert ("Its `files_rewritten` (the `{kind, path}` of each file it wrote), `package_warnings` and "
+            "`missing_files` stay in `{run_dir}/rename-rewrite.json` for step 3.") in record
+    row = next(line for line in _read(EXIT_CODES).splitlines() if line.startswith("| 4 "))
+    assert "step 2 §2 (inner-dir rename, file content update or the record it writes to the run folder)" in row and "§3 (file content update)" not in row
+
+
+def test_the_report_reads_the_rewrite_record_back():
+    """The batch's record in the run folder is what step 3 reports from, never a copy carried in context."""
+    stored = _section(_read(EXECUTE), "### 9. Store Results in Context", "### 10. ")
+    for name in ("renamed_versions", "files_rewritten", "rewrite_counts", "package_warnings", "missing_files"):
+        assert f"- `{name}`" not in stored, name
+    assert ("§2's record, `{run_dir}/rename-rewrite.json`, holds `renamed_versions`, `files_rewritten`, `counts`, "
+            "`package_warnings` and `missing_files`: step 3 reads them there.") in stored
+    write = _section(_read(REPORT), "### 1. Write the Result Files and the Envelope", "### 2. ")
+    assert write.index("Read `{run_dir}/rename-rewrite.json`") < write.index("```bash")
+    assert ("bind from it `renamed_versions`, `files_rewritten`, `rewrite_counts` ← `counts`, `package_warnings` "
+            "and `missing_files`") in write
 
 
 def test_execute_binds_one_manifest_flag():
@@ -357,3 +389,33 @@ def test_the_project_context_default_stays_and_says_how_to_drop_it():
     activation = _section(_read(SKILL), "3. **Resolve workflow customization.**", "4. Load, read the full file")
     assert "an entry prefixed `!` drops each earlier entry it names and loads nothing itself" in activation
     assert f"`{drop}` turns that default off" in activation
+
+
+def test_the_manifest_backup_is_a_file_in_the_run_folder():
+    """w3 determinism-2: the backup is copied, never held in context, and the restore reads it back."""
+    manifest = _section(_read(EXECUTE), "### 6. Update Export Manifest", "### 7. ")
+    assert 'cp "{skills_output_folder}/.export-manifest.json" "{run_dir}/export-manifest.backup.json"' in manifest
+    assert ('uv run {atomicWriteHelper} write --target "{skills_output_folder}/.export-manifest.json" '
+            '< "{run_dir}/export-manifest.backup.json"') in manifest
+    for stale in ("manifest_backup", "hold its exact text", "SKF_MANIFEST_BACKUP", "Read the manifest again"):
+        assert stale not in manifest, stale
+    for call in ("uv run {manifestOpsHelper} {skills_output_folder} get {new_name}",
+                 "uv run {manifestOpsHelper} {skills_output_folder} get {old_name}"):
+        assert call in manifest, call
+    report = _read(REPORT)
+    assert '"{run_dir}/rename-rewrite.json" "{run_dir}/export-manifest.backup.json" && rmdir "{run_dir}"' in report
+
+
+def test_the_report_lists_what_it_shows():
+    """w3 leanness-6: the report names its values and fixes; the model lays them out."""
+    report = _section(_read(REPORT), "### 2. Render the Report", "### 3. ")
+    assert "```" not in report, "no layout template"
+    for value in ("`renamed_versions`", "`rewrite_counts`", "`manifest_rekeyed`", "`context_files_updated`",
+                  "`context_files_failed`", "`{forge_left_in_place}`", "`package_warnings`", "`missing_files`",
+                  "`{run_warnings}`", "`verification_warnings`", "`deletion_errors`", "`{headless_decisions}`",
+                  "`{result_path}`"):
+        assert value in report, value
+    for fix in ("Re-run `[EX] Export Skill` to retry the managed section rebuild for these files.",
+                "Remove the remnants by hand with `rm -rf {path}`.", "re-run `@Ferris SF`",
+                "this rename is a LOCAL operation only"):
+        assert fix in report, fix

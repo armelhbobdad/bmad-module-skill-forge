@@ -3060,6 +3060,73 @@ def test_build_index_acts_on_the_other_actions_without_running_ccc(monkeypatch, 
     assert (failed["status"], failed["failed_reason"]) == ("failed", "no settings.yml")
 
 
+@pytest.mark.parametrize("ready,skip,written,fresh,usable,expected", [
+    (True,  False, True,  True,  True,  "defer"),
+    (True,  False, False, False, True,  "defer"),
+    (True,  False, False, True,  True,  "keep"),
+    (True,  True,  True,  False, True,  "skip"),
+    (False, False, True,  False, True,  "fail"),
+    (True,  False, True,  True,  False, "keep"),
+    (True,  False, True,  False, False, "fail"),
+], ids=["changed-settings", "stale-index", "fresh-index", "skip-wins", "not-ready", "failed-rebuild-fresh",
+        "failed-rebuild-stale"])
+def test_defer_changes_only_a_due_build(ready, skip, written, fresh, usable, expected):
+    """A run that missed --require-tier builds no index that is due; every other action stands."""
+    action = mod.decide_index_action(ready, skip, written, fresh, usable=usable, defer=True)
+    assert action == expected and action in mod.INDEX_ACTIONS
+
+
+def test_a_deferred_build_runs_no_ccc_and_reads_as_skipped(monkeypatch, tmp_path):
+    """No new ccc_index status: a deferred build records `skipped`, which every reader covers."""
+    def forbid(*args, **kwargs):
+        raise AssertionError("ccc must not run for a deferred build")
+
+    monkeypatch.setattr(mod, "_run_ccc", forbid)
+    index = mod.build_index(tmp_path, "/p", "defer", None, None, [])
+    assert index == mod.build_index(tmp_path, "/p", "skip", None, None, []) == {
+        "status": "skipped", "indexed_path": None, "last_indexed": None, "file_count": None, "failed_reason": None}
+
+
+def _main(monkeypatch, capsys, project: Path, *args: str) -> dict:
+    monkeypatch.setattr(sys, "argv", ["merge", "--project-root", str(project), "--skills-output-folder", "skills",
+                                      "--forge-data-folder", "forge-data", "--no-ccc-init", "--build-index", *args])
+    mod.main()
+    return json.loads(capsys.readouterr().out)
+
+
+def test_defer_index_skips_a_due_build_and_carries_a_fresh_record(tmp_project, tmp_path, monkeypatch, capsys):
+    """--defer-index (setup's --require-tier miss) against --skip-index: only the due build is skipped."""
+    def forbid(*args, **kwargs):
+        raise AssertionError("ccc must not run")
+
+    monkeypatch.setattr(mod, "_run_ccc", forbid)
+    _seed_ccc_settings(tmp_project)
+    due = _main(monkeypatch, capsys, tmp_project, "--index-fresh", "false", "--defer-index")
+    assert due["index_action"] == "defer" and due["index"]["status"] == "skipped"
+    assert due["written"] is True, "settings.yml is still prepared"
+    record = {"status": "created", "indexed_path": str(tmp_project), "last_indexed": "2026-10-01T10:00:00+00:00",
+              "file_count": 42, "exclude_patterns": due["effective_patterns"]}
+    prior = _write_yaml(tmp_path / "forge-tier.yaml", {"ccc_index": record})
+    fresh = _main(monkeypatch, capsys, tmp_project, "--index-fresh", "true", "--prior-state-from", str(prior),
+                  "--defer-index")
+    assert fresh["written"] is False and fresh["index_action"] == "keep"
+    assert fresh["index"] == {"status": "fresh", "indexed_path": str(tmp_project),
+                              "last_indexed": "2026-10-01T10:00:00+00:00", "file_count": 42, "failed_reason": None}
+    # --skip-index would null that record.
+    skipped = _main(monkeypatch, capsys, tmp_project, "--index-fresh", "true", "--prior-state-from", str(prior),
+                    "--skip-index", "true")
+    assert skipped["index"]["status"] == "skipped" and skipped["index"]["file_count"] is None
+
+
+def test_clone_mode_refuses_defer_index(tmp_path):
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    result = subprocess.run([sys.executable, str(SCRIPT_PATH), "--clone-root", str(clone), "--defer-index"],
+                            capture_output=True, timeout=60)
+    assert result.returncode == 2
+    assert "--defer-index" in json.loads(result.stderr)["message"]
+
+
 def test_cli_build_index_and_result_to_hold_the_same_result(tmp_project, tmp_path):
     """No settings.yml and --no-ccc-init: index_action fail, so no ccc runs."""
     result_to = tmp_path / "run" / "ccc-exclusions.json"
@@ -3184,8 +3251,8 @@ def test_ccc_index_step_stages_every_consumed_field_by_file(tmp_path):
 def test_ccc_index_step_invocation_passes_record_and_index_flags():
     text = CCC_INDEX_STEP.read_text(encoding="utf-8")
     [invocation] = [b for b in _bash_blocks(text) if "{mergeCccExclusionsHelper}" in b]
-    for flag in ("--config", "--prior-state-from", "--index-fresh", "--skip-index", "--build-index",
-                 '--result-to "{run_dir}/ccc-exclusions.json"'):
+    for flag in ("--config", "--prior-state-from", "--index-fresh", "--skip-index", "[--defer-index]",
+                 "--build-index", '--result-to "{run_dir}/ccc-exclusions.json"'):
         assert flag in invocation, flag
     for gone in ("--no-ccc-init", "--skills-output-folder", "--forge-data-folder"):
         assert gone not in invocation, gone

@@ -1,26 +1,12 @@
 ---
 nextStepFile: 'execute.md'
-# SKILL.md On-Activation §4 binds `{emitEnvelopeHelper}`, `{manifestOpsHelper}`,
-# `{rebuildManagedSectionsHelper}` and `{run_dir}`. §2 reads the manifest with
-# `{manifestOpsHelper} read` (parse, v1 to v2 migration, corrupt-JSON
-# detection), §3 orders each skill's versions with its `affected-versions`
-# (numeric semver-descending, so 0.10.0 precedes 0.9.0, which the LLM gets
-# wrong) and §9b maps config.yaml `ides` to the context files step 2 rebuilds
-# with `{rebuildManagedSectionsHelper} resolve-targets`.
-# The read-side inventory helper (installed SKF path first, src/ fallback;
-# first hit wins): §3 runs `{skillInventoryHelper}` (on-disk scan + the
-# exports and on-disk union for orphan detection), §5 its `resolve` (the
-# version rows and counts §7 and §9b read) and §8b its `--purge-check`, the
-# purge verdict for the skill folder and its forge folder, so a purge never
-# deletes a folder SKF did not generate, and §9 takes the folders to delete
-# from it. Without it §3 offers manifest skills only and §8b allows no purge.
+# {dropRosterHelper}: the §2 roster.
+dropRosterHelper: 'scripts/drop-roster.py'
+# {skillInventoryHelper}: the §8b purge check.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-# Deterministic recursive byte sizing + human formatting for the §9b
-# blast-radius line. Bundled with this skill (no probe order needed);
-# execute.md §4 formats guarded-delete's `bytes_freed` with it for the
-# canonical `disk_freed`.
+# {dirSizesHelper}: the §9b size of the folders in scope.
 dirSizesHelper: 'scripts/dir-sizes.py'
 ---
 
@@ -50,49 +36,31 @@ Every HALT in this step names its exit code, `halt_reason` and phase. In headles
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-drop-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
 ```
 
-and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. The emitter gives every field the site leaves out its default (`null`, `[]` or `false`) and checks `exit_code` against `halt_reason`. If it exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. The emitter gives every field the site leaves out its default (`null`, `[]` or `false`) and checks `exit_code` against `halt_reason`. If it exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message, emits nothing and then deletes the run folder (`rm -rf "{run_dir}"`), which nothing reads after it.
 
-### 2. Read Export Manifest
+### 2. Read the Roster
 
-Parse the manifest through the `{manifestOpsHelper}` On-Activation §4 resolved rather than hand-rolling JSON: the helper migrates v1 to v2, normalizes `platforms` to `ides`, and reports a parse error deterministically:
+Read every skill this drop can offer in one call:
 
 ```bash
-python3 {manifestOpsHelper} {skills_output_folder} read
+uv run {dropRosterHelper} skills "{skills_output_folder}" --forge-data-folder "{forge_data_folder}" [--skill "{skill_name}"]
 ```
 
-Read the JSON result:
+Pass `--skill` when a `skill_name` argument was supplied: the roster then holds that skill only. Bind `{roster}` ← the result.
 
-- **`status == "error"`**: the manifest file exists but is malformed (the helper returns `{"status":"error","error":"Manifest JSON parse error: ..."}`): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: fix or remove the file before dropping." HALT (exit code 3, `halt_reason: "manifest-corrupt"`, phase `select:manifest-read`, path `{skills_output_folder}/.export-manifest.json`) with the §1 halt envelope.
-- **`status == "ok"`** — use `result.manifest` (already migrated to v2) as `manifest` for the rest of this step. Set `manifest_exists = true` when `manifest.exports` has at least one entry, else `false` (a missing manifest reads back as an empty `exports` object, so it correctly yields `false`).
-
-When `manifest_exists = false`, section 3's on-disk scan is authoritative: draft skills (created by `[CS]`/`[QS]`/`[SS]` but never exported) can still be hard-dropped in purge mode, and section 8 restricts the options to purge only — soft-deprecate is meaningless without a manifest entry to record it against.
+- **`code` is `manifest-corrupt`** (the file exists but does not parse): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: fix or remove the file before dropping." HALT (exit code 3, `halt_reason: "manifest-corrupt"`, phase `select:manifest-read`, path `{skills_output_folder}/.export-manifest.json`) with the §1 halt envelope.
+- **Any other non-zero exit, or no JSON on stdout:** HALT (exit code 4, `halt_reason: "write-failed"`, phase `select:roster`) with the §1 halt envelope: "SKF cannot list the skills to drop: {the result's `error`, or the first stderr line}. Nothing was changed. Re-install SKF."
 
 ### 3. List Available Skills
 
-Build and display a summary of every skill available to drop: every manifest-tracked skill, plus every on-disk skill SKF generated that is not in the manifest (draft/orphaned, eligible for purge only).
+`{roster}.skills` holds every skill in the export manifest and every skill SKF generated that the manifest does not list (`purge_only` true: a draft, which only a purge can drop), each with its `versions` newest first. Bind `{not_offered}` ← the names in `{roster}.not_offered`: folders holding a skill SKF did not generate, which the roster never offers. When `{roster}.inventory` is false (the inventory helper could not run), the roster holds the manifest skills alone, because SKF cannot check that it generated a folder the manifest does not list, and `{not_offered}` is empty.
 
-**Manifest-tracked skills** come from the `manifest` resolved in section 2 — for each key in `manifest.exports`, its `active_version` and its `versions` map (with each version's `status`) are already parsed. Order each skill's versions newest-first through the helper rather than by eye:
+**If the combined roster is empty** (`{roster}.empty` is true):
 
-```bash
-python3 {manifestOpsHelper} {skills_output_folder} affected-versions {skill-name}
-```
-
-`result.affected_versions` is that skill's versions deduped and sorted in the helper's numeric-descending order (see the frontmatter note). Annotate each with its `status` from `manifest.exports.{skill-name}.versions.{version}.status` and mark `active_version` with a trailing `*`.
-
-**On-disk (not-in-manifest) skills** come from the inventory helper. **Resolve `{skillInventoryHelper}`** ← first existing path in `{skillInventoryProbeOrder}`; it scans `{skills_output_folder}/` and computes the exports∪on-disk merge for you — do not re-scan the directory in the prompt:
-
-```bash
-uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}
-```
-
-Each `result.skills[]` entry carries `skf_skill` (the folder holds a skill SKF generated). A `result.skills[].name` that is **not** a key in `manifest.exports` is a draft or orphaned skill: record it as "(not in manifest: purge only)" only when its `skf_skill` is true; no other folder absent from the manifest is offered. When the manifest is empty, every SKF skill on disk lands here. Bind `{not_offered}` ← the names in `result.not_skf_output` (folders holding a skill SKF did not generate) that are not keys in `manifest.exports`; when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_offered}". The inventory lists only skills with an on-disk directory, so a manifest entry whose files were already removed still appears above via `manifest.exports`.
-
-**If the combined roster is empty** (no `manifest.exports` entries AND no `result.skills[]` entry with `skf_skill` true):
-
-- When a skill name was supplied as an argument and it is in `{not_offered}` (empty when §3 ran without the inventory helper), take the §4 refusal for that folder first, in either mode: display its message and HALT (exit code 5, `halt_reason: "not-skf-output"`, phase `select:roster`), with `skill: "{name}"` in the §1 halt envelope.
+- When a skill name was supplied as an argument and it is in `{not_offered}`, take the §4 refusal for that folder first, in either mode: display its message and HALT (exit code 5, `halt_reason: "not-skf-output"`, phase `select:roster`), with `skill: "{name}"` in the §1 halt envelope.
 - Otherwise halt with "**Drop Skill: nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first." When `{not_offered}` is non-empty, append: "Left untouched (not SKF output): {not_offered}." HALT (exit code 3, `halt_reason: "nothing-to-drop"`, phase `select:roster`) with the §1 halt envelope.
 
-Display the combined list (versions newest-first):
+When a `skill_name` argument was supplied, show no list: §4 takes the name. Otherwise display the combined list, each skill's versions in the roster's order, each with its `status` ("on disk only" when its `in_manifest` is false) and a trailing `*` on the one whose `active` is true; a `purge_only` skill shows "(not in manifest: purge only)" in place of its versions. When `{not_offered}` is non-empty, show one line under the list: "Not offered (not SKF output): {not_offered}".
 
 ```
 **Drop Skill — select target**
@@ -109,37 +77,29 @@ Available skills:
 Not offered (not SKF output): my-module-skill
 ```
 
-**If `{skillInventoryHelper}` does not resolve:** list the `manifest.exports` skills and nothing else: folders on disk that are absent from `manifest.exports` are not offered in this mode, because without the inventory helper SKF cannot check that it generated them. The §8b purge check then has no verdict (`"unknown"`), so §8b allows no purge. If the list is empty, take the "nothing to drop" HALT above.
-
 ### 4. Ask Which Skill
 
-**GATE [default: use args]:** when a `skill_name` argument was supplied, take it as the answer below in either mode, without showing the prompt; the two checks that follow still apply. When none was supplied, headless mode HALTs (exit code 2, `halt_reason: "input-missing"`, phase `select:skill`) with the §1 halt envelope: "headless mode requires skill name argument." Interactive mode asks:
+**GATE [default: use args]:** when a `skill_name` argument was supplied, take it as the answer below in either mode, without showing the prompt; the two checks that follow still apply, and an interactive run whose supplied name fails one runs §2's call again without `--skill` and shows §3's list before it asks. When none was supplied, headless mode HALTs (exit code 2, `halt_reason: "input-missing"`, phase `select:skill`) with the §1 halt envelope: "headless mode requires skill name argument." Interactive mode asks:
 
 "**Which skill would you like to drop?**
 Enter the skill name or its number from the list above, or `cancel` / `exit` / `:q` to abort."
 
 Wait for user input. Accept either the numeric index or the skill name (exact match).
 
-- **If the input names a folder in `{not_offered}`:** display "**`{name}` is not SKF output — nothing was changed.** `{skills_output_folder}/{name}/` has no SKF marker in its `metadata.json`, so SKF will not delete it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{name}` yourself (to remove it, delete that folder). Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When that folder's `result.skills[]` entry has a non-empty `errors` list (for example, the folder is a link), show those errors in place of the marker sentence.
+- **If the input names a folder in `{not_offered}`:** display "**`{name}` is not SKF output: nothing was changed.** `{skills_output_folder}/{name}/` has no SKF marker in its `metadata.json`, so SKF will not delete it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{name}` yourself (to remove it, delete that folder). Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When that folder's `{roster}.not_offered` entry has a non-empty `errors` list (for example, the folder is a link), show those errors in place of the marker sentence.
   - **Interactive:** Re-display the list and ask again.
   - **Headless (`{headless_mode}` is true):** HALT (exit code 5, `halt_reason: "not-skf-output"`, phase `select:skill`), with `skill: "{name}"` in the §1 halt envelope.
 - **If the user's input does not match any listed skill:**
   - **Interactive:** Re-display the list and ask again.
   - **Headless (`{headless_mode}` is true):** the supplied `skill_name` argument resolves to no skill in the combined list, and there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`, phase `select:skill`) with the §1 halt envelope: "headless mode: skill argument `{supplied value}` does not match any listed skill."
 
-Store the selection as `target_skill`. Also store `target_in_manifest = true` if the selected skill has an entry in the manifest, `false` otherwise — subsequent sections use this flag to restrict the available drop options.
+Store the selection as `target_skill`, and `target_in_manifest` ← its `{roster}.skills` entry's `in_manifest`: the sections below restrict the drop options of a skill the manifest does not list.
 
 ### 5. Display Version Details
 
-First read the skill's versions through the inventory helper, once; §7 and §9b use the same result:
+Bind `{version_rows}` ← the `versions` of `{target_skill}`'s roster entry (the manifest's and the on-disk versions, newest first, each with its manifest `status`, `in_manifest`, `on_disk`, `last_exported` and `ides`) and `{version_counts}` ← its `counts` (`non_deprecated` counts the manifest versions whose `status` is not `"deprecated"`, and `on_disk` the version folders); §6 to §9b read them.
 
-```bash
-uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {target_skill} --forge-data-folder "{forge_data_folder}"
-```
-
-Bind `{version_rows}` ← `resolve.versions` (the manifest's and the on-disk versions, newest first, each with its manifest `status`, `in_manifest` and `on_disk`) and `{version_counts}` ← `resolve.counts` (`non_deprecated` counts the manifest versions whose `status` is not `"deprecated"`, and `on_disk` the version folders). When §3 ran without the helper, or the call exits non-zero, leave `{version_counts}` unset (§7 and §9b say what they do then) and, for a skill in the manifest, bind `{version_rows}` ← §3's `affected-versions` list for `{target_skill}`, each with `in_manifest` true.
-
-**If `target_in_manifest = true`**, display every version with its full metadata from the manifest:
+**If `target_in_manifest = true`**, display every `{version_rows}` entry with `in_manifest` true:
 
 ```
 **{target_skill} — versions:**
@@ -156,7 +116,7 @@ Bind `{version_rows}` ← `resolve.versions` (the manifest's and the on-disk ver
 ```
 **{target_skill} — on-disk versions (not in manifest):**
 
-  {each `{version_rows}` entry whose `on_disk` is true, newest first, or "(flat layout)" when `resolve.layout` is "flat"}
+  {each `{version_rows}` entry whose `on_disk` is true, newest first, or "(flat layout)" when the roster entry's `layout` is "flat"}
 
 **Note:** This skill has no manifest entry, so soft-deprecate is not available. Only a skill-level hard purge can be performed — the drop will delete the entire on-disk skill group and forge group (a forge folder SKF did not generate stays where it is).
 ```
@@ -198,10 +158,10 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
 **Applies only when `target_in_manifest = true` AND `is_skill_level = false` (specific version selected):**
 
-1. Read the selected version's `status` field from the manifest
+1. Read the selected version's `status` from its `{version_rows}` entry
 2. If `status != "active"` → skip this guard, the version is safe to drop
 3. If `status == "active"`:
-   a. Read `{version_counts}.non_deprecated` (§5): the manifest versions of `{target_skill}` whose `status` is not `"deprecated"` (`active`, `archived` or `draft`), this one included. The guard never counts by hand: without `{version_counts}` (no inventory helper), refuse at b whenever the manifest lists any other version of `{target_skill}`.
+   a. Read `{version_counts}.non_deprecated` (§5): the manifest versions of `{target_skill}` whose `status` is not `"deprecated"` (`active`, `archived` or `draft`), this one included. The guard never counts by hand.
    b. If that count is above `1` → REFUSE the drop:
 
       "**Cannot drop the active version `{version}`.**
@@ -223,7 +183,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
 ```
 
-The emitter folds each recorded decision into the result record's `headless_decisions` (the envelope has no such field), and §10 records its auto-confirm the same way. If the command fails, go on: only that entry is lost.
+The emitter folds each recorded decision into the result record's `headless_decisions`, and §10 records its auto-confirm the same way. If the command fails, go on: only that entry is lost.
 
 **If `target_in_manifest = false`:** Skip this prompt — soft-deprecate is meaningless without a manifest entry to mark, so only a purge applies. Take the first case that matches:
 
@@ -251,15 +211,15 @@ Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P), and record `mode_so
 
 A purge deletes only what SKF generated, and the inventory helper decides what that is: never decide by hand whether SKF generated a folder.
 
-**The purge check.** Run it once, at the scope §6 chose, and reuse its result wherever this step reads it (§8's menu, the guard below and §9):
+**The purge check.** Run it once, at the scope §6 chose, and reuse its result wherever this step reads it (§8's menu, the guard below and §9). Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`:
 
 ```bash
 uv run {skillInventoryHelper} "{skills_output_folder}" --skill {target_skill} --purge-check [--purge-version {version}] --forge-data-folder "{forge_data_folder}"
 ```
 
-Pass `--purge-version {version}` for a single-version drop (`is_skill_level = false`) and leave it out for a whole skill. From its `purge_check`, bind `{purge_verdict}` ← `verdict`, `{purge_reason}` ← `reason`, `{purge_detail}` ← `detail`, `{purge_entries}` ← `offending_entries`, `{affected_directories}` ← `affected_directories`, `{forge_left_in_place}` ← `forge_left_in_place` and `{forge_errors}` ← `forge_errors`. The helper applies the purge rules to the skill folder and, unless both settings name one folder, to its forge folder, and `{purge_reason}` names the rule that refused. A single-version purge refuses only what touches the selected version (its folder, listed with or without a trailing `/`, or an entry inside it, `{version}/<entry>`), and a prefix of another version never counts: `0.1.0-rc/` is not version `0.1.0`. A forge folder SKF did not generate (another tool's folder of the same name, a link or a path that is not a folder), SKF's own `improvement-queue` and a forge version folder SKF did not generate never refuse the purge: the purge leaves that folder where it is, and `{forge_left_in_place}` names it.
+Pass `--purge-version {version}` for a single-version drop (`is_skill_level = false`) and leave it out for a whole skill. From its `purge_check`, bind `{purge_verdict}` ← `verdict`, `{purge_reason}` ← `reason`, `{purge_detail}` ← `detail`, `{purge_entries}` ← `offending_entries`, `{affected_directories}` ← `affected_directories`, `{forge_left_in_place}` ← `forge_left_in_place` and `{forge_errors}` ← `forge_errors`. The helper alone decides what a purge may delete: `{purge_reason}` names the rule that refused, and `{forge_left_in_place}` the forge folder a purge leaves where it is because SKF did not generate it.
 
-When §3 ran without the inventory helper, the call exits non-zero, or its result has no `purge_check` (an installed `skf-skill-inventory.py` older than the flag), bind `{purge_verdict}` and `{purge_reason}` to `"unknown"`: SKF cannot check what it would delete.
+When `{skillInventoryHelper}` resolves to no path, `{roster}.inventory` is false, the call exits non-zero, or its result has no `purge_check` (an installed `skf-skill-inventory.py` older than the flag), bind `{purge_verdict}` and `{purge_reason}` to `"unknown"`: SKF cannot check what it would delete.
 
 **The guard.** Skip it when `drop_mode == "deprecate"`. When `{purge_verdict}` is not `"ok"`, HALT (exit code 5, `halt_reason: "not-skf-output"`, phase `select:purge-guard`) with the message for `{purge_reason}`, and `skill: "{target_skill}"` and `drop_mode: "purge"` in the §1 halt envelope.
 
@@ -272,29 +232,23 @@ When §3 ran without the inventory helper, the call exits non-zero, or its resul
 
 ### 9. Compute Affected Directories
 
-`affected_directories` is the §8b purge check's list: the folders a purge at this scope deletes, the skill folder, or its version folder for a single-version drop, then its forge folder, each only when something is there. The helper writes each path without a trailing separator, since a trailing `/` makes a delete or a size walk follow a link, and never lists a forge folder the purge leaves in place (`{forge_left_in_place}`), or a second path when both settings name one folder.
-
-In deprecate mode the list shows what the drop keeps on disk. When the purge check has no verdict (`"unknown"`), build it from these paths instead: `{skills_output_folder}/{target_skill}/{version}` and `{forge_data_folder}/{target_skill}/{version}` for a single version, `{skills_output_folder}/{target_skill}` and `{forge_data_folder}/{target_skill}` for a whole skill, each without a trailing `/`, and only once when both settings name one folder.
-
-Store the list as `affected_directories`.
-
-If `drop_mode == "deprecate"`, record the list but present it as "retained" in the confirmation output — no deletion will occur.
+`affected_directories` is the §8b purge check's list: the folders a purge at this scope deletes. In deprecate mode the list shows what the drop keeps on disk, and §10 presents it as retained. When the purge check has no verdict (`"unknown"`), build it from these paths instead: `{skills_output_folder}/{target_skill}/{version}` and `{forge_data_folder}/{target_skill}/{version}` for a single version, `{skills_output_folder}/{target_skill}` and `{forge_data_folder}/{target_skill}` for a whole skill, each without a trailing `/`, and only once when both settings name one folder.
 
 #### 9b. Compute Blast-Radius Metrics (for §10 summary)
 
-Compute three scalars to put in front of the path list at §10, so the user sees the scale of an irreversible drop before scanning individual paths:
+Compute the three scalars §10's `Scope:` line shows:
 
 1. **`versions_count`**: the number of skill versions in scope, never counted by hand:
    - Version-level drop: `1`
-   - Skill-level drop: `{version_counts}.non_deprecated` (§5) for a skill in the manifest (the deprecated versions are already absent from the active managed sections), and `{version_counts}.on_disk` for a draft. Without `{version_counts}` (no inventory helper, so a skill in the manifest), the `count` of §3's `affected-versions` call for `{target_skill}`, which also counts its deprecated versions
+   - Skill-level drop: `{version_counts}.non_deprecated` (§5) for a skill in the manifest (the deprecated versions are already absent from the active managed sections), and `{version_counts}.on_disk` for a draft
 
-2. **`bytes_total`** — the on-disk size of `affected_directories`. Delegate the recursive sum and the human label to the sizing helper rather than adding file sizes in-prompt:
+2. **`bytes_total`**: the on-disk size of `affected_directories`. Delegate the recursive sum and the human label to the sizing helper rather than adding file sizes in-prompt:
 
    ```bash
    uv run {dirSizesHelper} sizes {each path in affected_directories, quoted, space-separated}
    ```
 
-   Read `total_human` (e.g. `"4.2 MB"`) as `bytes_total` and `total_bytes` as `bytes_total_raw`; non-existent paths report `exists: false` and drop out of the total. If the helper is unavailable, fall back to `du -sb` per path: the display is best-effort. execute.md §4 measures each folder the same way (every file's size, a link counted as itself) just before it deletes it, and formats the total with the same helper for the canonical `disk_freed`, so the two differ only if files change between this gate and execution.
+   Read `total_human` (e.g. `"4.2 MB"`) as `bytes_total`; a path that does not exist adds nothing. If the helper is unavailable, fall back to `du -sb` per path: the display is best-effort.
 
 3. **`context_files_count`**: the number of context files step 2 rebuilds. Map the `ides` list of `config.yaml` (an absent key is an empty list) through the IDE mapping export-skill writes the section with, using the `{rebuildManagedSectionsHelper}` On-Activation §4 resolved:
 
@@ -303,8 +257,6 @@ Compute three scalars to put in front of the path list at §10, so the user sees
    ```
 
    `{ides}` is the comma-joined list. Store `targets` as `target_context_files` (one `{context_file, skill_root, ides}` entry per file; an IDE the mapping does not list, and an empty list, resolve to AGENTS.md with `.agents/skills/`), set `context_files_count` to its length, and show each `warnings[]` and `notes[]` line. When the helper exits non-zero, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `select:context-files`), with `skill: "{target_skill}"` and `drop_mode: "{drop_mode}"` in the §1 halt envelope: "SKF cannot resolve the context files to rebuild: {the helper's `error`, or its stderr when stdout holds no JSON}. Nothing was changed. Re-install SKF."
-
-Store as `blast_radius = {versions_count, bytes_total, bytes_total_raw, context_files_count}` for §10's summary line.
 
 ### 10. Confirmation Gate
 
@@ -330,11 +282,7 @@ Display the full operation summary with the blast-radius summary line ahead of t
 Proceed? [Y/N]
 ```
 
-The `Scope:` line is the §9b-computed `blast_radius` rendered as one line. In `deprecate` mode the `~{bytes_total} on disk` reads as "size that will remain on disk (soft drop — files retained)"; the user is still served by knowing it. In `purge` mode it reads as "approximate disk that will be freed". The wording stays the same — the surrounding `Mode:` field disambiguates intent.
-
-**Resolve `--dry-run` first — it takes precedence over the headless auto-confirm.** `--dry-run` and `--headless` can be combined (dry-run is the automated-preview path), so a dry-run run must always short-circuit to the preview below and never mutate, even when `{headless_mode}` is true.
-
-**If `--dry-run` was passed**: skip the Y/N prompt entirely — do not evaluate the headless auto-confirm gate. Display the `[DRY RUN]` line with the resolved selection, so the user can re-run interactively with the same values when ready to commit:
+**If `--dry-run` was passed**, it takes precedence over the headless auto-confirm: skip the Y/N prompt even when `{headless_mode}` is true, change nothing, and display the `[DRY RUN]` line with the resolved selection, so the user can re-run with the same values when ready to commit:
 
 ```
 **[DRY RUN] No changes were made — preview above shows what would be dropped.**
@@ -367,18 +315,7 @@ Wait for explicit user response.
 
 ### 11. Store Decisions in Context
 
-Store the following decisions in workflow context for step 2:
-
-- `target_skill` — the skill name
-- `target_in_manifest` — boolean (true if the skill has a manifest entry, false if it was discovered only by on-disk scan)
-- `target_versions` — list of version strings (`[<version>]`) or the literal string `"all"`
-- `drop_mode` — `"deprecate"` or `"purge"` (always `"purge"` when `target_in_manifest = false`)
-- `is_skill_level` — boolean (true if all versions; always true when `target_in_manifest = false`)
-- `affected_directories`: the absolute folder paths step 2 deletes in purge mode (or retains in deprecate mode), from the §8b purge check
-- `mode_source`: where `drop_mode` was decided, set inline at §8 (one of the three sources named there)
-- `forge_left_in_place`: the forge path a purge leaves in place because SKF did not generate it, or null, from the §8b purge check
-- `target_context_files`: the §9b `resolve-targets` targets, which step 2 rebuilds
-- `confirm_source` — how the §10 gate was cleared, set inline at §10 (`"headless-auto"` or `"user-explicit"`)
+Step 2 reads the decisions this step bound where it made them: `target_skill`, `target_in_manifest`, `target_versions`, `drop_mode`, `is_skill_level`, `affected_directories`, `mode_source`, `forge_left_in_place`, `target_context_files` and `confirm_source`.
 
 ### 12. Load Next Step
 

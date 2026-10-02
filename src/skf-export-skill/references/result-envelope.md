@@ -13,17 +13,18 @@ The single-line `SKF_EXPORT_RESULT_JSON: {…}` envelope export-skill emits on n
 
 ## Emitting a Halt
 
-Pass the halt's payload in a quoted heredoc, so no value is expanded. Each value is a JSON string: write a path with `/` in place of `\`, and a quote inside the message as a backtick.
+Each HARD HALT a headless run can reach names its exit code, its `halt_reason` and its phase in the step files; every other field follows the run's state as below. Pass the halt's payload in a quoted heredoc, so no value is expanded. Each value is a JSON string: write a path with `/` in place of `\`, and a quote inside the message as a backtick.
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-export-skill [--run-dir "{run_dir}"] --target stderr <<'SKF_JSON'
-{"phase":"<step file> §<section>","reason":"<the halt message>","halt_reason":"<halt_reason>","skills":["<name>"]}
+{"phase":"<phase>","reason":"<the halt message>","halt_reason":"<halt_reason>","skills":["<name>"]}
 SKF_JSON
 ```
 
-- `phase` is where the run halted, for example `update-context §9`, and `reason` is the message the halt displays, on one line.
+- `phase` is the phase the halt site names, `<step file> §<section>` (for example `update-context §9`), and `reason` is the message the halt displays, on one line.
 - `halt_reason` is the value the halt site names. The emitter derives `exit_code` from it and sets `status: "error"`; leave both out.
-- Always pass `skills`, the resolved batch (`[]` only before step 1 bound `skill_batch`). Add `context_files_updated` and `manifest_path` as the halt site names them; a field left out takes `[]`, or `null` for `manifest_path`.
+- Always pass `skills`, the resolved batch (`[]` only before step 1 bound `skill_batch`, as at every On Activation halt).
+- Add `context_files_updated`, the context files step 4 §9 wrote before the halt, once it has written one, and `manifest_path`, the `{manifest_path}` step 4 §9b bound, once the manifest is written. Before that, leave each out: the emitter gives `context_files_updated` `[]` and `manifest_path` `null`.
 - Pass `--run-dir` once On Activation bound `{run_dir}`, so the line carries the decisions taken before the halt. A halt writes no result file.
 
 Display the line the emitter prints. If it exits non-zero or prints no line, display the halt reason alone.

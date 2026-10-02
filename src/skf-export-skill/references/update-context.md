@@ -21,6 +21,7 @@ To update the SKF managed section in each target context file (CLAUDE.md, AGENTS
 - Do not write a context file without user confirmation (§8): this modifies shared project files, and a dry run writes none
 - If `passive_context: false` was detected in step 1, skip to §9b: the export manifest still records the export
 - **Multi-skill mode:** this step runs once for the whole batch: each body lists every skill in `skill_batch` (§4a), one gate confirms every target (§8), §9b records every skill, and §9c writes each skill's snippet. See step 1 §1c.
+- Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its envelope as `references/result-envelope.md` states
 
 ## MANDATORY SEQUENCE
 
@@ -40,7 +41,7 @@ Step 3 bound `{export_stage_dir}`, the run's folder outside the project that hol
 
 ### 3. Determine Target Files
 
-Step 1 resolved `target_context_files` through `resolve-targets`: one `{context_file, skill_root, ides}` entry per file. Process the targets in that order. A context file's path is `{context_path}`, its `{context_file}` in `{project-root}`, and `{target_paths}` is the `{context_path}` of every target, each quoted, space-separated, in that order.
+Step 1 resolved `target_context_files` through `resolve-targets`: one `{context_file, skill_root, ides}` entry per file. Process the targets in that order. A context file's path is `{context_path}`, its `{context_file}` in `{project-root}`, its skill root `{target_skill_root}` is that entry's own `skill_root`, and `{target_paths}` is the `{context_path}` of every target, each quoted, space-separated, in that order.
 
 #### 3b. Detect Orphaned Platform Files (Stale Managed Sections)
 
@@ -70,14 +71,14 @@ For each target, run:
 
 ```bash
 python3 {rebuildManagedSectionsHelper} assemble "{context_path}" \
-  --skills-folder "{skills_output_folder}" --skill-root "{skill_root}" \
+  --skills-folder "{skills_output_folder}" --skill-root "{target_skill_root}" \
   --include {batch_includes} --snippet-dir "{export_stage_dir}/drafts" \
   --orphan-sources {target_paths} --orphans {orphan_mode} \
   --out "{export_stage_dir}/previews/{context_file}.skf-content" \
   [--skill-root-override "{snippet_skill_root_override}"]
 ```
 
-Add `--skill-root-override` only when `{snippet_skill_root_override}` is set (by `config.yaml`, or for this run by step 1's snippet-root option (d)). `{orphan_mode}` is `keep` unless §4c.1 drops the orphan rows. The helper writes the body to the `--out` file, with no marker and no trailing newline, and prints its result as JSON. From each target's result bind `{content_file}` ← `content_file`, `{n_single}` ← `n_single` and `{n_stack}` ← `n_stack`. A non-zero exit writes nothing: HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and report `{context_file}: {error}` (for example a context file that is not UTF-8 text: the error says how to fix it). In headless mode, emit the error envelope per `references/result-envelope.md` with `context_files_updated: []` and `manifest_path: null`.
+Add `--skill-root-override` only when `{snippet_skill_root_override}` is set (by `config.yaml`, or for this run by step 1's snippet-root option (d)). `{orphan_mode}` is `keep` unless §4c.1 drops the orphan rows. The helper writes the body to the `--out` file, with no marker and no trailing newline, and prints its result as JSON. From each target's result bind `{content_file}` ← `content_file`, `{n_single}` ← `n_single` and `{n_stack}` ← `n_stack`. A non-zero exit writes nothing: HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `update-context §4b`) and report `{context_file}: {error}` (for example a context file that is not UTF-8 text: the error says how to fix it).
 
 When the first result's `malformed_context_files` is not empty, run the §5 `check` on those files now and take its `malformed` HALT, before §4c.1 asks anything: a target whose `<!-- SKF:BEGIN` marker no `<!-- SKF:END -->` closes is never written.
 
@@ -118,7 +119,7 @@ Bind `{case}` ← `case` for that target. The case picks the §9 write:
 | `regenerate` | has a managed section | `replace`, which swaps that section and keeps everything outside the markers |
 | `malformed` | has a `<!-- SKF:BEGIN` marker that no `<!-- SKF:END -->` closes | none: HALT |
 
-- **`malformed`:** HALT (exit code 5, `halt_reason: "malformed-markers"`) with the helper's `error`, which names the line of the marker and the fix (restore the `<!-- SKF:END -->` line, or remove the stray `<!-- SKF:BEGIN`, then re-run). Write nothing to any target: the helper refuses such a file, because a write there would take the user's lines below the marker for part of the section. In headless mode, emit the error envelope per `references/result-envelope.md` with `manifest_path: null`, `context_files_updated: []`.
+- **`malformed`:** HALT (exit code 5, `halt_reason: "malformed-markers"`, phase `update-context §5`) with the helper's `error`, which names the line of the marker and the fix (restore the `<!-- SKF:END -->` line, or remove the stray `<!-- SKF:BEGIN`, then re-run). Write nothing to any target: the helper refuses such a file, because a write there would take the user's lines below the marker for part of the section.
 
 ### 6. Read the Current Sections
 
@@ -175,7 +176,7 @@ Display: "**Select:** [C] Continue — write changes to all targets | [X] Cancel
 #### Gate handling
 
 - **[C]**: write the targets (§9), record the export (§9b) and write the snippets (§9c), then load, read entirely, and execute `{nextStepFile}`.
-- **[X]** / `cancel` / `exit` / `:q`: delete the `{export_stage_dir}` folder, display "Cancelled: no context files were written." and HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, and `manifest_path: null`.
+- **[X]** / `cancel` / `exit` / `:q`: delete the `{export_stage_dir}` folder, display "Cancelled: no context files were written." and HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `update-context §8`).
 - **Any other input** — help the user respond, then redisplay this gate.
 - **Dry-run**: auto-proceed without writing.
 - **Headless** [default C]: record the decision in the run sink with the command below, log "headless: auto-approve context file update", then auto-approve with [C]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
@@ -204,7 +205,7 @@ python3 {rebuildManagedSectionsHelper} "{context_path}" replace < "{content_file
 
 Both write the `<!-- SKF:BEGIN updated:{date} -->` and `<!-- SKF:END -->` markers around the body themselves (the date from the clock), write the file atomically (temp file + rename) and read it back to check the markers and the bytes outside them. They refuse (exit 1) a body that holds a marker of its own, and a file whose markers became malformed after §5, and leave that file unchanged. They print their result as JSON on stdout and exit 0 only when `status` is `"ok"`.
 
-On a non-zero exit, bind `{context_error}` ← `error` (the helper's stderr when stdout holds no JSON, such as a Python traceback), HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and report `{context_file}: {context_error}`. The targets already written stay written. In headless mode, emit the error envelope per `references/result-envelope.md` with those targets as `context_files_updated` and `manifest_path: null`.
+On a non-zero exit, bind `{context_error}` ← `error` (the helper's stderr when stdout holds no JSON, such as a Python traceback), HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `update-context §9`) and report `{context_file}: {context_error}`. The targets already written stay written.
 
 On success per file, report "**{context_file} updated successfully.** Verified by `{rebuildManagedSectionsHelper}`." and add it to `context_files_updated`.
 
@@ -224,7 +225,7 @@ python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} [-
 
 **Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**" (list every skill in `skill_batch`; `ides_written` is empty with passive context off, so show `none`). A dry run with passive context on displayed this line at §8 and never reaches this section. Then auto-proceed to {nextStepFile}.
 
-**Error handling:** If `set` exits non-zero, HALT (exit code 4, `halt_reason: "manifest-write-failed"`) with the helper's `error` (its stderr when stdout holds no JSON). The context files §9 wrote stay written, and no snippet is written: re-run `[EX] Export Skill` on the batch, which writes the same sections again, records the manifest and writes the snippets. In headless mode, emit the error envelope per `references/result-envelope.md` with `manifest_path: null` and the `context_files_updated` list.
+**Error handling:** If `set` exits non-zero, HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `update-context §9b`) with the helper's `error` (its stderr when stdout holds no JSON). The context files §9 wrote stay written, and no snippet is written: re-run `[EX] Export Skill` on the batch, which writes the same sections again, records the manifest and writes the snippets.
 
 ### 9c. Write the Snippets
 
@@ -238,6 +239,6 @@ cp "{export_stage_dir}/drafts/{skill-name}/context-snippet.md" "{resolved_skill_
 
 Report "**{skill-name}: context-snippet.md written** to `{resolved_skill_package}/context-snippet.md`." and add the file to `snippets_written`, which step 6 lists in the result contract.
 
-On a failed copy, HALT (exit code 4, `halt_reason: "write-failed"`) and report `{skill-name}: context-snippet.md was not written: {error}`. The context files, the export manifest and the snippets copied before it stay written: re-run `[EX] Export Skill` on the skills whose snippet was not written (this one and the ones after it). In headless mode, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, the `context_files_updated` list and `manifest_path` as §9b bound it.
+On a failed copy, HALT (exit code 4, `halt_reason: "write-failed"`, phase `update-context §9c`) and report `{skill-name}: context-snippet.md was not written: {error}`. The context files, the export manifest and the snippets copied before it stay written: re-run `[EX] Export Skill` on the skills whose snippet was not written (this one and the ones after it).
 
 Once every snippet is written, delete the `{export_stage_dir}` folder.

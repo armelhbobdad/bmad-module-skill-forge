@@ -58,6 +58,9 @@ Flags:
   --index-fresh           true|false (case-insensitive); the prior index is
                           still fresh, so an unchanged settings.yml keeps it
   --skip-index            true|false; the setup run opted out of indexing
+  --defer-index           a due index build waits for a later run: setup
+                          passes it when the run missed its --require-tier,
+                          which ends tier_failure (Index decision, below)
   --no-ccc-init           never run ccc init (tests and diagnostics)
   --build-index           setup mode only: act on index_action and add the
                           `index` result (Index build, below)
@@ -295,7 +298,9 @@ Index decision: "fail" when no settings.yml exists; otherwise "skip"
 under --skip-index true (with a warning when settings.yml changed);
 otherwise, after a failed rebuild, "keep" when the prior index is fresh
 and "fail" when it is not; otherwise "index" when settings.yml changed or
-the prior index is not fresh; otherwise "keep".
+the prior index is not fresh, or "defer" in its place under --defer-index;
+otherwise "keep". --defer-index changes only a due build: a fresh index
+is still kept, its record carried forward, which --skip-index would null.
 
 After a reconcile, `/.cocoindex_code/` coverage is checked with
 `git check-ignore -q --no-index -- .cocoindex_code/target_sqlite.db`; an
@@ -309,6 +314,8 @@ or types a timestamp:
   keep   status "fresh"; last_indexed and file_count carry over from the
          prior forge-tier.yaml (--prior-state-from)
   skip   status "skipped"
+  defer  status "skipped", as for skip: the `ccc index` run that "index"
+         would make waits for a later run, so the next setup run builds it
   fail   status "failed", with not_ready_reason as failed_reason
   index  `ccc index` runs in the project root (up to CCC_INDEX_TIMEOUT_SEC).
          Then `ccc status` gives the file count. While it prints an
@@ -358,7 +365,8 @@ Output (single JSON document on stdout, ASCII only):
                                          (ccc init create, rebuild, or
                                          SKF edit)
     "gitignore_updated":         bool,
-    "index_action":              "index" | "keep" | "skip" | "fail",
+    "index_action":              "index" | "keep" | "skip" | "defer"
+                                 | "fail",
     "index":                     only with --build-index:
                                  {"status": "fresh" | "created" | "skipped"
                                             | "failed",
@@ -473,7 +481,7 @@ CCC_IN_PROGRESS = "Indexing in progress:"
 CCC_FILES_RE = re.compile(r"^\s*Files:\s*(\d+)\s*$", re.MULTILINE)
 GIT_TIMEOUT_SEC = 10
 SAMPLE_SIZE = 3
-INDEX_ACTIONS = ("index", "keep", "skip", "fail")
+INDEX_ACTIONS = ("index", "keep", "skip", "defer", "fail")
 # Keep identical to GIT_LOCATION_VARS in skf-check-workspace-drift.py.
 GIT_LOCATION_VARS = (
     "GIT_DIR",
@@ -1270,12 +1278,12 @@ def plan_exclusions(existing: list[str], produced: list[str], owned_prior, prune
 
 
 def decide_index_action(ready: bool, skip_index: bool, written: bool, index_fresh: bool,
-                        usable: bool = True) -> str:
+                        usable: bool = True, defer: bool = False) -> str:
     """Return one of INDEX_ACTIONS for the step to act on.
 
     `usable` is False when settings.yml exists but still lacks the ccc
     defaults (a failed rebuild): a fresh index is kept, but no new index is
-    built from that file.
+    built from that file. `defer` turns a due build ("index") into "defer".
     """
     if not ready:
         return "fail"
@@ -1284,7 +1292,7 @@ def decide_index_action(ready: bool, skip_index: bool, written: bool, index_fres
     if not usable:
         return "keep" if index_fresh else "fail"
     if written or not index_fresh:
-        return "index"
+        return "defer" if defer else "index"
     return "keep"
 
 
@@ -1887,7 +1895,7 @@ def _reconcile(root: Path, target: Path, backup: Path, data: dict,
 
 def run_merge(project_root, skills_output_folder, forge_data_folder, prior_state_from=None,
               index_fresh: bool = False, skip_index: bool = False,
-              allow_ccc_init: bool = True) -> dict:
+              allow_ccc_init: bool = True, defer_index: bool = False) -> dict:
     """Prepare settings.yml, reconcile the SKF patterns, decide the index action.
 
     Returns the v2 payload documented in the module docstring. Raises
@@ -1957,7 +1965,7 @@ def run_merge(project_root, skills_output_folder, forge_data_folder, prior_state
             )
 
     action = decide_index_action(state["ready"], skip_index, state["written"], index_fresh,
-                                 usable=state["index_block"] is None)
+                                 usable=state["index_block"] is None, defer=defer_index)
     reason = state["reason"] or (state["index_block"] if action == "fail" else None)
     if action == "skip" and state["written"]:
         warnings.append(
@@ -2111,7 +2119,7 @@ def build_index(root: Path, indexed_path: str, action: str, not_ready_reason,
     a pass is still running after the reruns.
     """
     unset = {"indexed_path": None, "last_indexed": None, "file_count": None, "failed_reason": None}
-    if action == "skip":
+    if action in ("skip", "defer"):
         return {"status": "skipped", **unset}
     if action == "fail":
         return {"status": "failed", **unset,
@@ -2331,6 +2339,12 @@ def main() -> None:
              "a ready settings.yml gives index_action skip. Default false.",
     )
     parser.add_argument(
+        "--defer-index", action="store_true",
+        help="Leave a due index build (index_action index) to a later run: index_action is defer "
+             "and the index skipped. A fresh index is still kept. Setup passes it on a "
+             "--require-tier miss.",
+    )
+    parser.add_argument(
         "--no-ccc-init", action="store_true",
         help="Never run ccc init (tests and diagnostics). A missing settings.yml is "
              "reported as not ready; a rebuild is skipped with a warning.",
@@ -2372,6 +2386,7 @@ def main() -> None:
             ("--index-fresh", args.index_fresh),
             ("--skip-index", args.skip_index),
             ("--build-index", args.build_index or None),
+            ("--defer-index", args.defer_index or None),
         ) if value is not None]
         if setup_flags:
             _die(2, f"usage error: --clone-root takes no setup flag ({', '.join(setup_flags)})")
@@ -2406,6 +2421,7 @@ def main() -> None:
             index_fresh=bool(args.index_fresh),
             skip_index=bool(args.skip_index),
             allow_ccc_init=not args.no_ccc_init,
+            defer_index=args.defer_index,
         )
         if args.build_index:
             if args.result_to is not None and payload["index_action"] == "index":

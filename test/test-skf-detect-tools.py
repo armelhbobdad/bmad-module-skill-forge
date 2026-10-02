@@ -23,6 +23,8 @@ import importlib.util
 import itertools
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -1016,6 +1018,34 @@ def test_detect_surfaces_previous_ccc_file_count_from_prior_state(tmp_path):
     with _patch_all_probes(ag=True, cc=True):
         out = mod.detect(args)
     assert out["prior"]["previous_ccc_file_count"] == 42
+
+
+def test_a_rejected_require_tier_reaches_the_blocked_envelope_through_its_stderr_file(tmp_path):
+    """determinism-3: step 1 saves the detector's stderr in the run folder and
+    emit-blocked takes the message from it, so the did-you-mean hint arrives
+    in the envelope with no reason typed by hand."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    with open(run_dir / "detect-tools.err", "wb") as err:
+        done = subprocess.run([sys.executable, str(SCRIPT_PATH), "--project-root", str(tmp_path),
+                               "--require-tier", "deep"], stdout=subprocess.DEVNULL, stderr=err, timeout=30)
+    assert done.returncode != 0
+    text = _DETECT_TIER_STEP.read_text(encoding="utf-8")
+    assert '2> "{run_dir}/detect-tools.err"' in text
+    joined = re.sub(r"\\\n\s*", "", text)
+    [call] = [line for line in joined.splitlines() if 'emit-blocked --phase "step 1:detect-tools"' in line]
+    emitter = SCRIPT_PATH.parent / "skf-emit-result-envelope.py"
+    values = {"emitEnvelopeHelper": emitter.as_posix(), "run_dir": run_dir.as_posix(),
+              "project-root": tmp_path.as_posix()}
+    words = shlex.split(re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], call))
+    assert words[:3] == ["uv", "run", emitter.as_posix()], words
+    blocked = subprocess.run([sys.executable, *words[2:]], capture_output=True, timeout=30)
+    assert blocked.returncode == 0, blocked.stderr
+    line = blocked.stdout.decode("utf-8").strip()
+    error = json.loads(line[len("SKF_SETUP_RESULT_JSON: "):])["skf_setup"]["error"]
+    assert error["phase"] == "step 1:detect-tools"
+    assert error["reason"] == ("Setup cannot proceed: tool detection failed: --require-tier must be one of Quick, "
+                               "Forge, Forge+, Deep (case-sensitive), got deep; did you mean Deep?")
 
 
 # ─── End-to-end CLI integration ──────────────────────────────────────────────

@@ -235,7 +235,10 @@ def test_drop_and_rename_take_the_verdict_from_the_helper_and_never_scan_top_lev
     assert f"its result has no `{key}`" in text, "an installed helper older than the flag must fail closed"
     for stale in ("`{target_ownership}` ← ", "`{target_foreign_entries}` ← ", "`{target_forge_ownership}` ← "):
         assert stale not in text, "the helper returns the verdict: the prose no longer joins the scan by hand"
-    assert "`skf_skill` is true" in text
+    if rel == DROP_SELECT:  # drop-roster.py offers only the skills SKF generated
+        assert "uv run {dropRosterHelper} skills " in text and "which the roster never offers" in text
+    else:
+        assert "`skf_skill` is true" in text
     assert "Not offered (not SKF output)" in text
     assert "top-level directories" not in text, "the in-prompt fallback must not offer unchecked folders"
     # The roster lists skills; it never predicts the verdict the check returns once one is picked.
@@ -299,8 +302,9 @@ def test_drop_purge_guard_reads_the_purge_check():
     messages = _section(guard, "**The guard.**", None)
     for reason in reasons | {"unknown"}:
         assert f"`{reason}`" in messages, f"the guard has no message for {reason}"
-    assert "with or without a trailing `/`" in guard, "a linked version folder is listed without the slash"
-    assert "`0.1.0-rc/` is not version `0.1.0`" in guard
+    # leanness-1: the version rule (`0.1.0-rc/` is not `0.1.0`) is the helper's, never restated here.
+    assert "The helper alone decides what a purge may delete" in guard
+    assert "`0.1.0-rc/` is not version `0.1.0`" not in guard
     assert 'halt_reason: "not-skf-output"' in guard
     assert "bind `{purge_verdict}` and `{purge_reason}` to `\"unknown\"`" in guard
     ask = _section(text, "### 8. Ask Mode", "### 8b. Purge Guard")
@@ -393,7 +397,7 @@ def test_drop_refuses_a_named_folder_skf_did_not_generate():
 def test_drop_names_a_foreign_folder_before_the_empty_roster_halt():
     """A module repo with no SKF skill: a named foreign folder is not-skf-output, not nothing-to-drop."""
     roster = _section(_read(DROP_SELECT), "### 3. List Available Skills", "### 4. Ask Which Skill")
-    empty = _section(roster, "**If the combined roster is empty**", "Display the combined list")
+    empty = _section(roster, "**If the combined roster is empty**", "When a `skill_name` argument was supplied")
     refusal = empty.index("is in `{not_offered}`")
     assert refusal < empty.index('"nothing-to-drop"')
     assert 'halt_reason: "not-skf-output"' in empty[refusal:empty.index('"nothing-to-drop"')]
@@ -414,7 +418,7 @@ def test_rename_names_a_foreign_folder_before_the_empty_list_halt():
 
 def test_drop_version_purge_refuses_foreign_entries_inside_the_version():
     guard = _section(_read(DROP_SELECT), "### 8b. Purge Guard", "### 9. Compute Affected Directories")
-    assert "or an entry inside it, `{version}/<entry>`" in guard
+    assert "or an entry inside it, `{version}/<entry>`" not in guard, "leanness-1: the helper holds the rule"
     assert "- `skill-version-mixed`: \"**Purge refused: `{skills_output_folder}/{target_skill}/{version}` also " \
            "holds entries SKF did not generate:** {purge_entries}" in guard
 
@@ -490,16 +494,17 @@ def test_rename_recreates_active_with_flip_link():
         assert stale not in fix, stale
     assert fix.count('halt_reason: "write-failed"') == 1
     assert "§3 + §6" not in execute.split("\n---\n", 1)[0]
-    drop = _read(DROP_EXECUTE).split("\n---\n", 1)[0]
+    drop = _read(DROP_EXECUTE)
     assert "skf-rename-skill/references/execute.md" not in drop, "rename no longer uses the symlink helper"
-    assert "records the manual repair and continues" in drop, "drop §4 records a missing helper, it does not halt"
+    assert "or a missing helper (no probe candidate), as above with the manual fix" in drop, (
+        "drop §4 records a missing helper, it does not halt")
 
 
 def test_rename_restores_the_manifest_with_write_target():
     manifest = _section(_read(RENAME_EXECUTE), "### 6. Update Export Manifest", "### 7. ")
     assert ("uv run {atomicWriteHelper} write --target \"{skills_output_folder}/.export-manifest.json\" "
-            "<<'SKF_MANIFEST_BACKUP'") in manifest
-    assert "hold its exact text, not a parsed or re-serialized copy" in manifest
+            "< \"{run_dir}/export-manifest.backup.json\"") in manifest
+    assert 'cp "{skills_output_folder}/.export-manifest.json" "{run_dir}/export-manifest.backup.json"' in manifest
     assert "bind `{manifest_error}` ← `error`" in manifest, "manifest-ops reports its errors on stdout"
     assert "`{manifest_status}` ← `status`" in manifest
     assert "when `{manifest_status}` is `not_found`, set `{manifest_error}`" in manifest, "not_found has no `error`"
@@ -507,13 +512,15 @@ def test_rename_restores_the_manifest_with_write_target():
         assert state in manifest, state
     # Restore only the state this run's re-key leaves; with both names present the helper
     # refused and wrote nothing, and a restore would erase another process's entry.
-    rollback = _section(manifest, "**Rollback on helper non-zero exit:**", "Set context flag")
-    assert ("Only when `exports.{new_name}` is there and `exports.{old_name}` is gone, restore the backup"
-            in rollback), "restore only a landed re-key"
+    rollback = _section(manifest, "**Rollback on a failed backup or a helper non-zero exit:**", "Set context flag")
+    assert ("Only when the first prints `status` `ok` and the second `status` `not_found` (`exports.{new_name}` is "
+            "there and `exports.{old_name}` is gone), restore the backup") in rollback, "restore only a landed re-key"
+    assert "never reading the file by eye" in rollback
+    assert "After a failed backup, set `{manifest_restore}` to `unchanged`." in rollback
     assert ("In every other state (`exports.{old_name}` still there, `exports.{new_name}` absent, or a manifest "
             "that is missing or does not parse), this run did not change the manifest") in rollback
     assert "set `{manifest_restore}` to `unchanged` and write nothing" in rollback
-    assert rollback.index("Only when `exports.{new_name}` is there") < rollback.index("write --target")
+    assert rollback.index("Only when the first prints") < rollback.index("write --target")
     assert "Otherwise restore the backup" not in rollback
     assert "- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true" in rollback
     assert "Release the lock" not in rollback, "the halt procedure releases the run lock after the rollback"
@@ -694,24 +701,26 @@ def test_stack_skill_never_decides_ownership_by_hand():
 
 def test_drop_checks_the_forge_folder_before_any_change():
     text = _read(DROP_SELECT)
-    roster = _section(text, "### 3. List Available Skills", "### 4. Ask Which Skill")
-    assert "uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}" in roster
-    assert 'The §8b purge check then has no verdict (`"unknown"`)' in roster, "a missing helper must refuse the purge"
+    roster = _section(text, "### 2. Read the Roster", "### 3. List Available Skills")
+    assert ('uv run {dropRosterHelper} skills "{skills_output_folder}" --forge-data-folder "{forge_data_folder}"'
+            in roster)
     guard = _section(text, "### 8b. Purge Guard", "### 9. Compute Affected Directories")
+    assert ('`{roster}.inventory` is false, the call exits non-zero, or its result has no `purge_check`'
+            in guard), "a roster without the inventory helper must refuse the purge"
+    assert 'bind `{purge_verdict}` and `{purge_reason}` to `"unknown"`' in guard
     assert '--forge-data-folder "{forge_data_folder}"' in guard
-    for needle in ("`forge-mixed-whole`", "`forge-version-mixed`", "the purge leaves that folder where it is",
-                   "`{forge_left_in_place}` names it", "`{version}/<entry>`", "unless both settings name one folder",
-                   "SKF's own `improvement-queue`"):
+    for needle in ("`forge-mixed-whole`", "`forge-version-mixed`",
+                   "`{forge_left_in_place}` the forge folder a purge leaves where it is"):
         assert needle in guard, needle
     affected = _section(text, "### 9. Compute Affected Directories", "#### 9b.")
     assert "/{target_skill}/`" not in affected and "/{version}/`" not in affected, "no trailing `/` on a path"
-    assert "without a trailing separator" in affected and "without a trailing `/`" in affected
+    assert "without a trailing `/`" in affected
     assert "Left in place (not SKF output)" in _section(text, "### 10. Confirmation Gate", "### 11. ")
     assert "Left in place (not SKF output)" in _read(DROP_REPORT)
     stored = _section(text, "### 11. Store Decisions in Context", "### 12.")
     assert "`forge_left_in_place`" in stored
     delete = _section(_read(DROP_EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. Verify Final State")
-    assert "when `affected_directories` lists it" in delete
+    assert "run it once over every path in `affected_directories`" in delete
 
 
 def test_rename_checks_the_forge_folder_before_the_lock():
@@ -751,11 +760,15 @@ def test_rename_moves_only_an_skf_forge_folder():
     delete = _section(execute, "### 8. Delete Old Directories", "### 9. ")
     assert "SKF never deletes through a link" in delete and "Only when `{forge_move}` is true" in delete
     assert 'Only when `{forge_move}` is true, add `"{old_forge_group}"` after `"{old_skill_group}"`' in delete
-    update = _section(execute, "### 3. Update File Contents", "### 4. ")
+    update = _section(execute, "### 3. Record the Rewrite", "### 4. ")
     assert "context-snippet.md, provenance-map.json.\"" not in update, "name only the files rewritten"
-    assert "Name only what `files_rewritten` holds, counted from it, never from the version count." in update
+    assert "Name only the kinds whose `rewrite_counts` entry is above 0, never a count taken from the version count." \
+        in update
     assert "`same_folder`: carried from step 1" in _section(execute, "### 9. Store Results", "### 10. ")
-    assert "{if forge_move or same_folder:}- provenance-map.json" in _read("src/skf-rename-skill/references/report.md")
+    rewrite = _section(execute, "### 2. Rename the Packages and Rewrite the Name", "### 3. ")
+    assert "Pass the bracketed group only when `{forge_move}` or `{same_folder}` is true" in rewrite
+    assert ("when `{forge_move}` or `{same_folder}` is true, provenance-map.json"
+            in _read("src/skf-rename-skill/references/report.md"))
 
 
 def test_rename_deletes_the_old_folders_through_the_guarded_delete():
@@ -798,8 +811,9 @@ def test_rename_guarded_delete_removes_only_the_old_folders(tmp_path, forge_move
 def test_rename_verifies_only_the_versions_it_renamed():
     """A version folder with no package (an interrupted run's empty folder) never fails the commit gate."""
     execute = _read(RENAME_EXECUTE)
-    inner = _section(execute, "### 2. Rename Inner Version Directories", "### 3. ")
-    assert "`renamed_versions`" in inner
+    inner = _section(execute, "### 3. Record the Rewrite", "### 4. ")
+    assert "`renamed_versions` ← `renamed_versions` (the versions whose package it moved: §4 and §5 read only these)" \
+        in inner
     verify = _section(execute, "### 5. Verify", "### 6. ")
     assert "--versions {comma-separated renamed_versions}" in verify
     assert "--versions {comma-separated affected_versions}" not in verify
@@ -1176,7 +1190,8 @@ def test_export_reads_the_manifest_only_through_the_helper():
     parse = _section(load, "### 1. Parse Export Arguments", "### 1b. ")
     assert "**Read the export manifest** on every run" in parse and "whenever this section needs it" not in parse
     assert parse.index("**Read the export manifest**") < parse.index("**Skill Path Discovery")
-    assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`): "**Export manifest is corrupt**' in parse
+    assert ('HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): '
+            '"**Export manifest is corrupt**') in parse
     assert "`python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`" in _read(EXPORT_SNIPPET)
     assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
         _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
@@ -1194,8 +1209,8 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
     assert "until `{count}` is 300 or below" in count
     assert "stays in-prompt" not in text
     assert "by hand" not in count, "no count in the prompt: §2.8 already needs Python for the stage folder"
-    assert ('When the helper exits non-zero, delete the '
-            '`{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`)') in count
+    assert ('When the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT (exit code 4, '
+            '`halt_reason: "context-rebuild-failed"`, phase `generate-snippet §4`)') in count
     assert "`{countTokensHelper}` ←" in _read(EXPORT_SKILL), "On Activation resolves the counter before any prompt"
     stage = _section(text, "### 2.8. Stage Folder", "### 3. ")
     assert "so a dry run leaves nothing beside a skill package or a context file" in stage
@@ -1247,7 +1262,7 @@ def test_rename_rolls_back_only_up_to_the_manifest_rekey():
     assert ("set `context_files_failed` to the one entry `all context files: resolve-targets failed: {error}`"
             in rebuild)
     assert "as the reason no context file was rebuilt" not in rebuild
-    assert "{if context_files_failed is non-empty:}" in _read("src/skf-rename-skill/references/report.md")
+    assert "When `context_files_failed` is not empty, list it with:" in _read("src/skf-rename-skill/references/report.md")
     assert "best-effort and never halts" in _read("src/skf-rename-skill/references/exit-codes.md")
     assert "§7 context-file rebuild is best-effort and never halts" in _read(RENAME_CONTRACT)
     assert "If any step fails before the final delete" not in _read(RENAME_SELECT)
@@ -1387,7 +1402,8 @@ def _run_lifecycle(root: Path, skill: str, override: str | None) -> dict:
     bodies = {}
     for target in targets:
         path = root / target["context_file"]
-        values.update(context_path=str(path), context_file=target["context_file"], skill_root=target["skill_root"])
+        values.update(context_path=str(path), context_file=target["context_file"], skill_root=target["skill_root"],
+                      target_skill_root=target["skill_root"])
         case = _run_documented(_call(skill, "check", "check"), values, override)["case"]
         assembled = _run_documented(_call(skill, "assemble", "assemble"), values, override)
         values["content_file"] = assembled["content_file"]
@@ -1873,7 +1889,8 @@ def test_rename_report_runs_one_terminal_sequence():
     release = _section(report, order[3], order[4])
     assert _fenced_calls(release, "rmdir") == [
         'rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" '
-        '"{run_dir}/warnings.jsonl" && rmdir "{run_dir}"']
+        '"{run_dir}/warnings.jsonl" "{run_dir}/rename-rewrite.json" "{run_dir}/export-manifest.backup.json" '
+        '&& rmdir "{run_dir}"']
     # The run folder goes only once the emitter printed the line that carries its decisions.
     assert "Then, when §1's emitter printed its line, delete the run folder:" in release
     assert ("When §1's emitter printed no line, keep `{run_dir}` instead and tell the user in one line that it "
@@ -1895,10 +1912,12 @@ def test_rename_report_runs_one_terminal_sequence():
 def test_rename_counts_come_from_the_helper_results():
     """#593: the handoffs carry what the report and the envelope state, tallied from helper results."""
     execute = _read(RENAME_EXECUTE)
-    update = _section(execute, "### 3. Update File Contents", "### 4. ")
-    assert "when its `wrote` is not null, add `{kind, path}` (the `--kind` and the `wrote` path) to `files_rewritten`" in update
+    update = _section(execute, "### 3. Record the Rewrite", "### 4. ")
+    assert "Its `files_rewritten` (the `{kind, path}` of each file it wrote)" in update
+    assert "`rewrite_counts` ← `counts` (`files_rewritten` tallied by kind)" in update
     results = _section(execute, "### 9. Store Results in Context", "### 10. ")
-    for bullet in ("- `renamed_versions`:", "- `files_rewritten`:", "- `run_id`, `run_dir` and `lock_owner`:",
+    assert "`{run_dir}/rename-rewrite.json`, holds `renamed_versions`, `files_rewritten`, `counts`" in results
+    for bullet in ("- `run_id`, `run_dir` and `lock_owner`:",
                    "- `manifest_rekeyed`: true only when section 6 ran the re-key and the helper exited 0"):
         assert bullet in results, bullet
     decisions = _section(_read(RENAME_SELECT), "### 9. Store Decisions in Context", "### 10. ")
@@ -1907,9 +1926,8 @@ def test_rename_counts_come_from_the_helper_results():
     for section in (results, decisions):
         assert "- `headless_decisions`" not in section, "the run sink holds the decisions"
     report = _read(RENAME_REPORT)
-    assert "Versions renamed: {the number of renamed_versions} ({comma-separated renamed_versions})" in report
-    for kind in ("skill-frontmatter", "metadata-json", "context-snippet", "provenance-json"):
-        assert f"(×{{the files_rewritten entries of kind {kind}}})" in report, kind
+    assert "the versions renamed: the number and the list of `renamed_versions`" in report
+    assert "The references updated, each with its count from `rewrite_counts`" in report
     for rel in (RENAME_EXECUTE, RENAME_REPORT):
         text = _read(rel)
         for stale in ("affected_versions_count", "files_updated_per_version"):
@@ -1919,7 +1937,7 @@ def test_rename_counts_come_from_the_helper_results():
     # §6's flag and report line say whether the re-key ran, as §9's manifest_rekeyed does.
     manifest = _section(execute, "### 6. Update Export Manifest", "### 7. ")
     assert "Set context flag `manifest_rekeyed = true` when the helper ran and exited 0, else `false`" in manifest
-    assert "Set `manifest_rekeyed = false` and `manifest_backup = null`" in manifest
+    assert "Skip this section entirely. Set `manifest_rekeyed = false`." in manifest
     for rel in (RENAME_EXECUTE, RENAME_REPORT):
         assert "manifest_updated" not in _read(rel), f"{rel}: one manifest flag name (#600)"
     assert 'When it skipped the call: "**Manifest unchanged:** it has no `exports.{old_name}` entry."' in manifest

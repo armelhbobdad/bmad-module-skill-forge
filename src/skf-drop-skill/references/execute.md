@@ -1,28 +1,16 @@
 ---
 nextStepFile: 'report.md'
-# SKILL.md On-Activation §4 binds `{emitEnvelopeHelper}`, `{manifestOpsHelper}`,
-# `{rebuildManagedSectionsHelper}` and `{run_dir}`.
-# Resolve `{updateActiveSymlinkHelper}` from its probe order (installed SKF
-# module path first, src/ dev-checkout fallback; first existing path wins).
-# §4 uses it (update action) to atomically repoint the skill's `active` link
-# after a version-level purge deletes the version it pointed at: the helper
-# does a temp-symlink + os.replace flip so concurrent readers never see a
-# missing link. Matches skf-update-skill/references/write.md. If neither
-# candidate exists, §4 records the manual repair and continues.
+# {updateActiveSymlinkHelper}: the §4 `active` repoint.
 updateActiveSymlinkProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
   - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
-# Resolve `{skillInventoryHelper}` similarly. §4 deletes through its
-# `guarded-delete` action: each path must be a plain folder inside the
-# skills or forge folder, reached through no link, and is checked gone
-# after the delete, and its `resolve` action reads the versions the drop
-# left when §4 repoints `active`. Without it §4 deletes nothing.
+# {skillInventoryHelper}: the §4 guarded delete and `resolve`.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-# Deterministic human formatting for `disk_freed` (§4). Bundled with this
-# skill; the same helper backs select.md §9b's blast-radius preview, so gate
-# and report agree on the method.
+# {dropRosterHelper}: the §5 context-file check.
+dropRosterHelper: 'scripts/drop-roster.py'
+# {dirSizesHelper}: the §4 `disk_freed` label.
 dirSizesHelper: 'scripts/dir-sizes.py'
 ---
 
@@ -40,6 +28,7 @@ Execute the drop decisions recorded in step 1: update the export manifest, rebui
 - Do not re-prompt the user — decisions were made in step 1
 - Do not delete files in deprecate mode; do not widen deletion scope beyond `affected_directories`
 - Report each stage's outcome as it completes
+- Record each degraded outcome as a warning the moment it happens, with the text the section names, so the envelope and the result record carry it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning>'`, a single quote in it written as a backtick. If the command fails, go on: only that entry is lost.
 
 ## MANDATORY SEQUENCE
 
@@ -51,11 +40,11 @@ Every HALT in this step names its exit code, `halt_reason` and phase. In headles
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-drop-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
 ```
 
-and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. The emitter gives every field the site leaves out its default (`null`, `[]` or `false`) and checks `exit_code` against `halt_reason`. If it exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. The emitter gives every field the site leaves out its default (`null`, `[]` or `false`) and checks `exit_code` against `halt_reason`. If it exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message, emits nothing and then deletes the run folder (`rm -rf "{run_dir}"`), which nothing reads after it.
 
 ### 2. Update Export Manifest
 
-**If `target_in_manifest == false`** (draft skill discovered only by on-disk scan): Skip this section entirely. There is no manifest entry to deprecate or delete. Set `manifest_updated = false` and proceed directly to section 3. Step-01 forced `drop_mode = "purge"` and `is_skill_level = true` in this case, so the subsequent sections will hard-delete the on-disk directories without any manifest interaction.
+**If `target_in_manifest == false`** (draft skill discovered only by on-disk scan): Skip this section entirely. There is no manifest entry to deprecate or delete. Set `manifest_updated = false` and proceed directly to section 3.
 
 **If `target_in_manifest == true`:**
 
@@ -120,9 +109,9 @@ A target's file is `{context_path}`, its `{context_file}` in `{project-root}`, a
    python3 {rebuildManagedSectionsHelper} "{context_path}" replace < "{context_path}.skf-content"
    ```
 
-   Delete `{context_path}.skf-content` once the helper returns, whatever its exit code. The helper keeps everything outside the old markers, writes a fresh `<!-- SKF:BEGIN updated:{date} -->` line, the body and `<!-- SKF:END -->` in place of the old section, writes the file atomically (temp file + rename) and reads it back to check the markers and the bytes outside them. It refuses a body that holds a marker of its own (`<!-- SKF:BEGIN` or `<!-- SKF:END`), which would nest a second pair inside the section, and leaves the file unchanged. It prints its result as JSON on stdout and exits 0 only when `status` is `"ok"`. On a non-zero exit, bind `{context_error}` ← `error`; when stdout holds no JSON (a Python traceback), set `{context_error}` to the helper's stderr.
+   Delete `{context_path}.skf-content` once the helper returns, whatever its exit code. It refuses a body that holds a marker of its own, and then leaves the file unchanged. It exits 0 only when the `status` of its JSON is `"ok"`. On a non-zero exit, bind `{context_error}` ← `error`, or the helper's stderr when stdout holds no JSON.
 
-4. **On per-file failure:** record `{context_error}` against that context file and continue to the next entry. Do not halt: other context files should still be rebuilt.
+4. **On per-file failure:** record `{context_error}` against that context file, record the warning `context_rebuild_failed: {context_file}: {context_error}`, and continue to the next entry. Do not halt: other context files should still be rebuilt.
 
 **After the loop,** record `context_files_updated` as the list of files that were successfully rewritten, and `context_files_failed` as the list of any that failed.
 
@@ -140,30 +129,25 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
    uv run {skillInventoryHelper} guarded-delete --root "{skills_output_folder}" --root "{forge_data_folder}" {each path in affected_directories, quoted, space-separated}
    ```
 
-   The helper removes any trailing `/`, deletes only a plain folder inside a root that no link or junction leads to ("a link; SKF never deletes through a link"), and checks that each one is gone. Bind `files_deleted` ← `files_deleted`, `delete_failures` ← `delete_failures` (each `{path, error}`), `{bytes_freed}` ← `bytes_freed` and `{purge_status}` ← `purge_status`. An empty `affected_directories` (a manifest entry whose folders are already gone) deletes nothing and returns `success`.
+   The helper removes any trailing `/`, and SKF never deletes through a link. Bind `files_deleted` ← `files_deleted`, `delete_failures` ← `delete_failures` (each `{path, error}`), `{bytes_freed}` ← `bytes_freed` and `{purge_status}` ← `purge_status`. An empty `affected_directories` (a manifest entry whose folders are already gone) deletes nothing and returns `success`.
 
    When no candidate exists, delete nothing by hand: take the `failed` outcome below, with "the inventory helper that checks each delete is missing; re-install SKF" as the error of every path. On a non-zero exit, or no JSON on stdout, take the `failed` outcome too, with the helper's `error` (its stderr when stdout holds no JSON) as the error of every path.
 
-2. **Version-level purge, single version:**
-   - `{skills_output_folder}/{target_skill}/{version}` is deleted, but `{skills_output_folder}/{target_skill}` remains (it still contains other versions or the `active` symlink)
-   - If the `active` symlink pointed to the just-deleted version, update or remove it. The version directory is already gone at this point, so a symlink problem never claims `delete-failed`: record it and continue (`verification_errors`) so the report surfaces the manual repair rather than masking a successful purge. Read the versions the drop left through the inventory helper's `resolve`, never from the manifest by hand:
+2. **Version-level purge, single version:** if the `active` symlink pointed to the just-deleted version, update or remove it. The version folder is already gone, so a symlink problem never claims `delete-failed`: record the manual repair in `verification_errors`, record the warning `active_link_dangling: {skills_output_folder}/{target_skill}/active: {the manual repair}`, and continue. Read the versions the drop left through the inventory helper's `resolve`, never from the manifest by hand:
      ```bash
      uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {target_skill} --forge-data-folder "{forge_data_folder}"
      ```
-     When it exits non-zero, record the manual repair in `verification_errors` (point `active` at the newest version the manifest does not list as deprecated, or remove it when none is left) and continue.
+     When it exits non-zero, record the manual repair (point `active` at the newest version the manifest does not list as deprecated, or remove it when none is left) as above and continue.
      - **Other non-deprecated versions remain** (`resolve.counts.non_deprecated` is above `0`): `{new_active_version}` ← `resolve.active_version`, the version the manifest lists as active, unless it is null or its `resolve.versions` entry has `status` `"deprecated"`; then `resolve.newest_non_deprecated`. Repoint `active` to it atomically through the shared helper rather than a hand-rolled `ln`: resolve `{updateActiveSymlinkHelper}` from `{updateActiveSymlinkProbeOrder}` (first existing path wins), then:
        ```bash
        python3 {updateActiveSymlinkHelper} update \
          --skill-group {skills_output_folder}/{target_skill} \
          --version {new_active_version}
        ```
-       The helper does a temp-symlink + `os.replace` flip, so a concurrent reader never sees a missing `active`. Record a `mismatch`/`missing-target` exit (code 2), or a missing helper (no probe candidate), in `verification_errors` with the manual fix (`ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`) and continue.
-     - **No non-deprecated versions remain** (`resolve.counts.non_deprecated` is `0`, reachable only when dropping the sole surviving version, permitted in step 1 because no other non-deprecated versions existed): remove the now-dangling `active` symlink with a single atomic unlink of the link itself: `rm {skills_output_folder}/{target_skill}/active` (unlink removes only the symlink, never its target, and is atomic). A single unlink has one correct outcome and no intermediate state, so it stays in-prompt (the helper has no removal action).
+       Record a `mismatch`/`missing-target` exit (code 2), or a missing helper (no probe candidate), as above with the manual fix `ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`, and continue.
+     - **No non-deprecated versions remain** (`resolve.counts.non_deprecated` is `0`, reachable only when dropping the sole surviving version, permitted in step 1 because no other non-deprecated versions existed): remove the now-dangling `active` symlink with a single atomic unlink of the link itself: `rm {skills_output_folder}/{target_skill}/active` (unlink removes only the symlink, never its target). When it fails, record it as above with the manual fix `rm {skills_output_folder}/{target_skill}/active`.
 
-3. **Skill-level purge:**
-   - `{skills_output_folder}/{target_skill}` and, when `affected_directories` lists it, `{forge_data_folder}/{target_skill}` are deleted in full — the `active` symlink disappears with the parent directory
-
-4. Format the size of the deleted folders through the sizing helper; do not add or round in-prompt:
+3. Format the size of the deleted folders through the sizing helper; do not add or round in-prompt:
 
    ```bash
    uv run {dirSizesHelper} humanize {bytes_freed}
@@ -174,7 +158,7 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
 **Classify the deletion outcome from `{purge_status}`:**
 
 - **`failed`**: at least one path was attempted and none was deleted, so the purge accomplished none of its destructive intent and must NOT report success. HALT (exit code 4, `halt_reason: "delete-failed"`, phase `execute:delete`): "**Purge failed:** none of the target folders could be deleted: {list each `delete_failures` path with its error}. The manifest and context files were already updated in sections 2–3; the on-disk files remain and can be removed by hand (`rm -rf {path}`)." The §1 halt envelope carries the resolved `skill`, `drop_mode` and `versions_affected`, `files_deleted: []`, and `manifest_updated` from section 2. Do not proceed to section 5.
-- **`partial`**: `delete_failures` is non-empty but at least one path was deleted. Keep record-and-continue: `purge_status = "partial"` lets step 3's on-disk result record reflect it (the `output-contract-schema.md` `status` enum supports `"partial"`); proceed to section 5. The headless single-line envelope has no `"partial"` value in its enum, so it stays `"success"` while `context_files_failed`/`verification_errors`/the report surface the unfreed paths.
+- **`partial`**: `delete_failures` is non-empty but at least one path was deleted. Keep record-and-continue: `purge_status = "partial"` lets step 3's on-disk result record reflect it (the `output-contract-schema.md` `status` enum supports `"partial"`). Record the warning `delete_failed: {path}: {error}` for each `delete_failures` entry, then proceed to section 5.
 - **`success`**: nothing failed (a path already gone is not a failure). Proceed to section 5.
 
 ### 5. Verify Final State
@@ -187,31 +171,21 @@ Run these verification checks:
    python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}
    ```
 
-   Version-level drop: `entry.versions.{version}.status` is `"deprecated"` for each version in `target_versions`. Skill-level deprecate: every version in `entry.versions` has `status` `"deprecated"`. Skill-level purge: `status` is `"not_found"`.
+   Version-level drop: `entry.versions.{version}.status` is `"deprecated"` for each version in `target_versions`. Skill-level deprecate: every version in `entry.versions` has `status` `"deprecated"`. Skill-level purge: `status` is `"not_found"`. A failure's manual fix: correct the `{target_skill}` entry of `{skills_output_folder}/.export-manifest.json` by hand.
 
-2. **Context files check** (skip it when `context_files_updated` is empty): list every row of the files in `context_files_updated`:
+2. **Context files check** (skip it when `context_files_updated` is empty): list the rows the rebuilt files still hold for the dropped skill, by name and version only:
 
    ```bash
-   python3 {rebuildManagedSectionsHelper} orphan-detect {each file in context_files_updated, quoted}
+   uv run {dropRosterHelper} rows --skill {target_skill} [--version {version}] {each file in context_files_updated, quoted}
    ```
 
-   Without `--exported-skills`, `orphan_managed_rows` lists every row. A row whose `skill_name` is `{target_skill}` fails the check for a skill-level drop, and one whose `skill_name` is `{target_skill}` at a `version` in `target_versions` fails it for a version-level drop.
+   Pass `--version` for a version-level drop. Each `rows` entry fails the check, as does each `unchecked` entry (a file whose rows could not be read); the manual fix for both is to re-run `[EX] Export Skill`, which rebuilds the file. When the call exits non-zero, the check fails for every file in `context_files_updated`, with the helper's `error` (its stderr when stdout holds no JSON).
 
-If any verification fails, record the specific failure in `verification_errors` but do not halt — proceed to step 3 so the report can surface what succeeded and what needs manual attention.
+If any verification fails, record it in `verification_errors` with its manual fix, record the warning `verification_failed: {what failed}: {its manual fix}`, and do not halt: proceed to step 3 so the report shows what succeeded and what needs manual attention.
 
 ### 6. Store Results in Context
 
-Store the following for step 3:
-
-- `files_deleted` — list of directory paths actually deleted (purge mode) or `[]` (soft drop)
-- `disk_freed` — human-readable size (purge mode) or `"N/A (soft drop)"`
-- `delete_failures` — list of `{path, error}` for paths whose deletion was attempted but failed (empty if none; a *full* purge failure already HALTed in section 4 and never reaches this step)
-- `purge_status` — `"success"`, `"partial"` (some paths failed to delete), or `"success"` for soft drops; step 3 maps this to the on-disk result record's `status` field
-- `manifest_updated`: boolean, true when section 2 wrote the manifest, false for a draft skill (section 2 changed no entry; a failed write HALTed there)
-- `context_files_updated` — list of successfully rebuilt files
-- `context_files_failed` — list of files that failed to rebuild (empty if none)
-- `verification_errors` — list of verification failures (empty if none)
-- `forge_left_in_place` — carried from step 1 (null when nothing was left in place)
+Step 3 reads what this step bound where it ran: `files_deleted`, `disk_freed`, `delete_failures`, `purge_status`, `manifest_updated`, `context_files_updated`, `context_files_failed` and `verification_errors`, with `forge_left_in_place` carried from step 1.
 
 ### 7. Load Next Step
 

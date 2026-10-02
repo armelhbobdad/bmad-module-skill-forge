@@ -838,7 +838,7 @@ class TestCallersPassTheBody:
             assert row.endswith(write + (", which creates it with the section |" if case == "`create`"
                                          else ", which adds the section at its end |" if case == "`append`"
                                          else ", which swaps that section and keeps everything outside the markers |"))
-        assert 'HALT (exit code 5, `halt_reason: "malformed-markers"`)' in check
+        assert 'HALT (exit code 5, `halt_reason: "malformed-markers"`, phase `update-context §5`)' in check
         assert "They refuse (exit 1) a body that holds a marker of its own" in text
 
     def test_export_assembles_every_body_outside_the_project_before_the_gate(self):
@@ -847,10 +847,13 @@ class TestCallersPassTheBody:
         [call] = _helper_calls(_part(text, "#### 4b. Assemble One Body per Target", "#### 4c. "))
         assert call == (
             'python3 {rebuildManagedSectionsHelper} assemble "{context_path}" --skills-folder "{skills_output_folder}" '
-            '--skill-root "{skill_root}" --include {batch_includes} --snippet-dir "{export_stage_dir}/drafts" '
+            '--skill-root "{target_skill_root}" --include {batch_includes} --snippet-dir "{export_stage_dir}/drafts" '
             '--orphan-sources {target_paths} --orphans {orphan_mode} '
             '--out "{export_stage_dir}/previews/{context_file}.skf-content" ' + OVERRIDE_GROUP)
         assert "`{content_file}` ← `content_file`" in text
+        # architecture-6: each target's own root, never step 3's run-wide snippet root.
+        assert "its skill root `{target_skill_root}` is that entry's own `skill_root`" in text
+        assert '--skill-root "{skill_root}"' not in text
         assert "bind `orphan_rows` from the first result" in text
         assert "On (a), run §4b again for every target with `--orphans drop`." in text
         assert ".skf-content` with **no trailing newline**" not in text, "the helper stages the body, never the model"

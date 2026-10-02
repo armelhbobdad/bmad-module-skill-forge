@@ -20,6 +20,8 @@ import json
 import os
 import pathlib
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 
@@ -277,13 +279,21 @@ def test_activation_halt_runners_can_run_the_envelope_helper():
     assert rejected.returncode == 1 and rejected.stdout == b""
 
 
+# The emit-blocked call each step's halt rule names: the emitter builds the payload.
+# The phase and reason go between single quotes, so a backtick the halt contract
+# puts for a quote stays literal.
+STEP_HALT_CALL = """`uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`"""
+
+
 @pytest.mark.parametrize("name", [n for n in STEP_FILES if n != "report.md"])
 def test_step_halts_run_emit_blocked_under_uv_with_a_fallback(name):
     text = _read(REFS / name)
     rule = next(line for line in _section(text, "## Rules").splitlines() if "emit-blocked" in line)
-    assert "`uv run {emitEnvelopeHelper} emit-blocked`" in rule
+    assert STEP_HALT_CALL in rule and "which builds the payload itself" in rule
     assert "or the helper exits non-zero or prints no line" in rule
     assert "python3 {emitEnvelopeHelper}" not in text
+    # No step types a halt payload: the options carry it (determinism-3).
+    assert "pipe `{phase, reason, path}`" not in text and "pipe that `{phase, reason, path}`" not in text
 
 
 def test_blocked_reason_rules_stated():
@@ -384,15 +394,123 @@ def test_the_halt_contract_rule_keeps_a_typed_payload_json(reason):
     assert not set(error["reason"]) & set("'\"\\")
 
 
-def test_step_files_sanitize_reasons_per_the_halt_contract():
-    """The rule is stated once, in the SKILL.md halt contract: a step that
-    restated part of it (only `'` and the backslash) let a double quote
-    through into the hand-typed JSON."""
-    for name in ("detect-and-tier.md", "write-config.md"):
+# Each step halt that quotes a failed command's stderr: its phase, and the file
+# (`-` for stdin) the emitter reads the diagnostic from.
+STDERR_HALTS = {
+    "step 1:run-folder": ("detect-and-tier.md", "-"),
+    "step 1:detect-tools": ("detect-and-tier.md", "{run_dir}/detect-tools.err"),
+    "step 2:write-tools": ("write-config.md", "{run_dir}/write-tools.err"),
+    "step 2:forge-data-dir": ("write-config.md", "{run_dir}/forge-data-dir.err"),
+}
+
+
+def _joined(text: str) -> str:
+    """`text` with its backslash line continuations joined."""
+    return re.sub(r"\\\n\s*", "", text)
+
+
+def _blocked_calls(text: str) -> dict[str, str]:
+    """The fenced emit-blocked calls of a step file, by the phase each passes."""
+    calls = {}
+    for block in re.findall(r"```bash\n(.*?)```", text, re.DOTALL):
+        for line in _joined(block).splitlines():
+            m = re.search(r'emit-blocked --phase "([^"]+)"', line)
+            if m:
+                calls[m.group(1)] = line.strip()
+    return calls
+
+
+def test_step_files_leave_the_reason_to_the_emitter():
+    """determinism-3: a halt that quotes a helper's stderr passes that stderr to
+    emit-blocked, which takes the message, folds it to one line and escapes it,
+    so no step extracts or sanitizes a reason by hand."""
+    for name in ("detect-and-tier.md", "ccc-index.md", "write-config.md", "auto-index.md"):
         text = _read(REFS / name)
-        assert "sanitized per the SKILL.md halt contract" in text, name
-        assert "replaced by a backtick" not in text, name
+        assert "sanitized per" not in text, name
+        assert "replaced by a backtick" not in text and "parse the stderr JSON" not in text, name
     assert "as a backtick and each" not in _on_activation(_read(SKILL_MD))
+    for phase, (name, source) in STDERR_HALTS.items():
+        call = _blocked_calls(_read(REFS / name)).get(phase)
+        assert call, (name, phase)
+        assert f'--stderr-from "{source}"' in call or (source == "-" and call.endswith("--stderr-from -")), call
+        assert "<message>" in call, call
+        if source != "-":
+            # The helper's stderr goes to that file where it runs, and an
+            # interactive run, which calls no emitter, reads it there.
+            text = _joined(_read(REFS / name))
+            assert f'2> "{source}"' in text, (name, source)
+            halt = next(b for _, _, b in _prose_blocks(text) if f"`{phase}`" in b)
+            assert re.search(r"\breads? that file\b", halt), (name, phase)
+
+
+def _documented_blocked(name: str, phase: str, values: dict) -> list[str]:
+    """The documented emit-blocked call of `phase`, filled in, as argv for this interpreter."""
+    call = _blocked_calls(_read(REFS / name))[phase].split(" | ")[-1]
+    words = shlex.split(re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), call))
+    assert words[:3] == ["uv", "run", EMIT_HELPER.as_posix()], words
+    return [sys.executable, *words[2:]]
+
+
+@pytest.mark.parametrize("phase", ["step 1:detect-tools", "step 2:write-tools", "step 2:forge-data-dir"])
+def test_a_documented_stderr_halt_emits_its_blocked_envelope(tmp_path, phase):
+    """uv's own lines, then a JSON error holding quotes, a backslash and a newline:
+    the envelope still arrives, its reason the message on one line."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    name, source = STDERR_HALTS[phase]
+    (run_dir / source.split("/")[-1]).write_bytes(
+        b'Installed 1 package in 3ms\n{"status": "error", "message": "cannot write \\"C:\\\\x\\":\\nPermission denied"}\n')
+    values = {"emitEnvelopeHelper": EMIT_HELPER.as_posix(), "run_dir": run_dir.as_posix(),
+              "project-root": tmp_path.as_posix(), "sidecar_path": tmp_path.as_posix(),
+              "forge_data_folder": (tmp_path / "forge-data").as_posix()}
+    done = subprocess.run(_documented_blocked(name, phase, values), capture_output=True, timeout=10)
+    error = _blocked_error(done)
+    assert error["phase"] == phase
+    assert error["reason"].endswith('cannot write "C:\\x": Permission denied'), error["reason"]
+    assert error["path"] != "<n/a>"
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+def test_the_run_folder_halt_pipes_the_failed_command_to_the_emitter(tmp_path):
+    """No run folder holds the stderr, so the documented pipe hands it over."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "_bmad-output").write_bytes(b"a file where the folder goes\n")
+    [pipe] = [c for p, c in _blocked_calls(_read(REFS / "detect-and-tier.md")).items() if p == "step 1:run-folder"]
+    values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "project-root": project.as_posix()}
+    command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), pipe)
+    command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
+    done = subprocess.run(["bash", "-c", command], capture_output=True, timeout=20)
+    error = _blocked_error(done)
+    assert error["phase"] == "step 1:run-folder"
+    assert error["reason"].startswith("Setup cannot proceed: the run folder could not be created: mkdir")
+    assert "\n" not in error["reason"]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+def test_a_run_folder_repeat_that_succeeds_leaves_no_folder(tmp_path):
+    """A failure that does not come back: the repeat removes the folder it made,
+    and the reason says the stderr held nothing."""
+    project = tmp_path / "project"
+    project.mkdir()
+    [pipe] = [c for p, c in _blocked_calls(_read(REFS / "detect-and-tier.md")).items() if p == "step 1:run-folder"]
+    values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "project-root": project.as_posix()}
+    command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), pipe)
+    command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
+    error = _blocked_error(subprocess.run(["bash", "-c", command], capture_output=True, timeout=20))
+    assert error["reason"] == "Setup cannot proceed: the run folder could not be created: (no error message)"
+    assert list((project / "_bmad-output" / ".skf-run").iterdir()) == []
+    detect = _section(_read(REFS / "detect-and-tier.md"), "### 1.")
+    assert "a repeat that succeeds removes the folder it made" in detect
+
+
+def test_the_notices_say_a_tier_miss_builds_no_index():
+    """A run that misses --require-tier defers the index build and skips the
+    hygiene (#599), so neither notice may promise them."""
+    notice = _section(_read(REFS / "detect-and-tier.md"), "### 3.")
+    miss = next(b for _, _, b in _prose_blocks(notice) if "`{require_tier_satisfied}` is `false`" in b)
+    assert miss.startswith("When `{require_tier_satisfied}` is `false`, end the one you display with:")
+    assert "builds no ccc index and runs no registry hygiene" in miss
 
 
 def test_detector_failure_branch_is_defined():
@@ -842,10 +960,12 @@ def test_notices_promise_no_abort_window():
     assert "Next time, to refresh only the tier without paying the ccc re-index cost" in rerun
 
 
-# Every file a setup step writes into the run folder, by redirect or --result-to.
-RUN_DIR_WRITE_RE = re.compile(r'(?:>|--result-to) "\{run_dir\}/([a-z-]+\.json)"')
+# Every file a setup step writes into the run folder, by redirect (a helper's
+# stdout, or its stderr for a halt to quote) or --result-to.
+RUN_DIR_WRITE_RE = re.compile(r'(?:>|--result-to) "\{run_dir\}/([a-z-]+\.(?:json|err))"')
 # Section 5's delete: the saved files by name, then the folder only if it is empty.
-RUN_DIR_DELETE_RE = re.compile(r'^rm -f ((?:"\{run_dir\}/[a-z-]+\.json" )+)&& rmdir "\{run_dir\}"$', re.M)
+RUN_DIR_DELETE_RE = re.compile(r'^rm -f ((?:"\{run_dir\}/[a-z-]+\.(?:json|err)" )+)&& rmdir "\{run_dir\}"$',
+                               re.M)
 
 
 def test_run_folder_is_made_in_step_1_and_removed_in_step_4():
@@ -858,7 +978,8 @@ def test_run_folder_is_made_in_step_1_and_removed_in_step_4():
     delete = RUN_DIR_DELETE_RE.search(chain)
     assert delete, "section 5 does not delete the run folder file by file"
     written = {name for step in STEP_FILES for name in RUN_DIR_WRITE_RE.findall(_read(REFS / step))}
-    assert set(re.findall(r'"\{run_dir\}/([a-z-]+\.json)"', delete.group(1))) == written
+    assert set(re.findall(r'"\{run_dir\}/([a-z-]+\.(?:json|err))"', delete.group(1))) == written
+    assert {"detect-tools.err", "write-tools.err", "forge-data-dir.err"} <= written
     # A recursive delete of a mis-bound {run_dir} could take every run's folder with it.
     assert "rm -r" not in report
     # Deleted before the tier-miss line shows, so that line stays the final message.
@@ -869,8 +990,8 @@ def test_run_folder_is_made_in_step_1_and_removed_in_step_4():
     assert "a halt that names a phase leaves it in place" in outputs
 
 
-STAGED_RE = re.compile(r'(?:> "\{run_dir\}/([a-z-]+\.json)" && cat "\{run_dir\}/\1"'
-                       r'|--result-to "\{run_dir\}/([a-z-]+\.json)")')
+STAGED_RE = re.compile(r'(?:> "\{run_dir\}/([a-z-]+\.json)"(?: 2> "\{run_dir\}/[a-z-]+\.err")? '
+                       r'&& cat "\{run_dir\}/\1"|--result-to "\{run_dir\}/([a-z-]+\.json)")')
 
 
 def test_every_staged_helper_output_is_one_the_emitter_reads():
@@ -885,18 +1006,22 @@ def test_report_payload_is_staged_before_the_banner_and_shared_with_the_envelope
     staged = _section(report, "### 1.")
     assert "cat > \"{run_dir}/report-context.json\" <<'SKF_JSON'" in staged
     keys = set(re.findall(r'^  "([a-z_]+)":', staged, re.MULTILINE))
-    # Only what no helper output holds: every other value comes from a staged file (#592).
-    assert keys == {"project_root", "config_path", "forge_data_folder", "orphan_auto_resolution", "error"}
+    # Only what neither a helper output nor the project gives: every other
+    # value comes from a staged file (#592) or from the path options.
+    assert keys == {"orphan_auto_resolution", "customization_resolver_unavailable", "error"}
+    assert '"customization_resolver_unavailable": {customization_resolver_unavailable},' in staged
     doc = ast.get_docstring(ast.parse(_read(EMIT_HELPER)))
     assert all(f'"{key}"' in doc for key in keys), keys
-    banner = _section(report, "### 2.")
-    assert ('render-report --run-dir "{run_dir}" --tier-rules "{skill-root}/references/tier-rules.md" '
+    # The folders On Activation bound from preflight: the emitter reads no config.yaml.
+    paths = '--project-root "{project-root}" --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}"'
+    banner = _joined(_section(report, "### 2."))
+    assert (f'render-report --run-dir "{{run_dir}}" {paths} --tier-rules "{{skill-root}}/references/tier-rules.md" '
             '< "{run_dir}/report-context.json"') in banner
     assert (REFS / "tier-rules.md").is_file()
     # The script owns the banner's lines: no template of them is left to drift from it.
     assert "kept for reference only" not in report and "{if " not in report
-    emit = _section(report, "### 4.")
-    assert 'emit --run-dir "{run_dir}" < "{run_dir}/report-context.json"' in emit
+    emit = _joined(_section(report, "### 4."))
+    assert f'emit --run-dir "{{run_dir}}" {paths} < "{{run_dir}}/report-context.json"' in emit
     assert "echo '" not in report and "tierRulesData" not in report
     rules = _section(report, "## Rules")
     assert "negative framing" not in rules
@@ -924,17 +1049,65 @@ def test_a_banner_that_cannot_render_is_one_line_not_a_halt():
     assert "helper-missing" not in banner
 
 
-def test_payload_strings_escape_control_characters_and_a_bad_payload_is_rewritten_once():
-    """A failed `ccc index` reports on several lines, and a raw newline in the
-    heredoc would make both render-report and emit refuse the payload."""
+def test_report_types_no_path_and_repairs_no_payload():
+    """determinism-2: the emitter derives the run's paths, so the step types none,
+    escapes none and never rewrites a payload the emitter refused."""
     report = _read(REFS / "report.md")
-    rule = next(b for _, _, b in _prose_blocks(_section(report, "### 1.")) if b.startswith("Write each path"))
-    assert "any `\"`, `\\` or control character in it escaped (a newline as `\\n`)" in rule
-    retry = "names invalid JSON on stdin, fix `report-context.json` once and run it again"
+    staged = _section(report, "### 1.")
+    assert "Write each path" not in report and "{sidecar_path}/forge-tier.yaml" not in staged
+    rule = next(b for _, _, b in _prose_blocks(staged) if "`{customization_resolver_unavailable}`" in b)
+    assert ("`{customization_resolver_unavailable}` is JSON `null` unless SKILL.md On Activation bound it to "
+            "the resolver's one-line failure reason; it is then that reason as a JSON string") in rule
     for prefix in ("### 2.", "### 4."):
-        assert retry in _section(report, prefix), prefix
+        assert "fix `report-context.json`" not in _section(report, prefix), prefix
+        assert "run it again" not in _section(report, prefix), prefix
     emit_failure = next(b for _, _, b in _prose_blocks(_section(report, "### 4.")) if "exits non-zero" in b)
     assert "failed schema validation" not in emit_failure
+
+
+def test_the_staged_report_payload_runs_through_both_report_calls(tmp_path):
+    """The heredoc as step 3 and On Activation leave it, through the documented
+    calls: the paths come from the folders activation bound, not from the payload."""
+    project = tmp_path / "project"
+    (project / "_bmad" / "skf").mkdir(parents=True)
+    (project / "_bmad" / "skf" / "config.yaml").write_bytes(
+        b"# SKF Configuration\nforge_data_folder: '{project-root}/forge-data'\n"
+        b"sidecar_path: _bmad/_memory/forger-sidecar\nides:\n  - claude-code\n")
+    run_dir = project / "_bmad-output" / ".skf-run" / "skf-setup-abcd1234"
+    run_dir.mkdir(parents=True)
+    # What SKILL.md On Activation binds from skf-preflight.py's config.
+    preflight = subprocess.run([sys.executable, str(PREFLIGHT), str(project), "--allow-missing-sidecar"],
+                               capture_output=True, timeout=60)
+    assert preflight.returncode == 0, preflight.stderr.decode("utf-8", "replace")
+    bound = json.loads(preflight.stdout)["config"]
+    detect = {"tools": {"ast_grep": {"available": True, "version": "ast-grep 0.45.3"}},
+              "tier": {"calculated": "Forge"}, "prior": {"previous_tier": "Forge"}, "require_tier": {}}
+    (run_dir / "detect-tools.json").write_bytes(json.dumps(detect).encode("utf-8"))
+    heredoc = re.search(r"<<'SKF_JSON'\n(.*?)\nSKF_JSON", _section(_read(REFS / "report.md"), "### 1."), re.S)
+    payload = (heredoc.group(1).replace("{orphan_auto_resolution_or_null}", "null")
+               .replace("{customization_resolver_unavailable}", json.dumps('resolve_customization.py: "x" failed')))
+    root = project.resolve().as_posix()
+    values = {"emitEnvelopeHelper": EMIT_HELPER.as_posix(), "run_dir": run_dir.as_posix(),
+              "project-root": project.as_posix(), "skill-root": SETUP_DIR.as_posix(),
+              "sidecar_path": bound["sidecar_path_resolved"], "forge_data_folder": bound["forge_data_folder_resolved"]}
+    report = _read(REFS / "report.md")
+    outputs = {}
+    for prefix, word in (("### 2.", "render-report"), ("### 4.", "emit")):
+        [call] = [line for block in re.findall(r"```bash\n(.*?)```", _section(report, prefix), re.S)
+                  for line in _joined(block).splitlines() if f" {word} " in line]
+        command = re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], call.split(" < ")[0])
+        words = shlex.split(command)
+        assert words[:3] == ["uv", "run", EMIT_HELPER.as_posix()], words
+        done = subprocess.run([sys.executable, *words[2:]], input=payload.encode("utf-8"),
+                              capture_output=True, timeout=10)
+        assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+        outputs[word] = done.stdout.decode("utf-8")
+    envelope = json.loads(outputs["emit"].strip()[len(ENVELOPE_PREFIX):])["skf_setup"]
+    assert envelope["config_path"] == f"{root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
+    assert 'customization_resolver_unavailable: resolve_customization.py: "x" failed' in envelope["warnings"]
+    banner = outputs["render-report"].splitlines()
+    assert f"  - forge-tier.yaml: {root}/_bmad/_memory/forger-sidecar/forge-tier.yaml" in banner
+    assert f"  - {root}/forge-data/ (directory ensured)" in banner
 
 
 def test_required_tier_block_points_at_no_section_a_deep_banner_lacks():
@@ -1124,8 +1297,30 @@ def test_step_goals_state_no_tier_gate_of_their_own():
     hygiene = _read(REFS / "auto-index.md")
     assert "For Quick and Forge tiers" not in hygiene and "(Forge+ or Deep)" not in hygiene
     first = _section(hygiene, "### 1.")
-    assert ("The QMD sections (2 and 3) run only when `{calculated_tier}` is Deep, and section 4 runs "
+    assert ("the QMD sections (2 and 3) run only when `{calculated_tier}` is Deep, and section 4 runs "
             "when `{calculated_tier}` is Deep or `{ccc}` is true") in first
+
+
+def test_a_tier_miss_skips_the_due_index_build_and_the_hygiene():
+    """enhancement-2: a run that ends tier_failure builds no index that is due and
+    removes no QMD collection, and the Failure modes row says so once."""
+    ccc = _read(REFS / "ccc-index.md")
+    assert "add `--defer-index` only when `{require_tier_satisfied}` (from step 1) is `false`" in ccc
+    [call] = [b for b in re.findall(r"```bash\n(.*?)```", ccc, re.S) if "{mergeCccExclusionsHelper}" in b]
+    assert "[--defer-index]" in call and "--skip-index \"{ccc_skip_index}\"" in call
+    first = _section(_read(REFS / "auto-index.md"), "### 1.")
+    skip = "When `{require_tier_satisfied}` (from step 1) is `false`, go to section 5 with no output"
+    assert skip in first
+    # The skip comes before every route into a hygiene section.
+    assert first.index(skip) < first.index("Go to section 2 at Deep tier")
+    assert first.index("Set `{orphan_auto_resolution}` to null") < first.index(skip)
+    contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")
+    failure = next(line for line in contract.splitlines() if line.startswith("| **Failure modes**"))
+    assert ("Such a run fails fast: it builds no ccc index that is due (`ccc_index.status` `\"skipped\"`, "
+            "while a fresh index record still carries forward) and runs no registry hygiene") in failure
+    assert "even under `--orphan-action=remove`" in failure and "it still writes `forge-tier.yaml`" in failure
+    # Step 2 still records the detected tier: write-config.md runs whatever the miss.
+    assert "require_tier" not in _read(REFS / "write-config.md")
 
 
 def test_preferences_yaml_is_left_to_the_installer():

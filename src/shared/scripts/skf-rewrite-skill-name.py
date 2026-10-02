@@ -68,11 +68,43 @@ Four file kinds (one per --kind), each editing only the skill's name:
                      `root: skills/{old}/active/{old}/` is flattened to
                      `root: skills/{new}/`.
 
+Batch mode (--skill-group, no target): the rename workflow's whole in-place
+pass over a copied skill folder in one call, as execute.md section 2 runs it.
+For each version in --versions, in the order given, it moves the package
+folder <skill-group>/<version>/<old>/ to <skill-group>/<version>/<new>/; a
+version without that folder (a manifest version with no folder, or a version
+folder an interrupted run left without a package) is skipped and named in
+`package_warnings`. Then it rewrites, for each version it moved, the
+package's SKILL.md (skill-frontmatter), metadata.json (metadata-json) and
+context-snippet.md (context-snippet) and, with --forge-group, every
+version's <forge-group>/<version>/provenance-map.json (provenance-json),
+package or not, each as the single-file mode does; --moved-folder applies to
+the two JSON kinds. A file that is not there is listed in `missing_files`,
+never a failure. The first move or rewrite that fails stops the batch:
+`status` is "error" and `error` names its `stage` ("inner-rename" or
+"rewrite"), `path` and `message`; the caller rolls the copied folders back.
+
+The batch prints one JSON object on stdout, and writes it to --result-to
+FILE too (atomically), the record the rename's report reads back:
+
+  {"status": "ok"|"error", "old_name", "new_name", "skill_group",
+   "forge_group": str|null, "renamed_versions": [...],
+   "files_rewritten": [{"kind", "path"}],
+   "counts": {"skill-frontmatter": n, "metadata-json": n,
+              "context-snippet": n, "provenance-json": n},
+   "package_warnings": [...], "missing_files": [...],
+   "error": null | {"stage", "path", "message"}}
+
+`counts` tallies files_rewritten by kind. A --result-to file that cannot be
+written fails a batch that had not failed yet: `error.stage` is "record",
+with that file as its `path`, so the caller rolls back as for a rewrite.
+
 Exit codes:
-  0  success (file processed; written iff content changed)
+  0  success (file processed, written iff content changed; or batch done)
   1  user error (bad args, --moved-folder with a kind other than the two JSON
      kinds, invalid new name, target not found)
-  2  operation failure (unparseable structure, atomic write failed)
+  2  operation failure (unparseable structure, atomic write failed, or a
+     batch move, rewrite or --result-to write that failed)
 
 CLI examples:
   python3 skf-rewrite-skill-name.py SKILL.md \
@@ -82,6 +114,9 @@ CLI examples:
   python3 skf-rewrite-skill-name.py forge-data/rename/1.0.0/provenance-map.json \
       --kind provenance-json --old-name rename --new-name rename-skill \
       --moved-folder /project/skills --moved-folder /project/forge-data
+  python3 skf-rewrite-skill-name.py --skill-group /project/skills/rename-skill \
+      --versions 1.0.0,0.9.0 --old-name rename --new-name rename-skill \
+      --moved-folder /project/skills --result-to run/rename-rewrite.json
 """
 
 from __future__ import annotations
@@ -399,6 +434,109 @@ def rewrite_moved_paths(content: str, old_name: str, new_name: str, folders):
     return json.dumps(data, indent=2) + "\n", paths
 
 
+# --- Batch: every version of a copied skill folder in one call ----------------
+
+# The package files each moved version rewrites, in order, then the forge file
+# every version rewrites when the forge folder moves.
+PACKAGE_FILES = (
+    ("skill-frontmatter", "SKILL.md"),
+    ("metadata-json", "metadata.json"),
+    ("context-snippet", "context-snippet.md"),
+)
+FORGE_FILE = ("provenance-json", "provenance-map.json")
+
+
+def _plain_segment(value: str) -> bool:
+    """True for a version or a name that is one folder name and nothing else."""
+    return value not in ("", ".", "..") and not any(c in value for c in "/\\:\0")
+
+
+def run_batch(skill_group: Path, versions, old_name: str, new_name: str,
+              forge_group: Path | None = None, moved_folders=()) -> dict:
+    """Move each version's package to the new name, then rewrite its files.
+
+    See "Batch mode" in the module docstring. Never raises on a file it
+    processes: a failure ends the batch with `status` "error".
+    """
+    result = {
+        "status": "ok",
+        "old_name": old_name,
+        "new_name": new_name,
+        "skill_group": str(skill_group),
+        "forge_group": str(forge_group) if forge_group is not None else None,
+        "renamed_versions": [],
+        "files_rewritten": [],
+        "counts": {kind: 0 for kind in KINDS},
+        "package_warnings": [],
+        "missing_files": [],
+        "error": None,
+    }
+
+    def fail(stage: str, path: Path, message: str) -> dict:
+        result["status"] = "error"
+        result["error"] = {"stage": stage, "path": str(path), "message": message}
+        return result
+
+    for version in versions:
+        source = skill_group / version / old_name
+        target = skill_group / version / new_name
+        if not source.is_dir():
+            result["package_warnings"].append(
+                f"{version}: no {old_name}/ package in {skill_group / version}; skipped")
+            continue
+        if os.path.lexists(target):
+            return fail("inner-rename", target, "the new package folder already exists")
+        try:
+            os.rename(source, target)
+        except OSError as e:
+            return fail("inner-rename", source, str(e))
+        result["renamed_versions"].append(version)
+
+    for version in versions:
+        files = []
+        if version in result["renamed_versions"]:
+            files += [(kind, skill_group / version / new_name / name) for kind, name in PACKAGE_FILES]
+        if forge_group is not None:
+            files.append((FORGE_FILE[0], forge_group / version / FORGE_FILE[1]))
+        for kind, path in files:
+            if not path.is_file():
+                result["missing_files"].append(str(path))
+                continue
+            moved = moved_folders if kind in JSON_KINDS else ()
+            try:
+                done = process(path, kind, old_name, new_name, False, moved)
+            except ValueError as e:
+                return fail("rewrite", path, f"{kind} transform failed: {e}")
+            except OSError as e:
+                return fail("rewrite", path, f"atomic write failed: {e}")
+            if done["wrote"] is not None:
+                result["files_rewritten"].append({"kind": kind, "path": done["wrote"]})
+                result["counts"][kind] += 1
+    return result
+
+
+def _main_batch(args) -> None:
+    if not _plain_segment(args.old_name):
+        _die(1, f"--old-name must be one folder name, got: {args.old_name!r}")
+    versions = [v.strip() for v in args.versions.split(",") if v.strip()]
+    bad = [v for v in versions if not _plain_segment(v)]
+    if bad:
+        _die(1, f"--versions must name version folders, got: {bad!r}")
+    if not args.skill_group.is_dir():
+        _die(1, f"skill group not found: {args.skill_group}")
+    result = run_batch(args.skill_group, versions, args.old_name, args.new_name,
+                       args.forge_group, args.moved_folder)
+    if args.result_to is not None:
+        try:
+            atomic_write_text(args.result_to, json.dumps(result, indent=2) + "\n")
+        except OSError as e:
+            if result["error"] is None:
+                result["status"] = "error"
+                result["error"] = {"stage": "record", "path": str(args.result_to), "message": f"cannot write it: {e}"}
+    print(json.dumps(result, indent=2))
+    sys.exit(0 if result["status"] == "ok" else 2)
+
+
 # --- CLI orchestration --------------------------------------------------------
 
 
@@ -463,12 +601,13 @@ def process(target: Path, kind: str, old_name: str, new_name: str, dry_run: bool
     return result
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("target", type=Path, help="File to rewrite (SKILL.md, metadata.json, ...)")
-    parser.add_argument("--kind", required=True, choices=KINDS, help="File kind / transform to apply")
+    parser.add_argument("target", type=Path, nargs="?",
+                        help="File to rewrite (SKILL.md, metadata.json, ...); leave out with --skill-group")
+    parser.add_argument("--kind", choices=KINDS, help="File kind / transform to apply (single-file mode)")
     parser.add_argument("--old-name", required=True, help="Current skill name")
     parser.add_argument("--new-name", required=True, help="New skill name (kebab-case)")
     parser.add_argument(
@@ -478,17 +617,44 @@ def main() -> None:
              "moves); path values into FOLDER/<old>/ are pointed at FOLDER/<new>/")
     parser.add_argument("--dry-run", action="store_true", help="Compute without writing; emit new_content")
     parser.add_argument("--verbose", action="store_true", help="Diagnostics to stderr")
+    batch = parser.add_argument_group("batch mode (see the module docstring)")
+    batch.add_argument("--skill-group", type=Path, metavar="FOLDER",
+                       help="the copied skill folder whose versions to rename, in place of a target")
+    batch.add_argument("--versions", metavar="V1,V2",
+                       help="batch: the comma-separated version folders to rename (required with --skill-group)")
+    batch.add_argument("--forge-group", type=Path, metavar="FOLDER",
+                       help="batch: the copied forge folder whose provenance maps to rewrite")
+    batch.add_argument("--result-to", type=Path, metavar="FILE",
+                       help="batch: also write the result JSON to FILE")
+    return parser
+
+
+def main() -> None:
+    parser = _build_parser()
     args = parser.parse_args()
 
     if not args.old_name:
         _die(1, "old-name must be non-empty")
     if not NAME_RE.match(args.new_name) or len(args.new_name) > 64:
         _die(1, f"new-name must be kebab-case, 1-64 chars, got: {args.new_name!r}")
+    if any(not _folder_name(f) for f in args.moved_folder):
+        _die(1, f"--moved-folder must name a folder, got: {args.moved_folder!r}")
+
+    batch_only = {"--versions": args.versions, "--forge-group": args.forge_group, "--result-to": args.result_to}
+    if args.skill_group is not None:
+        if args.target is not None or args.kind is not None or args.dry_run:
+            _die(1, "--skill-group takes no target, --kind or --dry-run")
+        if args.versions is None:
+            _die(1, "--skill-group needs --versions")
+        _main_batch(args)
+    given = [flag for flag, value in batch_only.items() if value is not None]
+    if given:
+        _die(1, f"{', '.join(given)} {'needs' if len(given) == 1 else 'need'} --skill-group")
+    if args.target is None or args.kind is None:
+        _die(1, "pass a target file and --kind, or --skill-group for the batch")
 
     if args.moved_folder and args.kind not in JSON_KINDS:
         _die(1, f"--moved-folder applies to {' and '.join(JSON_KINDS)} only, not {args.kind}")
-    if any(not _folder_name(f) for f in args.moved_folder):
-        _die(1, f"--moved-folder must name a folder, got: {args.moved_folder!r}")
 
     if not args.target.exists():
         _die(1, f"target not found: {args.target}")
@@ -508,5 +674,21 @@ def main() -> None:
     sys.exit(0)
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdout and stderr to UTF-8, keeping each stream's error handler.
+
+    A Windows console pipes them as cp1252, which cannot print every character
+    the --help text or a path may hold.
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdout, sys.stderr)
     main()

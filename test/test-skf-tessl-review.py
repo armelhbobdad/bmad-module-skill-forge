@@ -1097,7 +1097,8 @@ class TestWorkflowWiring:
         assert mod.POLL_INTERVAL_SEC + mod.VIEW_TIMEOUT_SEC < mod.COLLECT_MAX_SEC, "a collect can view twice"
 
     def test_docs_describe_the_opt_in(self):
-        assert "`tessl_review_workspace: ~`" in _read(REPO / "src" / "skf-setup" / "references" / "write-config.md")
+        # The installer's template is the one statement of the default: setup never writes the file.
+        assert re.search(r"^tessl_review_workspace: ~$", _read(REPO / "src" / "forger" / "preferences.yaml"), re.M)
         started = _read(REPO / "docs" / "getting-started.md")
         assert re.search(r"^\| `tessl_review_workspace` +\|", started, re.M) and "one runtime preference" not in started
         security = _section(_read(REPO / "docs" / "architecture.md"), "## Security", "\n---\n")

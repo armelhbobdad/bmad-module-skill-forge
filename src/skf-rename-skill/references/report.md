@@ -31,6 +31,8 @@ End the rename with one terminal sequence: write the result files and the envelo
 
 ### 1. Write the Result Files and the Envelope
 
+Read `{run_dir}/rename-rewrite.json`, the record step 2 §2's helper wrote (step 2 rolls back a run whose record it could not write), and bind from it `renamed_versions`, `files_rewritten`, `rewrite_counts` ← `counts`, `package_warnings` and `missing_files`.
+
 Stage the rename's result in the run folder, every value from what step 2 recorded: write each string as JSON (escape `"`, `\` and control characters, and write every path with `/`). Then let the shared emitter write the result files. From `{project-root}`:
 
 ```bash
@@ -46,66 +48,26 @@ When the emitter exits non-zero and its `message` names the payload, fix `{run_d
 
 ### 2. Render the Report
 
-Display the following block, filling in values from context:
+Open with "**Rename complete.**", then show, each from what step 2 recorded:
 
-```
-**Rename complete.**
+- From `{old_name}` to `{new_name}`, and the versions renamed: the number and the list of `renamed_versions`.
+- The references updated, each with its count from `rewrite_counts`: SKILL.md frontmatter, metadata.json, context-snippet.md and, when `{forge_move}` or `{same_folder}` is true, provenance-map.json.
+- The manifest: `exports.{new_name}`, re-keyed from `exports.{old_name}`, when `manifest_rekeyed` is true, else that no manifest entry existed for `{old_name}`.
+- The context files rebuilt (`context_files_updated`, or "(none)"). When `context_files_failed` is not empty, list it with: "Re-run `[EX] Export Skill` to retry the managed section rebuild for these files."
+- When `{forge_left_in_place}` is set: "Left in place (not SKF output): {forge_left_in_place}. SKF did not generate it, so it keeps its name."
+- Each entry of `package_warnings`, `missing_files` and `{run_warnings}`, as warnings.
+- When `verification_warnings` is not empty, the SKILL.md files whose body text still names the old name (prose only, non-structural), with: "These are typically historical notes or changelog entries. Review and edit them by hand if you want them updated."
+- When `deletion_errors` is not empty, each one, with: "The new name is fully committed. Remove the remnants by hand with `rm -rf {path}`."
+- Each entry of `{headless_decisions}`, as "{gate}: took {taken_action} (default {default_action}): {reason}".
+- The result file: `{result_path}`, or "(not written)".
 
-From: {old_name}
-To:   {new_name}
+Close with the next steps:
 
-Versions renamed: {the number of renamed_versions} ({comma-separated renamed_versions})
+- Run `@Ferris EX` if you want to re-verify the managed sections in platform context files.
+- If you had QMD collections or external tooling registered under `{old_name}`, re-run `@Ferris SF` (or your registration command) to re-index under `{new_name}`.
+- If this skill was published to agentskills.io under `{old_name}`, the registry version is unchanged: this rename is a LOCAL operation only.
 
-References updated:
-  - SKILL.md frontmatter       (×{the files_rewritten entries of kind skill-frontmatter})
-  - metadata.json              (×{the files_rewritten entries of kind metadata-json})
-  - context-snippet.md         (×{the files_rewritten entries of kind context-snippet})
-  {if forge_move or same_folder:}- provenance-map.json        (×{the files_rewritten entries of kind provenance-json})
-
-Manifest updated: {if manifest_rekeyed: "exports.{new_name} (re-keyed from exports.{old_name})" else: "(no manifest entry existed for {old_name})"}
-Context files rebuilt: {list from context_files_updated, or "(none)"}
-{if forge_left_in_place:}Left in place (not SKF output): {forge_left_in_place} — SKF did not generate it, so it keeps its name.
-{if context_files_failed is non-empty:}
-Context files FAILED: {list from context_files_failed}
-  → Re-run `[EX] Export Skill` to retry the managed section rebuild for these files.
-
-{if section2_warnings is non-empty:}
-Warnings (inner directory rename):
-  {list each warning from section2_warnings}
-
-{if section3_warnings is non-empty:}
-Warnings (missing files during content update):
-  {list each warning from section3_warnings}
-
-{if verification_warnings is non-empty:}
-Informational: the old name still appears in SKILL.md body text (prose only, non-structural) in:
-  {list each path from verification_warnings}
-  → These are typically historical notes or changelog entries. Review and edit manually if you want them updated.
-
-{if deletion_errors is non-empty:}
-**Post-commit deletion errors:**
-  {list each error}
-  → The new name is fully committed. Remove the remnants manually with `rm -rf {path}`.
-
-{if run_warnings is non-empty:}
-Warnings:
-  {list each entry of run_warnings}
-
-{if headless_decisions is non-empty:}
-Headless auto-decisions:
-  {for each entry: "{gate}: took {taken_action} (default {default_action}) — {reason}"}
-
-Result file: {result_path, or "(not written)"}
-
----
-
-**Next steps:**
-  - Run `@Ferris EX` if you want to re-verify the managed sections in platform context files
-  - If you had QMD collections or external tooling registered under `{old_name}`, re-run `@Ferris SF` (or your registration command) to re-index under `{new_name}`
-  - If this skill was published to agentskills.io under `{old_name}`, the registry version is unchanged — this rename is a LOCAL operation only
-```
-
-When `{headless_mode}` is true, display `{result_line}` verbatim on its own line after the block, when §1 printed one: it is the run's envelope, on **stdout**.
+When `{headless_mode}` is true, display `{result_line}` verbatim on its own line after the report, when §1 printed one: it is the run's envelope, on **stdout**.
 
 ### 3. Post-Completion Hook (optional)
 
@@ -136,7 +98,7 @@ Never stop on the result:
 Then, when §1's emitter printed its line, delete the run folder:
 
 ```bash
-rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" "{run_dir}/warnings.jsonl" && rmdir "{run_dir}"
+rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" "{run_dir}/warnings.jsonl" "{run_dir}/rename-rewrite.json" "{run_dir}/export-manifest.backup.json" && rmdir "{run_dir}"
 ```
 
 When that fails, tell the user in one line that `{run_dir}` stays and can be deleted, then continue. When §1's emitter printed no line, keep `{run_dir}` instead and tell the user in one line that it holds the run's decisions, its warnings and the payload the emitter refused.

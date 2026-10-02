@@ -410,3 +410,84 @@ def test_an_added_line_is_free_and_reaches_the_section(tmp_path):
     result = _assemble(tmp_path, snippet)
     assert result["skipped_malformed_snippet"] == []
     assert "|[zod v1.4.0]|root: .claude/skills/zod/" in result["body"] and "|owner: platform-team" in result["body"]
+
+
+# --------------------------------------------------------------------------
+# architecture-6: every context file gets its own skill root
+# --------------------------------------------------------------------------
+
+
+def _joined_calls(text: str, word: str) -> list[str]:
+    """The fenced lines of `text` that run `word`, backslash continuations joined."""
+    joined = re.sub(r"\\\n\s*", "", "\n".join(_fenced_lines(text)))
+    return [line for line in joined.split("\n") if f" {word} " in f" {line} "]
+
+
+def _documented_argv(call: str, values: dict, override: str | None = None) -> list[str]:
+    """A documented helper call filled in as an agent would, run without a shell (so on Windows too)."""
+    group = '[--skill-root-override "{snippet_skill_root_override}"]'
+    call = call.replace(group, group[1:-1] if override else "")
+    argv = []
+    for word in shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call)):
+        whole = re.fullmatch(r"@@(\w+)@@", word)
+        if whole and isinstance(values[whole.group(1)], list):
+            argv.extend(values[whole.group(1)])
+        else:
+            argv.append(re.sub(r"@@(\w+)@@", lambda m: str(values[m.group(1)]), word))
+    assert argv[:2] == ["python3", str(REBUILD_PY)], argv
+    return [sys.executable, *argv[1:]]
+
+
+@pytest.mark.parametrize("override", [None, "skills/"], ids=["ide-roots", "override"])
+def test_two_ides_give_each_context_file_its_own_skill_root(tmp_path, override):
+    """With ides [claude-code, codex], AGENTS.md lists the skills under Codex's
+    `.agents/skills/`, not the `.claude/skills/` of the first target the snippet
+    root came from; --skill-root-override still wins for both."""
+    skills = tmp_path / "skills"
+    package = skills / "zod" / "1.4.0" / "zod"
+    package.mkdir(parents=True)
+    (package / "context-snippet.md").write_bytes(
+        b"[zod v1.4.0]|root: .claude/skills/zod/\n|IMPORTANT: zod v1.4.0: read SKILL.md before writing zod code.\n")
+    (package / "metadata.json").write_bytes(json.dumps({"name": "zod", "skill_type": "single"}).encode("utf-8"))
+    draft = tmp_path / "stage" / "drafts" / "zod" / "context-snippet.md"
+    draft.parent.mkdir(parents=True)
+    draft.write_bytes((package / "context-snippet.md").read_bytes())
+    resolve = _section(_read(LOAD), "**Context File Resolution:**", "### 1b.")
+    [call] = _joined_calls(resolve, "resolve-targets")
+    values = {"rebuildManagedSectionsHelper": str(REBUILD_PY), "ides": "claude-code,codex",
+              "skills_output_folder": str(skills), "batch_includes": "zod@1.4.0", "orphan_mode": "keep",
+              "export_stage_dir": str(tmp_path / "stage"), "snippet_skill_root_override": override or ""}
+    proc = subprocess.run(_documented_argv(call, values), capture_output=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    targets = json.loads(proc.stdout)["targets"]
+    assert [(t["context_file"], t["skill_root"]) for t in targets] == [
+        ("CLAUDE.md", ".claude/skills/"), ("AGENTS.md", ".agents/skills/")]
+    # Step 3 binds the snippet's root once, from the first target; step 4 must not reuse it.
+    values["skill_root"] = targets[0]["skill_root"]
+    values["target_paths"] = [str(tmp_path / t["context_file"]) for t in targets]
+    [assemble] = _joined_calls(_section(_read(UPDATE), "#### 4b. Assemble One Body per Target", "#### 4c. "),
+                               "assemble")
+    roots = {}
+    for target in targets:
+        values.update(context_path=str(tmp_path / target["context_file"]), context_file=target["context_file"],
+                      target_skill_root=target["skill_root"])
+        proc = subprocess.run(_documented_argv(assemble, values, override), capture_output=True, timeout=60)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        body = Path(json.loads(proc.stdout)["content_file"]).read_bytes().decode("utf-8")
+        roots[target["context_file"]] = re.findall(r"\|root: (\S+)zod/", body)
+    expected = override or None
+    assert roots == {"CLAUDE.md": [expected or ".claude/skills/"], "AGENTS.md": [expected or ".agents/skills/"]}
+
+
+def test_the_snippet_root_is_the_snippets_only():
+    """Step 3's {skill_root} roots the snippet; step 4 passes each target's own root."""
+    snippet = _read(SNIPPET)
+    assert "§2.7 resolves `{skill_root}`, the snippet's root only" in snippet
+    root = _section(snippet, "### 2.7. Resolve Skill Root Path", "### 2.8. ")
+    assert "it is the snippet's root only" in root
+    assert "step 4 builds each context file's managed section with that target's own skill root" in root
+    update = _read(UPDATE)
+    targets = _section(update, "### 3. Determine Target Files", "#### 3b.")
+    assert "its skill root `{target_skill_root}` is that entry's own `skill_root`" in targets
+    assemble = _section(update, "#### 4b. Assemble One Body per Target", "#### 4c. ")
+    assert '--skill-root "{target_skill_root}"' in assemble and "{skill_root}" not in assemble
