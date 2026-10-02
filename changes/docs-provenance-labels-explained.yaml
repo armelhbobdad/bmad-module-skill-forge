@@ -1,4 +1,5 @@
 type: docs
 summary: |
   The docs now explain that each provenance label follows the tool that read the export, not the forge tier: an ast-grep match is `T1` with an `[AST:]` citation, and an export read by eye is `T1-low` with an `[SRC:]` citation, at every tier, so a skill built or updated with 3.0.0 can show lower `T1` counts with nothing less extracted. The tier descriptions no longer promise `T1` and `[AST:]` for every signature at Forge and above, the docs describe Audit Skill's "Provenance label differences (not drift)" table, which lists such label changes without counting them as drift, and Verifying a Skill shows the entry 3.0.0 writes for an ast-grep match next to the published oms-cognee entry, compiled before this rule, that its line and citation checks flag.
+prs: [643]
 issues: [556]
