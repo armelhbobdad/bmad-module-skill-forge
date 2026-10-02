@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-create-stack-skill
+summary: |
+  Stack Skill drops the `manifest_patterns_path`, `provenance_map_schema_path` and `compose_mode_rules_path` settings: the manifest scanner, the provenance verifier and the co-mention helper own those rules, so a house-style copy changed nothing the run did, or could break a map later workflows read. A `_bmad/custom/skf-create-stack-skill.toml` that sets them is now ignored. `stack_skill_template_path` no longer covers the `metadata.json` structure: it moved to `assets/metadata-contract.md`, which no override replaces, because its `generated_by` and `tool_versions.skf` fields, and `skill_type` with `forge_tier` or `confidence_tier`, are the markers every later SKF run checks before it writes. The override still covers the SKILL.md, context snippet, catalog and reference-file structures. The `on_complete` comment now names the step that runs the hook and says a halted run never runs it.
+migration: |
+  Remove `manifest_patterns_path`, `provenance_map_schema_path` and `compose_mode_rules_path` from `_bmad/custom/skf-create-stack-skill.toml` and `_bmad/custom/skf-create-stack-skill.user.toml`. If your copy of the stack template changed its `metadata.json` section, drop that section from the copy: the run now writes the fields of `assets/metadata-contract.md` whatever the override holds.
+prs: [640]
+issues: [596]

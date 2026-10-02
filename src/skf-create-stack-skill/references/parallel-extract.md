@@ -6,6 +6,15 @@ enumerateStackSkillsProbeOrder:
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
+renderStackMetadataProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
+  - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+bundleFile: '{run_dir}/extraction-bundle.json'
+exportRecordsFile: '{run_dir}/export-records.json'
+importCountsFile: '{run_dir}/import-counts.json'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -25,21 +34,51 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 ## MANDATORY SEQUENCE
 
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. Stage `{run_dir}/halt.json` as `{"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the halt message, one line>", "skill_name": "{stack_name}", "mode": "<code|compose>", "stack_libraries": ["<confirmed library>", ...]}`, then run:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, then stop with the halt's exit code (`references/invocation-contract.md` lists every halt). If `{emitEnvelopeHelper}` is not bound, resolve it from `{emitEnvelopeProbeOrder}`; if no path exists, or the emitter exits non-zero or prints no line, display the halt message alone.
+
+**Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+
+**Extraction bundle.** What this step extracts goes to `{bundleFile}`, so no later step works from memory: step 5 reads each library's tier there and adds the pairs it keeps, step 6 compiles from it, and step 7 writes the reference files, `metadata.json` and the provenance map from it. It is one JSON object, written with the run's other files in `{run_dir}`:
+
+```json
+{
+  "mode": "code|compose",
+  "scope": ["<confirmed library>"],
+  "per_library_extractions": [
+    {"library": "<name>", "status": "success|partial", "version": "<version>",
+     "confidence": "T1|T1-low|T2|T3", "files_analyzed": 0,
+     "usage_patterns": ["<pattern with file:line>"], "warnings": [], "temporal": {}}
+  ],
+  "failed": [{"library": "<name>", "reason": "<why>"}],
+  "integrations": [],
+  "hubs": [],
+  "cross_cutting": []
+}
+```
+
+`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations`, `hubs` and `cross_cutting`. A compose-mode entry also holds `skill_dir`, `skill_package_path`, `exports`, `exports_source`, `source_authority` and `metadata_hash` (§0). A code-mode entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
+
 ### 0. Check Compose Mode
 
 **If `compose_mode` is true:**
 
 "**Extraction data already available from individual skills. Skipping extraction phase.**"
 
-For each confirmed skill, load SKILL.md from its `skill_package_path` (step 2, refreshed below).
+For each confirmed skill, load SKILL.md from its `skill_package_path` (step 2, refreshed below): its usage patterns come from there.
 
-**Re-resolve at step 4 entry (S17):** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. If the `metadata_hash` diverges from the value stored in step 2, log a warning `"constituent '{skill_name}' changed between step 2 and step 4 — using fresh values"` and replace the workflow-state entry (so step 7 provenance records the hash active at extraction time, with the drift logged for audit). If a confirmed skill has no `skills[]` entry now, emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3` (`resolution-failure`), naming it: "constituent `{skill_dir}` is no longer an SKF skill package — re-run [SS]." Use the same envelope as the composes-cycle halt below.
+**Re-resolve at step 4 entry (S17):** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. **The provenance anchor (S13) is the hash of the package this step reads**: step 2's value, unless the package changed since. When the `metadata_hash` diverges from the value step 2 stored, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "constituent-changed"`, `message`: "constituent '{skill_name}' changed between step 2 and step 4: using fresh values") and replace the workflow-state entry. Step 7 writes the bundle's `metadata_hash` into `constituents[].metadata_hash` and never hashes again. If a confirmed skill has no `skills[]` entry now, HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:constituent-gone`) with "constituent `{skill_dir}` is no longer an SKF skill package: re-run [SS]."
 
 Use `skill_package_path` directly — it points to the package the helper resolved.
 
-**Exports resolution order (H1) — script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
+**Exports resolution order (H1), script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
 
-**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:enumerate`) with "**Cannot proceed.** `skf-enumerate-stack-skills.py` is missing, so no constituent's exports can be read. Re-install SKF, then re-run."
 
 ```bash
 uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder}
@@ -66,21 +105,18 @@ The script emits JSON of the form:
 }
 ```
 
-Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append to workflow state the `warnings[]` entries that name a confirmed skill (each starts with `<skill_dir>: `, e.g. `"<skill-name>: no exports found via any resolution path"`) for the evidence report. If `cycles[]` names a confirmed skill, a composes-cycle makes the stack unbuildable — emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3`:
-
-```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":[],"mode":"compose","quality_score":null,"exit_code":3,"halt_reason":"resolution-failure"}
-```
+Cache this result as `stack_skill_inventory` in workflow state: each constituent's exports come from it, never from re-reading its `SKILL.md`, `metadata.json` or `references/`. Append to `workflow_warnings[]` the `warnings[]` entries that name a confirmed skill (each starts with `<skill_dir>: `, e.g. `"<skill-name>: no exports found via any resolution path"`). If `cycles[]` names a confirmed skill, a composes-cycle makes the stack unbuildable: HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:cycle`) with "composes cycle among the confirmed skills: {the `cycles[]` names}."
 
 Build a `per_library_extractions[]` entry for each confirmed skill, from the `skills[]` entry whose `name` is its `skill_dir`:
 - `library`: `inventory.skills[i].name`
 - `exports`: `inventory.skills[i].exports`
 - `exports_source`: `inventory.skills[i].exports_source` (one of `metadata|references|skill-md|unknown` — capture for step 7 provenance)
 - `confidence`: `inventory.skills[i].evidence_tier` (one of `T1|T1-low|T2|T3`), the library's tier, which steps 5 and 7 read. Never `inventory.skills[i].confidence`: it only says where the export list came from.
-- `metadata_hash`: that entry's `metadata_hash` — the digest of the package's `metadata.json`, recorded for step 7 provenance.
-- `usage_patterns`: populated by the §1+ per-skill subagent fan-out, NOT by this script. The script provides the inventory + exports; the subagent does the per-skill usage analysis. They're complementary.
+- `metadata_hash`: that entry's `metadata_hash`, the provenance anchor above.
+- `skill_dir`, `skill_package_path`, `version` and `source_authority`: from step 2's entry, the path refreshed above.
+- `usage_patterns`: read from the constituent's `SKILL.md` loaded above, each with the file and line it cites there.
 
-Report the loaded extractions — for each skill: export count, confidence tier, and load status. Then auto-proceed to the next step.
+Write `{bundleFile}`: `mode`, `scope` and these entries. Then report the loaded extractions: for each skill, export count, confidence tier, and load status. Then auto-proceed to the next step.
 
 **If not compose_mode:** Continue with section 1 (existing flow).
 
@@ -101,7 +137,7 @@ This workflow operates on local project files and installed library packages. Re
 
 ⚠️ **Warn the user explicitly:** "AST tools are unavailable — extraction will use source reading (T1-low). Run [SF] Setup Forge to detect and configure AST tools for T1 confidence."
 
-Degrade to Quick tier extraction. Note the degradation reason in context for the evidence report.
+Degrade to Quick tier extraction, and append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "ast-degraded"`, `message`: the tier and the reason), which the evidence report lists.
 
 **Per-file AST failure handling:**
 
@@ -140,7 +176,7 @@ For each library in `confirmed_dependencies`, determine extraction strategy base
 **Launch subprocesses in parallel** (max_parallel_generation: 3–5 concurrent Agent tool calls in Claude Code, IDE-dependent in Cursor, CPU core count in CLI) — one per confirmed library:
 
 Each subprocess:
-1. Reads all files importing the library (its `files[]` in step 3's `{import_counts}`, whose paths are relative to `{project_root}`, as `source_file` is)
+1. Reads all files importing the library (its `files[]` in `{importCountsFile}`, step 3's import counts, whose paths are relative to `{project_root}`, as `source_file` is)
 2. Extracts key exports used in this project (functions, classes, types, constants)
 3. Identifies usage patterns (initialization, configuration, common call patterns)
 4. Labels each export by the tool that read it (§1)
@@ -193,37 +229,40 @@ For each library extraction:
 
 "**Warning:** Extraction failed for {library}: {reason}. Excluding from stack skill."
 
-**If ALL extractions fail:** HALT — cannot produce meaningful stack skill. Before halting (B7):
+Record each excluded library in the bundle's `failed[]` and append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-failed"`, `message`: the library and the reason).
 
-1. Purge any in-flight staging artifacts under the forge workspace: remove `{forge_data_folder}/{stack_name}/{version}/*-tmp`, any `{forge_data_folder}/{stack_name}/{version}/*.skf-tmp` directories and the §3a labels file `{forge_data_folder}/{stack_name}.skf-labels.json` so partial state does not linger.
-2. Emit the result envelope on stderr per the Result Contract in SKILL.md (`stack_libraries` carries the confirmed library names that failed extraction), and exit `2`:
+**If ALL extractions fail:** HALT (exit 2, `halt_reason: "all-extractions-failed"`, phase `parallel-extract:all-failed`, `stack_libraries` the confirmed library names that failed): nothing remains to build a stack from (B7). The run folder stays, as after every halt but a cancel: its `warnings.jsonl` holds the `extraction-failed` entry that says why each library failed.
 
-   ```
-   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","quality_score":null,"exit_code":2,"halt_reason":"all-extractions-failed"}
-   ```
+**Otherwise** write `{bundleFile}`: `mode`, `scope`, one `per_library_extractions[]` entry per library that returned (each export record moves to `{exportRecordsFile}` in §3a, so the entry keeps none) and `failed[]`.
 
 ### 3a. Check the Export Labels
 
-Code mode only (compose mode leaves this step at §0). Steps 5 to 7 read the labels checked here. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}`; if neither path exists, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "label-check-skipped"`, `message`: the reason) and go to the library tiers below.
+Code mode only (compose mode leaves this step at §0). Steps 5 to 7 read the labels checked here, from the file this section writes and keeps for the rest of the run.
 
-Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{forge_data_folder}/{stack_name}.skf-labels.json`, and run:
+Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{exportRecordsFile}`. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}`; if neither path exists, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "label-check-skipped"`, `message`: the reason) and go to the library tiers below. Otherwise run:
 
 ```bash
-echo '{}' | uv run {renderMetadataStatsHelper} {forge_data_folder}/{stack_name}.skf-labels.json --shape stack
+echo '{}' | uv run {renderMetadataStatsHelper} {exportRecordsFile} --shape stack
 ```
 
-Rely on its JSON, not the exit code, and write neither its `stats` nor its `confidence_distribution` into `metadata.json`. If it exits `2` (no JSON), append a `label-check-skipped` entry with its stderr as the message, delete the file and go to the library tiers. Otherwise fix each `coherence` violation in the stored records:
+Rely on its JSON, not the exit code, and write neither its `stats` nor its `confidence_distribution` into `metadata.json`. If it exits `2` (no JSON), append a `label-check-skipped` entry with its stderr as the message and go to the library tiers. Otherwise fix each `coherence` violation in the stored records:
 
 - **`provenance.entries[<i>].<field>`:** set that field of record `<i>` to the violation's `expected` value and keep its `extraction_method`, which names the tool that read the export. When the violation is on `extraction_method` itself (unknown or missing), set `ast_bridge` only when an ast-grep rule matched the export, `source_reading` otherwise.
 - **`confidence_distribution`:** some records carry no valid `signature_source`: set `T1` on each such `ast_bridge` record and `T1-low` on each such `source_reading` record.
 
-Rewrite the file and run the helper again until `coherence.ok` is true, keep that run's `confidence_distribution` as §4's export label counts, and delete the file. When a record changed, append one `workflow_warnings[]` entry (`step: "step-04"`, `severity: "info"`, `code: "export-labels-relabeled"`) naming each relabeled export and its library.
+Rewrite the file and run the helper again until `coherence.ok` is true, and keep that run's `confidence_distribution` as §4's export label counts. When a record changed, append one `workflow_warnings[]` entry (`step: "step-04"`, `severity: "info"`, `code: "export-labels-relabeled"`) naming each relabeled export and its library.
 
-**Library tiers.** Set each library's `per_library_extractions[].confidence`: `T1` when it has export records and every one is `ast_bridge`, `T1-low` otherwise. Step 5 takes each integration's tier from it, and step 7 bins each library once by it.
+**Library tiers.** Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:library-tiers`) with "**Cannot proceed.** `skf-render-stack-metadata.py` is missing, so no library tier can be set. Re-install SKF, then re-run." Otherwise run it on the checked records, with every library of the bundle's `per_library_extractions[]`, comma-separated:
+
+```bash
+uv run {renderStackMetadataHelper} library-tiers --records {exportRecordsFile} --libraries "<names>"
+```
+
+Set each library's `per_library_extractions[].confidence` in `{bundleFile}` to its `tier`, the helper's one rule for a code-mode library. On exit `2` its stderr names the input it refused, such as a record whose `source_library` is not a stack library: fix the record or the list and run it again. Step 5 takes each integration's tier from these tiers, and step 7 bins each library once by them.
 
 ### 4. Display Extraction Summary
 
-Report the extraction results: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; the number of libraries at each tier (the unit of `metadata.json`'s `confidence_distribution`); and the export label counts §3a kept. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
+Report the extraction results from `{bundleFile}`: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; the number of libraries at each tier (the unit of `metadata.json`'s `confidence_distribution`); and the export label counts §3a kept. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
 
 ### 5. Auto-Proceed to Next Step
 

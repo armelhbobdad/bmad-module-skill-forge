@@ -52,6 +52,6 @@ Step 5 §2 reads the [VS] report (`shared/references/feasibility-report-schema.m
 
 Step 5 §2 finds and judges these pairs in the constituents' own docs and domain keywords, never on a shared language alone.
 
-- A docs mention step 5 §2 confirmed (a verifiable cross-library contract a constituent's own docs state, e.g. a grep-verified upstream seam) is recorded with `detection_method: constituent_documented_contract` (see `{provenanceMapSchemaPath}`), NOT `inferred_from_shared_domain`, and labeled `[composed]`: a cited contract, not a synthesized guess.
+- A docs mention step 5 §2 confirmed (a verifiable cross-library contract a constituent's own docs state, e.g. a grep-verified upstream seam) is recorded with `detection_method: constituent_documented_contract` (see `assets/provenance-map-schema.md`), NOT `inferred_from_shared_domain`, and labeled `[composed]`: a cited contract, not a synthesized guess.
 - A shared-domain pair step 5 §2 kept is labeled `[inferred from shared domain]`.
 - Detection method never sets the tier: each pair takes the tier `skf-render-stack-metadata.py` gives it.

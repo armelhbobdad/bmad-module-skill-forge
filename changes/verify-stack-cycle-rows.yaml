@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-verify-stack
+summary: |
+  A circular-dependency row of the report's `| lib_a | lib_b | verdict | rationale |` table now has `cycle` in `lib_a` and the arrow chain (`a → b → c → a`) in `lib_b`, so the next run's delta never merges it into the row of a pair of its skills. Two skills that cite each other, or a loop of skills that all cite each other, no longer add a `Risky` cycle row: a mutual citation is evidence for the pair's own verdict. A stack whose only cycles were mutual citations now counts fewer `Risky` rows, so its `pairsRisky`, `recommendationCount` and `overallVerdict` can change, and it can now reach `FEASIBLE`.
+migration: |
+  Read cycle rows by `lib_a == "cycle"` instead of by the first skill of the chain, and take the chain from `lib_b`. Expect a one-time delta on the first run after upgrading: the earlier cycle rows show as gone and the new ones as new.
+prs: [640]
+issues: [598]

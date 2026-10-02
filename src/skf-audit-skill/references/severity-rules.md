@@ -20,6 +20,7 @@ Each line below is one rule of `skf-severity-classify.py`, which grades a findin
 - New required parameters added to documented functions
 - Deprecated APIs still documented as current in skill
 - Constituent skills changed since the stack was composed (compose-mode stacks)
+- Changed documentation sources of a docs-only skill (doc drift)
 - **Impact:** Skill is incomplete or contains outdated guidance
 
 ### MEDIUM — Moderate Drift

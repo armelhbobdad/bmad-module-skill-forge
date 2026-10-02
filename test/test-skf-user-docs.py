@@ -262,7 +262,7 @@ def test_skill_model_gives_confidence_tier_the_export_gate_scales():
     assert "keeps its forge tier in `forge_tier`" in paragraph
     assert ("Export Skill still accepts a forge tier from a stack made by an earlier SKF version, with a warning "
             "that running Stack Skill again records the dominant tier") in paragraph
-    template = _read(SRC / "skf-create-stack-skill" / "assets" / "stack-skill-template.md")
+    template = _read(SRC / "skf-create-stack-skill" / "assets" / "metadata-contract.md")
     assert f'"forge_tier": "{{{"|".join(forge_tiers)}}}"' in template
     assert f'"confidence_tier": "{{{"|".join(stack_tiers)}}}"' in template
 
@@ -593,7 +593,7 @@ def test_docs_give_the_verdicts_the_rollup_returns():
     for token in ("**Source preference:** If a stack skill assembled by `skf-create-stack-skill` is present in the "
                   "inventory and its manifest", "declares `integration_patterns`, use THAT as the primary source",
                   "Fall back to prose co-mention (below) only when no such manifest is available",
-                  "do not parse Mermaid diagram syntax for co-mention detection"):
+                  "draws them only in fenced code, such as a Mermaid diagram, which the mentions helper never reads"):
         assert token in integrations, token
     verdicts = _paragraph(_slice(_read(WORKFLOWS), "### Verify Stack (VS)", "**Agent:**"), "**Verdicts:**")
     for token in ("every integration pair is `Verified`",

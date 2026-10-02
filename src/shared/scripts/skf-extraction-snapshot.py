@@ -32,8 +32,8 @@ scan-list
 
 build
 
-  The files in scope are the bounded scan list with --provenance-map, else
-  (degraded mode: no map) every file the runner or the details name. Each
+  The files in scope are the bounded scan list with --provenance-map (every
+  audit passes it), else every file the runner or the details name. Each
   gets one status, in this order of precedence:
 
     missing        not a file under --source-root

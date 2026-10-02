@@ -36,11 +36,12 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Command invoked once the workflow reaches its terminal stage — after the
-# stack package is committed and the result contract is written (step 9,
-# report.md §6c), before the health-check chain. Override wins. Use for a
-# terminal action such as catalog registration or notifying a downstream
-# pipeline. Empty string = no terminal action. The hook never fails the run.
+# Command invoked once a run finishes (step 9, report.md §2c): after the
+# stack package is committed, the report is shown and the result files are
+# written, before the health-check chain. A run that halts never invokes it.
+# Override wins. Use for a terminal action such as catalog registration or
+# notifying a downstream pipeline. Empty string = no terminal action. The
+# hook never fails the run: a failure prints one report line.
 
 on_complete = ""
 
@@ -48,9 +49,10 @@ on_complete = ""
 #
 # Lift the canonical asset paths so orgs can substitute house-style copies
 # without forking the skill. Empty string = use the bundled default.
+# stack_skill_template_path covers the SKILL.md, context snippet, catalog and
+# reference-file structures; the metadata.json contract
+# (assets/metadata-contract.md) carries SKF's ownership markers, so no
+# override replaces it.
 
 stack_skill_template_path = ""
 integration_patterns_path = ""
-manifest_patterns_path = ""
-compose_mode_rules_path = ""
-provenance_map_schema_path = ""

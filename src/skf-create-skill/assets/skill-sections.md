@@ -203,7 +203,7 @@ Each reference file includes:
       "libraries": ["lib-a", "lib-b"],
       "pattern_type": "provider-consumer",
       "detection_method": "co-import grep|architecture_co_mention|inferred_from_shared_domain",
-      "co_import_files": [{"file": "src/app.ts", "line": 5}],
+      "co_import_files": [{"path": "src/app.ts", "line_a": 5, "line_b": 7}],
       "confidence": "T1|T2|T3"
     }
   ],

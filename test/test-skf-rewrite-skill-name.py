@@ -329,7 +329,6 @@ TEMPLATE_SITES = {
     "src/skf-quick-skill/assets/skill-template.md": 1,
     "src/skf-export-skill/assets/snippet-format.md": 2,
     "src/skf-create-stack-skill/assets/stack-skill-template.md": 1,
-    "src/skf-create-stack-skill/references/generate-output.md": 1,
 }
 
 

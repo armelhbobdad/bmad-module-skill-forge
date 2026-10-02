@@ -10,10 +10,10 @@ source_path: ''
 forge_tier: ''
 # Run context, written as each value is known (init §6, re-index §5,
 # structural-diff §6), so later steps read it from this file.
-confidence_mode: ''
 audited_version: ''
 audited_version_reason: ''
 manifest_version: ''
+docs_only_skill: ''
 provenance_map: ''
 provenance_generated_at: ''
 provenance_age_days: ''
@@ -39,7 +39,6 @@ previousWorkflow: 'create-skill'
 
 ## Audit Summary
 
-**Confidence Mode:** {confidence_mode}
 **Skill:** {skill_name}
 **Source:** {source_path}
 **Tier:** {forge_tier}

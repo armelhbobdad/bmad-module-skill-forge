@@ -73,7 +73,7 @@ For each non-verified finding across all passes, generate one actionable next st
 **Risky integration (from Step 03):**
 - If protocol mismatch → "Consider adding a bridge layer between `{lib_a}` and `{lib_b}` (e.g., HTTP adapter, message queue). Document the bridge in the architecture."
 - If type incompatibility → "Add a serialization/conversion layer between `{lib_a}` and `{lib_b}` to resolve the type mismatch identified in their API surfaces."
-- If circular dependency (a step 3 cycle row) → "`{A → B → C → A}` form a circular integration dependency: each skill's SKILL.md cites the next. Check that the architecture gives the calls between them one direction, or place an adapter between them, before you build on it."
+- If circular dependency (a step 3 cycle row: `cycle` in its `lib_a`, the chain in its `lib_b`) → "`{A → B → C → A}` form a circular integration dependency: each skill's SKILL.md cites the next. Check that the architecture gives the calls between them one direction, or place an adapter between them, before you build on it."
 - If a skill changed mid-run (the rationale "skill modified mid-run") → "`{skill}` changed while this run read it, so `{lib_a}` ↔ `{lib_b}` was not rated: re-run **[VS]**."
 
 **Plausible integration (from Step 03; neither skill cites the other):**

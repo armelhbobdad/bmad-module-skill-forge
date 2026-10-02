@@ -6,6 +6,9 @@ Covers:
     distinct cycles sharing a node, rotation of an input cycle not double-
     counted, self-loop, disconnected components, deterministic ordering
   - parse_edges: structural validation → InputError
+  - --skip-mutual and --exclude-edges (verify-stack's cycle rows): cycles
+    built only from mutual edges left out, rejected directions dropped
+    before the traversal
   - CLI: file input, stdin (-) piping, exit codes, reproducibility
 """
 
@@ -102,6 +105,48 @@ class TestFindCycles:
         r1 = mod.find_cycles(edges)
         r2 = mod.find_cycles(list(reversed(edges)))
         assert json.dumps(r1, sort_keys=True) == json.dumps(r2, sort_keys=True)
+
+    def test_skip_mutual_keeps_a_cycle_with_a_one_way_edge(self) -> None:
+        # A and B cite each other (Check 4 evidence for their pair, not a
+        # circular dependency); A -> B -> C -> A and the self-loop stay.
+        edges = [("A", "B"), ("B", "A"), ("B", "C"), ("C", "A"), ("D", "D")]
+        assert mod.find_cycles(edges)["cycles"] == [
+            ["D", "D"], ["A", "B", "A"], ["A", "B", "C", "A"]]
+        result = mod.find_cycles(edges, skip_mutual=True)
+        assert result == {"cycles": [["D", "D"], ["A", "B", "C", "A"]], "cycle_count": 2}
+
+    def test_skip_mutual_leaves_out_a_loop_of_mutual_pairs(self) -> None:
+        # Three skills that all cite each other: both directions of the
+        # triangle are built from mutual edges only, as each pair is.
+        edges = [("A", "B"), ("B", "A"), ("B", "C"), ("C", "B"), ("A", "C"), ("C", "A")]
+        assert mod.find_cycles(edges)["cycle_count"] == 5
+        assert mod.find_cycles(edges, skip_mutual=True) == {"cycles": [], "cycle_count": 0}
+        # C no longer cites A: A -> B -> C -> A loses its edge C -> A, and
+        # A -> C -> B -> A stays, as A -> C is now one-way.
+        one_way = [e for e in edges if e != ("C", "A")]
+        assert mod.find_cycles(one_way, skip_mutual=True)["cycles"] == [["A", "C", "B", "A"]]
+
+    def test_skip_mutual_with_only_mutual_pairs_finds_none(self) -> None:
+        edges = [("A", "B"), ("B", "A"), ("X", "Y"), ("Y", "X")]
+        assert mod.find_cycles(edges, skip_mutual=True) == {"cycles": [], "cycle_count": 0}
+
+
+class TestExcludeEdges:
+    def test_drops_every_occurrence_and_keeps_order(self) -> None:
+        edges = [("A", "B"), ("B", "C"), ("A", "B"), ("C", "A")]
+        assert mod.exclude_edges(edges, [("A", "B")]) == [("B", "C"), ("C", "A")]
+
+    def test_direction_matters(self) -> None:
+        # Leaving out B -> A keeps A -> B.
+        assert mod.exclude_edges([("A", "B"), ("B", "A")], [("B", "A")]) == [("A", "B")]
+
+    def test_an_absent_edge_changes_nothing(self) -> None:
+        edges = [("A", "B"), ("B", "A")]
+        assert mod.exclude_edges(edges, [("X", "Y")]) == edges
+
+    def test_a_rejected_direction_breaks_the_cycle(self) -> None:
+        edges = [("A", "B"), ("B", "C"), ("C", "A")]
+        assert mod.find_cycles(mod.exclude_edges(edges, [("C", "A")]))["cycles"] == []
 
 
 # --------------------------------------------------------------------------
@@ -207,6 +252,60 @@ class TestCli:
         result = _run_cli("find", "--edges", str(tmp_path / "nope.json"))
         assert result.returncode == 2
         assert "not found" in result.stderr
+
+    def test_exclude_edges_and_skip_mutual_over_a_citations_file(self, tmp_path: Path) -> None:
+        # verify-stack passes the scanner's citations file as it is: its other
+        # keys are ignored. zod cites next only through the common word, so
+        # that direction is excluded, and react-query and zod cite each other.
+        citations = tmp_path / "citations.json"
+        citations.write_bytes(json.dumps({
+            "citations": [{"from": "zod", "to": "next", "hits": []}],
+            "edges": [["react-query", "zod"], ["zod", "react-query"], ["zod", "next"],
+                      ["next", "react-query"], ["react-query", "next"]],
+            "warnings": [],
+        }).encode("utf-8"))
+        rejected = tmp_path / "rejected.json"
+        rejected.write_bytes(json.dumps({"edges": [["zod", "next"]]}).encode("utf-8"))
+        plain = _run_cli("find", "--edges", str(citations))
+        assert plain.returncode == 0, plain.stderr
+        assert json.loads(plain.stdout)["cycles"] == [
+            ["next", "react-query", "next"], ["react-query", "zod", "react-query"],
+            ["next", "react-query", "zod", "next"]]
+        result = _run_cli("find", "--edges", str(citations), "--exclude-edges", str(rejected),
+                          "--skip-mutual")
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == {"cycles": [], "cycle_count": 0}
+        empty = tmp_path / "none.json"
+        empty.write_bytes(json.dumps({"edges": []}).encode("utf-8"))
+        kept = _run_cli("find", "--edges", str(citations), "--exclude-edges", str(empty),
+                        "--skip-mutual")
+        assert json.loads(kept.stdout)["cycles"] == [["next", "react-query", "zod", "next"]]
+
+    def test_exclude_edges_from_stdin(self, tmp_path: Path) -> None:
+        edges = tmp_path / "edges.json"
+        edges.write_bytes(
+            json.dumps({"edges": [["A", "B"], ["B", "C"], ["C", "A"]]}).encode("utf-8"))
+        result = _run_cli("find", "--edges", str(edges), "--exclude-edges", "-",
+                          stdin_text=json.dumps({"edges": [["B", "C"]]}))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["cycle_count"] == 0
+
+    def test_exclude_edges_wrong_shape_exits_2(self, tmp_path: Path) -> None:
+        edges = tmp_path / "edges.json"
+        edges.write_bytes(json.dumps({"edges": [["A", "B"]]}).encode("utf-8"))
+        bad = tmp_path / "bad.json"
+        bad.write_bytes(json.dumps([["A", "B"]]).encode("utf-8"))
+        result = _run_cli("find", "--edges", str(edges), "--exclude-edges", str(bad))
+        assert result.returncode == 2
+        assert "--exclude-edges" in result.stderr and "must be a JSON object" in result.stderr
+        missing = _run_cli("find", "--edges", str(edges),
+                           "--exclude-edges", str(tmp_path / "nope.json"))
+        assert missing.returncode == 2 and "--exclude-edges file not found" in missing.stderr
+
+    def test_both_inputs_from_stdin_exit_2(self) -> None:
+        result = _run_cli("find", "--edges", "-", "--exclude-edges", "-", stdin_text="{}")
+        assert result.returncode == 2
+        assert "cannot both read from stdin" in result.stderr
 
     def test_reproducible_output(self, tmp_path: Path) -> None:
         edges = tmp_path / "edges.json"

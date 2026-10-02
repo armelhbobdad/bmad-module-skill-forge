@@ -43,7 +43,7 @@ Update the ## Audit Summary section at the top of {outputFile} with final calcul
 - Fill in the severity count table from `{auditDataFolder}/severity.json`, the classification step 5 saved: `by_severity` for each level and `total_items` for **Total**
 - Set the overall drift score (its `drift_score`)
 - Include doc drift summary from `doc_drift_summary` context (set by step 5a):
-  - If `changed > 0`: "**Doc Drift:** {changed} of {total_tracked} tracked doc(s) have changed since compile. Consider re-running CS to update doc_sources."
+  - If `changed > 0`: "**Doc Drift:** {changed} of {total_tracked} tracked doc(s) have changed since compile." Then, for a docs-only skill (whose score these changes set): "Run `[US] Update Skill` to bring the skill up to them."; otherwise: "Consider re-running CS to update doc_sources."
   - If `fetch_failed > 0`: "{fetch_failed} doc URL(s) could not be reached during audit."
   - If `skipped_entirely`: no mention in summary (already noted in the doc drift section)
 
@@ -53,7 +53,7 @@ For each classified drift finding (`findings[]` of `{auditDataFolder}/severity.j
 
 Rows of step 3's **Provenance label differences (not drift)** table are not findings: they get no remediation row and do not count toward the Workflow Recommendation.
 
-**Public API outside the skill's scope.** When `{extractionSnapshot}` (`{forge_version}/extraction-snapshot.json`, step 2) lists items in `outside_scope`, a package entry point exports public API from files the skill does not cover: the recipe runner's entry-point diff found them, so nothing here is judged by eye. Write one table row per item, the defining file as the path and the names it exports (and the entry points that export them) as the evidence, in the `### Out-of-Scope New Public API` subsection below. update-skill's scope reconciliation (`skf-provenance-gap-dispatch.py`) reads that subsection from the newest drift report and asks whether to bring each path into scope. Leave the subsection out when `outside_scope` is empty or the snapshot has none (Quick tier, a compose-mode stack).
+**Public API outside the skill's scope.** When `{extractionSnapshot}` (`{forge_version}/extraction-snapshot.json`, step 2) lists items in `outside_scope`, a package entry point exports public API from files the skill does not cover: the recipe runner's entry-point diff found them, so nothing here is judged by eye. Write one table row per item, the defining file as the path and the names it exports (and the entry points that export them) as the evidence, in the `### Out-of-Scope New Public API` subsection below. update-skill's scope reconciliation (`skf-provenance-gap-dispatch.py`) reads that subsection from the newest drift report and asks whether to bring each path into scope. Leave the subsection out when `outside_scope` is empty or there is no snapshot with one (Quick tier, a compose-mode stack, a docs-only skill).
 
 Append to {outputFile}:
 
@@ -123,14 +123,13 @@ Build the section from the frontmatter of {outputFile}, where step 1 §6, step 2
 | **Audited Version** | `{audited_version}` ({audited_version_reason}){; the export manifest names `{manifest_version}`, when set} |
 | **Provenance Map** | {provenance_map} |
 | **Provenance Age** | {provenance_age_days} days (generated {provenance_generated_at}) |
-| **Mode** | {confidence_mode} |
 | **AST fallback files** | {`ast_fallback_files`, or none; n/a at Quick} |
 | **Applied Transforms** | {each `applied_transforms` entry as `{transform}` ×{count}, or none} |
 | **Baseline Ref / Commit** | `{baseline_ref}` @ `{baseline_commit_short}` |
 | **Audit Ref / Commit** | `{audit_ref}` @ `{audit_commit_short}` ({audit_ref_source}) |
 | **Upstream Latest** | `{latest_tag or remote_head or "(not fetched)"}` (fetch: {upstream_fetch}) |
 | **Upstream Moved** | {upstream_moved}{: to `{upstream_ref}`, when true} |
-| **Stage Data** | `{auditDataFolder}/`: the JSON this run saved and classified (the structural diff or the constituents' freshness, the findings and their classification) |
+| **Stage Data** | `{auditDataFolder}/`: the JSON this run saved and classified (the structural diff, the constituents' freshness or the documents' comparison, the findings and their classification) |
 
 **Confidence Legend:**
 - **T1:** an ast-grep match (`extraction_method: ast-grep`) at any tier: high reliability, structural truth
@@ -196,7 +195,7 @@ It writes `{forge_version}/audit-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it p
 
 **Hard-halt envelope (headless only).** Every hard halt prints its envelope through the emitter on **stderr** with `status: "error"` and the `exit_code` / `halt_reason` for its failure class, as each step's **Halt envelope** paragraph shows: it is the only failure signal a wrapping pipeline receives. `drift_score` carries its last known value (`null` if classification never ran); `report_path` is `null` when the report write failed.
 
-**Post-audit hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it as:
+**Post-audit hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it from `{project-root}` as:
 
 ```bash
 {onCompleteCommand} --result-path={result_json_path}

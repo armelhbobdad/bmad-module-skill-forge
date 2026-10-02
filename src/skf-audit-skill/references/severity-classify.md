@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'step-doc-drift.md'
+# A docs-only skill reaches this step after step 5a, so it goes on to the
+# report.
+reportStepFile: 'report.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-severityRulesFile: '{severityRulesPath}'
 # This run's stage data folder, where the earlier steps saved the helpers'
 # JSON; this step writes the findings and their classification beside it.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
@@ -20,7 +22,7 @@ sourceTreeProbeOrder:
 
 ## STEP GOAL:
 
-Grade every drift finding from Steps 03 and 04 (or step 1c for a compose-mode stack) by severity (CRITICAL/HIGH/MEDIUM/LOW), derive the overall drift score, and produce a categorized findings table with confidence-tier labels.
+Grade every drift finding from Steps 03 and 04 (step 1c for a compose-mode stack, step 5a for a docs-only skill) by severity (CRITICAL/HIGH/MEDIUM/LOW), derive the overall drift score, and produce a categorized findings table with confidence-tier labels.
 
 ## Rules
 
@@ -29,6 +31,7 @@ Grade every drift finding from Steps 03 and 04 (or step 1c for a compose-mode st
 - Mapping each type and category to a severity, reducing the set to the drift score and counting per level have one answer each: the helper does them with its rule table, which states the rules of the bundled `references/severity-rules.md` (`--rules` prints it), so the grades cannot change between runs
 - The confidence tier (T1 / T1-low / T2) travels with each finding from Steps 03/04 unchanged: the helper never touches it
 - A provenance label difference (step 3's **Provenance label differences (not drift)** table) is never a finding: do not classify it, count it or let it move the drift score
+- `{docs_only_skill}` is the `docs_only_skill` value step 1 §6 wrote into {outputFile}'s frontmatter: read it there, not from memory, so a compacted session still takes the docs-only route
 
 ## MANDATORY SEQUENCE
 
@@ -42,7 +45,7 @@ Display the line it prints, then stop with the halt's exit code. If the emitter 
 
 ### 1. Build the Findings File
 
-**Resolve `{severityClassifyHelper}`** from `{severityClassifyProbeOrder}`; first existing path wins. If no candidate exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `severity-classify:findings`.
+**Resolve `{severityClassifyHelper}`** from `{severityClassifyProbeOrder}`; first existing path wins (SKILL.md On Activation checked that one exists).
 
 Print the rule table once. It lists the only type and category pairs the helper grades, each with the rule it implements:
 
@@ -62,7 +65,13 @@ A compose-mode stack has no structural diff: step 1c saved its constituents' fre
 uv run {severityClassifyHelper} --constituents "{auditDataFolder}/constituent-freshness.json" -o "{auditDataFolder}/findings.json"
 ```
 
-The helper writes one finding per item, with its `type`, `category`, `name`, `detail`, `file`, `line` and `confidence` (and `source_library` for a stack): each export the diff lists, each Script/Asset Drift file (step 3 §4b), each drifted or missing constituent (step 1c) and each Semantic Drift row (step 4). A stage that did not run saved no file (no `file_entries`, a tier without semantic diff): the helper skips that file, and its summary line's `sources` says which files it read. Exit 1 saved nothing: an `error` that starts `Cannot write output` is a failed write (§2), and any other names the file to fix before running the command again.
+A docs-only skill (`{docs_only_skill}`) has neither: step 5a saved its documents' comparison, so its command projects that file alone:
+
+```bash
+uv run {severityClassifyHelper} --doc-drift "{auditDataFolder}/doc-drift.json" -o "{auditDataFolder}/findings.json"
+```
+
+The helper writes one finding per item, with its `type`, `category`, `name`, `detail`, `file`, `line` and `confidence` (and `source_library` for a stack): each export the diff lists, each Script/Asset Drift file (step 3 §4b), each drifted or missing constituent (step 1c), each Semantic Drift row (step 4) and each changed document of a docs-only skill (step 5a). A stage that did not run saved no file (no `file_entries`, a tier without semantic diff): the helper skips that file, and its summary line's `sources` says which files it read. Exit 1 saved nothing: an `error` that starts `Cannot write output` is a failed write (§2), and any other names the file to fix before running the command again.
 
 Then edit `{auditDataFolder}/findings.json`, keeping every field the helper wrote unless a rule below changes it:
 
@@ -100,8 +109,6 @@ The saved result, CRITICAL first:
 
 Consume `drift_score`, `by_severity`, the totals and each finding's `severity` directly: do not recount or recompute the score in prose. `total_findings` counts the findings (the rows), and `by_severity` sums to `total_items`.
 
-**If `uv`/the helper cannot execute** (e.g. claude.ai web): classify in the main thread. Build the findings the helper would from the saved JSON (or, when step 3 fell back too, from its tables, one finding per export): `added`, `removed` or `moved` with category `export` for each export the diff lists, `changed`/`location` for a line-only change and the category that names any other change, `added`, `removed` or `changed` with category `file` for each Script/Asset file, `changed`/`constituent` for a drifted constituent and `removed`/`constituent` for a missing one, and the Semantic Drift rows as step 4 saved them. Grade each type and category pair by the line of {severityRulesFile} that states it, reduce with its Overall Drift Score table (CLEAN = no findings; MINOR = LOW only; SIGNIFICANT = any MEDIUM/HIGH, no CRITICAL; CRITICAL = any CRITICAL present), and save the result over `{auditDataFolder}/severity.json` in the helper's shape (`status: "ok"`, `drift_score`, `total_findings`, `total_items`, `added_export_count`, `by_severity`, and `findings[]` each with its `severity` and `rule`), so §3 and step 6 read it as they would the helper's.
-
 ### 3. Compile Severity Classification Section
 
 **Rollup when rendering.** A severity table may collapse ≥ 10 of its findings that share one root cause (deleted source file, renamed module, entire package tree removed) into one row, as step 3 §5 does for its tables. Keep the 6-column severity table shape; the rollup encodes root cause, count, and representative symbols **inline in the `Finding` cell** rather than adding columns, so rollup and per-item rows render cleanly in one table. Changed-signature and cross-file findings remain per-row; they were not eligible for rollup in step 3 and are not eligible here. A rollup changes no count: the headings and the summary come from the helper.
@@ -112,7 +119,7 @@ Consume `drift_score`, `by_severity`, the totals and each finding's `severity` d
 |---|---------|------|--------|----------|------------|
 | N | {root cause} (×{Count}; rep: `{sym1}`, `{sym2}`, `{sym3}`, …) | {structural/semantic} | {shared detail} | {root-cause path} | {T1/T1-low/T2} |
 
-Append to {outputFile}, one row per finding of `{auditDataFolder}/severity.json` (or per rollup), filling the counts from `by_severity`. A finding with no `confidence` (a hash comparison) shows `n/a`, and every finding but a `semantic` one is structural:
+Append to {outputFile}, one row per finding of `{auditDataFolder}/severity.json` (or per rollup), filling the counts from `by_severity`. A finding with no `confidence` (a hash comparison) shows `n/a`, and every finding but a `semantic` one is structural (a changed document of a docs-only skill shows `doc`):
 
 ```markdown
 ## Severity Classification
@@ -160,4 +167,4 @@ Update {outputFile} frontmatter:
 - Append `'severity-classify'` to `stepsCompleted`
 - Set `drift_score` to `{drift_score}` from the helper
 
-Once the ## Severity Classification section has been appended with all findings classified, load, read fully, and execute `{nextStepFile}` (documentation drift).
+Once the ## Severity Classification section has been appended with all findings classified, load, read fully, and execute `{nextStepFile}` (documentation drift), or `{reportStepFile}` for a docs-only skill (`{docs_only_skill}`), whose step 5a already ran.

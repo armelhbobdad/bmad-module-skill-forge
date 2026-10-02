@@ -457,7 +457,7 @@ class TestFromDiff:
 
 
 # --------------------------------------------------------------------------
-# --file-drift, --constituents, --semantic: the other drift sources
+# --file-drift, --constituents, --semantic, --doc-drift: the other drift sources
 # --------------------------------------------------------------------------
 
 
@@ -471,6 +471,13 @@ FRESHNESS = {"drifted": [{"skill_name": "lib-a", "skill_path": "skills/lib-a/", 
                           "reason": "metadata-not-found"}],
              "skipped_null_hash": [{"skill_name": "lib-d"}],
              "stats": {"total": 4, "drifted": 1, "fresh": 1, "missing": 1, "skipped_null_hash": 1}}
+# A skf-detect-docs.py compare-hashes result: a docs-only skill's whole drift.
+DOC_DRIFT = {"changed": [{"url": "https://docs.example.com/api", "old_hash": "sha256:aa", "new_hash": "sha256:bb"}],
+             "unchanged": [{"url": "https://docs.example.com/"}],
+             "fetch_failed": [{"url": "https://docs.example.com/gone", "old_hash": "sha256:cc", "reason": "HTTP 404"}],
+             "skipped_null_hash": [{"url": "https://docs.example.com/new"}],
+             "stats": {"total_tracked": 4, "changed": 1, "unchanged": 1, "fetch_failed": 1,
+                       "skipped_null_hash": 1}}
 
 
 class TestOtherSources:
@@ -499,11 +506,32 @@ class TestOtherSources:
         with pytest.raises(ValueError, match="not a semantic findings file"):
             mod.project_semantic([{"type": "added", "category": "export"}])
 
+    def test_only_a_changed_document_is_a_finding(self):
+        """Doc drift is a docs-only skill's whole drift: each changed document
+        is changed/doc_source, graded HIGH, so the score is SIGNIFICANT and
+        report.md routes to update-skill; an unreachable or never-hashed
+        document is not drift."""
+        findings = mod.project_doc_drift(DOC_DRIFT)
+        assert [(f["type"], f["category"], f["name"], f["file"], f["detail"]) for f in findings] == [
+            ("changed", "doc_source", "https://docs.example.com/api", "https://docs.example.com/api",
+             "content sha256:aa -> sha256:bb")]
+        assert findings[0]["line"] is None and findings[0]["confidence"] is None
+        r = classify_all(findings)
+        assert (r["drift_score"], r["by_severity"]["HIGH"]) == ("SIGNIFICANT", 1)
+        assert r["findings"][0]["rule"] == mod.DOC_SOURCE_RULE
+
+    def test_no_changed_document_is_clean(self):
+        unchanged = {**DOC_DRIFT, "changed": []}
+        assert classify_all(mod.project_doc_drift(unchanged))["drift_score"] == "CLEAN"
+
     @pytest.mark.parametrize("project,data", [
         (mod.project_file_drift, {"added": [], "removed": []}),
         (mod.project_constituents, {"drifted": []}),
         (mod.project_constituents, [FRESHNESS]),
-    ], ids=["file-drift-partial", "constituents-partial", "constituents-array"])
+        (mod.project_doc_drift, {"changed": []}),
+        (mod.project_doc_drift, FILE_DRIFT),
+    ], ids=["file-drift-partial", "constituents-partial", "constituents-array", "doc-drift-partial",
+            "doc-drift-file-drift"])
     def test_a_file_that_is_not_its_source_is_refused(self, project, data):
         with pytest.raises(ValueError, match="^not a "):
             project(data)
@@ -543,6 +571,16 @@ class TestOtherSources:
         assert json.loads(res.stdout)["sources"] == {"constituents": 2}
         r = classify_all(json.loads(findings.read_text(encoding="utf-8")))
         assert (r["drift_score"], r["by_severity"]["HIGH"]) == ("SIGNIFICANT", 1)
+
+    def test_doc_drift_alone_projects_a_docs_only_skill(self, tmp_path):
+        docs = _write_json(tmp_path / "doc-drift.json", DOC_DRIFT)
+        findings = tmp_path / "findings.json"
+        res = _run_cli("--doc-drift", str(docs), "-o", str(findings))
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert json.loads(res.stdout)["sources"] == {"doc_drift": 1}
+        res = _run_cli(str(findings))
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert json.loads(res.stdout)["drift_score"] == "SIGNIFICANT"
 
     def test_no_source_file_is_an_error(self, tmp_path):
         res = _run_cli("--constituents", str(tmp_path / "constituent-freshness.json"))
@@ -669,6 +707,7 @@ class TestCli:
     def test_help_prints_the_contract(self):
         res = _run_cli("--help")
         assert res.returncode == 0, res.stderr
-        for section in ("--from-diff DIFF:", "--file-drift FILE, --constituents FILE, --semantic FILE:",
+        for section in ("--from-diff DIFF:",
+                        "--file-drift FILE, --constituents FILE, --semantic FILE, --doc-drift FILE:",
                         "category_choices", "ambiguous_name", "--rules:", "Exit codes:"):
             assert section in res.stdout, section

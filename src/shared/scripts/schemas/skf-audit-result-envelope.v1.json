@@ -16,6 +16,7 @@
           "skill-not-found": 3,
           "not-skf-output": 3,
           "forge-tier-missing": 3,
+          "no-baseline": 3,
           "source-dir-missing": 3,
           "provenance-invalid": 3,
           "source-unreadable": 3,
@@ -83,7 +84,7 @@
     "upstream_moved": {
       "type": ["boolean", "null"],
       "default": null,
-      "description": "True when step 1's one skf-check-workspace-drift.py upstream call found that the remote moved past the commit and ref the skill was built from (status moved), false when it found them unchanged, null when the check was skipped (no git source, no baseline commit or ref, a compose-mode stack, degraded mode) or could not reach the remote."
+      "description": "True when step 1's one skf-check-workspace-drift.py upstream call found that the remote moved past the commit and ref the skill was built from (status moved), false when it found them unchanged, null when the check was skipped (no git source, no baseline commit or ref, a stack skill, a docs-only skill) or could not reach the remote."
     },
     "upstream_ref": {
       "type": ["string", "null"],
@@ -94,7 +95,7 @@
     "exit_code": {
       "type": "integer",
       "enum": [0, 2, 3, 4, 6],
-      "description": "Process exit code matching the Exit Codes table of the skill's references/headless-contract.md, derived from halt_reason: null gives 0, input-missing 2, skill-not-found, not-skf-output, forge-tier-missing, source-dir-missing, provenance-invalid, source-unreadable and helper-missing 3, write-failed 4, user-cancelled 6."
+      "description": "Process exit code matching the Exit Codes table of the skill's references/headless-contract.md, derived from halt_reason: null gives 0, input-missing 2, skill-not-found, not-skf-output, forge-tier-missing, no-baseline, source-dir-missing, provenance-invalid, source-unreadable and helper-missing 3, write-failed 4, user-cancelled 6."
     },
     "halt_reason": {
       "type": ["string", "null"],
@@ -104,6 +105,7 @@
         "skill-not-found",
         "not-skf-output",
         "forge-tier-missing",
+        "no-baseline",
         "source-dir-missing",
         "provenance-invalid",
         "source-unreadable",
@@ -132,18 +134,18 @@
         "properties": {
           "gate": {
             "type": "string",
-            "enum": ["init.manifest-lags-link", "init.degraded-mode", "init.upstream-drift"],
-            "description": "The gate that auto-resolved: step 1's manifest-vs-link gate, its degraded-mode gate (no provenance map) or its upstream-drift gate. Each records its decision in the run sink the moment it decides."
+            "enum": ["init.manifest-lags-link", "init.upstream-drift"],
+            "description": "The gate that auto-resolved: step 1's manifest-vs-link gate or its upstream-drift gate. Each records its decision in the run sink the moment it decides."
           },
           "default_action": {
             "type": "string",
             "minLength": 1,
-            "description": "The action documented as the gate's default: 'N' (audit the link's version), 'X' (abort without degraded=true) or 'C' (audit the upstream ref)."
+            "description": "The action documented as the gate's default: 'N' (audit the link's version) or 'C' (audit the upstream ref)."
           },
           "taken_action": {
             "type": "string",
             "minLength": 1,
-            "description": "The action the run took: the default, or the pre-supplied input's choice (degraded=true takes 'D'; upstream_drift_choice takes 'C', 'S' or 'X')."
+            "description": "The action the run took: the default, or the pre-supplied upstream_drift_choice ('C', 'S' or 'X')."
           },
           "reason": {
             "type": "string",
@@ -162,7 +164,7 @@
     "warnings": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: upstream_tree_unavailable when [C] could not read the upstream ref into a private tree and the audit stayed on the baseline, source_tree_not_removed when the private tree could not be removed, customization_resolver_unavailable when the customization resolver failed and only the bundled customize.toml applied, and result_file_write_failed when a result file could not be written. Present only when there is at least one."
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: upstream_tree_unavailable when [C] could not read the upstream ref into a private tree and the audit stayed on the baseline, source_tree_not_removed when the private tree could not be removed, doc_fetch_failed and doc_not_hashed (each with its count) when a docs-only skill's score leaves out documents that could not be fetched or have no recorded hash, customization_resolver_unavailable when the customization resolver failed and only the bundled customize.toml applied, and result_file_write_failed when a result file could not be written. Present only when there is at least one."
     },
     "error": {
       "type": "object",

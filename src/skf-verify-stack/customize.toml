@@ -10,27 +10,40 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any verification work.
+# Steps SKILL.md On Activation step 4 runs once this file resolves: after
+# config.yaml is loaded and {headless_mode} is resolved, before the emitter
+# pre-flight (step 5) and before any stage. Overrides append. Use for org-wide
+# pre-flight checks (auth, network, compliance) that must precede any
+# verification work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run once activation completes (the emitter resolved), before
+# references/init.md (the first stage) loads. Overrides append. Use for
+# context loads or banner customization.
 
 activation_steps_append = []
 
 # Persistent facts the workflow keeps in mind for the whole run
 # (verification standards, evidence-citation rules, house-style verdict
-# language). Overrides append.
+# language, the other names a technology goes by). Overrides append.
 #
 # Each entry is either:
 #   - a literal sentence, e.g. "Verdict citations must include file:line spans."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/verify-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#
+# Extra aliases go here: a fact such as "Our documents call the postgresql
+# skill Postgres or PG." makes step 2 (coverage) pass both names to the
+# mentions helper as aliases of that skill, so the architecture document's
+# "PG" covers it and pairs it for step 3.
+#
+# The bundled entry loads every project-context.md under the project root,
+# and nothing when there is none. Arrays only append, so an override file
+# cannot remove it: to keep a project-context.md from steering verification,
+# add a literal fact that says so, e.g. "project-context.md describes our
+# app, not the stack this workflow verifies: ignore it."
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
@@ -42,18 +55,37 @@ persistent_facts = [
 
 on_complete = ""
 
-# --- Optional asset overrides ---
-#
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
+# --- Optional override. An empty string means the default named below. ---
+
+# The template step 1 (references/init.md section 4) creates the feasibility
+# report from: a path from the skill root, or a {project-root}/... path.
+# Default: assets/feasibility-report-template.md. A house-style copy may
+# reword the prose and add sections of its own, and must keep what the shared
+# feasibility report schema (feasibility-report-schema.md under
+# shared/references/) fixes, since the next run, create-stack-skill and
+# refine-architecture read the report through it:
+#   - the frontmatter keys with their starting values, `schemaVersion: "1.0"`
+#     included;
+#   - the `## Executive Summary`, `## Coverage Analysis`,
+#     `## Integration Verdicts`, `## Recommendations` and `## Evidence Sources`
+#     headings, once each and in that order;
+#   - one empty `| lib_a | lib_b | verdict | rationale |` table under
+#     `## Integration Verdicts`, and the empty
+#     `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |`
+#     table under `## Evidence Sources`: the stages fill both in place.
+# Step 6 checks the finished report against the schema and halts
+# (`schema-violation`) on a copy that breaks it.
 
 report_template_path = ""
-integration_rules_path = ""
-coverage_patterns_path = ""
 
-# Override the destination directory for the feasibility report only. Empty =
-# use {forge_data_folder} from config.yaml. The result-contract JSON
-# (verify-stack-result-*.json) always stays in {forge_data_folder} as a stable
-# path for pipeline consumers, so redirecting this does not relocate it.
-
-output_folder_path = ""
+# Not overridable:
+#   - the integration verification rules: they hold the obligations the shared
+#     schema puts on this report's producer (Check 4's literal citation and the
+#     Plausible cap), which the report's readers rely on;
+#   - the coverage patterns: the shared mentions helper finds the skills the
+#     architecture document names, and a fact (see persistent_facts) adds the
+#     other names a skill goes by;
+#   - the report folder: the report always lands in {forge_data_folder}, where
+#     create-stack-skill and refine-architecture look for it. Change
+#     forge_data_folder in config.yaml to move the report and its readers
+#     together.

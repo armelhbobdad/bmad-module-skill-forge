@@ -33,6 +33,8 @@ fallback. These tests keep audit and the knowledge base on it:
   runner's JSON, copies exports or judges completeness by eye, and a file
   it can read neither way halts instead of looping; run as the prose writes
   them, the commands give a complete snapshot (BMad Builder determinism-2);
+- every re-index scans the bounded list of a provenance map: degraded mode,
+  its source-tree scan and its exclusion list are gone (enhancement-4);
 - tool-resolution.md's ast_bridge rows name `find_code_by_rule` with the
   recipes and `ast-grep scan -r ... --json=stream`, never `sg run`,
   `ast-grep -p` or `ast-grep run -p`;
@@ -417,18 +419,15 @@ def _blocks(section: str) -> list[list[str]]:
 
 def test_the_runner_call_starts_from_a_removed_json() -> None:
     """The protocol reads any JSON at -o after the call as the call's own
-    (extraction-patterns.md), so each runner block removes it first, then
+    (extraction-patterns.md), so the runner block removes it first, then
     reads the scan list the helper wrote, with no head cap."""
     section = _slice(_read(RE_INDEX), "### 3. Extract Current Exports", "**2. Build the snapshot.**")
-    blocks = _blocks(section)
-    assert len(blocks) == 2, "a runner block for the scan list, one for degraded mode"
-    for lines in blocks:
-        assert lines[0] == 'rm -f "{auditDataFolder}/extraction.json"', lines[0]
-        call = _flow(lines[1])
-        assert call.startswith("uv run {extractPublicApiHelper} --mode full --source-root \"{source_root}\"")
-        assert "--head-cap 0" in call and call.endswith('-o "{auditDataFolder}/extraction.json"')
-    assert '--files-from "{auditDataFolder}/scan-files.json"' in _flow(blocks[0][1])
-    assert "--files-from" not in blocks[1][1] and '--language "{language}"' in blocks[1][1]
+    (lines,) = _blocks(section)
+    assert lines[0] == 'rm -f "{auditDataFolder}/extraction.json"', lines[0]
+    call = _flow(lines[1])
+    assert call.startswith("uv run {extractPublicApiHelper} --mode full --source-root \"{source_root}\"")
+    assert "--head-cap 0" in call and call.endswith('-o "{auditDataFolder}/extraction.json"')
+    assert '--files-from "{auditDataFolder}/scan-files.json"' in call
     flow = _flow(section)
     assert ("Never open the JSON: item 2's helper reads it and prints what this step acts on, its `status` "
             "included (never the exit code)") in flow
@@ -450,6 +449,8 @@ def test_the_scan_list_and_the_snapshot_come_from_the_helper() -> None:
     call = _flow(block[0])
     assert call.startswith("uv run {extractionSnapshotHelper} build")
     assert '--source-path "{source_path}"' in call
+    # Every skill that reaches re-index has a provenance map (degraded mode is gone).
+    assert ' --provenance-map "{provenanceMap}" ' in call and "[--provenance-map" not in call
     assert '[--details "{auditDataFolder}/export-details-{n}.json"]...' in call
     assert call.endswith('-o "{forge_version}/extraction-snapshot.json"')
     flow = _flow(build)
@@ -468,6 +469,19 @@ def test_the_scan_list_and_the_snapshot_come_from_the_helper() -> None:
     assert "the snapshot helper gives each one its file's `source_library`" in leaves
     assert "looked up once per file in the provenance map's `entries[]`" not in text
     assert "`{auditDataFolder}/export-details.json`" not in text
+
+
+def test_re_index_always_scans_the_bounded_list() -> None:
+    """Degraded mode is gone (BMad Builder enhancement-4): step 1 stops a
+    skill without a provenance map, so re-index never scans the whole source
+    tree and keeps no exclusion list of its own."""
+    text = _read(RE_INDEX)
+    assert "degraded" not in text.lower()
+    scan = _flow(_slice(text, "### 2. Build Bounded Scan List", "### 3. Extract Current Exports"))
+    assert ("Every skill that reaches this step has a provenance map: step 1 stops a skill without one, and "
+            "sends a compose-mode stack and a docs-only skill around this step") in scan
+    for gone in ("--language", "--exclude", "**/node_modules/**", "Scan mode"):
+        assert gone not in text, gone
 
 
 def test_the_summary_takes_its_counts_from_the_snapshot() -> None:
@@ -530,7 +544,7 @@ def test_the_prose_commands_build_a_complete_snapshot(tmp_path: Path) -> None:
     result = _run_line(runner, values, set())
     assert json.loads((data / "extraction.json").read_text(encoding="utf-8"))["status"] == "ok", result.stderr
     build = _blocks(_slice(text, "**2. Build the snapshot.**", "**3. What the runner leaves."))[0][0]
-    result = _run_line(build, values, {"--provenance-map", "--extraction"})
+    result = _run_line(build, values, {"--extraction"})
     line = json.loads(result.stdout)
     assert (result.returncode, line["complete"], line["runner_status"]) == (0, True, "ok"), (
         result.stdout + result.stderr)

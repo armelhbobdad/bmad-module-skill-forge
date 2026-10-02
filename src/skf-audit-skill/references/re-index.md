@@ -77,7 +77,7 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 
 **Why bounded:** without this constraint, files that were deliberately excluded by the original brief's scope patterns (test fixtures, vendored code, generated artifacts, demo code, unrelated modules) get scanned on every audit and their exports are flagged by step 3 structural diff as "added" — false-positive drift that obscures real structural changes.
 
-**If a provenance map was loaded in step 1** (normal mode):
+Every skill that reaches this step has a provenance map: step 1 stops a skill without one, and sends a compose-mode stack and a docs-only skill around this step.
 
 1. The **bounded scan list** is `{bounded_scan_files}`, the union of `entries[].source_file` and `file_entries[].source_file` that step 1 §4's `skf-load-provenance.py normalize` call returned. Do **not** re-walk the provenance map to rebuild it. Resolve `{extractionSnapshotHelper}` ← first existing path in `{extractionSnapshotProbeOrder}` (if none exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `re-index:scan-list`) and write the list where the runner reads it, from `{project-root}`:
 
@@ -91,10 +91,6 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 3. Report:
 
    "**Bounded scan:** {count} files from provenance map ({provenance_date})."
-
-**If degraded mode** (no provenance map was loaded: the user confirmed `[D]egraded mode` at step 1 §4): the scan falls back to the source tree. At Forge tier and above, §3's second runner command reads it (the files of `{language}`, the `language` of `metadata.json`, less the generic exclusions it passes); at Quick tier, list all source files under `{source_root}` with the project's primary language extensions (derive from `metadata.json.language`: `*.ts` / `*.tsx` for typescript, `*.py` for python, `*.rs` for rust, `*.go` for go), leaving out the same exclusions: `**/tests/**`, `**/test/**`, `**/__tests__/**`, `**/*.test.*`, `**/*.spec.*`, `**/node_modules/**`, `**/dist/**`, `**/build/**`, `**/target/**`, `**/__pycache__/**`, `**/.venv/**`, `**/vendor/**`. Create the stage data folder (`mkdir -p "{auditDataFolder}"`). Report:
-
-   "**Degraded mode scan:** files from the source tree (no provenance map, so results may include files out of the original brief scope)."
 
 ### 3. Extract Current Exports
 
@@ -110,22 +106,6 @@ uv run {extractPublicApiHelper} --mode full \
     -o "{auditDataFolder}/extraction.json"
 ```
 
-In degraded mode, run instead:
-
-```bash
-rm -f "{auditDataFolder}/extraction.json"
-uv run {extractPublicApiHelper} --mode full \
-    --source-root "{source_root}" \
-    --language "{language}" \
-    --exclude "**/tests/**" --exclude "**/test/**" --exclude "**/__tests__/**" \
-    --exclude "**/*.test.*" --exclude "**/*.spec.*" --exclude "**/node_modules/**" \
-    --exclude "**/dist/**" --exclude "**/build/**" --exclude "**/target/**" \
-    --exclude "**/__pycache__/**" --exclude "**/.venv/**" --exclude "**/vendor/**" \
-    --head-cap 0 \
-    [--timeout "{runner_timeout}"] \
-    -o "{auditDataFolder}/extraction.json"
-```
-
 The runner stops its ast-grep runs after 540 seconds and still writes its JSON (status `incomplete`), so give the command your shell tool's longest timeout; when that is under 10 minutes, pass `--timeout` as `{runner_timeout}`, a little under it (`100` under a two-minute limit). Never open the JSON: item 2's helper reads it and prints what this step acts on, its `status` included (never the exit code). At Quick tier no runner runs.
 
 **2. Build the snapshot.** Resolve `{extractionSnapshotHelper}` ← first existing path in `{extractionSnapshotProbeOrder}` (if none exists, HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `re-index:snapshot`) and, from `{project-root}`, run:
@@ -136,13 +116,13 @@ uv run {extractionSnapshotHelper} build \
     --source-path "{source_path}" \
     --tier "{tier}" \
     --date "{timestamp}" \
-    [--provenance-map "{provenanceMap}"] \
+    --provenance-map "{provenanceMap}" \
     [--extraction "{auditDataFolder}/extraction.json"] \
     [--details "{auditDataFolder}/export-details-{n}.json"]... \
     -o "{forge_version}/extraction-snapshot.json"
 ```
 
-Pass `--provenance-map` unless the run is in degraded mode, `--extraction` when the runner wrote its JSON, and one `--details` for each file item 3 wrote (none on the first build). The helper merges the runner's exports with the ones read by eye, gives every file on the list one status (`extracted`, `read-by-eye`, `hash-tracked` for a script, asset or doc only `file_entries[]` names, which step 3 compares by content hash, `missing`, `parse-failed` or `unread`) and prints one line. Act on its fields:
+Pass `--extraction` when the runner wrote its JSON, and one `--details` for each file item 3 wrote (none on the first build). The helper merges the runner's exports with the ones read by eye, gives every file on the list one status (`extracted`, `read-by-eye`, `hash-tracked` for a script, asset or doc only `file_entries[]` names, which step 3 compares by content hash, `missing`, `parse-failed` or `unread`) and prints one line. Act on its fields:
 
 - **`runner_status` is `incomplete`** on the first build (an ast-grep run failed, or the time limit ran out): run item 1 once more, then this command again.
 - **`runner_status` is `no-ast-grep`, or null at Forge tier and above** (no JSON at `-o` after the call, or no runner candidate): the runner cannot run. Follow **When the Runner Cannot Run** in `{extractionPatternsData}` over the files in `to_read`, recording each export as item 3 does, T1 with `ast-grep` for one the recipes match.
@@ -153,7 +133,7 @@ Pass `--provenance-map` unless the run is in degraded mode, `--extraction` when 
 
 **3. What the runner leaves.** Read by eye (T1-low, `extraction_method: source-read`, `ast_node_type: null`) only:
 
-- each file in `to_read`: a `parse-failed` one (its `issue`: a syntax error, where a recipe can miss an export; not UTF-8; unreadable), with the warning "**AST fallback:** ast-grep could not parse {file} ({issue}); its exports were read from source and labeled T1-low.", and an `unread` one (an incomplete run, or no runner: then every file, by text pattern matching at Quick tier). In degraded mode with no runner result the helper knows no file yet: read the files §2 lists at Quick tier;
+- each file in `to_read`: a `parse-failed` one (its `issue`: a syntax error, where a recipe can miss an export; not UTF-8; unreadable), with the warning "**AST fallback:** ast-grep could not parse {file} ({issue}); its exports were read from source and labeled T1-low.", and an `unread` one (an incomplete run, or no runner: then every file, by text pattern matching at Quick tier);
 - each name in `extraction_gaps`, in its `file` (an entry point exports it, no recipe found it);
 - the forms the recipes leave out (Known Limitation #11 in `{extractionPatternsData}`) in a file that uses them.
 
@@ -169,7 +149,6 @@ Take every value from the snapshot (`files_by_status`, `counts`, `cap_hits`) and
 
 | Metric | Value |
 |--------|-------|
-| Scan mode | {bounded (provenance-map) / degraded (source-tree)} |
 | Files scanned | {files_scanned}: {extracted} extracted, {read-by-eye} read by eye, {hash-tracked} tracked by hash, {missing} missing |
 | Exports found | {counts.exports} |
 | By type | {each counts.by_type entry as `{type}` ×{count}} |

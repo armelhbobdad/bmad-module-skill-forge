@@ -15,7 +15,7 @@ Both variants share the top-level `provenance_version`, `skill_name`, `skill_typ
 
 ## Code-mode variant
 
-Used when the workflow ran in code-mode against an actual codebase. `source_repo` and `source_commit` capture the upstream anchor(s); `entries[].extraction_method` names the tool that read the export (`ast_bridge` or `source_reading`): step 4 §1 gives the labels each method pairs with, and §3a checks them with `skf-render-metadata-stats.py`. `entries[].source_file` is relative to `{project_root}`, the project root (`project_root` from step 1), whatever folder `{scan_root}` narrowed the scan to, and `source_line` is the line that defines the export. `integrations[].co_import_files[].file` is relative to `{project_root}` too, because step 3 counts imports with `--relative-to {project_root}`. `integrations[].detection_method` is `"co-import grep"` because integration pairs are confirmed by co-import file evidence.
+Used when the workflow ran in code-mode against an actual codebase. `source_repo` and `source_commit` capture the upstream anchor(s); `entries[].extraction_method` names the tool that read the export (`ast_bridge` or `source_reading`): step 4 §1 gives the labels each method pairs with, and §3a checks them with `skf-render-metadata-stats.py`. `entries[].source_file` is relative to `{project_root}`, the project root (`project_root` from step 1), whatever folder `{scan_root}` narrowed the scan to, and `source_line` is the line that defines the export. `integrations[].co_import_files[]` holds each file that imports both libraries as step 5 recorded it from `skf-pair-intersect.py` (`path`, relative to `{project_root}` too because step 3 counts imports with `--relative-to {project_root}`, and `line_a` and `line_b`, the first line that imports each library). `integrations[].detection_method` is `"co-import grep"` because integration pairs are confirmed by co-import file evidence.
 
 ```json
 {
@@ -44,7 +44,7 @@ Used when the workflow ran in code-mode against an actual codebase. `source_repo
       "libraries": ["{libA}", "{libB}"],
       "pattern_type": "{type}",
       "detection_method": "co-import grep",
-      "co_import_files": [{"file": "{path}", "line": 0}],
+      "co_import_files": [{"path": "{path}", "line_a": 0, "line_b": 0}],
       "confidence": "T1|T1-low"
     }
   ]
@@ -53,7 +53,7 @@ Used when the workflow ran in code-mode against an actual codebase. `source_repo
 
 ## Compose-mode variant
 
-Used when the workflow ran in compose-mode against pre-generated constituent skills. Source-anchor fields (`source_repo`, `source_commit`, `source_ref`) are `null` because there is no codebase to anchor against: provenance traces back to the constituent skills instead, captured in the `constituents[]` array. Each entry's `extraction_method` is `"compose-from-skill"`; integrations have `detection_method` of `"architecture_co_mention"` (named together in the architecture doc, in a passage step 5 confirmed), `"constituent_documented_contract"` (a cross-library contract a constituent skill's own docs state, found when there is no architecture document, e.g. a grep-verified upstream seam cited from a source skill), or `"inferred_from_shared_domain"` (inferred from shared domain keywords, no cited contract; a shared language alone never makes a pair). `detection_method` records *how* an edge was discovered; it is orthogonal to `confidence`, which is inherited from the constituent skills per the Confidence Tier Inheritance rule in `{composeModeRulesPath}` (the pair tier `skf-render-stack-metadata.py` gives, never forced to a fixed band by detection method).
+Used when the workflow ran in compose-mode against pre-generated constituent skills. Source-anchor fields (`source_repo`, `source_commit`, `source_ref`) are `null` because there is no codebase to anchor against: provenance traces back to the constituent skills instead, captured in the `constituents[]` array. Each entry's `extraction_method` is `"compose-from-skill"`; integrations have `detection_method` of `"architecture_co_mention"` (named together in the architecture doc, in a passage step 5 confirmed), `"constituent_documented_contract"` (a cross-library contract a constituent skill's own docs state, found when there is no architecture document, e.g. a grep-verified upstream seam cited from a source skill), or `"inferred_from_shared_domain"` (inferred from shared domain keywords, no cited contract; a shared language alone never makes a pair). `detection_method` records *how* an edge was discovered; it is orthogonal to `confidence`, which is inherited from the constituent skills per the Confidence Tier Inheritance rule in `references/compose-mode-rules.md` (the pair tier `skf-render-stack-metadata.py` gives, never forced to a fixed band by detection method).
 
 ```json
 {
@@ -99,4 +99,4 @@ Used when the workflow ran in compose-mode against pre-generated constituent ski
 }
 ```
 
-**Use the `metadata_hash` value already stored in workflow state during step 2 (S13) — do NOT re-read and re-hash at step 7 time. The stored hash captures the state as it was at manifest-detection time, which is the correct provenance anchor.**
+`constituents[].metadata_hash` is the hash step 4 §0 records as the provenance anchor; step 7 copies it and never hashes again.

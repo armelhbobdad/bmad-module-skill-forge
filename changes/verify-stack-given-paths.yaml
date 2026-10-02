@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-verify-stack
+summary: |
+  An interactive Verify Stack run no longer asks again for a path given with `--architecture-doc`, `--prd` or `--previous-report`: it asks only for what no flag answered.
+prs: [640]
+issues: [594]

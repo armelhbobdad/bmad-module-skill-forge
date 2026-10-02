@@ -2,16 +2,23 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""SKF Render Stack Metadata: a stack's pair tiers and the computed fields of its metadata.json.
+"""SKF Render Stack Metadata: a stack's library tiers, pair tiers and the computed fields of its metadata.json.
 
-create-stack-skill gives each integration the tier of its pair
-(detect-integrations section 3) and writes the counted and ranked fields of
-metadata.json (generate-output section 6). This helper holds those rules
-once, so no step file restates them, and skf-validate-output.py
---skill-type stack recomputes the dominant tier with dominant_tier here.
+create-stack-skill sets each code-mode library's tier from its checked
+export records (parallel-extract section 3a), gives each integration the
+tier of its pair (detect-integrations section 3) and writes the counted and
+ranked fields of metadata.json (generate-output section 6). This helper
+holds those rules once, so no step file restates them, and
+skf-validate-output.py --skill-type stack recomputes the dominant tier with
+dominant_tier here.
 
 Rules:
   Tiers, from the strongest: T1, T1-low, T2, T3.
+
+  library_tier(records)
+      A code-mode library is T1 when it has export records and every one
+      names extraction_method ast_bridge (an ast-grep rule matched it), and
+      T1-low otherwise: one export read by eye, or none recorded at all.
 
   combine_pair_tier(a, b, mode)
       An integration takes the weaker of its two libraries' tiers, one rule
@@ -55,7 +62,20 @@ Input (--input <json-file-or-'-'>, where '-' reads stdin):
   in their canonical spelling. Each library is named once, and each pair
   names two different libraries of `libraries`, once in either order.
 
+Export records (library-tiers --records <json-file-or-'-'>): the file
+parallel-extract section 3a writes and checks with
+skf-render-metadata-stats.py,
+  {"entries": [{"source_library": "<library>",
+                "extraction_method": "ast_bridge|source_reading", ...}, ...]}
+and --libraries, the stack's libraries, comma-separated. Every record names
+one of them; a library with no record is T1-low.
+
 Subcommands:
+  library-tiers
+              each library's tier, in the order --libraries gives
+              (parallel-extract section 3a):
+                {"libraries": [{"name": "<library>", "tier": "T1|T1-low",
+                                "export_count": N, "ast_bridge_count": M}, ...]}
   pair-tiers  the tier of each integration (detect-integrations section 3):
                 {"mode": "<mode>",
                  "integrations": [{"a": "<a>", "b": "<b>", "tier": "<tier>"}, ...]}
@@ -72,6 +92,7 @@ Subcommands:
                  "integrations": [{"a": "<a>", "b": "<b>", "tier": "<tier>"}, ...]}
 
 CLI:
+  uv run skf-render-stack-metadata.py library-tiers --records export-records.json --libraries "react,zod"
   uv run skf-render-stack-metadata.py pair-tiers --input -
   uv run skf-render-stack-metadata.py metadata --input stack.json
 
@@ -92,6 +113,9 @@ from pathlib import Path
 # T1-low, T3 than T2.
 TIERS = ("T1", "T1-low", "T2", "T3")
 MODES = ("code", "compose")
+# The extraction_method of an export an ast-grep rule matched: the only one
+# that keeps a code-mode library at T1.
+AST_METHOD = "ast_bridge"
 # Authorities from the highest to the lowest.
 AUTHORITIES = ("official", "community", "internal")
 # The authority of a library that records none.
@@ -122,6 +146,15 @@ def _token(value, allowed: tuple[str, ...], what: str) -> str:
 # --------------------------------------------------------------------------
 # Rules
 # --------------------------------------------------------------------------
+
+
+def library_tier(methods: list[str]) -> str:
+    """A code-mode library's tier from the extraction_method of each of its export records.
+
+    T1 when there is at least one record and every one is ast_bridge, T1-low
+    otherwise: an export read by eye, or no export recorded, never earns T1.
+    """
+    return "T1" if methods and all(method == AST_METHOD for method in methods) else "T1-low"
 
 
 def combine_pair_tier(a: str, b: str, mode: str) -> str:
@@ -234,6 +267,44 @@ def parse_stack(data) -> tuple[str, list[dict], list[tuple[str, str]]]:
     return mode, libraries, pairs
 
 
+def parse_library_names(value: str) -> list[str]:
+    """The comma-separated --libraries list, each name once. Raises InputError."""
+    names = [name.strip() for name in value.split(",") if name.strip()]
+    if not names:
+        raise InputError("--libraries must name at least one library")
+    seen: set[str] = set()
+    for name in names:
+        if name in seen:
+            raise InputError(f"library {name!r} is listed twice in --libraries")
+        seen.add(name)
+    return names
+
+
+def library_tiers(data, names: list[str]) -> list[dict]:
+    """Each library of `names` with its tier and record counts, from the export records.
+
+    `data` is the parsed records file, {"entries": [...]}. Raises InputError
+    on a record that names no library, or one --libraries does not list.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+        raise InputError("the export records must be a JSON object with an `entries` array")
+    methods: dict[str, list[str]] = {name: [] for name in names}
+    for i, record in enumerate(data["entries"]):
+        where = f"entries[{i}]"
+        if not isinstance(record, dict):
+            raise InputError(f"{where} must be an object; got {record!r}")
+        library = record.get("source_library")
+        if not isinstance(library, str) or library not in methods:
+            raise InputError(f"{where}.source_library {library!r} is not one of --libraries")
+        method = record.get("extraction_method")
+        methods[library].append(method.strip().lower() if isinstance(method, str) else "")
+    return [
+        {"name": name, "tier": library_tier(found), "export_count": len(found),
+         "ast_bridge_count": sum(method == AST_METHOD for method in found)}
+        for name, found in methods.items()
+    ]
+
+
 def pair_tiers(mode: str, libraries: list[dict], pairs: list[tuple[str, str]]) -> list[dict]:
     """Each pair with the tier combine_pair_tier gives it."""
     tier = {library["name"]: library["confidence"] for library in libraries}
@@ -273,6 +344,11 @@ def _read_input(source: str):
         raise InputError(f"the input is not valid JSON: {exc}") from exc
 
 
+def _cmd_library_tiers(args: argparse.Namespace) -> dict:
+    names = parse_library_names(args.libraries)
+    return {"libraries": library_tiers(_read_input(args.records), names)}
+
+
 def _cmd_pair_tiers(args: argparse.Namespace) -> dict:
     mode, libraries, pairs = parse_stack(_read_input(args.input))
     return {"mode": mode, "integrations": pair_tiers(mode, libraries, pairs)}
@@ -286,14 +362,29 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-render-stack-metadata",
         description=(
-            "Compute a stack's pair tiers (the weaker of the two libraries' tiers, in "
-            "both modes) and the counted and ranked fields of its metadata.json: "
-            "counts, libraries, integration_pairs, confidence_distribution (each "
-            "library once), confidence_tier (the dominant tier) and source_authority "
-            "(the lowest, community for a library that records none)."
+            "Compute a code-mode stack's library tiers (T1 only when an ast-grep rule "
+            "matched every export), its pair tiers (the weaker of the two libraries' "
+            "tiers, in both modes) and the counted and ranked fields of its "
+            "metadata.json: counts, libraries, integration_pairs, "
+            "confidence_distribution (each library once), confidence_tier (the "
+            "dominant tier) and source_authority (the lowest, community for a "
+            "library that records none)."
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    text = "print each library's tier from its checked export records as JSON"
+    command = sub.add_parser("library-tiers", help=text, description=text)
+    command.add_argument(
+        "--records",
+        required=True,
+        help="path to the export records JSON ({entries: [...]}), or '-' for stdin",
+    )
+    command.add_argument(
+        "--libraries",
+        required=True,
+        help="the stack's libraries, comma-separated; a library with no record is T1-low",
+    )
+    command.set_defaults(func=_cmd_library_tiers)
     for name, func, text in (
         ("pair-tiers", _cmd_pair_tiers, "print the tier of each integration pair as JSON"),
         ("metadata", _cmd_metadata, "print the computed metadata.json fields of the stack as JSON"),

@@ -72,6 +72,28 @@ compose branch of the sections they govern.
   helper, whose pairs carry their co-import files and lines, instead of
   grepping again (#598). Every path the run records is relative to the
   project root.
+- Every HARD HALT names its exit code, `halt_reason` and phase, and each
+  halting step shows the shared emitter's emit-halt command; no step types
+  an `SKF_STACK_RESULT_JSON` line. A shared helper that resolves to no path
+  halts `helper-missing` (exit 3), an unknown verdict token
+  `unknown-verdict-token` (exit 2), and the schema lists exactly the
+  reasons the steps raise. Each headless gate records its decision in the
+  run sink, the scope gate naming every library it drops, and step 9 writes
+  the result files and the success line through the emitter (#593).
+- The run folder holds the run's state: step 3's import counts, step 4's
+  extraction bundle and the checked export records, which steps 4 to 7 read
+  from disk, and step 6's draft, reviewed by path and staged verbatim; only
+  a finished or cancelled run deletes it. Step 4 takes each library's tier
+  from skf-render-stack-metadata.py library-tiers and step 6 its counts, the
+  description's included, from the metadata projection (#587, W3 handoffs).
+  Each warning reaches the run sink as text through a staged file, every
+  step that warns shows the record command, and the facts the evidence
+  report lists are warnings there.
+- The scope is confirmed at one gate, and a missing comention helper halts
+  instead of a hand scan (#599). customize.toml keeps only the template and
+  integration-pattern paths, and the metadata.json contract is fixed in
+  assets/metadata-contract.md (#596). The constituent hash anchor is stated
+  once, in step 4, and generate-output states each rule once (#600).
 
 The step calls run as written, on small fixtures.
 
@@ -109,6 +131,9 @@ EXTRACT = REFS / "parallel-extract.md"
 MANIFESTS = REFS / "detect-manifests.md"
 COMPOSE_RULES = REFS / "compose-mode-rules.md"
 STACK_SKILL = STACK / "SKILL.md"
+CONTRACT = REFS / "invocation-contract.md"
+METADATA_CONTRACT = STACK / "assets" / "metadata-contract.md"
+CUSTOMIZE = STACK / "customize.toml"
 STEP_FILES = sorted(REFS.glob("*.md"))
 TIERS = REPO_ROOT / "src" / "knowledge" / "confidence-tiers.md"
 SCRIPTS = REPO_ROOT / "src" / "shared" / "scripts"
@@ -129,6 +154,8 @@ SCAN_MANIFESTS = SCRIPTS / "skf-scan-manifests.py"
 COUNT_IMPORTS = SCRIPTS / "skf-count-imports.py"
 PAIR_INTERSECT = SCRIPTS / "skf-pair-intersect.py"
 FRONTMATTER = SCRIPTS / "skf-validate-frontmatter.py"
+EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
+ENVELOPE_SCHEMA = SCRIPTS / "schemas" / "skf-stack-result-envelope.v1.json"
 RECONCILE = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "reconcile-coverage.py"
 NUMERATOR = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "verify-declared-numerator.py"
 
@@ -616,24 +643,64 @@ def test_the_label_check_runs_between_extraction_and_the_summary():
     assert "`coherence`" in check and "`confidence_distribution`" in check
     assert "§3a" in sections["4"], "§4 does not show the export label counts §3a kept"
     tiers = _from(check, "**Library tiers.**")
-    assert "`per_library_extractions[].confidence`" in tiers
-    assert "`ast_bridge`" in tiers and "`T1-low` otherwise" in tiers, "the library tier is not keyed on the method"
+    assert "`per_library_extractions[].confidence`" in tiers and "`tier`" in tiers
+    # The tier rule lives in the helper (W3 handoff): the step names no method or tier itself.
+    assert "`ast_bridge`" not in tiers and "otherwise" not in tiers, "§3a still works the library tier out by hand"
+    assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
+    assert '(exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:library-tiers`)' in tiers
 
 
-def test_the_labels_file_is_in_the_purges():
-    check = _sections(_body(_read(EXTRACT)))["3a"]
-    labels = _call(check, "renderMetadataStatsHelper").split("uv run {renderMetadataStatsHelper}", 1)[1].split()[0]
-    assert labels.endswith(".skf-labels.json"), labels
-    (cancel,) = [line for line in _read(COMPILE).splitlines() if line.startswith("- IF X:")]
-    for where, text in (("step 4 §3", _sections(_body(_read(EXTRACT)))["3"]), ("step 6 [X]", cancel)):
-        assert f"`{labels}`" in text, f"{where} does not purge {labels}"
+def _library_tiers_call() -> str:
+    return _call(_sections(_body(_read(EXTRACT)))["3a"], "renderStackMetadataHelper", "library-tiers")
+
+
+def test_the_library_tier_call_runs_as_written(tmp_path):
+    """#555 rule, one home: T1 only when an ast-grep rule matched every export of the library."""
+    records = tmp_path / "run" / "export-records.json"
+    records.parent.mkdir()
+    entries = _liba_records() + [dict(_liba_records()[0], source_library="libb")]
+    records.write_text(json.dumps({"entries": entries}), encoding="utf-8")
+    argv = _argv(_library_tiers_call(), "renderStackMetadataHelper",
+                 {"{exportRecordsFile}": str(records), "<names>": "liba,libb,libc"})
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *argv], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    tiers = {row["name"]: row["tier"] for row in json.loads(result.stdout)["libraries"]}
+    assert tiers == {"liba": "T1-low", "libb": "T1", "libc": "T1-low"}  # Client read by eye; libc recorded none
+
+
+def test_the_records_file_lives_in_the_run_folder():
+    """The checked records stay for step 7 in the run folder, which only a finished or cancelled run deletes."""
+    text = _read(EXTRACT)
+    assert re.search(r"^exportRecordsFile: '\{run_dir\}/[^']+\.json'$", _frontmatter(text), re.MULTILINE)
+    assert re.search(r"^bundleFile: '\{run_dir\}/[^']+\.json'$", _frontmatter(text), re.MULTILINE)
+    check = _sections(_body(text))["3a"]
+    assert _call(check, "renderMetadataStatsHelper").split("uv run {renderMetadataStatsHelper}", 1)[1].split()[0] \
+        == "{exportRecordsFile}"
+    assert "delete the file" not in check and ".skf-labels.json" not in text
+    purge = 'rm -rf "{run_dir}"'
+    (cancel_3,) = [line for line in _read(RANK).splitlines() if line.startswith("- IF X:")]
+    (cancel_6,) = [line for line in _read(COMPILE).splitlines() if line.startswith("- IF X:")]
+    no_manifests = _from(_sections(_body(_read(MANIFESTS)))["2"], "STOP and wait").split("\n\n")[0]
+    for where, line in (("step 2 option 3", no_manifests), ("step 3 [X]", cancel_3),
+                        ("step 6 [X]", cancel_6), ("step 9", _sections(_body(_read(REPORT)))["3"])):
+        assert purge in line, f"{where} does not delete the run folder"
+    # Every other halt keeps the folder, as the contract's Outputs row says: the all-failed halt's
+    # warnings.jsonl is the only record of why each library failed.
+    holders = sorted(path.name for path in STEP_FILES if purge in _read(path))
+    assert holders == ["compile-stack.md", "detect-manifests.md", "rank-and-confirm.md", "report.md"], holders
+    all_failed = _from(_sections(_body(text))["3"], "**If ALL extractions fail:**").split("\n\n")[0]
+    assert "The run folder stays" in all_failed and "`extraction-failed`" in all_failed
+    assert "deleted when the run finishes or the user cancels and kept after any other HALT" in _contract_row("Outputs")
+    # {version} is first bound at step 7 §1 (S11): no earlier step names a staging folder under it.
+    for path in (RANK, EXTRACT, COMPILE):
+        assert "{version}/*-tmp" not in _read(path), path.name
 
 
 def test_the_label_check_call_runs_as_written(tmp_path, monkeypatch, capsys):
     check = _sections(_body(_read(EXTRACT)))["3a"]
     call = _call(check, "renderMetadataStatsHelper")
     payload = re.search(r"echo '(.*?)' \|", call).group(1)
-    argv = _argv(call, "renderMetadataStatsHelper", {"{forge_data_folder}": str(tmp_path), "{stack_name}": "demo-stack"})
+    argv = _argv(call, "renderMetadataStatsHelper", {"{exportRecordsFile}": str(tmp_path / "export-records.json")})
     labels = Path(argv[0])
     stats = _load(STATS_HELPER, "skf_render_metadata_stats_stack_rules")
 
@@ -740,11 +807,11 @@ def test_stack_distribution_counts_each_library_once():
     for needle in ("`confidence_distribution`", "per_library_extractions[].confidence", "`library_count`",
                    "evidence report"):
         assert needle in six, needle
-    note = _h2_section(_read(TEMPLATE), "## metadata.json Structure").split("```")[-1]
+    note = _h2_section(_read(METADATA_CONTRACT), "## metadata.json Structure").split("```")[-1]
     knowledge = _slice(_read(TIERS), "## Confidence Distribution in Metadata", "## Anti-Patterns")
-    for where, text in (("the template note", note), ("confidence-tiers.md", knowledge)):
+    for where, text in (("the metadata contract note", note), ("confidence-tiers.md", knowledge)):
         assert "`library_count`" in text and "`per_library_extractions[].confidence`" in text, where
-    assert "read by eye" not in note, "the template re-derives the tier step 4 sets"
+    assert "read by eye" not in note, "the metadata contract re-derives the tier step 4 sets"
     assert "constituent count" not in _read(STATS_HELPER), "the helper still says a stack sums to its constituents"
     # create-skill never builds a stack, so its steps give no stack carve-out.
     create = REPO_ROOT / "src" / "skf-create-skill" / "references"
@@ -871,23 +938,16 @@ def test_step_5_takes_each_pair_tier_from_the_helper():
     assert "weaker" not in three, "§3 still states the tier rule itself"
 
 
-ENVELOPE_RE = re.compile(r"^SKF_STACK_RESULT_JSON: (\{.*\})$", re.MULTILINE)
-
-
 def test_a_missing_tier_helper_halts_with_its_envelope():
-    """Every HARD HALT carries an exit code and an envelope (SKILL.md Exit Codes, Result Contract)."""
+    """Every HARD HALT carries an exit code, a halt_reason and an envelope (invocation-contract.md)."""
     three = _sections(_body(_read(DETECT)))["3"]
     halt = _slice(three, "If no candidate exists, HALT", "When at least one pair qualifies")
-    (line,) = ENVELOPE_RE.findall(halt)
-    envelope = json.loads(line)
-    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("error", 3, "resolution-failure")
-    assert envelope["skill_package"] is None and envelope["stack_libraries"] == ["<confirmed-lib>", "..."]
+    assert '(exit 3, `halt_reason: "helper-missing"`, phase `detect-integrations:pair-tiers`)' in halt
     # Step 7 §6 resolves the same helper after staging: it rolls back with the same code, not as a write failure.
     six = _sections(_body(_read(GENERATE)))["6"]
-    assert "rollback contract from §1 with `exit_code` 3 and `halt_reason` `resolution-failure`" in six
-    (row,) = [line for line in _read(STACK_SKILL).splitlines()
-              if line.startswith("| 3 ") and "| resolution-failure " in line]
-    assert "step 5 §3 or step 7 §6 `skf-render-stack-metadata.py` missing" in row
+    assert 'invoke the rollback contract from §1, with exit 3, `halt_reason: "helper-missing"` and phase' in six
+    (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 3 ")]
+    assert "`skf-render-stack-metadata.py` (step 4 §3a, step 5 §3, step 6 §1, step 7 §6)" in row
 
 
 def test_step_2_records_the_authority_step_7_projects():
@@ -935,8 +995,8 @@ def test_step_7_writes_the_metadata_projection():
                   "confidence_distribution", "confidence_tier", "source_authority"):
         assert f"`{field}`" in six, field
     assert "verbatim" in six and "rollback contract" in six
-    template_note = _h2_section(_read(TEMPLATE), "## metadata.json Structure").split("```")[-1]
-    assert "`skf-render-stack-metadata.py`" in template_note
+    contract_note = _h2_section(_read(METADATA_CONTRACT), "## metadata.json Structure").split("```")[-1]
+    assert "`skf-render-stack-metadata.py`" in contract_note
 
 
 def test_the_metadata_call_runs_as_written():
@@ -1448,13 +1508,22 @@ HAND_COUNT_RE = re.compile(r"import \.\* from|\bgrep\b|\brg\b|Grep tool|subproce
 
 
 def _contract_row(aspect: str) -> str:
-    (row,) = [line for line in _read(STACK_SKILL).splitlines() if line.startswith(f"| **{aspect}** |")]
+    (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith(f"| **{aspect}** |")]
     return row
 
 
-def _envelopes(path: Path) -> list[dict]:
-    """Every SKF_STACK_RESULT_JSON line of a file, the success one's score filled in."""
-    return [json.loads(line.replace("{quality_score}", "90")) for line in ANY_ENVELOPE_RE.findall(_read(path))]
+# A HARD HALT as a step file names it: `HALT (exit <code>, `halt_reason: "<reason>"`, phase `<phase>`...`,
+# with `, or `halt_reason: "<other>"` for <case>` when one halt has two reasons of the same code.
+HALT_NAMED_RE = re.compile(
+    r'HALTs? \(exit (\d), `halt_reason: "([a-z-]+)"`(?:, or `halt_reason: "([a-z-]+)"` for [^,]+)?, '
+    r"phase `([a-z-]+:[a-z-]+)`")
+
+
+def _halts(text: str) -> list[tuple[int, str, str]]:
+    """(exit code, halt_reason, phase) of every HARD HALT a text names, one per reason."""
+    return [(int(code), reason, phase)
+            for code, first, other, phase in HALT_NAMED_RE.findall(text)
+            for reason in (first, other) if reason]
 
 
 def test_the_contract_declares_every_input_step_1_binds():
@@ -1471,14 +1540,12 @@ def test_the_contract_declares_every_input_step_1_binds():
 def test_a_bad_input_halts_with_input_invalid():
     sections = _sections(_body(_read(INIT)))
     for number in ("0", "3"):
-        halts = [e for e in map(json.loads, ANY_ENVELOPE_RE.findall(sections[number]))
-                 if e["halt_reason"] == "input-invalid"]
-        assert len(halts) == 1 and halts[0]["exit_code"] == 2, f"step 1 §{number}"
-    skill = _read(STACK_SKILL)
-    exit_codes = _slice(skill, "## Exit Codes", "## Result Contract")
+        halts = [halt for halt in _halts(sections[number]) if halt[1] == "input-invalid"]
+        assert len(halts) == 1 and halts[0][0] == 2, f"step 1 §{number}"
+    exit_codes = _slice(_read(CONTRACT), "## Exit Codes", "## Result Contract")
     (row,) = [line for line in exit_codes.splitlines() if line.startswith("| 2 ")]
     assert "`input-invalid`" in row
-    assert '`"input-invalid"`' in _from(skill, "## Result Contract (Headless)")
+    assert "input-invalid" in json.loads(ENVELOPE_SCHEMA.read_text(encoding="utf-8"))["properties"]["halt_reason"]["enum"]
 
 
 def test_the_stack_name_names_every_path_and_envelope():
@@ -1488,25 +1555,26 @@ def test_the_stack_name_names_every_path_and_envelope():
                for path in sorted(STACK.rglob("*.md"))
                if "{project_name}-stack" in _read(path) or "{project}-stack" in _read(path)}
     # Only the default itself, in step 1 §0 and the contract, names the old form.
-    assert holders == {"SKILL.md": 1, "references/init.md": 1}, holders
-    for path in sorted(STACK.rglob("*.md")):
-        for envelope in _envelopes(path):
-            assert envelope["skill_name"] in ("{stack_name}", None, "…"), (path.name, envelope)
+    assert holders == {"references/invocation-contract.md": 1, "references/init.md": 1}, holders
+    # Every staged halt payload names the stack by {stack_name}; the emitter types no other name.
+    for path in sorted(REFS.glob("*.md")):
+        for payload in re.findall(r'`(\{"phase": "<phase>".*?\})`', _read(path)):
+            assert '"skill_name": "{stack_name}"' in payload, (path.name, payload)
     assert "--skill-dir-name {stack_name}" in _read(GENERATE)
 
 
 def test_every_envelope_carries_the_quality_score():
-    for path in sorted(STACK.rglob("*.md")):
-        for envelope in _envelopes(path):
-            assert "quality_score" in envelope, (path.name, envelope)
-            if envelope["status"] == "error":
-                assert envelope["quality_score"] is None, (path.name, envelope)
-    success = [line for line in ANY_ENVELOPE_RE.findall(_read(REPORT)) if '"status":"success"' in line]
-    assert len(success) == 1 and '"quality_score":{quality_score}' in success[0]
-    assert "and `quality_score` in `summary`" in _sections(_body(_read(REPORT)))["2b"]
+    schema = json.loads(ENVELOPE_SCHEMA.read_text(encoding="utf-8"))
+    assert "quality_score" in schema["required"], "every envelope, a halt's included, carries quality_score"
+    two_b = _sections(_body(_read(REPORT)))["2b"]
+    payload = json.loads(_first_fence(two_b))
+    assert payload["quality_score"] is None and payload["result_contract"]["summary"]["quality_score"] is None
+    assert "Both `quality_score` fields are `{quality_score}`" in two_b
     three = _sections(_body(_read(VALIDATE)))["3"]
     assert "Bind `{quality_score}` ← that score" in three and "not a test-skill score" in three
-    assert "not a test-skill score" in _from(_read(STACK_SKILL), "## Result Contract (Headless)")
+    # The contract leaves field meanings to the schema's descriptions.
+    assert "not a test-skill score" in schema["properties"]["quality_score"]["description"]
+    assert "whose descriptions say what each field holds" in _from(_read(CONTRACT), "## Result Contract (Headless)")
 
 
 @pytest.mark.parametrize(("given", "verdict"), [
@@ -1528,7 +1596,7 @@ def test_the_stack_name_check_runs_as_written(given, verdict):
     argv = _argv(call, "frontmatterValidator", {"{stack_name}": stack_name})
     result = subprocess.run([sys.executable, str(FRONTMATTER), *argv], capture_output=True, text=True)
     assert result.returncode == verdict, result.stdout
-    assert "with `skill_name` `null`, `exit_code` 3 and `halt_reason` `resolution-failure`" in zero
+    assert 'HALT (exit 3, `halt_reason: "helper-missing"`, phase `init:stack-name`, no `skill_name`)' in zero
     assert "{each `issues[]` message}" in zero
 
 
@@ -1542,7 +1610,9 @@ def test_step_1_binds_the_scan_root():
     scope = _from(three, "**Scan scope (code mode).**")
     assert "no `project_path` was given, ask once" in scope
     assert "**Headless:** do not ask; keep the project root" in scope
-    assert 'code: "headless-scan-root-default"' in scope
+    # The recorded decision tells the user to pass project_path; no warning repeats it.
+    assert "pass project_path to scan one package" in _decision("init.scan-root")["reason"]
+    assert "headless-scan-root-default" not in scope
     inputs = _contract_row("Inputs")
     assert "`project_path`: the folder code mode scans (default: the project root;" in inputs
     assert "an interactive run asks once" in inputs
@@ -1557,9 +1627,10 @@ def test_steps_2_3_and_5_stay_inside_the_scan_root():
     assert _call(_sections(_body(manifests))["2"], "scanManifestsHelper", "scan").strip() == scan
     assert _probe_script(rank, "countImports") == COUNT_IMPORTS
     count = _call(_sections(_body(rank))["1"], "countImportsHelper", "count").strip()
-    assert count == "uv run {countImportsHelper} count {scan_root} --deps - --relative-to {project_root}"
+    assert count == ('uv run {countImportsHelper} count {scan_root} --deps - --relative-to {project_root}'
+                     ' > "{importCountsFile}"')
     sections = _sections(_body(_read(DETECT)))
-    assert "`{import_counts}`" in _from(sections["1"], "**If not compose_mode:**")
+    assert "`{importCountsFile}`" in _from(sections["1"], "**If not compose_mode:**")
     # Pair files and CCC hits share the project-root base, so the guard compares paths as they stand.
     assert "both paths are relative to `{project_root}`" in _from(sections["2"], "**If not compose_mode:**")
 
@@ -1582,8 +1653,9 @@ def test_compose_candidates_come_from_the_helper():
     for field in ("`{skill_candidates}`", "`manifest_parse_error`", "`not_skf_output`", "`excluded[]`",
                   "`stale_manifest_keys`", "`kept[]`"):
         assert field in zero, field
-    halts = [(e["exit_code"], e["halt_reason"]) for e in map(json.loads, ANY_ENVELOPE_RE.findall(zero))]
-    assert halts == [(3, "resolution-failure")] * 2, "the stale-manifest and no-skill halts keep exit 3"
+    halts = [(code, reason) for code, reason, _ in _halts(zero)]
+    assert halts == [(3, "helper-missing")] + [(3, "resolution-failure")] * 2, (
+        "a missing helper is helper-missing; the stale-manifest and no-skill halts keep resolution-failure")
     for stale in ("try/except", "visited set", "*/active/*/SKILL.md", "`{stack_roster}`", "enumerate {skills"):
         assert stale not in zero, stale
     assert "An exit `1` (no skills folder) counts as an empty `kept[]`" in zero
@@ -1644,13 +1716,14 @@ def test_step_3_counts_imports_with_the_helper():
     assert found is None, f"step 3 still counts by hand: {found.group(0)!r}"
     for stale in ("{manifestPatternsPath}", "Exclude from counting", "Use subprocess Pattern 1"):
         assert stale not in rank, stale
-    assert "`{import_counts}`" in code and "`unresolved[]`" in code and '"modules"' in code
-    halt = "with `exit_code` 3 and `halt_reason` `resolution-failure`"
-    assert halt in code, "a missing import counter halts with no exit code"
-    assert halt in _sections(_body(_read(INIT)))["3"], "a missing step 1 helper halts with no exit code"
-    exit_codes = _slice(_read(STACK_SKILL), "## Exit Codes", "## Result Contract")
+    assert "`{importCountsFile}`" in code and "`unresolved[]`" in code and '"modules"' in code
+    # The rerun for a known import name must not replace the counts file.
+    assert "without the `>` redirect" in _from(code, "**Unresolved names.**")
+    assert (3, "helper-missing", "rank-and-confirm:count") in _halts(code), "a missing import counter halts with no code"
+    assert (3, "helper-missing", "init:mode") in _halts(_sections(_body(_read(INIT)))["3"])
+    exit_codes = _slice(_read(CONTRACT), "## Exit Codes", "## Result Contract")
     (row,) = [line for line in exit_codes.splitlines() if line.startswith("| 3 ")]
-    assert "step 1 §0 or §3, or step 3 §1, a helper missing (`resolution-failure`)" in row
+    assert "`skf-count-imports.py` (step 3 §1)" in row
     unresolved = _from(code, "**Unresolved names.**").split("\n\n")[0]
     assert "a guessed import name that matched no file, no import name, or an ecosystem with no import rules" \
         in unresolved
@@ -1658,7 +1731,7 @@ def test_step_3_counts_imports_with_the_helper():
     two = _sections(_body(rank))["2"]
     assert "`above_threshold`" in two and "dev-only" in two
     assert 'scope: "dev"' in _sections(_body(rank))["3"], "the Category column does not follow scope"
-    gate = [line for line in _sections(_body(rank))["5"].splitlines() if line.startswith("- **GATE")]
+    gate = [line for line in _sections(_body(rank))["3"].splitlines() if line.startswith("- **GATE")]
     assert len(gate) == 1 and "the recommended libraries in code mode" in gate[0]
 
 
@@ -1710,10 +1783,13 @@ def test_the_scan_count_and_pair_calls_run_as_written(tmp_path):
         (project / rel).parent.mkdir(parents=True, exist_ok=True)
         (project / rel).write_bytes(content)
 
+    counts_file = tmp_path / "run" / "import-counts.json"
+    counts_file.parent.mkdir()
+
     def run(script: Path, call: str, helper: str, scan_root: Path, stdin: str | None = None,
             names: str = "") -> dict:
         argv = _argv(call, helper, {"{scan_root}": str(scan_root), "{project_root}": str(project),
-                                    "<names>": names})
+                                    "<names>": names, "{importCountsFile}": str(counts_file)})
         result = subprocess.run([sys.executable, str(script), *argv], input=stdin, capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
         return json.loads(result.stdout)
@@ -1729,7 +1805,11 @@ def test_the_scan_count_and_pair_calls_run_as_written(tmp_path):
     assert (scan["total_unique"], scan["total_unique_dev"]) == (4, 1)
     assert {"package.json", "requirements.txt", "Package.swift"} <= set(scan["searched_filenames"])
     count_call = _call(_sections(_body(_read(RANK)))["1"], "countImportsHelper", "count").strip()
+    count_call, target = count_call.split(" > ")
+    assert target == '"{importCountsFile}"', "step 3 does not save its counts in the run folder"
     counts = run(COUNT_IMPORTS, count_call, "countImportsHelper", web, json.dumps(scan))
+    # The shell redirect writes the counts file step 5 reads.
+    counts_file.write_text(json.dumps(counts), encoding="utf-8")
     by_name = {d["name"]: d for d in counts["dependencies"]}
     assert "express" not in by_name, "a dependency outside the scan root was counted"
     assert (by_name["react"]["file_count"], by_name["react"]["above_threshold"]) == (1, False), "react-dom counted"
@@ -1739,10 +1819,9 @@ def test_the_scan_count_and_pair_calls_run_as_written(tmp_path):
     assert recommended == ["PyYAML", "react-dom", "zustand"]
     # Paths are relative to the project root, as source_file and the CCC hits are.
     assert [f["path"] for f in by_name["zustand"]["files"]] == ["apps/web/src/main.tsx", "apps/web/src/store.tsx"]
-    # Step 5 §1: the counts piped as they stand; each pair carries its co-import files and lines.
+    # Step 5 §1: the counts file read as it stands; each pair carries its co-import files and lines.
     pair_call = _call(_sections(_body(_read(DETECT)))["1"], "pairIntersectHelper", "intersect").strip()
-    pairs = run(PAIR_INTERSECT, pair_call, "pairIntersectHelper", web, json.dumps(counts),
-                names=",".join(recommended))["pairs"]
+    pairs = run(PAIR_INTERSECT, pair_call, "pairIntersectHelper", web, names=",".join(recommended))["pairs"]
     assert [(p["a"], p["b"], p["intersection_count"]) for p in pairs] == [("react-dom", "zustand", 2)]
     assert pairs[0]["files"] == [{"path": "apps/web/src/main.tsx", "line_a": 2, "line_b": 3},
                                  {"path": "apps/web/src/store.tsx", "line_a": 2, "line_b": 1}]
@@ -1810,3 +1889,528 @@ def test_in_file_anchor_links_name_a_heading(path):
     headings = {_slug(m.group(2)) for m in HEADING_RE.finditer(text)}
     missing = [anchor for anchor in ANCHOR_LINK_RE.findall(text) if anchor not in headings]
     assert not missing, f"{path.name}: anchor links with no heading: {missing}"
+
+
+# --- #593 (create-stack part): every halt through the emitter, helper-missing ------
+
+# The halts a missing shared helper raises, by phase (generate-output §6's goes
+# through the rollback contract and is checked on its own).
+HELPER_MISSING_PHASES = {
+    "init:emitter", "init:stack-name", "init:mode", "detect-manifests:enumerate", "detect-manifests:scan",
+    "rank-and-confirm:count", "parallel-extract:enumerate", "parallel-extract:library-tiers",
+    "detect-integrations:pair-intersect", "detect-integrations:comention", "detect-integrations:pair-tiers",
+    "compile-stack:stats", "generate-output:atomic-writer",
+}
+HALT_COMMAND = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-stack-skill --run-dir "{run_dir}" '
+                '--target stderr < "{run_dir}/halt.json"')
+RECORD_DECISION = ('uv run {emitEnvelopeHelper} record --workflow skf-create-stack-skill --run-dir "{run_dir}" '
+                   '--decision < "{run_dir}/decision.json"')
+
+
+def _schema() -> dict:
+    return json.loads(ENVELOPE_SCHEMA.read_text(encoding="utf-8"))
+
+
+def _exit_codes() -> dict[str, int]:
+    return _schema()["$defs"]["skf-envelope"]["const"]["exit_codes"]
+
+
+def _sequence(path: Path) -> str:
+    """A step file's body after its Rules, or a reference file whole."""
+    text = _read(path)
+    return _body(text) if "## Rules\n" in text else text
+
+
+def _step_halts() -> dict[str, list[tuple[int, str, str]]]:
+    return {path.name: _halts(_sequence(path)) for path in STEP_FILES if path != CONTRACT}
+
+
+def test_every_halt_names_its_code_reason_and_phase():
+    codes = _exit_codes()
+    for name, halts in _step_halts().items():
+        text = _sequence(REFS / name)
+        assert len(re.findall(r"HALTs? \(exit", text)) == len(HALT_NAMED_RE.findall(text)), (
+            f"{name}: a HALT annotation does not parse")
+        for code, reason, phase in halts:
+            assert codes.get(reason) == code, f"{name}: {reason} exits {codes.get(reason)}, not {code}"
+            assert phase.split(":")[0] == name.removesuffix(".md"), f"{name}: phase {phase} names another step"
+        for bare in ("HALT if no candidate exists", "HALT if neither", "emit the result envelope on stderr per"):
+            assert bare not in text, f"{name}: {bare!r}"
+
+
+def test_every_halt_reason_is_raised_and_listed():
+    raised = {reason for halts in _step_halts().values() for _, reason, _ in halts}
+    enum = {reason for reason in _schema()["properties"]["halt_reason"]["enum"] if reason}
+    assert raised == enum == set(_exit_codes()), (raised ^ enum)
+    exit_codes = _slice(_read(CONTRACT), "## Exit Codes", "## Result Contract")
+    listed = set(re.findall(r"\(`([a-z-]+)`", exit_codes)) | set(re.findall(r"; [^|;]*\(`([a-z-]+)`", exit_codes))
+    assert enum <= set(re.findall(r"`([a-z]+(?:-[a-z]+)+)`", exit_codes)) | listed, "a halt_reason is missing a row"
+
+
+def test_a_missing_helper_halts_helper_missing():
+    phases = {phase for halts in _step_halts().values() for _, reason, phase in halts if reason == "helper-missing"}
+    assert phases == HELPER_MISSING_PHASES
+    six = _sections(_body(_read(GENERATE)))["6"]
+    assert 'with exit 3, `halt_reason: "helper-missing"` and phase `generate-output:metadata`' in six
+    (row,) = [line for line in _read(CONTRACT).splitlines() if line.startswith("| 3 ")]
+    for helper in ("skf-emit-result-envelope.py", "skf-validate-frontmatter.py", "skf-scan-manifests.py",
+                   "skf-enumerate-stack-skills.py", "skf-count-imports.py", "skf-render-stack-metadata.py",
+                   "skf-pair-intersect.py", "skf-comention-pairs.py", "skf-atomic-write.py"):
+        assert f"`{helper}`" in row, helper
+    # SKILL.md's main-thread rule no longer covers a helper whose step halts without it, and leaves an
+    # advisory check to its step: step 8 runs its manual checks when the output validator is missing.
+    (rule,) = [line for line in _read(STACK_SKILL).splitlines() if "achieve the outcome in your main context" in line]
+    assert "never work out by hand what a shared helper computes where its step names a `helper-missing` HALT" in rule
+    assert "Where a step says what to do without its helper (an advisory check, a default value), do as it says" \
+        in rule
+    assert "\u2014" not in rule
+    validate = _read(VALIDATE)
+    assert "Advisory mode" in _rules(validate) and not _halts(_sequence(VALIDATE))
+    assert "fall back to the manual file/frontmatter/snippet checks" in _sections(_body(validate))["1"]
+
+
+def test_the_compose_branch_has_no_prose_fallback():
+    """#599: a helper that halts when missing has no hand-run equivalent."""
+    text = _read(DETECT)
+    assert "Graceful degradation" not in text and "perform the equivalent scan directly" not in text
+    compose = _compose_branch()
+    assert compose.index("phase `detect-integrations:comention`") < compose.index("uv run {comentionHelper}")
+    assert "when no candidate resolves or `uv` cannot run it" not in compose
+
+
+def test_an_unknown_verdict_token_halts_with_exit_2():
+    (bullet,) = [line for line in _compose_branch().splitlines() if line.startswith("- **`unknownTokens`")]
+    assert _halts(bullet) == [(2, "unknown-verdict-token", "detect-integrations:vs-report")]
+
+
+@pytest.mark.parametrize("path", [p for p in STEP_FILES if p != CONTRACT], ids=lambda p: p.name)
+def test_every_halting_step_shows_the_emit_command(path):
+    text = _read(path)
+    if not _halts(_sequence(path)):
+        return
+    assert _probe_script(text, "emitEnvelope") == EMITTER
+    envelope = _from(_body(text), "**Halt envelope.**").split("###", 1)[0]
+    assert HALT_COMMAND in _fence_lines(envelope), f"{path.name} does not show the emit-halt command"
+    assert "display the halt message alone" in envelope
+
+
+def test_no_step_types_an_envelope_line():
+    typed = [path.name for path in sorted(STACK.rglob("*.md")) if ANY_ENVELOPE_RE.search(_read(path))]
+    assert typed == ["invocation-contract.md"], typed
+    assert "never type an `SKF_STACK_RESULT_JSON` line" in _read(STACK_SKILL)
+
+
+def _payload(text: str) -> dict:
+    """A staged JSON payload as a step file shows it, its placeholders filled."""
+    filled = text.replace(", ...]", "]").replace("{N}", "3")
+    return json.loads(filled)
+
+
+def test_a_staged_halt_emits_a_schema_valid_envelope(tmp_path):
+    from jsonschema import Draft202012Validator
+
+    envelope_text = _from(_body(_read(GENERATE)), "**Halt envelope.**")
+    staged = re.search(r'`(\{"phase": "<phase>".*?\})`', envelope_text).group(1)
+    payload = _payload(staged.replace("<phase>", "generate-output:atomic-writer")
+                       .replace("<halt_reason>", "helper-missing").replace("<code|compose>", "code"))
+    run_dir = tmp_path / "_bmad-output" / ".skf-run" / "skf-create-stack-skill-ab12cd34"
+    run_dir.mkdir(parents=True)
+    (run_dir / "warnings.jsonl").write_text('"[step-04/warn] extraction-failed: libz: timeout"\n', encoding="utf-8")
+    (run_dir / "halt.json").write_text(json.dumps(payload), encoding="utf-8")
+    argv = _argv(HALT_COMMAND.split(" < ")[0], "emitEnvelopeHelper", {"{run_dir}": str(run_dir)})
+    result = subprocess.run([sys.executable, str(EMITTER), *argv], input=json.dumps(payload),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    (line,) = result.stderr.splitlines()
+    envelope = json.loads(line.removeprefix("SKF_STACK_RESULT_JSON: "))
+    assert not list(Draft202012Validator(_schema()).iter_errors(envelope))
+    assert (envelope["exit_code"], envelope["skill_name"], envelope["run_id"]) == (3, "{stack_name}", "ab12cd34")
+    assert envelope["warnings"] == ["[step-04/warn] extraction-failed: libz: timeout"]
+    assert envelope["error"]["phase"] == "generate-output:atomic-writer"
+
+
+# --- #593: auto-decisions recorded the moment a gate decides ----------------------
+
+GATES = {
+    "init.compose-suggestion": INIT,
+    "init.scan-root": INIT,
+    "rank-and-confirm.scope": RANK,
+    "compile-stack.review": COMPILE,
+}
+
+
+def _decision(gate: str) -> dict:
+    text = _read(GATES[gate])
+    staged = re.search(r'`(\{"gate": "' + re.escape(gate) + r'".*?\})`(?: as|,)', text, re.DOTALL)
+    assert staged, f"no staged decision for {gate}"
+    return _payload(staged.group(1))
+
+
+@pytest.mark.parametrize("gate", sorted(GATES))
+def test_every_headless_gate_records_its_decision(gate, tmp_path):
+    from jsonschema import Draft202012Validator
+
+    decision = _decision(gate)
+    item = _schema()["properties"]["headless_decisions"]["items"]
+    assert not list(Draft202012Validator(item).iter_errors(decision)), decision
+    assert decision["default_action"] == decision["taken_action"]
+    run_dir = tmp_path / "skf-create-stack-skill-run1"
+    argv = _argv(RECORD_DECISION.split(" < ")[0], "emitEnvelopeHelper", {"{run_dir}": str(run_dir)})
+    result = subprocess.run([sys.executable, str(EMITTER), *argv], input=json.dumps(decision),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((run_dir / "headless-decisions.jsonl").read_text(encoding="utf-8")) == decision
+    # The record command the gate runs stages the decision the same way.
+    assert RECORD_DECISION in _read(GATES[gate])
+
+
+def test_the_scope_gate_records_the_libraries_it_drops():
+    evidence = _decision("rank-and-confirm.scope")["evidence"]
+    assert set(evidence) == {"scope", "dropped"} and set(evidence["dropped"][0]) == {"library", "reason"}
+    (gate,) = [line for line in _sections(_body(_read(RANK)))["3"].splitlines() if line.startswith("- **GATE")]
+    assert "names each library the default left out" in gate
+    report = _sections(_body(_read(GENERATE)))["8b"]
+    assert "`{run_dir}/headless-decisions.jsonl`" in report and "dropped libraries" in report
+
+
+def test_the_scope_is_confirmed_at_one_gate():
+    """#599 architecture-2: the user confirms the scope once, and both modes set it before the gate."""
+    rank = _read(RANK)
+    sections = _sections(_body(rank))
+    assert list(sections) == ["1", "2", "3"]
+    assert rank.count("**Select:**") == 1 and "Please confirm your scope" not in rank
+    assert "ask for final confirmation" not in rank
+    assert "Set `confirmed_dependencies` ← the recommended scope" in sections["2"]
+    compose = sections["1"][:sections["1"].index("**If not compose_mode:**")]
+    assert "Set `confirmed_dependencies` ←" in compose and "[Confirm the Scope](#3-confirm-the-scope)" in compose
+
+
+# --- #587 (create-stack part): the run folder holds the run's state ---------------
+
+
+def test_the_run_folder_is_created_before_anything_can_halt(tmp_path):
+    init = _read(INIT)
+    assert _probe_script(init, "emitEnvelope") == EMITTER
+    preflight = _slice(_body(init), "**Pre-flight: the emitter and the run folder.**", "### 0.")
+    (mktemp,) = [line for line in _fence_lines(preflight) if "mktemp -d" in line]
+    filled = mktemp.replace("{project-root}", tmp_path.as_posix())
+    if sys.platform != "win32":
+        result = subprocess.run(["sh", "-c", filled], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        made = Path(result.stdout.strip())
+        assert made.is_dir() and made.parent == tmp_path / "_bmad-output" / ".skf-run"
+        assert made.name.startswith("skf-create-stack-skill-")
+    assert (4, "write-failure", "init:run-folder") in _halts(preflight)
+    assert (3, "helper-missing", "init:emitter") in _halts(preflight)
+    skill = _read(STACK_SKILL)
+    assert "no mid-run checkpoint" not in skill and "State lives in memory" not in skill
+    (state,) = [p for p in skill.split("\n\n") if p.startswith("**Single-pass, no resume:**")]
+    assert "`{run_dir}`" in state and state.count(". ") == 0, "the run state is one sentence naming the run folder"
+
+
+def test_the_extraction_bundle_is_written_and_read_from_disk():
+    extract = _read(EXTRACT)
+    bundle = json.loads(_first_fence(_from(_body(extract), "**Extraction bundle.**")))
+    assert set(bundle) == {"mode", "scope", "per_library_extractions", "failed", "integrations", "hubs",
+                           "cross_cutting"}
+    sections = _sections(_body(extract))
+    assert "Write `{bundleFile}`: `mode`, `scope` and these entries" in sections["0"]
+    assert "write `{bundleFile}`: `mode`, `scope`" in sections["3"]
+    # Compose mode keeps each constituent's hash in the bundle, and its usage patterns from its SKILL.md.
+    zero = sections["0"]
+    assert "§1+" not in extract and "fan-out at" not in zero
+    assert "- `usage_patterns`: read from the constituent's `SKILL.md` loaded above" in zero
+    detect_graph = _sections(_body(_read(DETECT)))["4"]
+    assert "Write the graph into `{bundleFile}`" in detect_graph and '"co_import_files"' in detect_graph
+    for key in ("`hubs`", "`cross_cutting`"):
+        assert key in detect_graph, key
+    # Step 6: the bundle, and in code mode each library's key exports from its records, which the
+    # entry no longer holds; a dropped library leaves both files.
+    compile_ = _read(COMPILE)
+    assert "exportRecordsFile: '{run_dir}/export-records.json'" in _frontmatter(compile_)
+    one = _sections(_body(compile_))["1"]
+    assert "compiles from `{bundleFile}`" in one
+    assert "key exports are its records in `{exportRecordsFile}` in code mode" in one
+    (feedback,) = [line for line in compile_.splitlines() if line.startswith("- IF Any other:")]
+    assert "its records from `{exportRecordsFile}`" in feedback and "from `{bundleFile}` too" in feedback
+    generate = _sections(_body(_read(GENERATE)))
+    for number in ("3", "4", "6", "7"):
+        assert "`{bundleFile}`" in generate[number], f"step 7 §{number} does not read the bundle"
+    assert "`entries` of `{exportRecordsFile}`" in generate["7"]
+
+
+def test_the_draft_is_reviewed_by_path_and_staged_verbatim():
+    compile_ = _read(COMPILE)
+    sections = _sections(_body(compile_))
+    seven = sections["7"]
+    assert "Write the compiled SKILL.md to `{draftFolder}/SKILL.md`" in seven
+    assert "{Display full compiled SKILL.md content}" not in compile_
+    menu = sections["8"]
+    assert "[P] Preview the full draft" in menu and "- IF P: Display the full draft files" in menu
+    (gate,) = [line for line in menu.splitlines() if line.startswith("- **GATE")]
+    assert "displaying no draft" in gate
+    assert "apply it to the draft files in `{draftFolder}`" in menu
+    two = _sections(_body(_read(GENERATE)))["2"]
+    assert _fence_lines(two) == ['cp "{draftFolder}/SKILL.md" "{skill_staging}/SKILL.md"']
+    assert "skill_content" not in _read(GENERATE)
+
+
+def test_the_compile_stats_come_from_the_metadata_helper():
+    """W3 handoff: Libraries, Integration pairs and the tier line come from one helper run."""
+    text = _read(COMPILE)
+    assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
+    sections = _sections(_body(text))
+    one = sections["1"]
+    call = _call(one, "renderStackMetadataHelper", "metadata")
+    assert call.strip() == "uv run {renderStackMetadataHelper} metadata --input -"
+    assert (3, "helper-missing", "compile-stack:stats") in _halts(one)
+    assert "Bind `{lib_count}` ← its `library_count` and `{integration_count}` ← its `integration_count`" in one
+    # The description §2 writes and the stats §7 shows take those bindings; nothing counts by hand.
+    assert "with the counts §1 bound" in sections["2"]
+    assert "{lib_count} libraries with" in _first_fence(sections["2"])
+    seven = sections["7"]
+    assert "renderStackMetadataHelper" not in seven and "the count of" not in text
+    for field in ("{lib_count}", "{integration_count}", "`confidence_distribution.t1`"):
+        assert field in seven, field
+    (feedback,) = [line for line in text.splitlines() if line.startswith("- IF Any other:")]
+    assert "run the §1 helper call again" in feedback and "rewrite the draft's `description`" in feedback
+    out = _run_stack_metadata(call, _stack_input())
+    assert (out["library_count"], out["integration_count"]) == (3, 2)
+
+
+def test_working_files_go_after_commit_and_the_folder_after_the_envelope():
+    nine = _sections(_body(_read(GENERATE)))["9"]
+    assert nine.index("commit-dir --target {skill_package}") < nine.index(
+        'rm -rf "{draftFolder}" "{bundleFile}" "{exportRecordsFile}"')
+    three = _sections(_body(_read(REPORT)))["3"]
+    two_b = _sections(_body(_read(REPORT)))["2b"]
+    assert 'rm -rf "{run_dir}"' in three and "emit --workflow skf-create-stack-skill" in two_b
+
+
+# --- #593: the result contract and the success envelope ---------------------------
+
+
+def test_the_success_envelope_and_result_files_come_from_the_emitter(tmp_path):
+    from jsonschema import Draft202012Validator
+
+    report = _read(REPORT)
+    assert _probe_script(report, "emitEnvelope") == EMITTER
+    two_b = _sections(_body(report))["2b"]
+    for stale in ("{pid}", "{rand}", "{YYYYMMDD-HHmmss}", "Append `-{pid}"):
+        assert stale not in report, stale
+    (emit,) = [line for line in _fence_lines(two_b) if "{emitEnvelopeHelper} emit " in line]
+    payload = json.loads(_first_fence(two_b))
+    payload["mode"] = "code"
+    run_dir = tmp_path / "skf-create-stack-skill-run9"
+    forge_version = tmp_path / "forge" / "demo-stack" / "18.2.0"
+    run_dir.mkdir()
+    forge_version.mkdir(parents=True)
+    (run_dir / "headless-decisions.jsonl").write_text(json.dumps(_decision("rank-and-confirm.scope")) + "\n",
+                                                      encoding="utf-8")
+    argv = _argv(emit.split(" < ")[0], "emitEnvelopeHelper",
+                 {"{run_dir}": str(run_dir), "{forge_version}": str(forge_version)})
+    result = subprocess.run([sys.executable, str(EMITTER), *argv], input=json.dumps(payload),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    envelope = json.loads(result.stdout.strip().removeprefix("SKF_STACK_RESULT_JSON: "))
+    assert not list(Draft202012Validator(_schema()).iter_errors(envelope))
+    assert (envelope["status"], envelope["exit_code"], envelope["run_id"]) == ("success", 0, "run9")
+    assert envelope["headless_decisions"][0]["gate"] == "rank-and-confirm.scope"
+    names = sorted(p.name for p in forge_version.iterdir())
+    assert len(names) == 2 and names[1] == "create-stack-skill-result-latest.json"
+    assert re.fullmatch(r"create-stack-skill-result-\d{8}-\d{6}\.json", names[0]), names
+    assert Path(envelope["result_path"]).name == names[0]
+    record = json.loads((forge_version / names[0]).read_text(encoding="utf-8"))
+    assert record["skill"] == "skf-create-stack-skill" and record["headless_decisions"] == envelope["headless_decisions"]
+    # The stable copy at the stack group root is copied from the emitter's -latest record.
+    (copy,) = [line for line in _fence_lines(two_b) if "{atomicWriteHelper} write" in line]
+    assert copy.endswith("< {forge_version}/create-stack-skill-result-latest.json")
+    assert "--target {forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json" in copy
+
+
+def test_a_late_failure_prints_a_line_instead_of_a_dropped_warning():
+    """W1 handoff: §2c runs after §1 rendered the warnings, so its failure prints a report line."""
+    hook = _sections(_body(_read(REPORT)))["2c"]
+    assert "workflow_warnings[]" not in hook and "print one report line" in hook
+    customize = CUSTOMIZE.read_text(encoding="utf-8")
+    assert "report.md §2c" in customize and "§6c" not in customize and "§6c" not in _read(STACK_SKILL)
+    assert "step 9 §1 renders it" in _read(STACK_SKILL) and "step 9 §5" not in _read(STACK_SKILL)
+
+
+# --- #596 (create-stack part): the override surface --------------------------------
+
+
+def test_contract_settings_are_off_the_override_surface():
+    import tomllib
+
+    workflow = tomllib.loads(CUSTOMIZE.read_text(encoding="utf-8"))["workflow"]
+    path_keys = {key for key in workflow if key.endswith("_path")}
+    assert path_keys == {"stack_skill_template_path", "integration_patterns_path"}, path_keys
+    for path in sorted(STACK.rglob("*.md")):
+        for stale in ("{manifestPatternsPath}", "{provenanceMapSchemaPath}",
+                      "manifest_patterns_path", "compose_mode_rules_path", "provenance_map_schema_path"):
+            assert stale not in _read(path), (path.name, stale)
+        if "{composeModeRulesPath}" in _read(path):
+            # Step 5 keeps the name, bound to the fixed file in its own frontmatter: no override reaches it.
+            assert path == DETECT, path.name
+            assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(_read(path))
+    assert "## metadata.json Structure" not in _read(TEMPLATE), "the template override still swaps the contract"
+    six = _sections(_body(_read(GENERATE)))["6"]
+    assert "`assets/metadata-contract.md`" in six and "{stackSkillTemplatePath}" not in six
+    assert "`assets/provenance-map-schema.md`" in _sections(_body(_read(GENERATE)))["7"]
+
+
+# --- #600 (create-stack part): one home per rule -----------------------------------
+
+
+def test_the_constituent_hash_anchor_is_stated_once():
+    homes = [path.name for path in sorted(STACK.rglob("*.md")) if "provenance anchor (S13)" in _read(path)]
+    assert homes == ["parallel-extract.md"], homes
+    for path in sorted(STACK.rglob("*.md")):
+        assert "manifest-detection" not in _read(path), path.name
+    four = [line for line in _sections(_body(_read(MANIFESTS)))["0"].splitlines()
+            if line.startswith("4. **Record the constituent metadata_hash")]
+    assert len(four) == 1 and "Step-07" not in four[0] and "step 7" not in four[0]
+    assert "never a fresh hash" in _sections(_body(_read(GENERATE)))["7"]
+
+
+def test_the_lifted_contract_keeps_skill_md_short():
+    skill = _read(STACK_SKILL)
+    for heading in ("## Exit Codes", "## Result Contract"):
+        assert heading not in skill, heading
+    assert "`references/invocation-contract.md`" in _from(skill, "## Invocation Contract")
+    # About 2,000 cl100k tokens today; 10,000 characters stays below the 2,500-token guideline.
+    assert len(skill) < 10_000, len(skill)
+    assert "| 1 | Initialize & Mode Detection | references/init.md | Conditional |" in skill
+
+
+def test_generate_output_states_each_rule_once():
+    """W2 handoff (leanness-7): no advisory labels in the frontmatter, the snippet format and helper
+    internals left to their owners, the atomic-writer halt in §1's body."""
+    text = _read(GENERATE)
+    assert "#" not in _frontmatter(text), "generate-output's frontmatter still carries comments"
+    one = _sections(_body(text))["1"]
+    assert one.index("**The atomic writer.**") < one.index("stage-dir --target {skill_package}")
+    assert one.index("**Pre-flight: ownership, phase 1 (S3).**") < one.index("**Stack version (S11).**") \
+        < one.index("**Pre-flight: ownership, phase 2.**")
+    assert "the pre-flight below resolves it" not in one and "per S11 below" not in one
+    five = _sections(_body(text))["5"]
+    assert "|IMPORTANT:" not in five and "context-snippet format of `{stackSkillTemplatePath}`" in five
+    for internal in (".skf-rollback-", "flock", "ECH BLOCKER", "Workflow Rules in SKILL.md"):
+        assert internal not in text, internal
+    assert _from(_body(text), "**Advisory checks.**").count("never halt the run") == 1
+
+
+def test_the_co_import_shape_is_the_pair_helpers():
+    """W4 handoff: the schema's code-mode co_import_files is the shape skf-pair-intersect.py gives."""
+    code = re.findall(r"```json\n(.*?)```", _read(SCHEMA), re.DOTALL)[0]
+    assert '"co_import_files": [{"path": "{path}", "line_a": 0, "line_b": 0}]' in code
+    assert "co_import_files[].file" not in _read(SCHEMA)
+
+
+# --- #593, #587 (create-stack part): warnings reach the sink as text ---------------
+
+RECORD_WARNING = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+                  '--warning "$(cat "{run_dir}/warning.txt")"')
+
+
+def test_a_warning_reaches_the_sink_as_text(tmp_path):
+    """A message can quote backticks, a Mermaid edge or `$( )`: the shell must never run it."""
+    contract = _h2_section(_read(STACK_SKILL), "## Workflow state contract")
+    assert RECORD_WARNING in _fence_lines(contract)
+    assert "`{run_dir}/warning.txt` with a file write, never an `echo`" in contract
+    if sys.platform == "win32":
+        return
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    message = "[step-05/warn] comention-unconfirmed: react + express: `react --> express` $(touch pwned) café"
+    (run_dir / "warning.txt").write_bytes(message.encode("utf-8") + b"\n")
+    command = (RECORD_WARNING.replace("uv run {emitEnvelopeHelper}", f'"{sys.executable}" "{EMITTER.as_posix()}"')
+               .replace("{run_dir}", run_dir.as_posix()))
+    result = subprocess.run(["sh", "-c", command], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "express").exists() and not (tmp_path / "pwned").exists(), "the shell ran the message"
+    (line,) = (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()
+    # The sink holds a JSON string, so the reports decode each line before they show it.
+    assert line.startswith('"') and "\\u00e9" in line and json.loads(line) == message
+
+
+@pytest.mark.parametrize("path", [p for p in STEP_FILES if p != CONTRACT], ids=lambda p: p.name)
+def test_every_step_that_warns_records_in_the_sink(path):
+    """Each step file shows the record command itself, so a step read on its own still records."""
+    text = _read(path)
+    if "workflow_warnings[]" not in text:
+        return
+    assert RECORD_WARNING in text, f"{path.name} appends warnings but never shows the record command"
+    assert "--warning \"[" not in text, f"{path.name} puts a message inside the shell command"
+
+
+def test_evidence_report_facts_are_recorded_warnings():
+    """No step keeps a fact for the evidence report in memory: each is a warning in the sink."""
+    detect, extract = _read(DETECT), _read(EXTRACT)
+    for code, text in (("pair-cap-truncated", detect), ("infer-cap-truncated", detect),
+                       ("ccc-files-dropped", detect), ("ast-degraded", extract)):
+        (entry,) = [e for e in WARNING_ENTRY_RE.findall(text) if f'`code: "{code}"`' in e]
+        assert re.search(r'`severity: "(info|warn|error)"`', entry), entry
+    for stale in ("in context for the evidence report", "in workflow state for the evidence report",
+                  "record the cap in the evidence report", "record the cap as §1 does"):
+        assert stale not in detect + extract, stale
+    eight_b = _sections(_body(_read(GENERATE)))["8b"]
+    assert "each line of `{run_dir}/warnings.jsonl` decoded as the JSON string it holds" in eight_b
+    assert "as its `gate`, `taken_action` and `reason`" in eight_b
+    assert "decoded as the JSON string it holds" in _sections(_body(_read(REPORT)))["1"]
+
+
+def test_the_import_counts_live_in_the_run_folder():
+    """Step 3 saves its counts in the run folder; steps 4, 5 and 7 name the same file."""
+    for path in (RANK, EXTRACT, DETECT, GENERATE):
+        assert "importCountsFile: '{run_dir}/import-counts.json'" in _frontmatter(_read(path)), path.name
+    for path in sorted(STACK.rglob("*.md")):
+        text = _read(path)
+        assert "{import_counts}" not in text and "temp file under `{forge_data_folder}/`" not in text, path.name
+    assert "`{importCountsFile}`" in _sections(_body(_read(EXTRACT)))["2"]
+    nine = _sections(_body(_read(GENERATE)))["9"]
+    assert '"{importCountsFile}"' in nine
+
+
+def test_the_group_root_copy_skips_a_stale_latest_record():
+    two_b = _sections(_body(_read(REPORT)))["2b"]
+    skip = _from(two_b, "Skip the copy").split("\n\n")[0]
+    assert "`result_file_write_failed`" in skip and "`create-stack-skill-result-latest.json`" in skip
+    assert "the emitter printed no line" in skip and "If the copy is skipped or fails, print" in skip
+    assert "`stack_libraries` the committed `metadata.json`'s `libraries`" in two_b
+
+
+def test_the_metadata_contract_names_the_markers_the_inventory_reads(tmp_path):
+    """The contract's ownership markers are the ones skf-skill-inventory.py checks, spec_version not among them."""
+    contract = _read(METADATA_CONTRACT)
+    assert contract.endswith("\n") and not contract.endswith("\n\n"), "a blank line at the end of the file"
+    claim = [p for p in contract.split("\n\n") if "ownership check reads" in p]
+    assert len(claim) == 1 and "`spec_version`" not in claim[0]
+    assert "`generated_by`, `tool_versions.skf`, and `skill_type` with `forge_tier` or `confidence_tier`" in claim[0]
+    inventory = _load(INVENTORY, "skf_skill_inventory_markers")
+    metadata = json.loads(_first_fence(contract).replace('"{number-or-omitted-if-no-ast}"', "0"))
+    cases = {
+        "contract": (metadata, True),
+        "generated_by": ({"generated_by": "create-stack-skill"}, True),
+        "tool_versions.skf": ({"tool_versions": {"skf": "3.0.0"}}, True),
+        "skill_type+forge_tier": ({"skill_type": "stack", "forge_tier": "Forge"}, True),
+        "skill_type+confidence_tier": ({"skill_type": "stack", "confidence_tier": "T1"}, True),
+        "skill_type alone": ({"skill_type": "stack"}, False),
+        "spec_version alone": ({"spec_version": "1.3"}, False),
+    }
+    for k, (name, (data, owned)) in enumerate(cases.items()):
+        path = tmp_path / f"metadata-{k}.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        assert inventory._has_skf_metadata(path) is owned, name
+
+
+def test_the_contract_pointers_are_current():
+    three = _sections(_body(_read(INIT)))["3"]
+    assert "(`references/invocation-contract.md` lists them; `stack_name` is bound in §0)" in three
+    assert "SKILL.md's Invocation Contract lists them" not in _read(INIT)
+    result = _from(_read(CONTRACT), "## Result Contract (Headless)")
+    assert "except the `init:emitter` halt, which has no emitter to print one" in result
+    assert "(the `init:emitter` halt, with no emitter, only displays its message)" in _read(STACK_SKILL)
+    description = _schema()["description"]
+    assert "lists each halt with its step; each halting step file shows the emit-halt command" in description

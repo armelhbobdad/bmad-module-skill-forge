@@ -1,7 +1,10 @@
 ---
 nextStepFile: 'integrations.md'
-coveragePatternsData: '{coveragePatternsPath}'
+coveragePatternsData: 'references/coverage-patterns.md'
 coverageTallyScript: 'scripts/skf-coverage-tally.py'
+comentionProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-comention-pairs.py'
+  - '{project-root}/src/shared/scripts/skf-comention-pairs.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
   - '{project-root}/src/shared/references/feasibility-report-schema.md'
@@ -13,6 +16,7 @@ emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 inventoryFile: '{run_dir}/skill-inventory.json'
+docMentionsFile: '{run_dir}/doc-mentions.json'
 ---
 
 <!-- Config: communicate in {communication_language}. Append the Coverage Analysis section to the report in {document_output_language}. -->
@@ -40,23 +44,25 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 1. Load Coverage Patterns
 
-Load `{coveragePatternsData}` for detection rules.
-
-Extract: technology name patterns, section heading indicators, common aliases, and framework-to-library mappings.
+Load `{coveragePatternsData}`: which technologies the mentions helper finds and which the model finds, the aliases a skill goes by, and what fenced code hides from both.
 
 ### 2. Extract Technology References
 
-Parse the architecture document for technology, library, and framework names.
+**Run the mentions helper once.** Resolve `{comentionHelper}` from `{comentionProbeOrder}`; first existing path wins. Take the architecture document's path from `architectureDoc` in the `{outputFile}` frontmatter, then run:
 
-**Detection methods (apply in order):**
+```bash
+uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - > "{docMentionsFile}"
+```
+
+piping on stdin a JSON array with one object per `skills[]` entry of `{inventoryFile}`: `{"name": "<name>", "aliases": [...]}`, where `aliases` holds the entry's `source_repo_basename` and `source_root_basename` that are not null, and each other name a persistent fact gives the skill. If no candidate exists, or the command exits non-zero, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `coverage:mentions`, naming its first stderr line. The integrations stage reads its `candidates[]` from `{docMentionsFile}` too.
+
+**Skills the document names:** each skill in the helper's `mentioned` list is a referenced technology, labelled with the skill's `name`, whose source section is the `header` of its first `skills[].paragraphs[]` entry (none when that `header` is null or the document names the skill only in a heading).
+
+**Other technologies:** find the document's other technology, library and framework names, skipping each term that names a `mentioned` skill:
 
 **Section-based detection:**
 - Identify section headings that indicate technology listings (e.g., "Tech Stack", "Dependencies", "Technologies", "Libraries", layer-specific headings)
 - Extract technology names listed under these headings
-
-**Direct name matching:**
-- Scan the full document for names that match loaded skill names (case-insensitive)
-- Apply alias resolution from {coveragePatternsData} (e.g., "React" matches "react", "PostgreSQL" matches "postgres")
 
 **Contextual detection:**
 - Identify technology names mentioned in prose alongside architectural descriptions
@@ -69,9 +75,10 @@ Parse the architecture document for technology, library, and framework names.
 For each referenced technology in the list:
 
 **Check if a matching skill exists** in the skill inventory step 1 wrote to `{inventoryFile}`.
-- Match by skill name (case-insensitive)
-- Match by alias from {coveragePatternsData}
-- Match by the repository or the folder the skill was built from: compare the lowercased technology token for equality with the entry's `source_repo_basename` or `source_root_basename` (no substring or fuzzy match)
+- A `mentioned` skill matches its own row: the helper already matched its name and aliases.
+- A technology §2's own detection found matches a skill by the skill's name (case-insensitive), or by a common alias from {coveragePatternsData} (e.g., "PostgreSQL" for `postgres`), so a document that writes only "PostgreSQL" still covers a `postgres` skill.
+
+**Run the mentions helper again when the model matched a skill.** When a technology §2's own detection found matches a skill that is not in `mentioned`, add the technology's term, as the document writes it, to that skill's `aliases`. Once every technology is checked, run the §2 `mentions` command once more with the extended array, overwriting `{docMentionsFile}` (the same HALT applies), and take §2's skill rows from the new file: each such skill is in `mentioned` now, and its row, labelled with its `name`, replaces the technology's. The integrations stage then finds that skill's pairs in `candidates[]`. With no such match, skip the second run.
 
 **Detect a deliberate-removal signal (from the architecture document):** Before assigning Covered/Missing, check whether the referenced technology is explicitly marked for removal or replacement in the architecture document itself. Be conservative — recognize a removal signal only when one of these is present, and when in doubt leave it as a normal reference (a false removal signal silently drops a real coverage gap):
 - The technology is listed under a section whose heading matches (case-insensitive) one of: "deprecated", "removed", "legacy", "migrating away", "being replaced", "to be removed", "sunset", "retiring".
@@ -96,7 +103,7 @@ The script (run `uv run {coverageTallyScript} --help` for the contract) returns 
 
 ### 4. Detect Extra Skills
 
-Check if any skills in the inventory are not referenced in the architecture document.
+Check if any skills in the inventory are not referenced in the architecture document: a skill in the `unmentioned` or `fenced_only` list of `{docMentionsFile}`, as §3 left it.
 
 **Subdivide into two categories (both informational, not errors), by the skill's `source_repo_basename` in `{inventoryFile}`:**
 - **Extra (unreferenced):** `source_repo_basename` is set, but no architecture document tech token matches the skill.
@@ -134,7 +141,10 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 {IF any Extra:}
 **Extra Skills (informational):**
 {For each extra skill:}
-- `{skill_name}` — not referenced in architecture document"
+- `{skill_name}`: not referenced in architecture document
+
+{IF a skill of the helper's `fenced_only` list is Extra:}
+**Detection limitation:** {those skills} appear only inside fenced code, which coverage does not read, so they count as Extra. {IF a `fenced_blocks[]` entry of `{docMentionsFile}` has the `info` string `mermaid`:}Part of the stack is drawn in a Mermaid diagram: list its technologies in prose (a Tech Stack section, say), then re-run **[VS]**.{ELSE:}Name them in prose, then re-run **[VS]**."
 
 ### 6. Append to Report
 
@@ -147,7 +157,7 @@ Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySche
 - Include coverage percentage
 - Include missing skill recommendations
 - Include the Replaced (being removed/replaced) subdivision from section 3, with the cited removal evidence — these are not gaps and carry no [CS]/[QS] recommendation
-- Include the Extra (unreferenced) and Orphan (source_repo unresolvable) subdivisions from section 4
+- Include the Extra (unreferenced) and Orphan (source_repo unresolvable) subdivisions from section 4, and the §5 detection limitation when it shows
 - Update frontmatter: append `'coverage'` to `stepsCompleted`; from the §3 tally, set `coveragePercentage` ← `coverage_percentage` (integer 0..100), `coverageCovered` ← `covered_count`, `coverageMissing` ← `missing_count` and `coverageReplaced` ← `replaced_count` (synthesize's verdict rollup reads the three counts)
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `coverage:report`, with `"path": "{outputFile}"`.
 
