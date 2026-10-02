@@ -2,4 +2,5 @@ type: changed
 scope: skf-verify-stack
 summary: |
   Verify Stack now finds the skills an architecture document names, and the pairs of them it names together, with the shared mentions helper Refine Architecture uses, so both workflows rate the same pairs in the same document. A coverage row of a skill the document names is labelled with the skill's name (`postgres`, where the document writes "PostgreSQL"), so the first run after upgrading can show a one-time coverage delta. A skill the document names only inside fenced code (any code block, not only a Mermaid diagram) now counts as Extra. When the helper cannot be found, the run stops with `resolution-failure` at the new phase `coverage:mentions`.
+prs: [640]
 issues: [598]
