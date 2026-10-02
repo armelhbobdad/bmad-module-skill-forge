@@ -5,7 +5,8 @@ nextStepFile: 'health-check.md'
 # classification.
 auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 # Resolve `{sourceTreeHelper}` to the first existing path. The Result
-# Contract removes the private tree step 1 §5b's [C] read the source in.
+# Contract removes the private tree the [C] of upstream-checkout.md read
+# the source in.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -28,7 +29,7 @@ Finalize the drift report by completing the Audit Summary with calculated metric
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (step 1 §5b's [C]), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}", "drift_score": "<the saved classification's drift_score>"}`, adding `"path"` when the halt names one, then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (the [C] of `upstream-checkout.md`), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}", "drift_score": "<the saved classification's drift_score>"}`, adding `"path"` when the halt names one, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -92,7 +93,7 @@ Append to {outputFile}:
 {IF the frontmatter's `upstream_moved` is true:}
 **Upstream moved.** The skill is built from `{baseline_ref}` and upstream is now at `{upstream_ref}`{; this audit read `{upstream_ref}`, when `audit_ref_source` is `checkout-latest`; this audit read the baseline, otherwise}. Run `[US] Update Skill` with `--target-ref {upstream_ref}`, so the update compares the ref upstream moved to rather than the one the skill is pinned to.
 
-{IF the frontmatter's `audit_ref_source` is `checkout-latest` (step 1 §5b audited a newer upstream ref than the baseline) or its `upstream_moved` is true:}
+{IF the frontmatter's `audit_ref_source` is `checkout-latest` (the [C] of `upstream-checkout.md` audited a newer upstream ref than the baseline) or its `upstream_moved` is true:}
 **Version preservation (non-destructive).** `update-skill` keeps the audited version (`{audited_version}`) unchanged, writes the new version in a folder of its own beside it (see `skf-update-skill/references/merge.md` §6b, which leaves the previous version on disk) and repoints the skill's `active` link at it (see `skf-update-skill/references/write.md` §5b). On the next export, the prior version's export-manifest entry transitions to `status: archived`, its files kept for rollback (see `skf-export-skill/references/update-context.md`). Do **not** recommend `skf-drop-skill` + `skf-create-skill` for a version bump: that destroys the prior version's artifacts.
 
 {IF the Out-of-Scope New Public API table above has rows:}
@@ -161,7 +162,7 @@ This summary reads as final but is **not** the terminal step — proceed to §6.
 
 ### Result Contract
 
-**Remove the private source tree first.** When `{source_tree}` is set (step 1 §5b's [C] read the source there), no later step reads the source: resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}` and, from `{project-root}`, run `uv run {sourceTreeHelper} close --tree "{source_tree}"`. Go on whatever it prints. On `left` or `refused`, a command that fails or prints no JSON, or no candidate, record `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "source_tree_not_removed: {source_tree}"` (a later SKF run removes it once it is seven days old). Then set `{source_tree}` to null.
+**Remove the private source tree first.** When `{source_tree}` is set (the [C] of `upstream-checkout.md` read the source there), no later step reads the source: resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}` and, from `{project-root}`, run `uv run {sourceTreeHelper} close --tree "{source_tree}"`. Go on whatever it prints. On `left` or `refused`, a command that fails or prints no JSON, or no candidate, record `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "source_tree_not_removed: {source_tree}"` (a later SKF run removes it once it is seven days old). Then set `{source_tree}` to null.
 
 The shared emitter writes the result contract (per `shared/references/output-contract-schema.md`, which resolves relative to the SKF module root: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development) and prints the `SKF_AUDIT_RESULT_JSON` envelope; this step stages their content, every value from the drift report's frontmatter and the classification step 5 saved. Write `{run_dir}/result-context.json`:
 
@@ -171,21 +172,21 @@ The shared emitter writes the result contract (per `shared/references/output-con
   "skill_name": "{skill_name}",
   "drift_score": "<drift_score>",
   "report_path": "{outputFile}",
-  "next_workflow": "<update-skill>" | null,
+  "next_workflow": <next_workflow>,
   "audit_ref": "<audit_ref>",
-  "upstream_moved": true | false | null,
-  "upstream_ref": "<upstream_ref>" | null,
+  "upstream_moved": <upstream_moved>,
+  "upstream_ref": <upstream_ref>,
   "result_contract": {
     "skill": "skf-audit-skill",
     "status": "success",
     "outputs": [{"type": "report", "path": "{outputFile}"}],
-    "summary": {"drift_count": <total_findings>, "severity": "<drift_score>", "next_workflow": "<update-skill>" | null,
-                "audit_ref": "<audit_ref>", "upstream_moved": true | false | null, "upstream_ref": "<upstream_ref>" | null}
+    "summary": {"drift_count": <total_findings>, "severity": "<drift_score>", "next_workflow": <next_workflow>,
+                "audit_ref": "<audit_ref>", "upstream_moved": <upstream_moved>, "upstream_ref": <upstream_ref>}
   }
 }
 ```
 
-When On Activation step 3 fell back to the bundled `customize.toml`, add `"customization_resolver_unavailable": "<the reason>"`: the emitter turns it into a warning. `<drift_score>` and `<total_findings>` are the `drift_score` and `total_findings` of `{auditDataFolder}/severity.json`: `drift_count` (the saved classification's `total_findings`: one per finding, never a label difference) and `severity` (its `drift_score`: CLEAN/MINOR/SIGNIFICANT/CRITICAL). `next_workflow` is `"update-skill"` exactly when §4 set the frontmatter's `nextWorkflow` (CRITICAL or HIGH findings, or `upstream_moved` true), else `null`. `audit_ref`, `upstream_moved` and `upstream_ref` are the frontmatter's, resolved at step 1 §5b (`audit_ref` is `baseline_ref` when the audit stayed on the baseline, `upstream_ref` when the operator chose `[C]`). Then run, in every mode:
+When On Activation step 3 fell back to the bundled `customize.toml`, add `"customization_resolver_unavailable": "<the reason>"`: the emitter turns it into a warning. `<drift_score>` and `<total_findings>` are the `drift_score` and `total_findings` of `{auditDataFolder}/severity.json`: `drift_count` (the saved classification's `total_findings`: one per finding, never a label difference) and `severity` (its `drift_score`: CLEAN/MINOR/SIGNIFICANT/CRITICAL). `<next_workflow>` is `"update-skill"` exactly when §4 set the frontmatter's `nextWorkflow` (CRITICAL or HIGH findings, or `upstream_moved` true), else JSON `null`. `audit_ref`, `upstream_moved` and `upstream_ref` are the frontmatter's, resolved at step 1 §5b and, when upstream moved, by `upstream-checkout.md` (`audit_ref` is `baseline_ref` when the audit stayed on the baseline, `upstream_ref` when the operator chose `[C]`): `<upstream_moved>` is JSON `true` when upstream moved, `false` when the check found it unchanged and `null` when the check was skipped or failed, and `<upstream_ref>` is the ref upstream moved to, as a JSON string, when `upstream_moved` is true, else `null`. Then run, in every mode:
 
 ```bash
 uv run {emitEnvelopeHelper} emit --workflow skf-audit-skill --run-dir "{run_dir}" --result-dir "{forge_version}" < "{run_dir}/result-context.json"

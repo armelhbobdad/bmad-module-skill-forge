@@ -1,0 +1,5 @@
+type: changed
+scope: skf-audit-skill
+summary: |
+  An interactive Audit Skill run shows its baseline summary and analysis plan and goes straight on to the analysis, instead of always asking "Ready to begin drift analysis?". It stops to ask only when the baseline looks wrong: this run reads the source with fewer tools than the compile did (its forge tier is below the tier the skill was compiled at), so the diff can report as drift what only the tools changed, or the provenance map is more than 90 days old. There it offers to continue or to stop (`user-cancelled`, exit 6) and refresh the baseline first, keeping the baseline-only drift report. A headless run continues past that confirmation as before. The drift report's Structural Drift and Severity Classification tables are now printed from the saved JSON by a script: an empty table reads `None.`, and 10 or more rows of one table that share a file (removed rows also a directory) always roll up into one row, with `n/a` for its signature. Stopping at the upstream-moved question now says how to update the skill to the newer ref.
+issues: [589, 599]

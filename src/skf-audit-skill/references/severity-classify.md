@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'step-doc-drift.md'
+nextStepFile: 'doc-drift.md'
 # A docs-only skill reaches this step after step 5a, so it goes on to the
 # report.
 reportStepFile: 'report.md'
@@ -10,10 +10,12 @@ auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 severityClassifyProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-severity-classify.py'
   - '{project-root}/src/shared/scripts/skf-severity-classify.py'
-# Every HALT after step 1 §5b's [C] closes the private tree with it.
+# Every HALT after the [C] of upstream-checkout.md closes the private tree with it.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
+# §3: this skill's renderer of the severity tables, from the skill root.
+renderDriftTablesScript: 'scripts/render-drift-tables.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -35,7 +37,7 @@ Grade every drift finding from Steps 03 and 04 (step 1c for a compose-mode stack
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (step 1 §5b's [C]), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, and `"drift_score"` once §2 saved the classification, then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (the [C] of `upstream-checkout.md`), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, and `"drift_score"` once §2 saved the classification, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -111,55 +113,23 @@ Consume `drift_score`, `by_severity`, the totals and each finding's `severity` d
 
 ### 3. Compile Severity Classification Section
 
-**Rollup when rendering.** A severity table may collapse ≥ 10 of its findings that share one root cause (deleted source file, renamed module, entire package tree removed) into one row, as step 3 §5 does for its tables. Keep the 6-column severity table shape; the rollup encodes root cause, count, and representative symbols **inline in the `Finding` cell** rather than adding columns, so rollup and per-item rows render cleanly in one table. Changed-signature and cross-file findings remain per-row; they were not eligible for rollup in step 3 and are not eligible here. A rollup changes no count: the headings and the summary come from the helper.
+Render the section from the saved classification, never by hand. `{renderDriftTablesScript}` resolves relative to the skill root; from `{project-root}`, run:
 
-**Rollup row form (any severity table):**
+```bash
+uv run {renderDriftTablesScript} severity "{auditDataFolder}/severity.json"
+```
 
-| # | Finding | Type | Detail | Location | Confidence |
-|---|---------|------|--------|----------|------------|
-| N | {root cause} (×{Count}; rep: `{sym1}`, `{sym2}`, `{sym3}`, …) | {structural/semantic} | {shared detail} | {root-cause path} | {T1/T1-low/T2} |
+It prints the section's tables (`--help` lists them). A rollup changes no count: the headings and the summary come from the JSON.
 
-Append to {outputFile}, one row per finding of `{auditDataFolder}/severity.json` (or per rollup), filling the counts from `by_severity`. A finding with no `confidence` (a hash comparison) shows `n/a`, and every finding but a `semantic` one is structural (a changed document of a docs-only skill shows `doc`):
+Append to {outputFile}:
 
 ```markdown
 ## Severity Classification
 
-**Overall Drift Score: {drift_score}**
-
-### CRITICAL ({by_severity.CRITICAL})
-
-| # | Finding | Type | Detail | Location | Confidence |
-|---|---------|------|--------|----------|------------|
-| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T1-low/T2} |
-
-### HIGH ({by_severity.HIGH})
-
-| # | Finding | Type | Detail | Location | Confidence |
-|---|---------|------|--------|----------|------------|
-| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T1-low/T2} |
-
-### MEDIUM ({by_severity.MEDIUM})
-
-| # | Finding | Type | Detail | Location | Confidence |
-|---|---------|------|--------|----------|------------|
-| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T1-low/T2} |
-
-### LOW ({by_severity.LOW})
-
-| # | Finding | Type | Detail | Location | Confidence |
-|---|---------|------|--------|----------|------------|
-| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T1-low/T2} |
-
-### Classification Summary
-
-| Severity | Count |
-|----------|-------|
-| CRITICAL | {by_severity.CRITICAL} |
-| HIGH | {by_severity.HIGH} |
-| MEDIUM | {by_severity.MEDIUM} |
-| LOW | {by_severity.LOW} |
-| **Total** | {total_items} |
+{what the command printed, unchanged}
 ```
+
+When the command exits non-zero, its JSON `error`, else its first stderr line, says what it could not read: write `Severity tables not rendered: {error}` in place of its output and go on, since §4 and step 6 read the saved classification, not these tables.
 
 ### 4. Update Report and Auto-Proceed
 

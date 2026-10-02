@@ -1,8 +1,14 @@
-"""Structural integration tests for the step-doc-drift.md step file (story 1.4).
+"""Structural integration tests for the doc-drift.md step file (story 1.4).
 
 Validates the doc-drift step contract: correct pipeline wiring, required
 sections, graceful failure rules, drift report template positioning, and
 stages-table placement in the AS workflow.
+
+The step file was step-doc-drift.md (#600, BMad Builder architecture-9): its
+siblings are named by their content, so it is doc-drift.md, and every file
+but SKILL.md points at that name. SKILL.md's Stages row and chain sentence
+still name step-doc-drift.md, which stays until they move to doc-drift.md,
+so the Stages tests below still read that name.
 """
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 AS_DIR = REPO_ROOT / "src" / "skf-audit-skill"
-STEP_FILE = AS_DIR / "references" / "step-doc-drift.md"
+STEP_FILE = AS_DIR / "references" / "doc-drift.md"
 SEVERITY_CLASSIFY_FILE = AS_DIR / "references" / "severity-classify.md"
 REPORT_FILE = AS_DIR / "references" / "report.md"
 SKILL_MD = AS_DIR / "SKILL.md"
@@ -50,7 +56,7 @@ def _next_step_value(path: pathlib.Path) -> str | None:
 
 
 def test_step_file_exists() -> None:
-    assert STEP_FILE.exists(), "step-doc-drift.md must exist"
+    assert STEP_FILE.exists(), "doc-drift.md must exist"
 
 
 # ---------------------------------------------------------------------------
@@ -59,10 +65,10 @@ def test_step_file_exists() -> None:
 
 
 class TestPipelineChain:
-    def test_severity_classify_points_to_step_doc_drift(self) -> None:
-        assert _next_step_value(SEVERITY_CLASSIFY_FILE) == "step-doc-drift.md"
+    def test_severity_classify_points_to_doc_drift(self) -> None:
+        assert _next_step_value(SEVERITY_CLASSIFY_FILE) == "doc-drift.md"
 
-    def test_step_doc_drift_points_to_report(self) -> None:
+    def test_doc_drift_points_to_report(self) -> None:
         assert _next_step_value(STEP_FILE) == "report.md"
 
     def test_a_docs_only_skill_runs_step_5a_then_step_5(self) -> None:
@@ -252,9 +258,10 @@ class TestDriftReportTemplate:
         )
 
     def test_doc_drift_has_step_comment(self, text: str) -> None:
-        assert "step-doc-drift" in text, (
-            "Documentation Drift section must reference step-doc-drift"
+        assert "<!-- Appended by doc-drift -->" in text, (
+            "Documentation Drift section must name the doc-drift step"
         )
+        assert "step-doc-drift" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +273,7 @@ class TestStepFileFrontmatter:
     @pytest.fixture(scope="class")
     def fm(self) -> str:
         result = _frontmatter(STEP_FILE)
-        assert result is not None, "step-doc-drift.md must have frontmatter"
+        assert result is not None, "doc-drift.md must have frontmatter"
         return result
 
     def test_has_next_step_file(self, fm: str) -> None:

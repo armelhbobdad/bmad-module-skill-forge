@@ -12,7 +12,7 @@ extractPublicApiProbeOrder:
 extractionSnapshotProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extraction-snapshot.py'
   - '{project-root}/src/shared/scripts/skf-extraction-snapshot.py'
-# Every HALT after step 1 §5b's [C] closes the private tree with it.
+# Every HALT after the [C] of upstream-checkout.md closes the private tree with it.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -34,7 +34,7 @@ Re-scan the source code using the current forge tier tools to build a fresh extr
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (step 1 §5b's [C]), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (the [C] of `upstream-checkout.md`), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{outputFile}"}`, adding `"path"` when the halt names one, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"

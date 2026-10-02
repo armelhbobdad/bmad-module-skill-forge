@@ -458,15 +458,19 @@ MUST_FIND = [
     ("src/skf-brief-skill/SKILL.md", "skf-emit-brief-result-envelope.py", "emit"),
     ("src/skf-brief-skill/references/write-brief.md", "skf-emit-brief-result-envelope.py", "emit"),
     # audit-skill (#588, #593): the upstream check, dispatched before argparse;
-    # the private tree; the snapshot; the emitter its SKILL.md resolves.
+    # the private tree, read by the upstream-moved gate init.md loads; the
+    # snapshot; the emitter its SKILL.md resolves; the skill's own renderer of
+    # the drift tables (#589), bound by a scripts/ scalar.
     ("src/skf-audit-skill/references/init.md", "skf-check-workspace-drift.py", "upstream"),
-    ("src/skf-audit-skill/references/init.md", "skf-source-tree.py", "resolve"),
+    ("src/skf-audit-skill/references/upstream-checkout.md", "skf-source-tree.py", "resolve"),
     ("src/skf-audit-skill/references/init.md", "skf-emit-result-envelope.py", "emit-halt"),
     ("src/skf-audit-skill/references/re-index.md", "skf-extraction-snapshot.py", "scan-list"),
     ("src/skf-audit-skill/references/re-index.md", "skf-extraction-snapshot.py", "build"),
     ("src/skf-audit-skill/references/structural-diff.md", "skf-extraction-snapshot.py", "relocate"),
     ("src/skf-audit-skill/references/report.md", "skf-emit-result-envelope.py", "emit"),
     ("src/skf-audit-skill/references/report.md", "skf-source-tree.py", "close"),
+    ("src/skf-audit-skill/references/structural-diff.md", "render-drift-tables.py", "structural"),
+    ("src/skf-audit-skill/references/severity-classify.md", "render-drift-tables.py", "severity"),
     # create-stack-skill (#593, #587, #606): the halt, decision and success
     # emitter calls, the relabel and library tiers step 4 takes from the stack
     # helper, the step 6 stats and the code-mode entries and integrations step 7
