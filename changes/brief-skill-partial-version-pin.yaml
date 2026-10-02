@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  A partial version pin given at the first Brief Skill prompt, such as `react@18`, `django==4.2` or `owner/repo@1.2`, is now named and asked for again before the version is kept, as the version question already said, instead of halting the brief writer after you approved the brief. Every version, typed or taken from the target, now goes through the check `skf-validate-brief-inputs.py` applies to a headless `target_version`, and its error says what a partial pin lacks, such as `'18' is a major version only`.

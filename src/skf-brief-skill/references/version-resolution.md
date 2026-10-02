@@ -1,6 +1,6 @@
 # Version Resolution
 
-Single source of truth for how brief-skill resolves the `version` field of `skill-brief.yaml`. Loaded by step 2 §4b (auto-detect, fallback path only when the language is not script-supported) and step 5 §3 (resolve & write) so both operate on the same precedence rules and invariant. Step-01 §3b references this file in prose for human-readable rationale but does not load it — that step only collects `target_version` and validates its shape with an inline regex.
+Single source of truth for how brief-skill resolves the `version` field of `skill-brief.yaml`. Loaded by step 2 §4b (auto-detect, fallback path only when the language is not script-supported) and step 5 §3 (resolve & write) so both operate on the same precedence rules and invariant. Step-01 §3b references this file in prose for human-readable rationale but does not load it: that step only collects `target_version` and checks its shape with `skf-validate-brief-inputs.py --only target_version`.
 
 **Aligned with** `assets/skill-brief-schema.md` "Version Detection" section. If you change one, change the other.
 

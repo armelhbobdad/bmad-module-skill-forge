@@ -136,13 +136,13 @@ The script:
 
 ### 3b. QMD Collection Registration (Deep Tier Only)
 
-**IF forge tier is Deep AND QMD tool is available:** resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` (first existing path wins), then load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry. If neither path exists, do not HALT: the brief is already written, and a QMD problem never fails the run. Index the brief all the same, skip the procedure's registry update, and add `QMD registry not updated: skf-forge-tier-rw.py not found` to `workflow_warnings[]`. A warning the procedure logs goes on `workflow_warnings[]` too, which is why this runs before §4b prints the envelope.
+**IF forge tier is Deep AND QMD tool is available:** resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` (first existing path wins), then load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry. If neither path exists, do not HALT: the brief is already written, and a QMD problem never fails the run. Index the brief all the same, skip the procedure's registry update, and add `QMD registry not updated: skf-forge-tier-rw.py not found` to `workflow_warnings[]`. A warning the procedure logs goes on `workflow_warnings[]` too, which is why this runs before §4b builds the envelope.
 
 **IF forge tier is NOT Deep OR QMD is not available:** skip this section silently: do not load `{qmdRegistrationFile}`. No messaging.
 
 ### 4b. Result Envelope (Headless)
 
-When `{headless_mode}` is true, print the run's `SKF_BRIEF_RESULT_JSON` line now, after the write (§3) and the QMD registration (§3b), so `workflow_warnings[]` holds every warning the run raised. `{emitBriefEnvelopeHelper}` was resolved at SKILL.md On Activation step 4, and `references/invocation-contract.md` defines each field. Display the line it prints verbatim:
+When `{headless_mode}` is true, build the run's `SKF_BRIEF_RESULT_JSON` line now, after the write (§3) and the QMD registration (§3b), so `workflow_warnings[]` holds every warning the run raised. `{emitBriefEnvelopeHelper}` was resolved at SKILL.md On Activation step 4, and `references/invocation-contract.md` defines each field. Bind `{result_envelope_line}` to the line it prints, and do not display it here: the shared health check displays it verbatim as the run's last line, the final message a `claude -p` caller reads:
 
 ```bash
 uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'
@@ -150,13 +150,15 @@ uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'
 SKF_BRIEF_RESULT
 ```
 
-The helper derives `exit_code`, checks the line against the envelope schema and prints it on stdout. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, display its error: the brief is already written, so the run goes on to §6.
+The helper derives `exit_code`, checks the line against the envelope schema and prints it on stdout. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, leave `{result_envelope_line}` empty and display its error: the brief is already written, so the run goes on.
 
 A HALT in this step, or in steps 1 and 2, does not use this section: it emits the error envelope through the SKILL.md Halt Contract, which also gives the `unknown` placeholder for a halt before the skill name is resolved.
 
 When `{headless_mode}` is false, skip this section silently: no envelope is emitted.
 
 ### 6. Display Success Summary
+
+When `{headless_mode}` is true, skip this section: the envelope §4b bound is the run's result.
 
 "**Skill brief written successfully.**
 
@@ -186,7 +188,7 @@ After compilation, you can:
 
 ### 6b. On-Complete Hook (pipeline integration)
 
-If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it now, after the brief has been written (§3) and, in a headless run, the result envelope printed (§4b):
+If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it now, after the brief has been written (§3) and, in a headless run, the result envelope built and bound to `{result_envelope_line}` (§4b):
 
 ```bash
 {onCompleteCommand} --result-path={brief_path}
@@ -194,14 +196,14 @@ If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 fr
 
 where `{brief_path}` is the absolute path captured from the §3 response envelope (the freshly written `skill-brief.yaml`, the stable artifact a downstream consumer chains from).
 
-- **Never fail the workflow on hook errors:** the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production. On a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. A headless run printed its envelope at §4b, so the envelope does not carry this line.
+- **Never fail the workflow on hook errors:** the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production. On a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. A headless run bound its envelope at §4b, so the envelope does not carry this line.
 - On success, add nothing: the hook's own output is its report.
 
 When `{onCompleteCommand}` is empty (bundled default), skip this section entirely: no hook is invoked. An `[auto]` run never loads this file: step-auto-validate.md §3 runs the same hook right after its envelope.
 
 ### 7. Chain to Health Check
 
-Once the brief file has been written and the success summary displayed, remove the run folder step 1 §1 created, with what the run staged in it (the guard keeps the command to that folder):
+Once the brief file has been written (and, outside headless mode, the success summary displayed), remove the run folder step 1 §1 created, with what the run staged in it (the guard keeps the command to that folder):
 
 ```bash
 case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac

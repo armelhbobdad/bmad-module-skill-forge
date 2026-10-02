@@ -70,7 +70,7 @@ scope_templates_path = "assets/scope-templates.md"
 
 # Pipeline-integration hook: a shell command, not an instruction, invoked
 # once the brief is written (and, in a headless or [auto] run, the result
-# envelope is printed), before the workflow chains to the terminal
+# envelope is built), before the workflow chains to the terminal
 # health-check step. Every successful run calls it once: write-brief.md §6b
 # on the interactive, headless and ratify paths, and step-auto-validate.md §3
 # on the [auto] path, right after its envelope. The command is called as:
@@ -78,7 +78,8 @@ scope_templates_path = "assets/scope-templates.md"
 # Useful for chaining into create-skill, Slack notifications, dashboard ingest,
 # or CI hooks. Override wins. A failure never fails the workflow: the run
 # displays one line, "on_complete hook failed (exit <code>): <stderr>", which
-# the result envelope, printed before the hook runs, does not carry.
+# the result envelope, built before the hook runs and displayed last by the
+# health check, does not carry.
 #
 # Empty string = no hook (default).
 

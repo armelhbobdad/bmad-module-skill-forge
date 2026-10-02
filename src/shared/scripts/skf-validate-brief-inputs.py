@@ -12,6 +12,14 @@ or step 5.
 CLI:
   uv run skf-validate-brief-inputs.py --json '{...}'
   echo '{...}' | uv run skf-validate-brief-inputs.py
+  echo '{"target_version": "18"}' | uv run skf-validate-brief-inputs.py --only target_version
+
+Field-only mode (--only FIELD, repeatable): checks only the named fields, each
+as the full check would, and skips every other field's check; the required
+target_repo and skill_name checks apply only when one of them is named.
+`normalized` holds only the named fields that were given. The interactive
+step 1 checks a typed or pre-filled `target_version` this way, with the same
+SEMVER_RE as a headless argument.
 
 Input (JSON object on stdin or via --json):
   Required (derive route — deriving a new brief from a repo/docs target):
@@ -116,11 +124,33 @@ KEBAB_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 SEMVER_RE = re.compile(
     r"^v?\d+\.\d+\.\d+([.\-+][0-9A-Za-z][0-9A-Za-z.\-+]*)?$"
 )
+# A pin that stops short of X.Y.Z (`react@18`, `django==4.2`, `repo@v2`), as
+# parse-target hands it back: the error names what is missing.
+PARTIAL_PIN_RE = re.compile(r"^v?\d+(\.\d+)?$")
+FULL_FORM = "write the full X.Y.Z (for example 1.2.3, v1.2.3, 1.2.3-rc.1 or 1.2.3+build.5)"
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
 def _err(field: str, message: str) -> dict[str, str]:
     return {"field": field, "message": message}
+
+
+def _version_error(value: str) -> str:
+    partial = PARTIAL_PIN_RE.match(value)
+    if partial:
+        kind = "a major and minor version" if partial.group(1) else "a major version"
+        return f"target_version {value!r} is {kind} only: {FULL_FORM}"
+    return f"target_version {value!r} does not look like semver: {FULL_FORM}"
+
+
+def _halt_reason(errors: list[dict[str, str]]) -> str | None:
+    if not errors:
+        return None
+    missing_required = any(
+        e["message"].startswith("missing required") or "is required" in e["message"]
+        for e in errors
+    )
+    return "input-missing" if missing_required else "input-invalid"
 
 
 def validate(inp: dict[str, Any]) -> dict[str, Any]:
@@ -236,14 +266,7 @@ def validate(inp: dict[str, Any]) -> dict[str, Any]:
                 )
             )
         elif not SEMVER_RE.match(target_version):
-            errors.append(
-                _err(
-                    "target_version",
-                    f"target_version does not look like semver. Got: {target_version!r}. "
-                    f"Expected forms: 1.2.3, v1.2.3, 1.2.3-rc.1, 1.2.3+build.5. "
-                    f"Partial forms like '1' or '1.2' are not accepted — write the explicit triple.",
-                )
-            )
+            errors.append(_err("target_version", _version_error(target_version)))
 
     # docs-only requires doc_urls — derive route only. On the ratify route the
     # brief on disk is the source of truth for source_type/doc_urls, so a
@@ -314,22 +337,27 @@ def validate(inp: dict[str, Any]) -> dict[str, Any]:
             )
         normalized["source_authority"] = "community"
 
-    # halt_reason classification
-    if errors:
-        missing_required = any(
-            e["message"].startswith("missing required") or "is required" in e["message"]
-            for e in errors
-        )
-        halt_reason = "input-missing" if missing_required else "input-invalid"
-    else:
-        halt_reason = None
-
     return {
         "valid": not errors,
         "errors": errors,
         "warnings": warnings,
         "normalized": normalized,
-        "halt_reason": halt_reason,
+        "halt_reason": _halt_reason(errors),
+    }
+
+
+def validate_fields(inp: dict[str, Any], fields: list[str]) -> dict[str, Any]:
+    """The verdict of validate() on the named fields alone: every finding on a
+    field not named is left out, the required target_repo and skill_name
+    checks included, so one value can be checked before the rest is known."""
+    full = validate(inp)
+    errors = [e for e in full["errors"] if e["field"] in fields]
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "warnings": [w for w in full["warnings"] if w["field"] in fields],
+        "normalized": {k: v for k, v in full["normalized"].items() if k in fields and k in inp},
+        "halt_reason": _halt_reason(errors),
     }
 
 
@@ -338,6 +366,14 @@ def main() -> int:
     p.add_argument(
         "--json",
         help="JSON object as a string. If omitted, the script reads JSON from stdin.",
+    )
+    p.add_argument(
+        "--only",
+        action="append",
+        choices=sorted(KNOWN_FIELDS),
+        metavar="FIELD",
+        help=("Check only this field (repeatable); the required target_repo and skill_name "
+              "checks apply only to a named one."),
     )
     args = p.parse_args()
 
@@ -359,7 +395,7 @@ def main() -> int:
         sys.stderr.write("skf-validate-brief-inputs: input must be a JSON object\n")
         return 2
 
-    result = validate(inp)
+    result = validate_fields(inp, args.only) if args.only else validate(inp)
     json.dump(result, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 0 if result["valid"] else 1

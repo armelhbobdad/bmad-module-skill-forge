@@ -25,6 +25,12 @@ step 1 ends on one message and one wait.
 #600 (brief part): gather-intent.md is carved: the headless input gate and
 the ratify branch are files that load only on their route.
 
+Step 5b round 1 (determinism-1, leanness-1): step 1 checks every version, a
+pre-filled pin included, with the validator's field-only mode before it
+keeps one, so a partial pin such as `react@18` is named at step 1 instead of
+halting the step 5 writer; and step 2 shows its analysis once, in the §5
+summary, which step 3 does not recap in the same turn.
+
 No test runs the step prose, so these checks pin it, and they run the
 recommender and the validator the prose relies on.
 """
@@ -57,6 +63,7 @@ CONFIRM_BRIEF = REFERENCES / "confirm-brief.md"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
 RECOMMENDER = SCRIPTS / "skf-recommend-scope-type.py"
 INPUTS_VALIDATOR = SCRIPTS / "skf-validate-brief-inputs.py"
+RESOLVE_PACKAGE = SCRIPTS / "skf-resolve-package.py"
 DETECT_REGISTRY = SCRIPTS / "skf-detect-registry.py"
 EXTRACT_PUBLIC_API = SCRIPTS / "skf-extract-public-api.py"
 CONTRACT = REFERENCES / "invocation-contract.md"
@@ -506,6 +513,143 @@ def test_a_derive_run_carries_the_scope_fields_step_three_set():
                    "the three component-library keys from step 3's component-library flow or its headless default",
                    "`source_ref` and `scope_amendments` are null"):
         assert needle in carry, needle
+
+
+# --------------------------------------------------------------------------
+# Step 1 §3b: one coded check for every version (step 5b determinism-1)
+# --------------------------------------------------------------------------
+
+
+def _documented_call(section: str, helper: str, tag: str) -> tuple[list[str], str]:
+    """(the arguments after the helper, the heredoc payload) of the one documented call to `helper`."""
+    [block] = _blocks(section, f"{{{helper}}}")
+    command, rest = block.split("\n", 1)
+    payload, end = rest.rstrip("\n").rsplit("\n", 1)
+    assert end == tag and command.endswith(f" <<'{tag}'"), block
+    argv = shlex.split(command[:-len(f" <<'{tag}'")])
+    assert argv[:3] == ["uv", "run", f"{{{helper}}}"], argv
+    return argv[3:], payload
+
+
+def _parse_target(target: str, cwd: Path) -> dict:
+    """What step 1 §3.1's documented parse-target call returns for `target`."""
+    args, payload = _documented_call(_section(_read(GATHER_INTENT), "#### 3.1 Collect target"),
+                                     "resolvePackageHelper", "SKF_TARGET")
+    proc = subprocess.run([sys.executable, str(RESOLVE_PACKAGE), *args],
+                          input=payload.replace("{target}", target) + "\n", capture_output=True, text=True,
+                          encoding="utf-8", timeout=60, check=False, cwd=cwd)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def _check_version(version: str) -> tuple[int, dict]:
+    """Step 1 §3b's documented field-only check, run on `version`."""
+    args, payload = _documented_call(_section(_read(GATHER_INTENT), "### 3b. Gather Target Version"),
+                                     "validateBriefInputsHelper", "SKF_JSON")
+    assert args == ["--only", "target_version"], args
+    proc = subprocess.run([sys.executable, str(INPUTS_VALIDATOR), *args],
+                          input=payload.replace('"<the version>"', json.dumps(version)),
+                          capture_output=True, text=True, encoding="utf-8", timeout=60, check=False)
+    return proc.returncode, json.loads(proc.stdout)
+
+
+@pytest.mark.parametrize("target,pin,kind", [
+    ("react@18", "18", "a major version"),
+    ("django==4.2", "4.2", "a major and minor version"),
+    ("owner/repo@1.2", "1.2", "a major and minor version"),
+    ("https://github.com/org/repo@v2", "v2", "a major version"),
+    ("https://www.npmjs.com/package/react/v/18", "18", "a major version"),
+])
+def test_a_partial_pin_parse_target_hands_back_is_named_at_step_one(target, pin, kind, tmp_path):
+    """parse-target keeps a partial pin as written; §3b's check names it, so it never reaches the writer."""
+    assert _parse_target(target, tmp_path)["target_version"] == pin
+    code, out = _check_version(pin)
+    assert code == 1 and out["valid"] is False
+    [error] = out["errors"]
+    assert error["message"].startswith(f"target_version {pin!r} is {kind} only: write the full X.Y.Z")
+
+
+@pytest.mark.parametrize("target,pin", [("requests==2.31.0", "2.31.0"), ("owner/repo@1.2.0", "1.2.0"),
+                                        ("@scope/name@2.1.0", "2.1.0")])
+def test_a_full_pin_parse_target_hands_back_passes_the_check(target, pin, tmp_path):
+    assert _parse_target(target, tmp_path)["target_version"] == pin
+    code, out = _check_version(pin)
+    assert code == 0 and out["normalized"] == {"target_version": pin}
+
+
+def test_a_typed_quote_reaches_the_check_as_data():
+    """The quoted heredoc passes the JSON as written: a quote in the answer is a value to refuse, not shell."""
+    code, out = _check_version("it's \"18\"")
+    assert code == 1 and "does not look like semver" in out["errors"][0]["message"]
+
+
+def test_every_version_passes_the_check_before_it_is_kept():
+    text = _read(GATHER_INTENT)
+    section = _section(text, "### 3b. Gather Target Version")
+    assert ("For a version typed here, or one §3.1 pre-filled (from parse-target or from the free-form answer)"
+            in section)
+    # The prose regex is gone: the script holds the one shape rule.
+    for gone in ("If user provides a version", "Validate the shape against", r"^v?\d+", "inline regex"):
+        assert gone not in text, gone
+        assert gone not in _read(REFERENCES / "version-resolution.md"), gone
+    [valid] = [line for line in section.splitlines() if line.startswith("- **Exit 0** (`valid: true`)")]
+    assert "store it as `target_version`" in valid and "Acknowledge a pre-filled one" in valid
+    [invalid] = [line for line in section.splitlines() if line.startswith("- **Exit 1** (`valid: false`)")]
+    assert "keep nothing" in invalid and '`"{message}, or leave blank to auto-detect."`' in invalid
+    # Both parse-target routes hand their pin to the check instead of keeping it.
+    routes = _section(text, "#### 3.1 Collect target")
+    [github] = [line for line in routes.splitlines() if line.startswith("  - `github` →")]
+    [package] = [line for line in routes.splitlines() if line.startswith("  - `package` or `registry-page`")]
+    assert "which §3b checks before it keeps it" in github
+    assert "a partial pin (`owner/repo@1.2`) is only a hint" in github
+    assert "pre-fills `target_version` the same way (`react@18` is a partial pin)" in package
+
+
+# --------------------------------------------------------------------------
+# Step 2 shows its analysis once (step 5b leanness-1)
+# --------------------------------------------------------------------------
+
+
+def test_step_two_shows_its_analysis_once_in_the_summary():
+    text = _read(ANALYZE_TARGET)
+    rules = _section(text, "## Rules")
+    assert "- **One display.** The §5 summary is this step's one display of the analysis." in rules
+    progress = {"### 2. Read Repository Structure": "Display `Reading the repository structure...`",
+                "### 3. Detect Primary Language": "Display `Detecting the language...`",
+                "### 4. List Top-Level Modules and Exports": "Display `Listing the exports...`",
+                "#### 4.3 Output format (both paths)": "Display `Picking the top-level modules...`"}
+    for heading, line in progress.items():
+        assert line in _section(text, heading), heading
+    # No result block before §5: §4.4's semantic signals are the one display that stays where it is.
+    before = text[text.index("\n### 2. Read Repository Structure\n"):text.index("\n#### 4.4 Semantic Signals")]
+    before += text[text.index("\n### 4b. Detect Source Version\n"):text.index("\n### 5. Report Analysis Summary\n")]
+    for gone in ('"**Repository Structure:**', '"**Detected language:**', '"**Top-Level Modules',
+                 '"**Target version:**', "Display: \"**Detected version:**", "to the user"):
+        assert gone not in before, gone
+    summary = _section(text, "### 5. Report Analysis Summary")
+    for needle in ("**Package:** {package_name} ({the number of its `dependencies`} dependencies)",
+                   "**Detected language:** {the detector's language} ({confidence}, {detection_source})",
+                   "**Extraction warnings:**", "- Target version: {target_version} (user-specified)",
+                   "- Detected version: {the §4b version", "differs from your target version ({target_version})",
+                   "{bulleted list of the §4.3 exports}", "each with its one-line description"):
+        assert needle in summary, needle
+    # The detected version shows on every run; only the target version line hangs on a pin.
+    assert (summary.index("- Detected version:") < summary.index("{If `target_version` was provided in step 01:}")
+            < summary.index("- Target version:"))
+
+
+def test_step_three_recaps_the_analysis_only_when_step_two_did_not_just_show_it():
+    context = _section(_read(SCOPE_DEFINITION), "### 1. Present Scope Context")
+    assert "In the same turn as step 2's §5 summary (or its §0 note on a docs-only target)" in context
+    assert ("Show the recap when step 4's `[R]` came here without step 2 running in this turn: a plain revise, "
+            "a later `[R]` on a ratify run (`ratify_analyzed`), or a docs-only ratify run or resumed draft."
+            in context)
+    recap = context[context.index("{Recap:}"):context.index("{End of recap.}")]
+    for line in ("- **Target:**", "- **Language:**", "- **Modules found:**"):
+        assert line in recap, line
+    after = context[context.index("{End of recap.}"):]
+    assert "- **Your intent:**" in after and "- **Your initial scope hints:**" in after
+    assert "Anything wrong in the analysis?" in after
 
 
 # --------------------------------------------------------------------------

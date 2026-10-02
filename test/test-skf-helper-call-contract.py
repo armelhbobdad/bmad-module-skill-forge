@@ -82,6 +82,7 @@ FLAG_ONLY = frozenset({
     SRC / "shared" / "scripts" / "skf-render-metadata-stats.py",
     SRC / "shared" / "scripts" / "skf-names-present.py",
     SRC / "shared" / "scripts" / "skf-extract-public-api.py",
+    SRC / "shared" / "scripts" / "skf-validate-brief-inputs.py",
 })
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
@@ -520,6 +521,8 @@ FLAG_ONLY_MUST_FIND = [
     # audit-skill's re-index runs the recipe runner over its scan list (#589).
     ("src/skf-audit-skill/references/re-index.md", "skf-extract-public-api.py",
      ("--files-from", "--head-cap")),
+    # brief-skill's step 1 checks a typed or pre-filled version with the field-only mode.
+    ("src/skf-brief-skill/references/gather-intent.md", "skf-validate-brief-inputs.py", ("--only",)),
 ]
 
 
@@ -595,6 +598,9 @@ def test_manifest_ops_commands_are_read_from_its_main():
     ("skf-names-present.py", " --provenance {forge_version}/provenance-map.json"),
     ("skf-names-present.py", " {forge_version}/provenance-map.json --skill-dir {skill_staging}"),
     ("skf-names-present.py", " --provenance {p}/provenance-map.json --skill-dir {s} --drop"),
+    # The brief input validator: a field it does not know, the flag left without its field.
+    ("skf-validate-brief-inputs.py", " --only version"),
+    ("skf-validate-brief-inputs.py", " --only"),
     # The upstream check: a required flag left out, an unknown flag, the
     # check that runs without `upstream`.
     ("skf-check-workspace-drift.py", ' upstream --source-root "{r}" --baseline-commit "{c}"'),
@@ -622,6 +628,7 @@ def test_the_checker_rejects_broken_calls(script, rest):
     ("skf-render-metadata-stats.py", " --help"),
     ("skf-names-present.py", " --provenance {forge_version}/provenance-map.json --skill-dir {skill_staging}"),
     ("skf-names-present.py", " --provenance {p}/provenance-map.json --skill-dir {s} --drop-absent"),
+    ("skf-validate-brief-inputs.py", " --only target_version <<'SKF_JSON'"),
     ("skf-check-workspace-drift.py",
      ' upstream --source-root "{r}" --baseline-commit "{c}" --baseline-ref "{b}" [--timeout "{t}"]'),
     # A repeatable synopsis group: quick-skill's entry files, audit-skill's by-eye details.

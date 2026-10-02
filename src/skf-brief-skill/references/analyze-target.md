@@ -26,6 +26,7 @@ validatePinsProbeOrder:
 
 - Do not make scoping decisions or recommendations
 - Do not hallucinate or guess about repository contents
+- **One display.** The §5 summary is this step's one display of the analysis. Before it, §2 to §4.3 show one progress line each, besides any warning, the truncation choice (§1), the monorepo pick (§1b) and §4.4's semantic signals; the values they compute stay in context for §5.
 - **Staged inputs.** The helpers of this step read the repository from files in the run folder `{run_dir}` that step 1 §1 created, never from a list or a file's text typed into a command: `{run_dir}/tree.json` (the file list, §1), `{run_dir}/files/` (manifests and entry points fetched at `{analysis_ref}`, laid out like the repository) and `{run_dir}/snapshot.json` (the tree's counts and module candidates, §2). Step 3 reads the same files.
 - **Ratify run (`ratify_mode: true`):** this step runs only from step 4 `[R] Revise Scope`, to give step 3 an analysis of the brief's repository, and never replaces the hydrated `name`, `version` or `language`. §1 treats the hydrated `target_ref` and `target_version` as set in step 01, and a hydrated `version` without either as an implicit `target_version`: §1 resolves it to a tag the same way, and with no match analyzes `HEAD` without the zero-match warning. §1b selects, without asking, the workspace whose path begins the hydrated `scope.include` globs (the repo root when none does). §3 runs only to choose §4's path: the brief keeps the hydrated `language`, which the §5 summary shows with the hydrated `version`. Skip §4b. At §5, set `ratify_analyzed: true` in workflow context, so a later `[R]` goes straight to step 3.
 
@@ -145,27 +146,17 @@ Log each non-empty `warnings[]` entry from the script and add it to `workflow_wa
 
 ### 2. Read Repository Structure
 
-Take the structure from the tree snapshot `{detectWorkspacesHelper}` computes, never from a count of the listing by hand. Add `--root "{monorepo_workspace}"` when §1b picked a workspace:
+Display `Reading the repository structure...`, then take the structure from the tree snapshot `{detectWorkspacesHelper}` computes, never from a count of the listing by hand. Add `--root "{monorepo_workspace}"` when §1b picked a workspace:
 
 ```bash
 uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --manifest-dir "<§1b's manifest folder>" --snapshot > "{run_dir}/snapshot.json"
 ```
 
-It holds `file_count`, `source_file_count`, `dir_count`, `top_level_files`, `top_level_dirs`, `truncated` (the counts are then lower bounds), the `workspaces` detection found, and the module candidates §4.3 picks from. Display:
-
-"**Repository Structure:**
-```
-{repo-name}/
-├── {top_level_files}
-├── {top_level_dirs}/
-│   └── ...
-└── ...
-```
-**Total:** {file_count} files ({source_file_count} source files), {dir_count} directories"
+It holds `file_count`, `source_file_count`, `dir_count`, `top_level_files`, `top_level_dirs`, `truncated` (the counts are then lower bounds), the `workspaces` detection found, and the module candidates §4.3 picks from.
 
 ### 3. Detect Primary Language
 
-**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins. HALT if no candidate exists.
+Display `Detecting the language...`. **Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 Delegate the rule walk to `{detectLanguageHelper}` instead of evaluating manifest presence and extension frequency in prose:
 
@@ -177,13 +168,9 @@ Pass the §1b `manifest_kind` as `--workspace-signal` (leave the flag out when i
 
 **When §1b surfaced a `cross-ecosystem workspace ignored` warning and the operator chose the ignored ecosystem:** pass that ignored kind as `--workspace-signal` (not the surfaced kind), so a co-located `cargo-workspace`/`python-multi-package` root resolves to rust/python instead of being pinned to the surfaced ecosystem's language by the workspace that won detection priority.
 
-The script returns `{language, confidence, detection_source, fallback_to_extension_frequency, source_language, detected_languages}` after walking the documented rule table: the `workspace_signal` precedence above first, then the manifests nearest the tree's root, by folder depth and then rule order (package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, Package.swift, Gemfile, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln), where a manifest in a docs, examples, tests or other non-core folder, or in a hidden one, decides only when no other exists, then extension-frequency fallback. With no manifest at the root, the nearest one decides at `medium` confidence and `source_language` names the language most source files are in. Use the returned values directly:
+The script returns `{language, confidence, detection_source, fallback_to_extension_frequency, source_language, detected_languages}` after walking the documented rule table: the `workspace_signal` precedence above first, then the manifests nearest the tree's root, by folder depth and then rule order (package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, Package.swift, Gemfile, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln), where a manifest in a docs, examples, tests or other non-core folder, or in a hidden one, decides only when no other exists, then extension-frequency fallback. With no manifest at the root, the nearest one decides at `medium` confidence and `source_language` names the language most source files are in. Use the returned values directly: §5 shows them.
 
-"**Detected language:** {language}
-**Confidence:** {confidence}
-**Detection source:** {detection_source}"
-
-**Headless language override.** If `language_hint` was supplied as a headless argument, use it as the confirmed `{language}` (overriding the detected value) and carry it forward to §4 and step 03. The detector still runs so the "Detected language" line reflects what the source signals, but the explicit hint wins and the step 03 §4 low-confidence override does not fire. When `language_hint` is absent, carry the detected `{language}` forward.
+**Headless language override.** If `language_hint` was supplied as a headless argument, use it as the confirmed `{language}` (overriding the detected value) and carry it forward to §4 and step 03. The detector still runs so §5's Detected-language line reflects what the source signals, but the explicit hint wins and the step 03 §4 low-confidence override does not fire. When `language_hint` is absent, carry the detected `{language}` forward.
 
 If `confidence` is `low` (or `unknown` is returned for `language`) and no `language_hint` was supplied: flag for user override in step 03 §4.
 
@@ -195,7 +182,7 @@ Identify the public API surface. **Delegate the parsing to `{extractPublicApiHel
 
 **Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`.
 
-This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) based on the detected language, then always emits §4.3 (output format) and conditionally §4.4 (semantic signals).
+Display `Listing the exports...`. This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) based on the detected language, then always §4.3 (the modules and exports §5 shows) and conditionally §4.4 (semantic signals).
 
 #### 4.1 Procedure — script-supported languages
 
@@ -229,7 +216,7 @@ This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) ba
 
    On a non-zero exit (codes 1 or 2 per the script's docstring), capture stderr, log it, and fall through to §4.2 (the prose-fallback path): never HALT just because the script choked on an unusual manifest.
 
-4. Render the returned `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies`, and any `warnings` to the user. The script also returns `version` — feed that into §4b instead of re-deriving.
+4. Keep the returned `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies` and `warnings` for §5, which shows the package, its dependency count, the exports and the warnings. The script also returns `version`: feed that into §4b instead of re-deriving.
 
 #### 4.2 Procedure — fallback (not script-supported)
 
@@ -239,18 +226,12 @@ Fall back to ad-hoc inspection of `Gemfile` / `*.csproj` / `*.sln` / `Package.sw
 
 #### 4.3 Output format (both paths)
 
-**Pick the Top-Level Modules from `{run_dir}/snapshot.json`** (Maven and Gradle aside: there the §4.1 script's `modules` array is the list):
+Display `Picking the top-level modules...`. **Pick the Top-Level Modules from `{run_dir}/snapshot.json`** (Maven and Gradle aside: there the §4.1 script's `modules` array is the list):
 - The snapshot's `workspaces`, when it lists some.
 - Else the `module_candidates` that hold the library's own code: not a folder with no source file (`source_file_count` 0), nor one of tests, docs, examples, scripts, build tooling or CI.
 - When one candidate holds most of the source files, it is the package itself (`pandas/` at the root of pandas): run the snapshot again for that folder, `uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --snapshot --root "<that folder>" > "{run_dir}/package-snapshot.json"`, and pick among its candidates.
 
-The number of modules picked is `module_count`, which step 3 §2c passes the scope-type recommender (0 when none qualifies).
-
-"**Top-Level Modules ({module_count}):**
-{numbered list of the picked modules, each with a brief description}
-
-**Detected Exports/Entry Points:**
-{numbered list of public-facing items found — from script output when available, ad-hoc inspection otherwise}"
+The number of modules picked is `module_count`, which step 3 §2c passes the scope-type recommender (0 when none qualifies). Give each picked module a one-line description. The exports are the §4.1 script's `exports`, or the entry points §4.2 found.
 
 #### 4.4 Semantic Signals (Forge+/Deep with ccc only)
 
@@ -270,7 +251,7 @@ If results are returned, display:
 "**Semantic Signals (ccc):**
 {numbered list of file:snippet pairs from CCC results — top 5 most relevant}"
 
-This supplements — never replaces — the explicit module list above. CCC may surface non-obvious entry points (dynamically constructed exports, re-export chains) that static directory analysis misses.
+This supplements, and never replaces, the module list §4.3 picked. CCC may surface non-obvious entry points (dynamically constructed exports, re-export chains) that static directory analysis misses.
 
 If CCC is unavailable or returns no results: skip this subsection silently.
 
@@ -280,17 +261,7 @@ If CCC is unavailable or returns no results: skip this subsection silently.
 
 **When the language was not script-supported:** load `{versionResolutionFile}` and follow the prose Detection Algorithm directly (Ruby / C# / Swift / etc. fall outside the script's coverage).
 
-Surface the result regardless of which path produced it:
-
-**If `target_version` was provided in step 01:**
-- Display: "**Target version:** {target_version} (user-specified)"
-
-Display: "**Detected version:** {version or 'Not detected — will default to 1.0.0'}"
-
-{If target_version was provided AND auto-detected version differs:}
-"**Note:** Detected version ({detected_version}) differs from your target version ({target_version}). Using target version (per `references/version-resolution.md` precedence rules)."
-
-If detection fails or returns a non-semver value: note that version will default to `"1.0.0"` and the user can override in step 04. The actual write happens in step 05.
+Whichever path produced it, keep the detected version for §5, which shows it beside `target_version`. The actual write happens in step 05.
 
 ### 5. Report Analysis Summary
 
@@ -301,21 +272,35 @@ Present the complete analysis, the counts and notable files read from `{run_dir}
 ---
 
 **Target:** {repo URL or path}
-**Language:** {detected language} ({confidence})
-**Structure:** {file_count} files across {dir_count} directories
+{If §4.1 returned a `package_name`:}
+**Package:** {package_name} ({the number of its `dependencies`} dependencies)
+**Detected language:** {the detector's language} ({confidence}, {detection_source})
+{If a `language_hint` or a ratified brief set the language:}
+**Language:** {language} (kept over the detected one)
+**Structure:** {file_count} files ({source_file_count} source files) across {dir_count} directories
 
 **Key Modules ({module_count}):**
-{bulleted list of the §4.3 modules}
+{bulleted list of the §4.3 modules, each with its one-line description}
 
 **Public Exports/Entry Points ({count}):**
-{bulleted list of exports}
+{bulleted list of the §4.3 exports}
+
+**Version:** {on a ratify run, the hydrated `version`; otherwise:}
+- Detected version: {the §4b version, or `not detected: defaulting to 1.0.0, which you can change when you confirm the brief` when detection failed or returned a non-semver value}
+{If `target_version` was provided in step 01:}
+- Target version: {target_version} (user-specified)
+{If `target_version` was provided AND the detected version differs:}
+- Note: the detected version ({detected_version}) differs from your target version ({target_version}). Using target version (per `references/version-resolution.md` precedence rules).
+
+{If §4.1 returned `warnings`:}
+**Extraction warnings:**
+{one bullet per warning}
 
 **Notable Files:**
 - README: {a README file in `top_level_files`, or not found}
 - Tests: {a tests folder in `top_level_dirs` (`test`, `tests`, `__tests__`, `spec`), or not found}
 - Docs: {a docs folder in `top_level_dirs` (`docs`, `doc`, `documentation`), or not found}
 - Config: {the configuration files in `top_level_files`}
-- Version: {detected version or "Not detected — defaulting to 1.0.0"}
 {If the target was a GitHub URL:}
 - Analysis ref: {analysis_ref} {append " (resolved from target_version {target_version})" when a tag was matched, or " (no tag matched {target_version} — analyzed default branch)" on the zero-match fallback}
 

@@ -1,0 +1,4 @@
+type: changed
+scope: skf-brief-skill
+summary: |
+  A headless or `[auto]` Brief Skill run now holds its `SKF_BRIEF_RESULT_JSON` success line until the end-of-run health check, which displays it as the run's last line, so a `claude -p` caller reads the envelope as the final message. A headless run also skips the interactive success summary. A halt still displays its error line where it stops.

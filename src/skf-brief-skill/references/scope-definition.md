@@ -31,13 +31,17 @@ draftCheckpointFile: 'references/draft-checkpoint.md'
 
 ### 1. Present Scope Context
 
+In the same turn as step 2's §5 summary (or its §0 note on a docs-only target), the user has just read the analysis: leave out the recap lines below and show only the intent lines and the question. Show the recap when step 4's `[R]` came here without step 2 running in this turn: a plain revise, a later `[R]` on a ratify run (`ratify_analyzed`), or a docs-only ratify run or resumed draft.
+
 "**Let's define the scope for your skill.**
 
+{Recap:}
 Based on the analysis, here's what we're working with:
 
 - **Target:** {repo}
 - **Language:** {language from step 2: the detected or confirmed one, or `documentation` for a docs-only target}
 - **Modules found:** {module_count from step 2 §4.3} ({list names}; none for a docs-only target)
+{End of recap.}
 - **Your intent:** {user intent from step 01}
 {If scope hints from step 01:}
 - **Your initial scope hints:** {hints}
