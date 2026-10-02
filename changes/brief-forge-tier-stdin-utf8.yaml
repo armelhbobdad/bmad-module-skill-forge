@@ -2,4 +2,5 @@ type: fixed
 scope: skf-brief-skill, skf-create-skill
 summary: |
   On Windows, Brief Skill's check of its headless inputs (`skf-validate-brief-inputs.py`) and the `forge-tier.yaml` registry writes of Brief Skill and Create Skill (`skf-forge-tier-rw.py` `register-qmd-collection` and `register-ccc-index`, and `write-tools` when it takes its payload on stdin) now read the JSON they are piped as UTF-8, so an accented letter or another non-ASCII character in a target path, an intent or an indexed folder's path is no longer garbled.
+prs: [642]
 issues: [592]
