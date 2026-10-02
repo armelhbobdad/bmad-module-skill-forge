@@ -29,19 +29,21 @@ To load and validate the skill-brief.yaml compilation config, resolve the source
 
 ### 0. Start the Run Folder
 
-Every brief gets a run folder of its own: the decisions recorded in it and the staged envelope payloads belong to this brief. Under `--batch`, `references/batch-mode.md` §2 created it and bound `{run_dir}`: go on to §1. Otherwise create it:
+Every brief gets a run folder of its own: the decisions recorded in it and the staged envelope payloads belong to this brief. Under `--batch`, `references/batch-mode.md` §2 created it and bound `{run_dir}`: go on to the resolver warning below. Otherwise create it:
 
 ```bash
 mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-create-skill-XXXXXXXX"
 ```
 
-Bind `{run_dir}` ← the path it prints. Step 8 deletes it once the brief finishes; a halted brief keeps it. If it cannot be created, **HARD HALT** (exit code 4, `write-failed`, phase `load-brief`): display "**Create Skill cannot start: the run folder could not be created.** {the first stderr line}" and emit with nothing to stage in:
+Bind `{run_dir}` ← the path it prints. Step 8 deletes it once the brief finishes; a halted brief keeps it. If it cannot be created, **HARD HALT** (exit code 4, `write-failed`, phase `load-brief`): display "**Create Skill cannot start: the run folder could not be created.** {the first stderr line}" and emit with nothing to stage in, adding `"customization_resolver_unavailable": "<reason>"` to the payload when On Activation step 3 kept one:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --target stderr <<'SKF_JSON'
 {"phase": "load-brief", "halt_reason": "write-failed", "reason": "<that message, one line>", "summary": {"halt_reason": "write-failed", "evidence_report": null}}
 SKF_JSON
 ```
+
+**Resolver warning.** Record the reason On Activation step 3 kept, if any, in this brief's sink. Under `--batch`, when `{batch_dir}/resolver-warning.txt` exists (batch-mode.md §1 wrote it), run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{batch_dir}/resolver-warning.txt")"`. Otherwise, when `{customization_resolver_unavailable}` is set, write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`.
 
 ### 1. Load Forge Tier
 

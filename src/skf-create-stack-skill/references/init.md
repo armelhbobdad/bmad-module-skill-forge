@@ -53,6 +53,8 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
 
 **Warnings.** Each `workflow_warnings[]` entry this step appends is recorded at once: write its `[{step}/{severity}] {code}: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
 
+**Resolver warning.** When SKILL.md On Activation bound `{customization_resolver_unavailable}` (the customization resolver could not run, so the `{project-root}/_bmad/custom/` overrides do not apply), record it now, as the run's first warning: write `[activation/warn] customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/warning.txt` with a file write, never an `echo` or a quoted `--warning` argument (a resolver error can hold quotes or `$( )`), then run the `record` command above.
+
 ### 0. Validate Project Config
 
 Load `{project-root}/_bmad/skf/config.yaml`. If the file is missing OR fails YAML parse OR lacks the required top-level keys (`project_name`, `output_folder`, `skills_output_folder`, `forge_data_folder`, `sidecar_path`), HALT with:

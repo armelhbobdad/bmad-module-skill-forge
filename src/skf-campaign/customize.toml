@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-campaign.
-# Team overrides:     _bmad/custom/skf-campaign.toml (under {project-root})
-# Personal overrides: _bmad/custom/skf-campaign.user.toml (under {project-root})
+# Team overrides:     {project-root}/_bmad/custom/skf-campaign.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-campaign.user.toml
 
 [workflow]
 
@@ -30,19 +30,21 @@ activation_steps_append = []
 # into every per-skill kickoff, so project-scoped house facts propagate to
 # the whole campaign. Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "All skills must cite their upstream source."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/skill-style.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
 #
 # The kickoff script expands each `file:` entry when it renders a Tier A
 # kickoff (a `**` glob recursively, so the default below takes every
 # project-context.md under {project-root}) and inlines each matching file in
-# full into every kickoff. Overrides append, so they cannot remove the
-# default: to keep these files out of the kickoffs, set kickoff_template_path
-# to a copy of templates/kickoff-template.md without its `## Campaign Facts`
-# section.
+# full into every kickoff. Overrides append, and the script drops a `!`
+# entry and each earlier entry it names, so to keep those files out of every
+# Tier A kickoff, set in {project-root}/_bmad/custom/skf-campaign.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",

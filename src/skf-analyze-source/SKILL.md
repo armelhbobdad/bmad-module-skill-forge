@@ -12,7 +12,9 @@ Analyzes a large repo or multi-service project to identify discrete skillable un
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/health-check.md`, which the terminal step chains to.
+- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `assets/` holds the brief schema and `templates/` the analysis report skeleton.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
@@ -26,7 +28,7 @@ You are a source code analyst and decomposition architect collaborating with a d
 These rules apply to every step in this workflow:
 
 - Only load one step file at a time — never preload future steps
-- Always communicate in `{communication_language}` (the language for user-facing prose). Written artifact text — the per-unit recommendation `description` and `scope.notes` persisted into `skill-brief.yaml` — is in `{document_output_language}`; per-step rules call this out where it applies. The two values may be the same.
+- Always communicate in `{communication_language}`; the text persisted into `skill-brief.yaml` (each recommendation's `description` and `scope.notes`) is written in `{document_output_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action, and record each one in the run sink as the gate says
 
 ## Stages
@@ -76,27 +78,22 @@ These rules apply to every step in this workflow:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `forge_data_folder`, `skills_output_folder`, `sidecar_path`
    - If the config cannot be loaded, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `on-activation:config`): "SKF cannot load `{project-root}/_bmad/skf/config.yaml`: the workflow has no forge context to run against. Run setup first." When `--headless` or `-H` was passed, print its envelope with the second command above.
 
-3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
+3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
 4. **Resolve workflow customization.** Run:
 
    ```bash
-   python3 {project-root}/_bmad/scripts/resolve_customization.py \
-       --skill {skill-root} --key workflow
+   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-analyze-source.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) for step 5 to record in the run sink.
 
-   - `{skill-root}/customize.toml` — bundled defaults
-   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
-   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
-
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly. Then bind, so stage files use the variable with no conditional at the usage site:
+   Then bind, so stage files use the variable with no conditional at the usage site:
 
    - `{analysisReportTemplatePath}` ← `workflow.analysis_report_template_path` (the bundled `templates/analysis-report-template.md` when an override leaves it empty)
    - `{onCompleteCommand}` ← `workflow.on_complete` (empty: no hook)
 
-   Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts).
+   Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off).
 
 5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the subagents' unit records, the halt and result payloads) and the sink of its auto-decisions:
 
@@ -104,6 +101,6 @@ These rules apply to every step in this workflow:
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-analyze-source-XXXXXXXX"
    ```
 
-   Bind `{run_dir}` ← the path it prints. The step that ends the run deletes it once the envelope is out; a HARD HALT keeps it. If it cannot be created, HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:run-folder`, path `{project-root}/_bmad-output/.skf-run`): "SKF cannot create its run folder under `{project-root}/_bmad-output/.skf-run/`: {the first stderr line}. Nothing was changed." Its envelope goes through the second command of step 1.
+   Bind `{run_dir}` ← the path it prints. The step that ends the run deletes it once the envelope is out; a HARD HALT keeps it. If it cannot be created, HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:run-folder`, path `{project-root}/_bmad-output/.skf-run`): "SKF cannot create its run folder under `{project-root}/_bmad-output/.skf-run/`: {the first stderr line}. Nothing was changed." Its envelope goes through the second command of step 1, its payload with `"customization_resolver_unavailable": "<reason>"` added when step 4 kept one. Once the folder exists and `{customization_resolver_unavailable}` is set, record the reason in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`.
 
 6. Run `workflow.activation_steps_append`, then load, read the full file, and execute `references/init.md` to begin the workflow.

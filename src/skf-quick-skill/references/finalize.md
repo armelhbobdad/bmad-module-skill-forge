@@ -29,7 +29,7 @@ To finalize the skill by creating the active-version pointer, displaying the com
 
 Point `{skill_group}/active` at `{version}` with the shared helper.
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists, skip the flip the same way `--no-active-pointer` does: log "Active pointer: skipped, atomic-write helper unavailable", omit the active-pointer line from the completion summary and outputs, and set `{active_pointer}` to `skipped-helper-missing`, which the result-contract summary (§3) carries so consumers see why the pointer is absent. The deliverables are already on disk, so a missing helper degrades to "no pointer" rather than a failed run. There is no manual fallback: a hand-rolled `rm` + `ln -s` loses the helper's atomicity and non-link guard, risking a half-flipped pointer or an `rm -rf` into a real directory.
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists, skip the flip the same way `--no-active-pointer` does: log "Active pointer: skipped, atomic-write helper unavailable", omit the active-pointer line from the completion summary and outputs, and set `{active_pointer}` to `skipped-helper-missing`, which the result-contract summary (§3) carries so consumers see why the pointer is absent. This branch is reached only when `skf-atomic-write.py` disappeared after step 5, whose metadata.json install halts without it. There is no manual fallback: a hand-rolled `rm` + `ln -s` loses the helper's atomicity and non-link guard, risking a half-flipped pointer or an `rm -rf` into a real directory.
 
 ```bash
 uv run {atomicWriteHelper} flip-link \
@@ -113,13 +113,13 @@ This list is the summary, once: `skill_name`, `version`, `language`, `exports_do
 
 The emitter writes the result contract from `result_contract`, with the payload's own `status` and `summary`, so neither is typed twice (the per-run record `{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json` and its copy `quick-skill-result-latest.json`, the stable path for pipeline consumers) and prints one line on stdout, `SKF_QUICK_SKILL_RESULT_JSON: {...}`: display it verbatim as its own line. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again; if it still fails, or no path resolved for `{emitEnvelopeHelper}`, say that the result contract was not written and why, and go on.
 
-**Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it after the result contract is finalized:
+**Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) and the emitter wrote the result contract (the line it printed has a non-null `result_path` and no `result_file_write_failed` warning naming `quick-skill-result-latest.json`), invoke it after the result contract is finalized:
 
 ```bash
-{onCompleteCommand} --skill-package={skill_package}
+{onCompleteCommand} --result-path={skill_package}/quick-skill-result-latest.json
 ```
 
-Log success/failure but never fail the workflow on a hook error: the skill is already written. The hook runs last so a git-add, registry registration, or notifier sees a complete package. Under `--batch` it runs once per target that reaches this section.
+When the emitter failed twice, no path resolved for `{emitEnvelopeHelper}`, `result_path` is null, or a `result_file_write_failed` warning names `quick-skill-result-latest.json` (the copy alone failed), skip the hook and say so: "Post-completion hook skipped: `quick-skill-result-latest.json` was not written." The hook never gets a missing file or an earlier run's `-latest` copy. Log success/failure but never fail the workflow on a hook error: the skill is already written. The hook runs last so a git-add, registry registration, or notifier sees a complete package. Under `--batch` it runs once per target that reaches this section.
 
 In a single-target run, then delete the run folder, which a finished run no longer needs: the files step 3 fetched into it, and the files the steps staged (if `rmdir` reports it is not empty, leave it). The `case` guard deletes nothing unless the path is a quick-skill run folder:
 

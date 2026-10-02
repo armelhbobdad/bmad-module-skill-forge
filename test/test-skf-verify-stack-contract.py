@@ -937,11 +937,12 @@ def test_customize_toml_keeps_only_settings_that_take_effect():
                                 "persistent_facts", "report_template_path"]
     for removed in ("integration_rules_path", "coverage_patterns_path", "output_folder_path"):
         assert f"{removed} =" not in raw, removed
-    # Extra aliases go through persistent_facts, and the comment says how the
-    # bundled project-context.md entry is kept from steering a run.
-    facts = _section(raw, "# Persistent facts", "persistent_facts = [")
+    # Extra aliases go through persistent_facts, and the comment shows the `!`
+    # override that drops the bundled project-context.md entry (#596 decision).
+    facts = _section(raw, "# Persistent facts", "\npersistent_facts = [")
     assert "Extra aliases go here" in facts and "as aliases of that skill" in facts
-    assert "cannot remove it" in facts
+    assert '#   persistent_facts = ["!file:{project-root}/**/project-context.md"]' in facts
+    assert "cannot remove it" not in facts and "add a literal fact" not in facts
     # The report folder is the forge data folder, and the comment says so.
     assert "the report always lands in {forge_data_folder}" in raw
 

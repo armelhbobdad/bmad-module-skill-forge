@@ -50,13 +50,15 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"
 ```
 
-If the command fails, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:run-folder`: "Cannot create the run folder `{run_dir}`: {the first stderr line}." With no folder to stage in, a headless run passes the payload to the emitter directly:
+If the command fails, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:run-folder`: "Cannot create the run folder `{run_dir}`: {the first stderr line}." With no folder to stage in, a headless run passes the payload to the emitter directly, with `"customization_resolver_unavailable": "<reason>"` added when SKILL.md On Activation step 4 kept one:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-verify-stack --target stderr <<'SKF_VS_HALT'
 {"phase": "init:run-folder", "reason": "<the halt message>", "halt_reason": "write-failed"}
 SKF_VS_HALT
 ```
+
+Once the folder exists and `{customization_resolver_unavailable}` is set (SKILL.md On Activation step 4), record the reason in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`.
 
 Then check that `forge_data_folder`, which `{outputFolderPath}` names, was resolved from config.yaml and is non-empty. If it is undefined or empty: "**Cannot proceed.** `forge_data_folder` is not configured in config.yaml. Re-run [SF] Setup Forge to initialize." HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`) at phase `init:forge-data-folder`.
 

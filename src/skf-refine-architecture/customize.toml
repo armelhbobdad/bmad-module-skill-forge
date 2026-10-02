@@ -1,8 +1,11 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-refine-architecture.
-# Team overrides:     _bmad/custom/skf-refine-architecture.toml (under {project-root})
-# Personal overrides: _bmad/custom/skf-refine-architecture.user.toml (under {project-root})
+# Team overrides:     {project-root}/_bmad/custom/skf-refine-architecture.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-refine-architecture.user.toml
+# The overrides apply only when BMad core's customization resolver runs;
+# otherwise the run warns `customization_resolver_unavailable` and uses the
+# defaults in this file.
 
 [workflow]
 
@@ -26,11 +29,18 @@ activation_steps_append = []
 # Persistent facts the workflow keeps in mind for the whole run
 # (refinement standards, evidence-citation rules). Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "Refinements must cite specific API signatures, never speculate."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/refine-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
+#
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-refine-architecture.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",

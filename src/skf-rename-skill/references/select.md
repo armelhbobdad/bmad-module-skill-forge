@@ -80,6 +80,8 @@ done
 - When a helper has no existing candidate, or `run-id` exits non-zero or prints no JSON: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:start-run`) with "**Rename Skill cannot start:** {the missing helper (`skf-run-lock.py`, `skf-emit-result-envelope.py`, `skf-manifest-ops.py` or `skf-skill-inventory.py`), or the helper's error}. Nothing was changed. Re-install SKF, then re-run." With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.
 - When the loop exits non-zero: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:write-probe`, with the folder its stderr names as `path`) with "**Cannot write to `{that folder}`.** Nothing was changed. Check that the path exists as a folder you can write to and that the disk has free space, then re-run."
 
+Once the loop passes and `{customization_resolver_unavailable}` is set (SKILL.md On Activation step 3), record the reason in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`, and delete that file (`rm -f "{run_dir}/resolver-warning.txt"`), so the report step's `rmdir` still finds the folder empty.
+
 ### 2. Read Export Manifest
 
 Read the manifest through `{manifestOpsHelper}`, never by eye: it migrates v1 to v2, normalizes `platforms` to `ides`, and reports a file that does not parse:

@@ -219,8 +219,7 @@ def test_the_report_steps_commands_run_as_written(tmp_path):
     values = {"{report_file}": hidden.as_posix(),
               "{publishedReportFile}": (forge_version / f"test-report-demo-{RUN_ID}.md").as_posix(),
               "{ledgerFile}": _ledger(forge_version).as_posix(), "{run_dir}": run_dir.as_posix(),
-              "{forge_version}": forge_version.as_posix(), "{emit_target}": "stdout",
-              "{customization_resolver_unavailable}": "resolve_customization.py not found"}
+              "{forge_version}": forge_version.as_posix(), "{emit_target}": "stdout"}
     _score(run_dir)
 
     def fill(command: str) -> list[str]:
@@ -236,8 +235,11 @@ def test_the_report_steps_commands_run_as_written(tmp_path):
     values["{report_file}"] = values["{publishedReportFile}"]
     build = _fenced(text, "uv run {resultContextScript}")
     build = re.sub(r" \[(--score [^\]]+)\]", r" \1", build).replace(" [--no-health-check]", "")
-    # SKILL.md On Activation kept the resolver's failure: its warning reaches the line.
+    # SKILL.md On Activation kept the resolver's failure: report.md writes it to a file, whose text the
+    # command substitution passes as one argument; it reaches the line.
     build = re.sub(r" \[(--warning [^\]]+)\]", r" \1", build)
+    build = build.replace('"$(cat "{run_dir}/resolver-warning.txt")"',
+                          shlex.quote("customization_resolver_unavailable: resolve_customization.py not found"))
     built = subprocess.run([sys.executable, str(SCRIPT), *fill(build)[3:]], capture_output=True, text=True,
                            encoding="utf-8")
     assert built.returncode == 0, built.stdout
@@ -271,5 +273,8 @@ def test_the_resolver_warning_has_a_producer():
     assert "keep the reason as `{customization_resolver_unavailable}`: report.md §4c hands it to the result" in activation
     text = REPORT_STEP.read_text(encoding="utf-8")
     command = _fenced(text, "uv run {resultContextScript}")
-    assert '[--warning "customization_resolver_unavailable: {customization_resolver_unavailable}"]' in command
+    # The reason reaches the command as a file's text, so a quote, a backtick or `$( )` in it runs nothing.
+    assert '[--warning "$(cat "{run_dir}/resolver-warning.txt")"]' in command
+    assert ("write `customization_resolver_unavailable: {customization_resolver_unavailable}` to "
+            "`{run_dir}/resolver-warning.txt` with a file write, never `echo`") in text
     assert "<warning>" not in text

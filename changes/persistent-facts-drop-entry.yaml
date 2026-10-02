@@ -1,0 +1,6 @@
+type: changed
+scope: all workflows
+summary: |
+  Every workflow that loads the bundled `persistent_facts` default (every `project-context.md` under the project) now honours an entry that starts with `!`: it loads nothing and drops each earlier entry it names. So `persistent_facts = ["!file:{project-root}/**/project-context.md"]` in `{project-root}/_bmad/custom/<skill>.toml` turns that default off for the workflow. Each `customize.toml` shows that override above its `persistent_facts`, where some said an override could not remove the default.
+prs: [650]
+issues: [596]

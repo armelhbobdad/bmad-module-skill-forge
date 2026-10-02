@@ -31,4 +31,4 @@ The shared emitter, `skf-emit-result-envelope.py`, builds every `SKF_STACK_RESUL
 SKF_STACK_RESULT_JSON: {"status":"success|error","skill_package":"...|null","skill_name":"...","stack_libraries":["..."],"mode":"code|compose","quality_score":null,"exit_code":0,"halt_reason":null,"run_id":"...","result_path":"...|null","headless_decisions":[],"warnings":[]}
 ```
 
-A halt adds `error`: its `phase`, its message as `reason`, and `path` when it names a file or folder.
+A halt adds `error`: its `phase`, its message as `reason`, and `path` when it names a file or folder. When the customization resolver could not run, `warnings` holds `[activation/warn] customization_resolver_unavailable: <reason>`, which step 1 records before any other warning: the run used the bundled `customize.toml` alone, without the `{project-root}/_bmad/custom/` overrides.

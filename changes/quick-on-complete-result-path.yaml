@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-quick-skill
+summary: |
+  Quick Skill's `on_complete` hook is now called with `--result-path=<skill package>/quick-skill-result-latest.json`, like the other per-skill workflows, instead of `--skill-package=<skill package>`. It runs only when the run wrote that file: when the result contract or its `-latest` copy was not written, the run skips the hook and says so.
+migration: |
+  Change an `on_complete` command in `_bmad/custom/skf-quick-skill.toml` or `_bmad/custom/skf-quick-skill.user.toml` to take `--result-path` instead of `--skill-package`. The skill package is the folder that holds that file (the parent of `--result-path`), and the file's `outputs` list its `SKILL.md`, `context-snippet.md` and `metadata.json` paths.
+prs: [650]
+issues: [596]
