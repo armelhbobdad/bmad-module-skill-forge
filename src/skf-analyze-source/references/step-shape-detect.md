@@ -59,6 +59,7 @@ On exit code 2, error details are written to stderr as JSON: `{"error": "message
 | `library-API` | `full-library` | export_count ≤ 200 |
 | `library-API` | `public-api` | export_count > 200 (surface too large for full coverage) |
 | `reference-app` | `reference-app` | Direct mapping — apps, CLIs, demos |
+| `reference-app` with an `app_or_library:framework_dep` signal | `reference-app`, or the `library-API` mapping | The only app signal is a framework dependency, which a library that extends the framework declares too. An application or demo built on the framework stays `reference-app`; a library that extends or wraps the framework takes the `library-API` mapping (`full-library` or `public-api` by `export_count`). step-auto-scope.md §4 judges which |
 | `language-reference` | `full-library` | Language tools/parsers are library-shaped from a skill perspective. **Corpora-dependent** for a *whole-language* reference (a `grammar_file:`/`tree_triad:` signal: a compiler/interpreter): its value is the language's prose (guide/Book + std/library docs), not compiler internals, so step-auto-scope-corpora.md, which step-auto-scope.md §6 loads for that signal, seeds companion corpora, and §6/§7 record an honest DEGRADED caveat when none are found (mirrors the §3b facet-coverage guard). A parser *library* (`parser_producer:`/`parser_dep:`) is exempt: its code is the product. |
 | `stack-compose` | `full-library` | Decomposition candidate when `package_count > 3` — cohesion-checked in step-auto-scope.md §3b |
 | `unknown` | N/A | Triggers fallback to interactive mode |

@@ -1,0 +1,4 @@
+type: added
+scope: skf-analyze-source
+summary: |
+  The result envelope's `headless_decisions` can now carry the gate `auto-scope.shape`: an `AN[auto]` or `forge-auto` run records there whether it scoped a package whose only app signal is a framework dependency as an application (`reference-app`, the default) or as a library (`library-API`), with the sentence of the manifest description or README that decided.

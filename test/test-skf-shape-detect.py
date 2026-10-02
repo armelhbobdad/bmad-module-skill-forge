@@ -1383,6 +1383,8 @@ class TestMonorepoAppSignals:
         })
         result = mod.detect(REPO_URL, [path])
         assert result["shape"] == "reference-app"
+        # No main or exports: nothing says it is a library, so no question is left.
+        assert "app_or_library:framework_dep" not in result["signals"]
 
     def test_genuine_monorepo_app_member_still_reference_app(self, tmp_path):
         # A core (non-example) member that runtime-depends on a framework.
@@ -1825,3 +1827,86 @@ class TestManifestsFile:
         proc = run_manifests_file()
         assert proc.returncode == 2
         assert json.loads(proc.stderr)["code"] == "MISSING_MANIFESTS"
+
+
+# --------------------------------------------------------------------------
+# A library that extends a framework declares what an app on it declares: the
+# script reports the facts and the caller judges (step 5b determinism-1)
+# --------------------------------------------------------------------------
+
+FASTAPI_PYPROJECT = b"""[project]
+name = "fastapi"
+version = "0.115.0"
+description = "FastAPI framework, high performance, easy to learn, fast to code, ready for production"
+dependencies = ["starlette>=0.40.0,<0.42.0", "pydantic>=1.7.4,!=1.8,<3.0.0", "typing-extensions>=4.8.0"]
+"""
+SQLADMIN_PYPROJECT = b"""[project]
+name = "sqladmin"
+version = "0.19.0"
+description = "SQLAlchemy admin for FastAPI and Starlette"
+dependencies = ["starlette", "sqlalchemy >=1.4", "wtforms >=3.1, <3.2", "jinja2", "python-multipart"]
+"""
+AXUM_EXTRA_CARGO = b"""[package]
+name = "axum-extra"
+version = "0.9.4"
+description = "Extra utilities for axum"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+axum = { path = "../axum", version = "0.7.7", default-features = false }
+bytes = "1.1.0"
+"""
+
+
+class TestFrameworkExtensionLibraries:
+    @pytest.mark.parametrize(
+        ("filename", "content", "framework"),
+        [pytest.param("pyproject.toml", FASTAPI_PYPROJECT, "starlette", id="fastapi"),
+         pytest.param("pyproject.toml", SQLADMIN_PYPROJECT, "starlette", id="sqladmin"),
+         pytest.param("Cargo.toml", AXUM_EXTRA_CARGO, "axum", id="axum-extra")],
+    )
+    def test_the_scan_envelope_call_reports_the_open_question(self, tmp_path, filename, content, framework):
+        """The step-auto-scope call (scan envelope and tree file) keeps the shape and its
+        confidence and adds the signal the caller judges from the README or description."""
+        root = tmp_path / "repo"
+        _write_bytes(root, filename, content)
+        scan = subprocess.run([sys.executable, str(SCAN_SCRIPT), "scan", str(root)], capture_output=True, timeout=60)
+        assert scan.returncode == 0, scan.stderr
+        envelope = tmp_path / "manifests-1.json"
+        envelope.write_bytes(scan.stdout)
+        tree = _tree_file(tmp_path, [filename, "src/lib.rs" if filename == "Cargo.toml" else "README.md"])
+        proc = run_manifests_file("--manifests-file", str(envelope), "--manifest-dir", str(root), "--tree-file", tree)
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert (out["shape"], out["confidence"]) == ("reference-app", 0.8)
+        assert f"framework_dep:{framework}" in out["signals"]
+        assert "has_library_structure" in out["signals"] and "app_or_library:framework_dep" in out["signals"]
+
+    def test_a_bin_settles_it(self, tmp_path):
+        """A framework app that ships a binary is an app: no question for the caller."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "my-server"
+version = "0.1.0"
+
+[[bin]]
+name = "my-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "reference-app"
+        assert "app_or_library:framework_dep" not in result["signals"]
+
+    def test_a_library_monorepo_member_on_a_framework_still_asks(self, tmp_path):
+        """In a monorepo the framework of a core member raises the same question."""
+        root = _write(tmp_path, "package.json", {"name": "root", "private": True})
+        plugin = _write(tmp_path, "packages/plugin/package.json",
+                        {"name": "fastify-plugin-x", "main": "index.js", "dependencies": {"fastify": "4"}})
+        result = mod.detect(REPO_URL, [root, plugin])
+        assert result["shape"] == "reference-app"
+        assert "app_or_library:framework_dep" in result["signals"]

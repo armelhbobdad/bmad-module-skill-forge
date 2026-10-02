@@ -76,7 +76,8 @@ that shows it (shallowest, then in path order) or null:
                       lib.rs, __init__.py, ...) at most two folders below
                       the boundary root
   service_definition  a Dockerfile, Containerfile, compose file or
-                      serverless.yml, at any depth
+                      serverless.yml, at any depth (skf-scan-manifests.py's
+                      is_service_definition, whose `services[]` lists them)
   readme              a README at the boundary root
   test_suite          a file in a test folder (test/, tests/, __tests__/,
                       spec/, specs/), a test file (*.test.*, *.spec.*,
@@ -305,11 +306,6 @@ ENTRY_POINT_NAMES = frozenset({
     "lib.rs", "mod.ts", "__init__.py", "__main__.py",
 })
 ENTRY_POINT_MAX_DEPTH = 2
-
-SERVICE_DEFINITION_NAMES = frozenset({
-    "dockerfile", "containerfile", "docker-compose.yml", "docker-compose.yaml",
-    "compose.yml", "compose.yaml", "serverless.yml", "serverless.yaml",
-})
 
 TEST_FOLDERS = frozenset({"test", "tests", "__tests__", "spec", "specs"})
 TEST_CONFIG_NAMES = frozenset({
@@ -745,10 +741,9 @@ def collect_signals(
         ):
             signals["entry_point"] = f
             entry_depth = depth
-        if signals["service_definition"] is None and (
-            lname in SERVICE_DEFINITION_NAMES
-            or lname.startswith("dockerfile.")
-            or lname.endswith(".dockerfile")
+        if (
+            signals["service_definition"] is None
+            and scan_manifests_module().is_service_definition(name)
         ):
             signals["service_definition"] = f
         if signals["test_suite"] is None and _is_test_file(rel):

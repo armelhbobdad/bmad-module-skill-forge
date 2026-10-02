@@ -22,6 +22,13 @@ The five-shape heuristic ladder (apply in order, first match wins):
      Signals: main/module/exports fields, [lib] target, export count
   5. unknown           — no heuristic matched
 
+A reference-app that rests on a framework dependency alone (no bin) in a
+package that names itself a library also carries the signal
+`app_or_library:framework_dep`: an app built on the framework and a
+library that extends it (FastAPI, a Flask or Django extension, axum-extra)
+declare the same dependencies, so the caller judges which one it is from
+the README or the manifest description. The shape stays reference-app.
+
 CLI:
   uv run src/shared/scripts/skf-shape-detect.py \\
       --repo-url <url> --manifests <path1,path2,...>
@@ -1040,6 +1047,13 @@ def detect(
     # core runtime framework. A single-package repo with a bin is an app.
     app_trigger = has_framework if package_count > 1 else (app_has_bin or has_framework)
     if app_trigger:
+        # A framework dependency with no bin, in a package that names itself a
+        # library, fits an app built on the framework and a library that
+        # extends it (FastAPI on starlette, axum-extra on axum) alike: the
+        # dependency names alone cannot tell them apart, so the signal hands
+        # that question to the caller and the shape stays reference-app.
+        if not app_has_bin and has_library_structure:
+            signals.append("app_or_library:framework_dep")
         strength = (1 if app_has_bin else 0) + (1 if has_framework else 0)
         confidence = _clamp(0.80 + (strength - 1) * 0.05, 0.80, 0.90)
         return {"shape": "reference-app", "signals": signals,

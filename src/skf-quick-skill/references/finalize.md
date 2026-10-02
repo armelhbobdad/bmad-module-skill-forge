@@ -60,6 +60,8 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 - `{skill_package}/metadata.json`
 - `{skill_group}/active` -> `{version}` (omit this line when `--no-active-pointer` was set)
 
+{If step 5 §1 set `{replaced_build}`, add:} **Replaced:** the `{replaced_build}` build of v{version}. Its forge data, `{forge_data_folder}/{repo_name}/{version}/`, is left in place: remove it yourself once you no longer need it.
+
 **Exports documented:** {count}
 **Validation:** {pass / N issues (advisory)}
 
@@ -111,7 +113,7 @@ uv run {emitEnvelopeHelper} emit --workflow skf-quick-skill --run-dir "{run_dir}
 
 This list is the summary, once: `skill_name`, `version`, `language`, `exports_documented` (the export count), `quality_score` and `validation_issues` (step 5, the object `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`), `confidence` and `repo_shape` (step 3, the shape null when it recorded none), `language_resolution` and `detected_languages` (step 1), `zero_exports_rescue` (step 3 §4.5, else null) and `active_pointer` (§1). Write each value as JSON: a string in double quotes with any `"` or `\` escaped, every path absolute with `/`, and `null` for a value the run did not record. Leave the snippet out of both `outputs` under `--skip-snippet`, and `outputs.active_pointer` out when §1 flipped no pointer.
 
-The emitter writes the result contract from `result_contract`, with the payload's own `status` and `summary`, so neither is typed twice (the per-run record `{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json` and its copy `quick-skill-result-latest.json`, the stable path for pipeline consumers) and prints one line on stdout, `SKF_QUICK_SKILL_RESULT_JSON: {...}`: display it verbatim as its own line. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again; if it still fails, or no path resolved for `{emitEnvelopeHelper}`, say that the result contract was not written and why, and go on.
+The emitter writes the result contract from `result_contract`, with the payload's own `status` and `summary`, so neither is typed twice (the per-run record `{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json` and its copy `quick-skill-result-latest.json`, the stable path for pipeline consumers) and prints one line on stdout, `SKF_QUICK_SKILL_RESULT_JSON: {...}`. In a headless single-target run, bind `{result_envelope_line}` ← that line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads the envelope as the final message. Otherwise (an interactive run, or a `--batch` target) display it verbatim as its own line. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again; if it still fails, or no path resolved for `{emitEnvelopeHelper}`, leave `{result_envelope_line}` empty, say that the result contract was not written and why, and go on.
 
 **Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) and the emitter wrote the result contract (the line it printed has a non-null `result_path` and no `result_file_write_failed` warning naming `quick-skill-result-latest.json`), invoke it after the result contract is finalized:
 

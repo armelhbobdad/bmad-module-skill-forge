@@ -54,6 +54,7 @@ EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 WRITER = SCRIPTS / "skf-write-skill-brief.py"
 DISQUALIFY = SCRIPTS / "skf-disqualify-candidates.py"
 LANGUAGE = SCRIPTS / "skf-detect-language.py"
+INVENTORY = SCRIPTS / "skf-skill-inventory.py"
 SCHEMA = json.loads((SCRIPTS / "schemas" / "skf-analyze-result-envelope.v1.json").read_text(encoding="utf-8"))
 GATE_ENUM = SCHEMA["properties"]["headless_decisions"]["items"]["properties"]["gate"]["enum"]
 PREFIX = "SKF_ANALYZE_RESULT_JSON: "
@@ -69,6 +70,7 @@ MAP = REFS / "map-and-detect.md"
 RECOMMEND = REFS / "recommend.md"
 GENERATE = REFS / "generate-briefs.md"
 DISCOVER = REFS / "discover-additional-source.md"
+HEURISTICS = REFS / "unit-detection-heuristics.md"
 AUTO = REFS / "step-auto-scope.md"
 COEXIST = REFS / "step-auto-scope-coexistence.md"
 SPLIT = REFS / "step-auto-scope-split.md"
@@ -261,15 +263,24 @@ def test_the_scan_roots_are_recorded_once_and_read_by_every_step():
     assert "step 3 §1 and step 4 §1" in _read(HEADLESS)
 
 
-def test_a_remote_shorthand_is_cloned_over_https():
-    """git reads `acme/mono` as a local folder: the clone gets a URL."""
+@pytest.mark.parametrize("target", ["acme/mono", "github.com/acme/mono"], ids=["shorthand", "host-path"])
+def test_a_remote_shorthand_is_cloned_over_https(target):
+    """git reads `acme/mono` as a local folder: the clone gets the URL the
+    helper gives, which the [auto] path reads too (step 5b determinism-4)."""
     text = _read(SCAN_ROOT)
-    assert 'git clone --quiet --depth 1 {ref_flag} "{url}" "{run_dir}/source-{i}"' in text
-    assert '"{path}" "{run_dir}/source-{i}"' not in text
-    for needle in ("`https://github.com/{path}` for the `owner/repo` shorthand",
-                   "`https://{path}` for a host path without a scheme",
-                   "The project path stays as it was given everywhere else"):
-        assert needle in text, needle
+    assert 'git clone --quiet --depth 1 {ref_flag} "{clone_url}" "{run_dir}/source-{i}"' in text
+    assert '"{path}" "{run_dir}/source-{i}"' not in text and '"{url}"' not in text
+    assert "skillInventoryProbeOrder:" in _frontmatter(text)
+    [call] = [line for line in _bash_lines(text) if "{skillInventoryHelper}" in line]
+    assert call == 'uv run {skillInventoryHelper} derive-name --target "{path}"'
+    proc = _run(call, {"skillInventoryHelper": str(INVENTORY), "path": target})
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["kind"], out["clone_url"]) == ("remote", "https://github.com/acme/mono")
+    # The rule lives in the helper: neither path restates it.
+    for path in (SCAN_ROOT, AUTO):
+        assert "for the `owner/repo` shorthand" not in _read(path), path.name
+    assert "The project path stays as it was given everywhere else" in text
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -295,7 +306,7 @@ def test_a_local_path_with_a_ref_is_read_at_the_ref(tmp_path, folder):
     (mono / "packages" / "auth" / "new.ts").write_bytes(b"export const v = 2;\n")
     _git(mono, "add", "-A")
     _git(mono, "commit", "-qm", "v2")
-    local = _section(_read(SCAN_ROOT), "- **A local path with a ref:**", "- **A remote path:**")
+    local = _section(_read(SCAN_ROOT), "- **A local path with a ref:**", "- **A remote path**")
     show, clone = _bash_lines(local)
     run_dir = _run_dir(tmp_path)
     path = (mono / folder).as_posix()
@@ -496,9 +507,133 @@ def test_the_discover_file_leaves_map_and_detect_sections_to_its_section_7():
 
 
 def test_the_discover_file_leaves_out_an_aggregating_root():
-    scan = _section(_read(DISCOVER), "### 2. Scan It", "### 3.")
-    assert "leave out a folder whose manifest only gathers the member folders below it" in scan
-    assert "`.` stays a candidate only when it holds code of its own" in scan
+    """One candidate rule, which the scan applies (its `candidates[]`), for scan-project and [D] alike."""
+    rule = _section(_read(HEURISTICS), "## Candidate Boundaries", "## Boundary Classification")
+    assert "are the `candidates[]` of its `skf-scan-manifests.py` scan, which applies the rule itself" in rule
+    for path, end in ((DISCOVER, "### 3."), (SCAN, "**Document each detected boundary with:**")):
+        start = "### 2. Scan It" if path == DISCOVER else "### 3. Detect Service Boundaries"
+        assert "`candidates[]` ({heuristicsFile}'s **Candidate Boundaries**)" in _section(_read(path), start, end)
+        for gone in ("only gathers the member folders", "stays a candidate only when"):
+            assert gone not in _read(path), (path.name, gone)
+
+
+# --------------------------------------------------------------------------
+# scan-project lists the candidates from the helpers (step 5b determinism-3)
+# and keeps no tier extra that nothing reads (step 5b leanness-1)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_the_project_scan_runs_its_documented_commands_on_a_scan_root(tmp_path):
+    """The file list, the snapshot, the manifest scan and the service list come from the
+    commands scan-project documents, so the same tree always proposes the same candidates."""
+    text = _section(_read(SCAN), "### 2. Scan Directory Structure", "### 3.")
+    scan_root = tmp_path / "source-1"
+    for rel, data in {"package.json": b'{"name": "root", "private": true, "workspaces": ["packages/*"]}\n',
+                      "packages/auth/package.json": b'{"name": "@acme/auth"}\n',
+                      "packages/auth/src/index.ts": b"export const a = 1;\n",
+                      "packages/web/package.json": b'{"name": "@acme/web", "private": true}\n',
+                      "packages/web/src/main.ts": b"export const b = 2;\n",
+                      "services/api/Dockerfile": b"FROM node:20\n",
+                      "services/api/server.py": b"print(1)\n",
+                      "deploy/docker-compose.yaml": b"services: {}\n",
+                      "README.md": b"# mono\n"}.items():
+        (scan_root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (scan_root / rel).write_bytes(data)
+    subprocess.run(["git", "init", "-q"], cwd=scan_root, check=True, capture_output=True, timeout=60)
+    subprocess.run(["git", "add", "-A"], cwd=scan_root, check=True, capture_output=True, timeout=60)
+    run_dir = _run_dir(tmp_path)
+    values = {"scan_root": scan_root.as_posix(), "run_dir": run_dir.as_posix(), "i": "1",
+              "detectWorkspacesHelper": str(SCRIPTS / "skf-detect-workspaces.py"),
+              "scanManifestsHelper": str(SCRIPTS / "skf-scan-manifests.py")}
+    lines = _bash_lines(text)
+    listing, walk = [line for line in lines if line.endswith('> "{run_dir}/tree-{i}.txt"')]
+    assert listing.startswith('git -C "{scan_root}" -c core.quotePath=false ls-files --cached --others '
+                              '--exclude-standard') and "find . -type f" in walk
+    filled = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), listing)
+    subprocess.run(filled, shell=True, check=True, capture_output=True, timeout=60)
+    [snapshot] = [line for line in lines if "{detectWorkspacesHelper}" in line]
+    [manifests] = [line for line in lines if "{scanManifestsHelper}" in line]
+    for call in (snapshot, manifests):
+        command, _, out = call.partition(" > ")
+        proc = _run(command, values)
+        assert proc.returncode == 0, proc.stderr
+        Path(re.sub(r"\{(\w+)\}", lambda m: values[m.group(1)], out.strip('"'))).write_bytes(proc.stdout)
+    snap = json.loads((run_dir / "snapshot-1.json").read_text(encoding="utf-8"))
+    assert {w["path"] for w in snap["workspaces"]} == {"packages/auth", "packages/web"}
+    envelope = json.loads((run_dir / "manifests-1.json").read_text(encoding="utf-8"))
+    assert [f["path"] for f in envelope["folders"]] == [".", "packages/auth", "packages/web"]
+    assert envelope["services"] == ["deploy/docker-compose.yaml", "services/api/Dockerfile"]
+    # The workspace root holds no code of its own, so it is no candidate; membership is reported.
+    members = {c["path"]: c["workspace_member"] for c in envelope["candidates"]}
+    assert members == {"deploy": False, "packages/auth": True, "packages/web": True, "services/api": False}
+    assert not any(line.startswith("grep ") for line in lines), "the scan lists the service definitions"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_the_listing_falls_back_to_the_walk_inside_an_ignored_folder(tmp_path):
+    """A scan root an outer work tree ignores lists nothing through git: the walk lists it."""
+    outer = tmp_path / "outer"
+    scan_root = outer / "vendor" / "lib"
+    (scan_root / "src").mkdir(parents=True)
+    (scan_root / "src" / "index.ts").write_bytes(b"export const a = 1;\n")
+    (outer / ".gitignore").write_bytes(b"vendor/\n")
+    subprocess.run(["git", "init", "-q"], cwd=outer, check=True, capture_output=True, timeout=60)
+    run_dir = _run_dir(tmp_path)
+    values = {"scan_root": scan_root.as_posix(), "run_dir": run_dir.as_posix(), "i": "1"}
+    text = _section(_read(SCAN), "### 2. Scan Directory Structure", "### 3.")
+    listing, walk = [line for line in _bash_lines(text) if line.endswith('> "{run_dir}/tree-{i}.txt"')]
+    tree = run_dir / "tree-1.txt"
+    fill = lambda command: re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), command)  # noqa: E731
+    subprocess.run(fill(listing), shell=True, check=True, capture_output=True, timeout=60)
+    assert tree.read_bytes().strip() == b"", "git lists nothing in a folder its work tree ignores"
+    assert "when the first fails or writes an empty file" in text
+    if sys.platform != "win32":  # the walk is a POSIX shell pipeline
+        subprocess.run(fill(walk), shell=True, check=True, capture_output=True, timeout=60)
+        assert tree.read_text(encoding="utf-8").split() == ["src/index.ts"]
+
+
+def test_the_candidates_come_from_the_scan_envelope():
+    """One service rule: the scan's `services[]`, which skf-disqualify-candidates.py's
+    signal reads too, and one candidate rule, the scan's `candidates[]`, on both the scan and [D] paths."""
+    rule = _section(_read(HEURISTICS), "## Candidate Boundaries", "## Boundary Classification")
+    assert "`candidates[]`" in rule and "Docker, compose or serverless file" in rule
+    assert "`candidates[]`" in _section(_read(DISCOVER), "### 2. Scan It", "### 3.")
+    scan = _section(_read(SCAN), "### 2. Scan Directory Structure", "### 4.")
+    assert "`services[]` (each Docker, compose or serverless file" in scan
+    assert '--workspaces-file "{run_dir}/snapshot-{i}.json"' in scan
+    assert "its `workspace_member`" in scan and "one of the snapshot's `workspaces`" not in scan
+    assert "SERVICE_DEFINITION_NAMES" not in _read(DISQUALIFY)
+
+
+def test_the_project_scan_walks_no_tree_by_hand():
+    text = _read(SCAN)
+    front = _frontmatter(text)
+    assert "detectWorkspacesProbeOrder:" in front and "scanManifestsProbeOrder:" in front
+    for gone in ("Map the top-level directory tree", "Identify workspace configuration files",
+                 "Locate entry point files", "Delegate per-file scanning to subagents",
+                 "**If subprocess unavailable:**", "Tier-aware scanning depth", "Deep tier additional scanning",
+                 "QMD", "ast-grep -p", "**Entry points found:**"):
+        assert gone not in text, gone
+    kept = next(line for line in text.splitlines() if line.startswith("Keep, per project path,"))
+    for key in ("`manifests[]`", "`services[]`", "`candidates[]`", "structure overview"):
+        assert key in kept, key
+    assert "Return structured findings" not in text and "beyond manifest files and entry points" not in text
+    assert "grep " not in text
+    assert "Judge only each candidate's boundary type and confidence" in text
+    heuristics = _read(HEURISTICS)
+    assert "Workspace membership is reported too" in heuristics and "are judged: workspace membership" not in heuristics
+
+
+def test_no_tier_extra_without_a_reader():
+    """step 5b leanness-1: the Deep-tier QMD and ast-grep extras fed no report section, brief or record."""
+    for path in (SCAN, UNIT_EXPORTS, HEURISTICS, SKILL):
+        text = _read(path)
+        for gone in ("QMD", "Deep adds", "## Tier-Aware Scanning Depth", "semantic relationships between exports"):
+            assert gone not in text, (path.name, gone)
+    extras = next(line for line in _read(UNIT_EXPORTS).splitlines() if line.startswith("**Tier-aware extras:**"))
+    for needle in ("`tools.ccc` is true", "`ccc_signals.top_files`", "`available: false`"):
+        assert needle in extras, needle
 
 
 # --------------------------------------------------------------------------
@@ -549,12 +684,20 @@ def test_the_auto_path_reads_the_hints():
     assert "outside the folders `scope_hint` focuses on" in _read(SPLIT)
 
 
-def test_no_home_path_in_the_auto_routing():
-    """`~` already covers `~/...`: the routing reads the same without a home path."""
+def test_the_auto_routing_reads_the_target_kind():
+    """step 5b determinism-4: section 0 routes on the helper's `kind`, and the pin check
+    and the manifest fetch use its `clone_url`, so a host path or a shorthand is cloned."""
     text = _read(AUTO)
     assert "~/" not in text
-    assert "| Starts with `/`, `./`, or `~` | Local filesystem path |" in text
-    assert "(starts with `/`, `./`, or `~`, or is an existing directory)" in text
+    for row in ("| `docs` | Documentation URL |", "| `local` | Local filesystem path |",
+                "| `remote` | Repo URL, cloned from `clone_url` |"):
+        assert row in text, row
+    for gone in ("Starts with `/`", "or is an existing directory", "a bare hostname", "{path} \"{run_dir}/clone-{i}\""):
+        assert gone not in text, gone
+    assert text.count('--repo-url "{clone_url}"') == 2 and "--repo-url {project_path}" not in text
+    clone = 'git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} "{clone_url}" "{run_dir}/clone-{i}"'
+    assert clone in text
+    assert "- **`kind` is `local`:** scan it directly." in text and "- **`kind` is `remote`:**" in text
 
 
 def test_the_auto_warnings_reach_the_run_sink():

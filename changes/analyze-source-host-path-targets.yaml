@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-analyze-source
+summary: |
+  `AN[auto]` and `forge-auto` now accept a repository given as a host path without a scheme (`github.com/owner/repo`) or as the `owner/repo` shorthand, as the step-by-step analysis does, instead of halting with `resolution-failure` when git read it as a local folder. `skf-skill-inventory.py derive-name --target` now returns the target's `kind` (`local`, `docs` or `remote`) and the `clone_url` git clones it from, and both analysis paths route and clone through it.

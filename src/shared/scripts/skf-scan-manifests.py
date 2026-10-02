@@ -17,9 +17,11 @@ the layout looks like a monorepo.
      ecosystem table this script implements.
 
   2. **skf-analyze-source / scan-project.md §2** — Finds the same set of
-     manifest files in the broader project-scan pass. Service-config files
-     (Dockerfile, docker-compose.yml) stay LLM-driven; only the manifest
-     enumeration is extracted here.
+     manifest files in the broader project-scan pass: its `candidates[]`
+     are the candidate boundaries, its `services[]` lists the Docker,
+     compose and serverless files, whose folders are candidate boundaries
+     too, and each manifest's `version` is the version a brief records
+     (step-auto-scope and generate-briefs read it).
 
 Pulling this into a deterministic script gives both stages identical
 manifest-set semantics (no LLM drift on what counts as a manifest), a stable
@@ -27,7 +29,7 @@ JSON envelope for the LLM to consume, and a single place to evolve the
 ecosystem matrix as new languages land.
 
 Subcommand:
-  scan <root> [--ecosystems=auto] [--include-dev]
+  scan <root> [--ecosystems=auto] [--include-dev] [--workspaces-file <file>]
       Walk `<root>` (every depth, pruning the excluded and hidden
       directories) for recognised manifests, parse each one and emit:
         {
@@ -37,6 +39,9 @@ Subcommand:
               "ecosystem": "<name>",
               "name": "<the package's own name>" | null,
               "private": true | false | null,
+              "version": "<the package's own version>" | null,
+              "version_dynamic": true | false,
+              "description": "<the package's own description>" | null,
               "deps": [{"name": "...", "version": "...|null"}],
               "internal_deps": ["<name of another scanned manifest>", ...]
             },
@@ -46,6 +51,13 @@ Subcommand:
           "monorepo": <bool>,         // >1 manifest of same ecosystem at non-overlapping depths
           "folders": [                // each folder holding a manifest ("." for <root>), sorted
             {"path": "apps/web", "names": ["web"]},   // the package names its manifests give
+            ...
+          ],
+          "services": ["deploy/docker-compose.yml", ...],   // each service definition, sorted
+          "candidates": [             // the candidate boundaries, sorted by path
+            {"path": "apps/web", "names": ["web"], "manifests": ["apps/web/package.json"],
+             "services": ["apps/web/Dockerfile"], "own_source_files": N,
+             "workspace_member": true | false | null},
             ...
           ],
           "umbrella_candidates": [
@@ -67,6 +79,11 @@ Subcommand:
       appear only as dev dependencies. Without the flag the output holds
       runtime dependencies only, as before.
 
+      `--workspaces-file` reads the JSON skf-detect-workspaces.py printed
+      for the same root (its `--snapshot` output too): each candidate's
+      `workspace_member` says whether its folder is one of that JSON's
+      `workspaces[]` paths. Without it `workspace_member` is null.
+
 Manifest fields:
   name           the name the manifest gives its own package: package.json,
                  composer.json and pyproject.toml ([project] or
@@ -84,12 +101,52 @@ Manifest fields:
                  when it cannot tell (go.mod, composer.json, Package.swift,
                  the formats that name no package, a Cargo virtual workspace
                  or a Cargo `publish` inherited from the workspace).
+  version        the version the manifest gives its own package, as it is
+                 written (no semver check): package.json and composer.json
+                 `version`, pyproject.toml `[project]` (or `[tool.poetry]`)
+                 `version`, setup.py and setup.cfg `version` when it is a
+                 literal, Cargo `[package] version` (a `version.workspace =
+                 true` read from the `[workspace.package] version` of the
+                 nearest Cargo.toml above it that has one), pom.xml
+                 `<version>` (the parent's when absent), a Gradle build
+                 script's `version = '...'`; null when it gives none (go.mod,
+                 Package.swift and the formats that name no package).
+  version_dynamic true when the manifest says the version is computed at
+                 build time, so it is not in the manifest: pyproject.toml
+                 `dynamic = ["version"]`, a setup.cfg `attr:` or `file:`
+                 version, a setup.py `version=` that is not a literal.
+  description    the one-line description the manifest gives its package:
+                 package.json and composer.json `description`,
+                 pyproject.toml `[project]` (or `[tool.poetry]`)
+                 `description`, setup.py and setup.cfg `description` when
+                 it is a literal, Cargo `[package] description` (null for
+                 one inherited from the workspace), pom.xml `<description>`,
+                 a Gradle build script's `description = '...'`; else null.
   internal_deps  the runtime dependencies that name another scanned manifest
                  of the same ecosystem (the workspace members this one uses),
                  as those members spell their names, sorted. Names compare
                  as the ecosystem does (PEP 503 for Python, `-` and `_` alike
                  for Rust, case-insensitive for Composer and Swift), and a
                  pom.xml `${project.groupId}` resolves to its own group.
+
+services lists the service definitions the walk finds, by path from the
+root: a Docker, compose or serverless file (is_service_definition, which
+skf-disqualify-candidates.py's `service_definition` signal reads too).
+
+candidates lists the folders a project scan proposes as boundaries (Candidate
+boundaries in skf-analyze-source's unit-detection-heuristics.md names this
+list), each folder of `folders[]` and each folder that holds a `services[]`
+file, less those a workspace only gathers: a folder is left out when it
+holds no source file of its own (`own_source_files`, the source files under
+it outside every other such folder below it) and another such folder lies
+below it. So a workspace root such as a private package.json that lists
+`workspaces`, or a Cargo virtual workspace, with no code of its own is left
+out, and so is `.` unless it holds code of its own or nothing else is
+proposed. A source file is one skf-detect-language.py's is_source_file()
+counts (the sibling in this folder, which skf-detect-workspaces.py's snapshot
+reads too). Each record gives the folder's `names` (as `folders[]`), the
+`manifests` and `services` files directly in it, `own_source_files` and
+`workspace_member` (see --workspaces-file).
 
 umbrella_candidates lists the published manifests (named, `private` not
 true) whose internal_deps cover at least 2 of the other published members of
@@ -125,16 +182,20 @@ emit a top-level `warnings[]` entry and the manifest still appears in
 
 Exit codes:
   0  success (including: zero manifests found, which emits an empty result)
-  1  user error (bad root path, root not a directory)
+  1  user error (bad root path, root not a directory, a --workspaces-file
+     that cannot be read as JSON), or skf-detect-language.py missing beside
+     this script
 
 CLI example:
   uv run skf-scan-manifests.py scan /path/to/repo
   uv run skf-scan-manifests.py scan /path/to/repo --include-dev
+  uv run skf-scan-manifests.py scan /path/to/repo --workspaces-file snapshot.json
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -211,13 +272,56 @@ def _is_excluded_dir(name: str) -> bool:
     return False
 
 
+# A service definition: a Docker, compose or serverless file, by its
+# lower-cased name, and a `Dockerfile.<x>` or `<x>.dockerfile` variant.
+SERVICE_DEFINITION_NAMES: frozenset[str] = frozenset({
+    "dockerfile", "containerfile", "docker-compose.yml", "docker-compose.yaml",
+    "compose.yml", "compose.yaml", "serverless.yml", "serverless.yaml",
+})
+
+
+def is_service_definition(name: str) -> bool:
+    """True for the file name of a service definition (SERVICE_DEFINITION_NAMES)."""
+    lname = name.lower()
+    return (
+        lname in SERVICE_DEFINITION_NAMES
+        or lname.startswith("dockerfile.")
+        or lname.endswith(".dockerfile")
+    )
+
+
+_DETECT_LANGUAGE = None
+
+
+def _is_source_file(name: str) -> bool:
+    """skf-detect-language.py's is_source_file(), the sibling beside this
+    script, loaded once. Raises ImportError when it cannot be loaded."""
+    global _DETECT_LANGUAGE
+    if _DETECT_LANGUAGE is None:
+        path = Path(__file__).resolve().parent / "skf-detect-language.py"
+        spec = importlib.util.spec_from_file_location("skf_detect_language", path)
+        if spec is None or spec.loader is None or not path.is_file():
+            raise ImportError(f"cannot load {path.name} beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _DETECT_LANGUAGE = module
+    return _DETECT_LANGUAGE.is_source_file(name)
+
+
 def find_manifests(root: Path) -> list[Path]:
     """Walk `root` returning every recognised manifest file.
 
     Excludes `EXCLUDED_DIRS` and all hidden directories. Returns absolute
     paths in stable sorted order so caller output is reproducible.
     """
+    return _walk(root)[0]
+
+
+def _walk(root: Path, sources: list[str] | None = None) -> tuple[list[Path], list[Path]]:
+    """(manifests, service definitions) under `root`, as find_manifests
+    walks; each source file's path from `root` joins `sources` when given."""
     found: list[Path] = []
+    services: list[Path] = []
     # Iterative BFS so we can prune at the directory level.
     stack: list[Path] = [root]
     while stack:
@@ -234,10 +338,15 @@ def find_manifests(root: Path) -> list[Path]:
                     stack.append(entry)
                 elif entry.is_file() and entry.name in MANIFEST_ECOSYSTEMS:
                     found.append(entry)
+                elif entry.is_file() and is_service_definition(entry.name):
+                    services.append(entry)
+                elif sources is not None and entry.is_file() and _is_source_file(entry.name):
+                    sources.append(entry.relative_to(root).as_posix())
             except OSError:
                 continue
     found.sort()
-    return found
+    services.sort()
+    return found, services
 
 
 # --------------------------------------------------------------------------
@@ -1015,6 +1124,159 @@ def identity_package_swift(text: str) -> Identity:
     return (m.group(1) if m else None), None
 
 
+# --------------------------------------------------------------------------
+# Package version: the version the manifest gives its own package
+# --------------------------------------------------------------------------
+
+
+# (version, how): `how` is "dynamic" for a version computed at build time,
+# "workspace" for a Cargo `version.workspace = true`, else None.
+Version = tuple
+
+
+def _literal(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def version_package_json(text: str) -> Version:
+    data = json.loads(text)
+    return (_literal(data.get("version")) if isinstance(data, dict) else None), None
+
+
+def version_pyproject_toml(text: str) -> Version:
+    data = tomllib.loads(text)
+    project = data.get("project") if isinstance(data.get("project"), dict) else {}
+    tool = data.get("tool") if isinstance(data.get("tool"), dict) else {}
+    poetry = tool.get("poetry") if isinstance(tool.get("poetry"), dict) else {}
+    version = _literal(project.get("version")) or _literal(poetry.get("version"))
+    dynamic = isinstance(project.get("dynamic"), list) and "version" in project["dynamic"]
+    return version, ("dynamic" if dynamic and version is None else None)
+
+
+def version_setup_py(text: str) -> Version:
+    call = re.search(r"\bsetup\s*\((.*)", text, re.DOTALL)
+    if not call:
+        return None, None
+    m = re.search(r"""\bversion\s*=\s*(['"])([^'"]+)\1""", call.group(1))
+    if m:
+        return m.group(2).strip(), None
+    return None, ("dynamic" if re.search(r"\bversion\s*=", call.group(1)) else None)
+
+
+def version_setup_cfg(text: str) -> Version:
+    m = re.search(r"^version[ \t]*=[ \t]*(\S+)", _cfg_section(text, "metadata"), re.MULTILINE)
+    if not m:
+        return None, None
+    return (None, "dynamic") if m.group(1).startswith(("attr:", "file:")) else (m.group(1), None)
+
+
+def version_cargo_toml(text: str) -> Version:
+    package = tomllib.loads(text).get("package")
+    if not isinstance(package, dict):
+        return None, None
+    version = package.get("version")
+    if isinstance(version, dict) and version.get("workspace") is True:
+        return None, "workspace"
+    return _literal(version), None
+
+
+def cargo_workspace_version(text: str) -> str | None:
+    """The `[workspace.package] version` a Cargo workspace root gives its members."""
+    workspace = tomllib.loads(text).get("workspace")
+    package = workspace.get("package") if isinstance(workspace, dict) else None
+    return _literal(package.get("version")) if isinstance(package, dict) else None
+
+
+def version_pom_xml(text: str) -> Version:
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    parent = re.search(r"<parent>(.*?)</parent>", text, re.DOTALL)
+    own = text
+    for tag in _POM_FOREIGN_SECTIONS:
+        own = re.sub(rf"<{tag}>.*?</{tag}>", "", own, flags=re.DOTALL)
+    m = re.search(r"<version>\s*(.*?)\s*</version>", own)
+    if not m and parent:
+        m = re.search(r"<version>\s*(.*?)\s*</version>", parent.group(1))
+    return (m.group(1) or None) if m else None, None
+
+
+def version_gradle(text: str) -> Version:
+    m = re.search(r"""^\s*version\s*=\s*['"]([^'"]+)['"]""", text, re.MULTILINE)
+    return (m.group(1) if m else None), None
+
+
+VERSION_READERS = {
+    "package.json": version_package_json,
+    "pyproject.toml": version_pyproject_toml,
+    "setup.py": version_setup_py,
+    "setup.cfg": version_setup_cfg,
+    "Cargo.toml": version_cargo_toml,
+    "pom.xml": version_pom_xml,
+    "build.gradle": version_gradle,
+    "build.gradle.kts": version_gradle,
+    "composer.json": version_package_json,
+}
+
+
+# --------------------------------------------------------------------------
+# Package description: the one line the manifest gives its own package
+# --------------------------------------------------------------------------
+
+
+def description_package_json(text: str) -> str | None:
+    data = json.loads(text)
+    return _literal(data.get("description")) if isinstance(data, dict) else None
+
+
+def description_pyproject_toml(text: str) -> str | None:
+    data = tomllib.loads(text)
+    project = data.get("project") if isinstance(data.get("project"), dict) else {}
+    tool = data.get("tool") if isinstance(data.get("tool"), dict) else {}
+    poetry = tool.get("poetry") if isinstance(tool.get("poetry"), dict) else {}
+    return _literal(project.get("description")) or _literal(poetry.get("description"))
+
+
+def description_setup_py(text: str) -> str | None:
+    call = re.search(r"\bsetup\s*\((.*)", text, re.DOTALL)
+    m = re.search(r"""\bdescription\s*=\s*(['"])([^'"]+)\1""", call.group(1)) if call else None
+    return _literal(m.group(2)) if m else None
+
+
+def description_setup_cfg(text: str) -> str | None:
+    m = re.search(r"^description[ \t]*=[ \t]*(.+)$", _cfg_section(text, "metadata"), re.MULTILINE)
+    return _literal(m.group(1)) if m and not m.group(1).startswith(("attr:", "file:")) else None
+
+
+def description_cargo_toml(text: str) -> str | None:
+    package = tomllib.loads(text).get("package")
+    return _literal(package.get("description")) if isinstance(package, dict) else None
+
+
+def description_pom_xml(text: str) -> str | None:
+    own = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    for tag in _POM_FOREIGN_SECTIONS:
+        own = re.sub(rf"<{tag}>.*?</{tag}>", "", own, flags=re.DOTALL)
+    m = re.search(r"<description>\s*(.*?)\s*</description>", own, re.DOTALL)
+    return _literal(" ".join(m.group(1).split())) if m else None
+
+
+def description_gradle(text: str) -> str | None:
+    m = re.search(r"""^\s*description\s*=\s*['"]([^'"]+)['"]""", text, re.MULTILINE)
+    return _literal(m.group(1)) if m else None
+
+
+DESCRIPTION_READERS = {
+    "package.json": description_package_json,
+    "pyproject.toml": description_pyproject_toml,
+    "setup.py": description_setup_py,
+    "setup.cfg": description_setup_cfg,
+    "Cargo.toml": description_cargo_toml,
+    "pom.xml": description_pom_xml,
+    "build.gradle": description_gradle,
+    "build.gradle.kts": description_gradle,
+    "composer.json": description_package_json,
+}
+
+
 IDENTITY_READERS = {
     "package.json": identity_package_json,
     "pyproject.toml": identity_pyproject_toml,
@@ -1036,7 +1298,8 @@ IDENTITY_READERS = {
 def _describe_manifest(path: Path, include_dev: bool) -> tuple[dict, list[str]]:
     """Read one manifest once: its identity, runtime deps and (optionally)
     dev deps tagged `scope: dev`. Returns (record fields, warnings)."""
-    record: dict = {"name": None, "private": None, "deps": []}
+    record: dict = {"name": None, "private": None, "version": None, "version_how": None,
+                    "workspace_version": None, "description": None, "deps": []}
     parser = PARSERS.get(path.name)
     if parser is None:
         return record, [f"{path.name}: no parser registered"]
@@ -1052,6 +1315,19 @@ def _describe_manifest(path: Path, include_dev: bool) -> tuple[dict, list[str]]:
     reader = IDENTITY_READERS.get(path.name)
     try:
         record["name"], record["private"] = reader(text) if reader else (None, None)
+    except Exception:  # noqa: BLE001
+        pass
+    version_reader = VERSION_READERS.get(path.name)
+    try:
+        if version_reader:
+            record["version"], record["version_how"] = version_reader(text)
+        if path.name == "Cargo.toml":
+            record["workspace_version"] = cargo_workspace_version(text)
+    except Exception:  # noqa: BLE001
+        pass
+    description_reader = DESCRIPTION_READERS.get(path.name)
+    try:
+        record["description"] = description_reader(text) if description_reader else None
     except Exception:  # noqa: BLE001
         pass
     if include_dev and path.name in DEV_PARSERS:
@@ -1189,30 +1465,102 @@ def _folders(manifests: list[dict]) -> list[dict]:
     return [{"path": folder, "names": sorted(names)} for folder, names in sorted(by_folder.items())]
 
 
-def scan(root: Path, include_dev: bool = False) -> dict:
+def _folder_of(rel: str) -> str:
+    """The folder of a path relative to the scan root, "." for the root itself."""
+    return rel.rsplit("/", 1)[0] if "/" in rel else "."
+
+
+def _candidates(manifests: list[dict], services: list[str], sources: list[str],
+                members: set[str] | None) -> list[dict]:
+    """The candidate boundaries: see "candidates" in the module docstring.
+    `members` is the workspace paths --workspaces-file gives, else None."""
+    folders: dict[str, dict] = {}
+
+    def folder_entry(path: str) -> dict:
+        return folders.setdefault(
+            _folder_of(path), {"names": set(), "manifests": [], "services": []}
+        )
+
+    for m in manifests:
+        entry = folder_entry(m["path"])
+        entry["manifests"].append(m["path"])
+        if isinstance(m["name"], str) and m["name"]:
+            entry["names"].add(m["name"])
+    for path in services:
+        folder_entry(path)["services"].append(path)
+    own = dict.fromkeys(folders, 0)
+    for path in sources:
+        folder = _folder_of(path)
+        while folder not in folders and folder != ".":
+            folder = _folder_of(folder)
+        if folder in folders:
+            own[folder] += 1
+    out: list[dict] = []
+    for folder in sorted(folders):
+        below = any(
+            other != folder and (folder == "." or other.startswith(folder + "/"))
+            for other in folders
+        )
+        if own[folder] == 0 and below:
+            continue
+        entry = folders[folder]
+        out.append({
+            "path": folder,
+            "names": sorted(entry["names"]),
+            "manifests": entry["manifests"],
+            "services": entry["services"],
+            "own_source_files": own[folder],
+            "workspace_member": None if members is None else folder in members,
+        })
+    return out
+
+
+def scan(root: Path, include_dev: bool = False, workspaces: set[str] | None = None) -> dict:
     """Run a full manifest scan rooted at `root`.
 
     With `include_dev`, each manifest's development dependencies join its
     `deps[]` tagged `scope: dev`, and `total_unique_dev` is added.
+    `workspaces` is the workspace paths that set each candidate's
+    `workspace_member` (None leaves it null). Raises ImportError when
+    skf-detect-language.py does not sit beside this script.
     """
-    paths = find_manifests(root)
+    sources: list[str] = []
+    paths, services = _walk(root, sources)
     manifests: list[dict] = []
     warnings: list[str] = []
+    # the folder of a Cargo workspace root: the version its members inherit
+    workspace_versions: dict[str, str] = {}
+    inheriting: list[dict] = []
 
     for path in paths:
         record, warns = _describe_manifest(path, include_dev)
         rel = path.relative_to(root).as_posix()
         for w in warns:
             warnings.append(f"{rel}: {w}")
-        manifests.append(
-            {
-                "path": rel,
-                "ecosystem": MANIFEST_ECOSYSTEMS[path.name],
-                "name": record["name"],
-                "private": record["private"],
-                "deps": record["deps"],
-            }
-        )
+        manifest = {
+            "path": rel,
+            "ecosystem": MANIFEST_ECOSYSTEMS[path.name],
+            "name": record["name"],
+            "private": record["private"],
+            "version": record["version"],
+            "version_dynamic": record["version_how"] == "dynamic",
+            "description": record["description"],
+            "deps": record["deps"],
+        }
+        manifests.append(manifest)
+        if record["workspace_version"]:
+            workspace_versions[_folder_of(rel)] = record["workspace_version"]
+        if record["version_how"] == "workspace":
+            inheriting.append(manifest)
+    for manifest in inheriting:
+        folder = _folder_of(manifest["path"])
+        while True:
+            if folder in workspace_versions:
+                manifest["version"] = workspace_versions[folder]
+                break
+            if folder == ".":
+                break
+            folder = _folder_of(folder)
     _add_internal_deps(manifests)
 
     unique_names: set[str] = set()
@@ -1231,6 +1579,8 @@ def scan(root: Path, include_dev: bool = False) -> dict:
         result["total_unique_dev"] = len(dev_names - unique_names)
     result["monorepo"] = _is_monorepo(manifests)
     result["folders"] = _folders(manifests)
+    result["services"] = [path.relative_to(root).as_posix() for path in services]
+    result["candidates"] = _candidates(manifests, result["services"], sources, workspaces)
     result["umbrella_candidates"] = _umbrella_candidates(manifests)
     result["searched_filenames"] = list(MANIFEST_ECOSYSTEMS)
     if warnings:
@@ -1254,10 +1604,29 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    workspaces = None
+    if args.workspaces_file is not None:
+        try:
+            data = json.loads(Path(args.workspaces_file).read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            print(
+                f"error: cannot read --workspaces-file {args.workspaces_file}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        listed = data.get("workspaces") if isinstance(data, dict) else None
+        workspaces = {
+            w["path"].strip("/").removeprefix("./")
+            for w in (listed if isinstance(listed, list) else [])
+            if isinstance(w, dict) and isinstance(w.get("path"), str)
+        }
     try:
-        result = scan(root, include_dev=args.include_dev)
+        result = scan(root, include_dev=args.include_dev, workspaces=workspaces)
     except OSError as exc:
         print(f"error: filesystem error during scan: {exc}", file=sys.stderr)
+        return 1
+    except ImportError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 1
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
@@ -1288,6 +1657,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--include-dev",
         action="store_true",
         help="also list development dependencies, each tagged scope: dev",
+    )
+    p_scan.add_argument(
+        "--workspaces-file",
+        metavar="PATH",
+        help="the JSON skf-detect-workspaces.py printed for the same root: sets each "
+             "candidate's workspace_member",
     )
     p_scan.set_defaults(func=_cmd_scan)
 

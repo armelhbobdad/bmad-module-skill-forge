@@ -142,7 +142,7 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 
 `--description` and `--exports` do not combine with `--batch`, because one description or export list cannot fit every target: such a run stops before its first target with exit `2` (`input-invalid`) and writes no batch summary. To give a target its own description or export list, run it on its own. `--language-hint` and `--scope-hint` are refused with `--batch` too (exit `2`, `input-invalid`): put `language=` or `scope=` on the batch line instead.
 
-**Safety:** Writes a version only into a skill folder SKF generated, or a new one; otherwise it stops with exit `9` (`not-skf-output`, or `flat-layout` for an SKF skill in the old flat layout) before writing anything. Quick Skill names a skill after its target, so use `BS` → `CS` to create it under another name.
+**Safety:** Writes a version only into a skill folder SKF generated, or a new one; otherwise it stops with exit `9` (`not-skf-output`, or `flat-layout` for an SKF skill in the old flat layout) before writing anything. Quick Skill names a skill after its target, so use `BS` → `CS` to create it under another name. When the version it writes already holds a build another workflow made (a Create Skill build, for example), the overwrite question names that build, and a yes replaces the whole package with the quick skill (the build's forge data folder stays, and the summary names it); a headless run stops there instead, with exit `5` (`overwrite-cancelled`) and `error.details.existing_generator` naming the generator.
 
 **Agent:** Ferris (Architect mode)
 
@@ -517,7 +517,7 @@ SKF_SETUP_RESULT_JSON: {"skf_setup":{"status":"success","tier":"Deep","previous_
 
 Parent skills and CI pipelines `grep` one line out of the workflow log to learn the outcome, with no ASCII-art parsing and no race against the [`forge-tier.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-setup/references/write-config.md) writer. Branch on the top-level `status` field (`success`, `tier_failure`, or `blocked`) rather than composing the outcome from `require_tier_satisfied` + `error`. A write failure arrives as `blocked`, with an `error.phase` of `step 2:write-tools` or `step 2:forge-data-dir`. The envelope schema is versioned at [`src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json) and asserted against on every emit.
 
-Setup is not the only workflow whose result line is the run's final message: a headless Test Skill or campaign run hands its `SKF_TEST_RESULT_JSON` or `SKF_CAMPAIGN_RESULT_JSON` line to the shared health check, which displays it last, after everything else it shows (under `--no-health-check`, Test Skill displays it itself as its last line).
+Setup is not the only workflow whose result line is the run's final message: a headless Test Skill, Quick Skill (one target, not `--batch`) or campaign run hands its `SKF_TEST_RESULT_JSON`, `SKF_QUICK_SKILL_RESULT_JSON` or `SKF_CAMPAIGN_RESULT_JSON` line to the shared health check, which displays it last, after everything else it shows (under `--no-health-check`, Test Skill displays it itself as its last line).
 
 **Exception: `/skf-quick-skill` headless emits structured progress and result envelopes.** Headless `/skf-quick-skill` runs are first-class building blocks for batch automators. Four operational contracts go beyond per-gate auto-proceed:
 

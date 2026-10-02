@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-quick-skill
+summary: |
+  Quick Skill now finds a package's entry files in the repository listing with the rules Create Skill's extractor follows, instead of guessing them from the package name: a Python package whose import name differs from its distribution name (Pillow's `PIL`, scikit-learn's `sklearn`) or a single-module package (`six.py`) gets its exports, its name read from whichever of `pyproject.toml`, `setup.py` or `setup.cfg` gives one, a `package.json` whose `main` or `types` names an uncommitted build output (`dist/index.js`) is read from its source (`src/index.ts`), a crate's `[lib] path` is honoured and a Maven package's folder comes from its `pom.xml` group. Before, such a package compiled a README-only skill with low confidence and an empty Key Exports section.

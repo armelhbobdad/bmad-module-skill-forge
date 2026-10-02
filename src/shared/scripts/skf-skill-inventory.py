@@ -90,7 +90,9 @@ SKF's forge files too. The path given is echoed as `forge_data_folder`.
 
 Write check. `--skill <name> --write-check [--write-version <v>]` returns
 `write_check` (see `write_check`); the writers run it before creating any
-directory.
+directory. Its `version_generated_by` and `version_confidence_tier` name the
+build already at that version, so quick-skill can ask before it replaces
+another generator's package.
 
 Purge and rename checks. `--skill <name> --purge-check [--purge-version
 <v>]` returns `purge_check` (see `purge_check`): whether drop-skill may
@@ -149,7 +151,16 @@ folder's name). step-auto-scope routes a target on that `basis`.
 
 `derive-name --target <t> [--manifest-name <n>]` returns `name` and
 `basis` ("manifest", "docs-host" or "target"), and exits 1 with `NO_NAME`
-when no name can be derived. `derive-name --from <file|->` takes a JSON
+when no name can be derived. It also returns the target's `kind` and
+`clone_url` (see `target_kind` and `clone_url`), so analyze-source routes
+and clones a target by one rule on its `[auto]` path and its step-by-step
+chain: `kind` is "local" for a path that starts with `/`, `./`, `../` or
+`~` (or a Windows drive or `.\\`) or names an existing folder, "docs" for a
+documentation URL and "remote" for anything else, and `clone_url` the URL
+git clones a remote target from (null for the other kinds): a URL with a
+scheme or an SSH address as given, `https://<path>` for a host path
+without a scheme (`github.com/acme/mono`) and `https://github.com/<path>`
+for the `owner/repo` shorthand. Both are null without a --target. `derive-name --from <file|->` takes a JSON
 array of {"target", "manifest_name", "private", "members"} (all optional)
 and returns `names[]`, each entry's `target` and `manifest_name` with its
 `name` (null when none can be derived) and `basis` ("members" too). Entries
@@ -817,20 +828,26 @@ def write_check(skills_folder, skill_name, version=None, forge_folder=None):
     """Decide whether a writer may add `{name}/{version}/{name}/` and flip `active`.
 
     Returns {name, version, verdict, reason, folder, detail, foreign_entries,
-    marked_active_version}. `verdict` is "ok", "not-skf-output" or
-    "flat-layout" (the halt reason a refusal uses); `reason` names the rule
-    that decided (None for "ok"). Nothing at the skill folder is a new skill.
-    A folder that holds only what an interrupted SKF run leaves is written
-    into; a mixed folder is written into when the target version is new or
-    SKF's own. `forge_folder` only decides whether both settings name one
-    folder, so SKF's forge files there count as SKF output.
+    marked_active_version, version_generated_by, version_confidence_tier}.
+    `verdict` is "ok", "not-skf-output" or "flat-layout" (the halt reason a
+    refusal uses); `reason` names the rule that decided (None for "ok").
+    Nothing at the skill folder is a new skill. A folder that holds only
+    what an interrupted SKF run leaves is written into; a mixed folder is
+    written into when the target version is new or SKF's own. `forge_folder`
+    only decides whether both settings name one folder, so SKF's forge files
+    there count as SKF output. On "ok", `version_generated_by` and
+    `version_confidence_tier` are the `generated_by` and `confidence_tier`
+    of the `{name}/{version}/{name}/metadata.json` the write would replace
+    (each None when that file, or the string, is absent), so a writer names
+    the build it would overwrite.
     """
     skills_dir = Path(skills_folder)
     forge_dir = Path(forge_folder) if forge_folder else None
     group = skills_dir / skill_name
     out = {"name": skill_name, "version": version, "verdict": "ok", "reason": None,
            "folder": str(group), "detail": None, "foreign_entries": [],
-           "marked_active_version": None}
+           "marked_active_version": None, "version_generated_by": None,
+           "version_confidence_tier": None}
 
     def refuse(verdict, reason, detail, folder=None):
         out.update(verdict=verdict, reason=reason, detail=detail)
@@ -865,6 +882,13 @@ def write_check(skills_folder, skill_name, version=None, forge_folder=None):
                           "is not a version SKF generated, or holds entries SKF did not "
                           "generate: " + ", ".join(listed), group / version)
     out["marked_active_version"] = _marked_active_version(group, skill_name)
+    if version is not None:
+        metadata, _ = read_json_file(group / version / skill_name / "metadata.json")
+        if isinstance(metadata, dict):
+            for key, field in (("version_generated_by", "generated_by"),
+                               ("version_confidence_tier", "confidence_tier")):
+                value = metadata.get(field)
+                out[key] = value if isinstance(value, str) and value else None
     return out
 
 
@@ -1890,6 +1914,50 @@ def _target_name(target):
     return last
 
 
+# A URL git reads as given: a scheme (https://, ssh://, git://, file://) or
+# an SSH address (git@github.com:acme/mono.git).
+_URL_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+_SSH_ADDRESS_RE = re.compile(r"^[\w.-]+@[\w.-]+:")
+# A Windows path: a drive (C:\code, C:/code, C:), a UNC or rooted path, or .\ and ..\.
+_WINDOWS_PATH_RE = re.compile(r"^(?:[A-Za-z]:(?:[\\/]|$)|\\|\.{1,2}\\)")
+
+
+def target_kind(target):
+    """The kind of an analysis target: "local", "docs" or "remote" (None for none).
+
+    A path that starts with `/`, `./`, `../` or `~` (`.` and `..` too, and a
+    Windows drive, UNC or `.\\` path), or that names an existing folder, is
+    local; a documentation URL (an http(s) URL not on :data:`GIT_HOSTS`) is
+    docs; anything else is a repository git clones (:func:`clone_url`).
+    """
+    s = str(target or "").strip()
+    if not s:
+        return None
+    if (s.startswith(("/", "./", "../", "~")) or s in (".", "..") or _WINDOWS_PATH_RE.match(s)
+            or os.path.isdir(os.path.expanduser(s))):
+        return "local"
+    return "docs" if _docs_host(s) else "remote"
+
+
+def clone_url(target):
+    """The URL git clones a remote target from, None for a local or docs one.
+
+    A URL with a scheme or an SSH address is used as given. git reads a
+    shorthand or a host path without a scheme as a local folder, so a host
+    path (its first segment holds a `.` or a port, as `github.com/acme/mono`
+    and `gitlab.com/group/repo` do) gets `https://`, and the `owner/repo`
+    shorthand `https://github.com/`.
+    """
+    if target_kind(target) != "remote":
+        return None
+    s = str(target).strip()
+    if _URL_SCHEME_RE.match(s) or _SSH_ADDRESS_RE.match(s):
+        return s
+    path = s.strip("/")
+    first = path.split("/", 1)[0]
+    return f"https://{path}" if ("." in first or ":" in first) else f"https://github.com/{path}"
+
+
 def derive_name_with_basis(target, manifest_name=None, private=False, members=None):
     """``(name, basis)`` for a unit or brief; see :func:`derive_name`.
 
@@ -2368,6 +2436,7 @@ def _main_derive_name(argv):
 
     if source is None:
         result = named({"target": target, "manifest_name": manifest_name})
+        result.update(kind=target_kind(target), clone_url=clone_url(target))
         if not result["name"]:
             print(json.dumps({"status": "error", "code": "NO_NAME", "command": "derive-name",
                               "error": "no skill name can be derived from the target or manifest name"},

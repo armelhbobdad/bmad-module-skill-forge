@@ -44,16 +44,12 @@ When `source_type: "docs-only"`:
 
 ## Version Detection
 
-During brief generation, attempt to auto-detect the source version before defaulting to `"1.0.0"`. Check the first matching file in the source:
+A brief's `detected_version` starts from the manifest scan: it is the `version` that `skf-scan-manifests.py` gives the unit's own manifest (a Cargo `version.workspace = true` already resolved from its workspace), passed to the brief writer as found, null when there is none. The writer keeps a full `X.Y.Z` semver version and falls back to `"1.0.0"` otherwise, with a warning. Look a version up by hand only in two cases, and pass what you find the same way:
 
-- **Python:** `pyproject.toml` `[project] version` (static) → if `dynamic = ["version"]`, check `__init__.py` for `__version__` → `_version.py` if exists → `setup.py` `version=` → `git describe --tags --abbrev=0`
-- **JavaScript/TypeScript:** root `package.json` (`"version"`) → if root has `"private": true` with a `"workspaces"` array or lacks a `"version"` field, fall back to a primary workspace package's `package.json` (e.g., `code/core/package.json`, or the first matching `packages/*/package.json`). For GitHub sources, prefer `gh api repos/{owner}/{repo}/releases/latest` → `tag_name` when a non-pre-release tag exists, over a default-branch pre-release. Treat a version containing `-alpha`, `-beta`, `-rc`, `-next`, or `-canary` as a pre-release.
-- **Rust:** `Cargo.toml` `[package] version` (static) → if `version = { workspace = true }`, resolve from workspace root `Cargo.toml` → `git describe --tags --abbrev=0`
-- **Go:** version tag from `go.mod` or `git describe --tags --abbrev=0`
+- **A `version_dynamic` manifest** (Python, a version computed at build time): `__version__` in the package's `__init__.py` → `_version.py` if it exists → `setup.py` `version=` → `git describe --tags --abbrev=0`
+- **A private workspace root that gives none** (JavaScript/TypeScript: the root `package.json` has `"private": true` with `"workspaces"`, or no `"version"`): the `version` the same scan gives a primary workspace package (e.g., `code/core/package.json`, or the first matching `packages/*/package.json`)
 
-If the source is a remote GitHub repo, use `gh api repos/{owner}/{repo}/contents/{file}` to read the version file. If the source is local, read the file directly.
-
-If detection succeeds, use the detected version. If it fails or returns a non-semver value, fall back to `"1.0.0"`.
+Read those files in the scan root. Where it holds only the manifests (step-auto-scope's remote fetch), `git -C "{scan_root}" sparse-checkout add '/<the file>'` brings one in.
 
 The create-skill workflow (extract) also performs version reconciliation at extraction time — if the source version has changed since the brief was created, the extraction step warns and uses the source version.
 

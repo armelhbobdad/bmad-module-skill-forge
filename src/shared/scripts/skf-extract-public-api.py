@@ -4,7 +4,7 @@
 # ///
 """SKF Extract Public API: one package's public surface, by parser or by recipe.
 
-Two modes:
+Three modes:
 
   --mode quick   (the default) A pure parser: takes one logical package (one
                  manifest, one or more entry-point files) and emits its
@@ -23,6 +23,11 @@ Two modes:
                  and emits every export with its exact file, line, name and
                  node kind, the export surface the package's entry points
                  declare, and the counts compile needs. See "Full mode" below.
+  --mode entries The files quick mode reads for one package, found in the
+                 repository's file listing with full mode's entry-point
+                 rules, so no caller derives an entry file from a
+                 distribution name or reads a manifest by eye. See "Entries
+                 mode" below.
 
 Quick mode
 ----------
@@ -31,7 +36,7 @@ Supported languages (the payload's `language`, or --language; first listed
 is preferred):
 
   js, ts, javascript, typescript    package.json     index.{js,ts}, src/index.{js,ts}
-  python                            pyproject.toml   __init__.py / setup.py
+  python                            pyproject.toml   __init__.py / setup.py / setup.cfg
   rust                              Cargo.toml       src/lib.rs
   go                                go.mod           top-level *.go
   java                              pom.xml          src/main/java/**/*.java
@@ -40,8 +45,10 @@ is preferred):
 
 Top-level exports only, read from the entry files. Quick mode reads no other
 file, so a name an entry file passes on from another module without naming
-it is not an export here: a warning names each such statement, so the caller
-can pass that module as an entry too or read it by eye. A warning also names
+it is not an export here: a warning names each such statement, and an
+`unlisted[]` record gives its file, line, statement, specifier and
+`module_file`, so the caller can pass that module as a --follow-file (a
+module_file) or read it by eye (none). A warning also names
 each statement below whose names the file holds in a form quick mode does
 not read (an anonymous default export, a destructuring declaration, an
 assignment inside a block).
@@ -100,7 +107,8 @@ Input: a JSON payload on stdin,
   {
     "language": "python",
     "manifest": {"path": "pyproject.toml", "content": "..."},
-    "entries":  [{"path": "src/foo/__init__.py", "content": "..."}, ...],
+    "entries":  [{"path": "src/foo/__init__.py", "content": "...",
+                  "followed": false}, ...],
     "mode":     "quick"
   }
 
@@ -108,6 +116,11 @@ or the files, read from disk (stdin is then never read):
 
   --mode quick --language <language> [--source-root <dir>]
       [--manifest-file <path>] [--entry-file <path>]...
+      [--follow-file <path>]... [--tree-file <listing>] [--fetch-list <file>]
+
+An entry with `followed` true (a --follow-file) is a module an `unlisted[]`
+record named, read as an entry is, less a JS/TS `export default`, which
+`export *` does not pass on.
 
 Each path is relative to --source-root, the folder the files were staged in
 laid out like the repository (or a local checkout), else to the current
@@ -115,8 +128,11 @@ folder, and is the `path` the output names (`source_file`), written with
 `/`. A path under --source-root may not be absolute or lead outside it. A
 file's text is read as UTF-8 (a byte order mark dropped, an invalid byte
 replaced), so a quote or an apostrophe in it reaches the parser as it is.
-An entry named twice is read once. Without --manifest-file the package
-metadata is empty, as for a payload whose manifest `content` is empty.
+An entry named twice is read once (a file both an --entry-file and a
+--follow-file is an entry). Without --manifest-file the package metadata is
+empty, as for a payload whose manifest `content` is empty. A python
+manifest is read by its name: setup.py and setup.cfg by their own parsers,
+any other as pyproject.toml.
 
 Output JSON shape (stdout):
 
@@ -128,17 +144,94 @@ Output JSON shape (stdout):
     "exports":      [{"name": "Bar", "type": "class", "source_file": "..."}, ...],
     "dependencies": ["requests", "pydantic", ...],
     "modules":      ["server", "client"],         (Maven/Gradle only)
+    "module_folders": ["server", "client"],       (each module's folder in
+                                                   the repository)
     "extra":        {"group_id": "com.example"}, (Maven only)
-    "warnings":     ["..."]                        (parse failures, fallbacks)
+    "warnings":     ["..."],                       (parse failures, fallbacks)
+    "unlisted":     [{"file", "line", "statement", "specifier",
+                      "module_file"}, ...]
   }
+
+`unlisted` holds one record per statement whose names come from a module
+quick mode did not read: `export * from`, `module.exports = require(...)`
+(and such an assignment in a block), a spread in the `module.exports`
+object, a Python star import from the package and a Rust `pub use x::*`.
+`module_file` is the file of the listing (--tree-file, or a payload's
+`tree`) that module is, found as full mode finds it (resolve_js_module, a
+NodeNext `./x.js` naming x.ts, and _py_module_file); null without a
+listing, and for a package import, a spread, a Rust glob or a module the
+listing does not hold. A statement whose module_file is already an entry
+file is left out, with its warning: its names are read. --fetch-list
+writes each module_file still to read, one per line, so a caller fetches
+them, passes them as more --follow-file and runs again until the list is
+empty. `module_folders` gives each of `modules` as a folder of the
+repository: the manifest's folder joined with the module (a Gradle
+`core:api` read as `core/api`).
 
 Exit codes (quick):
 
   0    success
   1    payload-level error (a language quick mode does not parse)
   2    input error: stdin, argparse or JSON-decode error, --language missing
-       or given twice with the file inputs, or a --manifest-file or
-       --entry-file that cannot be read or leads outside --source-root
+       or given twice with the file inputs, a --manifest-file, --entry-file
+       or --follow-file that cannot be read or leads outside --source-root,
+       or a --tree-file that cannot be read or a --fetch-list that cannot be
+       written
+
+Entries mode
+------------
+
+  --mode entries --language <language> --tree-file <listing>
+      --source-root <dir> [--scope <folder>] [--fetch-list <file>]
+
+The entry files of the one package at --scope (the repository root
+without it), read from the listing (skf-github-probe.py tree output, or any
+listing skf-detect-language.py's --tree-file reads). The package's manifest
+is read from --source-root, the folder it was fetched into (a folder not
+made yet holds none):
+
+  js, ts       the files its package.json exports map, else its
+               types/module/main/browser fields, name (a build output not
+               committed mapped back to its source: dist/index.js ->
+               src/index.ts), else index.* or src/index.* (_js_entries)
+  python       the top __init__.py of each package among its .py files
+               (_py_entries), less those under a top folder named test*,
+               docs, examples or benchmarks, the one whose folder is the
+               manifest name as Python imports it preferred; with no
+               package, <name>.py or src/<name>.py (a single-module
+               package such as six). The name is the first one the
+               manifests give, read in the order pyproject.toml ([project]
+               or [tool.poetry]), setup.py, setup.cfg ([metadata]), and
+               `manifest` is the one that gave it (else the first listed)
+  rust         the crate root, `[lib] path` else src/lib.rs (_rust_entries)
+  go           the .go files directly in the folder, less *_test.go
+  java         src/main/java/<groupId as a path>/*.java (the pom's groupId,
+               else its parent's)
+  kotlin       src/main/kotlin/**/*.kt
+
+Go, Java and Kotlin read the first 5 files in path order, and no language
+more than 25. Output (stdout):
+
+  {
+    "mode":        "entries",
+    "language":    "python",
+    "scope":       "." | "<folder>",
+    "manifest":    "<path in the listing>" | null,
+    "entry_files": ["src/PIL/__init__.py", ...],
+    "unresolved":  [{"package", "subpath", "targets"}, ...],
+    "warnings":    ["..."]
+  }
+
+`manifest` is the manifest the language reads at the folder (null when the
+listing has none), `unresolved` names what no listed file answered (a
+package.json target, or the paths tried), and --fetch-list writes
+`entry_files` one per line. A language quick mode parses but has no rule
+here (swift) gives no entry file and a warning.
+
+Exit codes (entries): 0 (an empty `entry_files` included); 1 for a language
+quick mode does not parse; 2 for an input error (a --tree-file that cannot
+be read, a --source-root that is a file, a --fetch-list that cannot be
+written, a flag of another mode).
 
 Full mode
 ---------
@@ -355,6 +448,8 @@ Exit codes (full):
 
 CLI examples:
   uv run skf-extract-public-api.py --mode quick < {payload_json}
+  uv run skf-extract-public-api.py --mode entries --language python \\
+      --tree-file {tree_json} --source-root {staged_dir} --fetch-list {entries_txt}
   uv run skf-extract-public-api.py --mode quick --language rust \\
       --source-root {staged_dir} --manifest-file Cargo.toml --entry-file src/lib.rs
   uv run skf-extract-public-api.py --mode full --source-root {source_root} \\
@@ -367,6 +462,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import configparser
 import importlib.util
 import json
 import os
@@ -439,6 +535,31 @@ def parse_setup_py(content: str) -> dict:
         "version": find_kwarg("version"),
         "description": find_kwarg("description"),
         "dependencies": [],
+        "modules": [],
+    }
+
+
+def parse_setup_cfg(content: str) -> dict:
+    """setup.cfg's [metadata] (a literal version only) and [options]
+    install_requires, read with configparser."""
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    try:
+        parser.read_string(content)
+    except configparser.Error as e:
+        return {"_parse_error": f"setup.cfg parse error: {e}"}
+    meta = parser["metadata"] if parser.has_section("metadata") else {}
+    version = (meta.get("version") or "").strip()
+    deps: list[str] = []
+    if parser.has_option("options", "install_requires"):
+        for line in parser.get("options", "install_requires").splitlines():
+            m = re.match(r"^([A-Za-z0-9_.\-]+)", line.strip())
+            if m:
+                deps.append(m.group(1))
+    return {
+        "name": (meta.get("name") or "").strip() or None,
+        "version": None if not version or version.startswith(("attr:", "file:")) else version,
+        "description": (meta.get("description") or "").strip() or None,
+        "dependencies": deps,
         "modules": [],
     }
 
@@ -615,6 +736,21 @@ def _unlisted(source_file: str, line: int, statement: str) -> str:
             "pass that module as an entry too, or read it by eye")
 
 
+def _note_unlisted(warnings: list[str] | None, unlisted: list[dict] | None, source_file: str, line: int,
+                   statement: str, specifier: str | None = None, module: tuple | None = None,
+                   shown: str | None = None) -> None:
+    """Note a statement whose names come from a module quick mode does not
+    read: its warning (_unlisted, naming `shown`, else the statement in
+    backticks) and, when `unlisted` collects them, its record. `module` says
+    how extract() finds the module's file: ("js", specifier) or ("python",
+    level, module); None when it cannot (a package import, a Rust glob)."""
+    message = _unlisted(source_file, line, shown or f"`{statement}`")
+    _note(warnings, message)
+    if unlisted is not None:
+        unlisted.append({"file": source_file, "line": line, "statement": statement, "specifier": specifier,
+                         "_module": module, "_warning": message})
+
+
 def _exports(found: list[tuple[int, str, str]], source_file: str) -> list[dict]:
     """The export records of (offset, name, type) found, in file order, each
     name once (its first form wins)."""
@@ -759,7 +895,7 @@ def _js_object_members(content: str, code: str, start: int,
 
 def _js_module_exports(content: str, code: str, match: re.Match, source_file: str, declared: dict[str, str],
                        found: list[tuple[int, str, str]], warnings: list[str] | None,
-                       target: str = "module.exports") -> None:
+                       target: str = "module.exports", unlisted: list[dict] | None = None) -> None:
     """Add the names one `module.exports = <value>` (or TypeScript's
     `export = <value>`, the `target`) exports."""
     pos, line = match.end(), _line_of(code, match.start())
@@ -768,12 +904,13 @@ def _js_module_exports(content: str, code: str, match: re.Match, source_file: st
         members, spreads = _js_object_members(content, code, pos, declared)
         found.extend(members)
         for spread in spreads:
-            _note(warnings, _unlisted(source_file, line, f"the `{target}` object's `{spread}`"))
+            _note_unlisted(warnings, unlisted, source_file, line, spread,
+                           shown=f"the `{target}` object's `{spread}`")
         return
     require = _JS_REQUIRE_RE.match(code, pos)
     if require:
         spec = _js_string(content, code, require.end(1) - 1)
-        _note(warnings, _unlisted(source_file, line, f"`{assign} require('{spec}')`"))
+        _note_unlisted(warnings, unlisted, source_file, line, f"{assign} require('{spec}')", spec, ("js", spec))
         return
     named = _JS_NAMED_VALUE_RE.match(code, pos)
     if named:
@@ -821,10 +958,12 @@ def _js_more_declarators(code: str, pos: int) -> list[tuple[int, str]]:
     return names
 
 
-def scan_exports_js(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+def scan_exports_js(content: str, source_file: str, warnings: list[str] | None = None,
+                    unlisted: list[dict] | None = None, defaults: bool = True) -> list[dict]:
     """The names a JS/TS entry file exports (see "Quick mode" above), read
     from its text with comments, string contents and regular expressions
-    blanked."""
+    blanked. Without `defaults` (a module reached through `export *`) its
+    `export default` is left out, unread and unwarned."""
     code = _blank(content, "js")
     declared: dict[str, str] = {}
     found: list[tuple[int, str, str]] = []
@@ -835,9 +974,11 @@ def scan_exports_js(content: str, source_file: str, warnings: list[str] | None =
             continue
         declared.setdefault(name, kind)
         if m.group(1):
-            found.append((m.start(), name, kind))
             if "default" in m.group(1).split():
                 read_defaults.add(m.start())
+                if not defaults:
+                    continue
+            found.append((m.start(), name, kind))
         if kind in ("const", "let", "var"):
             for offset, more in _js_more_declarators(code, m.end(3)):
                 declared.setdefault(more, kind)
@@ -857,13 +998,14 @@ def scan_exports_js(content: str, source_file: str, warnings: list[str] | None =
             found.append((m.start(), m.group(1), "namespace"))
         else:
             spec = _js_string(content, code, m.end(2) - 1)
-            _note(warnings, _unlisted(source_file, _line_of(code, m.start()), f"`export * from '{spec}'`"))
+            _note_unlisted(warnings, unlisted, source_file, _line_of(code, m.start()), f"export * from '{spec}'",
+                           spec, ("js", spec))
     for m in _JS_DEFAULT_RE.finditer(code):
-        if m.group(1) not in _JS_NOT_NAMES:
+        if m.group(1) not in _JS_NOT_NAMES and defaults:
             found.append((m.start(), m.group(1), declared.get(m.group(1), "re-export")))
             read_defaults.add(m.start())
     for m in _JS_ANY_DEFAULT_RE.finditer(code):
-        if m.start() in read_defaults:
+        if m.start() in read_defaults or not defaults:
             continue
         line = _line_of(code, m.start())
         if _JS_ANONYMOUS_VALUE_RE.match(code, m.end()):
@@ -873,12 +1015,12 @@ def scan_exports_js(content: str, source_file: str, warnings: list[str] | None =
             _note(warnings, f"{source_file} line {line}: `export default` is set to an expression quick mode "
                             "does not read: read the names it exports by eye")
     for m in _TS_EXPORT_ASSIGN_RE.finditer(code):
-        _js_module_exports(content, code, m, source_file, declared, found, warnings, "export =")
+        _js_module_exports(content, code, m, source_file, declared, found, warnings, "export =", unlisted)
     for m in _CJS_NAMED_RE.finditer(code):
         if m.group(1) not in _JS_NOT_NAMES:
             found.append((m.start(), m.group(1), _js_value_type(code, m.end(), declared)))
     for m in _CJS_MODULE_RE.finditer(code):
-        _js_module_exports(content, code, m, source_file, declared, found, warnings)
+        _js_module_exports(content, code, m, source_file, declared, found, warnings, unlisted=unlisted)
     nested_lines: set[int] = set()
     for m in _CJS_ANY_RE.finditer(code):
         line_start = code.rfind("\n", 0, m.start()) + 1
@@ -896,7 +1038,7 @@ def scan_exports_js(content: str, source_file: str, warnings: list[str] | None =
         require = _JS_REQUIRE_RE.match(code, _JS_SPACE_RE.match(code, m.end()).end())
         if require:
             spec = _js_string(content, code, require.end(1) - 1)
-            _note(warnings, _unlisted(source_file, line, f"`{target} = require('{spec}')`"))
+            _note_unlisted(warnings, unlisted, source_file, line, f"{target} = require('{spec}')", spec, ("js", spec))
         else:
             _note(warnings, f"{source_file} line {line}: `{target}` is assigned inside a block or a condition: "
                             "read the names it exports by eye")
@@ -948,7 +1090,8 @@ def _py_all_unread_line(text: str) -> int | None:
     return None
 
 
-def scan_exports_python(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+def scan_exports_python(content: str, source_file: str, warnings: list[str] | None = None,
+                        unlisted: list[dict] | None = None) -> list[dict]:
     """The names a Python entry file exports (see "Quick mode" above), read
     with full mode's module reader: __all__ when the module has one, else
     its public definitions and the names it imports from its own
@@ -988,7 +1131,8 @@ def scan_exports_python(content: str, source_file: str, warnings: list[str] | No
     for star in stars:
         if own(star["module"], star["level"]):
             source = "." * star["level"] + (star["module"] or "")
-            _note(warnings, _unlisted(source_file, star["line"], f"`from {source} import *`"))
+            _note_unlisted(warnings, unlisted, source_file, star["line"], f"from {source} import *", source,
+                           ("python", star["level"], star["module"]))
     return _exports(found, source_file)
 
 
@@ -998,7 +1142,8 @@ _RUST_MACRO_EXPORT_RE = re.compile(
     r"^[ \t]*#\[macro_export\b[^\]]*\](?:\s*#\[[^\]]*\])*\s*macro_rules!\s*((?:r#)?[A-Za-z_]\w*)", re.M)
 
 
-def scan_exports_rust(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+def scan_exports_rust(content: str, source_file: str, warnings: list[str] | None = None,
+                      unlisted: list[dict] | None = None) -> list[dict]:
     """The names a Rust entry file exports (see "Quick mode" above): its
     column-0 unrestricted `pub` items, `#[macro_export]` macros and `pub
     use` names, read with full mode's readers from its text with comments
@@ -1014,13 +1159,15 @@ def scan_exports_rust(content: str, source_file: str, warnings: list[str] | None
             if not path or alias == "_":
                 continue
             if glob:
-                _note(warnings, _unlisted(source_file, line, f"`pub use {'::'.join(path)}::*`"))
+                _note_unlisted(warnings, unlisted, source_file, line, f"pub use {'::'.join(path)}::*",
+                               "::".join(path))
             else:
                 found.append((line, alias or path[-1], "re-export"))
     return _exports(found, source_file)
 
 
-def scan_exports_go(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+def scan_exports_go(content: str, source_file: str, warnings: list[str] | None = None,
+                    unlisted: list[dict] | None = None) -> list[dict]:
     out: list[dict] = []
     for m in re.finditer(r"^(func|type|var|const)\s+([A-Z]\w*)", content, re.MULTILINE):
         out.append({"name": m.group(2), "type": m.group(1), "source_file": source_file})
@@ -1037,7 +1184,8 @@ _JAVA_ANNOTATION_RE = re.compile(
 )
 
 
-def scan_exports_java(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+def scan_exports_java(content: str, source_file: str, warnings: list[str] | None = None,
+                      unlisted: list[dict] | None = None) -> list[dict]:
     out: list[dict] = []
     seen: set[str] = set()
     for m in _JAVA_PUBLIC_RE.finditer(content):
@@ -1068,7 +1216,8 @@ _KOTLIN_DECL_RE = re.compile(
 )
 
 
-def scan_exports_kotlin(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+def scan_exports_kotlin(content: str, source_file: str, warnings: list[str] | None = None,
+                        unlisted: list[dict] | None = None) -> list[dict]:
     """Kotlin defaults to public — omit internal/private declarations."""
     out: list[dict] = []
     seen: set[str] = set()
@@ -1095,7 +1244,8 @@ _SWIFT_DECL_KEYWORDS = {
 }
 
 
-def scan_exports_swift(content: str, source_file: str, warnings: list[str] | None = None) -> list[dict]:
+def scan_exports_swift(content: str, source_file: str, warnings: list[str] | None = None,
+                       unlisted: list[dict] | None = None) -> list[dict]:
     """Swift defaults to internal — emit only public/open declarations."""
     out: list[dict] = []
     seen: set[str] = set()
@@ -1115,8 +1265,9 @@ def scan_exports_swift(content: str, source_file: str, warnings: list[str] | Non
 # --------------------------------------------------------------------------
 
 ManifestParser = Callable[[str], dict]
-# (content, source file, warnings): a scanner may note a form it cannot list.
-ExportScanner = Callable[[str, str, list[str]], list[dict]]
+# (content, source file, warnings, unlisted): a scanner may note a form it
+# cannot list, and record each statement whose names another module gives.
+ExportScanner = Callable[[str, str, list[str], list[dict]], list[dict]]
 
 LANGUAGE_DISPATCH: dict[str, tuple[ManifestParser, ExportScanner]] = {
     "js": (parse_package_json, scan_exports_js),
@@ -1133,9 +1284,11 @@ LANGUAGE_DISPATCH: dict[str, tuple[ManifestParser, ExportScanner]] = {
 
 
 def _select_manifest_parser(language: str, manifest_path: str) -> ManifestParser:
-    """Pick the right manifest parser, special-casing Python's setup.py."""
+    """Pick the right manifest parser, special-casing Python's setup.py and setup.cfg."""
     if language == "python" and manifest_path.endswith("setup.py"):
         return parse_setup_py
+    if language == "python" and manifest_path.endswith("setup.cfg"):
+        return parse_setup_cfg
     return LANGUAGE_DISPATCH[language][0]
 
 
@@ -1191,15 +1344,22 @@ def extract(payload: dict) -> dict:
 
     _, scanner = LANGUAGE_DISPATCH[language]
     exports: list[dict] = []
+    unlisted: list[dict] = []
+    entry_paths: set[str] = set()
     for entry in payload.get("entries") or []:
         if not isinstance(entry, dict):
             continue
         content = entry.get("content") or ""
         path = entry.get("path") or ""
+        entry_paths.add(path)
         if not content:
             continue
         try:
-            exports.extend(scanner(content, path, warnings))
+            if entry.get("followed") and scanner is scan_exports_js:
+                # `export *` passes on no default export
+                exports.extend(scan_exports_js(content, path, warnings, unlisted, defaults=False))
+            else:
+                exports.extend(scanner(content, path, warnings, unlisted))
         except Exception as e:  # noqa: BLE001 — best-effort: scanner errors are warnings, not fatal
             warnings.append(f"export scan failed for {path}: {e}")
 
@@ -1211,11 +1371,49 @@ def extract(payload: dict) -> dict:
         "exports": exports,
         "dependencies": parsed.get("dependencies", []),
         "modules": parsed.get("modules", []),
+        "module_folders": [_module_folder(manifest_path, module) for module in parsed.get("modules", [])],
         "warnings": warnings,
+        "unlisted": _resolve_unlisted(unlisted, payload.get("tree"), entry_paths, warnings),
     }
     if "_extra" in parsed:
         result["extra"] = parsed["_extra"]
     return result
+
+
+def _module_folder(manifest_path: str, module: str) -> str:
+    """The folder of a Maven or Gradle module in the repository: the
+    manifest's folder joined with the module, a Gradle `core:api` read as
+    `core/api`."""
+    joined = posixpath.join(posixpath.dirname(manifest_path), module.strip(":").replace(":", "/"))
+    return posixpath.normpath(joined)
+
+
+def _resolve_unlisted(unlisted: list[dict], tree: object, entry_paths: set[str],
+                      warnings: list[str]) -> list[dict]:
+    """The `unlisted` records, each with its `module_file`: the file in the
+    listing (`tree`) that the statement's module names, by full mode's
+    resolvers (resolve_js_module for `export * from` and `module.exports =
+    require(...)`, _py_module_file for a Python star import), else None. A
+    record whose module is already an entry file is dropped with its
+    warning: its names are read. Without a listing every module_file is
+    None, since only the entry files are known."""
+    listed = set(tree) if isinstance(tree, list) else None
+    known = (listed or set()) | entry_paths
+    records = []
+    for item in unlisted:
+        module, message = item.pop("_module"), item.pop("_warning")
+        module_file = None
+        if module and module[0] == "js":
+            module_file = resolve_js_module(module[1], item["file"], known)
+        elif module and module[0] == "python":
+            module_file = _py_module_file(posixpath.dirname(item["file"]), module[1], module[2], known)
+        if module_file is not None and module_file in entry_paths:
+            if message in warnings:
+                warnings.remove(message)
+            continue
+        item["module_file"] = module_file if listed is not None else None
+        records.append(item)
+    return records
 
 
 # --------------------------------------------------------------------------
@@ -2562,60 +2760,75 @@ def _js_entries(root: Path, files: list[str], tree: list[str], tree_set: set[str
     entries: list[dict] = []
     maps: list[dict] = []
     unresolved: list[dict] = []
+    for pkg in packages:
+        found, facts, missing = _js_package_entries(root, pkg, tree_set, warnings)
+        entries += found
+        maps += facts
+        unresolved += missing
+    return entries, maps, unresolved
 
-    def add(file: str, how: str, label: str, subpath: str) -> None:
+
+def _js_package_entries(root: Path, pkg: str, tree_set: set[str],
+                        warnings: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
+    """(entry points, exports-map facts, unresolved subpaths) of the one
+    package in folder `pkg` ("" for the root), by _js_entries's rules, its
+    package.json read from `root`."""
+    label = pkg or "."
+    entries: list[dict] = []
+    maps: list[dict] = []
+    unresolved: list[dict] = []
+
+    def add(file: str, how: str, subpath: str) -> None:
         if not any(e["file"] == file and e["subpath"] == subpath for e in entries):
             entries.append({"language": _file_language(file) or "javascript", "file": file,
                             "package": label, "subpath": subpath, "resolution": how})
 
-    for pkg in packages:
-        label = pkg or "."
-        manifest: dict = {}
-        manifest_path = f"{pkg}/package.json" if pkg else "package.json"
-        if manifest_path in tree_set:
-            try:
-                loaded = json.loads((root / manifest_path).read_text(encoding="utf-8"))
-                manifest = loaded if isinstance(loaded, dict) else {}
-            except (OSError, UnicodeDecodeError, ValueError) as exc:
-                warnings.append(f"{manifest_path}: cannot read ({exc}); its entry points are the index files")
-        subpaths = exports_subpaths(manifest.get("exports")) if "exports" in manifest else {}
-        if subpaths:
-            code = [s for s in subpaths if s != "." and "*" not in s
-                    and any(t.endswith(JS_TARGET_SUFFIXES) for t in subpaths[s])]
-            maps.append({"package": label, "subpaths": sorted(subpaths),
-                         "non_root_subpaths": len(code),
-                         "wildcard_subpaths": sum(1 for s in subpaths if "*" in s)})
-        else:
-            fields = [manifest[f] for f in PACKAGE_ENTRY_FIELDS if isinstance(manifest.get(f), str)]
-            subpaths = {".": fields} if fields else {}
-        excluded = [s for s, targets in subpaths.items() if not targets]
-        for subpath, targets in subpaths.items():
-            code_targets = [t for t in targets if t.endswith(JS_TARGET_SUFFIXES)]
-            found = 0
-            for target in code_targets:
-                if "*" in target:
-                    matched, how = _package_pattern(pkg, target, tree_set)
-                    found += len(matched)
-                    for key, file in matched.items():
-                        named = subpath.replace("*", key, 1)
-                        if not _subpath_excluded(named, excluded):
-                            add(file, how, label, named)
-                    continue
-                file, how = _package_target(pkg, target, tree_set)
-                if file:
-                    add(file, how, label, subpath)
-                    found += 1
-            if code_targets and not found:
-                unresolved.append({"package": label, "subpath": subpath, "targets": code_targets})
-        if "." in subpaths or not subpaths:
-            if not any(e["package"] == label and e["subpath"] == "." for e in entries):
-                folder = f"{pkg}/" if pkg else ""
-                conventional = next((f"{folder}{d}index{e}" for d in ("", "src/") for e in JS_SOURCE_EXTENSIONS
-                                     if f"{folder}{d}index{e}" in tree_set), None)
-                if conventional:
-                    entries.append({"language": _file_language(conventional), "file": conventional,
-                                    "package": label, "subpath": ".", "resolution": "conventional"})
-                    unresolved = [u for u in unresolved if (u["package"], u["subpath"]) != (label, ".")]
+    manifest: dict = {}
+    manifest_path = f"{pkg}/package.json" if pkg else "package.json"
+    if manifest_path in tree_set:
+        try:
+            loaded = json.loads((root / manifest_path).read_text(encoding="utf-8"))
+            manifest = loaded if isinstance(loaded, dict) else {}
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            warnings.append(f"{manifest_path}: cannot read ({exc}); its entry points are the index files")
+    subpaths = exports_subpaths(manifest.get("exports")) if "exports" in manifest else {}
+    if subpaths:
+        code = [s for s in subpaths if s != "." and "*" not in s
+                and any(t.endswith(JS_TARGET_SUFFIXES) for t in subpaths[s])]
+        maps.append({"package": label, "subpaths": sorted(subpaths),
+                     "non_root_subpaths": len(code),
+                     "wildcard_subpaths": sum(1 for s in subpaths if "*" in s)})
+    else:
+        fields = [manifest[f] for f in PACKAGE_ENTRY_FIELDS if isinstance(manifest.get(f), str)]
+        subpaths = {".": fields} if fields else {}
+    excluded = [s for s, targets in subpaths.items() if not targets]
+    for subpath, targets in subpaths.items():
+        code_targets = [t for t in targets if t.endswith(JS_TARGET_SUFFIXES)]
+        found = 0
+        for target in code_targets:
+            if "*" in target:
+                matched, how = _package_pattern(pkg, target, tree_set)
+                found += len(matched)
+                for key, file in matched.items():
+                    named = subpath.replace("*", key, 1)
+                    if not _subpath_excluded(named, excluded):
+                        add(file, how, named)
+                continue
+            file, how = _package_target(pkg, target, tree_set)
+            if file:
+                add(file, how, subpath)
+                found += 1
+        if code_targets and not found:
+            unresolved.append({"package": label, "subpath": subpath, "targets": code_targets})
+    if "." in subpaths or not subpaths:
+        if not any(e["subpath"] == "." for e in entries):
+            folder = f"{pkg}/" if pkg else ""
+            conventional = next((f"{folder}{d}index{e}" for d in ("", "src/") for e in JS_SOURCE_EXTENSIONS
+                                 if f"{folder}{d}index{e}" in tree_set), None)
+            if conventional:
+                entries.append({"language": _file_language(conventional), "file": conventional,
+                                "package": label, "subpath": ".", "resolution": "conventional"})
+                unresolved = [u for u in unresolved if u["subpath"] != "."]
     return entries, maps, unresolved
 
 
@@ -3857,6 +4070,182 @@ def _main_full(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# Entries mode: the files quick mode reads, found in the listing
+# --------------------------------------------------------------------------
+
+# The quick languages entries mode finds entry files for, by family.
+ENTRY_LANGUAGES = {"js": "javascript", "ts": "javascript", "javascript": "javascript",
+                   "typescript": "javascript", "python": "python", "rust": "rust", "go": "go",
+                   "java": "java", "kotlin": "kotlin"}
+# The manifest of each family at the package folder, the first one listed read
+# (Python: the first that names the package, read in this order).
+ENTRY_MANIFESTS = {"javascript": ("package.json",), "python": ("pyproject.toml", "setup.py", "setup.cfg"),
+                   "rust": ("Cargo.toml",), "go": ("go.mod",), "java": ("pom.xml",),
+                   "kotlin": ("build.gradle.kts", "build.gradle")}
+# A glob-picked family (Go, Java, Kotlin) reads at most this many files, as
+# the fetch's `--limit 5` did; no family reads more than ENTRY_FILE_LIMIT.
+ENTRY_GLOB_LIMIT = 5
+ENTRY_FILE_LIMIT = 25
+# Top folders of a Python tree that hold no package code (test* folders too).
+PY_NON_CORE_TOPS = frozenset({"docs", "examples", "benchmarks"})
+
+
+def _scope_folder(scope: str | None) -> str:
+    """The package folder a --scope names, "" for the repository root."""
+    folder = _norm(scope or "").strip("/")
+    return "" if folder == "." else folder
+
+
+def _import_name(name: object) -> str:
+    """A distribution name the way Python imports it: lower case, each run
+    of `-` and `.` read as `_` (`zope.interface` -> zope_interface)."""
+    return re.sub(r"[-.]+", "_", name.strip().lower()) if isinstance(name, str) else ""
+
+
+def _py_quick_entries(folder: str, tree: list[str], tree_set: set[str],
+                      name: str | None) -> tuple[list[str], list[str]]:
+    """(entry files, the paths tried when there is none) of the Python
+    package in `folder`: the top __init__.py of each package full mode finds
+    (_py_entries) among its .py files, less those under a top folder named
+    test*, docs, examples or benchmarks, the one whose folder is the
+    manifest's import name preferred (Pillow's src/PIL/ is kept, as no
+    folder is named pillow); with no package at all, the single module
+    `<name>.py` or `src/<name>.py` (six.py)."""
+    prefix = f"{folder}/" if folder else ""
+    files = []
+    for path in tree:
+        if not path.startswith(prefix) or not path.endswith(".py"):
+            continue
+        rest = path[len(prefix):]
+        top = rest.split("/", 1)[0].lower() if "/" in rest else ""
+        if top.startswith(("test", ".")) or top in PY_NON_CORE_TOPS:
+            continue
+        files.append(path)
+    tops = [entry["file"] for entry in _py_entries(files, tree_set)]
+    wanted = _import_name(name)
+    if tops:
+        named = [top for top in tops if posixpath.basename(posixpath.dirname(top)).lower() == wanted]
+        return named or tops, []
+    tried = [f"{prefix}{wanted}.py", f"{prefix}src/{wanted}.py"] if wanted else []
+    return [path for path in tried if path in tree_set][:1], tried
+
+
+def _py_manifest_name(manifest: str, content: str) -> str | None:
+    """The distribution name a Python manifest gives: pyproject.toml's
+    [project] or [tool.poetry] `name`, setup.py's `name=`, setup.cfg's
+    [metadata] `name`."""
+    if manifest.endswith("setup.py"):
+        name = parse_setup_py(content).get("name")
+    elif manifest.endswith("setup.cfg"):
+        name = parse_setup_cfg(content).get("name")
+    else:
+        try:
+            data = tomllib.loads(content)
+        except tomllib.TOMLDecodeError:
+            return None
+        project = data.get("project") if isinstance(data.get("project"), dict) else {}
+        tool = data.get("tool") if isinstance(data.get("tool"), dict) else {}
+        poetry = tool.get("poetry") if isinstance(tool.get("poetry"), dict) else {}
+        name = project.get("name") or poetry.get("name")
+    return name.strip() if isinstance(name, str) and name.strip() else None
+
+
+def _pom_group(content: str) -> str | None:
+    """The groupId of a pom.xml (parse_pom_xml's), else the one its <parent> gives."""
+    group = (parse_pom_xml(content).get("_extra") or {}).get("group_id")
+    if group:
+        return group
+    try:
+        project = ET.fromstring(content)
+    except ET.ParseError:
+        return None
+    for child in project:
+        if _strip_ns(child.tag) == "parent":
+            for item in child:
+                if _strip_ns(item.tag) == "groupId" and (item.text or "").strip():
+                    return item.text.strip()
+    return None
+
+
+def _rust_lib_path(content: str | None) -> str:
+    """The crate root a Cargo.toml names (`[lib] path`), else src/lib.rs."""
+    try:
+        path = (tomllib.loads(content or "").get("lib") or {}).get("path")
+    except (tomllib.TOMLDecodeError, AttributeError):
+        path = None
+    return _norm(path) if isinstance(path, str) and path.strip() else "src/lib.rs"
+
+
+def find_entries(language: str, tree: list[str], root: Path, scope: str | None = None) -> dict:
+    """The entry files quick mode reads for the one package at `scope` (the
+    repository root by default), found in the listing `tree` with full
+    mode's rules, its manifest read from `root` (the folder it was fetched
+    into). See "Entries mode" above."""
+    lowered = (language or "").lower()
+    if lowered not in LANGUAGE_DISPATCH:
+        return {"_error": f"unknown language: {language!r}; expected one of {sorted(LANGUAGE_DISPATCH)}"}
+    family = ENTRY_LANGUAGES.get(lowered)
+    folder = _scope_folder(scope)
+    prefix = f"{folder}/" if folder else ""
+    label = folder or "."
+    tree_set = set(tree)
+    warnings: list[str] = []
+    out = {"mode": "entries", "language": lowered, "scope": label, "manifest": None,
+           "entry_files": [], "unresolved": [], "warnings": warnings}
+    if family is None:
+        warnings.append(f"no entry-point rule for {lowered}: read its source by eye")
+        return out
+    listed = [prefix + name for name in ENTRY_MANIFESTS[family] if prefix + name in tree_set]
+    contents: dict[str, str] = {}
+    for path in listed if family == "python" else listed[:1]:
+        try:
+            contents[path] = (root / path).read_bytes().decode("utf-8-sig", errors="replace")
+        except OSError:
+            warnings.append(f"{path} is in the listing but not under --source-root: fetch it first")
+    manifest = listed[0] if listed else None
+    py_name = None
+    if family == "python":
+        named = ((path, _py_manifest_name(path, text)) for path, text in contents.items())
+        manifest, py_name = next(((path, name) for path, name in named if name), (manifest, None))
+    out["manifest"] = manifest
+    content = contents.get(manifest) if manifest else None
+    files: list[str] = []
+    tried: list[str] = []
+    if family == "javascript":
+        found, _, out["unresolved"] = _js_package_entries(root, folder, tree_set, warnings)
+        files = [entry["file"] for entry in found]
+        tried = [f"{prefix}index.*", f"{prefix}src/index.*"]
+    elif family == "python":
+        files, tried = _py_quick_entries(folder, tree, tree_set, py_name)
+    elif family == "rust":
+        crate = [path for path in tree if path.startswith(prefix) and path.endswith(".rs")]
+        files = [entry["file"] for entry in _rust_entries(root, crate, tree, tree_set) if entry["package"] == label]
+        tried = [posixpath.normpath(prefix + _rust_lib_path(content))]
+    elif family == "go":
+        files = sorted(path for path in tree if posixpath.dirname(path) == folder and path.endswith(".go")
+                       and not path.endswith("_test.go"))[:ENTRY_GLOB_LIMIT]
+        tried = [f"{prefix}*.go"]
+    elif family == "java":
+        group = _pom_group(content) if content else None
+        base = f"{prefix}src/main/java/{group.replace('.', '/')}" if group else None
+        if base:
+            files = sorted(path for path in tree
+                           if posixpath.dirname(path) == base and path.endswith(".java"))[:ENTRY_GLOB_LIMIT]
+        tried = [f"{base}/*.java" if base else f"{prefix}src/main/java/<groupId>/*.java"]
+    else:
+        base = f"{prefix}src/main/kotlin/"
+        files = sorted(path for path in tree if path.startswith(base) and path.endswith(".kt"))[:ENTRY_GLOB_LIMIT]
+        tried = [f"{base}**/*.kt"]
+    if len(files) > ENTRY_FILE_LIMIT:
+        warnings.append(f"{len(files)} entry files: quick mode reads the first {ENTRY_FILE_LIMIT}")
+        files = files[:ENTRY_FILE_LIMIT]
+    if not files and not out["unresolved"]:
+        out["unresolved"] = [{"package": label, "subpath": None, "targets": tried}]
+    out["entry_files"] = files
+    return out
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -3865,21 +4254,36 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Extract a package's public-API surface: from manifest and entry-point content on stdin or "
-            "in files (quick, a pure parser), or by running the ast-grep recipes over a source tree (full)."
+            "in files (quick, a pure parser), or by running the ast-grep recipes over a source tree (full); "
+            "or find the entry files quick mode reads in a repository listing (entries)."
         ),
     )
     parser.add_argument(
         "--mode",
         default="quick",
-        choices=("quick", "full"),
+        choices=("quick", "full", "entries"),
         help="quick (default): parse the stdin payload, or the --manifest-file and --entry-file files; "
-             "full: run the recipes over --source-root.",
+             "full: run the recipes over --source-root; entries: list one package's entry files from "
+             "--tree-file.",
     )
     quick = parser.add_argument_group("quick mode, files read from disk")
     quick.add_argument("--manifest-file", metavar="PATH",
                        help="the package manifest (relative to --source-root when given); needs --language")
     quick.add_argument("--entry-file", action="append", metavar="PATH",
                        help="an entry-point file (relative to --source-root when given), repeatable; needs --language")
+    quick.add_argument("--follow-file", action="append", metavar="PATH",
+                       help="a module an unlisted[] record named (a --fetch-list path), read as an entry less "
+                            "its JS/TS default export, which `export *` does not pass on; repeatable")
+    listing = parser.add_argument_group("entries mode, and the listing quick mode follows chains in")
+    listing.add_argument("--tree-file", metavar="PATH",
+                         help="the repository's file listing (skf-github-probe.py tree output, JSON, or one "
+                              "path per line): entries mode finds the entry files in it, and quick mode "
+                              "resolves each unlisted[] statement's module_file against it")
+    listing.add_argument("--scope", metavar="FOLDER",
+                         help="entries mode: the package folder to read (default: the repository root)")
+    listing.add_argument("--fetch-list", metavar="FILE",
+                         help="write one path per line for skf-github-fetch.py --patterns-file: the entry "
+                              "files (entries mode), or each unlisted[] module_file still to read (quick mode)")
     full = parser.add_argument_group("full mode")
     full.add_argument("--source-root",
                       help="the source tree to extract from (quick mode: the folder the file paths are relative to)")
@@ -3911,8 +4315,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 FULL_MODE_FLAGS = ("source_root", "brief", "include", "exclude", "tier_a_include", "scope_type", "language",
                    "files_from", "recipe_set", "recipes", "tier", "head_cap", "timeout", "output")
-# The full mode flags quick mode takes with its file inputs.
+# The full mode flags quick mode takes with its file inputs, and entries mode always.
 QUICK_FILE_FLAGS = ("source_root", "language")
+# The flags of entries mode; quick mode takes --tree-file and --fetch-list with its file inputs.
+LISTING_FLAGS = ("tree_file", "scope", "fetch_list")
 
 
 class QuickInputError(Exception):
@@ -3937,9 +4343,27 @@ def _read_quick_file(root: Path | None, value: str, flag: str) -> dict:
     return {"path": given.as_posix(), "content": data.decode("utf-8-sig", errors="replace")}
 
 
+def _read_listing(value: str) -> tuple[list[str], bool]:
+    """(paths, whether the listing was cut short) of a --tree-file, read by
+    skf-detect-language.py's read_tree_file(). Raises QuickInputError."""
+    try:
+        return _sibling("skf-detect-language.py").read_tree_file(value)
+    except (RunnerError, ValueError) as exc:  # ValueError: the sibling's TreeListingError
+        raise QuickInputError(str(exc)) from exc
+
+
+def _write_fetch_list(path: str, files: list[str]) -> None:
+    """Write `files` one per line (LF on every platform) for --patterns-file. Raises QuickInputError."""
+    try:
+        Path(path).write_text("".join(f"{f}\n" for f in files), encoding="utf-8", newline="\n")
+    except OSError as exc:
+        raise QuickInputError(f"cannot write --fetch-list {path}: {exc.strerror or exc}") from exc
+
+
 def _quick_files_payload(args: argparse.Namespace) -> dict:
     """The quick payload of --manifest-file and --entry-file, read from
-    disk. Raises QuickInputError."""
+    disk, with the --tree-file listing as its `tree`. Raises
+    QuickInputError."""
     root = None
     if args.source_root is not None:
         root = Path(args.source_root)
@@ -3953,17 +4377,66 @@ def _quick_files_payload(args: argparse.Namespace) -> dict:
         entry = _read_quick_file(root, value, "--entry-file")
         if all(e["path"] != entry["path"] for e in entries):
             entries.append(entry)
-    return {"language": args.language[0], "manifest": manifest, "entries": entries, "mode": "quick"}
+    for value in getattr(args, "follow_file", None) or []:
+        entry = _read_quick_file(root, value, "--follow-file")
+        if all(e["path"] != entry["path"] for e in entries):
+            entries.append({**entry, "followed": True})
+    payload = {"language": args.language[0], "manifest": manifest, "entries": entries, "mode": "quick"}
+    if getattr(args, "tree_file", None) is not None:
+        payload["tree"] = _read_listing(args.tree_file)[0]
+    return payload
+
+
+def _main_entries(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """`--mode entries`: the entry files of one package, as JSON on stdout."""
+    if args.manifest_file is not None or args.entry_file or args.follow_file:
+        parser.error("--manifest-file, --entry-file, --follow-file: quick mode only (--mode quick)")
+    given = [f"--{flag.replace('_', '-')}" for flag in FULL_MODE_FLAGS
+             if getattr(args, flag) is not None and flag not in QUICK_FILE_FLAGS]
+    if given:
+        parser.error(f"{', '.join(given)}: full mode only (--mode full)")
+    if not args.language or len(args.language) != 1:
+        parser.error("--mode entries takes one --language")
+    if args.tree_file is None or args.source_root is None:
+        parser.error("--mode entries needs --tree-file and --source-root")
+    root = Path(args.source_root)
+    try:
+        if root.exists() and not root.is_dir():
+            raise QuickInputError(f"--source-root is not a folder: {args.source_root}")
+        tree, truncated = _read_listing(args.tree_file)
+        result = find_entries(args.language[0], tree, root, args.scope)
+        if "_error" in result:
+            print(json.dumps(result, indent=2))
+            return 1
+        if truncated:
+            result["warnings"].append("the listing was cut short (a very large tree): an entry file may be "
+                                      "missing from it")
+        if args.fetch_list is not None:
+            _write_fetch_list(args.fetch_list, result["entry_files"])
+    except QuickInputError as exc:
+        sys.stderr.write(f"error: {exc}\n")
+        return 2
+    print(json.dumps(result, indent=2))
+    return 0
 
 
 def main(argv: list[str]) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    files = args.manifest_file is not None or bool(args.entry_file)
+    files = args.manifest_file is not None or bool(args.entry_file) or bool(args.follow_file)
+    listing = [f"--{flag.replace('_', '-')}" for flag in LISTING_FLAGS if getattr(args, flag) is not None]
     if args.mode == "full":
         if files:
-            parser.error("--manifest-file, --entry-file: quick mode only (--mode quick)")
+            parser.error("--manifest-file, --entry-file, --follow-file: quick mode only (--mode quick)")
+        if listing:
+            parser.error(f"{', '.join(listing)}: entries or quick mode only")
         return _main_full(args)
+    if args.mode == "entries":
+        return _main_entries(args, parser)
+    if args.scope is not None:
+        parser.error("--scope: entries mode only (--mode entries)")
+    if listing and not files:
+        parser.error(f"{', '.join(listing)}: quick mode takes them only with --manifest-file or --entry-file")
     given = [f"--{flag.replace('_', '-')}" for flag in FULL_MODE_FLAGS
              if getattr(args, flag) is not None and not (files and flag in QUICK_FILE_FLAGS)]
     if given:
@@ -3977,10 +4450,13 @@ def main(argv: list[str]) -> int:
             parser.error("--manifest-file and --entry-file take one --language")
         try:
             payload = _quick_files_payload(args)
+            result = extract(payload)
+            if args.fetch_list is not None and "_error" not in result:
+                follow = [item["module_file"] for item in result["unlisted"] if item["module_file"]]
+                _write_fetch_list(args.fetch_list, list(dict.fromkeys(follow)))
         except QuickInputError as exc:
             sys.stderr.write(f"error: {exc}\n")
             return 2
-        result = extract(payload)
         print(json.dumps(result, indent=2))
         return 1 if "_error" in result else 0
 

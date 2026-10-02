@@ -84,7 +84,9 @@ Version precedence (resolved into the rendered YAML's `version` field):
   1. version_resolved if explicitly supplied (caller already ran the
      precedence rule). Used by step 5 when it has confirmed values.
   2. Otherwise: target_version if non-null.
-  3. Otherwise: detected_version if non-null.
+  3. Otherwise: detected_version when it is full X.Y.Z semver (SEMVER_RE);
+     a detected version of another shape (`0.1`, `2.0.0rc1`) is passed as
+     found and skipped here, with a warning.
   4. Otherwise: "1.0.0".
 
 When target_version is set, the rendered YAML includes a `target_version`
@@ -249,6 +251,9 @@ def resolve_version(ctx: dict[str, Any]) -> str:
     Uses `is not None` checks (not truthiness) so an explicitly-supplied
     empty string surfaces as a SEMVER_RE validation failure downstream
     rather than silently falling through to the next precedence level.
+    The detected version is the exception: callers pass it as the manifest
+    gives it, so one that is not full X.Y.Z semver falls through to the
+    default, as validate_context's warning says.
     """
     vr = ctx.get("version_resolved")
     if vr is not None:
@@ -257,7 +262,7 @@ def resolve_version(ctx: dict[str, Any]) -> str:
     if tv is not None:
         return tv
     dv = ctx.get("detected_version")
-    if dv is not None:
+    if isinstance(dv, str) and SEMVER_RE.match(dv):
         return dv
     return "1.0.0"
 
