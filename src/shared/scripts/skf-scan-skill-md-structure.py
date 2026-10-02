@@ -34,7 +34,8 @@ Subcommands:
   scan <skill-md> --required-sections
       Emit JSON describing which of the three required section families
       (description / usage / api_surface) are present, and which synonym
-      satisfied the requirement (case-insensitive, `##`/`###` tolerated):
+      satisfied the requirement (see "Heading match rule" below), with the
+      outline a caller reads when a family is not satisfied:
         {
           "description":  {"satisfied": <bool>,
                            "matched_synonym": "<heading>" | null,
@@ -44,8 +45,15 @@ Subcommands:
                            "tried": [...]},
           "api_surface":  {"satisfied": <bool>,
                            "matched_synonym": "..." | null,
-                           "tried": [...]}
+                           "tried": [...]},
+          "frontmatter_description": <bool>,
+          "outline": [{"line": N, "level": N, "text": "<heading>"}, ...]
         }
+      `outline` lists every heading of the body in document order (the
+      Line model's headings: outside the frontmatter and fenced code).
+      `frontmatter_description` is true when the frontmatter has a
+      `description` key with a non-empty value: inline, or on the
+      indented lines under it (a `>` or `|` block, say).
 
   usage-scope <skill-md> --exports <json-file-or-'-'> [--kinds <k1,k2,...>]
               [--body auto|single|split]
@@ -154,10 +162,12 @@ Scripts & Assets section:
   such section does, the gap test-skill's coherence check records.
 
 Heading match rule:
-  Match the first `^#+\\s+<heading>$` (any number of `#`, case-insensitive,
-  surrounding whitespace trimmed) that matches any synonym in a family.
-  The reported `matched_synonym` is the canonical synonym from the list,
-  not the heading text as it appears in the file.
+  Match the first heading of the body (the Line model's headings: any
+  level, a closing `#` sequence dropped, never a `#` line inside fenced or
+  indented code or the frontmatter) whose full text, case-insensitive,
+  is a synonym of a family. The reported `matched_synonym` is the
+  canonical synonym from the list, not the heading text as it appears in
+  the file.
 
 Fence balance:
   Count triple-backtick (```) fence lines (`^```` at start of line, ignoring
@@ -190,9 +200,11 @@ Empty SKILL.md:
   An empty file yields `fence_count: 0`, `unbalanced_fences: false`,
   empty `bare_opening_fences`, empty `table_drift`; for
   `--required-sections`, all three families have `satisfied: false`,
-  `matched_synonym: null`.
+  `matched_synonym: null`, with `frontmatter_description: false` and an
+  empty `outline`.
 
-Line model (usage-scope, cross-reference, reference-check):
+Line model (scan --required-sections, usage-scope, cross-reference,
+reference-check):
   A file is read as UTF-8, a leading byte order mark dropped, and split
   on `\\n` alone (a `\\r\\n` pair loses its `\\r`, a lone `\\r` stays in
   its line), so every `line` matches `grep -n`. The frontmatter is a
@@ -296,17 +308,19 @@ from urllib.parse import unquote
 # --------------------------------------------------------------------------
 
 
-# These mirror the canonical synonyms documented in
-# `src/skf-test-skill/references/coherence-check.md` §2.1, with the
-# SKF-template-specific headings folded in so they are first-class
-# matches rather than literal-name misses (per the §2.1 "Note"
-# paragraph). The set covers the Deep/create-skill template
-# (`Quick Start`, `Common Workflows`, `Key API Summary`, `Key Types`),
-# the quick-skill template (`Usage Patterns`, `Key Exports`), and the
-# reference-app assembly overrides (`Adoption Steps` replaces Common
-# Workflows for usage; `Pattern Surface` replaces Key API Summary for
-# api_surface), since headings are matched on the full heading text,
-# not a substring.
+# The synonyms test-skill's coherence check (coherence-check.md §2.1)
+# matches, with the SKF-template headings folded in so they are
+# first-class matches rather than literal-name misses: the Deep/create-skill
+# template (`Overview`, `Quick Start`, `Common Workflows`, `Key API
+# Summary`), the quick-skill template (`Usage Patterns`, `Key Exports`),
+# the component-library override (`Component Catalog` replaces Key API
+# Summary for api_surface) and the reference-app overrides (`Adoption
+# Steps` replaces Common Workflows for usage; `Pattern Surface` replaces
+# Key API Summary for api_surface), since headings are matched on the full
+# heading text, not a substring. A template heading is never renamed: a
+# new one widens this list (test-skf-scan-skill-md-structure.py checks the
+# templates against it). A heading outside the list leaves its family
+# unsatisfied, and §2.1 then judges the `outline`.
 REQUIRED_SYNONYMS: dict[str, list[str]] = {
     "description": ["Description", "Overview", "Purpose", "Summary"],
     "usage": [
@@ -330,6 +344,7 @@ REQUIRED_SYNONYMS: dict[str, list[str]] = {
         "Reference",
         "Key API Summary",
         "Pattern Surface",
+        "Component Catalog",
     ],
 }
 
@@ -339,13 +354,39 @@ REQUIRED_SYNONYMS: dict[str, list[str]] = {
 # --------------------------------------------------------------------------
 
 
+# `scan` (table drift) and skf-shard-body.py read headings with this one.
 _HEADING_RE = re.compile(r"^\s*(#+)\s+(.*?)\s*$")
+_FRONTMATTER_DESCRIPTION_RE = re.compile(r"^description[ \t]*:(.*)$")
+# A YAML block scalar header (`>`, `|-`, `>2` ...) holds no text itself.
+_BLOCK_SCALAR_RE = re.compile(r"^[|>](?:[1-9][+-]?|[+-][1-9]?)?$")
+_EMPTY_SCALARS = frozenset({"", '""', "''", "~", "null"})
 
 
-def find_required_sections(text: str) -> dict[str, dict]:
+def frontmatter_description(lines: list[str], start: int) -> bool:
+    """True when the frontmatter (`lines[:start]`) has a `description` key
+    with a non-empty value: inline, or on the indented lines under it."""
+    for i in range(1, max(start - 1, 1)):
+        m = _FRONTMATTER_DESCRIPTION_RE.match(lines[i])
+        if not m:
+            continue
+        value = m.group(1).split(" #", 1)[0].strip()
+        if value.lower() not in _EMPTY_SCALARS and not _BLOCK_SCALAR_RE.match(value):
+            return True
+        for nxt in lines[i + 1:start - 1]:
+            if not nxt.strip():
+                continue
+            if nxt[:1] not in (" ", "\t"):
+                break
+            return True
+        return False
+    return False
+
+
+def find_required_sections(text: str) -> dict[str, object]:
     """For each family, find the first matching heading.
 
-    Walks every line once, lower-cases the heading text, and looks it up
+    Reads the body's headings once (the Line model: outside the frontmatter
+    and fenced code), lower-cases each heading text, and looks it up
     against pre-lowered synonym sets. Returns the structure described in
     the module docstring.
     """
@@ -356,13 +397,13 @@ def find_required_sections(text: str) -> dict[str, dict]:
         for syn in synonyms:
             lookup[syn.lower()] = (family, syn)
 
+    lines = _split_lines(text)
+    start = _frontmatter_end(lines)
+    code = _code_lines(lines, start)
+    headings = _body_headings(lines, start, code)
     matched: dict[str, str] = {}
-    for line in text.splitlines():
-        m = _HEADING_RE.match(line)
-        if not m:
-            continue
-        heading_text = m.group(2).strip().lower()
-        hit = lookup.get(heading_text)
+    for _, _, heading in headings:
+        hit = lookup.get(heading.lower())
         if hit is None:
             continue
         family, canonical = hit
@@ -371,7 +412,7 @@ def find_required_sections(text: str) -> dict[str, dict]:
             continue
         matched[family] = canonical
 
-    result: dict[str, dict] = {}
+    result: dict[str, object] = {}
     for family, synonyms in REQUIRED_SYNONYMS.items():
         if family in matched:
             result[family] = {
@@ -385,6 +426,11 @@ def find_required_sections(text: str) -> dict[str, dict]:
                 "matched_synonym": None,
                 "tried": list(synonyms),
             }
+    result["frontmatter_description"] = frontmatter_description(lines, start)
+    result["outline"] = [
+        {"line": idx + 1, "level": level, "text": heading}
+        for idx, level, heading in headings
+    ]
     return result
 
 
@@ -518,7 +564,8 @@ def find_table_drift(text: str) -> list[dict]:
 
 
 # --------------------------------------------------------------------------
-# Line model shared by usage-scope, cross-reference and reference-check
+# Line model shared by usage-scope, cross-reference, reference-check and
+# scan --required-sections
 # --------------------------------------------------------------------------
 
 
@@ -1168,8 +1215,9 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         print(f"error: file not found: {skill_md}", file=sys.stderr)
         return 1
     try:
-        text = _read_text(skill_md)
-    except OSError as exc:
+        # the Line model's read, so an `outline` line matches `grep -n`
+        text = _read_markdown(skill_md)
+    except (OSError, UnicodeDecodeError) as exc:
         print(f"error: cannot read {skill_md}: {exc}", file=sys.stderr)
         return 1
 

@@ -1,0 +1,4 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  The gaps Test Skill's scripts find are now written to the gap ledger by `gap-ledger.py` from the scripts' own result files, instead of being typed in by hand: missing exports and types, stale and fabricated signatures, numerator inflation, the denominator guards, export-count drift, provenance lines, broken, inaccurate and escaping references, and the structural findings of an individual skill. Each reaches the hard gate and the Gap Report with a fixed title, Source and remediation, so a rerun records it once. The Gap Report wording of these gaps changes: references are titled `coherence: broken reference: {target}` and `coherence: inaccurate reference: {target}`, and each gap gets a remediation that names the file to change.

@@ -47,22 +47,22 @@ Read `testMode` from `{outputFile}` frontmatter.
 
 Perform the following explicit checks (no hand-waving — most use a single deterministic script; severity assignments are binding; do not relax them).
 
-**2.0 Run the structural scan.** Invoke `{scanSkillMdStructureHelper}` (§1) twice and parse the JSON outputs. These results back §§2.1, 2.2, 2.3, 2.6 and 2.7: do not re-implement those checks with grep/sed/awk loops.
+**2.0 Run the structural scan.** Invoke `{scanSkillMdStructureHelper}` (§1) twice, saving each output to the run folder. These results back §§2.1, 2.2, 2.3, 2.6 and 2.7: do not re-implement those checks with grep/sed/awk loops.
 
 ```bash
-uv run {scanSkillMdStructureHelper} scan "{resolved_skill_package}/SKILL.md" --required-sections
-uv run {scanSkillMdStructureHelper} scan "{resolved_skill_package}/SKILL.md"
+uv run {scanSkillMdStructureHelper} scan "{resolved_skill_package}/SKILL.md" --required-sections > "{run_dir}/required-sections.json"
+uv run {scanSkillMdStructureHelper} scan "{resolved_skill_package}/SKILL.md" > "{run_dir}/structure.json"
 ```
 
-The first call returns `{ description: {satisfied, matched_synonym, tried[]}, usage: {...}, api_surface: {...} }`. The second returns `{ unbalanced_fences, fence_count, bare_opening_fences[{line,text}], table_drift[{line,section,expected_cols,actual_cols,row}], scripts_assets{folders[],section,missing} }`. Hold both JSON blobs for the checks below.
+The first call returns `{ description: {satisfied, matched_synonym, tried[]}, usage: {...}, api_surface: {...}, frontmatter_description, outline[{line,level,text}] }`. The second returns `{ unbalanced_fences, fence_count, bare_opening_fences[{line,text}], table_drift[{line,section,expected_cols,actual_cols,row}], scripts_assets{folders[],section,missing} }`. Hold both JSON blobs, which the files keep, for the checks below.
 
 **2.1 Required sections present.** Read the first JSON blob from §2.0. For each of the three families (`description`, `usage`, `api_surface`):
 
 - `satisfied: true` → no finding.
-- `satisfied: false` AND family is `description` AND the SKILL.md frontmatter has a non-empty `description` field → no finding (the frontmatter alternative satisfies the family per the original rule).
-- Otherwise → **High severity** finding: `naive-coherence: missing required section: {family}` (the `tried[]` list from the JSON identifies which synonyms were checked: `Description`/`Overview`/`Purpose`/`Summary` for description; `Usage`/`Usage Patterns`/`Examples`/`How to use`/`Quickstart`/`Quick Start`/`Getting Started`/`Common Workflows`/`Adoption Steps` for usage; `API`/`API Surface`/`Exports`/`Key Exports`/`Public API`/`Interface`/`Reference`/`Key API Summary`/`Pattern Surface` for api_surface).
+- `satisfied: false`, family `description` and `frontmatter_description: true` (a non-empty frontmatter `description` satisfies the family) → no finding.
+- `satisfied: false` otherwise: read `outline`, each heading of the body with its line. When one heading's section serves the family (it shows how to call the library, for `usage`; it lists the library's exports, for `api_surface`; it says what the library is for, for `description`), there is no finding: name that heading and its line in the Coherence Analysis, and pass the family to §6 as `--served`. Otherwise → **High severity** finding: `naive-coherence: missing required section: {family}`.
 
-The script matches case-insensitively and tolerates `##`/`###` heading levels. SKF-template skills' headings are first-class synonyms baked into the script — the Deep/create-skill `## Quick Start`, `## Common Workflows`, and `## Key API Summary`, the quick-skill `## Usage Patterns` and `## Key Exports`, and the reference-app overrides `## Adoption Steps` (usage) and `## Pattern Surface` (api_surface) — so they all surface with `satisfied: true` and the corresponding `matched_synonym` field.
+The script matches the full heading text, case-insensitively, at any heading level, outside the frontmatter and fenced code. Its synonyms, `tried[]`, include every SKF template and override heading, so a skill built from a template reports `satisfied: true` and the `matched_synonym`.
 
 **2.2 Code fence balance.** Read `unbalanced_fences` from the second JSON blob. **`true` → High severity** finding: `naive-coherence: unbalanced code fence (unclosed block)` (the JSON's `fence_count` may be cited in the detail).
 
@@ -154,7 +154,7 @@ Delegate the references §3's subagent found, in one batch, to a subagent that, 
 
 Save its response, as it came back, to `{run_dir}/judged-references.json` with the Write tool (no file when §3 found no such reference). If subagent unavailable, validate each reference in main thread and save the same array. §5c counts the valid references from both files, and classifies the invalid ones.
 
-When `scripts_assets.missing` in `{run_dir}/references.json` is true (a `scripts/` or `assets/` folder beside SKILL.md, and no Scripts & Assets section), record a Medium `scripts-assets` gap (`{scoringRulesFile}`), as naive mode does in §2.7.
+When `scripts_assets.missing` in `{run_dir}/references.json` is true (a `scripts/` or `assets/` folder beside SKILL.md, and no Scripts & Assets section), it is a Medium `scripts-assets` gap, as in naive mode §2.7; §6 records it from that file.
 
 ### 5. Contextual Mode: Check Integration Pattern Completeness
 
@@ -217,24 +217,28 @@ Exit 2 (`INVALID_INPUT`): a file does not hold the shape §3 to §5 describe; co
 - `integrationCompleteness`: integration-completeness percentage (`null` when no patterns are documented)
 - `combinedCoherence`: the combined coherence percentage, the `coherence` score step 5 reads from `{run_dir}/coherence.json`
 
-The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6.
-
-Classify each `invalidReferences[]` entry of `{run_dir}/coherence.json` against the Gap Severity table (`{scoringRulesFile}`); its Source is `SKILL.md:{line}`, and the entry carries every value its gap needs, so neither per-reference file is opened again:
-- `status` `missing`: the target does not exist, a broken reference, a Critical `broken-reference` gap (a `scripts/` or `assets/` file the skill names that is not there included).
-- `status` `inaccurate`: the target exists but the judged result does not match it, an inaccurate reference, a High `inaccurate-reference` gap whose Issue is the entry's `issues`.
-- `status` `escapes`: a High `reference-escape` gap titled `coherence: reference escapes skill/source sandbox: {target} → {canonical}`, with the entry's `canonical` path.
+The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6. Its `invalidReferences[]` lists each invalid reference with its `status`, which §6 records.
 
 ### 6. Write the Coherence Analysis Section
 
 Load `{outputFormatsFile}` and use the appropriate Coherence Analysis section format (naive or contextual) to write the findings in place of the template's `## Coherence Analysis` heading and the placeholder comment under it, in `{outputFile}`.
 
-Then record every coherence gap in the gap ledger `{ledgerFile}`: the hard gate (step 4c) decides from it, and the report step renders the Gap Report from it. Each gap is one record in the Ledger Record Format of `{outputFormatsFile}`, with the severity and category the Gap Severity table gives it:
+Then record every coherence gap in the gap ledger `{ledgerFile}`: the hard gate (step 4c) decides from it, and the report step renders the Gap Report from it. `{gapLedgerScript}` (it resolves relative to the skill root) writes the record of each gap a script found from that script's file, with the severity and category the Gap Severity table gives it and a fixed title, Source and Remediation. Run the commands of this run's mode:
 
-- **Naive mode:** the §2.1, §2.2 and §2.5 findings are High `structural` gaps and the §2.3, §2.4 and §2.6 findings Medium `structural` gaps, each titled with its `naive-coherence:` text and with its Source at `SKILL.md:{line}` when it has a line (else `SKILL.md`); the §2.7 finding is a Medium `scripts-assets` gap. The split-body rows of the Reference Consistency table are not recorded here: coverage-check §1b recorded them.
-- **Contextual mode:** each §5c broken or inaccurate reference and path-containment escape (a High `reference-escape` gap, Source `SKILL.md:{line}`), the §4 scripts/assets gap, and each §5 incomplete integration pattern.
-- **Both modes (§2b / §5b):** a migration section finding: Case 1 and Case 3 are Medium `migration-section` gaps (a Low `migration-section` gap when the reviewer downgraded Case 3 with an inline justification), and Case 2 is an Info `migration-section` gap.
+- **Naive mode:** the §2.1, §2.2 and §2.5 findings are High `structural` gaps and the §2.3, §2.4 and §2.6 findings Medium `structural` gaps; the §2.7 finding is a Medium `scripts-assets` gap. The scan files give all but §2.5's, with one `--served` for each family §2.1 found served by another heading:
 
-Write the records as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without (`{gapLedgerScript}` resolves relative to the skill root).
+  ```bash
+  uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coherence-check --from structure --input "{run_dir}/required-sections.json" --input "{run_dir}/structure.json" --input "{run_dir}/usage-scope.json" [--served <family>]...
+  ```
+
+- **Contextual mode:** each §5c `invalidReferences[]` entry by its `status` (`missing` is a Critical `broken-reference` gap, a missing `scripts/` or `assets/` file included; `inaccurate` a High `inaccurate-reference` gap; `escapes` a High `reference-escape` gap) and the §4 scripts/assets gap:
+
+  ```bash
+  uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coherence-check --from coherence --input "{run_dir}/coherence.json"
+  uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coherence-check --from structure --input "{run_dir}/references.json"
+  ```
+
+Then write the records no script wrote, each in the Ledger Record Format of `{outputFormatsFile}`: the §2.5 findings, titled with their `naive-coherence:` text and with their Source at `SKILL.md:{line}`; each §5 incomplete integration pattern; and in both modes a §2b / §5b migration section finding (Case 1 and Case 3 are Medium `migration-section` gaps, a Low `migration-section` gap when the reviewer downgraded Case 3 with an inline justification, and Case 2 is an Info `migration-section` gap). The split-body rows of the Reference Consistency table are not recorded here: coverage-check §1b recorded them. Write them as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without.
 
 ```bash
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coherence-check <<'SKF_GAPS'
@@ -242,10 +246,10 @@ uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coherence-check 
 SKF_GAPS
 ```
 
-Rely on its JSON:
+Rely on the JSON of each command:
 
 - Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
-- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0) and run the command again.
+- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0), or the file or flag the `error` names, and run the command again.
 - Exit 1: HALT with the script's `error` (`halt_reason: "helper-failed"`, phase `coherence-check:ledger`).
 
 ### 7. Report Coherence Results

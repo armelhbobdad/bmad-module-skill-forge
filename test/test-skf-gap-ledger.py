@@ -15,6 +15,12 @@ counts and the Gap Report is rendered from:
     lines, --heading, the clean pass, errors on stderr only, the group
     taken from the category
   - summary and categories
+  - append --from: each adapter's records (coverage, guards, numerator,
+    metadata-coherence, provenance-line, coherence and structure, the
+    last over the scanner's real results), their titles, Sources and
+    `export`, the refusals (an option or an --input count a kind does not
+    read, a result of another shape), a rerun recorded once, and the
+    coverage-check §5b and coherence-check §6 calls run as written
 """
 
 from __future__ import annotations
@@ -22,6 +28,8 @@ from __future__ import annotations
 import doctest
 import importlib.util
 import json
+import re
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -583,3 +591,417 @@ def test_malformed_ledgers_are_refused(ledger: Path, data):
     with pytest.raises(mod.LedgerError) as exc:
         mod.load_ledger(ledger)
     assert exc.value.code == "LEDGER_INVALID"
+
+
+# --------------------------------------------------------------------------
+# append --from: the records a script's result file gives
+# --------------------------------------------------------------------------
+
+REPO = Path(__file__).resolve().parent.parent
+REFS = REPO / "src" / "skf-test-skill" / "references"
+COVERAGE_STEP = REFS / "coverage-check.md"
+COHERENCE_STEP = REFS / "coherence-check.md"
+SCANNER = REPO / "src" / "shared" / "scripts" / "skf-scan-skill-md-structure.py"
+# A bracketed `[--flag ...]` synopsis group of a prose call, repeatable or not.
+OPTIONAL_GROUP = re.compile(r" \[(--[a-z-]+[^\]]*)\](?:\.\.\.)?")
+
+
+def write_json(path: Path, data) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(json.dumps(data).encode("utf-8"))
+    return path
+
+
+def from_file(ledger: Path, stage: str, kind: str, *inputs: Path, **options) -> subprocess.CompletedProcess:
+    args = ["append", "--ledger", str(ledger), "--stage", stage, "--from", kind]
+    for path in inputs:
+        args += ["--input", str(path)]
+    for key, value in options.items():
+        for item in value if isinstance(value, list) else [value]:
+            args += ["--" + key.replace("_", "-"), str(item)]
+    return run(*args)
+
+
+def ledger_records(ledger: Path) -> list[dict]:
+    return json.loads(ledger.read_bytes())["records"]
+
+
+def brief(records: list[dict]) -> list[tuple]:
+    return [(r["severity"], r["category"], r["title"], r["source"], r.get("export")) for r in records]
+
+
+class TestCoverageAdapter:
+    SURFACE = {"inputs": {"metadata": "pkg/metadata.json"}, "guards": None, "exports": [
+        {"name": "Options", "kind": "interface", "file": "src/types.ts", "line": 3},
+        {"name": "fetchData", "kind": "function", "file": "src/index.ts", "line": None},
+        {"name": "fetchData", "kind": "function", "file": "src/fetch.ts", "line": 12},
+        {"name": "fromMeta", "kind": None, "file": None, "line": None},
+    ]}
+
+    def test_missing_names_take_their_surface_file_and_line(self):
+        records = mod.from_coverage(
+            {"branch": "enumerated", "missing": ["fetchData", "Options", "fromMeta"], "stale": []},
+            surface=self.SURFACE, signatures={"missingTypes": ["Options"]}, metadata="pkg/metadata.json")
+        assert brief(records) == [
+            ("Medium", "missing-export", "Missing export: fetchData", "src/fetch.ts:12", "fetchData"),
+            ("Medium", "missing-type", "Missing type: Options", "src/types.ts:3", "Options"),
+            ("Medium", "missing-export", "Missing export: fromMeta", "pkg/metadata.json", "fromMeta"),
+        ]
+        # update-skill re-extracts from the file the remediation names
+        assert "`src/fetch.ts:12`" in records[0]["remediation"]
+        assert "`pkg/metadata.json` lists it" in records[2]["remediation"]
+
+    def test_stale_names_fabricated_or_stale_documentation(self, tmp_path: Path):
+        skill = tmp_path / "skill"
+        (skill / "references").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(b"# demo\n\nUse `getAll()`.\n")
+        (skill / "references" / "api.md").write_bytes(b"# API\n\n## get\n\n`get(key)` reads.\n")
+        stale = [{"name": "ghost", "fabricated": True, "source": "src/a.ts:3", "reason": "not-defined"},
+                 {"name": "get", "fabricated": False, "source": "src/b.ts:1", "reason": "defined"}]
+        records = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost", "get", "nowhere"]},
+                                    stale=stale, skill_dir=str(skill))
+        assert brief(records) == [
+            ("Critical", "fabricated-signature", "Fabricated signature: ghost", "src/a.ts:3", "ghost"),
+            # `getAll` is not `get`: the first line that writes the name is in references/
+            ("Medium", "stale-documentation", "Stale documentation: get", "references/api.md:3", "get"),
+            ("Medium", "stale-documentation", "Stale documentation: nowhere", "SKILL.md", "nowhere"),
+        ]
+
+    def test_without_classify_stale_every_stale_name_is_medium(self):
+        records = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost"]})
+        assert brief(records) == [("Medium", "stale-documentation", "Stale documentation: ghost", "SKILL.md",
+                                   "ghost")]
+
+    @pytest.mark.parametrize("branch", ["scalar", "stack"])
+    def test_a_missing_count_is_one_gap(self, branch: str):
+        records = mod.from_coverage({"branch": branch, "denominator": 10, "documented": 7, "missing": [],
+                                     "missingCount": 3, "numeratorSource": "lookup"}, metadata="pkg/metadata.json")
+        assert brief(records) == [("Medium", "missing-export", "3 of 10 exports not documented",
+                                   "pkg/metadata.json", None)]
+
+    def test_a_verified_numerator_names_each_absent_export(self):
+        cov = {"branch": "scalar", "denominator": 4, "documented": 2, "missing": [], "missingCount": 2,
+               "numeratorSource": "verified"}
+        records = mod.from_coverage(
+            cov, numerator={"inflated": True, "absent": ["alpha", "beta"]},
+            provenance={"entries": [{"export_name": "alpha", "source_file": "src/a.ts", "source_line": 7},
+                                    {"export_name": "alpha", "source_file": "src/z.ts", "source_line": 1}]})
+        assert brief(records) == [("Medium", "missing-export", "Missing export: alpha", "src/a.ts:7", "alpha"),
+                                  ("Medium", "missing-export", "Missing export: beta", "metadata.json", "beta")]
+        with pytest.raises(mod.AdapterError, match="--numerator"):
+            mod.from_coverage(cov)
+
+    def test_nothing_to_record(self):
+        assert mod.from_coverage({"branch": "docsOnly", "missing": [], "stale": [], "incomplete": [{}]}) == []
+        assert mod.from_coverage({"branch": "scalar", "missingCount": 0, "denominator": 3}) == []
+
+    @pytest.mark.parametrize("cov, options, message", [
+        ({"missing": []}, {}, "reconcile-coverage.py"),
+        ({"branch": "sideways"}, {}, "unknown branch"),
+        ({"branch": "enumerated", "missing": "x"}, {}, "'missing' must be a list"),
+        ({"branch": "enumerated", "missing": []}, {"stale": {"name": "x"}}, "classify-stale"),
+        ({"branch": "enumerated", "missing": []}, {"surface": {"sets": {}}}, "--surface"),
+        # a Critical gap is never downgraded for want of its citation
+        ({"branch": "enumerated", "missing": [], "stale": ["ghost"]},
+         {"stale": [{"name": "ghost", "fabricated": True, "source": None}]}, "'ghost' is fabricated with no source"),
+    ], ids=["no-branch", "unknown-branch", "missing-not-a-list", "stale-not-a-list", "surface-shape",
+            "fabricated-without-source"])
+    def test_a_wrong_shape_is_refused(self, cov, options, message):
+        with pytest.raises(mod.AdapterError, match=message):
+            mod.from_coverage(cov, **options)
+
+
+class TestCountAdapters:
+    def test_guards(self):
+        surface = {"inputs": {"metadata": "pkg/metadata.json", "brief": "data/skill-brief.yaml"}, "guards": {
+            "deflation": {"fires": True, "rederived": 40, "pct": 60.0, "effectiveDenominator": 25},
+            "inflation": {"fires": True, "scopeIncludeUnion": 50, "pct": 100.0, "provenanceEntries": 25},
+            "umbrella": {"umbrella": False}}}
+        records = mod.from_guards(surface)
+        assert brief(records) == [
+            ("Medium", "metadata-drift",
+             "denominator deflation: effective_denominator below source public surface without tier_a_include",
+             "pkg/metadata.json", None),
+            ("Medium", "denominator-inflation",
+             "denominator inflation: coarse scope.include union exceeds authored surface",
+             "data/skill-brief.yaml", None),
+        ]
+        assert "40 exports, 60.0% above `stats.effective_denominator` (25)" in records[0]["issue"]
+        assert "`scope.tier_a_include`" in records[1]["remediation"]
+        surface["guards"]["umbrella"]["umbrella"] = True
+        umbrella = mod.from_guards(surface, "other/metadata.json")[1]["remediation"]
+        assert umbrella.startswith("Set `stats.effective_denominator` in `other/metadata.json`")
+        assert mod.from_guards({"inputs": {}, "guards": None}) == []
+        assert mod.from_guards({"inputs": {}, "guards": {"deflation": {"fires": False}}}) == []
+
+    def test_numerator(self):
+        records = mod.from_numerator({"inflated": True, "declared": 10, "verified": 7,
+                                      "absent": ["a", "b", "c"]}, "pkg/metadata.json")
+        assert brief(records) == [
+            ("High", "numerator-inflation",
+             "numerator inflation: 3 of 10 declared exports absent from SKILL.md/references",
+             "pkg/metadata.json", None)]
+        assert records[0]["issue"].endswith("`a`, `b`, `c`")
+        assert mod.from_numerator({"inflated": False, "skipped": True}) == []
+        with pytest.raises(mod.AdapterError):
+            mod.from_numerator({"declared": 3})
+
+    def test_metadata_coherence(self):
+        records = mod.from_metadata_coherence({"findings": [
+            {"severity": "Medium", "title": "metadata drift: barrel export counts diverge", "detail": "12 vs 9"},
+            {"severity": "Info", "title": "multi-denominator reporting: barrel vs documented surface",
+             "detail": "barrel=9, documented=30"},
+        ]}, "pkg/metadata.json")
+        assert [(r["severity"], r["category"], r["source"], r["issue"]) for r in records] == [
+            ("Medium", "metadata-drift", "pkg/metadata.json", "12 vs 9"),
+            ("Info", "multi-denominator", "pkg/metadata.json", "barrel=9, documented=30")]
+        assert mod.from_metadata_coherence({"skipped": True, "findings": []}) == []
+        with pytest.raises(mod.AdapterError, match="neither Medium nor Info"):
+            mod.from_metadata_coherence({"findings": [{"severity": "High", "title": "x"}]})
+
+
+class TestProvenanceAndCoherenceAdapters:
+    def test_provenance_line(self):
+        records = mod.from_provenance_line({"stale": [
+            {"export_name": "search", "source_file": "lib/api.py", "source_line": 25,
+             "reason": "line-not-definition", "definition_lines": [26, 31]},
+            {"export_name": "fetch", "source_file": "lib/api.py", "source_line": 40,
+             "reason": "line-not-definition", "definition_lines": []},
+            {"export_name": "gone", "source_file": "lib/old.py", "source_line": 3, "reason": "file-missing"},
+        ]})
+        assert brief(records) == [
+            ("Low", "provenance-line", "Provenance line is not the definition of search", "lib/api.py:25", "search"),
+            ("Info", "provenance-unverified", "Provenance line not verified for fetch", "lib/api.py:40", "fetch"),
+        ]
+        assert records[0]["remediation"].startswith(
+            "Set the provenance `source_line` of `search` in `lib/api.py` to its definition line (26, 31)")
+        assert "check by hand" in records[1]["issue"]
+
+    def test_coherence(self):
+        records = mod.from_coherence({"invalidReferences": [
+            {"source": "scan", "line": 4, "target": "references/gone.md", "status": "missing",
+             "canonical": "/s/references/gone.md", "root": "skill", "issues": []},
+            {"source": "judged", "line": 9, "target": "Options", "status": "inaccurate", "canonical": None,
+             "root": None, "issues": ["type_match: false"]},
+            {"source": "scan", "line": None, "target": "../../etc/passwd", "status": "escapes",
+             "canonical": "/etc/passwd", "root": None, "issues": []},
+        ]})
+        assert brief(records) == [
+            ("Critical", "broken-reference", "coherence: broken reference: references/gone.md", "SKILL.md:4", None),
+            ("High", "inaccurate-reference", "coherence: inaccurate reference: Options", "SKILL.md:9", None),
+            ("High", "reference-escape",
+             "coherence: reference escapes skill/source sandbox: ../../etc/passwd → /etc/passwd",
+             "SKILL.md", None),
+        ]
+        assert records[1]["issue"] == "type_match: false"
+        assert mod.from_coherence({"invalidReferences": []}) == []
+        with pytest.raises(mod.AdapterError, match="unknown status"):
+            mod.from_coherence({"invalidReferences": [{"status": "odd"}]})
+
+
+def scan(*args: str) -> dict:
+    proc = subprocess.run([sys.executable, str(SCANNER), *args], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+class TestStructureAdapter:
+    def test_the_scanner_results(self, tmp_path: Path):
+        skill = tmp_path / "skill"
+        (skill / "scripts").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(
+            b"---\nname: demo\n---\n# demo\n\n## Usage Examples\n\n```\nrun()\n```\n\n"
+            b"| a | b |\n|---|---|\n| 1 |\n\n```bash\n# API\n")
+        required = scan("scan", str(skill / "SKILL.md"), "--required-sections")
+        structure = scan("scan", str(skill / "SKILL.md"))
+        usage = {"scope": {}, "exports": [], "zero_usage": [{"name": "fetchData", "kind": "function"}]}
+        records = mod.from_structure([required, structure, usage], served=["usage"])
+        assert brief(records) == [
+            ("High", "structural", "naive-coherence: missing required section: description", "SKILL.md", None),
+            ("High", "structural", "naive-coherence: missing required section: api_surface", "SKILL.md", None),
+            ("High", "structural", "naive-coherence: unbalanced code fence (unclosed block)", "SKILL.md", None),
+            ("Medium", "structural", "naive-coherence: opening code fence at line 8 missing language tag",
+             "SKILL.md:8", None),
+            ("Medium", "structural", "naive-coherence: table row at line 14 has 1 columns; header has 2",
+             "SKILL.md:14", None),
+            ("Medium", "scripts-assets",
+             "naive-coherence: scripts/assets directory exists but Scripts & Assets section missing",
+             "SKILL.md", None),
+            ("Medium", "structural",
+             "naive-coherence: exported function `fetchData` is not referenced in any usage-family section or "
+             "reference file", "SKILL.md", "fetchData"),
+        ]
+
+    def test_the_frontmatter_description_satisfies_its_family(self):
+        required = {family: {"satisfied": False, "tried": []} for family in mod.FAMILIES}
+        required["frontmatter_description"] = True
+        assert [r["title"] for r in mod.from_structure([required], served=["api_surface"])] == [
+            "naive-coherence: missing required section: usage"]
+
+    def test_the_contextual_reference_check(self, tmp_path: Path):
+        skill = tmp_path / "skill"
+        (skill / "assets").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(b"# demo\n\nSee [guide](references/guide.md).\n")
+        references = scan("reference-check", str(skill / "SKILL.md"))
+        assert brief(mod.from_structure([references])) == [
+            ("Medium", "scripts-assets",
+             "coherence: scripts/assets directory exists but Scripts & Assets section missing", "SKILL.md", None)]
+
+    def test_an_unknown_shape_is_refused(self):
+        with pytest.raises(mod.AdapterError, match="--input #2"):
+            mod.from_structure([{"unbalanced_fences": False}, {"invalidReferences": []}])
+
+    def test_the_titles_are_the_prose_finding_texts(self):
+        """§2's finding texts go into the Coherence Analysis and the script's titles into the ledger: one
+        wording for both."""
+        text = COHERENCE_STEP.read_text(encoding="utf-8")
+        texts = {t.replace("\\`", "`") for t in re.findall(r"`(naive-coherence: (?:[^`\\]|\\`)+)`", text)}
+        values = {"{family}": "usage", "{entry.line}": "7", "{entry.actual_cols}": "1",
+                  "{entry.expected_cols}": "2", "{kind}": "function", "{name}": "go"}
+        for key, value in values.items():
+            texts = {t.replace(key, value) for t in texts}
+        required = {family: {"satisfied": family != "usage", "tried": []} for family in mod.FAMILIES}
+        scan_result = {"unbalanced_fences": True, "fence_count": 3, "bare_opening_fences": [{"line": 7}],
+                       "table_drift": [{"line": 7, "expected_cols": 2, "actual_cols": 1}],
+                       "scripts_assets": {"missing": True, "folders": ["scripts"]}}
+        usage = {"zero_usage": [{"name": "go", "kind": "function"}]}
+        titles = {r["title"] for r in mod.from_structure([required, scan_result, usage])}
+        assert len(titles) == 6 and titles <= texts, sorted(titles - texts)
+
+
+class TestAppendFrom:
+    def test_a_rerun_records_each_gap_once(self, ledger: Path, tmp_path: Path):
+        result = write_json(tmp_path / "coherence.json", {"invalidReferences": [
+            {"line": 3, "target": "references/x.md", "status": "missing", "issues": []}]})
+        first = json.loads(from_file(ledger, "coherence-check", "coherence", result).stdout)
+        again = json.loads(from_file(ledger, "coherence-check", "coherence", result).stdout)
+        assert (first["appended"], again["appended"], again["duplicates"]) == (["GAP-001"], [], ["GAP-001"])
+        assert json.loads(ledger.read_bytes())["stages"] == ["coherence-check"]
+
+    def test_no_gap_still_records_the_stage(self, ledger: Path, tmp_path: Path):
+        result = write_json(tmp_path / "numerator.json", {"inflated": False, "skipped": True})
+        proc = from_file(ledger, "coverage-check", "numerator", result)
+        assert proc.returncode == 0, proc.stdout
+        assert json.loads(ledger.read_bytes()) == {"schema_version": 1, "run_id": RUN_ID,
+                                                   "stages": ["coverage-check"], "records": []}
+
+    @pytest.mark.parametrize("kind, inputs, options, message", [
+        ("coherence", 1, {"metadata": "m.json"}, "--from coherence does not read --metadata"),
+        ("coverage", 1, {"served": "usage"}, "--from coverage does not read --served"),
+        ("numerator", 2, {}, "--from numerator reads one --input file"),
+        ("structure", 0, {}, "--from structure reads one or more --input files"),
+    ], ids=["stray-metadata", "stray-served", "two-inputs", "no-input"])
+    def test_a_call_its_kind_does_not_read_is_refused(self, ledger: Path, tmp_path: Path, kind, inputs, options,
+                                                      message):
+        result = write_json(tmp_path / "result.json", {"inflated": False})
+        proc = from_file(ledger, "coverage-check", kind, *([result] * inputs), **options)
+        assert proc.returncode == 2
+        out = json.loads(proc.stdout)
+        assert (out["code"], out["error"]) == ("INVALID_INPUT", message)
+        assert not ledger.exists()
+
+    def test_an_adapter_option_needs_from(self, ledger: Path, tmp_path: Path):
+        records = write_json(tmp_path / "records.json", [record()])
+        proc = run("append", "--ledger", str(ledger), "--stage", "coverage-check", "--input", str(records),
+                   "--surface", str(records))
+        assert proc.returncode == 2
+        assert json.loads(proc.stdout)["error"] == "--surface work only with --from"
+
+    def test_a_result_that_is_not_its_kind_is_refused(self, ledger: Path, tmp_path: Path):
+        proc = from_file(ledger, "coverage-check", "coverage", write_json(tmp_path / "x.json", ["not", "it"]))
+        assert proc.returncode == 2 and json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+        broken = tmp_path / "broken.json"
+        broken.write_bytes(b"{")
+        proc = from_file(ledger, "coverage-check", "coverage", broken)
+        assert proc.returncode == 2 and "is not JSON" in json.loads(proc.stdout)["error"]
+        assert not ledger.exists()
+
+    def test_plain_append_reads_each_input(self, ledger: Path, tmp_path: Path):
+        one = write_json(tmp_path / "one.json", [record(title="one")])
+        two = write_json(tmp_path / "two.json", {"records": [record(title="two")]})
+        proc = run("append", "--ledger", str(ledger), "--stage", "coverage-check", "--input", str(one),
+                   "--input", str(two))
+        assert json.loads(proc.stdout)["appended"] == ["GAP-001", "GAP-002"]
+
+
+def prose_calls(path: Path, start: str, end: str) -> list[str]:
+    """The fenced `uv run {gapLedgerScript} append` calls between two markers,
+    every bracketed group kept, without the heredoc's."""
+    text = path.read_text(encoding="utf-8")
+    section = text[text.index(start):text.index(end, text.index(start))]
+    calls = [line.strip() for line in section.splitlines()
+             if line.strip().startswith("uv run {gapLedgerScript} append") and "<<" not in line]
+    return [OPTIONAL_GROUP.sub(lambda m: " " + m.group(1), call) for call in calls]
+
+
+def run_prose(call: str, values: dict[str, str]) -> subprocess.CompletedProcess:
+    rest = call.removeprefix("uv run {gapLedgerScript} ")
+    for key, value in values.items():
+        rest = rest.replace(key, value)
+    assert not re.search(r"\{\w+\}|<\w+>", rest), rest
+    return run(*shlex.split(rest))
+
+
+class TestTheProseCalls:
+    """Each `append` the two stages write, run as written over the files their scripts write."""
+
+    def test_coverage_check_records_every_script_gap(self, ledger: Path, tmp_path: Path):
+        run_dir, skill = tmp_path / "run", tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n`oldName()` still documented.\n")
+        write_json(run_dir / "signature-gaps.json", [record(severity="Critical", category="signature-mismatch",
+                                                             title="Signature mismatch: helper", export="helper")])
+        write_json(run_dir / "coverage.json", {"branch": "enumerated", "missing": ["Options", "fetchData"],
+                                               "stale": ["oldName", "ghost"]})
+        write_json(run_dir / "surface.json", TestCoverageAdapter.SURFACE | {"guards": {
+            "deflation": {"fires": True, "rederived": 9, "pct": 50.0, "effectiveDenominator": 6},
+            "inflation": {"fires": False}, "umbrella": {"umbrella": False}}})
+        write_json(run_dir / "signatures.json", {"missingTypes": ["Options"]})
+        write_json(run_dir / "numerator.json", {"inflated": True, "declared": 4, "verified": 3, "absent": ["x"]})
+        write_json(run_dir / "stale.json", [{"name": "ghost", "fabricated": True, "source": "src/g.ts:2"}])
+        write_json(run_dir / "metadata-coherence.json", {"findings": [
+            {"severity": "Info", "title": "multi-denominator reporting", "detail": "barrel=3"}]})
+        write_json(run_dir / "provenance-verify.json", {"stale": [
+            {"export_name": "fetchData", "source_file": "src/fetch.ts", "source_line": 11,
+             "reason": "line-not-definition", "definition_lines": [12]}]})
+        provenance = write_json(tmp_path / "provenance-map.json", {"entries": []})
+        values = {"{ledgerFile}": ledger.as_posix(), "{run_dir}": run_dir.as_posix(),
+                  "{resolved_skill_package}": skill.as_posix(), "{forge_provenance_map}": provenance.as_posix()}
+        calls = prose_calls(COVERAGE_STEP, "### 5b. Record the Coverage Gaps", "### 6.")
+        assert [re.search(r"--from (\S+)", c).group(1) if "--from" in c else None for c in calls] == [
+            None, "coverage", "guards", "numerator", "metadata-coherence", "provenance-line"]
+        for call in calls:
+            proc = run_prose(call, values)
+            assert proc.returncode == 0, (call, proc.stdout)
+        assert {(r["severity"], r["category"]) for r in ledger_records(ledger)} == {
+            ("Critical", "signature-mismatch"), ("Medium", "missing-type"), ("Medium", "missing-export"),
+            ("Medium", "stale-documentation"), ("Critical", "fabricated-signature"), ("Medium", "metadata-drift"),
+            ("High", "numerator-inflation"), ("Info", "multi-denominator"), ("Low", "provenance-line")}
+        stale = next(r for r in ledger_records(ledger) if r["category"] == "stale-documentation")
+        assert (stale["source"], stale["export"]) == ("SKILL.md:3", "oldName")
+
+    def test_coherence_check_records_each_mode(self, ledger: Path, tmp_path: Path):
+        run_dir, skill = tmp_path / "run", tmp_path / "skill"
+        (skill / "scripts").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n## Overview\n\nDoes it.\n\n## Usage Examples\n\n"
+                                         b"```python\nrun()\n```\n")
+        for name, args in (("required-sections", ("--required-sections",)), ("structure", ())):
+            write_json(run_dir / f"{name}.json", scan("scan", str(skill / "SKILL.md"), *args))
+        write_json(run_dir / "usage-scope.json", {"zero_usage": []})
+        write_json(run_dir / "coherence.json", {"invalidReferences": [
+            {"line": 5, "target": "Options", "status": "inaccurate", "issues": ["not exported"]}]})
+        write_json(run_dir / "references.json", scan("reference-check", str(skill / "SKILL.md")))
+        values = {"{ledgerFile}": ledger.as_posix(), "{run_dir}": run_dir.as_posix(), "<family>": "usage"}
+        calls = prose_calls(COHERENCE_STEP, "### 6. Write the Coherence Analysis Section", "### 7.")
+        assert len(calls) == 3
+        for call in calls:
+            proc = run_prose(call, values)
+            assert proc.returncode == 0, (call, proc.stdout)
+        # `## Usage Examples` serves usage (the --served judgment); no heading lists the exports
+        assert [r["title"] for r in ledger_records(ledger)] == [
+            "naive-coherence: missing required section: api_surface",
+            "naive-coherence: scripts/assets directory exists but Scripts & Assets section missing",
+            "coherence: inaccurate reference: Options",
+            "coherence: scripts/assets directory exists but Scripts & Assets section missing",
+        ]

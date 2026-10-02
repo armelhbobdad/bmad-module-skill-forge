@@ -57,6 +57,11 @@ Covers:
     `summary.set_diff: not-applicable`; `entry_index` on each stale item
   - definition-lines: each `line_check`, `line_is_definition`, the dropped
     indented line, the default source root
+  - classify-stale (test-skill's fabricated-signature test): every entry
+    file-missing, one entry defining the name, no entry, a checked file
+    without the name, an unchecked export type, a file-less entry alone
+    and in either place beside a missing file, the first cited entry's
+    citation, a repeated name, a bare name list, and exit 2 on bad input
   - kind-at: recipes from markdown fences and each YAML file shape, the
     language forms, and with the pinned ast-grep: every language the
     recipes cover, the name filter, ambiguous, incomplete and skipped
@@ -2505,6 +2510,150 @@ class TestDefinitionLinesCommand:
                           "--file", "a.py", "--name", "x")
         assert result.returncode == 2
         assert result.stdout == "" and "source root not found" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# classify-stale
+# --------------------------------------------------------------------------
+
+
+class TestClassifyStale:
+    def _run(self, tmp_path: Path, capsys, stale: list[str], entries: list[dict]) -> tuple[int, list[dict]]:
+        """classify-stale over reconcile-coverage.py's result, as coverage-check §2c runs it."""
+        src = tmp_path / "src"
+        _write_text(src, "lib/config.py", PY_CONFIG)
+        names = _write_json(tmp_path / "run" / "coverage.json", {"branch": "enumerated", "stale": stale})
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": entries})
+        code = mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov),
+                         "--source-root", str(src)])
+        return code, json.loads(capsys.readouterr().out)
+
+    def test_every_entry_file_missing_is_fabricated(self, tmp_path: Path, capsys) -> None:
+        code, out = self._run(tmp_path, capsys, ["ghost"], [
+            {"export_name": "ghost", "source_file": "lib/gone.py", "source_line": 4},
+            {"export_name": "ghost", "source_file": "lib/other.py", "source_line": 9}])
+        assert code == 0
+        assert out == [{"name": "ghost", "fabricated": True, "source": "lib/gone.py:4", "reason": "not-defined",
+                        "entries": [
+                            {"source_file": "lib/gone.py", "source_line": 4, "line_check": "file-missing",
+                             "definition_lines": None},
+                            {"source_file": "lib/other.py", "source_line": 9, "line_check": "file-missing",
+                             "definition_lines": None}]}]
+
+    def test_a_checked_file_without_the_name_is_fabricated(self, tmp_path: Path, capsys) -> None:
+        _, [out] = self._run(tmp_path, capsys, ["ghost"], [
+            {"export_name": "ghost", "source_file": "lib/config.py", "source_line": 11}])
+        assert (out["fabricated"], out["reason"], out["entries"][0]["definition_lines"]) == (True, "not-defined", [])
+
+    def test_one_entry_defining_the_name_is_not_fabricated(self, tmp_path: Path, capsys) -> None:
+        _, [out] = self._run(tmp_path, capsys, ["search"], [
+            {"export_name": "search", "source_file": "lib/gone.py", "source_line": 2},
+            {"export_name": "search", "source_file": "lib/config.py", "source_line": 11}])
+        assert (out["fabricated"], out["reason"], out["source"]) == (False, "defined", "lib/gone.py:2")
+        assert [e["line_check"] for e in out["entries"]] == ["file-missing", "checked"]
+        assert out["entries"][1]["definition_lines"] == [11]
+
+    def test_no_entry_is_not_fabricated(self, tmp_path: Path, capsys) -> None:
+        _, [out] = self._run(tmp_path, capsys, ["unmapped"], [
+            {"export_name": "search", "source_file": "lib/config.py", "source_line": 11}])
+        assert out == {"name": "unmapped", "fabricated": False, "source": None, "reason": "no-entry",
+                       "entries": []}
+
+    def test_an_unchecked_entry_is_not_fabricated(self, tmp_path: Path, capsys) -> None:
+        _write_text(tmp_path / "src", "lib.rs", "pub fn add() {}\n")
+        _, out = self._run(tmp_path, capsys, ["config", "add"], [
+            {"export_name": "config", "source_file": "lib/config.py", "source_line": 1, "export_type": "module"},
+            {"export_name": "add", "source_file": "lib.rs", "source_line": 1}])
+        assert [(o["name"], o["fabricated"], o["reason"], o["entries"][0]["line_check"]) for o in out] == [
+            ("config", False, "unchecked", "skipped-export-type"),
+            ("add", False, "unchecked", "skipped-language")]
+
+    def test_a_file_less_entry_alone_is_unchecked(self, tmp_path: Path, capsys) -> None:
+        # update-skill writes an `unknown` NEW_EXPORT's entry with no source_file or source_line
+        _, out = self._run(tmp_path, capsys, ["ghost", "spectre"], [
+            {"export_name": "ghost", "export_type": "function"},
+            {"export_name": "spectre", "source_file": None, "source_line": None}])
+        assert out == [
+            {"name": "ghost", "fabricated": False, "source": None, "reason": "unchecked",
+             "entries": [{"source_file": None, "source_line": None, "line_check": "no-file",
+                          "definition_lines": None}]},
+            {"name": "spectre", "fabricated": False, "source": None, "reason": "unchecked",
+             "entries": [{"source_file": None, "source_line": None, "line_check": "no-file",
+                          "definition_lines": None}]}]
+
+    @pytest.mark.parametrize("file_less_first", [True, False], ids=["file-less-first", "file-less-last"])
+    def test_a_file_less_entry_beside_a_missing_file(self, tmp_path: Path, capsys, file_less_first: bool) -> None:
+        """A file-less entry neither proves the name fabricated nor clears it, and its place changes nothing:
+        the name is unchecked, at the citation of the entry that has a file."""
+        entries = [{"export_name": "ghost", "source_file": "lib/gone.py", "source_line": 4},
+                   {"export_name": "ghost", "source_file": "", "source_line": None}]
+        _, [out] = self._run(tmp_path, capsys, ["ghost"], entries[::-1] if file_less_first else entries)
+        assert (out["fabricated"], out["reason"], out["source"]) == (False, "unchecked", "lib/gone.py:4")
+        assert sorted(e["line_check"] for e in out["entries"]) == ["file-missing", "no-file"]
+
+    def test_a_file_less_entry_beside_a_defining_file(self, tmp_path: Path, capsys) -> None:
+        _, [out] = self._run(tmp_path, capsys, ["search"], [
+            {"export_name": "search"},
+            {"export_name": "search", "source_file": "lib/config.py", "source_line": 11}])
+        assert (out["fabricated"], out["reason"], out["source"]) == (False, "defined", "lib/config.py:11")
+
+    def test_the_source_is_the_file_alone_when_the_line_is_not_a_number(self, tmp_path: Path, capsys) -> None:
+        _, [out] = self._run(tmp_path, capsys, ["ghost"], [
+            {"export_name": "ghost", "source_file": "lib/gone.py", "source_line": "near the top"}])
+        assert (out["fabricated"], out["source"]) == (True, "lib/gone.py")
+
+    def test_the_names_are_raw_and_each_once(self, tmp_path: Path, capsys) -> None:
+        # a bare array of names, a repeat and a dotted name whose last segment is defined
+        src = tmp_path / "src"
+        _write_text(src, "m.py", "class App:\n    def update(self):\n        pass\n")
+        names = _write_json(tmp_path / "names.json", ["App.update", "App.update", "update"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": [
+            {"export_name": "App.update", "source_file": "m.py", "source_line": 2}]})
+        code = mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov),
+                         "--source-root", str(src)])
+        out = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert [(o["name"], o["reason"]) for o in out] == [("App.update", "defined"), ("update", "no-entry")]
+
+    def test_output_file(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        names = _write_json(tmp_path / "coverage.json", {"stale": ["ghost"]})
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": [
+            {"export_name": "ghost", "source_file": "gone.py", "source_line": 1}]})
+        out = tmp_path / "run" / "stale.json"
+        out.parent.mkdir()
+        result = _run_cli("classify-stale", "--names", str(names), "--provenance", str(prov),
+                          "--source-root", str(src), "-o", str(out))
+        assert result.returncode == 0 and result.stdout == "", result.stderr
+        assert json.loads(out.read_bytes())[0]["fabricated"] is True
+
+    @pytest.mark.parametrize("names, prov, root, message", [
+        ({"stale": "ghost"}, {"entries": []}, "src", "--names must hold"),
+        ({"branch": "scalar"}, {"entries": []}, "src", "--names must hold"),
+        ("not json", {"entries": []}, "src", "malformed JSON"),
+        (["ghost"], ["not", "an", "object"], "src", "must be a JSON object"),
+        (["ghost"], {"entries": []}, "nope", "source root not found"),
+    ], ids=["stale-not-a-list", "no-stale", "malformed-names", "map-not-an-object", "no-source-root"])
+    def test_bad_input_exit_2(self, tmp_path: Path, names, prov, root, message) -> None:
+        (tmp_path / "src").mkdir()
+        names_path = tmp_path / "names.json"
+        if isinstance(names, str):
+            names_path.write_bytes(names.encode("utf-8"))
+        else:
+            _write_json(names_path, names)
+        prov_path = _write_json(tmp_path / "provenance-map.json", prov)
+        result = _run_cli("classify-stale", "--names", str(names_path), "--provenance", str(prov_path),
+                          "--source-root", str(tmp_path / root))
+        assert result.returncode == 2
+        assert result.stdout == "" and message in result.stderr, result.stderr
+
+    def test_a_missing_names_file_exit_2(self, tmp_path: Path) -> None:
+        (tmp_path / "src").mkdir()
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": []})
+        result = _run_cli("classify-stale", "--names", str(tmp_path / "nope.json"), "--provenance", str(prov),
+                          "--source-root", str(tmp_path / "src"))
+        assert result.returncode == 2 and "names not found" in result.stderr
 
 
 # --------------------------------------------------------------------------
