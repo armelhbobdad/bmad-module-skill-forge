@@ -4,4 +4,5 @@ summary: |
   The npm dist-tags `rc` and `alpha`, which still point at `1.0.0-rc.3` and `0.10.1-alpha.0`, are removed once 3.0.0 is published, so `npm install bmad-module-skill-forge@rc`, `npm install bmad-module-skill-forge@alpha` and `npx bmad-module-skill-forge@rc` stop resolving instead of installing a build two majors older than `latest`. From now on `latest` is the only permanent dist-tag: `alpha`, `beta` and `rc` exist only while a prerelease line is open, and the stable release that closes the line removes its tag.
 migration: |
   Install `bmad-module-skill-forge@latest`, or an exact version such as `bmad-module-skill-forge@3.0.0`, instead of `bmad-module-skill-forge@rc` or `bmad-module-skill-forge@alpha`, and change any script or pipeline that names `@rc` or `@alpha` the same way.
+prs: [636]
 issues: [568]
