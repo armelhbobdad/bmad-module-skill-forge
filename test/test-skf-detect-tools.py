@@ -980,24 +980,24 @@ _CCC_INDEX_STEP = Path(__file__).resolve().parent.parent / "src" / "skf-setup" /
 _DETECT_TIER_STEP = Path(__file__).resolve().parent.parent / "src" / "skf-setup" / "references" / "detect-and-tier.md"
 
 
-def test_ccc_index_step_binds_ccc_file_count_on_every_branch():
-    """Every branch of ccc-index.md that binds ccc_index_result must bind
-    ccc_file_count in the same flag set — write-config.md interpolates it bare."""
+def test_ccc_index_step_binds_no_index_field():
+    """Step 1b binds no ccc_index field any more: the merge helper builds the
+    index and writes its whole result to the run folder (#592), so no branch
+    can leave a field unbound for write-tools."""
     text = _CCC_INDEX_STEP.read_text(encoding="utf-8")
-    binding_lines = [line for line in text.splitlines() if "ccc_index_result:" in line]
-    assert len(binding_lines) >= 5, "expected the none/skipped/fresh/created/failed bindings"
-    unbound = [line for line in binding_lines if "ccc_file_count:" not in line]
-    assert unbound == [], f"branches that leave ccc_file_count unbound: {unbound}"
+    for gone in ("ccc_index_result:", "ccc_file_count:", "ccc_last_indexed:"):
+        assert gone not in text, gone
+    assert '--result-to "{run_dir}/ccc-exclusions.json"' in text
 
 
-def test_fresh_branch_carries_previous_ccc_file_count_from_step_1():
-    """The fresh-index path re-counts nothing, so it must carry the detector's
-    prior value, and step 1 must map that value out of the detector output."""
-    ccc_index = _CCC_INDEX_STEP.read_text(encoding="utf-8")
-    fresh = [line for line in ccc_index.splitlines() if 'ccc_index_result: "fresh"' in line]
-    assert fresh and all("ccc_file_count: {previous_ccc_file_count}" in line for line in fresh)
+def test_fresh_index_count_comes_from_the_prior_record_not_from_step_1():
+    """The fresh-index path re-counts nothing: the merge helper carries the count
+    from the forge-tier.yaml it reads, so step 1 no longer maps it out."""
     detect_tier = _DETECT_TIER_STEP.read_text(encoding="utf-8")
-    assert "`{previous_ccc_file_count}` ← `prior.previous_ccc_file_count`" in detect_tier
+    assert "previous_ccc_file_count" not in detect_tier
+    merge = (Path(__file__).resolve().parent.parent / "src" / "shared" / "scripts"
+             / "skf-merge-ccc-exclusions.py").read_text(encoding="utf-8")
+    assert "keep   status \"fresh\"; last_indexed and file_count carry over from the" in merge
 
 
 def test_detect_surfaces_previous_ccc_file_count_from_prior_state(tmp_path):

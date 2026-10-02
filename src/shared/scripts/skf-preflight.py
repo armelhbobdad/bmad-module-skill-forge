@@ -34,8 +34,8 @@ path: `output_folder_resolved`, `skills_output_folder_resolved`,
 `{project-root}/{value}`, halts with SIDECAR_UNDEFINED, flag or not.
 
 Output: JSON to stdout with all resolved config variables and sidecar state.
-`sidecar.preferences` and `sidecar.forge_tier` are {} for a file that
-skf-setup has not written yet, and `sidecar.preferences_error` or
+`sidecar.preferences` and `sidecar.forge_tier` are {} for a file that is
+not there yet, and `sidecar.preferences_error` or
 `sidecar.forge_tier_error` appears only for a file that is there but did not
 load. `derived` holds what a greeting needs: `tier`, `tier_source`,
 `compact_greeting`, `headless_mode` (true only for `headless_mode: true` in
@@ -111,7 +111,7 @@ def load_yaml_file(path):
 
 
 def load_sidecar_file(path):
-    """Load a sidecar file. One that skf-setup has not written yet reads as {}."""
+    """Load a sidecar file. One that is not there yet reads as {}."""
     try:
         return load_yaml_file(path)
     except FileNotFoundError:
@@ -234,9 +234,10 @@ def run_preflight(project_root, config_path=None, allow_missing_sidecar=False):
     resolved["sidecar_path_resolved"] = str(sidecar_dir)
 
     # 4. Load sidecar files. A missing folder (allowed above) or a file not
-    # written yet reads as empty defaults with no error: skf-setup creates
-    # the folder and both files on its first run. An `*_error` field is left
-    # for a file that is there but did not load.
+    # written yet reads as empty defaults with no error: the installer writes
+    # preferences.yaml, and skf-setup creates the folder and forge-tier.yaml
+    # on its first run. An `*_error` field is left for a file that is there
+    # but did not load.
     sidecar = {"missing": sidecar_missing}
 
     prefs_path = sidecar_dir / "preferences.yaml"

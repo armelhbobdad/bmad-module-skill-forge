@@ -29,7 +29,7 @@ These rules apply to every step in this workflow:
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
 - Always communicate in `{communication_language}`
-- At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`), except at step 6's final menu: the result contract is already written there, so each of them finishes the run (exit code 0)
+- At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; a gate that picks its default for the user also records that decision in the run sink the moment it decides
 - Every HARD HALT names its exit code, `halt_reason` and phase, and in headless mode prints its envelope through the shared emitter, with the command each stage file shows (`references/exit-codes.md` describes the envelope)
 - Run state lives in `{run_dir}`, not in context; step 6 deletes it when the run finishes, a HALT keeps it
@@ -43,7 +43,7 @@ These rules apply to every step in this workflow:
 | 3 | Issue Detection | references/issue-detection.md | Yes |
 | 4 | Improvements | references/improvements.md | Yes |
 | 5 | Compile Refined Architecture | references/compile.md | No (review) |
-| 6 | Report | references/report.md | No (final menu) |
+| 6 | Report | references/report.md | Yes |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
@@ -52,14 +52,14 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | architecture_doc_path [required], vs_report_path [optional] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--vs-report-path <path>` (skip step 1 prompt for the optional VS report; `--vs-report-path none` refines without a report and skips the search for one); `--scope-skills <names>` (comma-separated in-scope skill names; overrides scope derivation in gap analysis, so step 2 asks no scope confirmation) |
-| **Gates** | step 1: Input Gate [use args] | step 2: Scope Confirm Gate [C] continue / [X] cancel (only when a derived scope leaves skills out or keeps an ambiguous one) | step 5: Review Gate [C] approve and replace the refined document / [X] cancel | step 6: Final menu [R] review / [X] finish (the result contract is already written) |
-| **Outputs** | `refined-architecture-{arch_project_name}.md` at `{outputFolderPath}` (`{arch_project_name}` = the architecture doc's frontmatter `project_name`, else config `project_name`, resolved in init.md), promoted from a draft only when the step 5 review approves it; an earlier file of that name is first renamed to `refined-architecture-{arch_project_name}-{timestamp}.md`. Plus `refine-architecture-result-{YYYYMMDD-HHmmss}.json` (UTC, named by the emitter) and `refine-architecture-result-latest.json` |
+| **Gates** | step 1: Input Gate [use args] | step 2: Scope Confirm Gate [C] continue / [X] cancel (only when a derived scope leaves skills out or keeps an ambiguous one) | step 5: Review Gate [R] review each refinement / [C] approve and replace the refined document / [X] cancel |
+| **Outputs** | `refined-architecture-{arch_project_name}.md` at `{outputFolderPath}` (`{arch_project_name}` = the architecture doc's frontmatter `project_name`, else config `project_name`, resolved in init.md), promoted from a draft only when the step 5 review approves it; an earlier file of that name is first renamed to `refined-architecture-{arch_project_name}-{timestamp}.md`. Plus `refine-architecture-result-{YYYYMMDD-HHmmss}.json` (UTC, named by the emitter) and `refine-architecture-result-latest.json`, and `.ra-dismissed-{arch_project_name}.json` beside them once a review that drops a finding is approved (a later run on the refined document leaves it out) |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--vs-report-path`, `--scope-skills`) consumed at the gates that would otherwise prompt: `--scope-skills` skips the step 2 scope confirmation, and without `--vs-report-path` step 1 uses the [VS] report it finds for the project, while `--vs-report-path none` uses none. |
 | **Exit codes** | See `references/exit-codes.md` |
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 6 prints one `SKF_REFINE_ARCHITECTURE_RESULT_JSON: {...}` line on **stdout** when it writes the result contract, before its final menu, and every HARD HALT one on **stderr**, built by the shared emitter: `references/exit-codes.md` gives its fields, the `halt_reason` values and the halt command each stage file shows.
+When `{headless_mode}` is true, step 6 prints one `SKF_REFINE_ARCHITECTURE_RESULT_JSON: {...}` line on **stdout** when it writes the result contract, and every HARD HALT one on **stderr**, built by the shared emitter: `references/exit-codes.md` gives its fields, the `halt_reason` values and the halt command each stage file shows.
 
 ## On Activation
 
@@ -88,15 +88,13 @@ When `{headless_mode}` is true, step 6 prints one `SKF_REFINE_ARCHITECTURE_RESUL
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
 
-   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each scalar, if the merged value is empty or absent, use the bundled default:
+   Apply the path-scalar fallback now. For each scalar, if the merged value is empty or absent, use the bundled default:
 
-   - `{refinementRulesPath}` ← `workflow.refinement_rules_path` if non-empty, else `references/refinement-rules.md`
+   - `{refinementRulesPath}` ← `workflow.refinement_rules_path` if non-empty, else `references/refinement-rules.md` (house style only: the file's first section names what a copy can change)
    - `{outputFolderPath}` ← `workflow.output_folder_path` if non-empty, else `{output_folder}`
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — report.md skips the hook invocation entirely)
 
-   Stash all three as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
-
-   Also apply the array surfaces (not silent no-ops): run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` after activation.
+   Also apply the array surfaces (not silent no-ops): run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` once §5's pre-flight has passed, before §6 loads the first stage.
 
 5. **Pre-flight: the emitter, config, write probe and run folder.** Resolve the emitter first, so every halt below can print its envelope. Then assert both output paths are configured before probing writability: order matters, since an empty path makes `mkdir -p ""` fail, which would misreport a *missing config* (exit 3) as a *write failure* (exit 4) and collapse the distinction the Result Contract draws.
 

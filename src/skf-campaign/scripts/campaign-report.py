@@ -2,11 +2,12 @@
 # requires-python = ">=3.9"
 # dependencies = ["pyyaml"]
 # ///
-"""Campaign Report — generate a markdown report from campaign state + template.
+"""Campaign Report: generate a markdown report from campaign state + template.
 
 CLI:
   uv run campaign-report.py \
-      --state-file <path> --template-file <path> --output-file <path>
+      --state-file <path> --template-file <path> --output-file <path> \
+      [--context-file <path> [--decision-log <path>]]
 
 Output (JSON on stdout):
   {"status":"success","report_path":"...","skills_completed":N,"skills_failed":N,
@@ -20,6 +21,17 @@ directive included), so a headless caller sees which completed skills were
 not exported. Both are null when the gate cannot be applied (an invalid gate
 or an unreadable directive), and the report says so.
 
+--context-file also writes the payload skf-emit-result-envelope.py turns into
+the campaign's SKF_CAMPAIGN_RESULT_JSON line (schemas/
+skf-campaign-result-envelope.v1.json): the result above, with the report as
+`campaign_report_path` and --decision-log as `decision_log`. When the report
+cannot be written it still writes one, the degraded finish: `status` error,
+`halt_reason` report-failure, no report path, and the counts and scores the
+state gives (none when it cannot be read). So step 11 stages nothing by hand
+on either path. It first removes the payload an earlier run left, so a
+payload that cannot be written leaves no file and step 11 takes its fallback
+instead of an earlier run's envelope.
+
 Exit codes:
   0  success
   2  error (missing file, bad YAML, template error)
@@ -28,6 +40,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import json
 import os
@@ -214,68 +227,98 @@ def _compute_aggregates(
     }
 
 
-def run(state_file: str, template_file: str, output_file: str) -> int:
+def _counts(state: Any) -> Dict[str, Any]:
+    """The completed and failed counts and the completed skills' scores."""
+    skills = state.get("skills", []) if isinstance(state, dict) else []
+    skills = [s for s in skills if isinstance(s, dict)] if isinstance(skills, list) else []
+    return {
+        "skills_completed": sum(1 for s in skills if s.get("status") == "completed"),
+        "skills_failed": sum(1 for s in skills if s.get("status") == "failed"),
+        "quality_scores": {
+            s["name"]: s["quality_score"]
+            for s in skills
+            if s.get("status") == "completed" and s.get("quality_score") is not None and s.get("name")
+        },
+    }
+
+
+def _write_context(path: Optional[str], payload: Dict[str, Any]) -> None:
+    """Write the emitter payload; a failed write leaves step 11 its fallback."""
+    if not path:
+        return
+    try:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        _emit_error(f"Failed to write the envelope context: {exc}", "CONTEXT_WRITE_ERROR")
+
+
+def run(
+    state_file: str,
+    template_file: str,
+    output_file: str,
+    context_file: Optional[str] = None,
+    decision_log: Optional[str] = None,
+) -> int:
     state_path = Path(state_file)
     template_path = Path(template_file)
     output_path = Path(output_file)
+    state: Any = None
+    if context_file:
+        with contextlib.suppress(OSError):
+            Path(context_file).unlink(missing_ok=True)
+
+    def fail(message: str, code: str) -> int:
+        _emit_error(message, code)
+        _write_context(context_file, {
+            "status": "error",
+            "halt_reason": "report-failure",
+            **_counts(state),
+            "campaign_report_path": None,
+            "decision_log": decision_log,
+        })
+        return 2
 
     if not state_path.is_file():
-        _emit_error(f"State file not found: {state_file}", "STATE_NOT_FOUND")
-        return 2
-
-    if not template_path.is_file():
-        _emit_error(f"Template file not found: {template_file}", "TEMPLATE_NOT_FOUND")
-        return 2
+        return fail(f"State file not found: {state_file}", "STATE_NOT_FOUND")
 
     try:
         state = _load_yaml(state_path)
     except Exception as exc:
-        _emit_error(f"Failed to parse state file: {exc}", "STATE_PARSE_ERROR")
-        return 2
+        return fail(f"Failed to parse state file: {exc}", "STATE_PARSE_ERROR")
 
     if not isinstance(state, dict):
-        _emit_error("State file root is not a mapping", "INVALID_STATE")
-        return 2
+        return fail("State file root is not a mapping", "INVALID_STATE")
+
+    # Read after the state, so a degraded payload still carries its counts.
+    if not template_path.is_file():
+        return fail(f"Template file not found: {template_file}", "TEMPLATE_NOT_FOUND")
 
     try:
         template = template_path.read_text(encoding="utf-8")
     except Exception as exc:
-        _emit_error(f"Failed to read template file: {exc}", "TEMPLATE_READ_ERROR")
-        return 2
+        return fail(f"Failed to read template file: {exc}", "TEMPLATE_READ_ERROR")
 
     try:
         classification = _export_classification(state)
         aggregates = _compute_aggregates(state, classification)
     except Exception as exc:
-        _emit_error(f"Failed to compute report aggregates: {exc}", "AGGREGATE_ERROR")
-        return 2
+        return fail(f"Failed to compute report aggregates: {exc}", "AGGREGATE_ERROR")
 
     report = template
     for key, value in aggregates.items():
         report = report.replace("{{" + key + "}}", value)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(report, encoding="utf-8")
     except Exception as exc:
-        _emit_error(f"Failed to write report: {exc}", "WRITE_ERROR")
-        return 2
-
-    skills = state.get("skills", [])
-    completed_count = sum(1 for s in skills if s.get("status") == "completed")
-    failed_count = sum(1 for s in skills if s.get("status") == "failed")
-    quality_scores = {
-        s["name"]: s["quality_score"]
-        for s in skills
-        if s.get("status") == "completed" and s.get("quality_score") is not None
-    }
+        return fail(f"Failed to write report: {exc}", "WRITE_ERROR")
 
     result = {
         "status": "success",
         "report_path": output_path.as_posix(),
-        "skills_completed": completed_count,
-        "skills_failed": failed_count,
-        "quality_scores": quality_scores,
+        **_counts(state),
         "duration": aggregates["duration"],
         "export_verdicts": (
             None if classification is None else {r["name"]: r["verdict"] for r in classification["skills"]}
@@ -284,6 +327,17 @@ def run(state_file: str, template_file: str, output_file: str) -> int:
             None if classification is None else [e["name"] for e in classification["excluded"]]
         ),
     }
+    _write_context(context_file, {
+        "status": "success",
+        "skills_completed": result["skills_completed"],
+        "skills_failed": result["skills_failed"],
+        "quality_scores": result["quality_scores"],
+        "export_verdicts": result["export_verdicts"],
+        "skills_excluded": result["skills_excluded"],
+        "campaign_report_path": result["report_path"],
+        "decision_log": decision_log,
+        "duration": result["duration"],
+    })
     json.dump(result, sys.stdout, separators=(",", ":"))
     sys.stdout.write("\n")
     return 0
@@ -296,8 +350,13 @@ def main() -> int:
     parser.add_argument("--state-file", required=True, help="Path to _campaign-state.yaml")
     parser.add_argument("--template-file", required=True, help="Path to campaign-report-template.md")
     parser.add_argument("--output-file", required=True, help="Path to write the generated report")
+    parser.add_argument(
+        "--context-file",
+        help="Also write the SKF_CAMPAIGN_RESULT_JSON payload for skf-emit-result-envelope.py here",
+    )
+    parser.add_argument("--decision-log", help="Path to _campaign-decision-log.md, for the payload")
     args = parser.parse_args()
-    return run(args.state_file, args.template_file, args.output_file)
+    return run(args.state_file, args.template_file, args.output_file, args.context_file, args.decision_log)
 
 
 if __name__ == "__main__":

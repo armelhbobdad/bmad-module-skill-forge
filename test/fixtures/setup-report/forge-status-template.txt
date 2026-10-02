@@ -58,10 +58,7 @@
   {end if}
 
   Files written this run:
-  - forge-tier.yaml: {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml
-  {if preferences_yaml_created is true:}
-  - preferences.yaml: {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)
-  {end if}
+  - forge-tier.yaml: {sidecar_path}/forge-tier.yaml
   - {forge_data_folder}/ (directory ensured)
   {if settings_yml_written is true:}
   - .cocoindex_code/settings.yml: {project-root}/.cocoindex_code/settings.yml ({settings_yml_patterns_added} SKF exclusion pattern(s) merged{if settings_yml_patterns_removed > 0:}, {settings_yml_patterns_removed} stale SKF pattern(s) removed{end if})
@@ -95,9 +92,8 @@
 
 {if {tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} is non-null:}
   {same-tier message from tier-rules.md}
-  {if preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "fresh": Your preferences and ccc settings were left untouched, and the ccc index was already current.}
-  {if preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "skipped": Your preferences and ccc settings were left untouched; the ccc index was not checked (--ccc-skip-index).}
-  {if preferences_yaml_created is false and ccc_index_result is "none": Your preferences were left untouched.}
+  {if settings_yml_written is false and ccc_index_result is "fresh": Your ccc settings were left untouched, and the ccc index was already current.}
+  {if settings_yml_written is false and ccc_index_result is "skipped": Your ccc settings were left untouched; the ccc index was not checked (--ccc-skip-index).}
 
 {if {tier_changed} is false and ({tools_added} or {tools_removed} is non-empty) and {previous_tier} is non-null:}
   Tier unchanged: {calculated_tier}.

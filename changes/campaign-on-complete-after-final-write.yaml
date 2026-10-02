@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-campaign
+summary: |
+  The campaign's `on_complete` hook now runs after the campaign's final state write, so a hook that archives or commits the campaign workspace captures the finished campaign (`current_stage` 10); before, it ran right after the report, before that write. When the report could not be generated (the degraded finish, `halt_reason` `report-failure`), the hook is now called without `--report-path`, since there is no report to read; before, it always got `--report-path=<path>`, even when no report was written there.
+migration: |
+  Treat `--report-path` as optional in an `on_complete` hook: when it is absent, the report failed and the campaign decision log says why. A hook that reads `_campaign-state.yaml` now sees the finished campaign, with `current_stage` 10.
+prs: [641]
+issues: [585]

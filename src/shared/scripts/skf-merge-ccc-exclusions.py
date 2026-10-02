@@ -18,7 +18,9 @@ lives in step prose:
   4. merge the SKF patterns and prune the SKF-owned patterns the current
      config no longer produces;
   5. warn when `/.cocoindex_code/` is not gitignored;
-  6. return one `index_action` telling the step whether to run `ccc index`.
+  6. return one `index_action` telling the step whether to run `ccc index`,
+     and with --build-index act on it: run `ccc index` itself, read the
+     file count from `ccc status` and stamp the time (Index build, below).
 
 CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
 above is auto-resolved on first call and cached. `docs/getting-started.md`
@@ -34,18 +36,36 @@ on a fresh interpreter:
       --index-fresh false \\
       --skip-index false
 
+  uv run skf-merge-ccc-exclusions.py \\
+      --project-root /abs/path \\
+      --config /abs/path/_bmad/skf/config.yaml \\
+      --prior-state-from /abs/path/_bmad/_memory/forger-sidecar/forge-tier.yaml \\
+      --index-fresh false --skip-index false \\
+      --build-index --result-to /abs/run/ccc-exclusions.json
+
 Flags:
 
   --project-root          required; the directory holding .cocoindex_code/
   --skills-output-folder  raw skills_output_folder config value, forwarded
                           verbatim (`{project-root}/...` is resolved here)
   --forge-data-folder     raw forge_data_folder config value, same handling
+  --config                instead of the two folder flags: the
+                          `_bmad/skf/config.yaml` to read both raw values
+                          from, so no caller forwards them by hand (a key
+                          the file lacks reads as an empty value)
   --prior-state-from      forge-tier.yaml; its ccc_index.exclude_patterns is
                           the record of the patterns SKF owns
   --index-fresh           true|false (case-insensitive); the prior index is
                           still fresh, so an unchanged settings.yml keeps it
   --skip-index            true|false; the setup run opted out of indexing
   --no-ccc-init           never run ccc init (tests and diagnostics)
+  --build-index           setup mode only: act on index_action and add the
+                          `index` result (Index build, below)
+  --result-to             also write the JSON result, or the JSON error of a
+                          run that fails, to this file, so the caller's
+                          next steps read it from there; with
+                          --build-index it is written before `ccc index`
+                          runs too (Index build, below)
   --clone-root            instead of --project-root: an SKF workspace clone
                           (clone mode, below)
   --include-ext           clone mode only, repeatable: a file extension whose
@@ -138,11 +158,11 @@ patterns instead of the bare value, each anchored the same way:
 Glob characters in an entry name are written as one-character classes
 (`[x]` becomes `[[]x[]]`); a backslash escape is never used, because ccc's
 matcher reads a backslash as `/` on Windows. A name holding `'`, `\\`, a
-control character, U+FFFD or an undecodable byte cannot go through the
-setup payloads, so that entry stays indexed with a warning. No pattern is
-ever `{folder}/*` or a `!` negation: ccc applies a negation against every
-pattern, its own defaults included, and a `!{folder}/...` also cancels a
-bare `{folder}` pattern.
+control character, U+FFFD or an undecodable byte cannot go through a
+quoted shell payload, so that entry stays indexed with a warning. No
+pattern is ever `{folder}/*` or a `!` negation: ccc applies a negation
+against every pattern, its own defaults included, and a `!{folder}/...`
+also cancels a bare `{folder}` pattern.
 
 A `!` entry of the user's cancels an SKF pattern the same way. ccc walks
 into an excluded folder when a `!` entry matches the folder, matches the
@@ -177,8 +197,8 @@ warning naming the key and the file to fix, when it is:
   - starting with `!`                (ccc reads it as a negation)
   - carrying `*`, `?`, `[`, `]` or `\\` (ccc reads them as glob syntax)
   - carrying `{` or `}`              (an unresolved template placeholder)
-  - carrying a control character     (does not survive the setup payloads)
-  - carrying `'`                     (breaks the setup shell payloads)
+  - carrying a control character     (does not survive a quoted payload)
+  - carrying `'`                     (breaks a single-quoted payload)
 
 A refused value is left out; the four `**/` patterns still merge.
 
@@ -282,6 +302,32 @@ After a reconcile, `/.cocoindex_code/` coverage is checked with
 uncovered path adds a warning. `gitignore_updated` compares the
 `.gitignore` bytes before and after the run (only ccc init writes it).
 
+Index build (--build-index): the script acts on index_action itself and
+returns the index state the run ends with, so no step reads `ccc status`
+or types a timestamp:
+
+  keep   status "fresh"; last_indexed and file_count carry over from the
+         prior forge-tier.yaml (--prior-state-from)
+  skip   status "skipped"
+  fail   status "failed", with not_ready_reason as failed_reason
+  index  `ccc index` runs in the project root (up to CCC_INDEX_TIMEOUT_SEC).
+         Then `ccc status` gives the file count. While it prints an
+         `Indexing in progress:` line, `ccc index` runs again (it waits
+         for the running pass, then makes a quick incremental one), up to
+         CCC_INDEX_RERUNS times; a pass still running after that adds a
+         warning and the count read last. Status "created", stamped with
+         this script's UTC clock, when ccc indexed at least one file;
+         status "failed", with the reason, when `ccc index` or `ccc status`
+         fails, the status shows no file count, or the count is 0.
+         Before `ccc index` starts, --result-to already holds the merge
+         result with the index "failed" ("ccc index did not finish"),
+         so a call its host stops during a long index still leaves this
+         run's exclusion record for the next steps; the final result
+         replaces it.
+
+indexed_path is the --project-root value exactly as given, which is what
+skf-detect-tools.py compares the next run's --project-root with.
+
 Output (single JSON document on stdout, ASCII only):
 
   {
@@ -313,6 +359,13 @@ Output (single JSON document on stdout, ASCII only):
                                          SKF edit)
     "gitignore_updated":         bool,
     "index_action":              "index" | "keep" | "skip" | "fail",
+    "index":                     only with --build-index:
+                                 {"status": "fresh" | "created" | "skipped"
+                                            | "failed",
+                                  "indexed_path": str | null,
+                                  "last_indexed": str | null,  ISO-8601 UTC
+                                  "file_count": int | null,
+                                  "failed_reason": str | null},
     "warnings":                  [str]   refused values and other notes for
                                          the report, a user `!` entry that
                                          cancels an SKF pattern included
@@ -339,9 +392,11 @@ Clone mode output (single JSON document on stdout, ASCII only):
     "warnings":                  [str]
   }
 
-Payload safety: the setup steps embed these strings in single-quoted
-`echo '...'` payloads, and dash's `echo` rewrites backslash escapes. So
-every warning, `not_ready_reason` and error message has `'` replaced by a
+Payload safety: setup's steps once embedded these strings in
+single-quoted `echo '...'` payloads, where dash's `echo` rewrites
+backslash escapes; they now read the --result-to file, and the strings
+stay safe for any caller that still quotes them. So every warning,
+`not_ready_reason` and error message has `'` replaced by a
 backtick, `\\` by `/`, and control characters and lone surrogates by `?`;
 folder values carrying `'`, `\\` or a control character are refused, and
 an entry name carrying one gets no pattern. No pattern SKF produces, and
@@ -391,6 +446,7 @@ import shutil
 import subprocess
 import sys
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
@@ -407,6 +463,14 @@ GLOB_META_CHARS = set("*?[]\\")
 PLACEHOLDER_CHARS = set("{}")
 CCC_SELF_EXCLUDE = "**/.cocoindex_code"
 CCC_INIT_TIMEOUT_SEC = 75
+# A first index of a large codebase can take many minutes.
+CCC_INDEX_TIMEOUT_SEC = 3600
+CCC_STATUS_TIMEOUT_SEC = 75
+CCC_INDEX_RERUNS = 3
+# The index failed_reason --result-to holds while `ccc index` runs.
+INDEX_UNFINISHED = "ccc index did not finish"
+CCC_IN_PROGRESS = "Indexing in progress:"
+CCC_FILES_RE = re.compile(r"^\s*Files:\s*(\d+)\s*$", re.MULTILINE)
 GIT_TIMEOUT_SEC = 10
 SAMPLE_SIZE = 3
 INDEX_ACTIONS = ("index", "keep", "skip", "fail")
@@ -497,7 +561,7 @@ class HelperError(Exception):
 
 
 def _payload_safe(text) -> str:
-    """Make text safe for setup's single-quoted `echo '...'` payloads.
+    """Make text safe for a single-quoted `echo '...'` payload.
 
     `'` becomes a backtick, a backslash becomes `/`, and control characters
     and lone surrogates become `?`: dash's `echo` rewrites backslash
@@ -715,12 +779,12 @@ def validate_config_value(key: str, raw_value) -> tuple[str | None, str | None]:
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
         return None, (
             f"{key} contains a control character; refused for ccc exclusion "
-            f"because it does not survive the setup payloads; {FIX_HINT}"
+            f"because it does not survive a quoted shell payload; {FIX_HINT}"
         )
 
     if "'" in value:
         return None, (
-            f"{key} contains a single quote, which breaks the setup payloads; "
+            f"{key} contains a single quote, which breaks a single-quoted shell payload; "
             f"refused for ccc exclusion; {FIX_HINT}"
         )
 
@@ -1052,7 +1116,7 @@ def ccc_literal(name: str) -> str:
 def _unwritable(name: str) -> bool:
     """True when a name cannot go into a pattern.
 
-    A `'` breaks the single-quoted setup payloads, a backslash or a control
+    A `'` breaks a single-quoted shell payload, a backslash or a control
     character does not survive `echo` in dash, a replacement character
     stands for a name that could not be decoded, and a surrogate (bytes on
     disk that are not UTF-8) makes ccc fail on the whole pattern list.
@@ -1986,6 +2050,125 @@ def include_covers(pattern, ext: str) -> bool:
     return False
 
 
+# ─── Index build (--build-index) ────────────────────────────────────────────
+
+
+def _run_ccc(root: Path, args: tuple[str, ...], timeout: int) -> tuple[bool, str]:
+    """Run `ccc <args>` in root. Return (exit code was 0, stdout plus stderr).
+
+    A ccc that cannot be found, started or finished in time returns False
+    with the reason as its output.
+    """
+    exe = _resolve_outside_cwd("ccc")
+    if exe is None:
+        return False, "ccc was not found on PATH"
+    try:
+        result = subprocess.run(
+            [exe, *args],
+            cwd=str(root),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            env=_child_env(),
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"ccc {args[0]} timed out after {timeout}s"
+    except (OSError, ValueError) as e:
+        return False, f"ccc {args[0]} could not start: {e}"
+    output = (result.stdout + result.stderr).decode("utf-8", errors="replace")
+    if result.returncode != 0:
+        return False, f"ccc {args[0]} exited {result.returncode}: {' '.join(output.split())[:300]}"
+    return True, output
+
+
+def parse_status_file_count(output: str) -> int | None:
+    """The `Files:` count of `ccc status`, or None when it shows none (no index yet)."""
+    match = CCC_FILES_RE.search(output)
+    return int(match.group(1)) if match else None
+
+
+def _prior_index(prior_state_from) -> dict:
+    """`ccc_index` of the prior forge-tier.yaml, {} when there is none to read."""
+    if prior_state_from is None or not Path(prior_state_from).is_file():
+        return {}
+    try:
+        data = yaml.safe_load(Path(prior_state_from).read_text(encoding="utf-8"))
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    ccc = data.get("ccc_index") if isinstance(data, dict) else None
+    return ccc if isinstance(ccc, dict) else {}
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def build_index(root: Path, indexed_path: str, action: str, not_ready_reason,
+                prior_state_from, warnings: list[str]) -> dict:
+    """The index state a setup run ends with, after acting on `action`.
+
+    See "Index build" in the module docstring. `warnings` gains a note when
+    a pass is still running after the reruns.
+    """
+    unset = {"indexed_path": None, "last_indexed": None, "file_count": None, "failed_reason": None}
+    if action == "skip":
+        return {"status": "skipped", **unset}
+    if action == "fail":
+        return {"status": "failed", **unset,
+                "failed_reason": not_ready_reason or "no usable .cocoindex_code/settings.yml"}
+    if action == "keep":
+        prior = _prior_index(prior_state_from)
+        last = prior.get("last_indexed")
+        count = prior.get("file_count")
+        return {"status": "fresh", **unset, "indexed_path": indexed_path,
+                "last_indexed": last.isoformat() if isinstance(last, datetime) else last,
+                "file_count": count if isinstance(count, int) and not isinstance(count, bool) else None}
+
+    def failed(reason: str) -> dict:
+        return {"status": "failed", **unset, "failed_reason": _payload_safe(reason)}
+
+    ok, output = _run_ccc(root, ("index",), CCC_INDEX_TIMEOUT_SEC)
+    if not ok:
+        return failed(output)
+    reruns = 0
+    while True:
+        ok, status = _run_ccc(root, ("status",), CCC_STATUS_TIMEOUT_SEC)
+        if not ok:
+            return failed(status)
+        if CCC_IN_PROGRESS not in status or reruns == CCC_INDEX_RERUNS:
+            break
+        reruns += 1
+        ok, output = _run_ccc(root, ("index",), CCC_INDEX_TIMEOUT_SEC)
+        if not ok:
+            return failed(output)
+    if CCC_IN_PROGRESS in status:
+        warnings.append(f"ccc still reports an indexing pass in progress after {CCC_INDEX_RERUNS} reruns "
+                        "of ccc index; the file count may grow")
+    count = parse_status_file_count(status)
+    if count is None:
+        return failed("ccc index finished, but ccc status shows no index")
+    if count == 0:
+        return failed("ccc index finished, but ccc status counts no indexed file")
+    return {"status": "created", **unset, "indexed_path": indexed_path, "last_indexed": _utc_now(),
+            "file_count": count}
+
+
+def read_config_folders(path: Path) -> tuple[str, str]:
+    """The raw skills_output_folder and forge_data_folder values of config.yaml."""
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise HelperError(1, f"--config does not exist: {path}")
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        raise HelperError(1, f"--config cannot be read as YAML: {path}: {e}")
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise HelperError(1, f"--config is not a YAML mapping: {path}")
+    values = (data.get("skills_output_folder"), data.get("forge_data_folder"))
+    return tuple("" if v is None else str(v) for v in values)
+
+
 def run_clone_merge(clone_root, include_exts=(), allow_ccc_init: bool = True) -> dict:
     """Clone mode: prepare a workspace clone's settings.yml and merge into it.
 
@@ -2084,8 +2267,8 @@ def _bool_arg(value: str) -> bool:
 class _JsonErrorParser(argparse.ArgumentParser):
     """Report usage errors as the same sanitized stderr JSON as every other exit.
 
-    The step's non-zero-exit branch parses stderr JSON and forwards the message
-    into a single-quoted payload; argparse's own text quotes the bad value.
+    A caller that reads stderr JSON may forward the message into a
+    single-quoted payload; argparse's own text quotes the bad value.
     """
 
     def error(self, message: str) -> None:
@@ -2101,9 +2284,10 @@ def main() -> None:
     )
     roots = parser.add_mutually_exclusive_group(required=True)
     roots.add_argument(
-        "--project-root", type=Path,
+        "--project-root",
         help="Absolute path to the project root. The script reads and writes "
-             "{project-root}/.cocoindex_code/settings.yml and runs ccc init there.",
+             "{project-root}/.cocoindex_code/settings.yml and runs ccc init there. "
+             "--build-index records the value as given as the index's indexed_path.",
     )
     roots.add_argument(
         "--clone-root", type=Path,
@@ -2122,6 +2306,11 @@ def main() -> None:
         "--forge-data-folder", default=None,
         help="Raw value of forge_data_folder from {project-root}/_bmad/skf/config.yaml. "
              "Same handling as --skills-output-folder.",
+    )
+    parser.add_argument(
+        "--config", type=Path, default=None,
+        help="Setup mode, instead of the two folder flags: the _bmad/skf/config.yaml "
+             "to read the raw skills_output_folder and forge_data_folder values from.",
     )
     parser.add_argument(
         "--prior-state-from", type=Path, default=None,
@@ -2147,6 +2336,15 @@ def main() -> None:
              "reported as not ready; a rebuild is skipped with a warning.",
     )
     parser.add_argument(
+        "--build-index", action="store_true",
+        help="Setup mode: act on index_action (run ccc index when it is index) and add "
+             "the index result, stamped by this script, to the output.",
+    )
+    parser.add_argument(
+        "--result-to", type=Path, default=None,
+        help="Also write the JSON result, or the JSON error of a run that fails, to this file.",
+    )
+    parser.add_argument(
         "--include-ext", type=_ext_arg, action="append", default=[], metavar="EXT",
         help="Clone mode only, repeatable: a file extension (ex, or .ex) whose files ccc must "
              "index. Unless an include_patterns entry already matches it, **/*.EXT is appended "
@@ -2154,48 +2352,87 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    def fail(code: int, message: str) -> None:
+        if args.result_to is not None:
+            _write_result(args.result_to, {"status": "error", "message": _payload_safe(message)})
+        _die(code, message)
+
+    def done(payload: dict) -> None:
+        if args.result_to is not None:
+            _write_result(args.result_to, payload)
+        print(json.dumps(payload))
+
     if args.clone_root is not None:
         # A setup flag is refused whatever its value: `--skip-index false` or an empty folder too.
         setup_flags = [flag for flag, value in (
             ("--skills-output-folder", args.skills_output_folder),
             ("--forge-data-folder", args.forge_data_folder),
+            ("--config", args.config),
             ("--prior-state-from", args.prior_state_from),
             ("--index-fresh", args.index_fresh),
             ("--skip-index", args.skip_index),
+            ("--build-index", args.build_index or None),
         ) if value is not None]
         if setup_flags:
             _die(2, f"usage error: --clone-root takes no setup flag ({', '.join(setup_flags)})")
         if not args.clone_root.is_dir():
-            _die(1, f"--clone-root is not a directory: {args.clone_root}")
+            fail(1, f"--clone-root is not a directory: {args.clone_root}")
         try:
             payload = run_clone_merge(args.clone_root, args.include_ext,
                                       allow_ccc_init=not args.no_ccc_init)
         except HelperError as e:
-            _die(e.code, str(e))
+            fail(e.code, str(e))
         except Exception as e:  # noqa: BLE001 (every failure must stay stderr JSON)
-            _die(2, f"unexpected error: {type(e).__name__}: {e}")
-        print(json.dumps(payload))
+            fail(2, f"unexpected error: {type(e).__name__}: {e}")
+        done(payload)
         return
     if args.include_ext:
         _die(2, "usage error: --include-ext needs --clone-root")
+    if args.config is not None and (args.skills_output_folder is not None or args.forge_data_folder is not None):
+        _die(2, "usage error: --config replaces --skills-output-folder and --forge-data-folder")
 
-    if not args.project_root.is_dir():
-        _die(1, f"--project-root is not a directory: {args.project_root}")
+    root = Path(args.project_root)
+    if not root.is_dir():
+        fail(1, f"--project-root is not a directory: {args.project_root}")
     try:
+        skills_output_folder, forge_data_folder = (
+            read_config_folders(args.config) if args.config is not None
+            else (args.skills_output_folder or "", args.forge_data_folder or ""))
         payload = run_merge(
-            args.project_root,
-            args.skills_output_folder or "",
-            args.forge_data_folder or "",
+            root,
+            skills_output_folder,
+            forge_data_folder,
             prior_state_from=args.prior_state_from,
             index_fresh=bool(args.index_fresh),
             skip_index=bool(args.skip_index),
             allow_ccc_init=not args.no_ccc_init,
         )
+        if args.build_index:
+            if args.result_to is not None and payload["index_action"] == "index":
+                # settings.yml is already rewritten, and `ccc index` can run for
+                # an hour: a host that stops the call must still find this run's
+                # exclusion record, with an index that did not finish.
+                _write_result(args.result_to, {**payload, "index": {
+                    "status": "failed", "indexed_path": None, "last_indexed": None,
+                    "file_count": None, "failed_reason": INDEX_UNFINISHED}})
+            warnings: list[str] = []
+            payload["index"] = build_index(root, args.project_root, payload["index_action"],
+                                           payload["not_ready_reason"], args.prior_state_from, warnings)
+            payload["warnings"] += [_payload_safe(w) for w in warnings]
     except HelperError as e:
-        _die(e.code, str(e))
+        fail(e.code, str(e))
     except Exception as e:  # noqa: BLE001 — every failure must stay stderr JSON
-        _die(2, f"unexpected error: {type(e).__name__}: {e}")
-    print(json.dumps(payload))
+        fail(2, f"unexpected error: {type(e).__name__}: {e}")
+    done(payload)
+
+
+def _write_result(path: Path, value: dict) -> None:
+    """Write --result-to; a file that cannot be written is one more stderr error."""
+    try:
+        _atomic_write(path, json.dumps(value) + "\n")
+    except HelperError as e:
+        print(json.dumps({"status": "error", "message": _payload_safe(str(e))}), file=sys.stderr)
+        sys.exit(e.code)
 
 
 if __name__ == "__main__":

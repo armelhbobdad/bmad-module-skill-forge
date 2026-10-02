@@ -5,8 +5,10 @@ that step-05 used to leave to the model included: {{brief_summary}} from the
 skill's brief target entry, {{directive_content}} byte for byte from
 --directive-file (or "No directive configured"), and {{persistent_facts}} from
 --facts-json (or "None"), read from stdin as the customization resolver prints
-it, with {project-root} resolved by --project-root. Also checks that step-05's
-call fits the script's CLI and routes each exit 2 the script can give.
+it, with {project-root} resolved by --project-root, and {{workarounds_list}}
+from the pre-apply log (--workarounds-file), each applied workaround formatted
+by the script. Also checks that step-05's call fits the script's CLI, passes
+no JSON through shell quoting, and routes each exit 2 the script can give.
 """
 
 from __future__ import annotations
@@ -189,6 +191,20 @@ class TestRenderKickoff:
     def test_explicit_workarounds_override(self):
         out = mod.render_kickoff(STATE, BRIEF, "core", TEMPLATE_TEXT, workarounds=["wa-1", "wa-2"])
         assert "- wa-1" in out and "- wa-2" in out
+
+    def test_preapply_entries_are_formatted_not_printed_as_dicts(self):
+        applied = [
+            {"fingerprint": "from old import x", "fix": "from new import x", "file": "SKILL.md", "severity": "high"},
+            {"fingerprint": "use `a`", "fix": "use b", "file": "references/api.md", "severity": "low"},
+            {"fingerprint": "fp", "fix": "fx"},
+        ]
+        out = mod.render_kickoff(STATE, BRIEF, "core", TEMPLATE_TEXT, workarounds=applied)
+        assert _section(out, "Workarounds Applied").splitlines() == [
+            "- SKILL.md: `from old import x` replaced with `from new import x` (high severity)",
+            "- references/api.md: `` use `a` `` replaced with `use b` (low severity)",
+            "- `fp` replaced with `fx`",
+        ]
+        assert "{'" not in out
 
     def test_empty_workarounds_none(self):
         out = mod.render_kickoff(STATE, BRIEF, "core", TEMPLATE_TEXT, workarounds=[])
@@ -474,9 +490,35 @@ class TestRun:
         assert rc == 2
         assert self._code(capsys) == "SKILL_NOT_FOUND"
 
-    def test_bad_workarounds_exit_2(self, tmp_path, capsys):
+    def test_workarounds_file_is_the_preapply_log(self, tmp_path, capsys):
         sf, bf, tf = self._files(tmp_path)
-        rc = mod.run(str(sf), str(bf), "auth", str(tf), '{"not":"a list"}')
+        log = tmp_path / "preapply-log.json"
+        log.write_text(json.dumps({"applied": [{"fingerprint": "old()", "fix": "new()", "file": "SKILL.md",
+                                                "severity": "medium"}], "skipped_count": 3,
+                                   "registry_version": 1}, indent=2) + "\n", encoding="utf-8")
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), str(log))
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "- SKILL.md: `old()` replaced with `new()` (medium severity)" in out
+
+    def test_empty_preapply_log_lists_none(self, tmp_path, capsys):
+        sf, bf, tf = self._files(tmp_path)
+        log = tmp_path / "preapply-log.json"
+        log.write_text('{"applied": [], "skipped_count": 0, "registry_version": 1}', encoding="utf-8")
+        assert mod.run(str(sf), str(bf), "auth", str(tf), str(log)) == 0
+        assert _section(capsys.readouterr().out, "Workarounds Applied") == "None"
+
+    @pytest.mark.parametrize(
+        "content",
+        [None, "not json", '["a list"]', '{"skipped_count": 0}', '{"applied": "x"}'],
+        ids=["missing", "not-json", "list", "no-applied", "applied-not-a-list"],
+    )
+    def test_bad_workarounds_file_exit_2(self, tmp_path, capsys, content):
+        sf, bf, tf = self._files(tmp_path)
+        log = tmp_path / "preapply-log.json"
+        if content is not None:
+            log.write_text(content, encoding="utf-8")
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), str(log))
         assert rc == 2
         assert self._code(capsys) == "BAD_WORKAROUNDS"
 
@@ -486,9 +528,11 @@ class TestRun:
         directive.write_bytes(DIRECTIVE_BYTES)
         (tmp_path / "ctx").mkdir()
         (tmp_path / "ctx" / "project-context.md").write_bytes(b"Ctx rule.\n")
+        log = tmp_path / "preapply-log.json"
+        log.write_text('{"applied": ["wa-1"]}', encoding="utf-8")
         rc = mod.main([
             "--state-file", str(sf), "--brief-file", str(bf), "--skill", "auth",
-            "--template", str(tf), "--workarounds", '["wa-1"]',
+            "--template", str(tf), "--workarounds-file", str(log),
             "--facts-json", '["Cite sources.", "file:{project-root}/ctx/project-context.md"]',
             "--project-root", str(tmp_path), "--directive-file", str(directive),
         ])
@@ -558,13 +602,18 @@ class TestStep05Call:
         for gone in ("one `file:<path>` entry per file", "no fact is typed", "`brief_path` plays no part"):
             assert gone not in text
 
-    def test_quoting_rule_and_usage_error(self):
+    def test_no_json_passes_through_shell_quoting(self):
         text = STEP_05.read_text(encoding="utf-8")
-        assert "Write each `'` inside a single-quoted JSON value as the JSON escape `\\u0027`." in text
-        assert json.loads('["Don\\u0027t vendor upstream code."]') == ["Don't vendor upstream code."]
+        call = _kickoff_call()
+        assert "'" not in call
+        assert "[--workarounds-file {preapplyLogFile}]" in call
+        assert "\\u0027" not in text and "single-quoted JSON" not in text
+        assert "--facts-json '" not in text
+        assert "replace the pipe with `< {factsFile}`" in text
+        assert "leave `--workarounds-file` out of the kickoff call below" in text
         assert (
             "An exit 2 with no JSON on stderr is a usage error from a mangled call, not invalid input: "
-            "fix the quoting and run it again."
+            "fix the call and run it again."
         ) in text
 
     def test_exit_2_routing(self):

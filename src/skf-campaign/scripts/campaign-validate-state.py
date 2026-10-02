@@ -14,7 +14,11 @@ multi-session campaign.
 Loads the campaign state YAML, validates it against
 `assets/campaign-state-schema.json` (resolved relative to this script unless
 `--schema-file` overrides), and emits skill-friendly error records the calling
-step can forward verbatim.
+step can forward verbatim. A `date-time` field must parse as ISO-8601 with a
+UTC offset (`2026-05-01T00:00:00Z` or `+00:00`): the schema's `format` is only
+an annotation to a JSON Schema validator, so it is checked here, and an
+invented or offset-less timestamp fails instead of misordering the backup
+comparison and the report's durations.
 
 CLI:
   uv run campaign-validate-state.py --state-file <path>
@@ -43,9 +47,27 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import Draft7Validator
+from jsonschema import Draft7Validator, FormatChecker
 
 DEFAULT_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "assets" / "campaign-state-schema.json"
+
+
+def _is_date_time(instance: Any) -> bool:
+    """ISO-8601 date and time with a UTC offset; anything but a string is the type check's."""
+    if not isinstance(instance, str):
+        return True
+    text = instance[:-1] + "+00:00" if instance.endswith(("Z", "z")) else instance
+    if "T" not in text and "t" not in text:
+        return False
+    try:
+        parsed = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+FORMAT_CHECKER = FormatChecker(formats=())
+FORMAT_CHECKER.checks("date-time")(_is_date_time)
 
 
 def _emit(envelope: dict) -> None:
@@ -115,6 +137,14 @@ def _translate(err) -> dict:
             "field": field,
             "message": f"State validation failed: `{field}` — {err.message}",
         }
+    if validator == "format":
+        return {
+            "field": field,
+            "message": (
+                f"State validation failed: `{field}` value `{inst}` is not an ISO-8601 date and time "
+                f"with a UTC offset (e.g. `2026-05-01T00:00:00Z`)."
+            ),
+        }
     if validator in ("minimum", "maximum"):
         return {
             "field": field,
@@ -127,7 +157,7 @@ def _translate(err) -> dict:
 
 
 def validate_state(state: dict, schema: dict) -> dict:
-    validator = Draft7Validator(schema)
+    validator = Draft7Validator(schema, format_checker=FORMAT_CHECKER)
     errors = [
         _translate(err)
         for err in sorted(validator.iter_errors(state), key=lambda e: list(e.absolute_path))

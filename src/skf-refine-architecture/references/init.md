@@ -1,6 +1,8 @@
 ---
 nextStepFile: 'gap-analysis.md'
 refinementRulesData: '{refinementRulesPath}'
+# The findings a step 5 review dropped from an earlier refinement (compile.md §8).
+dismissedFile: '{outputFolderPath}/.ra-dismissed-{arch_project_name}.json'
 # Each probe order resolves to its first existing path.
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
@@ -119,6 +121,8 @@ Bind `{analysis_doc}` ← `{run_dir}/analysis-doc.md`, the document with any ear
 - **3:** the analysis copy could not be written: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:previous-pass`, naming its `error`.
 - If `uv` cannot start the script: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:previous-pass`.
 
+**Findings an earlier review dropped.** When `{previous_pass}` is true and `{dismissedFile}` exists, read it as `{dismissed_findings}`: the list of `{kind, skills, anchor, title, capability}` records Step 05 writes when its review drops a finding, which Steps 02 to 04 match as `references/finding-storage.md` says. Otherwise `{dismissed_findings}` is empty. A file that is not such a JSON list leaves it empty too: say "The record of findings dropped at an earlier review cannot be read ({reason}): they may come back in this run." (in headless, log it).
+
 ### 2. Scan Skills Folder
 
 **Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins.
@@ -161,11 +165,13 @@ Then append `<!-- [RA-RUN] run_dir={run_dir} timestamp={timestamp} architecture_
 
 On any write failure (read-only mount, disk full, permissions denied): HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:state-file`, with `"path"` set to the state file, naming the captured error.
 
-### 4. Load Refinement Rules
+### 4. Check the Refinement Rules
 
-Load `{refinementRulesData}` for reference by downstream steps.
+Read `{refinementRulesData}`, the house-style rules Steps 02 to 05 classify with: the bundled `references/refinement-rules.md`, or the copy `workflow.refinement_rules_path` names. It must hold the six tables the steps read by name: Gap Classification, Issue Classification, Issue Severity, VS Report Integration (mapping each of `Verified`, `Plausible`, `Risky` and `Blocked`), Improvement Classification and Improvement Value.
 
-Extract: gap detection rules, issue detection rules, improvement detection rules and citation format.
+Its tiers must also fit the Refinement Summary, which counts each one as `{<tier>_count}`. Check every tier of the Issue Severity and Improvement Value tables: its name starts with a letter and holds only the letters A to Z, digits and spaces; no other tier of either table has the same name, ignoring case; and it is not named `gap`, `issue`, `improvement`, `unverified` or `skill`, ignoring case. Check that each VS Report Integration row raises a tier of the Issue Severity table, or no issue.
+
+When the file cannot be read, lacks a table or breaks a tier rule, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:rules`, with `"path"` set to it: "The refinement rules at `{refinementRulesData}` {cannot be read: {reason} | lack {the missing tables} | name tiers the Refinement Summary cannot count: {each offending tier, or VS row, and the rule it breaks}}. Fix the copy `refinement_rules_path` names, starting again from the bundled `references/refinement-rules.md`, or remove that override."
 
 ### 5. Display Initialization Summary
 

@@ -71,7 +71,7 @@ Run these steps once, in order, before the first reply.
    uv run "<preflight>" "{project-root}" --allow-missing-sidecar
    ```
 
-   It loads the config, resolves its folders to absolute paths (a leading `{project-root}` included), checks `sidecar_path`, and loads `preferences.yaml` and `forge-tier.yaml`, with empty defaults for a sidecar folder or file that SF has not written yet. It prints one JSON object:
+   It loads the config, resolves its folders to absolute paths (a leading `{project-root}` included), checks `sidecar_path`, and loads `preferences.yaml` and `forge-tier.yaml`, with empty defaults for a sidecar folder or file that is not there yet. It prints one JSON object:
 
    - `status` `hard-halt` (`code` `CONFIG_MISSING`, `CONFIG_MALFORMED` or `SIDECAR_UNDEFINED`): HARD HALT with its `error` text.
    - No JSON object with a `status`: HARD HALT with what the call printed. When `uv` itself is missing, add that SKF runs its scripts with `uv`, which installs from <https://docs.astral.sh/uv/getting-started/installation/>.

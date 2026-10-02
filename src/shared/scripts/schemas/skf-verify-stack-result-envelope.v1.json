@@ -5,7 +5,7 @@
   "description": "Single-line JSON document skf-verify-stack emits when {headless_mode} is true, prefixed with the literal 'SKF_VERIFY_STACK_RESULT_JSON: ': once on stdout when step 6 (report) finishes, before it chains to the health check, and once on stderr at every HARD HALT (status error). The shared emitter, skf-emit-result-envelope.py, builds every line from the payload a stage stages in the run folder, folds in the auto-decisions and warnings the run recorded there, derives exit_code from halt_reason, stamps run_id and result_path, and checks the line against this schema, so the model never types it. The skill's references/exit-codes.md describes each field and the halt command.",
   "$defs": {
     "skf-envelope": {
-      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
+      "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason, the result file stem and the stamp the per-run result file is named after (the run's run_id). Nothing in the schema references this entry, so it constrains no envelope.",
       "const": {
         "workflow": "skf-verify-stack",
         "prefix": "SKF_VERIFY_STACK_RESULT_JSON",
@@ -25,7 +25,8 @@
           "inventory-unreliable": 7
         },
         "success_exit_code": 0,
-        "result_file": "verify-stack-result"
+        "result_file": "verify-stack-result",
+        "result_stamp": "run_id"
       }
     }
   },
@@ -110,7 +111,7 @@
     "result_path": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The per-run result file the emitter wrote in the forge data folder, verify-stack-result-<YYYYMMDD-HHmmss>.json (UTC), beside its verify-stack-result-latest.json copy. Stamped by the emitter, never typed. Null on every halt, which writes no result file, and when the write failed (warnings say why)."
+      "description": "The per-run result file the emitter wrote in the forge data folder, verify-stack-result-<YYYYMMDD-HHmmss>.json, named after the run's own stamp (its run_id, the stamp the timestamped report's file name carries; -2, -3, ... appended when a run already took the name), beside its verify-stack-result-latest.json copy. Stamped by the emitter, never typed. Null on every halt, which writes no result file, and when the write failed (warnings say why)."
     },
     "headless_decisions": {
       "type": "array",

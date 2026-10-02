@@ -88,12 +88,10 @@ def test_status_tier_failure_when_require_tier_not_satisfied():
     assert mod.assemble_envelope(p)["skf_setup"]["status"] == "tier_failure"
 
 
-# The three step 2 write halts (write-config.md §1-§3). A write failure has
-# no status of its own: it is `blocked`, and error.phase names it.
+# The two step 2 write halts (write-config.md). A write failure has no
+# status of its own: it is `blocked`, and error.phase names it.
 STEP2_WRITE_ERRORS = [
     {"phase": "step 2:write-tools", "path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
-     "reason": "Permission denied"},
-    {"phase": "step 2:init-prefs", "path": "/p/_bmad/_memory/forger-sidecar/preferences.yaml",
      "reason": "Permission denied"},
     {"phase": "step 2:forge-data-dir", "path": "/p/forge-data", "reason": "Permission denied"},
 ]
@@ -138,7 +136,7 @@ def test_status_enum_lists_exactly_what_the_helper_emits():
     errors = [None, *STEP2_WRITE_ERRORS, _error("write-config:forge-tier.yaml"),
               _error("Step 3:overwrite-check")]
     produced = {mod._compute_status(e, tier) for e in errors for tier in (None, True, False)}
-    produced.add(mod.assemble_blocked_envelope("step 2:init-prefs", "r")["skf_setup"]["status"])
+    produced.add(mod.assemble_blocked_envelope("step 2:forge-data-dir", "r")["skf_setup"]["status"])
     assert produced == set(enum)
 
 
@@ -1220,6 +1218,40 @@ def test_a_failed_latest_copy_keeps_the_record(demo, monkeypatch, capsys):
     assert record["result_path"] == per_run.as_posix() and record["warnings"] == []
 
 
+@pytest.mark.parametrize("run_name,stamped", [
+    ("skf-demo-workflow-20260930-120000", True),
+    ("skf-demo-workflow-20260930T120000Z-7-beef", False),
+    ("skf-demo-workflow-2026093O-120000", False),
+], ids=["run-stamp", "not-a-stamp", "letter-o"])
+def test_result_stamp_run_id_names_the_record_after_the_run(demo, monkeypatch, capsys, run_name, stamped):
+    """The W3 handoff: with `result_stamp: "run_id"`, the per-run record carries
+    the run's own YYYYMMDD-HHmmss stamp, the one its report files carry, and
+    keeps the -2 suffix of a name another run took; any other run_id falls
+    back to the clock."""
+    tmp_path, _ = demo
+    schema = _demo_schema()
+    schema["$defs"][mod.META_KEY]["const"]["result_stamp"] = "run_id"
+    (tmp_path / "schemas" / "skf-demo-result-envelope.v1.json").write_text(json.dumps(schema), encoding="utf-8")
+    run_dir = tmp_path / ".skf-run" / run_name
+    run_dir.mkdir(parents=True, exist_ok=True)
+    version = tmp_path / "v"
+    version.mkdir()
+    monkeypatch.setattr(mod.time, "time", lambda: 1790000000)
+    first = _run_in_process(monkeypatch, capsys, HALT, halt=True, run_dir=str(run_dir), result_dir=str(version))
+    second = _run_in_process(monkeypatch, capsys, HALT, halt=True, run_dir=str(run_dir), result_dir=str(version))
+    stamp = "20260930-120000" if stamped else mod._stamps(1790000000)[1]
+    assert first["result_path"] == (version / f"demo-result-{stamp}.json").as_posix()
+    assert second["result_path"] == (version / f"demo-result-{stamp}-2.json").as_posix()
+    # The envelope's own timestamp stays the clock's.
+    assert first["timestamp"] == mod._stamps(1790000000)[0]
+
+
+def test_verify_stack_names_its_record_after_the_run():
+    schema, _ = mod.load_workflow_schema("skf-verify-stack")
+    assert mod._meta_of(schema)["result_stamp"] == "run_id"
+    assert "run's own stamp" in schema["properties"]["result_path"]["description"]
+
+
 def test_same_second_records_never_share_a_name(tmp_path):
     first = mod._claim_result_path(tmp_path, "demo-result", "20260930-120000")
     second = mod._claim_result_path(tmp_path, "demo-result", "20260930-120000")
@@ -1494,11 +1526,12 @@ def test_a_kept_orphan_decision_names_no_collection():
 
 @pytest.mark.parametrize("flags,expected", [
     ({}, ["forge-tier.yaml"]),
-    ({"preferences_yaml_created": True}, ["forge-tier.yaml", "preferences.yaml"]),
+    # Setup never writes preferences.yaml: the installer creates it.
+    ({"preferences_yaml_created": True}, ["forge-tier.yaml"]),
     ({"settings_yml_written": True, "ccc_index": {"status": "created", "indexed_path": "/p", "file_count": 9}},
      ["forge-tier.yaml", "settings.yml", "ccc_index"]),
     ({"ccc_index": {"status": "fresh", "indexed_path": "/p", "file_count": 9}}, ["forge-tier.yaml"]),
-], ids=["minimal", "first-run-prefs", "settings-and-new-index", "fresh-index"])
+], ids=["minimal", "old-prefs-flag-ignored", "settings-and-new-index", "fresh-index"])
 def test_files_written_is_derived_when_the_payload_leaves_it_out(flags, expected):
     p = {k: v for k, v in _baseline_payload().items() if k != "files_written"}
     p.update(flags)
@@ -1546,22 +1579,25 @@ def _detect_output() -> dict:
 # What report.md section 1 stages: only the values no helper output holds.
 REPORT_CONTEXT = {
     "project_root": "/p", "config_path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
-    "forge_data_folder": "/p/forge-data",
-    "ccc_index": {"status": "none", "indexed_path": None, "file_count": None},
-    "preferences_yaml_created": False, "settings_yml_written": False, "settings_yml_patterns_added": 0,
-    "settings_yml_patterns_removed": 0, "gitignore_updated": False, "ccc_exclusion_warnings": [],
-    "ccc_indexing_failed_reason": None, "hygiene_orphaned_removed": 0, "hygiene_orphaned_kept": 0,
-    "orphan_auto_resolution": None, "error": None,
+    "forge_data_folder": "/p/forge-data", "orphan_auto_resolution": None, "error": None,
 }
 CLASSIFIED = {"status": "ok", "version": "v1", "live_names": ["a-docs"], "healthy": ["a-docs"],
-              "orphaned": [], "stale": [], "foreign_filtered_count": 0, "foreign_filtered_sample": []}
+              "orphaned": [], "orphaned_paths": {}, "stale": [], "foreign_filtered_count": 0,
+              "foreign_filtered_sample": []}
+# skf-merge-ccc-exclusions.py --build-index's result, as its --result-to file holds it.
+CCC_RESULT = {"status": "ok", "version": "v2", "written": True, "patterns_added": 3, "patterns_removed": 1,
+              "gitignore_updated": True, "warnings": ["add /.cocoindex_code/ to {project-root}/.gitignore"],
+              "effective_patterns": ["**/_bmad", "skills"], "index_action": "index",
+              "index": {"status": "created", "indexed_path": "/p", "last_indexed": "2026-10-01T10:00:00+00:00",
+                        "file_count": 12, "failed_reason": None}}
 
 
-def _stage(run_dir: Path, detect=None, classify=None, clean_stale=None) -> Path:
+def _stage(run_dir: Path, detect=None, classify=None, clean_stale=None, ccc=None, remove=None) -> Path:
     """A setup run folder: each helper output given (a string is written as it is) and the payload."""
     run_dir.mkdir(parents=True, exist_ok=True)
     for name, value in ((mod.STAGED_DETECT, detect), (mod.STAGED_CLASSIFY, classify),
-                        (mod.STAGED_CLEAN_STALE, clean_stale)):
+                        (mod.STAGED_CLEAN_STALE, clean_stale), (mod.STAGED_CCC, ccc),
+                        (mod.STAGED_REMOVE, remove)):
         if value is not None:
             (run_dir / name).write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
     (run_dir / "report-context.json").write_text(json.dumps(REPORT_CONTEXT), encoding="utf-8")
@@ -1611,6 +1647,91 @@ def test_fold_staged_reads_the_registry_cleanup():
             failed["ccc_registry_stale_removed"]) == (0, 0, [])
 
 
+def test_fold_staged_reads_the_ccc_result_and_keeps_its_notes_verbatim():
+    """The W2 handoff: the merge helper's result passes by file, so no step
+    binds or re-types written, patterns_added, patterns_removed,
+    gitignore_updated or warnings, and an SKF-worded {project-root} stays."""
+    folded = mod.fold_staged({}, {mod.STAGED_CCC: CCC_RESULT})
+    assert (folded["settings_yml_written"], folded["settings_yml_patterns_added"],
+            folded["settings_yml_patterns_removed"], folded["gitignore_updated"]) == (True, 3, 1, True)
+    assert folded["ccc_exclusion_warnings"] == ["add /.cocoindex_code/ to {project-root}/.gitignore"]
+    assert folded["ccc_index"] == {"status": "created", "indexed_path": "/p", "file_count": 12}
+    assert folded["ccc_indexing_failed_reason"] is None
+    env = mod.assemble_envelope({**_baseline_payload(), **folded})["skf_setup"]
+    assert "add /.cocoindex_code/ to {project-root}/.gitignore" in env["warnings"]
+
+
+@pytest.mark.parametrize("result,reason", [
+    ({"status": "error", "message": "settings.yml is not a mapping"}, "settings.yml is not a mapping"),
+    (None, "the ccc settings helper returned no result"),
+    ({**CCC_RESULT, "index": {"status": "failed", "indexed_path": None, "last_indexed": None,
+                              "file_count": None, "failed_reason": "ccc index exited 1: daemon down"}},
+     "ccc index exited 1: daemon down"),
+], ids=["helper-error", "empty-file", "index-failed"])
+def test_fold_staged_reads_a_failed_ccc_preparation(result, reason):
+    folded = mod.fold_staged({}, {mod.STAGED_CCC: result})
+    assert folded["ccc_index"]["status"] == "failed"
+    assert folded["ccc_indexing_failed_reason"] == reason
+    env = mod.assemble_envelope({**_baseline_payload(), **folded})["skf_setup"]
+    assert f"ccc_indexing_failed: {reason}" in env["warnings"]
+    if result is None or result["status"] == "error":
+        assert (folded["settings_yml_written"], folded["settings_yml_patterns_added"],
+                folded["settings_yml_patterns_removed"], folded["gitignore_updated"],
+                folded["ccc_exclusion_warnings"]) == (False, 0, 0, False, [])
+
+
+def test_no_ccc_result_leaves_the_index_none():
+    folded = mod.fold_staged({}, {mod.STAGED_DETECT: _detect_output()})
+    assert "ccc_index" not in folded and "settings_yml_written" not in folded
+    env = mod.assemble_envelope({**folded, "config_path": "/p/x", "error": None})["skf_setup"]
+    assert env["ccc_index"] == {"status": "none", "indexed_path": None, "file_count": None}
+    assert env["files_written"] == ["forge-tier.yaml"]
+
+
+def test_a_missing_ccc_result_with_ccc_available_reads_as_a_failed_index():
+    """Step 1b runs the helper whenever ccc is available, so no result file
+    means it wrote nothing (a usage error, or a call its host stopped)."""
+    detect = _detect_output()
+    detect["tools"]["ccc"] = {"available": True, "daemon": "healthy", "version": "0.2.41"}
+    folded = mod.fold_staged({}, {mod.STAGED_DETECT: detect})
+    assert folded["ccc_index"] == {"status": "failed", "indexed_path": None, "file_count": None}
+    assert folded["ccc_indexing_failed_reason"] == mod.CCC_NO_RESULT
+    env = mod.assemble_envelope({**folded, "config_path": "/p/x", "error": None})["skf_setup"]
+    assert env["ccc_index"]["status"] == "failed"
+    assert f"ccc_indexing_failed: {mod.CCC_NO_RESULT}" in env["warnings"]
+    assert env["files_written"] == ["forge-tier.yaml"]
+
+
+ORPHANS = {**CLASSIFIED, "orphaned": ["a-brief", "b-docs", "c-temporal"]}
+
+
+@pytest.mark.parametrize("staged,removed,kept,trail", [
+    ({mod.STAGED_CLASSIFY: ORPHANS}, 0, 3, {"action": "keep", "source": "quiet-default", "count": 3}),
+    ({mod.STAGED_CLASSIFY: ORPHANS,
+      mod.STAGED_REMOVE: {"status": "ok", "removed": ["a-brief", "b-docs"], "failed": ["c-temporal"], "errors": {}}},
+     2, 1, {"action": "remove", "source": "orphan-action-flag", "count": 3, "removed": ["a-brief", "b-docs"],
+            "failed": ["c-temporal"]}),
+    ({mod.STAGED_CLASSIFY: ORPHANS, mod.STAGED_REMOVE: None}, 0, 3,
+     {"action": "remove", "source": "orphan-action-flag", "count": 3, "removed": [],
+      "failed": ["a-brief", "b-docs", "c-temporal"]}),
+], ids=["kept", "removed", "removal-printed-nothing"])
+def test_fold_staged_counts_the_orphans_and_fills_the_audit_trail(staged, removed, kept, trail):
+    """remove-orphans stages what it deleted: setup's payload names only the
+    decision, and the emitter fills the count and the names."""
+    decision = {key: trail[key] for key in ("action", "source")}
+    folded = mod.fold_staged({"orphan_auto_resolution": decision}, staged)
+    assert (folded["hygiene_orphaned_removed"], folded["hygiene_orphaned_kept"]) == (removed, kept)
+    assert folded["orphan_auto_resolution"] == trail
+
+
+def test_an_interactive_orphan_decision_stays_null():
+    folded = mod.fold_staged({"orphan_auto_resolution": None},
+                             {mod.STAGED_CLASSIFY: ORPHANS,
+                              mod.STAGED_REMOVE: {"status": "ok", "removed": ["a-brief"], "failed": []}})
+    assert folded["orphan_auto_resolution"] is None
+    assert (folded["hygiene_orphaned_removed"], folded["hygiene_orphaned_kept"]) == (1, 0)
+
+
 def test_read_staged_tells_a_failed_helper_from_one_that_never_ran(tmp_path):
     _stage(tmp_path / "run", detect=_detect_output(), classify="")
     staged = mod.read_staged(tmp_path / "run")
@@ -1640,6 +1761,7 @@ def test_emit_from_staged_files_matches_the_hand_built_payload(tmp_path):
     staged = _cli_in(["emit", "--run-dir", str(run_dir)], (run_dir / "report-context.json").read_text(encoding="utf-8"))
     assert staged.returncode == 0, staged.stderr
     full = {**REPORT_CONTEXT, "tier": "Forge", "previous_tier": "Forge", "tools": detect["tools"],
+            "ccc_index": {"status": "none", "indexed_path": None, "file_count": None},
             "previous_tools": detect["prior"]["previous_tools"], "tier_override_active": False,
             "tier_override_invalid": True, "tier_override_invalid_value": "deep",
             "tier_override_invalid_suggestion": "Deep", "tier_override_unsafe": False,
@@ -1657,6 +1779,39 @@ def test_emit_from_staged_files_matches_the_hand_built_payload(tmp_path):
     assert "tier_override_invalid: deep (did you mean Deep?)" in env["warnings"]
     assert "ccc_registry_stale_removed: /gone" in env["warnings"]
     assert "tool_below_minimum: git 2.10.0 (minimum 2.15)" in env["warnings"]
+
+
+def test_emit_reads_every_value_from_the_staged_files(tmp_path):
+    """A Deep run with ccc whose step 4 payload holds only the paths, the
+    orphan decision and a null error: every other value comes from a file."""
+    detect = _detect_output()
+    detect["tools"]["ccc"] = {"available": True, "daemon": "healthy", "version": "0.2.41"}
+    detect["require_tier"] = {"requested": None, "satisfied": None, "missing_tools": []}
+    run_dir = _stage(tmp_path / "skf-setup-RUN", detect=detect, classify=ORPHANS, ccc=CCC_RESULT,
+                     remove={"status": "ok", "removed": ["a-brief", "b-docs", "c-temporal"], "failed": [],
+                             "errors": {}},
+                     clean_stale={"qmd_removed": [], "ccc_removed": [], "wrote": False})
+    context = {**REPORT_CONTEXT, "orphan_auto_resolution": {"action": "remove", "source": "orphan-action-flag"}}
+    done = _cli_in(["emit", "--run-dir", str(run_dir)], json.dumps(context))
+    assert done.returncode == 0, done.stderr
+    env = _envelope_of(done.stdout)
+    assert mod._validate_against_schema(env, _schema()) == []
+    env = env["skf_setup"]
+    assert env["status"] == "success"
+    assert env["files_written"] == ["forge-tier.yaml", "settings.yml", "ccc_index"]
+    assert env["ccc_index"] == {"status": "created", "indexed_path": "/p", "file_count": 12}
+    assert env["warnings"][-4:] == [
+        "orphan_auto_resolution: remove 3 orphaned collection(s) (non-interactive, orphan-action-flag)",
+        "orphan_removed: a-brief", "orphan_removed: b-docs", "orphan_removed: c-temporal"]
+    assert "add /.cocoindex_code/ to {project-root}/.gitignore" in env["warnings"]
+    banner = _cli_in(["render-report", "--run-dir", str(run_dir)], json.dumps(context))
+    assert banner.returncode == 0, banner.stderr
+    for line in ("  3 orphaned collection(s) removed", "  indexed this run, semantic discovery ready",
+                 "  - add /.cocoindex_code/ to /p/.gitignore",
+                 "  - .cocoindex_code/settings.yml: /p/.cocoindex_code/settings.yml (3 SKF exclusion pattern(s) "
+                 "merged, 1 stale SKF pattern(s) removed)",
+                 "  - .cocoindex_code/ ccc index: 12 files indexed"):
+        assert line in banner.stdout.splitlines(), line
 
 
 # ─── skf-setup: FORGE STATUS banner (render-report) ─────────────────────────
@@ -1686,7 +1841,11 @@ def _probes(ast=AST, gh=GH, qmd=NO_QMD, ccc=NO_CCC) -> dict:
 
 def _banner_payload(**over) -> dict:
     """A same-tier Forge re-run with ast-grep and gh, and nothing else to report."""
-    payload = {**REPORT_CONTEXT, "tier": "Forge", "previous_tier": "Forge", "tools": _probes(),
+    payload = {**REPORT_CONTEXT, "ccc_index": {"status": "none", "indexed_path": None, "file_count": None},
+               "settings_yml_written": False, "settings_yml_patterns_added": 0, "settings_yml_patterns_removed": 0,
+               "gitignore_updated": False, "ccc_exclusion_warnings": [], "ccc_indexing_failed_reason": None,
+               "hygiene_orphaned_removed": 0, "hygiene_orphaned_kept": 0,
+               "tier": "Forge", "previous_tier": "Forge", "tools": _probes(),
                "previous_tools": {"ast_grep": True, "gh_cli": True, "qmd": False, "ccc": False},
                "tier_override_active": False, "tier_override_invalid": False, "tier_override_unsafe": False,
                "require_tier_satisfied": None, "qmd_status": "absent", "hygiene_result": "skipped"}
@@ -1788,8 +1947,6 @@ BANNER_CASES = [
      "  indexing failed, semantic discovery unavailable this session (daemon down)"),
     ("ccc_exclusion_warnings is non-empty", _ccc(ccc_exclusion_warnings=["a note"]), _ccc(),
      "  CCC exclusion notes:"),
-    ("preferences_yaml_created is true", {"preferences_yaml_created": True}, {},
-     "  - preferences.yaml: /p/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)"),
     ("settings_yml_written is true", {"settings_yml_written": True, "settings_yml_patterns_added": 3}, {},
      "  - .cocoindex_code/settings.yml: /p/.cocoindex_code/settings.yml (3 SKF exclusion pattern(s) merged)"),
     ("settings_yml_patterns_removed > 0",
@@ -1822,15 +1979,12 @@ BANNER_CASES = [
     ("{tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} "
      "is non-null", {}, {"previous_tier": None, "previous_tools": None},
      "  " + COPY["same"].replace("{current}", "Forge")),
-    ('preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "fresh"',
+    ('settings_yml_written is false and ccc_index_result is "fresh"',
      _ccc(), _ccc(settings_yml_written=True),
-     "  Your preferences and ccc settings were left untouched, and the ccc index was already current."),
-    ('preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "skipped"',
-     _ccc(index="skipped"), _ccc(index="skipped", preferences_yaml_created=True),
-     "  Your preferences and ccc settings were left untouched; the ccc index was not checked "
-     "(--ccc-skip-index)."),
-    ('preferences_yaml_created is false and ccc_index_result is "none"', {}, {"preferences_yaml_created": True},
-     "  Your preferences were left untouched."),
+     "  Your ccc settings were left untouched, and the ccc index was already current."),
+    ('settings_yml_written is false and ccc_index_result is "skipped"',
+     _ccc(index="skipped"), _ccc(index="skipped", settings_yml_written=True),
+     "  Your ccc settings were left untouched; the ccc index was not checked (--ccc-skip-index)."),
     ("{tier_changed} is false and ({tools_added} or {tools_removed} is non-empty) and {previous_tier} "
      "is non-null", GAINED_GH, {}, "  Tier unchanged: Forge."),
     ("{tools_added} non-empty", GAINED_GH, LOST_GH, "  Newly detected: gh."),
@@ -1935,9 +2089,9 @@ def _shown(line: str, condition: str) -> str:
 
 
 def test_every_template_condition_has_its_case_in_template_order():
-    """The template is what render-report prints: 43 conditions, a case for each."""
+    """The template is what render-report prints: 41 conditions, a case for each."""
     entries = _template_entries()
-    assert len(entries) == 43
+    assert len(entries) == 41
     assert [condition for condition, _ in entries] == [case[0] for case in BANNER_CASES]
     assert "{headless_mode}" not in "\n".join(_template_lines())
 
@@ -2041,7 +2195,7 @@ def _template_pattern() -> tuple[str, list[str]]:
 def _banners() -> list[list[str]]:
     """The banner for each payload a case makes its condition hold or fail with, and a first Deep run."""
     first_deep = dict(tier="Deep", previous_tier=None, previous_tools=None, qmd_status="healthy",
-                      tools=_probes(qmd=QMD, ccc=CCC), preferences_yaml_created=True, settings_yml_written=True,
+                      tools=_probes(qmd=QMD, ccc=CCC), settings_yml_written=True,
                       ccc_index={"status": "created", "indexed_path": "/p", "file_count": 1},
                       settings_yml_patterns_added=6, gitignore_updated=True, hygiene_result="completed",
                       hygiene_healthy=0, hygiene_orphaned_kept=23)
@@ -2065,7 +2219,7 @@ def test_a_first_deep_run_renders_the_whole_banner():
     lines = _banner(tier="Deep", previous_tier=None, previous_tools=None, qmd_status="healthy",
                     tools=_probes(qmd=QMD, ccc=CCC),
                     ccc_index={"status": "created", "indexed_path": "/p", "file_count": 1},
-                    preferences_yaml_created=True, settings_yml_written=True, settings_yml_patterns_added=6,
+                    settings_yml_written=True, settings_yml_patterns_added=6,
                     gitignore_updated=True, hygiene_result="completed", hygiene_healthy=0,
                     hygiene_orphaned_kept=23)
     assert lines == [
@@ -2078,7 +2232,6 @@ def test_a_first_deep_run_renders_the_whole_banner():
         "  CCC Index:", "  indexed this run, semantic discovery ready", "",
         "  Files written this run:",
         "  - forge-tier.yaml: /p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
-        "  - preferences.yaml: /p/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)",
         "  - /p/forge-data/ (directory ensured)",
         "  - .cocoindex_code/settings.yml: /p/.cocoindex_code/settings.yml (6 SKF exclusion pattern(s) merged)",
         "  - .gitignore: /p/.gitignore (`/.cocoindex_code/` added by `ccc init`)",

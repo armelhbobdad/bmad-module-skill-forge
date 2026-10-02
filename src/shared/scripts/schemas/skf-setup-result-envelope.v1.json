@@ -43,7 +43,7 @@
         "status": {
           "type": "string",
           "enum": ["success", "tier_failure", "blocked"],
-          "description": "Single-field outcome for pipeline branching. 'success' when the run finished with no error and any required tier is satisfied. 'tier_failure' when --require-tier was set and is not satisfied. 'blocked' for any halt that still produced an envelope; error.phase names it, for example 'step 2:write-tools', 'step 2:init-prefs' or 'step 2:forge-data-dir' when forge-tier.yaml, preferences.yaml or the forge data folder could not be written."
+          "description": "Single-field outcome for pipeline branching. 'success' when the run finished with no error and any required tier is satisfied. 'tier_failure' when --require-tier was set and is not satisfied. 'blocked' for any halt that still produced an envelope; error.phase names it, for example 'step 2:write-tools' or 'step 2:forge-data-dir' when forge-tier.yaml or the forge data folder could not be written."
         },
         "tier": {
           "type": "string",
@@ -104,10 +104,10 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index"]
+            "enum": ["forge-tier.yaml", "settings.yml", "ccc_index"]
           },
           "uniqueItems": true,
-          "description": "Files written this run, as step 4 reports them. A blocked envelope always carries an empty array, even when an earlier step had already written a file."
+          "description": "Files written this run, as step 4 reports them. Setup never writes preferences.yaml: the installer creates it. A blocked envelope always carries an empty array, even when an earlier step had already written a file."
         },
         "tier_override_active": {
           "type": "boolean",

@@ -25,7 +25,12 @@ What it does (render mode):
     name); repo URLs live only in the brief, never in the state schema.
   - Emits one line per skill in the CONSUMER's single-target shape:
       {repo_url}                        (pin is null: latest)
-      {repo_url}@{pin}                  (skills[].pin is non-null)
+      {repo_url}@{pin}                  (a version pin: a digit, or `v` and a
+                                         digit, first; skf-resolve-package.py's
+                                         _VERSION_RE)
+      {repo_url}/tree/{pin}             (any other pin, a branch such as
+                                         `main`: quick-skill's parse-target
+                                         reads it as the ref to build)
     with optional ` language=<lang>` / ` scope=<path>` modifiers appended when the
     brief target carries a `language_hint`/`language` or `scope_hint`/`scope` hint.
     QS reads a modifier as one word: a hint that is empty or holds whitespace
@@ -81,7 +86,19 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
 GATE_SCRIPT = Path(__file__).resolve().with_name("campaign-quality-gate.py")
+RESOLVE_PACKAGE_SCRIPT = Path(__file__).resolve().parent.parent.parent / "shared" / "scripts" / "skf-resolve-package.py"
 SELECTED_STATUSES = ("pending", "active")
+
+
+def _version_re() -> Any:
+    """skf-resolve-package.py's _VERSION_RE: the pins parse-target reads after `@`."""
+    spec = importlib.util.spec_from_file_location("skf_resolve_package", RESOLVE_PACKAGE_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module._VERSION_RE
+
+
+VERSION_RE = _version_re()
 
 
 def _err(message: str, code: str, exit_code: int, **extra: Any) -> int:
@@ -99,8 +116,11 @@ def _target_line(repo_url: str, pin: Any, target: Dict[str, Any]) -> Tuple[str, 
     (empty, or holding whitespace) is left off the line and returned instead.
     """
     line = repo_url
-    if pin:
+    if pin and VERSION_RE.match(str(pin)):
         line += f"@{pin}"
+    elif pin:
+        # parse-target reads `@main` as no target at all; /tree/<branch> is a ref.
+        line += f"/tree/{pin}"
     dropped: List[Dict[str, Any]] = []
     for modifier, fields in (("language", ("language_hint", "language")), ("scope", ("scope_hint", "scope"))):
         field = next((f for f in fields if target.get(f) not in (None, "")), None)

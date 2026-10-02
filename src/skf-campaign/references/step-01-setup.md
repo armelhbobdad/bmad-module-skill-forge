@@ -3,10 +3,10 @@ nextStepFile: 'step-02-strategy.md'
 stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
+decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
 templateFile: '{briefTemplatePath}'
-validateScript: 'scripts/campaign-validate-state.py'
+stateScript: 'scripts/campaign-state.py'
 manifestScript: 'scripts/campaign-parse-manifest.py'
-gateScript: 'scripts/campaign-quality-gate.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -17,13 +17,10 @@ gateScript: 'scripts/campaign-quality-gate.py'
 
 Collect campaign inputs from the operator, create the initial `_campaign-state.yaml`, and generate `campaign-brief.yaml` so the campaign has a persistent starting point that survives context death.
 
-This is the only step that creates the state file (it does not yet exist). All subsequent steps use **read-backup-modify-write** per the State Contract in `references/campaign-contracts.md`.
-
 ## RULES
 
-- This step creates the state file — there is no existing state to read or back up.
-- Validate the written state with `uv run {validateScript} --state-file {stateFile}` before generating the brief. HALT (exit code 3, `invalid-state`) on non-zero, surfacing the script's `errors[]`.
-- If `{headless_mode}` is true, draw inputs from `--brief`/`--manifest` (On Activation step 4) and auto-proceed through confirmation gates with the default action, logging each auto-decision to the decision log.
+- This is the only step that creates the state file, with the helper's `init` operation (`{stateScript}`); every later write goes through `{stateScript}` too (State Contract in `references/campaign-contracts.md`), so no target, timestamp or gate value is ever typed into the state by hand.
+- If `{headless_mode}` is true, draw inputs from `--brief`/`--manifest` (On Activation step 4) and auto-proceed through confirmation gates with the default action, logging each auto-decision with `uv run {stateScript} log --log-file {decisionLogFile} --type auto --text '<entry>'`; emit this stage's progress events, and at any HARD HALT the error envelope, per `references/campaign-contracts.md`.
 
 ## TASKS
 
@@ -60,62 +57,26 @@ A target the script rejects (`errors[]` non-empty, exit 1: a malformed manifest 
 
 If no targets can be collected (an empty answer, or an empty `--brief` or `--manifest`), HALT (exit code 2, `invalid-input`) with guidance: a campaign needs at least one target.
 
-### §2: Build State Object
+### §2: Create State
 
-Construct `_campaign-state.yaml` in memory from collected inputs. Note: `repo_url` (collected in §1) is NOT part of the state schema: it belongs in the brief only (§4). The state schema enforces `additionalProperties: false`, so including it would fail validation.
-
-Settle and check the quality gate with the gate script before writing anything. It takes each of `hard`, `soft_target` and `soft_fallback` from the brief's `quality_gate` when the targets came from a campaign brief (pass that file as `--brief-file`), else from On Activation's values: a brief wins over customize.toml. The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here.
+Settle the campaign name (the brief's `campaign_name`, else the operator's, else `{project_name}`), then create the state in one call. Pipe in the parse of the settled targets: the last §1 parse run again (the manifest file, `--brief <brief-file>`, or the corrected manifest lines on stdin), so the state takes its targets from the script's `targets[]`, never from the raw source:
 
 ```
-uv run {gateScript} check --hard "{qualityGateHard}" --soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>]
+uv run {manifestScript} <the settled source> | uv run {stateScript} init --state-file {stateFile} --targets-file - --name "<campaign_name>" --hard "{qualityGateHard}" --soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>] [--directive-path <directive_path>] [--architecture-doc-path <architecture_doc_path>]
 ```
 
-On exit 2 (a hard gate other than `zero-critical-high`, a soft value outside 0 to 100, a fallback above the target, or a brief it cannot read), HALT (exit code 2, `invalid-input`) with its `error`: no state is written. Use the values it prints as `quality_gate`.
+Pass `--brief-file` when the targets came from a campaign brief: each value its `quality_gate` gives wins over the customize.toml one. The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here. The helper settles and checks the gate with `campaign-quality-gate.py check`, creates `{campaignWorkspacePath}/`, writes every target as a `pending` skill (`repo_url` stays in the brief: the state schema has no place for it), stamps `started_at` and `last_updated` from the clock, and validates the state before it writes it. There is no earlier state, so no `.bak` is written.
 
-```yaml
-campaign:
-  name: "{campaign_name}"
-  started_at: "{current_iso8601_with_tz}"
-  last_updated: "{current_iso8601_with_tz}"
-  current_stage: 0
-  directive_path: "{directive_path or omit if not provided}"
-  architecture_doc_path: "{architecture_doc_path or omit if not provided}"
-  quality_gate:
-    hard: "{gate.hard}"
-    soft_target: {gate.soft_target}
-    soft_fallback: {gate.soft_fallback}
-skills:
-  # One entry per target:
-  - name: "{target.name}"
-    status: "pending"
-    depends_on: []            # from target.depends_on
-    tier: "{target.tier}"
-    pin: null                 # from target.pin
-    brief_path: null          # populated in step-05 once BS produces the skill's brief
-    skill_path: null
-    quality_score: null
-    workarounds_applied: []
-    started_at: null
-    completed_at: null
-dependency_graph:
-  execution_order: []         # populated by step-02-strategy
-  circular_deps_detected: false
-```
+On exit 2, HALT (exit code 2, `invalid-input`) with its `error` and `errors[]`; nothing is written: a gate the gate script rejects (a hard gate other than `zero-critical-high`, a soft value outside 0 to 100, a fallback above the target, or a brief it cannot read), targets that hold errors, or a state file or backup that already exists. On exit 3, HALT (exit code 3, `invalid-state`) with its `errors[]`.
 
-### §3: Write + Validate State
-
-1. Ensure the directory `{campaignWorkspacePath}/` exists (create if missing).
-2. Write the constructed state to `{stateFile}`. This is the initial creation — no `.bak` is needed for the first write; all subsequent steps use read-backup-modify-write.
-3. Run `uv run {validateScript} --state-file {stateFile}`. On non-zero (invalid), **HALT** (exit 3) with the script's `errors[]` — do not proceed to brief generation with an invalid state file.
-
-### §4: Generate Brief
+### §3: Generate Brief
 
 Populate `{templateFile}` with collected inputs and write to `{briefFile}`. Fill in:
 
-- `campaign_name`: from collected input
-- `created_at`: current ISO-8601 timestamp with timezone
+- `campaign_name`: the name §2 settled
+- `created_at`: the `last_updated` of the §2 output
 - `targets`: one entry per target with `name`, `repo_url`, `tier`, `pin` and `depends_on`, plus every other field its source gave it (a language or scope hint, for example)
-- `quality_gate`: the gate §2 settled
+- `quality_gate`: the `quality_gate` of the §2 output
 - `architecture_doc_path`: from collected input, or empty string if not provided
 - `notes`: operator-provided context, or empty string
 

@@ -5,7 +5,9 @@ schema" prose sites. These tests pin its contract: valid state → exit 0, schem
 violations → exit 1 with translated errors, load failures → exit 1 with a
 halt_reason, and a missing/unreadable schema → exit 2. They also pin two schema
 facts step files rely on: overall_verdict takes Verify Stack's verdicts, and an
-older state that still holds health_findings_queue validates.
+older state that still holds health_findings_queue validates. Every date-time
+field must parse as ISO-8601 with a UTC offset: the schema's `format` is only
+an annotation to Draft7Validator, so the script checks it itself.
 """
 
 from __future__ import annotations
@@ -185,3 +187,85 @@ class TestRun:
         state_file = _write_state(tmp_path, VALID_STATE)
         rc = mod.run(str(state_file), schema_file=str(SCHEMA))
         assert rc == 0
+
+
+# Every field the schema marks `format: date-time`, as a path into the state.
+DATE_TIME_FIELDS = [
+    ("campaign", "started_at"),
+    ("campaign", "last_updated"),
+    ("campaign", "capstone", "completed_at"),
+    ("skills", 0, "started_at"),
+    ("skills", 0, "completed_at"),
+]
+GOOD_STAMPS = ["2026-05-27T00:00:00Z", "2026-05-27T00:00:00+00:00", "2026-05-27T02:00:00.123+02:00",
+               "2026-05-27T00:00:00z"]
+BAD_STAMPS = ["2026-05-27T00:00:00", "2026-05-27", "yesterday", "2026-13-01T00:00:00Z", "", "now Z"]
+
+
+def _with_stamp(path, value):
+    state = copy.deepcopy(VALID_STATE)
+    state["campaign"]["capstone"] = {"skill_path": "s", "completed_at": "2026-05-27T00:00:00Z"}
+    state["skills"] = [{"name": "a", "status": "completed", "tier": "A",
+                        "started_at": "2026-05-27T00:00:00Z", "completed_at": "2026-05-27T00:00:00Z"}]
+    node = state
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    return state
+
+
+class TestDateTimeFields:
+    def test_every_date_time_field_is_covered(self):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        found = []
+
+        def walk(node, where):
+            if isinstance(node, dict):
+                if node.get("format") == "date-time":
+                    found.append(where)
+                for key, child in (node.get("properties") or {}).items():
+                    walk(child, where + (key,))
+                if isinstance(node.get("items"), dict):
+                    walk(node["items"], where + (0,))
+
+        walk(schema, ())
+        assert sorted(found, key=str) == sorted(DATE_TIME_FIELDS, key=str)
+
+    @pytest.mark.parametrize("path", DATE_TIME_FIELDS, ids=lambda p: ".".join(map(str, p)))
+    @pytest.mark.parametrize("stamp", GOOD_STAMPS)
+    def test_iso_8601_with_an_offset_is_valid(self, path, stamp):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        assert mod.validate_state(_with_stamp(path, stamp), schema)["errors"] == []
+
+    @pytest.mark.parametrize("path", DATE_TIME_FIELDS, ids=lambda p: ".".join(map(str, p)))
+    @pytest.mark.parametrize("stamp", BAD_STAMPS, ids=["no-offset", "date-only", "word", "month-13", "empty",
+                                                       "garbage"])
+    def test_anything_else_is_refused(self, path, stamp):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        errors = mod.validate_state(_with_stamp(path, stamp), schema)["errors"]
+        field = "".join(f"[{p}]" if isinstance(p, int) else (f".{p}" if i else p) for i, p in enumerate(path))
+        assert [e["field"] for e in errors] == [field]
+        assert "UTC offset" in errors[0]["message"]
+
+    @pytest.mark.parametrize("path", [("skills", 0, "started_at"), ("campaign", "capstone", "completed_at")])
+    def test_a_nullable_stamp_may_be_null(self, path):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        assert mod.validate_state(_with_stamp(path, None), schema)["valid"] is True
+
+    def test_offsetless_stamp_on_disk_exits_1(self, tmp_path, capsys):
+        state = copy.deepcopy(VALID_STATE)
+        state["campaign"]["last_updated"] = "2026-05-27T00:00:00"
+        rc = mod.run(str(_write_state(tmp_path, state)))
+        assert rc == 1
+        out = json.loads(capsys.readouterr().out.strip())
+        assert out["halt_reason"] == "state-invalid"
+        assert [e["field"] for e in out["errors"]] == ["campaign.last_updated"]
+
+    def test_unquoted_yaml_timestamp_keeps_its_quote_hint(self, tmp_path, capsys):
+        p = tmp_path / "_campaign-state.yaml"
+        text = yaml.safe_dump(VALID_STATE).replace("'2026-05-27T00:00:00Z'", "2026-05-27T00:00:00Z")
+        p.write_text(text, encoding="utf-8")
+        rc = mod.run(str(p))
+        assert rc == 1
+        messages = [e["message"] for e in json.loads(capsys.readouterr().out.strip())["errors"]]
+        assert messages and all("Quote it" in m for m in messages)

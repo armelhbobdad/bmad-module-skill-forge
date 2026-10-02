@@ -473,7 +473,7 @@ class TestPreflightHeadlessMode:
 
 class TestPreflightUnreadableSidecarFiles:
     """Suite 9: a sidecar file that does not load is reported, never a crash.
-    A file skf-setup has not written yet is not an error."""
+    A file that is not there yet is not an error."""
 
     def test_files_not_written_yet_read_as_empty(self, tmp_path):
         """The same shape as a missing folder under --allow-missing-sidecar,
@@ -745,7 +745,7 @@ class TestForgerActivation:
         """skf-setup never writes config.yaml, only the installer does, so the
         three surfaces that meet a missing install all name it."""
         setup_reason = re.search(
-            r"phase `on-activation:config-missing` and reason `([^`]+)`", _read(SETUP_SKILL),
+            r"phase `on-activation:config-missing`[^\n]*?reason `([^`]+)`", _read(SETUP_SKILL),
         )
         assert setup_reason, "skf-setup config-missing halt not found"
         preflight = _step("Preflight.")

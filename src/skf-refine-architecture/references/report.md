@@ -17,14 +17,13 @@ emitEnvelopeProbeOrder:
 
 ## STEP GOAL:
 
-Present the complete refinement summary, write the result contract, run the post-completion hook, and offer the user a walkthrough of the refinements before the run finishes. Every count comes from the files the preservation script wrote. Chains to the shared health check when the user finishes.
+Present the complete refinement summary and the next steps, write the result contract, run the post-completion hook and finish the run. Every count comes from the files the preservation script wrote. Chains to the shared health check.
 
 ## Rules
 
 - Focus only on presenting the completed refinement: no new analysis
 - Do not discover new gaps, issues, or improvements, and do not modify the refined document
 - Take every count from `{applyResult}`, never from a `## Refinement Summary` in a document: an architecture document refined before can hold an older one
-- The result contract is written before the final menu, so that menu's [X] finishes the run: it never cancels it
 - Chains to the local health-check step via `{nextStepFile}` after completion: the user-facing summary is not the terminal step
 
 ## MANDATORY SEQUENCE
@@ -52,7 +51,7 @@ uv run {preservationScript} context --inspect "{inspectResult}" --apply "{applyR
 - **3:** HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:numbers`, naming its `error`.
 - If `uv` cannot start the script: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `report:numbers`.
 
-**Bind the metrics from the files:** `gap_count`, `issue_count` and `improvement_count` from `counts.gap`, `counts.issue` and `counts.improvement` of `{applyResult}`; `critical_count`, `major_count` and `minor_count` from `counts.issue_tiers`; `high_count`, `medium_count` and `low_count` from `counts.improvement_tiers`; `unverified_count` from `counts.unverified` and `unverified_technologies` from its `unverified_technologies` (comma-separated, or `none`), the list the count was taken from; `skill_count` from `counts.skills`; the Evidence Sources from `evidence`; `{ranges}` from the `legacy` entries of `set_aside`, each as `start`-`end`; `previous_refined_path` from the `previous` of `{promoteResult}` (null when no earlier refined document was there); `previous_pass` from `{inspectResult}`; and `vs_coverage` from `{vs_report}` as Step 05 §5 wrote it (the `[RA-VS]` block) when a VS report was used. With no VS report, leave the VS Coverage row out of the summary below.
+**Bind the metrics from the files:** `gap_count`, `issue_count` and `improvement_count` from `counts.gap`, `counts.issue` and `counts.improvement` of `{applyResult}`; the count of each severity tier from `counts.issue_tiers` and of each value tier from `counts.improvement_tiers` (each lists the tiers of the refinement rules, most severe or most valuable first); `unverified_count` from `counts.unverified` and `unverified_technologies` from its `unverified_technologies` (comma-separated, or `none`), the list the count was taken from; `skill_count` from `counts.skills`; the Evidence Sources from `evidence`; `{ranges}` from the `legacy` entries of `set_aside`, each as `start`-`end`; `previous_refined_path` from the `previous` of `{promoteResult}` (null when no earlier refined document was there); `previous_pass` from `{inspectResult}`; and `vs_coverage` from `{vs_report}` as Step 05 §5 wrote it (the `[RA-VS]` block) when a VS report was used. With no VS report, leave the VS Coverage row out of the summary below.
 
 ### 2. Display Summary
 
@@ -63,8 +62,8 @@ uv run {preservationScript} context --inspect "{inspectResult}" --apply "{applyR
 | Metric | Count |
 |--------|-------|
 | **Gaps Filled** | {gap_count} |
-| **Issues Flagged** | {issue_count} (Critical: {critical_count}, Major: {major_count}, Minor: {minor_count}) |
-| **Improvements Suggested** | {improvement_count} (High: {high_count}, Medium: {medium_count}, Low: {low_count}) |
+| **Issues Flagged** | {issue_count} ({each tier of `counts.issue_tiers` with its count, in that order}) |
+| **Improvements Suggested** | {improvement_count} ({each tier of `counts.improvement_tiers` with its count, in that order}) |
 | **Skills Used as Evidence** | {skill_count} |
 | **Not verified (no skill)** | {unverified_count} ({unverified_technologies}) |
 | **VS Coverage** | {vs_coverage} |
@@ -88,12 +87,12 @@ uv run {preservationScript} context --inspect "{inspectResult}" --apply "{applyR
 {IF unverified_count > 0:}
 **Generate the missing skills first:** no skill covers {unverified_technologies}, so nothing checked what the architecture says about them. Create their skills with **[CS] Create Skill** or **[QS] Quick Skill**, then re-run **[RA]** before moving on to **[SS] Stack Skill**.
 
-1. **Review the refined document:** to accept a refinement, move what you keep into your own prose, outside its `<!-- RA:BEGIN ... -->` and `<!-- RA:END -->` markers. Anything still between RA markers is replaced the next time you run [RA] on this document; delete a block, markers included, to drop it from this copy (a later [RA] run that finds the same thing again adds it back)
+1. **Review the refined document:** to accept a refinement, move what you keep into your own prose, outside its `<!-- RA:BEGIN ... -->` and `<!-- RA:END -->` markers. Anything still between RA markers is replaced the next time you run [RA] on this document. A finding you dropped at the review stays out of later [RA] runs on this document, while a block you delete by hand, markers included, is gone from this copy only: a later [RA] run that finds the same thing again adds it back
 2. **[SS] Stack Skill**: compose-mode activates automatically when SS detects existing individual skills without a codebase; provide this refined architecture doc as the architecture document when prompted
 3. **Re-run [VS] Verify Stack** if you made changes based on issue corrections, to confirm resolution
 
-{IF issues with Critical severity were found:}
-**⚠️ Attention:** {critical_count} critical issue(s) were flagged. These indicate fundamental contradictions between your architecture and the verified API surfaces. Address these before proceeding to stack skill composition."
+{IF the first tier of `counts.issue_tiers`, the most severe, counts any issue:}
+**⚠️ Attention:** {its count} {its tier} issue(s) were flagged. These indicate fundamental contradictions between your architecture and the verified API surfaces. Address these before proceeding to stack skill composition."
 
 ### 4. Result Contract
 
@@ -115,28 +114,14 @@ Skip this section when `{onCompleteCommand}` (resolved at SKILL.md On Activation
 
 Run it with a bounded timeout. On success, continue. On a non-zero exit, a timeout or any other failure, display "**Warning:** on_complete failed: {reason}" (for example `exit {N}: {stderr_first_line}`) on its own line of this report, in headless too, and continue: the hook never fails the workflow, since the refined document and its result contract are already written. The warning is in neither the envelope nor the result file: the hook reads the result file, so both are written before it runs.
 
-### 6. Present Menu
+### 6. Finish the Run
 
-Display: "**[R] Review changes in detail** | **[X] Finish**"
+The walkthrough of each refinement belongs to step 5's review, where feedback can still change the draft, so this step asks nothing. Display:
 
-The result contract is written, so [X] finishes the run with exit code 0, and so do `exit`, `cancel`, `q` and `:q` here: this menu is the one place where they do not cancel.
-
-#### Menu Handling Logic:
-
-- **IF R:** Walk through each refinement with its full evidence citation:
-  1. First, all gaps with their evidence and proposed integration paths
-  2. Then, all issues ordered by severity with architecture claim vs. skill reality
-  3. Finally, all improvements ordered by value with untapped capability details
-  After completing the walkthrough, redisplay the menu.
-
-- **IF X:** "**Refined architecture saved to:** `{outputFile}`
+"**Refined architecture saved to:** `{outputFile}`
 
 Re-run **[RA] Refine Architecture** anytime after updating your skills or architecture document: run on this refined document, it replaces the blocks between RA markers with a current set and keeps everything else.
 
 **Architecture refinement complete.**"
 
-  Then delete the run folder, whose analysis copy, plan and payloads the run no longer needs: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow.
-
-#### EXECUTION RULES:
-
-- This is the exit gate: halt for the user's choice. [R] walks every refinement with its evidence (repeatable: re-shows this menu after each pass); [X] finishes the run and chains to the health check. Headless auto-selects [X].
+Then delete the run folder, whose analysis copy, plan and payloads the run no longer needs: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow, so do not stop here even though the message above reads as final.

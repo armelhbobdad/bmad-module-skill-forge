@@ -10,7 +10,12 @@ the output as it is. Re-typing them for each of 15+ skills cost output tokens
 and risked paraphrasing or cutting the operator's directive.
 
   - From state and brief: campaign name, stage, quality gate, skill identity,
-    repo, pin, commit, the dependency-status table and the workaround list.
+    repo, pin, commit and the dependency-status table.
+  - {{workarounds_list}}: one bullet per workaround the pre-apply helper
+    applied, read from its log (--workarounds-file, the preapply-log.json
+    skf-preapply.py writes): the file it changed, the fingerprint and its
+    fix, and the severity. Without the file, the skill's workarounds_applied
+    from state.
   - {{brief_summary}}: the skill's target entry in the campaign brief, every
     field it carries (a language or scope hint included).
   - {{directive_content}}: the directive file byte for byte, whatever its
@@ -23,7 +28,7 @@ and risked paraphrasing or cutting the operator's directive.
 
 CLI:
   uv run campaign-render-kickoff.py --state-file <p> --brief-file <p> \
-      --skill <name> --template <p> [--workarounds '<json-list>'] \
+      --skill <name> --template <p> [--workarounds-file <preapply-log.json>] \
       [--facts-json '<json-list>' | --facts-json -] [--project-root <p>] \
       [--directive-file <p>]
 
@@ -43,7 +48,8 @@ Exit codes:
                              it cannot be read as UTF-8 text
        PARSE_ERROR          state or brief is not a YAML mapping
        SKILL_NOT_FOUND       the skill is not in state
-       BAD_WORKAROUNDS       --workarounds is not a JSON list
+       BAD_WORKAROUNDS       --workarounds-file cannot be read, or holds no
+                             applied[] list of workarounds
        BAD_FACTS             --facts-json is not a list of strings (nor the
                              resolver's object), --project-root is not a
                              directory, or a `file:` entry keeps a placeholder
@@ -105,10 +111,40 @@ def _dependency_status_table(skill: Dict[str, Any], skill_map: Dict[str, Dict[st
     return "\n".join(rows)
 
 
-def _workarounds_list(workarounds: List[str]) -> str:
+def _code(text: Any) -> str:
+    """Inline code that survives a backtick inside the text."""
+    text = str(text)
+    return f"`` {text} ``" if "`" in text else f"`{text}`"
+
+
+def _workaround(entry: Any) -> str:
+    """One applied workaround: a pre-apply log entry, or a string from state."""
+    if not isinstance(entry, dict):
+        return str(entry)
+    line = f"{_code(entry.get('fingerprint', ''))} replaced with {_code(entry.get('fix', ''))}"
+    if entry.get("file"):
+        line = f"{entry['file']}: {line}"
+    if entry.get("severity"):
+        line += f" ({entry['severity']} severity)"
+    return line
+
+
+def _workarounds_list(workarounds: List[Any]) -> str:
     if not workarounds:
         return "None"
-    return "\n".join(f"- {w}" for w in workarounds)
+    return "\n".join(f"- {_workaround(w)}" for w in workarounds)
+
+
+def read_workarounds(path: str) -> List[Any]:
+    """The applied[] list of a pre-apply log. Raises ValueError on any other file."""
+    try:
+        log = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc
+    applied = log.get("applied") if isinstance(log, dict) else None
+    if not isinstance(applied, list):
+        raise ValueError(f"{path} holds no applied[] list")
+    return applied
 
 
 def _field_value(key: str, value: Any) -> str:
@@ -201,7 +237,7 @@ def render_kickoff(
     brief: Dict[str, Any],
     skill_name: str,
     template: str,
-    workarounds: Optional[List[str]] = None,
+    workarounds: Optional[List[Any]] = None,
     directive: Optional[str] = None,
     facts: Optional[List[str]] = None,
 ) -> str:
@@ -235,13 +271,6 @@ def render_kickoff(
     }
     # One pass: a filled-in value is never searched again.
     return SLOT_RE.sub(lambda m: values.get(m.group(0), m.group(0)), template)
-
-
-def _json_list(raw: str) -> List[Any]:
-    value = json.loads(raw)
-    if not isinstance(value, list):
-        raise ValueError("not a list")
-    return value
 
 
 def _facts_entries(raw: str) -> List[Any]:
@@ -283,7 +312,7 @@ def run(
     brief_file: str,
     skill: str,
     template_file: str,
-    workarounds_json: Optional[str],
+    workarounds_file: Optional[str],
     facts_json: Optional[str] = None,
     directive_file: Optional[str] = None,
     project_root: Optional[str] = None,
@@ -305,12 +334,12 @@ def run(
     if not isinstance(state, dict) or not isinstance(brief, dict):
         return _err("State and brief must each be a YAML mapping", "PARSE_ERROR")
 
-    workarounds: Optional[List[str]] = None
-    if workarounds_json:
+    workarounds: Optional[List[Any]] = None
+    if workarounds_file:
         try:
-            workarounds = _json_list(workarounds_json)
+            workarounds = read_workarounds(workarounds_file)
         except ValueError as exc:
-            return _err(f"--workarounds must be a JSON list: {exc}", "BAD_WORKAROUNDS")
+            return _err(f"--workarounds-file: {exc}", "BAD_WORKAROUNDS")
 
     entries: List[Any] = []
     if facts_json:
@@ -354,7 +383,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--brief-file", required=True)
     parser.add_argument("--skill", required=True, help="skill name (must exist in state)")
     parser.add_argument("--template", required=True, dest="template_file")
-    parser.add_argument("--workarounds", dest="workarounds_json", help="JSON list of applied workarounds")
+    parser.add_argument(
+        "--workarounds-file",
+        help="the pre-apply log (preapply-log.json) whose applied[] workarounds the kickoff lists",
+    )
     parser.add_argument(
         "--facts-json",
         help="persistent facts as a JSON list of sentences and file:<path-or-glob> entries, or - to "
@@ -378,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         args.brief_file,
         args.skill,
         args.template_file,
-        args.workarounds_json,
+        args.workarounds_file,
         args.facts_json,
         args.directive_file,
         args.project_root,

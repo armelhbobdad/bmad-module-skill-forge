@@ -32,35 +32,21 @@ Stage the run's report payload, display the FORGE STATUS banner that `{emitEnvel
 
 ### 1. Stage the Report Payload
 
-Sections 2 and 4 read one payload file, staged here on every run through a quoted heredoc:
+Sections 2 and 4 read the helper outputs the run folder holds (`detect-tools.json`, `ccc-exclusions.json`, `qmd-classify.json`, `qmd-remove.json` and `clean-stale.json`, each when its step ran the helper) and one payload file with what no helper produced, staged here on every run through a quoted heredoc:
 
 ```bash
 cat > "{run_dir}/report-context.json" <<'SKF_JSON'
 {
   "project_root": "{project-root}",
-  "config_path": "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml",
+  "config_path": "{sidecar_path}/forge-tier.yaml",
   "forge_data_folder": "{forge_data_folder}",
-  "ccc_index": {
-    "status": "{ccc_index_result}",
-    "indexed_path": {ccc_indexed_path_or_null},
-    "file_count": {ccc_file_count_or_null}
-  },
-  "preferences_yaml_created": {preferences_yaml_created},
-  "settings_yml_written": {settings_yml_written},
-  "settings_yml_patterns_added": {settings_yml_patterns_added},
-  "settings_yml_patterns_removed": {settings_yml_patterns_removed},
-  "gitignore_updated": {gitignore_updated},
-  "ccc_exclusion_warnings": {ccc_exclusion_warnings_list},
-  "ccc_indexing_failed_reason": {ccc_indexing_failed_reason_or_null},
-  "hygiene_orphaned_removed": {hygiene_orphaned_removed},
-  "hygiene_orphaned_kept": {hygiene_orphaned_kept},
   "orphan_auto_resolution": {orphan_auto_resolution_or_null},
   "error": null
 }
 SKF_JSON
 ```
 
-Write each value as JSON: a string in double quotes with any `"`, `\` or control character in it escaped (a newline as `\n`), every path with `/`, `null` for a value no step bound, and the lists and `{orphan_auto_resolution}` as JSON arrays and objects. Resolve `{project-root}` and `{forge_data_folder}` to absolute paths everywhere but inside the exclusion notes, which keep what step 1b bound. `error` stays `null`: a halt that names a phase never reaches this step, because it displays its own blocked envelope.
+Write each path with `/` as a JSON string, any `"`, `\` or control character in it escaped (a newline as `\n`), and `{orphan_auto_resolution}` as the JSON object step 3 set (`{"action": "...", "source": "..."}`), or `null` when step 3 set none. `error` stays `null`: a halt that names a phase never reaches this step, because it displays its own blocked envelope.
 
 ### 2. Display Forge Status Report (skip when `{quiet_mode}` is true)
 
@@ -78,13 +64,11 @@ If section 2 displayed `FORGE STATUS could not be rendered` and `{require_tier_s
 
 ### 4. Emit Headless JSON Envelope
 
-When `{quiet_mode}` is `true`, run `{emitEnvelopeHelper}` on the payload section 1 staged; `--run-dir` makes it read the staged helper outputs too. The script computes derived fields (`status`, `tools_added`, `tools_removed`, `tier_changed`, `files_written`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout. Bind `{setup_envelope_line}` ← that stdout line, and do not display it here. It is the only line a headless or quiet run displays, and in a standalone run it must be the run's final message: `claude -p` prints only the final message, and the health check still runs after this step. Section 5 displays it on a tier miss; otherwise the shared health check displays it when it stops (its §0). Either way it is displayed verbatim as its own line (no code fence, no preface, no commentary), with nothing of setup's after it. When `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining.
+When `{quiet_mode}` is `true`, run `{emitEnvelopeHelper}` on the payload section 1 staged; `--run-dir` makes it read the staged helper outputs too. It emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout. Bind `{setup_envelope_line}` ← that stdout line, and do not display it here. It is the only line a headless or quiet run displays, and in a standalone run it must be the run's final message: `claude -p` prints only the final message, and the health check still runs after this step. Section 5 displays it on a tier miss; otherwise the shared health check displays it when it stops (its §0). Either way it is displayed verbatim as its own line (no code fence, no preface, no commentary), with nothing of setup's after it. When `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining.
 
 ```bash
 uv run {emitEnvelopeHelper} emit --run-dir "{run_dir}" < "{run_dir}/report-context.json"
 ```
-
-`{ccc_exclusion_warnings_list}` is `{ccc_exclusion_warnings}` as a JSON list of strings, each entry exactly as step 1b bound it: do not resolve the `{project-root}` inside an entry, even though `config_path` resolves its own.
 
 **If the script exits non-zero:** when its error `message` names invalid JSON on stdin, fix `report-context.json` once and run it again. If it still exits non-zero, a value in the payload or in a staged helper output is malformed: set `{setup_envelope_line}` to the empty string. Display nothing and continue (a missing JSON envelope on a headless or quiet run is a degraded but non-fatal state: the pipeline observer sees no envelope and treats the run as not completed cleanly).
 
@@ -93,12 +77,12 @@ uv run {emitEnvelopeHelper} emit --run-dir "{run_dir}" < "{run_dir}/report-conte
 After the forge status report and any failure block have been displayed (under headless or quiet, once `{setup_envelope_line}` is bound), delete the run folder:
 
 ```bash
-rm -f "{run_dir}/detect-tools.json" "{run_dir}/qmd-classify.json" "{run_dir}/clean-stale.json" "{run_dir}/report-context.json" && rmdir "{run_dir}"
+rm -f "{run_dir}/detect-tools.json" "{run_dir}/ccc-exclusions.json" "{run_dir}/qmd-classify.json" "{run_dir}/qmd-remove.json" "{run_dir}/clean-stale.json" "{run_dir}/report-context.json" && rmdir "{run_dir}"
 ```
 
 Then:
 
 - If `{require_tier_satisfied}` is `false`, halt the workflow here without chaining to step 5. When `{quiet_mode}` is true, display `{setup_envelope_line}` verbatim as the run's final message in a standalone run (nothing when it is empty); when `{pipeline_mode}` is true, control then returns to the forger, which reads the envelope's `tier_failure` status. This halt emits no blocked envelope: the `tier_failure` envelope is its one line. The tier miss is terminal; `{onCompleteCommand}` does not fire on a failed run.
-- Otherwise the forge is fully configured. If `{onCompleteCommand}` (resolved from `workflow.on_complete` at activation) is non-empty, execute it now: this is the workflow's terminal skill-specific action (e.g. trigger the first index build or notify an onboarding channel); when `{quiet_mode}` is true, display nothing about it. Then load `{nextStepFile}`, read it fully, and execute it; under headless or quiet, the shared health check it chains to ends setup's output with `{setup_envelope_line}`.
+- Otherwise the forge is fully configured. If `{onCompleteCommand}` (resolved from `workflow.on_complete` at activation) is non-empty, carry out that instruction now: this is the workflow's terminal skill-specific action (for example, notify an onboarding channel); when `{quiet_mode}` is true, display nothing about it. Then load `{nextStepFile}`, read it fully, and execute it; under headless or quiet, the shared health check it chains to ends setup's output with `{setup_envelope_line}`.
 
 The health-check step is the true terminal step on success — do not stop after the report on a passing run even though it reads as final. Step 5 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.

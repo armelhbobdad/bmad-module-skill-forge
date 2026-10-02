@@ -73,14 +73,17 @@ validator (Ajv's default mode) still compiles the schema:
     "halt_status":       "blocked",
     "exit_codes":        {"<halt_reason>": <exit code>, ...},
     "success_exit_code": 0,
-    "result_file":       "update-skill-result" | null
+    "result_file":       "update-skill-result" | null,
+    "result_stamp":      "run_id"
   }}}
 
   wrapper names the one property that wraps the envelope (null for a flat
   envelope); halt_status is the status a halt envelope carries unless its
   payload names one; exit_codes maps each halt_reason to its exit code, and
   success_exit_code is the code a null halt_reason carries (both optional);
-  result_file is the stem of the run's result files (null: none).
+  result_file is the stem of the run's result files (null: none);
+  result_stamp "run_id" (optional) names the per-run result file after the
+  run's own stamp instead of the clock (see "Result files").
 
 Building an envelope (every workflow but skf-setup). Each payload key is an
 envelope field of the same name, except `result_contract` and
@@ -133,7 +136,11 @@ halt still emits.
 Result files. With --result-dir naming a folder that exists (the version
 folder), the call writes `<result_file>-<YYYYMMDD-HHmmss>.json` (UTC; `-2`,
 `-3`, ... appended when a run already took that second's name) and then
-the copy `<result_file>-latest.json`, each atomically. The file holds the
+the copy `<result_file>-latest.json`, each atomically. The stamp is the
+clock's, unless the settings give `result_stamp: "run_id"` and the run's
+run_id is itself a `YYYYMMDD-HHmmss` stamp (a run folder named
+`<workflow>-<YYYYMMDD-HHmmss>`): the file then carries the run's stamp, the
+one its run_id and the report files the run wrote carry. The file holds the
 payload's `result_contract` object (see
 `shared/references/output-contract-schema.md`) with `timestamp`, `run_id`,
 `headless_decisions` and `warnings` stamped in, and the payload's own
@@ -163,14 +170,18 @@ the step that runs the helper writes it, so no step types those values
 back into a payload:
 
   detect-tools.json    step 1, skf-detect-tools.py
-  qmd-classify.json    step 3, skf-qmd-classify-collections.py
+  ccc-exclusions.json  step 1b, skf-merge-ccc-exclusions.py --build-index
+                       (its --result-to file: the result, or its error)
+  qmd-classify.json    step 3, skf-qmd-classify-collections.py classify
+  qmd-remove.json      step 3, skf-qmd-classify-collections.py remove-orphans
   clean-stale.json     step 3, skf-forge-tier-rw.py clean-stale
 
 With --run-dir, `emit` and `render-report` fold them into the payload:
 a staged output replaces the payload's own value of each field it is the
 source of (fold_staged lists them). A file that holds no JSON object means
 its helper failed (the classifier then reads as qmd unavailable); a file
-that is absent means its step did not run the helper.
+that is absent means its step did not run the helper, except a missing
+ccc-exclusions.json when ccc is available, which reads as a failed index.
 
 Context payload shape (consumed by `emit` for skf-setup):
 
@@ -205,9 +216,8 @@ Context payload shape (consumed by `emit` for skf-setup):
   The `tools` values may also be skf-detect-tools.py's own objects
   ({"available": bool, "version": ..., ...}), as detect-tools.json holds
   them. Without `files_written`, the emitter derives it: forge-tier.yaml,
-  then preferences.yaml, settings.yml and ccc_index when
-  `preferences_yaml_created`, `settings_yml_written` and a ccc_index
-  status of "created" say so (none when `error` is set).
+  then settings.yml and ccc_index when `settings_yml_written` and a
+  ccc_index status of "created" say so (none when `error` is set).
 
   When the step-3 orphan-removal gate is resolved non-interactively
   (headless or quiet default Keep, or an explicit --orphan-action), pass
@@ -217,6 +227,9 @@ Context payload shape (consumed by `emit` for skf-setup):
   envelope alone. Its `removed` and `failed` lists name the collections
   the removal deleted and the ones it could not, and each becomes its own
   warning (`orphan_removed: <name>`, `orphan_remove_failed: <name>`).
+  With --run-dir, the staged classification supplies `count` and the
+  staged removal supplies `removed` and `failed`, so setup's payload
+  carries only `action` and `source`.
 
   `tools_below_minimum` is skf-detect-tools.py's list of the tools below
   their minimum version, which detect-tools.json supplies. Each becomes the
@@ -230,17 +243,18 @@ Context payload shape (consumed by `emit` for skf-setup):
   a pipeline that the `_bmad/custom/` overrides were not applied. The
   emit-blocked payload takes the same key.
 
-  The banner keys, which `render-report` reads (`emit` reads only the
-  two it derives files_written from): "project_root" and
-  "forge_data_folder" (resolved paths), "preferences_yaml_created",
+  The banner keys, which `render-report` reads (`emit` reads only
+  "settings_yml_written", from which it derives files_written):
+  "project_root" and "forge_data_folder" (resolved paths),
   "settings_yml_written" and "gitignore_updated" (bool),
   "settings_yml_patterns_added" and "settings_yml_patterns_removed"
   (int), "hygiene_result" ("completed|qmd_unavailable|skipped"),
   "hygiene_healthy", "hygiene_orphaned_removed", "hygiene_orphaned_kept",
   "hygiene_stale_cleaned" and "ccc_registry_stale_cleaned" (int), and
   "require_tier" (the tier --require-tier named, or null). The staged
-  helper outputs supply every hygiene key but the two orphan counts, and
-  detect-tools.json supplies require_tier.
+  helper outputs supply every one of them but the two resolved paths:
+  setup's step 4 stages only those, `config_path`, the orphan decision and
+  a null `error`.
 
 Caller does NOT need to compute warnings, tools_added/removed, or
 tier_changed: the script derives them from the inputs above.
@@ -282,22 +296,26 @@ ENVELOPE_PREFIX = "SKF_SETUP_RESULT_JSON: "
 SCHEMA_FILE = Path(__file__).parent / "schemas" / "skf-setup-result-envelope.v1.json"
 TOOL_KEYS = ("ast_grep", "gh_cli", "qmd", "ccc")
 VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
-VALID_FILES = ("forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index")
+VALID_FILES = ("forge-tier.yaml", "settings.yml", "ccc_index")
 VALID_CCC_STATUS = ("fresh", "created", "failed", "none", "skipped")
 # The helper outputs a skf-setup run stages in its run folder, each by the
 # step that runs the helper; `emit` and `render-report` read them from
 # --run-dir (see "skf-setup" in the module docstring).
 STAGED_DETECT = "detect-tools.json"
+STAGED_CCC = "ccc-exclusions.json"
 STAGED_CLASSIFY = "qmd-classify.json"
+STAGED_REMOVE = "qmd-remove.json"
 STAGED_CLEAN_STALE = "clean-stale.json"
-STAGED_FILES = (STAGED_DETECT, STAGED_CLASSIFY, STAGED_CLEAN_STALE)
+STAGED_FILES = (STAGED_DETECT, STAGED_CCC, STAGED_CLASSIFY, STAGED_REMOVE, STAGED_CLEAN_STALE)
+# The index failure a run reports when ccc is available and step 1b staged no result.
+CCC_NO_RESULT = "the ccc settings helper wrote no result"
 
 SCHEMA_DIR = SCHEMA_FILE.parent
 SETUP_WORKFLOW = "skf-setup"
 # The `$defs` entry whose `const` holds a schema's emitter settings.
 META_KEY = "skf-envelope"
 META_FIELDS = ("workflow", "prefix", "wrapper", "halt_status", "exit_codes",
-               "success_exit_code", "result_file")
+               "success_exit_code", "result_file", "result_stamp")
 SINK_DECISIONS = "headless-decisions.jsonl"
 SINK_WARNINGS = "warnings.jsonl"
 # The halt payload's own keys; each lands only where the schema has a place for it.
@@ -481,10 +499,9 @@ def _normalize_files_written(maybe_files) -> list[str]:
 def _files_written(payload: dict, error) -> list[str]:
     """files_written as the payload gives it, else derived from the run's flags.
 
-    A finished run always wrote forge-tier.yaml; preferences.yaml,
-    settings.yml and the ccc index count when preferences_yaml_created,
-    settings_yml_written and a ccc_index status of "created" say so. An
-    envelope with an error reports no file.
+    A finished run always wrote forge-tier.yaml; settings.yml and the ccc
+    index count when settings_yml_written and a ccc_index status of
+    "created" say so. An envelope with an error reports no file.
     """
     if "files_written" in payload:
         return _normalize_files_written(payload["files_written"])
@@ -492,7 +509,6 @@ def _files_written(payload: dict, error) -> list[str]:
         return []
     return _normalize_files_written({
         "forge-tier.yaml": True,
-        "preferences.yaml": payload.get("preferences_yaml_created") is True,
         "settings.yml": payload.get("settings_yml_written") is True,
         "ccc_index": _dict(payload.get("ccc_index")).get("status") == "created",
     })
@@ -585,8 +601,7 @@ def _compute_status(error: dict | None, require_tier_satisfied) -> str:
 
     - 'blocked'      when error is non-null: a halt produced the envelope,
                      and error.phase names it (a write failure is
-                     'step 2:write-tools', 'step 2:init-prefs' or
-                     'step 2:forge-data-dir')
+                     'step 2:write-tools' or 'step 2:forge-data-dir')
     - 'tier_failure' when require_tier_satisfied is False
     - 'success'      otherwise
 
@@ -622,8 +637,10 @@ def read_staged(run_dir: Path | None) -> dict:
 
     Each value is the helper's JSON object, or None when the file holds
     none: the helper exited non-zero, so its redirected stdout stayed
-    empty. A file that is absent is left out, because its step never ran
-    the helper (step 3 runs none below Deep tier without ccc).
+    empty. A file that is absent is left out: its step never ran the
+    helper (step 1b runs none without ccc, and step 3 none below Deep tier
+    without ccc), or, for ccc-exclusions.json, the helper wrote nothing
+    (fold_staged).
     """
     staged: dict = {}
     if run_dir is None:
@@ -654,8 +671,22 @@ def fold_staged(payload: dict, staged: dict) -> dict:
       detect-tools.json   tier, previous_tier, tools, previous_tools, the
                           tier_override_* and require_tier* fields,
                           qmd_status and tools_below_minimum
+      ccc-exclusions.json settings_yml_written, settings_yml_patterns_added
+                          and _removed, gitignore_updated,
+                          ccc_exclusion_warnings (each entry verbatim),
+                          ccc_index and ccc_indexing_failed_reason; a file
+                          that holds the helper's error, or no JSON
+                          object, reads as nothing written and the index
+                          failed, with the error as its reason, and so
+                          does no file at all when detect-tools.json
+                          reports ccc available (step 1b ran the helper)
       qmd-classify.json   hygiene_result ("completed", or "qmd_unavailable"
-                          when the classifier failed) and hygiene_healthy
+                          when the classifier failed), hygiene_healthy,
+                          hygiene_orphaned_kept (every orphan, while no
+                          removal ran) and orphan_auto_resolution's count
+      qmd-remove.json     hygiene_orphaned_removed, hygiene_orphaned_kept
+                          (the orphans the removal could not delete) and
+                          orphan_auto_resolution's removed and failed
       clean-stale.json    hygiene_stale_cleaned, ccc_registry_stale_cleaned
                           and ccc_registry_stale_removed (none when it failed)
     """
@@ -681,11 +712,49 @@ def fold_staged(payload: dict, staged: dict) -> dict:
             "qmd_status": _dict(tools.get("qmd")).get("status"),
             "tools_below_minimum": _objects(detect.get("tools_below_minimum")),
         })
+    if STAGED_CCC in staged:
+        result = _dict(staged[STAGED_CCC])
+        ok = result.get("status") == "ok"
+        out.update({
+            "settings_yml_written": ok and result.get("written") is True,
+            "settings_yml_patterns_added": _count(result.get("patterns_added")) if ok else 0,
+            "settings_yml_patterns_removed": _count(result.get("patterns_removed")) if ok else 0,
+            "gitignore_updated": ok and result.get("gitignore_updated") is True,
+            "ccc_exclusion_warnings": _strings(result.get("warnings")) if ok else [],
+        })
+        index = _dict(result.get("index"))
+        if not ok:
+            out["ccc_index"] = {"status": "failed", "indexed_path": None, "file_count": None}
+            out["ccc_indexing_failed_reason"] = (result.get("message")
+                                                 or "the ccc settings helper returned no result")
+        elif index:
+            out["ccc_index"] = {key: index.get(key) for key in ("status", "indexed_path", "file_count")}
+            out["ccc_indexing_failed_reason"] = index.get("failed_reason")
+    elif detect is not None and _dict(_dict(detect.get("tools")).get("ccc")).get("available") is True:
+        # Step 1b ran the helper, which wrote nothing: a usage error, or a
+        # call its host stopped before the first write.
+        out["ccc_index"] = {"status": "failed", "indexed_path": None, "file_count": None}
+        out["ccc_indexing_failed_reason"] = CCC_NO_RESULT
+    orphaned = _strings(_dict(staged.get(STAGED_CLASSIFY)).get("orphaned"))
+    resolution = out.get("orphan_auto_resolution")
     if STAGED_CLASSIFY in staged:
         healthy = _dict(staged[STAGED_CLASSIFY]).get("healthy")
         completed = isinstance(healthy, list)
         out["hygiene_result"] = "completed" if completed else "qmd_unavailable"
         out["hygiene_healthy"] = len(healthy) if completed else 0
+        out["hygiene_orphaned_removed"], out["hygiene_orphaned_kept"] = 0, len(orphaned)
+        if isinstance(resolution, dict) and "count" not in resolution:
+            resolution = {**resolution, "count": len(orphaned)}
+    if STAGED_REMOVE in staged:
+        removal = staged[STAGED_REMOVE]
+        removed = _strings(_dict(removal).get("removed"))
+        # A removal that printed nothing deleted nothing anyone can name.
+        failed = _strings(removal.get("failed")) if removal is not None else orphaned
+        out["hygiene_orphaned_removed"], out["hygiene_orphaned_kept"] = len(removed), len(failed)
+        if isinstance(resolution, dict):
+            resolution = {**resolution, "removed": removed, "failed": failed}
+    if isinstance(resolution, dict):
+        out["orphan_auto_resolution"] = resolution
     if STAGED_CLEAN_STALE in staged:
         cleaned = _dict(staged[STAGED_CLEAN_STALE])
         pruned = _strings(cleaned.get("ccc_removed"))
@@ -807,7 +876,6 @@ def render_report(payload: dict, copy: dict) -> list[str]:
     ccc_daemon = _dict(probes.get("ccc")).get("daemon")
     root = str(payload.get("project_root") or "{project-root}").rstrip("/\\")
     hygiene = payload.get("hygiene_result")
-    prefs_created = payload.get("preferences_yaml_created")
     settings_written = payload.get("settings_yml_written")
     # A tool below its minimum is installed: its Tool upgrades line replaces
     # an install hint, and it is never called "no longer detected".
@@ -890,12 +958,9 @@ def render_report(payload: dict, copy: dict) -> list[str]:
         blocks.append(ccc)
 
     config_path = inner["config_path"]
-    cut = max(config_path.rfind("/"), config_path.rfind("\\")) + 1
     forge_data = str(payload.get("forge_data_folder") or "{forge_data_folder}").rstrip("/\\")
-    files = ["  Files written this run:", f"  - forge-tier.yaml: {config_path}"]
-    if prefs_created is True:
-        files.append(f"  - preferences.yaml: {config_path[:cut]}preferences.yaml (first-run defaults)")
-    files.append(f"  - {forge_data}/ (directory ensured)")
+    files = ["  Files written this run:", f"  - forge-tier.yaml: {config_path}",
+             f"  - {forge_data}/ (directory ensured)"]
     if settings_written is True:
         pruned = _count(payload.get("settings_yml_patterns_removed"))
         files.append(f"  - .cocoindex_code/settings.yml: {root}/.cocoindex_code/settings.yml "
@@ -936,14 +1001,11 @@ def render_report(payload: dict, copy: dict) -> list[str]:
         blocks.append([f"  {_tier_change_message(copy, previous, tier, added, removed_shown)}"])
     if not changed and not added and not removed and previous is not None:
         same = [f"  {copy['same'].replace('{current}', tier)}"]
-        if prefs_created is False and settings_written is False and index == "fresh":
-            same.append("  Your preferences and ccc settings were left untouched, and the ccc index "
-                        "was already current.")
-        if prefs_created is False and settings_written is False and index == "skipped":
-            same.append("  Your preferences and ccc settings were left untouched; the ccc index was "
-                        "not checked (--ccc-skip-index).")
-        if prefs_created is False and index == "none":
-            same.append("  Your preferences were left untouched.")
+        if settings_written is False and index == "fresh":
+            same.append("  Your ccc settings were left untouched, and the ccc index was already current.")
+        if settings_written is False and index == "skipped":
+            same.append("  Your ccc settings were left untouched; the ccc index was not checked "
+                        "(--ccc-skip-index).")
         blocks.append(same)
     if not changed and (added or removed) and previous is not None:
         delta = [f"  Tier unchanged: {tier}."]
@@ -1301,6 +1363,14 @@ def _utc_parts(seconds: int) -> tuple[int, int, int, int, int, int]:
     return year, month, day, rest // 3600, rest % 3600 // 60, rest % 60
 
 
+def _is_file_stamp(value) -> bool:
+    """True for a `YYYYMMDD-HHmmss` stamp, the form a run folder's name may end with."""
+    if not isinstance(value, str) or len(value) != 15 or value[8] != "-":
+        return False
+    digits = value[:8] + value[9:]
+    return digits.isascii() and digits.isdigit()
+
+
 def _stamps(seconds: int) -> tuple[str, str]:
     """(ISO-8601 UTC timestamp, YYYYMMDD-HHmmss file stamp) of a Unix time."""
     y, mo, d, h, mi, s = _utc_parts(seconds)
@@ -1581,6 +1651,8 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
     timestamp = file_stamp = None
     if writes or "timestamp" in _inner_schema(schema).get("properties", {}):
         timestamp, file_stamp = _stamps(int(time.time()))
+        if meta.get("result_stamp") == "run_id" and _is_file_stamp(run_id):
+            file_stamp = run_id
 
     sink_decisions, sink_warnings, problems = read_sink(run_path)
     item_schema = _decision_schema(schema)

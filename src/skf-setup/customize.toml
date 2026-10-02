@@ -10,9 +10,12 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any forge setup work.
+# Steps run at activation after flag parsing, the config check, the uv
+# probe and the config load (SKILL.md On Activation items 1-5), and
+# before tool detection (step 1). Overrides append. Use for org-wide
+# pre-flight checks (auth, network, compliance) that must precede any
+# forge setup work. A prepend step cannot install uv or create
+# config.yaml: those halts fire before it runs.
 
 activation_steps_prepend = []
 
@@ -34,10 +37,11 @@ activation_steps_append = []
 
 persistent_facts = []
 
-# Instruction run once the forge is fully configured — after the status report
-# (step 4) emits, before chaining to the shared health check. Override wins. Use
-# for a post-setup action an org wants after the forge is configured — e.g.
-# trigger the first index build or notify an onboarding channel. Empty string =
-# no terminal hook.
+# An instruction the agent carries out (not a shell command run with
+# --result-path, as in most other SKF workflows) once the forge is fully
+# configured: after the status report (step 4), before chaining to the
+# shared health check, and never on a required-tier miss. Override wins. Use
+# for a post-setup action an org wants, such as notifying an onboarding
+# channel. Empty string = no terminal hook.
 
 on_complete = ""

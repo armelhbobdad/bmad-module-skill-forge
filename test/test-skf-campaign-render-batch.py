@@ -3,7 +3,8 @@
 Confirms the script selects Tier B skills that are pending or left active by an
 interrupted batch, leaves out the directive's Skip List, joins each to its
 brief `repo_url`, and emits the consumer's single-target line shape verbatim
-(`{repo_url}` with `@{pin}` appended only when the state pin is non-null), with
+(`{repo_url}`, with `@{pin}` for a version pin and `/tree/{pin}` for a branch
+pin, each read back by quick-skill's parse-target), with
 no skill-name field and no bare pin token, while excluding Tier A and
 already-handled skills, and HALTing (exit 8) on a missing brief or an unmatched
 target. The line-to-skill map and --record join QS batch results back to skills
@@ -24,6 +25,7 @@ import yaml
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "src" / "skf-campaign" / "scripts" / "campaign-render-batch.py"
 QUICK_BATCH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-quick-batch.py"
+RESOLVE_PACKAGE = REPO_ROOT / "src" / "shared" / "scripts" / "skf-resolve-package.py"
 
 
 def _load(path=SCRIPT, name="campaign_render_batch"):
@@ -35,6 +37,7 @@ def _load(path=SCRIPT, name="campaign_render_batch"):
 
 mod = _load()
 qb = _load(QUICK_BATCH, "skf_quick_batch")
+rp = _load(RESOLVE_PACKAGE, "skf_resolve_package")
 
 # Two Tier-B pending (one pinned, one latest), one Tier-A pending, one Tier-B done.
 STATE = {
@@ -111,6 +114,29 @@ class TestBuildBatch:
         lines, _ = mod.build_batch(STATE, brief_hints)
         assert lines[0] == "https://github.com/x/a@1.2.0 language=python scope=pkg/api/"
         assert lines[1] == "https://github.com/x/b"
+
+    @pytest.mark.parametrize(
+        "pin, line, version, ref",
+        [
+            ("v2.0.0", "https://github.com/x/a@v2.0.0", "v2.0.0", None),
+            ("2.0.0", "https://github.com/x/a@2.0.0", "2.0.0", None),
+            ("main", "https://github.com/x/a/tree/main", None, "main"),
+            ("release-2.x", "https://github.com/x/a/tree/release-2.x", None, "release-2.x"),
+        ],
+        ids=["tag", "version", "branch", "release-branch"],
+    )
+    def test_pin_takes_the_form_parse_target_reads(self, pin, line, version, ref):
+        state = {"skills": [{"name": "a", "tier": "B", "status": "pending", "pin": pin}]}
+        lines, _ = mod.build_batch(state, BRIEF)
+        assert lines == [line]
+        parsed = rp.parse_target(lines[0])
+        assert parsed["kind"] == "github"
+        assert parsed["url"] == "https://github.com/x/a"
+        assert (parsed["target_version"], parsed["ref"]) == (version, ref)
+
+    def test_branch_pin_after_at_is_no_target(self):
+        # What the batch line used to be for a branch pin: quick-skill cannot read it.
+        assert rp.parse_target("https://github.com/x/a@main")["kind"] == "unparsed"
 
     def test_no_tier_b_pending_empty(self):
         state = {"skills": [{"name": "c", "tier": "A", "status": "pending", "pin": None}]}

@@ -24,9 +24,6 @@ quality_gate:
   soft_target: 90
   soft_fallback: 80
 
-# A brief written before v3.0.0 may also hold health_findings_queue. Campaign
-# ignores it: the end-of-run health check decides where findings go.
-
 # Optional path to the architecture document the verify (Stage 7) and refine
 # (Stage 8) stages consume. Empty string means those stages discover it at
 # runtime (docs/architecture.md, then _bmad-output/planning-artifacts/architecture.md).

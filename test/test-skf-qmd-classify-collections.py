@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Tests for skf-qmd-classify-collections.py.
 
-Classification rules under test (per step 3 §3 and PR #244):
+Classification rules under test (per step 3 §2 and PR #244):
 
   Healthy   = forge-suffix-matched live ∩ registry
-  Orphaned  = forge-suffix-matched live − registry
+  Orphaned  = forge-suffix-matched live − registry, whose Path lies
+              inside --project-root
   Stale     = registry − ALL live (includes foreign-suffix names)
-  Foreign   = live − forge-suffix-matched (silently excluded from
-              every classification, reported as count + capped sample)
+  Foreign   = live − forge-suffix-matched, plus the suffix-matched names
+              outside the registry whose Path lies elsewhere (silently
+              excluded from every classification, reported as count +
+              capped sample)
 
 The PR #244 incident — a fresh-setup user with 48 unrelated Hindsight
 memory-bank collections in their QMD daemon — is reproduced as
@@ -336,6 +339,7 @@ def test_classify_first_run_no_collections():
         "live_names": [],
         "healthy": [],
         "orphaned": [],
+        "orphaned_paths": {},
         "stale": [],
         "foreign_filtered_count": 0,
         "foreign_filtered_sample": [],
@@ -455,6 +459,138 @@ def test_classify_registry_entries_with_non_forge_names_still_classified():
     assert "weird-no-suffix" in out["stale"]
 
 
+# ─── Collection paths: whose orphan is it? ──────────────────────────────────
+
+
+def test_is_inside_takes_the_root_and_folders_below_it(tmp_path):
+    root = tmp_path / "project"
+    (root / "forge-data" / "lib").mkdir(parents=True)
+    assert mod.is_inside(str(root), root)
+    assert mod.is_inside(str(root / "forge-data" / "lib"), root)
+    # A path that is not there yet still resolves below the root.
+    assert mod.is_inside(str(root / "skills" / "lib" / "1.0.0"), root)
+    assert not mod.is_inside(str(tmp_path / "project-other" / "forge-data"), root)
+    assert not mod.is_inside(str(tmp_path), root)
+    assert not mod.is_inside(None, root)
+    assert not mod.is_inside("", root)
+
+
+def test_is_inside_follows_a_symlinked_root(tmp_path):
+    real = tmp_path / "real"
+    (real / "forge-data").mkdir(parents=True)
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available here")
+    assert mod.is_inside(str(real / "forge-data"), link)
+    assert mod.is_inside(str(link / "forge-data"), real)
+
+
+def test_parse_collection_path_reads_the_path_line():
+    raw = ("Collection: lib-brief\n"
+           "  Path:     /home/u/proj/forge-data/lib\n"
+           "  Pattern:  skill-brief.yaml\n"
+           "  Include:  yes (default)\n")
+    assert mod.parse_collection_path(raw) == "/home/u/proj/forge-data/lib"
+    assert mod.parse_collection_path("Collection not found: x\n") is None
+    assert mod.parse_collection_path("") is None
+
+
+def test_classify_with_a_project_root_keeps_other_projects_collections_out(tmp_path):
+    """The wave-1 re-check defect: QMD's index is shared by every project on
+    the machine, so a suffix-matched name another project registered is no
+    orphan of this one, and must never reach the removal gate."""
+    here, there = tmp_path / "here", tmp_path / "there"
+    paths = {
+        "mine-extraction": str(here / "skills" / "mine" / "1.0.0" / "mine"),
+        "theirs-brief": str(there / "forge-data" / "theirs"),
+        "theirs-temporal": str(there / "_bmad-output" / "theirs-temporal"),
+        "unshown-docs": None,
+    }
+    live = ["lib-brief", *paths, "memory-root-1"]
+    out = mod.classify(live, ["lib-brief"], here, paths)
+    assert out["healthy"] == ["lib-brief"]
+    assert out["orphaned"] == ["mine-extraction"]
+    assert out["orphaned_paths"] == {"mine-extraction": paths["mine-extraction"]}
+    assert out["foreign_filtered_count"] == 4
+    assert set(out["foreign_filtered_sample"]) == {"memory-root-1", "theirs-brief", "theirs-temporal",
+                                                   "unshown-docs"}
+
+
+def _fake_qmd(collections: dict, removed: list, refuse=()):
+    """A stand-in for _run_qmd over `collections` ({name: Path}); remove deletes from it."""
+    def run(*args):
+        if args[:2] == ("collection", "list"):
+            return 0, "".join(f"{n} (qmd://{n}/)\n" for n in collections), ""
+        if args[:2] == ("collection", "show"):
+            name = args[2]
+            if name not in collections:
+                return 1, "", f"Collection not found: {name}"
+            return 0, f"Collection: {name}\n  Path:     {collections[name]}\n", ""
+        if args[:2] == ("collection", "remove"):
+            name = args[2]
+            if name in refuse:
+                return 1, "", "database is locked"
+            removed.append(name)
+            collections.pop(name, None)
+            return 0, "", ""
+        raise AssertionError(f"unexpected qmd call {args}")
+    return run
+
+
+def test_two_projects_registry_and_live_collections_classify_by_path(tmp_path, monkeypatch, capsys):
+    """One project's registry, and live collections rooted in another project:
+    nothing is offered for removal, and the other project's names count as foreign."""
+    project_a, project_b = tmp_path / "a", tmp_path / "b"
+    registry = tmp_path / "forge-tier.yaml"
+    registry.write_text("qmd_collections:\n  - name: a-lib-brief\n", encoding="utf-8")
+    collections = {
+        "a-lib-brief": str(project_a / "forge-data" / "a-lib"),
+        "b-lib-brief": str(project_b / "forge-data" / "b-lib"),
+        "b-lib-extraction": str(project_b / "skills" / "b-lib" / "2.0.0" / "b-lib"),
+        "b-lib-temporal": str(project_b / "_bmad-output" / "b-lib-temporal"),
+    }
+    monkeypatch.setattr(mod, "_run_qmd", _fake_qmd(collections, []))
+    monkeypatch.setattr(sys, "argv", ["classify", "classify", "--registry-from-yaml", str(registry),
+                                      "--project-root", str(project_a)])
+    mod.main()
+    out = json.loads(capsys.readouterr().out)
+    assert out["healthy"] == ["a-lib-brief"]
+    assert out["orphaned"] == [] and out["orphaned_paths"] == {}
+    assert out["foreign_filtered_count"] == 3
+    # Seen from project b, its own collections outside a registry are its orphans.
+    monkeypatch.setattr(sys, "argv", ["classify", "classify", "--registry-from-yaml", str(registry),
+                                      "--project-root", str(project_b)])
+    mod.main()
+    out = json.loads(capsys.readouterr().out)
+    assert out["orphaned"] == ["b-lib-brief", "b-lib-extraction", "b-lib-temporal"]
+    assert out["foreign_filtered_count"] == 0
+
+
+def test_remove_orphans_checks_each_path_again_before_it_removes(tmp_path, monkeypatch):
+    root = tmp_path / "project"
+    collections = {
+        "gone-brief": str(root / "forge-data" / "gone"),
+        "moved-docs": str(tmp_path / "other" / "_bmad-output" / "moved-docs"),
+        "locked-extraction": str(root / "skills" / "locked"),
+    }
+    removed: list[str] = []
+    monkeypatch.setattr(mod, "_run_qmd", _fake_qmd(collections, removed, refuse=("locked-extraction",)))
+    out = mod.remove_orphans(["gone-brief", "moved-docs", "locked-extraction", "vanished-temporal"], root)
+    assert out["removed"] == ["gone-brief"] and removed == ["gone-brief"]
+    assert out["failed"] == ["moved-docs", "locked-extraction", "vanished-temporal"]
+    assert out["errors"]["moved-docs"] == "its Path no longer lies inside the project root"
+    assert out["errors"]["locked-extraction"] == "qmd collection remove exited 1: database is locked"
+    assert out["errors"]["vanished-temporal"].startswith("qmd collection show exited 1")
+
+
+def test_remove_orphans_without_qmd_removes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    out = mod.remove_orphans(["x-brief"], tmp_path)
+    assert out == {"removed": [], "failed": ["x-brief"], "errors": {"x-brief": "qmd not found on PATH"}}
+
+
 # ─── End-to-end CLI subprocess tests ────────────────────────────────────────
 
 
@@ -467,9 +603,14 @@ def _run(*args) -> tuple[int, dict, str]:
     return result.returncode, payload, result.stderr
 
 
+def _classify(registry: Path, live: str, root: Path | None = None) -> tuple[int, dict, str]:
+    return _run("classify", "--live-names", live, "--registry-from-yaml", str(registry),
+                "--project-root", str(root or registry.parent))
+
+
 def test_cli_first_run_state(tmp_yaml):
     """No live collections, no registry file → emit empty everything."""
-    rc, payload, stderr = _run("--live-names", "", "--registry-from-yaml", str(tmp_yaml))
+    rc, payload, stderr = _classify(tmp_yaml, "")
     assert rc == 0, f"stderr: {stderr}"
     assert payload["status"] == "ok"
     assert payload["version"] == "v1"
@@ -487,10 +628,7 @@ def test_cli_realistic_deep_host(tmp_yaml):
         "    type: extraction\n",
         encoding="utf-8",
     )
-    rc, payload, _ = _run(
-        "--live-names", "lib1-brief,lib1-extraction,memory-root-1",
-        "--registry-from-yaml", str(tmp_yaml),
-    )
+    rc, payload, _ = _classify(tmp_yaml, "lib1-brief,lib1-extraction,memory-root-1")
     assert rc == 0
     assert payload["healthy"] == ["lib1-brief", "lib1-extraction"]
     assert payload["orphaned"] == []
@@ -501,19 +639,22 @@ def test_cli_realistic_deep_host(tmp_yaml):
 def test_cli_pr244_incident(tmp_yaml):
     """End-to-end repro of the PR #244 incident."""
     # Empty registry, 4 Hindsight foreign collections in live
-    rc, payload, _ = _run(
-        "--live-names", "memory-root-1,memory-alt-2,memory-dir-3,sessions-4",
-        "--registry-from-yaml", str(tmp_yaml),  # missing file → empty registry
-    )
+    rc, payload, _ = _classify(tmp_yaml, "memory-root-1,memory-alt-2,memory-dir-3,sessions-4")
     assert rc == 0
     assert payload["orphaned"] == []
     assert payload["foreign_filtered_count"] == 4
 
 
-def test_cli_missing_required_arg():
-    """--registry-from-yaml is required."""
+@pytest.mark.parametrize("args", [
+    ["classify", "--live-names", "foo-brief", "--project-root", "."],
+    ["classify", "--live-names", "foo-brief", "--registry-from-yaml", "x.yaml"],
+    ["--live-names", "foo-brief", "--registry-from-yaml", "x.yaml"],
+    ["remove-orphans", "--classification-from", "x.json"],
+], ids=["no-registry", "no-project-root", "no-subcommand", "remove-no-project-root"])
+def test_cli_missing_required_arg(args):
+    """--registry-from-yaml and --project-root are required, and so is the subcommand."""
     result = subprocess.run(
-        [sys.executable, str(SCRIPT_PATH), "--live-names", "foo-brief"],
+        [sys.executable, str(SCRIPT_PATH), *args],
         capture_output=True, text=True, timeout=10,
     )
     assert result.returncode != 0
@@ -521,7 +662,26 @@ def test_cli_missing_required_arg():
 
 def test_cli_malformed_registry_emits_error(tmp_yaml):
     tmp_yaml.write_text("qmd_collections: [unclosed\n", encoding="utf-8")
-    rc, _, stderr = _run("--live-names", "", "--registry-from-yaml", str(tmp_yaml))
+    rc, _, stderr = _classify(tmp_yaml, "")
     assert rc == 1
     err = json.loads(stderr)
     assert "failed to parse" in err["message"]
+
+
+@pytest.mark.parametrize("content", ["", "not json", '{"orphaned": "x-brief"}', '["x-brief"]'],
+                         ids=["empty", "not-json", "not-a-list", "not-an-object"])
+def test_cli_remove_orphans_refuses_a_classification_without_an_orphan_list(tmp_path, content):
+    staged = tmp_path / "qmd-classify.json"
+    staged.write_text(content, encoding="utf-8")
+    rc, _, stderr = _run("remove-orphans", "--classification-from", str(staged), "--project-root", str(tmp_path))
+    assert rc == 1
+    assert "remove-orphans:" in json.loads(stderr)["message"]
+
+
+def test_cli_remove_orphans_with_no_orphans_removes_nothing(tmp_path):
+    staged = tmp_path / "qmd-classify.json"
+    staged.write_text(json.dumps({"status": "ok", "orphaned": []}), encoding="utf-8")
+    rc, payload, stderr = _run("remove-orphans", "--classification-from", str(staged),
+                               "--project-root", str(tmp_path))
+    assert rc == 0, stderr
+    assert payload == {"status": "ok", "version": "v1", "removed": [], "failed": [], "errors": {}}

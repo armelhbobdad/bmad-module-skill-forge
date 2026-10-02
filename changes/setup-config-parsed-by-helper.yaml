@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-setup
+summary: |
+  Setup now parses `_bmad/skf/config.yaml` and `preferences.yaml` with `skf-preflight.py`, the helper Ferris uses, instead of reading them by eye, and checks for `uv` before it does. A config that does not parse, or a `sidecar_path` that is missing or still holds a placeholder, stops setup at `on-activation:config-malformed` with the helper's message, which names the file and the fix, as Ferris does: setup used to ignore `sidecar_path` and go on. A missing helper stops it at the new `error.phase` `on-activation:helper-missing`. Because the helper runs through `uv`, `headless_mode: true` in `preferences.yaml` takes effect only once `uv` is found: a run that stops at `on-activation:uv-missing` (or `on-activation:config-missing`) prints a `blocked` `SKF_SETUP_RESULT_JSON` envelope only under `--headless`, `--quiet` or a Ferris pipeline, and the bare reason otherwise, where a preferences-only headless run used to get the envelope for a missing `uv`.
+migration: |
+  If setup now stops at `on-activation:config-malformed` naming `sidecar_path`, set `sidecar_path: _bmad/_memory/forger-sidecar` in `_bmad/skf/config.yaml` and run it again. A pipeline that sets only `headless_mode: true` in `preferences.yaml` and needs a `blocked` envelope from an `on-activation:uv-missing` halt passes `--headless` or `--quiet` as well.
+prs: [641]
+issues: [592]

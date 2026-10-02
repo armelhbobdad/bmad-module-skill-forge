@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup
+summary: |
+  Setup now reads and writes its sidecar files under the `sidecar_path` that `_bmad/skf/config.yaml` sets, as every other workflow does, instead of always under `_bmad/_memory/forger-sidecar/`, so a project with a custom sidecar folder gets its `forge-tier.yaml` where the other workflows look for it. Setup's helpers now pass their results to each other by file: the helper that prepares the ccc settings also builds the index and stamps its time and file count from `ccc status` with its own clock, and `forge-tier.yaml`, the FORGE STATUS report and the `SKF_SETUP_RESULT_JSON` envelope read the detector's and that helper's results from the run folder, so no step types a timestamp, a count or the SKF exclusion record back by hand. When that call is stopped before the index finishes, the envelope's `ccc_index.status` is `failed`, and the exclusion patterns it already merged into `settings.yml` are still recorded. The first-run and re-run notices no longer tell you to press Esc before anything is written, a pause the run never gave, and the "Proceeding to ..." lines between steps are gone.
+prs: [641]
+issues: [592, 596, 599, 600]

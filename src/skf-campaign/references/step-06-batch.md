@@ -2,11 +2,13 @@
 nextStepFile: 'step-07-capstone.md'
 stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
-backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 batchFile: '{campaignWorkspacePath}/_batch-input.txt'
 batchMapFile: '{campaignWorkspacePath}/_batch-map.json'
+batchResultsFile: '{campaignWorkspacePath}/_batch-results.json'
+decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
 batchScript: 'scripts/campaign-render-batch.py'
+stateScript: 'scripts/campaign-state.py'
 validateScript: 'scripts/campaign-validate-state.py'
 ---
 
@@ -20,11 +22,9 @@ Batch all Tier B skills through QS `--batch` mode, recording per-skill results i
 
 ## RULES
 
-- This step uses the **read-backup-modify-write** pattern.
-- Validate state on load via `uv run {validateScript} --state-file {stateFile}`; HALT (exit 3) on non-zero.
-- Update `campaign.last_updated` to current ISO-8601 with timezone on every write.
-- Update `campaign.current_stage` to `5`.
-- If `{headless_mode}` is true, auto-proceed through confirmation gates. QS `--batch` implies headless.
+- Write `campaign.current_stage` = 5 only in this stage's final state write, after every result is recorded: step-resume resumes at `current_stage + 1`, so an early write skips unfinished work. An interrupted batch needs no stage write: its skills stay `active`, and resume sends an active Tier B skill back to this stage.
+- Write state and decision-log entries only through `{stateScript}`, and on a non-zero exit HALT with the same code (State Contract in `references/campaign-contracts.md`). A log entry is `uv run {stateScript} log --log-file {decisionLogFile} --type <decision|auto|event> --text '<entry>'`.
+- If `{headless_mode}` is true, emit this stage's progress events, and at any HARD HALT the error envelope, per `references/campaign-contracts.md`. QS `--batch` implies headless.
 
 ## TASKS
 
@@ -48,11 +48,17 @@ Its JSON summary on stderr gives `count`, the skill of each line in order (`skil
 
 HALT on non-zero exit: exit code 8 (`missing-brief`) when the brief is missing/unreadable **or** a selected Tier B skill has no matching brief target; exit code 2 (`invalid-input`) on a state file/parse error or a directive that cannot be read.
 
-Mark each `skipped_by_directive` skill `"skipped"` and log "directive Skip List: {name} ({reason})" to the decision log. Log each `dropped_hints` entry as "batch: {skill} built without its {hint} `{value}` (quick-skill reads a hint as one word)". If `count` is 0, backup `{stateFile}` to `{backupFile}`, write the updated state and skip to §6 (Stage Completion): the batch stage completes at once when every Tier B skill is already handled.
+Log each `skipped_by_directive` entry as "directive Skip List: {name} ({reason})" and each `dropped_hints` entry as "batch: {skill} built without its {hint} `{value}` (quick-skill reads a hint as one word)", both type `event`.
 
 ### §4: Execute QS Batch
 
-Set each skill the §3 summary names in `skills` to `status: "active"`, and `started_at` to current ISO-8601 with timezone unless an interrupted batch already set it. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
+Record the batch's start from the map, so no skill is marked by hand:
+
+```
+uv run {stateScript} apply-batch --state-file {stateFile} --map-file {batchMapFile} --start
+```
+
+It marks each `skipped_by_directive` skill `skipped` and each batched skill `active`, stamping `started_at` from the clock unless an interrupted batch already set it. If the §3 `count` is 0, add `--stage 5` to this call and chain to `{nextStepFile}`: the batch stage completes at once when every Tier B skill is already handled.
 
 Invoke QS in `--batch` mode with the generated batch file:
 
@@ -67,19 +73,22 @@ QS `--batch` implies `--headless`. When the batch ends it prints a `batch_summar
 Join the batch summary to the skills by line number, never by matching QS output to skills by hand:
 
 ```
-uv run {batchScript} --record <summary_path> --map {batchMapFile}
+uv run {batchScript} --record <summary_path> --map {batchMapFile} > {batchResultsFile}
 ```
 
-For each entry of its `results[]`:
+When that call exits 0, record the results and the stage in one write:
 
-1. `status` `completed`: set `status` to `"completed"`, `completed_at` to current ISO-8601 with timezone, `quality_score` to its `quality_score` (the skill-check score QS records, not a test-skill score) and `skill_path` to its `skill_path`.
-2. `status` `failed`: set `status` to `"failed"`, and log its `error_code` (`no-batch-result` when the summary holds no result for its line) to the decision log.
+```
+uv run {stateScript} apply-batch --state-file {stateFile} --map-file {batchMapFile} --results-file {batchResultsFile} --stage 5
+```
 
-When QS printed no `batch_summary` event, or the record call exits 2 (a missing summary or map, or a summary that belongs to another batch file), set every skill the map lists (`lines[].skill` in `{batchMapFile}`) to `"failed"` and log why: never guess which target built which skill. After all updates: backup `{stateFile}` to `{backupFile}`, then write the updated state.
+A `completed` result sets the skill `completed`, with `completed_at` from the clock, its `quality_score` (the skill-check score QS records, not a test-skill score) and its `skill_path`; a `failed` one sets it `failed`. Log each entry of the helper's `failed[]` with its `error_code` (`no-batch-result` when the summary holds no result for its line), type `event`.
 
-### §6: Stage Completion
+When QS printed no `batch_summary` event (run no record call), or the record call exits 2 (a missing summary or map, or a summary that belongs to another batch file), fail every skill the map lists instead, and log why: never guess which target built which skill.
 
-Set `campaign.current_stage` to `5`. Update `campaign.last_updated` to current ISO-8601 with timezone. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
+```
+uv run {stateScript} apply-batch --state-file {stateFile} --map-file {batchMapFile} --no-results --stage 5
+```
 
 ## OUTPUT
 

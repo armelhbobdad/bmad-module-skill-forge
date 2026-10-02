@@ -30,9 +30,10 @@ and pin the prose around them:
   unmarked block aside; Steps 02 to 04 read the analysis copy, and an issue's
   claim is recorded as the exact line compile anchors on;
 - report.md stages its payload with the script's context command, writes the
-  result contract before its final menu, runs on_complete with the emitter's
-  result_path and shows its failure on a report line, takes every count and
-  name from the build record, and its [X] finishes the run.
+  result contract, runs on_complete with the emitter's result_path and shows
+  its failure on a report line, takes every count and name from the build
+  record, and finishes the run with no menu (the walkthrough of each
+  refinement is [R] at step 5's review, where feedback can still act).
 """
 
 from __future__ import annotations
@@ -357,8 +358,8 @@ def test_each_documented_warning_is_a_fixed_code_the_schema_names():
         text = _read(path)
         codes += WARNING_RE.findall(text)
         codes += re.findall(r"--warning '([a-z_]+): [^']+'", text)
-    assert sorted(set(codes)) == ["legacy_blocks_set_aside", "malformed_ra_markers", "scope_fallback_all_skills",
-                                  "unknown_scope_skills", "vs_report_not_read"]
+    assert sorted(set(codes)) == ["legacy_blocks_set_aside", "malformed_ra_markers", "out_of_scope_skills",
+                                  "scope_fallback_all_skills", "unknown_scope_skills", "vs_report_not_read"]
     described = _schema()["properties"]["warnings"]["description"]
     for code in [*codes, "result_file_write_failed"]:
         assert code in described, code
@@ -575,7 +576,8 @@ def test_the_run_reads_its_clock_and_its_bindings_back():
 def test_the_stages_table_marks_every_gate():
     stages = _section(_read(SKILL_MD), "## Stages", "## Invocation Contract")
     assert "| 1 | Initialize & Load Inputs | references/init.md | No (input gate) |" in stages
-    assert "| 6 | Report | references/report.md | No (final menu) |" in stages
+    assert "| 5 | Compile Refined Architecture | references/compile.md | No (review) |" in stages
+    assert "| 6 | Report | references/report.md | Yes |" in stages
 
 
 def test_the_rules_file_leaves_preservation_to_the_script():
@@ -610,12 +612,12 @@ def test_the_next_steps_state_the_accept_convention():
 # --- The terminal sequence -------------------------------------------------------------------
 
 
-def test_report_writes_the_contract_then_the_hook_then_the_menu():
+def test_report_writes_the_contract_then_the_hook_then_finishes():
     text = _read(REPORT)
     contract = text.index("### 4. Result Contract")
     hook = text.index("### 5. Post-Completion Hook")
-    menu = text.index("### 6. Present Menu")
-    assert contract < hook < menu
+    finish = text.index("### 6. Finish the Run")
+    assert contract < hook < finish
     emit = ('uv run {emitEnvelopeHelper} emit --workflow skf-refine-architecture --run-dir "{run_dir}" '
             '--result-dir "{outputFolderPath}" < "{run_dir}/result-context.json"')
     assert emit in text
@@ -637,13 +639,17 @@ def test_the_hook_gets_the_emitters_result_path_and_its_failure_is_shown():
     assert "Bind `{result_path}` ← the line's `result_path`" in _read(REPORT)
 
 
-def test_the_final_menu_finishes_the_run():
-    menu = _section(_read(REPORT), "### 6. Present Menu", "#### EXECUTION RULES:")
-    assert "**[X] Finish**" in menu and "exit code 6" not in menu
-    assert "[X] finishes the run with exit code 0" in menu
-    assert 'rm -rf "{run_dir}"' in menu
+def test_the_report_finishes_the_run_without_a_menu():
+    # A menu after the approval could not act on the document, so step 6
+    # asks nothing: the walkthrough is [R] at step 5's review gate.
+    finish = _section(_read(REPORT), "### 6. Finish the Run", "the true terminal step")
+    assert "**Select:**" not in finish and "[X]" not in finish and "GATE" not in finish
+    assert 'rm -rf "{run_dir}"' in finish
+    assert "Headless auto-selects" not in _read(REPORT)
     rule = [line for line in _read(SKILL_MD).splitlines() if line.startswith("- At any interactive prompt")][0]
-    assert "except at step 6's final menu" in rule and "finishes the run (exit code 0)" in rule
+    assert "final menu" not in rule and rule.rstrip().endswith('(`halt_reason: "user-cancelled"`)')
+    exit_6 = _exit_code_rows()[6]
+    assert "final menu" not in exit_6 and "step 5 review gate `[X]`" in exit_6
 
 
 def test_report_takes_every_count_from_the_build_record():
