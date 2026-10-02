@@ -14,8 +14,8 @@ SKF uses an additive tier model. You never lose capability by adding a tool.
 | Tier | Required Tools | What You Get |
 |------|---------------|-------------|
 | **Quick** | None (`gh_bridge` and `skill-check` used when available; `tessl` when you opt in to Tessl Review) | Source reading + spec validation. Best-effort skills in under a minute. **Note:** Quick Skill (QS) ignores your tier on purpose. It always reads source without ast-grep and records `confidence_tier: Quick` and `source_authority: community`, whatever tools you have installed. It never runs Tessl Review. |
-| **Forge** | + `ast_bridge` (ast-grep) | Structural truth. AST-verified signatures. Co-import detection. T1 confidence. |
-| **Forge+** | + `ccc_bridge` (cocoindex-code) | Semantic discovery. CCC pre-ranks files by meaning before AST extraction. Better coverage on large codebases. |
+| **Forge** | + `ast_bridge` (ast-grep) | Structural truth. Each export an ast-grep rule matches is AST-verified and labeled T1; one it cannot match is read by eye and labeled T1-low. Co-import detection. |
+| **Forge+** | + `ccc_bridge` (cocoindex-code) | Semantic discovery. CCC ranks files by meaning, so a step that reads files one at a time reads the most relevant first; the ast-grep recipe runner reads every file in scope either way. Helps most on large codebases. |
 | **Deep** | `ast_bridge` + `gh_bridge` (gh) + `qmd_bridge` (QMD). CCC is optional and adds semantic discovery when installed. | Knowledge search. Temporal provenance (issue, PR and changelog history). Audit Skill adds QMD semantic comparison to its drift checks. Full intelligence. |
 
 Setup detects your installed tools and sets your tier automatically:
@@ -101,16 +101,18 @@ Every claim in a generated skill carries a confidence tier that traces to its so
 
 | Tier | Source | Tool | What It Means |
 |------|--------|------|---------------|
-| **T1** | AST extraction | `ast_bridge` | Current code, structurally verified. Immutable for that version. |
-| **T1-low** | Source reading | Source reading (no ast-grep) | Read from source without AST verification. Produced by Quick tier, and by Forge, Forge+ and Deep for any export read by eye: when ast-grep cannot parse a file, when a remote source cannot be cloned, or when an export is read directly while ast-grep works. Location correct, signature may be inferred. |
+| **T1** | AST extraction | `ast_bridge` | An ast-grep rule matched the export in the current code: structurally verified, and immutable for that version. Cited `[AST:file:Lnn]`. |
+| **T1-low** | Source reading | Source reading (no ast-grep) | Read from source without AST verification. Produced by Quick tier, and by Forge, Forge+ and Deep for any export read by eye: when ast-grep cannot parse a file, when a remote source cannot be cloned, or when an export is read directly while ast-grep works. Location correct, signature may be inferred. Cited `[SRC:file:Lnn]`. |
 | **T2** | QMD evidence | `qmd_bridge` | Historical + planned context (issues, PRs, changelogs, docs). |
 | **T3** | External documentation | `doc_fetcher` | External and untrusted, so SKF keeps it apart: a T3 claim keeps its `[EXT:...]` label and never overrides a T1, T1-low or T2 claim. |
+
+**Labels follow the tool that read each export, not the forge tier.** A Deep-tier skill can hold T1-low entries next to its T1 ones, and its provenance map records each entry's `extraction_method` (`ast-grep` or `source-read`) beside its `confidence`. Before SKF 3.0.0 the label followed the forge tier, so a skill built at Forge or above could claim T1 for an export nothing parsed. Expect lower T1 counts, in the skill's citations and in its `metadata.json` `confidence_distribution`, when you build or update a skill now, with nothing less extracted. Audit Skill lists a label that changed this way in its own table, "Provenance label differences (not drift)", and never counts it as drift.
 
 ### Temporal Provenance
 
 Confidence tiers map to temporal scopes:
 
-- **T1-now (instructions):** What ast-grep sees in the checked-out code. This is what your agent executes.
+- **T1-now (instructions):** What the checked-out code holds, read by ast-grep (T1) or by eye (T1-low). This is what your agent executes.
 - **T2-past (annotations):** Closed issues, merged PRs and changelogs that explain why the API looks the way it does.
 - **T2-future (annotations):** Open PRs, deprecation warnings and RFCs that show what's coming.
 
@@ -129,9 +131,11 @@ Your forge tier sets how strong a skill's accuracy guarantee can be:
 | Forge Tier | AST? | CCC? | QMD? | Accuracy Guarantee |
 |-----------|------|------|------|-------------------|
 | Quick | No | No | No | Best-effort |
-| Forge | Yes | No | No | Structural (AST-verified) |
+| Forge | Yes | No | No | Structural (each export ast-grep matches is AST-verified) |
 | Forge+ | Yes | Yes | No | Structural + semantic discovery |
 | Deep | Yes | Optional (adds semantic discovery) | Yes | Full (structural + contextual + temporal) |
+
+At every tier the structural guarantee covers the exports an ast-grep rule matched: an export it could not match is labeled T1-low and cited `[SRC:...]`, even in a Deep-tier skill.
 
 **Tier and authority are separate.** Tier says how deeply SKF could check the code. Authority (`source_authority`) says who stands behind the skill, and it comes from your brief, not from your tools. Brief Skill asks whether you maintain the library: a maintainer gets `official`, a private or company codebase gets `internal`, and everyone else gets `community`, the default. In a headless run where you do not set it, SKF picks `official` only when your GitHub login matches the repo owner. Quick Skill and docs-only skills are always `community`. Only library maintainers should publish `official` skills to the [agentskills.io](https://agentskills.io) open-format ecosystem, so a Deep-tier skill compiled by a third party stays `community`. See [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills), where all four Deep-tier skills ship as `community` by design: audited, not blessed.
 
@@ -198,7 +202,7 @@ description: >
 ---
 ```
 
-Every instruction in the body traces to source:
+Every instruction in the body traces to source, with a citation that names the tool that read it (`[AST:]` for an ast-grep match, `[SRC:]` for a read by eye):
 
 ```python
 await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
@@ -246,6 +250,8 @@ This is a trimmed excerpt from the real [`oms-cognee/1.0.0/metadata.json`](https
 Fields omitted from this excerpt for brevity: `source_root`, `description`, `exports[]`, `tool_versions`, `dependencies`, `compatibility`, `generated_by`, and a `last_update` that an earlier SKF version wrote. Update Skill now records `last_update` and `update_type` at the top level of `provenance-map.json` in `forge-data/{name}/{version}/`, and an update removes both from `metadata.json`, which marks an update only in `generation_date`. The full 93-line file lives at [`oh-my-skills/skills/oms-cognee/1.0.0/oms-cognee/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.0.0/oms-cognee/metadata.json).
 
 Two fields are easy to mix up. `confidence_tier` holds the forge tier a single skill like this one was compiled at (Quick, Forge, Forge+ or Deep). A stack skill records there the dominant confidence tier of its libraries (T1, T1-low, T2 or T3) and keeps its forge tier in `forge_tier`; Export Skill still accepts a forge tier from a stack made by an earlier SKF version, with a warning that running Stack Skill again records the dominant tier. `confidence_distribution` counts the claims at each confidence tier (T1, T1-low, T2, T3). In a stack it counts each library once, by the library's tier, so its bins sum to `library_count`.
+
+The excerpt's `t1` count of 34 comes from an SKF version that labeled exports by the forge tier. This skill's provenance map records its exports as read by eye (`source-read`), which SKF 3.0.0 counts as `t1_low`: only an export an ast-grep rule matched counts as `t1` now, and `ast_node_count` counts only those exports.
 
 `scripts` and `assets` arrays are optional: SKF leaves them out entirely, rather than writing empty arrays, when the source has no scripts or assets.
 

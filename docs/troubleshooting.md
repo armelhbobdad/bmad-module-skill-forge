@@ -29,19 +29,21 @@ If setup reports that ast-grep was not detected, install it to unlock the Forge 
 
 ### "No skill brief found"
 
-Create Skill (`CS`) always needs a skill brief. Run `@Ferris BS` to write one (or `@Ferris AN` to get recommended briefs for a large repo), then run `@Ferris CS <skill-name>`: Create Skill loads `<forge_data_folder>/<skill-name>/skill-brief.yaml`, or the brief file whose path you pass. To make a skill without a brief, use `@Ferris QS` instead.
+Create Skill (`CS`) always needs a skill brief. Given a skill name, it loads `<forge_data_folder>/<skill-name>/skill-brief.yaml`; given a path, it loads that brief file. Run with no brief path, skill name or `--batch`, it loads the only brief in `forge_data_folder` and names it in its banner, and with several briefs there it asks which one to compile. A headless run that finds several stops with exit code 2 (`brief-missing`) and names them: pass the brief's path or skill name, or `--batch` to compile them all. "No skill brief found" means the brief you named does not exist or, with nothing named, that `forge_data_folder` holds no brief.
+
+**Fix:** run `@Ferris BS` to write a brief (or `@Ferris AN` to get recommended briefs for a large repo), then run `@Ferris CS <skill-name>`. To make a skill without a brief, use `@Ferris QS` instead.
 
 ### "Ecosystem match found"
 
-Create Skill and Quick Skill can check for a published skill that already covers your source. When they find one, they stop and show it (Quick Skill says "Existing official skill found"), with three choices: **[P] Proceed** compiles your own skill anyway, for a different scope or custom content; **[I] Install** stops so you can install the existing skill instead; **[A] Abort** cancels. A headless run picks **[P]**. When the existing skill is official and fits your needs, installing it with `npx skills add <skill-name>` is usually the better choice, because the library's maintainers test it and keep it current.
+No run stops here today. Quick Skill has a step that checks for an official skill that already covers your source, but agentskills.io offers no registry API to ask, so the step skips the check and Quick Skill goes straight on to extraction. Create Skill has no such check since 3.0.0. Once a registry API lists an official skill for your source, Quick Skill will show it with three choices: **[P] Proceed** compiles your own skill anyway, for a different scope or custom content; **[I] Install** stops so you can install the official skill instead; **[A] Abort** cancels. A headless run will pick **[P]**. When you already know of an official skill that fits your needs, installing it with `npx skills add <skill-name>` is usually the better choice, because the library's maintainers test it and keep it current.
 
 ### Quick-tier skills have lower confidence scores
 
-Quick tier reads source without AST analysis, so signatures are read directly from files rather than structurally verified, and its claims carry the T1-low confidence label. Install ast-grep to upgrade to the Forge tier for AST-verified signatures (T1 confidence). See [Capability Tiers](/docs/concepts.md#capability-tiers-quickforgeforgedeep).
+Quick tier reads source without AST analysis, so signatures are read directly from files rather than structurally verified, and its claims carry the T1-low confidence label. Install ast-grep to upgrade to the Forge tier, where each export an ast-grep rule matches is AST-verified and labeled T1. The label follows the tool that read the export, not the tier: an export ast-grep cannot match, because it cannot parse the file or no rule fits the export, is still read by eye and labeled T1-low, at Forge, Forge+ and Deep too. See [Confidence Tiers](/docs/concepts.md#confidence-tiers-t1t1-lowt2t3).
 
 ### Want semantic discovery for large codebases?
 
-Install [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) (the `ccc` command) alongside ast-grep to unlock the Forge+ tier, then re-run `@Ferris SF`. CCC indexes your codebase and pre-ranks files by semantic relevance before AST extraction, improving coverage on projects with 500+ files.
+Install [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) (the `ccc` command) alongside ast-grep to unlock the Forge+ tier, then re-run `@Ferris SF`. CCC indexes your codebase and ranks its files by meaning, so a step that reads files one at a time reads the most relevant ones first, which helps most on projects with 500+ files. The ast-grep recipe runner reads every file in scope either way.
 
 ### `git status` lists a `.cocoindex_code` folder inside a source folder
 
@@ -63,7 +65,7 @@ Test Skill checks a skill against the source commit it was made from. When the s
 
 ### forge-auto halted at the Test stage
 
-forge-auto aims for 90%, stricter than the default 80%. A score of at least 80% but under 90% still passes, with an `evidence-report-fallback.md` that records the shortfall. The run stops at TS when the score is below 80% or the test finds a Critical or High gap. Run `@Ferris US <name> --from-test-report` to repair the gaps the report lists, then `@Ferris TS[<name>] EX` to test and export again (the brackets give Test Skill the skill's name). Without `--from-test-report`, Update Skill checks the source for changes and does not read the test report. If 90% is stricter than you need, run the individual workflows or `forge` instead, which use the default threshold.
+forge-auto aims for 90%, stricter than the default 80%. A score of at least 80% but under 90% still passes, with an `evidence-report-fallback.md` that records the shortfall, unless a cap fired. TS stops the pipeline on any verdict but PASS: every FAIL (a score below 80%, a Critical or High gap at the hard gate, or a cap that turned a pass into a fail whatever the score), INCONCLUSIVE, and pass-with-drift. Run `@Ferris US <name> --from-test-report` to repair the gaps the report lists, then `@Ferris TS[<name>] EX` to test and export again (the brackets give Test Skill the skill's name). A plain `@Ferris US <name>` finds a failed or pass-with-drift test report that is newer than the skill and that no repair has applied, and offers to repair its gaps; a headless run checks the source for changes instead and adds an `unconsumed-test-report` warning. For INCONCLUSIVE, add evidence as [Pass/fail](/docs/verifying-a-skill.md#passfail) describes; for pass-with-drift, test again at the pinned commit. If 90% is stricter than you need, run the individual workflows or `forge` instead, which use the default threshold.
 
 ### "Inventory scan unreliable"
 
@@ -101,6 +103,18 @@ Rename rewrites the skill's `name` fields, the name where the snippet template w
 - **A note an earlier run wrote in its own words**, such as an `update_source` value in `metadata.json` that names the skill: edit or remove it in the old skill's file, then re-run the rename.
 - **A `context-snippet.md` line other than the header, `|IMPORTANT:` and `root:`** names the skill, for example its `|gotchas:` text: edit that line in the old skill's snippet, then re-run. When the old name is a label or fixed word of the snippet template itself (`api`, `root`, `data`), the skill cannot be renamed; create it again under the new name.
 
+### Rename Skill stops with `halted-for-concurrent-run`
+
+Surfaced by `@Ferris RS` (exit `5`) when another rename of the same skill holds its run lock, `.skf-rename-<name>.lock` in `forge_data_folder`, and the lock has not gone stale (60 minutes after it was taken or renewed). A rename that waited at a question past that time stops the same way before it copies anything, because another rename may have run in the meantime. `--dry-run` takes no lock.
+
+**Fix:** wait until the other rename ends, then run the rename again. If no rename of that skill is running, delete the lock file the message names, or wait until the time it gives.
+
+### Rename Skill stops with `name-collision` and lists old folders
+
+Surfaced by `@Ferris RS` (exit `5`) when an earlier rename of the skill to the same new name stopped after it moved the export manifest entry to the new name, but before it deleted the old folders. The new name is now the renamed skill. The message lists the old folders still on disk, and the run changes nothing.
+
+**Fix:** if you do not want to keep the old skill, run the checked delete the message gives (`skf-skill-inventory.py guarded-delete` with those folders), then run `@Ferris EX` to rebuild the context files that may still name the old skill. A `name-collision` without that list means the new name is already in use: pick another one.
+
 ### Update Skill stops with `blocked` before detecting changes
 
 Surfaced by `@Ferris US` for a skill built at Forge tier or above from a remote repository, or when `--target-ref` is passed for any other skill (under `--headless`, `error.phase` is `init:source-tree`). Update Skill reads the commit that the skill's `source_ref` points to now, or the tag, branch or commit passed with `--target-ref`, so every step compares the skill with one known commit. It stops before comparing anything when it cannot get that commit, and `error.reason` says why:
@@ -122,6 +136,14 @@ If Test Skill stops with `workspace-drift` right after an update, the update's r
 Surfaced by `@Ferris US` (under `--headless`, `error.phase` is `merge:new-version-folder`). An update that writes puts the new version of the skill in a folder of its own and never overwrites an existing one. The new version is the source's version when the skill was built from a remote repository and that version is higher; otherwise it is the next patch version. It updates the version the skill's `active` link names, so a second update before an export builds on the first. It stops before writing anything when `<skills_output_folder>/<name>/<version>/` or `<forge_data_folder>/<name>/<version>/` already exists. The version it updates is unchanged.
 
 **Fix:** if an earlier update stopped after creating that version, delete both folders (whichever exist) by hand, then re-run. If you keep that version on purpose, move both folders out of the way by hand before updating. Never remove the version the `active` link names. Drop Skill removes a single version only when the export manifest lists it (`@Ferris DS <name> --mode purge`, choosing that version); for a skill that was never exported it can only drop every version, and a soft drop (`--mode deprecate`) keeps the files on disk.
+
+### Update Skill stops with `halted-for-concurrent-run`
+
+Surfaced by `@Ferris US` when another update of the same skill holds its run lock, `.skf-update.lock` in `<forge_data_folder>/<name>/` (under `--headless`, `error.phase` is `init:concurrency-guard`). The message names the update that holds the lock, the lock file, and when the lock goes stale (60 minutes after it was taken or renewed). `--detect-only` and `--dry-run` take no lock.
+
+**Fix:** wait until the other update ends, then re-run. If no update of that skill is running (a session that crashed or was closed leaves its lock behind), delete the lock file the message names, or wait until the time it gives. An update that finds a stale lock takes it over and undoes what the interrupted update left half written.
+
+**`run-lock-lost`:** the same status with this reason means the update waited at a question past the stale time, so another update may have changed the skill (`error.phase` is `merge:run-lock` or `write:run-lock`). It stops before it writes `metadata.json`, and the halt undoes anything the update already wrote: it removes the new version folders, or, for a repair from a test report, restores the files it edited in place from the copy it took first, and the message says which. Re-run the update once no other update of that skill runs; if a version folder the message names is still on disk, delete it first.
 
 ### A report says `Tessl Review: off`, `not run`, `no result` or `failed`
 

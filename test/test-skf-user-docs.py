@@ -33,7 +33,13 @@ describes, so a change on one side that the other does not follow fails:
   Skill and Campaign lines of the docs follow the verdict rollup, the
   feasibility-report lookup, the unconsumed-report offer, the snippet timing,
   the drop version rule and envelope, the audit data folder, the quick-skill
-  success envelope and batch rule, and the campaign kickoff's facts loader.
+  success envelope and batch rule, and the campaign kickoff's facts loader;
+- workflows.md, forge-auto.md, agents.md and architecture.md link only to
+  source files and sections that exist, and say what each workflow's
+  contract does: the pipeline gate, journal and resume, the registry lookup
+  and hints, the brief lookup and batch, the stack inputs, the audit's
+  upstream and baseline rules, the test exit code, the rename lock, the
+  export snippet root, and only settings a customize.toml holds.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -44,6 +50,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -477,7 +484,7 @@ def test_docs_say_what_the_hard_gate_reads_and_a_blocked_run_writes():
     exits = _paragraph(_slice(_read(WORKFLOWS), "### Test Skill (TS)", "**Agent:**"), "**Verdicts and exit codes")
     for token in ("`2` FAIL", "A run the hard gate blocks on a Critical or High gap is a FAIL as well",
                   "writes the Gap Report and a FAIL result record", "runs `on_complete` and the health check",
-                  "then exits `2`", "its result line, printed on stderr instead of stdout",
+                  "has `exit_code` `2`", "its result line, printed on stderr instead of stdout",
                   '`status: "error"`', '`halt_reason: "hard-gate-blocked"`'):
         assert token in exits, token
     contract = _slice(skill, "## Result Envelope (Headless)", "| `halt_reason` | Raised by |")
@@ -781,7 +788,11 @@ def test_campaign_setup_asks_one_question_and_drafts_the_table():
 
 
 def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
-    """A `file:` path that names no file stops the kickoff; a glob that matches nothing adds nothing."""
+    """A `file:` path that names no file stops the kickoff; a glob that matches nothing adds nothing.
+
+    The line also says how an override drops the bundled default (#596, the maintainer's 2026-10-02 decision): a
+    `!` entry naming the default exactly as customize.toml's persistent_facts array holds it.
+    """
     kickoff = _kickoff()
     with pytest.raises(FileNotFoundError):
         kickoff.load_facts(["file:{project-root}/no-such-facts.md"], str(tmp_path))
@@ -792,3 +803,977 @@ def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
     for token in ("A `file:` path with no glob character that names no file stops the campaign at its first Tier A "
                   "kickoff with exit code 2", "a glob that matches nothing adds nothing"):
         assert token in line, token
+    default = "file:{project-root}/**/project-context.md"
+    assert tomllib.loads(_read(SRC / "skf-campaign" / "customize.toml"))["workflow"]["persistent_facts"] == [default]
+    for token in (f'`persistent_facts = ["!{default}"]`', "a team or personal override",
+                  "an entry that starts with `!` adds nothing and removes every earlier entry it names",
+                  "those files stay out of every Tier A kickoff"):
+        assert token in line, token
+
+
+# --------------------------------------------------------------------------
+# Provenance labels follow the tool (the #556 pre-release docs drift fix):
+# the label rule, the tier text, the receipts and the oms-cognee example
+# --------------------------------------------------------------------------
+
+CONCEPTS = DOCS / "concepts.md"
+EXAMPLES = DOCS / "examples.md"
+HOW_IT_WORKS = DOCS / "how-it-works.md"
+INDEX = DOCS / "index.md"
+README = REPO_ROOT / "README.md"
+METADATA_STATS = SRC / "shared" / "scripts" / "skf-render-metadata-stats.py"
+COMPUTE_SCORE = TEST_SKILL / "scripts" / "compute-score.py"
+CAMPAIGN = SRC / "skf-campaign"
+LABEL_TABLE = "Provenance label differences (not drift)"
+AST_RECEIPT = "[AST:cognee/api/v1/search/search.py:L27]"
+SCORE_CATEGORIES = ("exportCoverage", "signatureAccuracy", "typeCoverage", "coherence", "externalValidation")
+
+
+def _script(path: Path):
+    """The module of a script whose file name has hyphens."""
+    spec = importlib.util.spec_from_file_location(path.stem.replace("-", "_") + "_user_docs", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _score(threshold: int, score: int, tooling: str = "ok") -> dict:
+    """compute-score.py's verdict for a Deep contextual run scoring `score` in every category."""
+    return _script(COMPUTE_SCORE).compute_score({
+        "mode": "contextual", "tier": "Deep", "threshold": threshold, "toolingStatus": tooling,
+        "scores": dict.fromkeys(SCORE_CATEGORIES, score)})
+
+
+def test_verifying_example_entry_carries_the_labels_its_tool_implies():
+    """The step 2 entry passes the label check; the published entry the page describes is flagged by it.
+
+    The checks bullet the step links to describes that label check and the relabel Create Skill applies.
+    """
+    step = _slice(_read(VERIFYING), "### 2. Open the skill's `provenance-map.json`", "### 3. ")
+    entry = json.loads(_slice(step, "```json\n", "```\n")[len("```json\n"):])
+    check = _script(METADATA_STATS).check_label_agreement
+    assert (entry["extraction_method"], entry["confidence"], entry["source_line"]) == ("ast-grep", "T1", 27)
+    assert check({"entries": [entry]}) == []
+    assert [v["expected"] for v in check({"entries": [{**entry, "ast_node_type": None}]})] == ["non-null"]
+    published = {**entry, "extraction_method": "source-read", "source_line": 26}
+    expected = {v["field"].rsplit(".", 1)[1]: v["expected"] for v in check({"entries": [published]})}
+    assert expected == {"confidence": "T1-low", "signature_source": "T1-low", "ast_node_type": None}, expected
+    for token in ("`[AST:file:Lnn]` for an export ast-grep matched or `[SRC:file:Lnn]` for one read by eye",
+                  "gets `T1-low`, `source-read`, no node kind and an `[SRC:]` citation, at every forge tier",
+                  "It records `search` as `source-read` but labels it `T1`",
+                  "points at line 26, the blank line above the definition", f"cites `{AST_RECEIPT}`",
+                  "a source read is `T1-low` with an `[SRC:]` citation, and its line is 27, the `def` line",
+                  "[line, label and citation checks](#workflow-time-enforcement)"):
+        assert token in step, token
+    relabel = _read(SRC / "skf-create-skill" / "references" / "relabel-rule.md")
+    assert ("Set the entry's `confidence`, `signature_source` and `ast_node_type` to the violation's `expected`"
+            in relabel)
+    bullet = "- **Line, label and citation checks.**"
+    [checks] = [line for line in _read(VERIFYING).splitlines() if line.startswith(bullet)]
+    for token in ("an ast-grep entry is `T1` with a node kind",
+                  "an entry read by eye is `T1-low` with no node kind and a `signature_source` other than `T1`",
+                  "They relabel an entry that disagrees, so a source read labeled `T1` becomes `T1-low`"):
+        assert token in checks, token
+
+
+def test_docs_say_labels_follow_the_tool_and_t1_counts_drop():
+    """A label names the tool that read the export, at every tier, and Audit Skill lists label changes apart."""
+    assert "The label follows the tool that produced the claim, not the forge tier" in _read(
+        SRC / "knowledge" / "confidence-tiers.md")
+    audit = SRC / "skf-audit-skill" / "references"
+    # Step 3 writes the table, by hand or through its renderer script once one ships.
+    renderer = SRC / "skf-audit-skill" / "scripts" / "render-drift-tables.py"
+    assert LABEL_TABLE in _read(audit / "structural-diff.md") + (_read(renderer) if renderer.exists() else "")
+    assert f"**{LABEL_TABLE}** table) is never a finding" in _read(audit / "severity-classify.md")
+    concepts = _paragraph(_read(CONCEPTS), "**The label follows the tool, not the tier.**")
+    model = _paragraph(_read(SKILL_MODEL), "**Labels follow the tool that read each export, not the forge tier.**")
+    for text in (concepts, model):
+        for token in (f'"{LABEL_TABLE}"', "with nothing less extracted",
+                      "Before SKF 3.0.0 the label followed the forge tier"):
+            assert token in text, token
+    for token in ("an ast-grep match is T1 at any tier", "an export read by eye is T1-low, even in a Deep-tier skill",
+                  "fewer T1 claims", "does not count them as drift"):
+        assert token in concepts, token
+    methods = re.findall(r"`([a-z-]+)`", model.split("`extraction_method` (", 1)[1].split(")", 1)[0])
+    assert methods == ["ast-grep", "source-read"]
+    assert set(methods) <= set(_script(METADATA_STATS)._KNOWN_METHODS)
+    for token in ("Expect lower T1 counts", "`confidence_distribution`", "never counts it as drift"):
+        assert token in model, token
+    drift = _paragraph(_read(CONCEPTS), "Audit Skill also checks the documentation pages")
+    assert f'(T1 to T1-low, or back): Audit Skill lists it under "{LABEL_TABLE}"' in drift
+    excerpt = _paragraph(_read(SKILL_MODEL), "The excerpt's `t1` count of 34")
+    assert '"t1": 34' in _read(SKILL_MODEL) and "which SKF 3.0.0 counts as `t1_low`" in excerpt
+    assert "Set `ast_node_count` to the number of exports ast-grep matched" in _read(
+        SRC / "skf-create-skill" / "references" / "compile.md")
+    assert '"ast_node_count": 34' in _read(SKILL_MODEL) and "`ast_node_count` counts only those exports" in excerpt
+
+
+def test_tier_text_promises_t1_only_for_an_ast_grep_match():
+    """No tier makes every signature T1 and `[AST:]`: an export ast-grep cannot match stays T1-low at any tier."""
+    rule = _read(SRC / "skf-create-skill" / "references" / "tier-degradation-rules.md")
+    assert "Label the export by the tool that produced it, not by the tier" in rule
+    model, examples, trouble, concepts = (_read(p) for p in (SKILL_MODEL, EXAMPLES, TROUBLESHOOTING, CONCEPTS))
+    [forge] = [line for line in model.splitlines() if line.startswith("| **Forge** |")]
+    assert "T1 confidence" not in forge
+    assert ("Each export an ast-grep rule matches is AST-verified and labeled T1; one it cannot match is read by eye "
+            "and labeled T1-low") in forge
+    assert "an export it could not match is labeled T1-low and cited `[SRC:...]`, even in a Deep-tier skill" in model
+    for stale, text in (("Every signature must be AST-verified", examples),
+                        ("Every signature carries `[AST:file:Lnn]` at T1", examples),
+                        ("for AST-verified signatures (T1 confidence)", trouble),
+                        ("Every parameter and location is AST-verified", concepts),
+                        ("| Structural (AST-verified) |", model)):
+        assert stale not in text, stale
+    scenario = _slice(examples, "### Scenario G:", "### Scenario H:")
+    assert "An export it could not match is read by eye and carries `[SRC:file:Lnn]` at T1-low" in scenario
+    quick = _slice(trouble, "### Quick-tier skills have lower confidence scores", "\n### ")
+    assert "The label follows the tool that read the export, not the tier" in quick
+    assert "one it cannot match is read by eye and stays T1-low" in _slice(concepts, "- **Forge:**", "\n")
+
+
+def test_receipt_pages_say_ast_means_an_ast_grep_match():
+    """Each page that shows the `search` receipt says `[AST:]` is an ast-grep match and `[SRC:]` a read by eye."""
+    pages = {
+        README: "its provenance map records `search` as read by eye, which SKF 3.0.0 cites as `[SRC:...]`",
+        GETTING_STARTED: "an export SKF read by eye instead carries an `[SRC:...]` receipt",
+        HOW_IT_WORKS: "An export ast-grep cannot match is read by eye and carries an `[SRC:...]` receipt instead",
+        INDEX: "the receipt says so: `[SRC:...]`",
+        EXAMPLES: "that record lists these functions as read by eye (`source-read`)",
+    }
+    for page, token in pages.items():
+        text = _read(page)
+        assert AST_RECEIPT in text and token in text, page.name
+    for stale, page in (("Here's a real snippet from a cognee skill SKF compiled", GETTING_STARTED),
+                        ("The tag means *this came from AST extraction", HOW_IT_WORKS),
+                        ("extracted from code via AST parsing", EXAMPLES),
+                        ("extracted from source code by AST parsing", CONCEPTS)):
+        assert stale not in _read(page), (page.name, stale)
+
+
+def test_ccc_ranks_the_files_a_step_reads_one_at_a_time():
+    """CCC orders the files a step reads by hand; the recipe runner reads every file in scope."""
+    bridge = _read(SRC / "knowledge" / "ccc-bridge.md")
+    assert "The ranking orders the files a step reads by hand; the recipe runner reads every file in scope" in bridge
+    [forge_plus] = [line for line in _read(SKILL_MODEL).splitlines() if line.startswith("| **Forge+** |")]
+    entry = _slice(_read(TROUBLESHOOTING), "### Want semantic discovery for large codebases?", "\n### ")
+    bullet = _slice(_read(CONCEPTS), "- **Forge+:**", "\n")
+    for text in (forge_plus, entry, bullet):
+        assert "a step that reads files one at a time reads the most relevant" in text, text
+        assert "recipe runner reads every file in scope" in text and "before AST extraction" not in text, text
+
+
+# --------------------------------------------------------------------------
+# Troubleshooting: the brief lookup, the ecosystem check, forge-auto's Test
+# stage and the run locks
+# --------------------------------------------------------------------------
+
+
+def test_troubleshooting_brief_entry_follows_the_brief_lookup():
+    """#594: with nothing named, Create Skill loads the only brief, asks among several, or halts headless."""
+    load = _slice(_read(SRC / "skf-create-skill" / "references" / "load-brief.md"),
+                  "### 2. Discover Skill Brief", "### 3.")
+    for token in ("**One brief:** load it", "§5's banner names it", '"Which brief should I compile?"',
+                  "exit code 2, `brief-missing`", "or `--batch` to compile them all",
+                  "No skill brief found. Run [BS] Brief Skill to create one, or use [QS] Quick Skill"):
+        assert token in load, token
+    entry = _slice(_read(TROUBLESHOOTING), '### "No skill brief found"', "\n### ")
+    for token in ("loads the only brief in `forge_data_folder` and names it in its banner", "asks which one to compile",
+                  "stops with exit code 2 (`brief-missing`) and names them", "or `--batch` to compile them all",
+                  "with nothing named, that `forge_data_folder` holds no brief", "`@Ferris BS`", "`@Ferris QS`"):
+        assert token in entry, token
+
+
+def test_docs_describe_the_skipped_ecosystem_check():
+    """#599: Quick Skill skips its official-skill check until a registry API exists, and Create Skill has none."""
+    check = _read(QUICK / "references" / "ecosystem-check.md")
+    assert "agentskills.io has no registry API" in check and "Once a registry API lists an official skill" in check
+    create = SRC / "skf-create-skill"
+    assert not (create / "references" / "ecosystem-check.md").exists()
+    check_words = ("ecosystem check", "ecosystem-check", "ecosystem match", "ecosystem-match")
+    assert not [p.name for p in create.rglob("*.md") if any(w in _read(p).lower() for w in check_words)]
+    entry = _slice(_read(TROUBLESHOOTING), '### "Ecosystem match found"', "\n### ")
+    for token in ("No run stops here today", "agentskills.io offers no registry API",
+                  "Create Skill has no such check since 3.0.0"):
+        assert token in entry, token
+    assert "it skips that check until agentskills.io offers a registry API" in _read(HOW_IT_WORKS)
+    for stale, page in (("Checks ecosystem first", EXAMPLES), ("the ecosystem check in `@Ferris QS`", EXAMPLES),
+                        ("ecosystem check messages", EXAMPLES), ("ecosystem checks", README),
+                        ("he checks agentskills.io for an official cognee skill", HOW_IT_WORKS)):
+        assert stale not in _read(page), (page.name, stale)
+
+
+def test_quick_skill_walkthrough_names_the_registry_lookup():
+    """#582: every registry is asked, a language hint asks one, and a headless run records `also_found_in`."""
+    resolve = _read(QUICK / "references" / "resolve-target.md")
+    for token in ("which asks every deterministic registry (npm, PyPI, crates.io)",
+                  "a JavaScript, TypeScript, Python or Rust hint makes the resolver ask that language's registry alone",
+                  "(the first registry, in the order npm, PyPI, crates.io, that gives a GitHub repository)",
+                  "Record the resolver's `warning` (`also_found_in: ...`)"):
+        assert token in resolve, token
+    step = _paragraph(_read(HOW_IT_WORKS), "Ferris turns your input into a GitHub repository.")
+    for token in ("looked up on every registry of npm, PyPI and crates.io",
+                  "(a language hint asks only that language's registry)", "an interactive run lists every candidate",
+                  "keeps the first registry's pick (npm, then PyPI, then crates.io)", "an `also_found_in` warning"):
+        assert token in step, token
+
+
+def test_forge_auto_entry_names_every_verdict_that_stops_ts():
+    """#586: TS stops a pipeline on any verdict but PASS, a capped FAIL included; a plain update offers the report."""
+    pipeline = _read(FORGER_SKILL.parent / "references" / "pipeline-mode.md")
+    assert "(for TS, the verdict: `FAIL`, `INCONCLUSIVE` or `pass-with-drift`)" in pipeline
+    capped = _score(90, 95, "frontmatter-validator-timeout")
+    assert (capped["result"], capped["effectiveResult"]) == ("PASS", "FAIL")
+    entry = _slice(_read(TROUBLESHOOTING), "### forge-auto halted at the Test stage", "\n### ")
+    for token in ("TS stops the pipeline on any verdict but PASS", "unless a cap fired",
+                  "a cap that turned a pass into a fail whatever the score", "INCONCLUSIVE, and pass-with-drift",
+                  "`@Ferris US <name> --from-test-report`", "no repair has applied",
+                  "finds a failed or pass-with-drift test report", "adds an `unconsumed-test-report` warning"):
+        assert token in entry, token
+    assert "does not read the test report" not in entry
+
+
+def test_troubleshooting_names_the_run_lock_halts():
+    """#588: update and rename each stop on a run lock another run holds, and say how to clear a stale one."""
+    refs = SRC / "skf-update-skill" / "references"
+    guard = _slice(_read(refs / "init.md"), "### 1b. Concurrency Guard", "### 2.")
+    for token in ('--lock "{forge_data_folder}/{skill_name}/.skf-update.lock"', "--stale-after 60",
+                  '`status: "halted-for-concurrent-run"`, `phase: "init:concurrency-guard"`',
+                  "Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true"):
+        assert token in guard, token
+    for name, phase in (("merge.md", "merge:run-lock"), ("write.md", "write:run-lock")):
+        text = _read(refs / name)
+        assert f'`phase: "{phase}"`' in text and '"run-lock-lost: ' in text, name
+    doc = _read(TROUBLESHOOTING)
+    update = _slice(doc, "### Update Skill stops with `halted-for-concurrent-run`", "\n### ")
+    for token in ("`.skf-update.lock` in `<forge_data_folder>/<name>/`", "`init:concurrency-guard`",
+                  "60 minutes after it was taken or renewed", "`--detect-only` and `--dry-run` take no lock",
+                  "delete the lock file the message names", "**`run-lock-lost`:**",
+                  "`merge:run-lock` or `write:run-lock`"):
+        assert token in update, token
+    contract = _read(SRC / "skf-rename-skill" / "references" / "invocation-contract.md")
+    assert "`{forge_data_folder}/.skf-rename-{old_name}.lock`" in contract
+    assert "(60 minutes after it was taken or renewed)" in contract and "`--dry-run` takes none" in contract
+    assert "guarded-delete" in _read(SRC / "skf-rename-skill" / "references" / "select.md")
+    verify = doc.index("### Rename Skill stops with `verify-failed`")
+    lock = doc.index("### Rename Skill stops with `halted-for-concurrent-run`")
+    assert doc.index("\n### ", verify) == lock - 1
+    rename = _slice(doc, "### Rename Skill stops with `halted-for-concurrent-run`", "\n### ")
+    for token in ("(exit `5`)", "`.skf-rename-<name>.lock` in `forge_data_folder`",
+                  "60 minutes after it was taken or renewed", "delete the lock file the message names",
+                  "`--dry-run` takes no lock"):
+        assert token in rename, token
+    leftover = _slice(doc, "### Rename Skill stops with `name-collision` and lists old folders", "\n### ")
+    assert doc.index("\n### ", lock) == doc.index("### Rename Skill stops with `name-collision`") - 1
+    for token in ("(exit `5`)", "`skf-skill-inventory.py guarded-delete`", "`@Ferris EX`"):
+        assert token in leftover, token
+
+
+# --------------------------------------------------------------------------
+# Verifying a Skill: where the scores come from, the caps and the report
+# --------------------------------------------------------------------------
+
+
+def test_verifying_scoring_lines_follow_test_skill():
+    """#613: the source access and tooling health the report records, and the caps no fallback re-flips."""
+    score = _script(COMPUTE_SCORE)
+    doc = _read(VERIFYING)
+    confidence = _paragraph(doc, "The report also records `analysisConfidence`")
+    listed = re.findall(r"`([a-z-]+)`", confidence.split("how Test Skill read the source (", 1)[1].split(")", 1)[0])
+    assert tuple(listed) == score.ANALYSIS_CONFIDENCE and "degraded" not in confidence
+    assert "toolingStatus: '{ok|frontmatter-validator-timeout}'" in _read(TEST_SKILL / "references" / "init.md")
+    assert "`toolingStatus`: `ok`, or `frontmatter-validator-timeout`" in confidence
+    [row] = [line for line in doc.splitlines() if line.startswith("| **Source not on disk**")]
+    for state in ("provenance-map", *score.NO_LOCAL_SOURCE):
+        assert f"`{state}`" in row, state
+    for state in score.NO_LOCAL_SOURCE:
+        out = score.compute_score({"mode": "naive", "tier": "Deep", "analysisConfidence": state,
+                                   "scores": {**dict.fromkeys(SCORE_CATEGORIES, 90), "coherence": None}})
+        assert {"signatureAccuracy", "typeCoverage"} <= set(out["skippedCategories"]), state
+    caps = _paragraph(doc, "Test Skill does not run without its tools")
+    for token in ("a missing `uv` or `python3` halts the run", "(`runtime-missing`)",
+                  "whenever the report's `toolingStatus` is not `ok`", "A capped run stays FAIL at any threshold"):
+        assert token in caps, token
+    assert "| `runtime-missing` |" in _read(TEST_SKILL / "references" / "invocation-contract.md")
+    for stale in ("the run is marked `degraded`", "still accepts a capped run"):
+        assert stale not in doc, stale
+    assert _paragraph(doc, "When no cap fired and a skill scores between 80% and its target threshold")
+    floor, capped = _score(90, 85), _score(90, 85, "frontmatter-validator-timeout")
+    assert (floor["effectiveResult"], floor["thresholdFallback"]) == ("PASS", True)
+    assert (capped["effectiveResult"], capped["thresholdFallback"]) == ("FAIL", False)
+
+
+def test_verifying_names_where_scores_and_reports_come_from():
+    """#613, #593: the score is read from the scripts' files by path, and a report is published only once whole."""
+    score = _script(COMPUTE_SCORE)
+    doc = _read(VERIFYING)
+    deterministic = _paragraph(doc, "The weight redistribution and score aggregation")
+    for script in ("score-signatures.py", "load-coverage-inputs.py"):
+        assert script in score.__doc__ and f"`{script}`" in deterministic, script
+    assert "halts without a score rather than scoring by hand" in deterministic
+    assert "falls back to manual calculation" not in deterministic
+    assert "A quality gate does not score by hand" in _read(TEST_SKILL / "references" / "score.md")
+    init = _read(TEST_SKILL / "references" / "init.md")
+    assert "under the in-progress name `{forge_version}/.skf-test-report-{skill_name}-{run_id}.md`" in init
+    assert 'mv "{report_file}" "{publishedReportFile}"' in _read(TEST_SKILL / "references" / "report.md")
+    [row] = [line for line in doc.splitlines() if line.startswith("| How was the skill scored?")]
+    for token in ("gives a report this name only once its checks pass", "`.skf-test-report-{name}-{run_id}.md`",
+                  "the last finished report still counts"):
+        assert token in row, token
+
+
+# --------------------------------------------------------------------------
+# Campaign: the export gate, Setup's checks, the exit codes, the state helper
+# and the result line
+# --------------------------------------------------------------------------
+
+
+def _campaign_state(scores: dict) -> dict:
+    """A campaign state whose skills completed with the given {name: (tier, score)}."""
+    return {"campaign": {"name": "demo", "started_at": "2026-01-01T00:00:00Z",
+                         "last_updated": "2026-01-01T00:00:00Z", "current_stage": 8,
+                         "quality_gate": {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}},
+            "skills": [{"name": name, "status": "completed", "tier": tier, "quality_score": value, "skill_path": None}
+                       for name, (tier, value) in scores.items()],
+            "dependency_graph": {"execution_order": [], "circular_deps_detected": False}}
+
+
+def test_campaign_doc_follows_the_export_gate():
+    """#586: a Tier A skill runs BS, CS and TS; Export exports pass and fallback skills and names the rest."""
+    loop = _read(CAMPAIGN / "references" / "step-05-skill-loop.md")
+    assert "- **BS → CS → TS**" in loop and "Campaign runs no analyze-source pass" in loop
+    gate = _script(CAMPAIGN / "scripts" / "campaign-quality-gate.py")
+    out = gate.classify(_campaign_state({"top": ("A", 95), "near": ("A", 85), "low": ("A", 70),
+                                         "batch": ("B", None)}), gate.parse_directive(""))
+    assert {s["name"]: s["verdict"] for s in out["skills"]} == {"top": "pass", "near": "fallback", "low": "fail",
+                                                                 "batch": "fail"}
+    assert out["export"] == ["top", "near"]
+    capstone = _read(CAMPAIGN / "references" / "step-07-capstone.md")
+    assert "The capstone composes the skills in its `export[]`" in capstone
+    doc = _read(CAMPAIGN_DOC)
+    for stale in ("analyze (AN)", "analyze, brief, compile and test", "fallback floor is fixed at 80%",
+                  "composed from all completed skills"):
+        assert stale not in doc, stale
+    assert doc.count("brief (BS), compile (CS) and test (TS)") == 2
+    assert "analyze, brief, compile and test" not in _read(EXAMPLES)
+    gates = _paragraph(doc, "You can change all three through")
+    for token in ("completes only on a Test Skill PASS, with `--threshold` set to its effective soft target",
+                  "at or above the soft target is `pass`", "at or above the soft fallback is `fallback`",
+                  "anything else is not exported",
+                  "classified by its skill-check score, and one without a score is not exported"):
+        assert token in gates, token
+    rows = {line.split("|")[2].strip(): line for line in doc.splitlines() if re.match(r"\| \d+ \| ", line)}
+    for token in ("names the ones the gate leaves out", "each `pass` and `fallback` skill"):
+        assert token in rows["Export"], token
+    assert "the completed skills that clear the quality gate" in rows["Capstone"]
+    assert "`[E]xport all` exports only the `pass` and `fallback` skills" in doc
+    assert "## Export Gate" in _read(CAMPAIGN / "templates" / "campaign-report-template.md")
+    assert "an Export Gate section" in doc
+
+
+def test_campaign_doc_follows_setup_strategy_and_the_exit_codes():
+    """#594, #586: Setup rejects what the manifest parser rejects, Strategy a tier inversion, and 13 is listed."""
+    manifest = _script(CAMPAIGN / "scripts" / "campaign-parse-manifest.py")
+    parsed = manifest.parse_manifest_text(
+        "core,git@github.com:acme/core.git,A,v1.2.0\ncli,acme/cli,B,main\nlab,https://gitlab.com/acme/lab,A,\n"
+        "Bad_Name,https://github.com/acme/bad,A,\nweb,https://github.com/acme/web,A,main\n"
+        "core,https://github.com/acme/core2,B,\nsub,https://github.com/acme/sub/tree/main,A,\n")
+    assert [(t["name"], t["repo_url"]) for t in parsed["targets"]] == [
+        ("core", "https://github.com/acme/core"), ("cli", "https://github.com/acme/cli")]
+    assert [e["line"] for e in parsed["errors"]] == [3, 4, 5, 6, 7]
+    doc = _read(CAMPAIGN_DOC)
+    columns = _slice(doc, "- `repo_url`:", "- `depends_on`:")
+    for token in ("as a URL, an SSH URL or `owner/repo`", "`https://github.com/<owner>/<repo>`",
+                  "rejects another host or a path inside a repository",
+                  "A Tier A pin must be a full `X.Y.Z` version (a `v` prefix is allowed)",
+                  "a Tier B pin may also be a branch"):
+        assert token in columns, token
+    checks = _paragraph(doc, "Setup checks every target the same way")
+    for token in ("a `repo_url` that is not a GitHub repository", f"at most {manifest.MAX_NAME} characters",
+                  "a Tier A pin that is not an `X.Y.Z` version", "a duplicate name", "stops with exit code 2"):
+        assert token in checks, token
+    contracts = _read(CAMPAIGN / "references" / "campaign-contracts.md")
+    assert re.search(r"^\| 13 +\| dependency-blocked", contracts, re.M)
+    schema = json.loads(_read(SCHEMAS / "skf-campaign-result-envelope.v1.json"))
+    [exits] = [line for line in doc.splitlines() if line.startswith("- **Exit codes**:")]
+    for reason, code in schema["$defs"]["skf-envelope"]["const"]["exit_codes"].items():
+        assert f"`{code}` {reason}" in exits, reason
+    loop = _read(CAMPAIGN / "references" / "step-05-skill-loop.md")
+    assert "`skip` (every unmet dependency failed or was skipped" in loop
+    assert "`halt` (a dependency is still pending or active" in loop
+    dependency = _paragraph(doc, "Campaign orders skills by their `depends_on` lists")
+    for token in ("exit code 13 (`dependency-blocked`)",
+                  "skips the waiting skill when every unmet dependency failed or was skipped",
+                  "halts with exit code 13 only while a dependency is still pending or active"):
+        assert token in dependency, token
+    strategy = _read(CAMPAIGN / "references" / "step-02-strategy.md")
+    assert "**Tier A on Tier B**" in strategy and "HALT (exit code 4, `circular-deps`)" in strategy
+    tiers = _paragraph(doc, "Do not make a Tier A library depend on a Tier B library")
+    assert "Strategy rejects such a plan with exit code 4" in tiers and "(`tier_inversions`)" in tiers
+
+
+def test_campaign_doc_follows_the_state_helper_and_the_result_line():
+    """#587, #593: one helper writes, archives and recovers the state; the log is typed; the line has a schema."""
+    contracts = _read(CAMPAIGN / "references" / "campaign-contracts.md")
+    for token in ("copies the valid primary it read to `_campaign-state.yaml.bak`", "renamed over the old one",
+                  "from the clock in UTC", "one typed and timestamped line per entry"):
+        assert token in contracts, token
+    assert "archive/<campaign name>-<UTC stamp>/" in _read(CAMPAIGN / "scripts" / "campaign-state.py")
+    resume = _read(CAMPAIGN / "references" / "step-resume.md")
+    assert "**`stage` 1 with no `{briefFile}`:**" in resume and "HALT (exit code 8, `missing-brief`)" in resume
+    doc = _read(CAMPAIGN_DOC)
+    for stale in ("[R]ecover", "[K]eep"):
+        assert stale not in doc and stale not in resume, stale
+    state = _paragraph(doc, "The single source of truth for campaign progress.")
+    for token in ("`campaign-state.py`", "validates the state before and after the change", "(never an invalid one)",
+                  "writes the new state atomically", "in UTC"):
+        assert token in state, token
+    recovery = _slice(doc, "### Re-invocation and recovery", "\n---\n")
+    for token in ("`campaign-state.py archive`", "`archive/<name>-<UTC timestamp>/`",
+                  "Setup itself refuses to overwrite a state file or a backup", "`campaign-state.py recover`"):
+        assert token in recovery, token
+    log = _paragraph(doc, "This log only grows.")
+    assert "timestamped" in log and all(f"`{kind}`" in log for kind in ("decision", "auto", "event"))
+    assert "halts the resume with exit code 8 (`missing-brief`)" in doc
+    assert "a headless resume prints the campaign's success line again" in doc
+    maintenance = _read(CAMPAIGN / "references" / "step-11-maintenance.md")
+    assert "run it now, after the final state write" in maintenance
+    assert "run `{onComplete}` without `--report-path`" in maintenance
+    [hook] = [line for line in doc.splitlines() if line.startswith("- **`on_complete`**")]
+    assert "after its final state write" in hook and "only when the report was written" in hook
+    schema = json.loads(_read(SCHEMAS / "skf-campaign-result-envelope.v1.json"))
+    assert {"exit_code", "halt_reason", "export_verdicts", "skills_excluded"} <= set(schema["required"])
+    for token in ("`skf-campaign-result-envelope.v1.json`", "`export_verdicts`", "`skills_excluded`",
+                  "the health check displays the `SKF_CAMPAIGN_RESULT_JSON` line as the run's last line",
+                  "every field the schema requires"):
+        assert token in doc, token
+    seeded = "a seeded run is an unattended run (CI)"
+    assert seeded in _read(CAMPAIGN / "SKILL.md")
+    [brief] = [line for line in doc.splitlines() if line.startswith("| `--brief <file>` |")]
+    for token in ("a seeded run is an unattended (CI) run that takes every default",
+                  "give the same file at the Setup question instead, which stays interactive"):
+        assert token in brief, token
+
+
+# --------------------------------------------------------------------------
+# The workflows reference, forge-auto, the Ferris page and the architecture
+# page: the v3.0.0 behaviour of each workflow
+# --------------------------------------------------------------------------
+
+GITHUB_BLOB = "https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/"
+REFERENCE_PAGES = (WORKFLOWS, FORGE_AUTO, AGENTS, ARCHITECTURE)
+LINK_OR_SECTION_RE = re.compile(r"\]\(" + re.escape(GITHUB_BLOB) + r"([^)#\s]+)\)|§ \"([^\"]+)\"(?: / \"([^\"]+)\")?")
+# Each setting the docs name, by the workflow whose customize.toml holds it, and the ones the docs call gone.
+SETTINGS_TAKING_EFFECT = {
+    "skf-test-skill": ("default_threshold", "test_report_template_path"),
+    "skf-drop-skill": ("forbid_purge_in_headless",),
+    "skf-rename-skill": ("force_source_authority_in_headless",),
+    "skf-refine-architecture": ("output_folder_path", "refinement_rules_path"),
+    "skf-verify-stack": ("persistent_facts", "report_template_path"),
+    "skf-campaign": ("report_template_path",),
+    "skf-audit-skill": ("drift_report_template_path",),
+    "skf-analyze-source": ("analysis_report_template_path",),
+}
+SETTINGS_REMOVED = {
+    "skf-test-skill": ("scoring_rules_path", "output_formats_path"),
+    "skf-drop-skill": ("default_mode",),
+    "skf-audit-skill": ("severity_rules_path",),
+    "skf-verify-stack": ("output_folder_path",),
+}
+RA_RULES_TABLES = ("Gap Classification", "Issue Classification", "Issue Severity", "VS Report Integration",
+                   "Improvement Classification", "Improvement Value")
+
+
+def _section(name: str) -> str:
+    """docs/workflows.md's `### <name>` section, up to its **Agent:** line."""
+    return _slice(_read(WORKFLOWS), f"### {name}", "**Agent:**")
+
+
+def _schema(name: str) -> dict:
+    return json.loads(_read(SCHEMAS / name))
+
+
+def _settings(skill: str) -> dict:
+    """The [workflow] table of a skill's bundled customize.toml."""
+    return tomllib.loads(_read(SRC / skill / "customize.toml"))["workflow"]
+
+
+def _headings(path: Path) -> set[str]:
+    return {heading.strip() for heading in re.findall(r"^#{1,6} (.+)$", _read(path), re.M)}
+
+
+def test_reference_pages_link_to_files_and_sections_that_exist():
+    """#600: each source link on the four pages names a file on main, and each § after it a heading of that file.
+
+    The lifted headless contracts moved sections out of SKILL.md (drop, rename, refine-architecture), so a link
+    that still names a SKILL.md section points at nothing. A § without a link before it on its line is refused.
+    """
+    links = 0
+    for page in REFERENCE_PAGES:
+        for line in _read(page).splitlines():
+            target = None
+            for match in LINK_OR_SECTION_RE.finditer(line):
+                if match.group(1):
+                    target = REPO_ROOT / match.group(1)
+                    assert target.is_file(), (page.name, match.group(1))
+                    links += 1
+                    continue
+                assert target is not None, (page.name, line[:80])
+                for heading in filter(None, match.groups()[1:]):
+                    assert heading in _headings(target), (page.name, match.group(0), heading)
+    assert links > 10
+
+
+def test_pipeline_docs_name_the_circuit_breakers_the_gate_applies():
+    """#586: TS stops a pipeline on any verdict but PASS, and VS only on zero coverage.
+
+    pipeline-contracts.md's Circuit Breakers rows are what pipeline-gate.py applies, and an alias given without its
+    argument asks for it, or halts a headless run; workflows.md and forge-auto.md say the same.
+    """
+    breakers = _slice(_read(SRC / "shared" / "references" / "pipeline-contracts.md"), "## Circuit Breakers",
+                      "### Bracket Syntax")
+    [ts] = [row for row in breakers.splitlines() if row.startswith("| TS |")]
+    [vs] = [row for row in breakers.splitlines() if row.startswith("| VS |")]
+    for token in ("Any verdict but PASS", "a post-score cap forced", "INCONCLUSIVE or pass-with-drift"):
+        assert token in ts, token
+    assert "Zero coverage" in vs and "NOT_FEASIBLE included" in vs
+    [audit] = [row for row in breakers.splitlines() if row.startswith("| AS |")]
+    assert "unless `next_workflow` is `update-skill`" in audit
+    mode = _read(SRC / "skf-forger" / "references" / "pipeline-mode.md")
+    assert "each input in `missing_args`" in mode and "In `{headless_mode}`, ask nothing: HALT" in mode
+    doc = _read(WORKFLOWS)
+    [bullet] = [line for line in doc.splitlines() if line.startswith("- **Circuit breakers**")]
+    for token in ("TS settles any verdict but PASS", "VS covers none of the technologies the architecture keeps",
+                  "a FAIL that a cap forced although the score clears the threshold",
+                  "on INCONCLUSIVE and on pass-with-drift", "VS stops the pipeline only on zero coverage",
+                  "a `NOT_FEASIBLE` verdict with coverage goes on to RA", "each `Blocked` pair"):
+        assert token in bullet, token
+    assert "VS finds every integration blocked" not in doc
+    [maintain] = [line for line in doc.splitlines() if line.startswith("- **`maintain` skips")]
+    assert "unless the source moved past the ref the skill was built from" in maintain
+    assert "`--target-ref <upstream_ref>`" in maintain
+    alias = _paragraph(_slice(doc, "### Pipeline Aliases", "### How It Works"), "An alias given without its argument")
+    assert "asks for it" in alias and "halts instead, before any workflow runs" in alias
+    forge_auto = _read(FORGE_AUTO)
+    for token in ("The pipeline goes on to export only when Test Skill settles a PASS",
+                  "Every other verdict but PASS stops it there too",
+                  "a FAIL that a cap forced although the score clears 90%", "INCONCLUSIVE (", "and pass-with-drift"):
+        assert token in forge_auto, token
+
+
+def test_forge_auto_says_the_manual_repair_chain_tests_at_the_default_bar():
+    """#586: a chain with no alias re-tests at Test Skill's default bar, so keeping 90% takes the offer or a flag."""
+    thresholds = _slice(_read(TEST_SKILL / "references" / "init.md"), "### 1b.", "### 2.")
+    assert re.search(r"\|\s*`forge-auto`\s*\|\s*90\s*\|", thresholds)
+    assert "If `{pipeline_alias}` is absent" in thresholds and "falls through to `{defaultThreshold}`" in thresholds
+    assert re.search(r"^default_threshold = 80$", _read(TEST_SKILL / "customize.toml"), re.M)
+    routes = _slice(_read(SRC / "shared" / "references" / "pipeline-contracts.md"), "### Repair Routes",
+                    "## Anti-Patterns")
+    assert "TS, at the recorded threshold" in routes
+    [repair] = [line for line in _read(FORGE_AUTO).splitlines() if "To fix the gaps, run" in line]
+    for token in ("That chain has no alias, so Test Skill re-tests it at the default 80% bar",
+                  "he offers that repair route himself, at the recorded 90% threshold",
+                  "accept his offer to keep forge-auto's 90%",
+                  "`@Ferris TS <name> --threshold=90`, then `@Ferris EX <name>`"):
+        assert token in repair, token
+
+
+def test_pipeline_docs_say_a_resume_comes_from_the_journal():
+    """#587: a pipeline keeps its state in a journal in its run folder, which the next activation offers to resume.
+
+    The pipeline result in the sidecar stays the chain's outcome, a quality halt offers its repair route, the offer
+    can be dropped, and a headless start that names nothing to run stops.
+    """
+    contracts = _read(SRC / "shared" / "references" / "pipeline-contracts.md")
+    state = _slice(contracts, "## Pipeline State", "## Pipeline Result")
+    assert "`pipeline-journal.json`" in state and "`{project-root}/_bmad-output/.skf-run/skf-forger-<run_id>/`" in state
+    assert "`{sidecar_path}/pipeline-result-latest.json`" in _slice(contracts, "## Pipeline Result",
+                                                                  "## Resume and Repair")
+    routes = _slice(contracts, "### Repair Routes", "## Anti-Patterns")
+    assert "`US <skill> --from-test-report` joins the plan" in routes
+    forger = _read(FORGER_SKILL)
+    for token in ("runs at once", "**Nothing to run.**", "pipeline-journal.py discard"):
+        assert token in forger, token
+    [resume] = [line for line in _read(WORKFLOWS).splitlines() if line.startswith("- **Resume:**")]
+    for token in ("`pipeline-journal.json`", "`_bmad-output/.skf-run/`", "rerun the step it stopped on with the "
+                  "recorded plan", "A quality halt gets its repair route instead",
+                  "`US <name> --from-test-report`, then TS and EX at the recorded threshold", "drop the offer",
+                  "`pipeline-result-latest.json` in his sidecar folder"):
+        assert token in resume, token
+    architecture = _read(ARCHITECTURE)
+    for text in (_paragraph(architecture, "**Chained runs**"), _paragraph(architecture, "Pipeline-facing workflows")):
+        for token in ("`pipeline-journal.json`", "`_bmad-output/.skf-run/`", "`pipeline-result-latest.json`"):
+            assert token in text, token
+    assert "Audit Skill does the same" not in architecture
+    agents = _read(AGENTS)
+    menu = _paragraph(agents, "Ferris shows his menu as a numbered table")
+    assert "A code, alias or chain you give with the invocation" in menu and "runs at once" in menu
+    memory = _slice(agents, "**Memory:**", "[Getting Started")
+    for token in ("a journal in its own run folder under `_bmad-output/.skf-run/`", "drop the offer",
+                  "`--headless` (or `-H`)", '"Nothing to run"'):
+        assert token in memory, token
+
+
+def test_headless_docs_name_every_workflow_whose_line_is_the_last():
+    """#593: Test Skill and Campaign bind the line the shared health check displays last, as setup's envelope is."""
+    assert "it displays that line verbatim as its very last line" in _read(SRC / "shared" / "health-check.md")
+    assert "bind `{result_envelope_line}`" in _read(TEST_SKILL / "references" / "report.md")
+    assert "bound `{result_envelope_line}`" in _read(SRC / "skf-campaign" / "references" / "health-check.md")
+    setup = _slice(_read(WORKFLOWS), "**Exception: `/skf-setup` headless", "**Exception: `/skf-quick-skill` headless")
+    final = _paragraph(setup, "Setup is not the only workflow whose result line is the run's final message")
+    for token in ("`SKF_TEST_RESULT_JSON`", "`SKF_CAMPAIGN_RESULT_JSON`", "displays it last",
+                  "(under `--no-health-check`, Test Skill displays it itself as its last line)"):
+        assert token in final, token
+    bypass = _paragraph(_read(TEST_SKILL / "references" / "report.md"), "**`--no-health-check` flag bypass.**")
+    assert "display `{result_envelope_line}` verbatim as the run's last line" in bypass
+
+
+def test_quick_skill_documents_the_registry_lookup_and_the_hints():
+    """#582, #594: a package name asks every registry, a headless run keeps the first pick, and the hint flags.
+
+    resolve-target.md runs the ambiguous-name and multi-language gates the section describes, and batch-mode.md
+    refuses the hint flags with the halt the docs name.
+    """
+    resolve = _read(QUICK / "references" / "resolve-target.md")
+    for token in ("asks every deterministic registry (npm, PyPI, crates.io)",
+                  "a JavaScript, TypeScript, Python or Rust hint makes the resolver ask that language's registry alone",
+                  "the first registry, in the order npm, PyPI, crates.io, that gives a GitHub repository",
+                  "keep the chain's pick and never halt", "`also_found_in`",
+                  "Select: [C] Continue with 1 · [2] to [n] Use that language · [A] Abort",
+                  "headless mode auto-proceeds with the helper's pick", "set `language` to `markdown`"):
+        assert token in resolve, token
+    assert "exit code 3" in _slice(resolve, "- **IF A**: HARD HALT with **exit code", ")")
+    assert "has no registry API" in _read(QUICK / "references" / "ecosystem-check.md")
+    before = _slice(_read(BATCH_MODE), "## Before the Batch Starts", "## Input format")
+    halt = re.search(r"HARD HALT with \*\*exit code (\d+) \(([a-z-]+)\)\*\*", before)
+    assert halt and "`--language-hint` and `--scope-hint` are single-target flags too" in before
+    section = _quick_section()
+    lookup = _paragraph(section, "**Package names:**")
+    for token in ("every registry of npm, PyPI and crates.io",
+                  "a JavaScript, TypeScript, Python or Rust language hint asks only that language's registry",
+                  "lists every candidate and asks which project to build",
+                  "keeps the first registry's pick (npm, then PyPI, then crates.io)", "`also_found_in` warning",
+                  "its GitHub URL, its registry page URL or a language hint (`language=` on a batch line)"):
+        assert token in lookup, token
+    assert "Ecosystem check (skipped until agentskills.io offers a registry API)" in section
+    overrides = _slice(section, "**Per-target overrides**", "**Safety:**")
+    for flag in ("--language-hint", "--scope-hint"):
+        [row] = [line for line in overrides.splitlines() if line.startswith(f"- `{flag} ")]
+        assert row.endswith("Single-target runs only."), row
+    refusal = _paragraph(overrides, "`--description` and `--exports` do not combine with `--batch`")
+    assert (f"`--language-hint` and `--scope-hint` are refused with `--batch` too (exit `{halt.group(1)}`, "
+            f"`{halt.group(2)}`)") in refusal
+    languages = _paragraph(section, "**Languages:**")
+    for token in ("`[C]` to keep the first", "`[2]` to `[n]` to use that one", "`[A]` to abort (exit `3`)",
+                  "A headless run keeps the first and records the choice"):
+        assert token in languages, token
+    shape = _paragraph(section, "**Skills modules:**")
+    assert "`--scope-hint <path>`" in shape and "the language `markdown`" in shape
+
+
+def test_brief_skill_documents_package_targets_and_headless_scope_defaults():
+    """#582, #594: the target prompt takes a package or its registry page; a headless scope type takes a default."""
+    gather = _read(SRC / "skf-brief-skill" / "references" / "gather-intent.md")
+    for token in ("A **package name or registry page**", "its `target_version`, when not null, pre-fills "
+                  "`target_version`", "Offer every candidate, numbered"):
+        assert token in gather, token
+    args = _read(SRC / "skf-brief-skill" / "references" / "headless-args.md")
+    assert "takes the scope type's headless default and names it in the envelope's `warnings`" in args
+    target = _paragraph(_section("Brief Skill (BS)"), "**Target:**")
+    for token in ("a package name or its registry page", "`requests==2.31.0`", "npmjs.com, pypi.org or crates.io",
+                  "lists every candidate", "pre-fills `target_version`", "still needs a URL or a path"):
+        assert token in target, token
+    item = _slice(_read(WORKFLOWS), "1. **Pre-supplied inputs replace prompts.**", "2. **Structured exit-code map.**")
+    for scope_type in ("full-library", "public-api", "component-library", "specific-modules"):
+        assert f"`{scope_type}` " in item, scope_type
+    for token in ("`warn: headless boundary default <type>: ...`", "falls back to full-library",
+                  "`scope.rationale`", "`scope_type=reference-app` without `include`",
+                  "halt with `input-missing` (exit `2`)"):
+        assert token in item, token
+
+
+def test_create_skill_documents_the_brief_lookup_the_batch_and_its_result_line():
+    """#594, #593: CS's brief lookup, its validated batch, and its result line on every brief and every halt."""
+    load = _read(SRC / "skf-create-skill" / "references" / "load-brief.md")
+    for token in ("**One brief:** load it", "**Several briefs:** interactive, list each one",
+                  "exit code 2, `brief-missing`"):
+        assert token in load, token
+    batch = _read(SRC / "skf-create-skill" / "references" / "batch-mode.md")
+    assert "`create-skill-batch-latest.json`" in batch and "the highest exit code among the briefs that failed" in batch
+    schema = _schema("skf-create-skill-result-envelope.v1.json")
+    codes = schema["properties"]["exit_code"]["enum"]
+    assert codes == [0, 2, 3, 4, 5, 6]
+    section = _section("Create Skill (CS)")
+    which = _paragraph(section, "**Which brief:**")
+    for token in ("loads the only brief in `forge_data_folder`", "an interactive run asks which one to compile",
+                  "a headless run stops with exit `2` (`brief-missing`)"):
+        assert token in which, token
+    batch_doc = _paragraph(section, "**Batch mode:**")
+    for token in ("folders of briefs", "Every brief is validated before the first one compiles",
+                  "with the validator's first message", "an earlier brief of the batch already has",
+                  "A HARD HALT ends only its own brief", "`create-skill-batch-latest.json`",
+                  "the highest exit code among its briefs, `0` when every brief finished", "goes on where it stopped"):
+        assert token in batch_doc, token
+    assert "Ecosystem check" not in section and "Load brief → Extract" in section
+    doc = _read(WORKFLOWS)
+    envelopes = _paragraph(doc, "**Other workflows emit result envelopes too.**")
+    assert "adding `--result-dir \"{forge_version}\"` once step 7 has created `{forge_version}`" in _read(
+        SRC / "skf-create-skill" / "SKILL.md")
+    for token in ("one `SKF_CREATE_SKILL_RESULT_JSON` line per finished brief on stdout",
+                  "one on stderr at every HARD HALT, in every mode", "`create-skill-result-<timestamp>.json`",
+                  "once the skill's version folder under `forge_data_folder` exists (every finished brief, and a halt "
+                  "after step 7 creates it)"):
+        assert token in envelopes, token
+    assert "only when it halts" not in envelopes
+    reading = _paragraph(doc, "**Reading the result lines.**")
+    assert "AN, CS, SS" in reading and f"a CS halt has `{codes[1]}` to `{codes[-1]}`" in reading
+    [row] = [line for line in doc.splitlines() if line.startswith("| CS | `SKF_CREATE_SKILL_RESULT_JSON`")]
+    for field in ("status", "exit_code", "phase"):
+        assert field in schema["properties"] and f"`{field}`" in row, field
+    assert "halt_reason" in schema["properties"]["summary"]["properties"] and "`summary.halt_reason`" in row
+    assert "only when it stops early" not in row
+
+
+def test_stack_skill_documents_its_inputs_run_state_and_result_fields():
+    """#594, #587, #593: SS's inputs, run folder, review, halts and result line are its invocation contract's."""
+    refs = SRC / "skf-create-stack-skill" / "references"
+    contract = _read(refs / "invocation-contract.md")
+    rows = {line.split("|")[1].strip(): line for line in contract.splitlines() if line.startswith("| ")}
+    names = re.findall(r"`([a-z_]+)`:", rows["**Inputs**"])
+    assert names == ["project_path", "skills", "stack_name", "scope_overrides", "architecture_doc_path", "mode"]
+    assert "deleted when the run finishes or the user cancels" in rows["**Outputs**"]
+    assert "`unknown-verdict-token`" in rows["2"] and "`input-invalid`" in rows["2"]
+    assert "`helper-missing`" in rows["3"]
+    assert "with `-stack` appended when it does not already end in it" in _read(refs / "init.md")
+    assert "display the full draft only when the user asks, never in a headless run" in _read(refs / "compile-stack.md")
+    section = _section("Stack Skill (SS)")
+    inputs = _paragraph(section, "**Inputs:**")
+    for name in names:
+        assert f"`{name}`" in inputs, name
+    for token in ("`-stack` is appended when the name lacks it", "exit `2` (`input-invalid`)", "import-count helper"):
+        assert token in inputs, token
+    state = _paragraph(section, "**Run state:**")
+    for token in ("`_bmad-output/.skf-run/`", "deleted when the run finishes or you cancel it",
+                  "the full draft only when you ask, and never in a headless run"):
+        assert token in state, token
+    halts = _paragraph(section, "**Halts:**")
+    assert "exit `3` (`helper-missing`)" in halts and "exit `2` (`unknown-verdict-token`)" in halts
+    assert "the folder `stack_name` names (by default `<project>-stack`) when SKF generated it" in _paragraph(
+        section, "**Safety:**")
+    doc = _read(WORKFLOWS)
+    assert "[`src/shared/scripts/schemas/skf-stack-result-envelope.v1.json`]" in _paragraph(
+        doc, "**Other workflows emit result envelopes too.**")
+    schema = _schema("skf-stack-result-envelope.v1.json")
+    [row] = [line for line in doc.splitlines() if line.startswith("| SS | `SKF_STACK_RESULT_JSON`")]
+    for field in ("mode", "stack_libraries", "skill_package", "quality_score", "run_id", "result_path",
+                  "headless_decisions", "warnings", "exit_code", "halt_reason", "error"):
+        assert field in schema["properties"] and f"`{field}`" in row, field
+    assert "not a test-skill score" in schema["properties"]["quality_score"]["description"]
+    assert "not a Test Skill score" in row
+
+
+def test_analyze_source_documents_the_opening_question_the_archive_and_the_ref_flags():
+    """#602, #594: one opening question, [D] in two menus, the archived report and the ref flags."""
+    refs = SRC / "skf-analyze-source" / "references"
+    init = _read(refs / "init.md")
+    for token in ("ask at most one opening question",
+                  "analyze-source-report-{project_name}-$(date -u +%Y%m%d-%H%M%S).md",
+                  "`--target-ref <ref>` names one git tag or branch for every project path",
+                  "`--target-refs` and `--target-ref` are mutually exclusive"):
+        assert token in init, token
+    assert "Interactive only" in _read(refs / "discover-additional-source.md")
+    for menu in ("map-and-detect.md", "recommend.md"):
+        assert "[D] Discover Additional Source" in _read(refs / menu), menu
+    assert "A headless run defers nothing" in _read(refs / "identify-units.md")
+    section = _section("Analyze Source (AN)")
+    questions = _paragraph(section, "**Questions:**")
+    for token in ("asks at most one opening question", "map-and-detect and recommend menus",
+                  "`[D]` Discover Additional Source"):
+        assert token in questions, token
+    note = _paragraph(section, "**Note:**")
+    for token in ("an unfinished analysis of the same target resumes", "`AN[auto]`", "of a different target",
+                  "`analyze-source-report-<project>-<YYYYMMDD-HHmmss>.md`", "a fresh analysis starts"):
+        assert token in note, token
+    flags = _paragraph(_read(WORKFLOWS), "To run these without questions, pass their inputs as flags.")
+    for token in ("Both hints apply to an `AN[auto]` run too", "defers the units outside `--intent-hint` before step 4",
+                  "a headless run only ranks by it", "`--target-ref <ref>`", "`--target-refs <path:ref,...>`",
+                  "which pins with `--pin`", "not with `--target-ref` or `[auto]`"):
+        assert token in flags, token
+
+
+def test_audit_section_documents_upstream_the_baseline_and_label_differences():
+    """#588, #594 and the #556 pre-release docs drift fix: upstream, the baseline halts, the label table, the AS row."""
+    schema = _schema("skf-audit-result-envelope.v1.json")
+    for reason in ("no-baseline", "source-unreadable", "helper-missing"):
+        assert reason in schema["properties"]["halt_reason"]["enum"], reason
+    assert "upstream_moved is true" in schema["properties"]["next_workflow"]["description"]
+    diff = " ".join(_read(SRC / "shared" / "scripts" / "skf-structural-diff.py").split())
+    assert "label_changes" in diff and "so a difference in them is not drift" in diff
+    section = _section("Audit Skill (AS)")
+    upstream = _paragraph(section, "**Upstream:**")
+    for token in ("`[C]` audit the newer ref", "a private tree of the run's own", "`[S]` stay on the baseline",
+                  "`@Ferris US <name> --target-ref <ref>`", "`[X]` stop", "`upstream_drift_choice=S` or `X`",
+                  "The `dirty_worktree_choice` and `force` inputs are gone"):
+        assert token in upstream, token
+    baseline = _paragraph(section, "**Baseline:**")
+    for token in ("stops with `no-baseline` (exit `3`) in every mode", "`@Ferris TS`", "`@Ferris CS`",
+                  "a changed document is graded HIGH", "`source-unreadable` (exit `3`)", "`doc_fetch_failed`",
+                  "`doc_not_hashed`", "`helper-missing` (exit `3`)",
+                  "The `degraded` input and the `severity_rules_path` setting are gone"):
+        assert token in baseline, token
+    labels = _paragraph(section, "**Provenance labels:**")
+    for token in ("follow the tool that read it", "T1 to T1-low", "**Provenance label differences (not drift)**",
+                  "not counted in Total Drift Items"):
+        assert token in labels, token
+    assert "Code-mode stacks are audited library by library" in section
+    report = _read(SRC / "skf-audit-skill" / "references" / "report.md")
+    assert "The skill matches the source at `{audit_ref}`" in report
+    assert "`audit_ref` is `baseline_ref` when the audit stayed on the baseline, `upstream_ref` when the operator " \
+           "chose `[C]`" in report
+    output = _paragraph(section, "**Output:**")
+    assert "`@Ferris US <name> --target-ref <upstream_ref>`" in output and "whatever the drift score" in output
+    assert "CLEAN means the skill matches the source at the ref the audit read: the ref it was built from, or the " \
+           "newer ref `[C]` audits" in output
+    assert "the source it was built from;" not in output
+    assert "ready to export" not in output
+    [row] = [line for line in _read(WORKFLOWS).splitlines() if line.startswith("| AS | `SKF_AUDIT_RESULT_JSON`")]
+    for field in ("drift_score", "next_workflow", "upstream_moved", "upstream_ref"):
+        assert field in schema["properties"] and f"`{field}`" in row, field
+    assert "`update-skill` whenever upstream moved" in row and "`--target-ref`" in row
+
+
+def test_test_skill_documents_its_flags_and_where_automators_read_the_exit_code():
+    """#593, #594: the flags and the skill-name halt are the contract's, and the exit code is read from the line."""
+    contract = _read(TEST_SKILL / "references" / "invocation-contract.md")
+    for token in ("`--no-health-check` (skip the health check that ends the run)",
+                  "`--discovery-catalog=all` (widen the discovery catalog to the skills in "
+                  "`{project-root}/.claude/skills/` and `{project-root}/_bmad/agents/`)",
+                  "a headless run without it halts `input-missing`",
+                  "A skill run cannot set the process exit status of the agent that runs it",
+                  "the result envelope is the run's last line",
+                  "`.skf-test-report-{skill_name}-{run_id}.md` until report.md §4c's checks pass",
+                  "`skf-test-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name, `-2`, `-3` appended"):
+        assert token in contract, token
+    section = _section("Test Skill (TS)")
+    flags = _slice(section, "**Flags:**", "**Skill name:**")
+    for flag in ("--no-health-check", "--discovery-catalog=all"):
+        assert f"- `{flag}` " in flags, flag
+    assert "halts `input-missing`" in _paragraph(section, "**Skill name:**")
+    exits = _paragraph(section, "**Verdicts and exit codes")
+    for token in ("A skill run cannot set the exit status of the agent that runs it",
+                  "read `exit_code` from the `SKF_TEST_RESULT_JSON` line, or from `skf-test-skill-result-latest.json`",
+                  "is the run's last line"):
+        assert token in exits, token
+    assert "then exits `2`" not in exits
+    architecture = _read(ARCHITECTURE)
+    tree = _slice(architecture, "## Workspace Artifacts", "### Pipeline Result Contracts")
+    [report] = [line for line in tree.splitlines() if "├── test-report-{skill-name}-{run_id}.md" in line]
+    assert "as .skf-test-report-{skill-name}-{run_id}.md, renamed once its checks pass" in report
+    contracts = _paragraph(architecture, "Pipeline-facing workflows")
+    assert "`skf-test-skill-result-{YYYYMMDD-HHmmss}.json` (UTC, with `-2` appended" in contracts
+    assert "skf-test-skill-result-{run_id}.json" not in architecture
+
+
+def test_verify_stack_output_says_when_the_latest_copy_is_written():
+    """#587: the -latest copy is published only once the finished report passes its check, the delta baseline too."""
+    helper = " ".join(_read(SRC / "skf-verify-stack" / "scripts" / "skf-previous-report.py").split())
+    assert "which passes the feasibility-report check report.md §1 runs before it publishes a report" in helper
+    section = _section("Verify Stack (VS)")
+    for token in ("writes the `-latest.md` copy only once the finished report passes its check",
+                  "a halted run leaves the previous `-latest` in place",
+                  "the newest earlier report that finished and passed that check"):
+        assert token in section, token
+
+
+def test_refine_architecture_documents_the_promotion_and_its_exit_codes():
+    """#599, #600: the draft promoted on [C], the RA markers, the dismissed record, and the exit-3 and -4 causes."""
+    reasons = _schema("skf-refine-architecture-result-envelope.v1.json")["properties"]["halt_reason"]["enum"]
+    for reason in ("resolution-failure", "preservation-failed", "recovery-failed"):
+        assert reason in reasons, reason
+    preservation = _read(RA_REFS.parent / "scripts" / "skf-check-preservation.py")
+    assert "<!-- RA:BEGIN" in preservation and "<!-- RA:END -->" in preservation
+    section = _ra_section()
+    assert "`[R]` walks through each refinement with its evidence, before you approve with `[C]`" in section
+    output = _paragraph(section, "**Output:**")
+    for token in ("only when you approve the review with `[C]`",
+                  "`refined-architecture-<project>-<YYYYMMDD-HHmmss>.md`", "`<!-- RA:BEGIN ... -->`",
+                  "`<!-- RA:END -->`", "text you moved outside the markers stays", "`.ra-dismissed-<project>.json`",
+                  "`out_of_scope_skills`", "does not repeat the summary's count table",
+                  "a headless run reports the counts in its result line"):
+        assert token in output, token
+    [line] = [line for line in _read(WORKFLOWS).splitlines()
+              if line.startswith("- **`/skf-refine-architecture` (RA)**")]
+    for token in ("`scripts/skf-check-preservation.py` cannot start",
+                  "lack one of their six tables or break a tier rule (phase `init:rules`)", "phase `init:inventory`",
+                  "phase `init:feasibility-validator`", "phase `gap-analysis:comention`", "`preservation-failed`",
+                  "a record of the draft's build or promotion is missing",
+                  "src/skf-refine-architecture/references/exit-codes.md"):
+        assert token in line, token
+    for gone in ("`## Refinement Summary`", "SKILL.md) §"):
+        assert gone not in line, gone
+
+
+def test_rename_docs_name_the_run_lock_and_the_interrupted_rename():
+    """#588: the RS line names the run lock and its remedy; Safety names the recovery and the official flag."""
+    contract = _read(SRC / "skf-rename-skill" / "references" / "invocation-contract.md")
+    for token in ("`{forge_data_folder}/.skf-rename-{old_name}.lock`", "60 minutes after it was taken or renewed",
+                  "`--acknowledge-official`", "A supplied name answers its question in either mode"):
+        assert token in contract, token
+    select = _read(SRC / "skf-rename-skill" / "references" / "select.md")
+    assert "interrupted_after_rekey" in select and "guarded-delete" in select
+    lock = _read(SRC / "shared" / "scripts" / "skf-run-lock.py")
+    assert "if no run is active, delete {path}" in lock and "or wait until {stale_at}" in lock
+    assert "step 2 §1 (this run's lock went stale while it waited at a step 1 gate) → `halted-for-concurrent-run`" \
+        in _read(SRC / "skf-rename-skill" / "references" / "exit-codes.md")
+    [line] = [line for line in _read(WORKFLOWS).splitlines() if line.startswith("- **`/skf-rename-skill` (RS)**")]
+    for token in ("`halted-for-concurrent-run` while another rename of the same skill holds its run lock",
+                  "or when this run's own lock went stale while it waited at a prompt",
+                  "When this run's own lock went stale at a prompt, nothing was changed: run the rename again.",
+                  "`.skf-rename-<name>.lock` in `forge_data_folder`", "60 minutes after it was taken or renewed",
+                  "delete the lock file the message names, or wait until the time it gives",
+                  "src/skf-rename-skill/references/invocation-contract.md) § \"Result Contract (Headless)\""):
+        assert token in line, token
+    assert "src/skf-rename-skill/SKILL.md" not in line
+    safety = _paragraph(_section("Rename Skill (RS)"), "**Safety:**")
+    for token in ("stops with `source-authority-blocked` unless you pass `--acknowledge-official`",
+                  "Names given with the invocation", "ask only for a name that is missing or invalid",
+                  "`name-collision` (exit `5`)", "lists the old folders left on disk",
+                  "`skf-skill-inventory.py guarded-delete`", "`@Ferris EX` rebuilds the context files"):
+        assert token in safety, token
+
+
+def test_export_docs_name_the_context_file_flag_and_the_snippet_root():
+    """#594, #600: --context-file and the snippet-root rules are the invocation contract's."""
+    contract = _read(SRC / "skf-export-skill" / "references" / "invocation-contract.md")
+    for token in ("`--context-file <file>`", "any other value halts with exit code 3, `resolution-failure`",
+                  "headless: [I], the IDE skill folder", "when only that folder holds the skills"):
+        assert token in contract, token
+    section = _section("Export Skill (EX)")
+    [flag] = [line for line in section.splitlines() if line.startswith("- `--context-file <file>`")]
+    assert "`CLAUDE.md`, `AGENTS.md` or `.cursorrules`" in flag and "exit `3` (`resolution-failure`)" in flag
+    good = _paragraph(section, "**Good to know:**")
+    for token in ("`load-skill.snippet-root-layout`",
+                  "keeps the earlier root for that run when only that folder holds the skills",
+                  "`snippet_skill_root_override: skills/`", "before its first prompt"):
+        assert token in good, token
+
+
+def test_settings_list_names_only_settings_that_take_effect():
+    """#596: each setting the list names is a key of that workflow's customize.toml, and a removed one says so."""
+    settings = _slice(_read(WORKFLOWS), "Useful settings in specific workflows:", "\n---\n")
+    for skill, keys in SETTINGS_TAKING_EFFECT.items():
+        bundled = _settings(skill)
+        for key in keys:
+            assert key in bundled and re.search(rf"`{key}[` ]", settings), (skill, key)
+    for skill, keys in SETTINGS_REMOVED.items():
+        bundled = _settings(skill)
+        for key in keys:
+            assert key not in bundled, (skill, key)
+    assert "`default_mode`" not in _read(WORKFLOWS)
+    for token in ("`scoring_rules_path` and `output_formats_path` are gone",
+                  "Verify Stack's report always lands in `forge_data_folder`",
+                  "any non-empty value blocks a headless purge (exit `6`, `headless-purge-forbidden`)",
+                  "`--acknowledge-official`", "the TOML boolean `true`", "the six house-style tables"):
+        assert token in settings, token
+    rules = _headings(RA_REFS / "refinement-rules.md")
+    for table in RA_RULES_TABLES:
+        assert table in rules and table in settings, table

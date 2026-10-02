@@ -60,7 +60,7 @@ results = await cognee.search(
 )
 ```
 
-The skill told the agent the real function name, the real parameters, and that the call is async, all traced to the exact source line. This example is from the real [`oms-cognee`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.0.0/oms-cognee/SKILL.md) skill in [**oh-my-skills**](https://github.com/armelhbobdad/oh-my-skills), SKF's reference output. The [**Verifying a Skill**](#verifying-a-skill) section below shows how to walk the citation chain yourself.
+The skill told the agent the real function name, the real parameters, and that the call is async, all traced to the exact source line. This example is from the real [`oms-cognee`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.0.0/oms-cognee/SKILL.md) skill in [**oh-my-skills**](https://github.com/armelhbobdad/oh-my-skills), SKF's reference output. That skill predates provenance labels that follow the tool: its provenance map records `search` as read by eye, which SKF 3.0.0 cites as `[SRC:...]`, keeping `[AST:...]` for a definition an ast-grep rule matched. The [**Verifying a Skill**](#verifying-a-skill) section below shows how to walk the citation chain yourself.
 
 ## Install
 
@@ -161,7 +161,7 @@ The docs are organized into three buckets: **Why** (start here), **Try** (do stu
 - **[Skill Model](https://armelhbobdad.github.io/bmad-module-skill-forge/skill-model/)**: Capability tiers, confidence tiers, output format, dual-output strategy, ownership model
 - **[Agents](https://armelhbobdad.github.io/bmad-module-skill-forge/agents/)**: Ferris, the single AI agent that runs every SKF workflow
 - **[BMAD Synergy](https://armelhbobdad.github.io/bmad-module-skill-forge/bmad-synergy/)**: How SKF pairs with the BMAD Method's four phases and its optional modules: Test Architect (TEA), BMAD Builder (BMB), Game Dev Studio (GDS) and Creative Intelligence Suite (CIS)
-- **[Troubleshooting](https://armelhbobdad.github.io/bmad-module-skill-forge/troubleshooting/)**: Common errors (forge setup, ecosystem checks, tier confidence) and how to resolve them
+- **[Troubleshooting](https://armelhbobdad.github.io/bmad-module-skill-forge/troubleshooting/)**: Common errors (forge setup, skill briefs, tier confidence, run locks, campaigns) and how to resolve them
 
 ## Acknowledgements
 

@@ -41,11 +41,11 @@ description: >
 | DataPoint | Base class for custom graph nodes | inherit and add fields | [EXT:docs.cognee.ai/guides/custom-data-models] |
 ```
 
-Every line number above is copied from the real SKILL.md and points at the line where that function is defined in the cognee source, so none of it is illustrative. SKF also ships its extraction record for this skill in oh-my-skills: [`forge-data/oms-cognee/1.0.0/provenance-map.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cognee/1.0.0/provenance-map.json).
+Every line number above is copied from the real SKILL.md and points at the line where that function is defined in the cognee source, so none of it is illustrative. SKF also ships its extraction record for this skill in oh-my-skills: [`forge-data/oms-cognee/1.0.0/provenance-map.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cognee/1.0.0/provenance-map.json). The tags are copied as published too, and they predate labels that follow the tool: that record lists these functions as read by eye (`source-read`), so SKF 3.0.0 would tag them `[SRC:...]` (T1-low) and keep `[AST:...]` for a definition an ast-grep rule matched. [Verifying a Skill](/docs/verifying-a-skill.md#2-open-the-skills-provenance-mapjson) walks through the `search` entry.
 
 Provenance tags trace each instruction to its source:
-- `[AST:file:Lnn]` (T1): extracted from code via AST parsing (highest confidence)
-- `[SRC:file:Lnn]` (T1-low): read from source code without AST verification
+- `[AST:file:Lnn]` (T1): an ast-grep rule matched the definition in the code (highest confidence)
+- `[SRC:file:Lnn]` (T1-low): read from source code by eye, without an ast-grep match, at any forge tier
 - `[QMD:collection:doc]` (T2): surfaced from indexed developer discourse (issues, PRs, changelogs)
 - `[EXT:url]` (T3): sourced from external documentation (lowest confidence)
 
@@ -190,7 +190,7 @@ Blondin, a platform lead, needs cross-service knowledge for 10 microservices so 
 @Ferris campaign    # Orchestrate all 10 skills across sessions, in dependency order
 ```
 
-Campaign reads the dependencies you declare for each skill, orders the skills so each one comes after the skills it depends on, and drives each full-pipeline (Tier A) skill through analyze, brief, compile and test, with quality gates enforced. Libraries marked Tier B are built faster, in one Quick Skill batch. It then composes a capstone stack skill that shows how the services connect, and asks for your go-ahead before it exports anything. State is written to disk, so Blondin can walk away and run `@Ferris campaign resume` after the conversation runs out of context or after a break, picking up exactly where the last session stopped. See [Campaign Orchestration](/docs/campaign.md) for the full stage-by-stage flow.
+Campaign reads the dependencies you declare for each skill, orders the skills so each one comes after the skills it depends on, and drives each full-pipeline (Tier A) skill through brief, compile and test, with quality gates enforced. Libraries marked Tier B are built faster, in one Quick Skill batch. It then composes a capstone stack skill that shows how the services connect, and asks for your go-ahead before it exports the skills that clear the quality gate. State is written to disk, so Blondin can walk away and run `@Ferris campaign resume` after the conversation runs out of context or after a break, picking up exactly where the last session stopped. See [Campaign Orchestration](/docs/campaign.md) for the full stage-by-stage flow.
 
 ### Scenario C: External Dependency
 
@@ -200,7 +200,7 @@ Kossi, a developer integrating an uncommon library, needs a skill for it, and no
 @Ferris QS better-auth
 ```
 
-Checks ecosystem first. If no official skill exists: generates from source. `source_authority: community`.
+Resolves the package name to its GitHub repository and generates the skill from source, with `source_authority: community`. Quick Skill skips its check for an existing official skill until agentskills.io offers a registry API to ask.
 
 ### Scenario D: Docs-Only (SaaS/Closed Source)
 
@@ -253,7 +253,7 @@ Version 0.6.0 remains active. Version 0.5.0 is untouched. The managed sections i
 
 ### Scenario G: Maximum Accuracy for a High-Stakes Library
 
-You're building skills for a production payments library and need maximum citation density. Every signature must be AST-verified, and you want historical context (deprecations, migration notes) baked into the skill.
+You're building skills for a production payments library and need maximum citation density. You want as many signatures as possible AST-verified, and historical context (deprecations, migration notes) baked into the skill.
 
 **Workflow:**
 
@@ -261,7 +261,7 @@ You're building skills for a production payments library and need maximum citati
 @Ferris SF
 # Ferris detects installed tools and sets your tier automatically:
 # - Quick: no tools required (best-effort, source-read only)
-# - Forge: ast-grep (T1 AST-verified signatures)
+# - Forge: ast-grep (T1 for each export an ast-grep rule matches)
 # - Forge+: ast-grep + cocoindex-code (semantic pre-ranking for large repos)
 # - Deep: ast-grep + gh + qmd (T2 evidence from issues, PRs, changelogs; cocoindex-code optional)
 # Install the missing tools, then re-run @Ferris SF to promote your tier.
@@ -270,7 +270,7 @@ You're building skills for a production payments library and need maximum citati
 @Ferris TS    # Completeness score: 80%+ threshold
 ```
 
-**What you get:** Every signature carries `[AST:file:Lnn]` at T1. Deprecation warnings and design rationale carry `[QMD:collection:doc]` at T2. Install tooling once, every downstream skill benefits. See [Capability Tiers](/docs/concepts.md#capability-tiers-quickforgeforgedeep).
+**What you get:** Every signature an ast-grep rule matched carries `[AST:file:Lnn]` at T1. An export it could not match is read by eye and carries `[SRC:file:Lnn]` at T1-low, so you know which signatures to check by hand. Deprecation warnings and design rationale carry `[QMD:collection:doc]` at T2. Install tooling once, every downstream skill benefits. See [Capability Tiers](/docs/concepts.md#capability-tiers-quickforgeforgedeep).
 
 ### Scenario H: OSS Maintainer Publishing Official Skills
 
@@ -282,10 +282,10 @@ You maintain an OSS library and want to ship official agent skills alongside eac
 @Ferris BS    # Scope the skill: set source_authority: official in the brief
 @Ferris CS    # Compile: AST extraction + QMD enrichment (Deep tier recommended)
 @Ferris TS    # Verify completeness before publishing (aim for 90%+; the pass line is 80%)
-@Ferris EX    # Package for distribution: emits npx skills publish instructions
+@Ferris EX    # Export: validate the package, write its context snippet, update the managed section in CLAUDE.md, AGENTS.md or .cursorrules
 ```
 
-**What you get:** A verified skill pinned to the release commit, with `source_authority: official` surfaced in metadata as a trust signal so downstream tooling (and the ecosystem check in `@Ferris QS`) recognize it as maintainer-published rather than community-forged. Re-run `@Ferris maintain <skill>` (AS → US → TS → EX) on every release to keep published skills current.
+**What you get:** A verified skill pinned to the release commit, with `source_authority: official` surfaced in metadata as a trust signal so downstream tooling recognizes it as maintainer-published rather than community-forged. For an official skill, EX also prints the `npx skills publish` command. Re-run `@Ferris maintain <skill>` (AS → US → TS → EX) on every release to keep published skills current.
 
 ---
 
@@ -335,4 +335,4 @@ Every SKF workflow ends with a shared **health check** step where Ferris reflect
 
 ## Something not working?
 
-See [Troubleshooting](/docs/troubleshooting.md) for common errors (ast-grep unavailable, "no brief found", ecosystem check messages) and how to resolve them. For general setup help, see [Getting Started → Need help?](/docs/getting-started.md#need-help).
+See [Troubleshooting](/docs/troubleshooting.md) for common errors (ast-grep unavailable, "no brief found", a run lock another run holds, a campaign that stopped partway) and how to resolve them. For general setup help, see [Getting Started → Need help?](/docs/getting-started.md#need-help).
