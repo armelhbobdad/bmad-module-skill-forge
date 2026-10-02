@@ -7,7 +7,7 @@ description: Campaign orchestration — multi-library skill production with depe
 
 ## Overview
 
-Orchestrates the production of 15+ skills across multiple sessions by driving them through the full SKF pipeline (brief, generate, compile, test, export) in dependency order. Campaign sits atop the pipeline ladder: it sequences the workflows that produce skills rather than producing artifacts itself. File-based state (`_campaign-state.yaml`) survives context death, enabling resume from any point.
+Orchestrates the production of 15+ skills across multiple sessions by driving them through the full SKF pipeline (brief, generate, compile, test, export) in dependency order. File-based state (`_campaign-state.yaml`) survives context death, enabling resume from any point.
 
 ## Conventions
 
@@ -16,6 +16,8 @@ Orchestrates the production of 15+ skills across multiple sessions by driving th
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/health-check.md` and the envelope schemas under `shared/scripts/schemas/`.
+- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 
 ## Role
 
@@ -25,23 +27,19 @@ You are a campaign orchestrator operating in Ferris's Management mode. You seque
 
 Run these steps once, in order, before dispatching to Mode Routing.
 
-1. **Load config.** Read `{project-root}/_bmad/skf/config.yaml` and `{sidecar_path}/preferences.yaml` in one batched message (independent files). From config resolve `project_name`, `user_name`, `communication_language`, `document_output_language`, `skills_output_folder`, `forge_data_folder`, `sidecar_path`. From preferences resolve `headless_mode` (default false). If the config file is missing, fall back to `forge_data_folder = forge-data`.
+1. **Load config.** Read `{project-root}/_bmad/skf/config.yaml` and `{sidecar_path}/preferences.yaml` in one batched message (independent files). From config resolve `project_name`, `user_name`, `communication_language`, `document_output_language`, `skills_output_folder`, `forge_data_folder`, `sidecar_path`. If the config file is missing, fall back to `forge_data_folder = forge-data`.
 
-2. **Resolve `{headless_mode}`** — true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `preferences.yaml`. Default: false.
+2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
 3. **Resolve workflow customization.** Run:
 
    ```bash
-   python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow
+   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   The script merges three layers (scalars override, arrays append):
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-campaign.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case, unless the invocation is `campaign status` (which writes nothing), log `customization_resolver_unavailable: <reason>` as an `event` in the decision log once `{campaignWorkspacePath}` is bound below (`references/campaign-contracts.md`, Decision Log).
 
-   - `{skill-root}/customize.toml` — bundled defaults
-   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
-   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
-
-   If it fails or is missing, fall back to `{skill-root}/customize.toml` directly. Resolve each scalar now (so step files never repeat the conditional) and stash as workflow-context variables:
+   Resolve each scalar now (so step files never repeat the conditional) and stash as workflow-context variables:
 
    - `{campaignWorkspacePath}` ← `workflow.campaign_workspace_path` if non-empty, else `{forge_data_folder}/_campaign`
    - `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}` ← the `quality_gate_*` scalars (defaults `zero-critical-high` / `90` / `80`): the base gate, which step-01 §2 and `scripts/campaign-quality-gate.py` adjust with the brief and the directive
@@ -51,7 +49,7 @@ Run these steps once, in order, before dispatching to Mode Routing.
    - `{onComplete}` ← `workflow.on_complete` (empty = no-op)
    - `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists)
 
-   Load `workflow.persistent_facts` (literal sentences and `file:` references, globs expanded) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, once the CLI overrides are parsed.
+   Load `workflow.persistent_facts` (literal sentences and `file:` references, globs expanded: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff, whose loader drops a `!` entry the same way. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, once the CLI overrides are parsed.
 
 4. **Parse CLI overrides** into the workflow context:
 
@@ -76,7 +74,7 @@ These rules apply to every step in this workflow:
 - Zero memory dependency: campaign state is 100% recoverable from disk; never rely on conversation context for progress tracking
 - A sub-skill's result is what the step that runs it reads (an `SKF_*_RESULT_JSON` envelope or a verdict): a missing, unparseable or error result is a sub-skill failure, and never write partial state from an unparsed envelope
 - Log every operator decision, headless default and event (skip/force, overwrite, export cancel/proceed, `.bak` recovery, user-cancel, a failed skill) as one typed entry in the append-only `{campaignWorkspacePath}/_campaign-decision-log.md` through `campaign-state.py log` (`references/campaign-contracts.md`), so rationale survives compaction and resume
-- **Universal cancel affordance** — at any interactive gate between Setup and the Export gate, `cancel`/`exit`/`:q` triggers a HARD HALT with **exit code 12 (`user-cancelled`)**: log it and leave state intact and resumable. Exception: the Export gate's own `[C]ancel` stays exit code 11 (`export-cancelled`) — never also emit 12 there, so an automator's exit-code branch stays deterministic. These keywords count only as a response *to a prompt*; a skill or campaign named `cancel`/`exit` supplied as data is never treated as a cancel.
+- **Universal cancel affordance:** at any interactive gate between Setup and the Export gate, `cancel`/`exit`/`:q` triggers a HARD HALT with **exit code 12 (`user-cancelled`)**: log it and leave state intact and resumable. Exception: the Export gate's own `[C]ancel` stays exit code 11 (`export-cancelled`); never also emit 12 there, so an automator's exit-code branch stays deterministic.
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
 - If `{headless_mode}` is true, emit a single-line JSON progress event to **stderr** at each step's entry, exit, and HARD HALT, and at every HARD HALT the error envelope (`references/campaign-contracts.md`: Headless Progress Events, Result Contract on HARD HALT)

@@ -16,7 +16,8 @@ Renames a skill across all its versions with transactional safety — copy to th
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root: install layout puts both at `{project-root}/_bmad/skf/`. The `shared/health-check.md` chained from the terminal step and the envelope schema `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json` use this convention.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/health-check.md`, which the terminal step chains to, and the envelope schema `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json`.
+- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one. On Activation step 1 cites `skf-export-skill/assets/managed-section-format.md`, the format the context-file rebuild writes.
 
 ## Role
 
@@ -65,17 +66,10 @@ Headless callers: the inputs, flags, gate map, outputs, concurrency rule and `SK
 3. **Resolve workflow customization.** Run:
 
    ```bash
-   python3 {project-root}/_bmad/scripts/resolve_customization.py \
-       --skill {skill-root} --key workflow
+   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
-
-   - `{skill-root}/customize.toml` — bundled defaults
-   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
-   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
-
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each scalar.
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-rename-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) for select.md §1 to record once it has created `{run_dir}`.
 
    Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, the bundled default applies:
 

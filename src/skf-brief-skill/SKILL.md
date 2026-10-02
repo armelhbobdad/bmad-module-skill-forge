@@ -16,7 +16,9 @@ A good skill brief sets a tight, cohesive boundary: one capability with 3-8 prim
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `knowledge/tool-resolution.md` and `shared/health-check.md`.
+- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `assets/` holds the brief schema, the scope templates and the description voice examples.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
@@ -59,17 +61,10 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 3. **Resolve workflow customization.** Run:
 
    ```bash
-   python3 {project-root}/_bmad/scripts/resolve_customization.py \
-       --skill {skill-root} --key workflow
+   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
-
-   - `{skill-root}/customize.toml` — bundled defaults
-   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
-   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
-
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly.
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-brief-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case add `customization_resolver_unavailable: <reason>` to `workflow_warnings[]` as the run's first warning.
 
    Bind the values the stage files use, taking the bundled default when the merged value is empty or absent:
 

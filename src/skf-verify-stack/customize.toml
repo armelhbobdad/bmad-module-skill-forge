@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-verify-stack.
-# Team overrides:     _bmad/custom/skf-verify-stack.toml under {project-root}
-# Personal overrides: _bmad/custom/skf-verify-stack.user.toml under {project-root}
+# Team overrides:     {project-root}/_bmad/custom/skf-verify-stack.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-verify-stack.user.toml
 
 [workflow]
 
@@ -28,22 +28,23 @@ activation_steps_append = []
 # (verification standards, evidence-citation rules, house-style verdict
 # language, the other names a technology goes by). Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "Verdict citations must include file:line spans."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/verify-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
 #
 # Extra aliases go here: a fact such as "Our documents call the postgresql
 # skill Postgres or PG." makes step 2 (coverage) pass both names to the
 # mentions helper as aliases of that skill, so the architecture document's
 # "PG" covers it and pairs it for step 3.
 #
-# The bundled entry loads every project-context.md under the project root,
-# and nothing when there is none. Arrays only append, so an override file
-# cannot remove it: to keep a project-context.md from steering verification,
-# add a literal fact that says so, e.g. "project-context.md describes our
-# app, not the stack this workflow verifies: ignore it."
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-verify-stack.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",

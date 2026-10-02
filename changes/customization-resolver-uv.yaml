@@ -1,0 +1,7 @@
+type: breaking
+scope: all workflows
+summary: |
+  Every workflow now runs BMad core's customization resolver through `uv run`, with `--project-root`, instead of a bare `python3`. Customization overrides in `_bmad/custom/<skill>.toml` and `_bmad/custom/<skill>.user.toml` therefore start to apply where the resolver used to fail silently (a bare `python3` missing or older than 3.11), so a setting such as `forbid_purge_in_headless` now takes effect. When the resolver still cannot run, for example in a project without the BMAD Method installer's customization script, the run prints `[activation/warn] customization_resolver_unavailable: <reason>`, uses the bundled `customize.toml` alone, and reports `customization_resolver_unavailable: <reason>` among the run's warnings: in the result envelope and result file, or in Campaign's decision log.
+migration: |
+  Review `_bmad/custom/<skill>.toml` and `_bmad/custom/<skill>.user.toml`, since their settings now apply, and install `uv` if runs warn `customization_resolver_unavailable`.
+issues: [595]

@@ -190,16 +190,35 @@ def test_exit_codes_names_the_fields_and_leaves_their_meaning_to_the_schema():
 
 def test_skill_md_points_at_the_exit_codes_and_keeps_no_copy():
     # The table, the envelope and the halt command live in one reference file,
-    # so SKILL.md stays within its budget and no copy of them drifts.
+    # so SKILL.md stays within its budget and no copy of them drifts. The
+    # Result Contract section is the one pointer (w3 leanness-4).
     skill = _read(SKILL_MD)
     assert "## Exit Codes" not in skill and "**Emitting a halt.**" not in skill
-    assert "| **Exit codes** | See `references/exit-codes.md` |" in skill
+    assert "| **Exit codes** |" not in skill
     contract = _section(skill, "## Result Contract (Headless)", "## On Activation")
     assert "`references/exit-codes.md` gives its fields, the `halt_reason` values and the halt command" in contract
     for path in sorted(REFERENCES.glob("*.md")):
         if HALT_RE.search(_read(path)):
             assert "(`references/exit-codes.md` describes the envelope)" in _read(path), _rel(path)
 
+
+def test_the_description_names_what_it_refines():
+    """#600 architecture-4: both triggers name what RA refines, an architecture document checked against the
+    generated skills and a Verify Stack report, so a generic "improve architecture doc" no longer picks it."""
+    front = _read(SKILL_MD).split("\n---\n", 1)[0]
+    [description] = [line for line in front.splitlines() if line.startswith("description: ")]
+    assert "an architecture document against generated skills and a Verify Stack report" in description
+    triggers = re.findall(r'"([^"]+)"', description.split("Use when", 1)[1])
+    assert triggers == ["refine the architecture against generated skills",
+                        "refine an architecture doc with a VS report."]
+    for gone in ("improve architecture doc", "refine skill architecture"):
+        assert gone not in description, gone
+
+
+def test_skill_md_stays_under_its_token_budget():
+    """#600 leanness-4: SKILL.md measured 2,494 cl100k tokens at 10,087 characters, under the 2,500-token
+    prepass ceiling; 10,100 characters holds it there without a tokenizer."""
+    assert len(_read(SKILL_MD)) < 10_100, len(_read(SKILL_MD))
 
 # --- Every HALT names a known reason, its code and its phase ------------------------------
 

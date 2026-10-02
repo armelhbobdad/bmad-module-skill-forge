@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-test-skill.
-# Team overrides:     _bmad/custom/skf-test-skill.toml (under {project-root})
-# Personal overrides: _bmad/custom/skf-test-skill.user.toml (under {project-root})
+# Team overrides:     {project-root}/_bmad/custom/skf-test-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-test-skill.user.toml
 
 [workflow]
 
@@ -10,9 +10,10 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any quality-test work.
+# Steps SKILL.md On Activation step 3 runs right after the customization
+# resolve: config.yaml is loaded and headless mode resolved by then, and no
+# stage has run. Overrides append. Use for org-wide pre-flight checks (auth,
+# network, compliance) that must precede any quality-test work.
 
 activation_steps_prepend = []
 
@@ -26,11 +27,18 @@ activation_steps_append = []
 # (house style, severity policies, grading guardrails).
 # Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "Test failures of CRITICAL severity block release."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/test-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
+#
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-test-skill.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",

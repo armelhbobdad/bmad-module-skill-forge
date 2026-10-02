@@ -11,9 +11,9 @@ Produces a consolidated stack skill documenting how libraries connect. **Code-mo
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
-- The `knowledge/` and `shared/` prefixes are the exception: they resolve from the **SKF module root** (`{project-root}/_bmad/skf/` when installed, `src/` during development), not the skill root — they point at module-shared reference docs (`knowledge/tool-resolution.md`, `knowledge/version-paths.md`) and scripts/schemas (`shared/references/…`) that live once at the module root, mirroring the resolution note `references/health-check.md` carries for `shared/health-check.md`.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `knowledge/tool-resolution.md`, `knowledge/version-paths.md` and `shared/references/feasibility-report-schema.md`.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `assets/` holds the stack skill template, the metadata contract and the provenance map schema.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
@@ -82,17 +82,10 @@ The sink, `{run_dir}/warnings.jsonl`, is the list: step 7 §8b lists it in `evid
 3. **Resolve workflow customization.** Run:
 
    ```bash
-   python3 {project-root}/_bmad/scripts/resolve_customization.py \
-       --skill {skill-root} --key workflow
+   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
-
-   - `{skill-root}/customize.toml` — bundled defaults
-   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
-   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
-
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-create-stack-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): `references/init.md` records it as the run's first warning once its pre-flight has created `{run_dir}`.
 
    Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, use the bundled default:
 
@@ -103,6 +96,6 @@ The sink, `{run_dir}/warnings.jsonl`, is the list: step 7 §8b lists it in `evid
 
    Stash both paths plus `{onCompleteCommand}` as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` and `{integrationPatternsPath}` directly; empty-string overrides fall through to the bundled default.
 
-   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents), then run `workflow.activation_steps_append` after.
+   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off), then run `workflow.activation_steps_append` after.
 
 4. Load, read the full file, and then execute `references/init.md` to begin the workflow.

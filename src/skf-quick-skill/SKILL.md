@@ -13,6 +13,7 @@ The fastest path to a skill — accept a GitHub URL or package name, resolve to 
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, `{skill-root}`: this skill's installed directory, where `customize.toml` lives.
 - `{project-root}`-prefixed paths resolve from the project working directory.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/health-check.md`, which the terminal step chains to.
 
 ## Role
 
@@ -80,17 +81,18 @@ These rules apply to every step in this workflow:
 3. **Resolve workflow customization.** Run:
 
    ```bash
-   python3 {project-root}/_bmad/scripts/resolve_customization.py \
-       --skill {skill-root} --key workflow
+   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   It merges the bundled `customize.toml` with the team and personal overrides. If it fails or is missing, read `{skill-root}/customize.toml` directly. Bind these three as workflow-context variables, taking the default when the merged value is empty or absent:
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-quick-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) and, when `{emitEnvelopeHelper}` has a path, record it in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`. Under `--batch`, `references/batch-mode.md` §2 records that file in each target's run folder.
+
+   Bind these three as workflow-context variables, taking the default when the merged value is empty or absent:
 
    - `{skillTemplatePath}` ← `workflow.skill_template_path`, else `assets/skill-template.md`
    - `{batchOutputPath}` ← `workflow.batch_output_path`, else `{skills_output_folder}/_batch/`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 §3 then runs no hook)
 
-   Run each `workflow.activation_steps_prepend` entry now, in order. Hold every `workflow.persistent_facts` entry as standing context for the whole run; a `file:` entry loads the contents of the paths or globs it names. Once step 4 has parsed the flags, before step 5 or 6 starts the run, run each `workflow.activation_steps_append` entry in order.
+   Run each `workflow.activation_steps_prepend` entry now, in order. Hold every `workflow.persistent_facts` entry as standing context for the whole run; a `file:` entry loads the contents of the paths or globs it names: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off. Once step 4 has parsed the flags, before step 5 or 6 starts the run, run each `workflow.activation_steps_append` entry in order.
 
 4. **Parse CLI overrides** into the workflow context as `{overrides}`:
 

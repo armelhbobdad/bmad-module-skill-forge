@@ -1213,13 +1213,8 @@ def test_step_5_counts_the_validation_issues_in_the_schema_shape():
     assert list(shape) == issues["required"] and set(shape) == set(issues["properties"])
 
 
-def test_the_success_payload_builds_the_schema_envelope():
-    """#586: finalize §3 lists the summary once, and that payload is one the emitter accepts."""
-    section = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
-    block = _bash_block(section, " emit ")
-    assert block.rstrip("\n").endswith(
-        'uv run {emitEnvelopeHelper} emit --workflow skf-quick-skill --run-dir "{run_dir}" '
-        '--result-dir "{skill_package}" < "{run_dir}/result-context.json"')
+def _success_payload(section: str) -> str:
+    """finalize §3's staged payload, each bare JSON value filled in as a run fills it."""
     # {validation_issues} takes the shape step 5 defines, its counts filled in.
     issues = VALIDATION_ISSUES.strip("`").replace("<n>", "1", 1).replace("<n>", "0")
     sample = {"{export count}": "12", "{quality_score}": "91", "{repo_shape}": "null",
@@ -1230,7 +1225,17 @@ def test_the_success_payload_builds_the_schema_envelope():
     for placeholder, value in sample.items():
         assert placeholder in payload, placeholder
         payload = payload.replace(placeholder, value)
-    context = json.loads(payload)
+    return payload
+
+
+def test_the_success_payload_builds_the_schema_envelope():
+    """#586: finalize §3 lists the summary once, and that payload is one the emitter accepts."""
+    section = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    block = _bash_block(section, " emit ")
+    assert block.rstrip("\n").endswith(
+        'uv run {emitEnvelopeHelper} emit --workflow skf-quick-skill --run-dir "{run_dir}" '
+        '--result-dir "{skill_package}" < "{run_dir}/result-context.json"')
+    context = json.loads(_success_payload(section))
     # The result file keeps output-contract-schema.md's record shape: the payload gives the skill and the
     # outputs, and the emitter adds the payload's own status and summary and stamps the rest.
     assert set(context["result_contract"]) == {"skill", "outputs"}
@@ -1432,22 +1437,77 @@ def test_the_hook_comments_match_when_skill_md_runs_them():
 
 
 def test_the_persistent_facts_default_says_how_to_drop_it():
+    """#596 decision: a `!` entry in an override drops the default, and SKILL.md honours it."""
     assert _customize()["persistent_facts"] == ["file:{project-root}/**/project-context.md"]
     comment = _comment_before("persistent_facts")
-    for needle in ("loads every project-context.md under the project root", "nothing when there is none",
-                   "cannot remove it", "add a literal fact that says so"):
+    for needle in ("loads every project-context.md under {project-root}",
+                   "set in {project-root}/_bmad/custom/skf-quick-skill.toml:",
+                   'persistent_facts = ["!file:{project-root}/**/project-context.md"]'):
         assert needle in comment, needle
+    for stale in ("cannot remove it", "add a literal fact"):
+        assert stale not in comment, stale
+    step3 = _section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ")
+    assert "an entry prefixed `!` drops each earlier entry it names and loads nothing itself" in step3
 
 
 def test_the_on_complete_comment_is_the_call_finalize_makes():
+    """#596 decision: the hook gets --result-path like the other per-skill workflows, and only when the
+    emitter wrote the result file, so it never reads a missing file or an earlier run's -latest copy."""
     comment = _comment_before("on_complete")
     assert "a shell command, not an instruction" in comment
-    assert "<on_complete> --skill-package=<absolute path of the skill package>" in comment
-    for needle in ("once per target that finishes", "a HARD HALT never runs it", "never fails the workflow"):
+    assert "<on_complete> --result-path=<skill package>/quick-skill-result-latest.json" in comment
+    assert "--skill-package" not in _read(CUSTOMIZE) and "--skill-package" not in _read(FINALIZE)
+    for needle in ("is skipped when the emitter wrote no result file", "once per target that finishes",
+                   "a HARD HALT never runs it", "never fails the workflow"):
         assert needle in comment, needle
     hook = _section(_read(FINALIZE), "**Post-completion hook (optional).**", "In a single-target run")
-    assert _bash_block(hook, "{onCompleteCommand}") == "{onCompleteCommand} --skill-package={skill_package}\n"
+    assert _bash_block(hook, "{onCompleteCommand}") == (
+        "{onCompleteCommand} --result-path={skill_package}/quick-skill-result-latest.json\n")
+    assert ("and the emitter wrote the result contract (the line it printed has a non-null `result_path` and no "
+            "`result_file_write_failed` warning naming `quick-skill-result-latest.json`)") in hook
+    assert ("When the emitter failed twice, no path resolved for `{emitEnvelopeHelper}`, `result_path` is null, or a "
+            "`result_file_write_failed` warning names `quick-skill-result-latest.json` (the copy alone failed), "
+            "skip the hook and say so") in hook
     assert "Under `--batch` it runs once per target that reaches this section." in hook
+
+
+def test_the_hook_finds_the_skill_package_from_its_result_path(tmp_path):
+    """#596 decision: --result-path names a file inside the skill package, whose `outputs` list the package's
+    files (the file holds no `skill_package` key). When only the -latest copy fails, the line keeps its
+    result_path and a warning names the copy: the case the hook section skips on."""
+    section = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    comment = _comment_before("on_complete")
+    assert "The result file sits in the skill package" in comment and "skill_package" not in comment
+    migration = _read(REPO / "changes" / "quick-on-complete-result-path.yaml").split("\nmigration:", 1)[1]
+    assert "the parent of `--result-path`" in migration and "skill_package" not in migration
+
+    def emit(package: Path) -> dict:
+        package.mkdir(parents=True, exist_ok=True)
+        run_dir = package.parent / "skf-quick-skill-ab12cd34"
+        run_dir.mkdir()
+        payload = _success_payload(section).replace("{skill_package}", package.as_posix())
+        proc = subprocess.run([sys.executable, str(EMITTER), "emit", "--workflow", "skf-quick-skill", "--run-dir",
+                               str(run_dir), "--result-dir", str(package)], input=payload.encode("utf-8"),
+                              capture_output=True, timeout=60)
+        assert proc.returncode == 0, proc.stderr
+        [line] = [line for line in proc.stdout.decode("utf-8").splitlines()
+                  if line.startswith("SKF_QUICK_SKILL_RESULT_JSON: ")]
+        return json.loads(line.split(": ", 1)[1])
+
+    package = tmp_path / "written" / "demo"
+    envelope = emit(package)
+    assert envelope["result_path"].rsplit("/", 1)[0] == package.as_posix()
+    record = json.loads((package / "quick-skill-result-latest.json").read_bytes().decode("utf-8"))
+    assert "skill_package" not in record
+    assert [entry["path"] for entry in record["outputs"]] == [
+        f"{package.as_posix()}/{name}" for name in ("SKILL.md", "context-snippet.md", "metadata.json")]
+    # A folder that holds the copy's name: the per-run file is written, the copy is not.
+    blocked = tmp_path / "copy-failed" / "demo"
+    (blocked / "quick-skill-result-latest.json").mkdir(parents=True)
+    envelope = emit(blocked)
+    assert envelope["result_path"] is not None
+    assert [warning for warning in envelope["warnings"] if warning.startswith("result_file_write_failed: ")
+            and "quick-skill-result-latest.json" in warning]
 
 
 # --------------------------------------------------------------------------

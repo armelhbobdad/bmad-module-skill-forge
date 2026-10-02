@@ -18,6 +18,7 @@ Cross-references generated skills against architecture and PRD documents to prod
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/references/output-contract-schema.md` and `shared/health-check.md`.
 
 ## Role
 
@@ -85,23 +86,16 @@ When `{headless_mode}` is true, step 6 prints one `SKF_VERIFY_STACK_RESULT_JSON:
 4. **Resolve workflow customization.** Run:
 
    ```bash
-   python3 {project-root}/_bmad/scripts/resolve_customization.py \
-       --skill {skill-root} --key workflow
+   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
-
-   - `{skill-root}/customize.toml` — bundled defaults
-   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
-   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
-
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly: its `report_template_path` is an empty string.
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-verify-stack.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) for init.md to record once it has created `{run_dir}`.
 
    Apply the path-scalar fallback now so stage files don't repeat it: `{reportTemplatePath}` ← `workflow.report_template_path` if non-empty, else `assets/feasibility-report-template.md`. An empty or absent value falls through to that default, and init.md §4 loads the variable as it is. Bind `{outputFolderPath}` ← `{forge_data_folder}`, always (no setting moves it): the report and its `-latest` copy go where create-stack-skill and refine-architecture look for them, and step 1 finds the earlier reports there.
 
    The same merge resolves `workflow.on_complete` (default empty = no-op); report.md §5 executes it, if non-empty, at the terminal stage.
 
-   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries load their file/glob contents as facts — the bundled default glob is `{project-root}/**/project-context.md`); then execute each entry in `workflow.activation_steps_append` after activation completes.
+   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries load their file/glob contents as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off); then execute each entry in `workflow.activation_steps_append` after activation completes.
 
 5. **Pre-flight: the emitter.** Before the first prompt, resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists). If neither exists, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `on-activation:emitter` and display only: "Verify Stack cannot run without `skf-emit-result-envelope.py`, which is not installed. Re-install SKF."
 

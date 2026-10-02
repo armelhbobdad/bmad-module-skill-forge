@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-quick-skill.
-# Team overrides:     _bmad/custom/skf-quick-skill.toml (under {project-root})
-# Personal overrides: _bmad/custom/skf-quick-skill.user.toml (under {project-root})
+# Team overrides:     {project-root}/_bmad/custom/skf-quick-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-quick-skill.user.toml
 
 [workflow]
 
@@ -28,17 +28,18 @@ activation_steps_append = []
 # (house style, naming conventions, compilation guardrails).
 # Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "All skills must cite their upstream source."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/skill-style.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
 #
-# The bundled entry loads every project-context.md under the project root,
-# and nothing when there is none. Arrays only append, so an override file
-# cannot remove it: to keep a project-context.md from steering this
-# workflow, add a literal fact that says so, e.g. "project-context.md
-# describes our app, not the libraries Quick Skill compiles: ignore it."
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-quick-skill.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
@@ -70,12 +71,14 @@ batch_output_path = "{skills_output_folder}/_batch/"
 # Optional post-completion hook: a shell command, not an instruction. Step 6
 # runs it once the success envelope is printed and the result contract
 # written, as:
-#   <on_complete> --skill-package=<absolute path of the skill package>
-# That folder then holds SKILL.md, metadata.json, context-snippet.md (unless
-# --skip-snippet) and quick-skill-result-latest.json. Under --batch it runs
-# once per target that finishes; a HARD HALT never runs it. A failure is
-# logged and never fails the workflow, and the envelope, already printed,
-# does not carry it. Use for git-add, skill-registry registration, or a
-# notifier on the freshly compiled skill. Empty string = no hook (default).
+#   <on_complete> --result-path=<skill package>/quick-skill-result-latest.json
+# The result file sits in the skill package, which then holds SKILL.md,
+# metadata.json and context-snippet.md (unless --skip-snippet); its
+# `outputs` list those paths. It is skipped when the emitter wrote no result
+# file, or not that -latest copy. Under --batch it runs once per target
+# that finishes; a HARD HALT never runs it. A failure is logged and never
+# fails the workflow, and the envelope, already printed, does not carry it.
+# Use for git-add, skill-registry registration, or a notifier on the
+# freshly compiled skill. Empty string = no hook (default).
 
 on_complete = ""
