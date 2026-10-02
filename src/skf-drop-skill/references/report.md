@@ -18,9 +18,7 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 ## Rules
 
 - Focus only on reporting results stored in context by step 2 — do not re-execute any part of the drop
-- Do not hide verification errors or failed context file rebuilds
-- Reached only after step 2 wrote the manifest (or had none to write, for a draft skill): a failed manifest write HALTs in step 2, so this step never reports a drop that did not happen
-- Chains to the local health-check step via `{nextStepFile}` after completion (see §3)
+- Do not hide verification errors, failed context file rebuilds or folders a purge could not delete
 
 ## MANDATORY SEQUENCE
 
@@ -66,6 +64,7 @@ Changes:
 {if drop_mode == "purge":}
 - Files deleted:         {list from files_deleted, or "(none — nothing on disk)"}
 - Disk space freed:      {disk_freed}
+{if delete_failures is non-empty:}- Not deleted:           {each delete_failures path with its error} (remove by hand: `rm -rf {path}`)
 {if forge_left_in_place:}- Left in place (not SKF output): {forge_left_in_place}
 
 Remaining versions for {target_skill}:
@@ -80,7 +79,7 @@ restore the managed section entry.
 {if verification_errors is non-empty:}
 **Verification warnings:**
 {list each verification error}
-These require manual review — see the error-handling guidance in step 2.
+Each item above names its manual fix.
 ```
 
 ### Result Contract
@@ -113,7 +112,8 @@ The shared emitter writes the result contract (`shared/references/output-contrac
 
 - `{target_versions}` is a JSON array (e.g. `["0.5.0"]`) or the string `"all"`; `{files_deleted}` a JSON array of absolute paths (`[]` in deprecate mode, and so is `outputs`); `{forge_left_in_place}` the path step 2 carried, or `null` when none and in deprecate mode; `{manifest_updated}` the boolean from step 2.
 - `{record_status}` is `"partial"` when some (but not all) purge folders failed to delete (step 2's `purge_status`); then also put step 2's `delete_failures` in `summary.delete_failures`. Otherwise it is `"success"`. A full purge failure and a failed manifest write never reach this step: step 2 HALTs with `halt_reason: "delete-failed"` or `"manifest-write-failed"`.
-- `headless_provenance` persists the §8/§10 decision trail from step 1, so an unattended run's auto-decisions survive in the durable record and a consumer can tell an operator-confirmed drop from a headless auto-confirmed one: `{headless_mode}` is the resolved boolean, `{mode_source}` the step-1 §8 value (`"--mode argument"` / `"interactive-prompt"` / `"draft-skill-forced-purge"`), and `{confirm_source}` the step-1 §10 value (`"headless-auto"` / `"user-explicit"`).
+- `headless_provenance` persists the §8/§10 decision trail from step 1, so an unattended run's auto-decisions survive in the durable record and a consumer can tell an operator-confirmed drop from a headless auto-confirmed one: `{headless_mode}` is the resolved boolean, and `{mode_source}` and `{confirm_source}` the values step 1 set.
+- The payload carries no `warnings`: the emitter adds the ones step 2 recorded, so a run whose envelope reads `success` still names what needs a manual fix.
 
 Then run, in every mode:
 

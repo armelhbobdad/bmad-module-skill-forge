@@ -11,7 +11,9 @@ parity. The JSON kinds' --moved-folder paths are tested on the fields real
 SKF skills carry, and never touch a value that names the upstream source or a
 file in it. A skill named after its library, rendered from create-skill's and
 Quick Skill's own writers, renames clean: its source facts stay as they are
-and the verifier skips them.
+and the verifier skips them. The batch mode rename §2 calls moves each
+version's package and rewrites its files in one call, and the commit-gate
+tests run through it.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -465,36 +468,34 @@ class TestSnippetTemplates:
 
 
 def _rename_and_verify(tmp_path, old, new, snippet, metadata=None, provenance=None, moved_folders=None):
-    """Rename §3 on one version as §1-§2 leave it, then the §5 verifier: (exit code, verdict).
+    """Rename §2's batch call on one version as §1 leaves it, then the §5 verifier: (exit code, verdict).
 
-    `moved_folders` defaults to what §3 passes when the forge folder moves: the
+    `moved_folders` defaults to what §2 passes when the forge folder moves: the
     skills folder and the forge folder.
     """
     skills, forge = tmp_path / "skills", tmp_path / "forge-data"
     skill_group, forge_group = skills / new, forge / new
-    package = skill_group / "1.4.0" / new
+    package = skill_group / "1.4.0" / old
     package.mkdir(parents=True)
     (forge_group / "1.4.0").mkdir(parents=True)
     if moved_folders is None:
         moved_folders = [str(skills), str(forge)]
     files = {
-        package / "SKILL.md": (f"---\nname: {old}\ndescription: Use when x.\n---\n# {old}\n", "skill-frontmatter"),
-        package / "metadata.json": (
-            json.dumps(metadata or {"name": old, "version": "1.4.0"}, indent=2) + "\n", "metadata-json"),
-        package / "context-snippet.md": (snippet, "context-snippet"),
+        package / "SKILL.md": f"---\nname: {old}\ndescription: Use when x.\n---\n# {old}\n",
+        package / "metadata.json": json.dumps(metadata or {"name": old, "version": "1.4.0"}, indent=2) + "\n",
+        package / "context-snippet.md": snippet,
         forge_group / "1.4.0" / "provenance-map.json": (
-            json.dumps(provenance or {"skill_name": old, "entries": []}, indent=2) + "\n", "provenance-json"),
+            json.dumps(provenance or {"skill_name": old, "entries": []}, indent=2) + "\n"),
     }
-    for path, (text, kind) in files.items():
+    for path, text in files.items():
         path.write_bytes(text.encode("utf-8"))
-        extra = []
-        if kind.endswith("-json"):
-            for folder in moved_folders:
-                extra += ["--moved-folder", folder]
-        proc = subprocess.run(
-            [sys.executable, str(SCRIPT), str(path), "--kind", kind, "--old-name", old, "--new-name", new, *extra],
-            capture_output=True, encoding="utf-8")
-        assert proc.returncode == 0, proc.stderr
+    extra = [arg for folder in moved_folders for arg in ("--moved-folder", folder)]
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--skill-group", str(skill_group), "--versions", "1.4.0",
+         "--old-name", old, "--new-name", new, "--forge-group", str(forge_group), *extra],
+        capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["renamed_versions"] == ["1.4.0"]
     proc = subprocess.run(
         [sys.executable, str(VERIFY_SCRIPT), str(skill_group), "--forge-group", str(forge_group),
          "--old-name", old, "--new-name", new, "--versions", "1.4.0"],
@@ -941,36 +942,35 @@ def _between(text: str, start: str, end: str) -> str:
     return body[:body.index(end)]
 
 
+SECTION_2 = "### 2. Rename the Packages and Rewrite the Name"
+
+
 class TestRenameProse:
-    def test_step_3c_rewrites_the_template_slots_only(self):
-        three_c = _between(RENAME_EXECUTE.read_text(encoding="utf-8"),
-                           "**3c. context-snippet.md**", "**3d. provenance-map.json**")
-        assert "It rewrites the name where SKF's snippet template writes it" in three_c
-        assert "the header, the `|IMPORTANT:` line and each `root:` path" in three_c
-        assert "Nothing else in the snippet changes" in three_c
-        assert "§5 reports it and the rename rolls back rather than commit a changed snippet" in three_c
-        assert "and any other mention" not in three_c
+    def test_the_snippet_rewrites_the_template_slots_only(self):
+        section2 = _between(RENAME_EXECUTE.read_text(encoding="utf-8"), SECTION_2, "### 3. ")
+        snippet = _between(section2, "- **context-snippet.md**", "- **provenance-map.json**")
+        assert "the name where SKF's snippet template writes it" in snippet
+        assert "the header, the `|IMPORTANT:` line and each `root:` path" in snippet
+        assert "Nothing else in the snippet changes" in snippet
+        assert "§5 reports it and the rename rolls back rather than commit a changed snippet" in snippet
+        assert "and any other mention" not in snippet
         # The slot rules and the root-prefix parsing are the helper's docstring, not the step's.
         for internal in ("keeps the prefix verbatim", "_IMPORTANT_SLOT", "flattening the legacy"):
-            assert internal not in three_c, internal
+            assert internal not in snippet, internal
 
-    def test_steps_3b_and_3d_pass_the_moved_folders(self):
-        text = RENAME_EXECUTE.read_text(encoding="utf-8")
-        section3 = _between(text, "### 3. Update File Contents", "### 4. ")
-        assert '[--moved-folder "{folder}"]' in section3
-        moved = _between(section3, "**Moved folders (3b and 3d only).**", "Check that the target file exists first")
-        assert 'Pass `--moved-folder "{skills_output_folder}"`, and also `--moved-folder "{forge_data_folder}"` ' \
-               "when `{forge_move}` or `{same_folder}` is true" in moved
-        assert "A forge folder left in place keeps its name, so paths into it stay as they are." in moved
-        three_b = _between(section3, "**3b. metadata.json**", "**3c. context-snippet.md**")
-        assert "with the moved folders above" in three_b
-        assert "points the paths into the moved folders at `{new_name}`" in three_b
-        assert "the values that name the upstream source stay" in three_b
+    def test_the_json_files_follow_the_moved_folders(self):
+        section2 = _between(RENAME_EXECUTE.read_text(encoding="utf-8"), SECTION_2, "### 3. ")
+        assert '[--forge-group "{new_forge_group}" --moved-folder "{forge_data_folder}"]' in section2
+        assert "Pass the bracketed group only when `{forge_move}` or `{same_folder}` is true" in section2
+        assert "A forge folder left in place keeps its name, so paths into it stay as they are." in section2
+        metadata = _between(section2, "- **metadata.json**", "- **context-snippet.md**")
+        assert "the paths into the moved folders point at `{new_name}`" in metadata
+        assert "the values that name the upstream source stay" in metadata
         # The path-prefix rules and the source keys are the helper's docstring, not the step's.
-        assert not re.findall(r"`(source_[a-z_]+|co_import_files)`", three_b)
-        assert "A path counts only where it begins" not in three_b
-        three_d = _between(section3, "**3d. provenance-map.json**", "**Rollback on any update failure")
-        assert "with the moved folders above, points the paths into them at `{new_name}` as 3b does" in three_d
+        assert not re.findall(r"`(source_[a-z_]+|co_import_files)`", section2)
+        assert "A path counts only where it begins" not in section2
+        provenance = _between(section2, "- **provenance-map.json**", "It prints its result as JSON")
+        assert "`skill_name`, and the paths into the moved folders, as in metadata.json" in provenance
 
     def test_plan_and_knowledge_name_what_is_rewritten(self):
         select = RENAME_SELECT.read_text(encoding="utf-8")
@@ -1003,7 +1003,7 @@ class TestRenameProse:
         keys = set(verify_mod.SOURCE_FACT_KEYS)
         # Step §5 binds the verifier's verdict and leaves its scan rules to the helper's docstring.
         section5 = _between(RENAME_EXECUTE.read_text(encoding="utf-8"), "### 5. Verify", "### 6. ")
-        assert "A value that names the upstream source never counts, since §3 leaves it unchanged" in section5
+        assert "A value that names the upstream source never counts, since §2 leaves it unchanged" in section5
         assert not re.findall(r"`(source_[a-z_]+)`", section5), "the key list is the verifier's"
         rename = _between(VERSION_PATHS.read_text(encoding="utf-8"), "### Rename (RS - Rename Skill)", "### Drop")
         assert "In the two JSON files it skips the values of the keys that name the upstream source" in rename
@@ -1018,3 +1018,175 @@ class TestRenameProse:
             assert phrase in trouble, phrase
         for name, text in (("version-paths.md", rename), ("troubleshooting.md", trouble)):
             assert set(re.findall(r"`(source_[a-z_]+)`", text)) == keys, name
+
+
+# --- Batch mode: rename §2's one call ------------------------------------------------
+
+
+def _package(group: Path, version: str, name: str, snippet_name: str | None = None) -> Path:
+    """A version's package as §1's copy leaves it, its files naming `name`."""
+    package = group / version / name
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_bytes(f"---\nname: {name}\ndescription: x\n---\n# {name}\n".encode("utf-8"))
+    (package / "metadata.json").write_bytes((json.dumps({"name": name, "version": version}, indent=2) + "\n")
+                                            .encode("utf-8"))
+    if snippet_name is not None:
+        (package / "context-snippet.md").write_bytes(
+            f"[{snippet_name} v{version}]|root: skills/{snippet_name}/\n".encode("utf-8"))
+    return package
+
+
+def _provenance(group: Path, version: str, name: str) -> Path:
+    path = group / version / "provenance-map.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes((json.dumps({"skill_name": name, "entries": []}, indent=2) + "\n").encode("utf-8"))
+    return path
+
+
+class TestBatch:
+    def test_moves_each_package_and_rewrites_its_files(self, tmp_path):
+        group, forge = tmp_path / "skills" / NEW, tmp_path / "forge" / NEW
+        _package(group, "1.0.0", OLD, snippet_name=OLD)
+        _package(group, "0.9.0", OLD)  # no context-snippet.md
+        (group / "0.5.0").mkdir()  # a version folder an interrupted run left without a package
+        for version in ("1.0.0", "0.9.0", "0.5.0"):
+            _provenance(forge, version, OLD)
+        result_to = tmp_path / "run" / "rename-rewrite.json"
+        result_to.parent.mkdir()
+        rc, out, err = run_cli("--skill-group", group, "--versions", "1.0.0,0.9.0,0.5.0", "--old-name", OLD,
+                               "--new-name", NEW, "--forge-group", forge, "--result-to", result_to)
+        assert rc == 0, err
+        assert out["status"] == "ok" and out["error"] is None
+        assert out["renamed_versions"] == ["1.0.0", "0.9.0"]
+        assert not (group / "1.0.0" / OLD).exists() and (group / "1.0.0" / NEW / "SKILL.md").is_file()
+        assert out["counts"] == {"skill-frontmatter": 2, "metadata-json": 2, "context-snippet": 1,
+                                 "provenance-json": 3}, "every version's provenance map, package or not"
+        kinds = [(f["kind"], Path(f["path"]).relative_to(tmp_path).as_posix()) for f in out["files_rewritten"]]
+        assert kinds[:4] == [("skill-frontmatter", f"skills/{NEW}/1.0.0/{NEW}/SKILL.md"),
+                             ("metadata-json", f"skills/{NEW}/1.0.0/{NEW}/metadata.json"),
+                             ("context-snippet", f"skills/{NEW}/1.0.0/{NEW}/context-snippet.md"),
+                             ("provenance-json", f"forge/{NEW}/1.0.0/provenance-map.json")]
+        assert out["package_warnings"] == [f"0.5.0: no {OLD}/ package in {group / '0.5.0'}; skipped"]
+        assert [Path(m).relative_to(tmp_path).as_posix() for m in out["missing_files"]] == [
+            f"skills/{NEW}/0.9.0/{NEW}/context-snippet.md"]
+        assert "name: rename-skill\n" in (group / "0.9.0" / NEW / "SKILL.md").read_text(encoding="utf-8")
+        assert json.loads((forge / "0.5.0" / "provenance-map.json").read_text(encoding="utf-8"))["skill_name"] == NEW
+        assert json.loads(result_to.read_text(encoding="utf-8")) == out, "the run folder keeps the same record"
+        assert b"\r\n" not in result_to.read_bytes()
+
+    def test_without_the_forge_group_no_provenance_map_changes(self, tmp_path):
+        group, forge = tmp_path / "skills" / NEW, tmp_path / "forge" / OLD
+        _package(group, "1.0.0", OLD, snippet_name=OLD)
+        provenance = _provenance(forge, "1.0.0", OLD)
+        rc, out, err = run_cli("--skill-group", group, "--versions", "1.0.0", "--old-name", OLD, "--new-name", NEW)
+        assert rc == 0, err
+        assert out["forge_group"] is None and out["counts"]["provenance-json"] == 0
+        assert json.loads(provenance.read_text(encoding="utf-8"))["skill_name"] == OLD
+
+    def test_the_moved_folders_reach_the_json_kinds_only(self, tmp_path):
+        skills = tmp_path / "skills"
+        group = skills / NEW
+        package = _package(group, "1.0.0", OLD, snippet_name=OLD)
+        report = f"{skills.as_posix()}/{OLD}/1.0.0/test-report.md"
+        (package / "metadata.json").write_bytes(json.dumps({"name": OLD, "last_test_report": report}).encode("utf-8"))
+        rc, out, err = run_cli("--skill-group", group, "--versions", "1.0.0", "--old-name", OLD, "--new-name", NEW,
+                               "--moved-folder", skills)
+        assert rc == 0, err
+        meta = json.loads((group / "1.0.0" / NEW / "metadata.json").read_text(encoding="utf-8"))
+        assert meta["last_test_report"] == f"{skills.as_posix()}/{NEW}/1.0.0/test-report.md"
+
+    def test_a_package_already_at_the_new_name_stops_the_batch(self, tmp_path):
+        group = tmp_path / "skills" / NEW
+        _package(group, "1.0.0", OLD)
+        _package(group, "1.0.0", NEW)
+        rc, out, err = run_cli("--skill-group", group, "--versions", "1.0.0", "--old-name", OLD, "--new-name", NEW)
+        assert rc == 2 and out["status"] == "error"
+        assert out["error"]["stage"] == "inner-rename"
+        assert Path(out["error"]["path"]) == group / "1.0.0" / NEW
+        assert (group / "1.0.0" / OLD).is_dir(), "nothing moved"
+
+    def test_a_file_that_does_not_parse_stops_the_batch(self, tmp_path):
+        group = tmp_path / "skills" / NEW
+        package = _package(group, "1.0.0", OLD)
+        (package / "metadata.json").write_bytes(b"{not json")
+        result_to = tmp_path / "rename-rewrite.json"
+        rc, out, err = run_cli("--skill-group", group, "--versions", "1.0.0", "--old-name", OLD, "--new-name", NEW,
+                               "--result-to", result_to)
+        assert rc == 2 and out["status"] == "error"
+        assert (out["error"]["stage"], Path(out["error"]["path"])) == ("rewrite", group / "1.0.0" / NEW / "metadata.json")
+        assert "metadata-json transform failed" in out["error"]["message"]
+        assert out["renamed_versions"] == ["1.0.0"] and out["counts"]["skill-frontmatter"] == 1
+        assert json.loads(result_to.read_text(encoding="utf-8"))["status"] == "error"
+
+    def test_a_result_file_that_cannot_be_written_fails_the_batch(self, tmp_path):
+        """The report reads the record back, so a rename whose record is lost rolls back before it commits."""
+        group = tmp_path / "skills" / NEW
+        _package(group, "1.0.0", OLD)
+        blocker = tmp_path / "blocker"
+        blocker.write_bytes(b"a file, not a folder")
+        rc, out, err = run_cli("--skill-group", group, "--versions", "1.0.0", "--old-name", OLD, "--new-name", NEW,
+                               "--result-to", blocker / "rename-rewrite.json")
+        assert rc == 2 and out["status"] == "error", err
+        assert (out["error"]["stage"], Path(out["error"]["path"])) == ("record", blocker / "rename-rewrite.json")
+        assert out["error"]["message"].startswith("cannot write it: ")
+        assert out["renamed_versions"] == ["1.0.0"], "what the batch did stays in the result the caller rolls back"
+        assert "result_to_error" not in out
+
+    @pytest.mark.parametrize("args, message", [
+        (["--versions", "1.0.0"], "--versions needs --skill-group"),
+        (["--forge-group", "f", "--result-to", "r"], "--forge-group, --result-to need --skill-group"),
+        (["--skill-group", "{group}"], "--skill-group needs --versions"),
+        (["--skill-group", "{group}", "--versions", "1.0.0", "--kind", "metadata-json"], "takes no target, --kind"),
+        (["--skill-group", "{group}", "--versions", "../x"], "--versions must name version folders"),
+        (["--skill-group", "{group}", "--versions", "1.0.0", "--old-name", "../x"],
+         "--old-name must be one folder name"),
+        (["--skill-group", "{missing}", "--versions", "1.0.0"], "skill group not found"),
+        ([], "pass a target file and --kind, or --skill-group"),
+    ], ids=["versions-alone", "batch-flags-alone", "no-versions", "kind-in-batch", "path-version",
+            "path-old-name", "missing-group", "nothing"])
+    def test_usage_errors_exit_1(self, tmp_path, args, message):
+        group = tmp_path / "group"
+        group.mkdir()
+        args = [a.format(group=group, missing=tmp_path / "missing") for a in args]
+        rc, out, err = run_cli("--old-name", OLD, "--new-name", NEW, *args)
+        assert rc == 1 and message in json.loads(err)["message"], err
+
+
+def _section_2_call() -> str:
+    """The one `{rewriteSkillNameHelper}` call of rename §2, its continuation lines joined."""
+    section2 = _between(RENAME_EXECUTE.read_text(encoding="utf-8"), SECTION_2, "### 3. ")
+    block = section2.split("```bash\n", 1)[1].split("\n```", 1)[0]
+    call = re.sub(r"\s*\\\n\s*", " ", block).strip()
+    assert call.startswith("uv run {rewriteSkillNameHelper} "), call
+    return call
+
+
+@pytest.mark.parametrize("forge_move", [True, False], ids=["forge-moves", "forge-stays"])
+def test_rename_section_2_runs_the_batch_it_documents(tmp_path, forge_move):
+    """The documented call, filled in as an agent fills it, renames a skill that then passes the commit gate."""
+    call = _section_2_call()
+    group_text = '[--forge-group "{new_forge_group}" --moved-folder "{forge_data_folder}"]'
+    assert group_text in call
+    call = call.replace(group_text, group_text[1:-1] if forge_move else "")
+    skills, forge, run_dir = tmp_path / "skills", tmp_path / "forge-data", tmp_path / "run"
+    run_dir.mkdir()
+    group, forge_group = skills / NEW, forge / (NEW if forge_move else OLD)
+    _package(group, "1.0.0", OLD, snippet_name=OLD)
+    _provenance(forge_group, "1.0.0", OLD)
+    values = {"rewriteSkillNameHelper": str(SCRIPT), "new_skill_group": str(group), "new_forge_group": str(forge_group),
+              "comma-separated affected_versions": "1.0.0", "old_name": OLD, "new_name": NEW,
+              "skills_output_folder": str(skills), "forge_data_folder": str(forge), "run_dir": str(run_dir)}
+    words = shlex.split(re.sub(r"\{([^{}]+)\}", lambda m: "@@" + str(list(values).index(m.group(1))) + "@@", call))
+    argv = [re.sub(r"@@(\d+)@@", lambda m: values[list(values)[int(m.group(1))]], w) for w in words]
+    assert argv[:3] == ["uv", "run", str(SCRIPT)]
+    assert mod._build_parser().parse_args(argv[3:]).skill_group == group
+    proc = subprocess.run([sys.executable, *argv[2:]], capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert json.loads((run_dir / "rename-rewrite.json").read_text(encoding="utf-8")) == out
+    assert out["counts"]["provenance-json"] == (1 if forge_move else 0)
+    # §5 always names the new forge folder; one left in place is not there, so the verifier skips it.
+    verify = [sys.executable, str(VERIFY_SCRIPT), str(group), "--forge-group", str(forge / NEW),
+              "--old-name", OLD, "--new-name", NEW, "--versions", ",".join(out["renamed_versions"])]
+    proc = subprocess.run(verify, capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0 and json.loads(proc.stdout)["clean"] is True, proc.stdout

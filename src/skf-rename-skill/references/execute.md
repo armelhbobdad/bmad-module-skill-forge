@@ -14,7 +14,7 @@ manifestOpsProbeOrder:
 rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
-# {rewriteSkillNameHelper}: the §3 in-file rename, one file per call.
+# {rewriteSkillNameHelper}: the §2 package rename and in-file rewrite, one call.
 rewriteSkillNameProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rewrite-skill-name.py'
   - '{project-root}/src/shared/scripts/skf-rewrite-skill-name.py'
@@ -82,7 +82,7 @@ The halt leaves `{run_dir}` in place.
 **Resolve helpers** in parallel: these are independent file-existence checks that batch into one tool-call message.
 
 - `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §4 and §6)
-- `{rewriteSkillNameHelper}` ← first existing path in `{rewriteSkillNameProbeOrder}` (used in §3)
+- `{rewriteSkillNameHelper}` ← first existing path in `{rewriteSkillNameProbeOrder}` (used in §2)
 - `{verifyNoTraceHelper}` ← first existing path in `{verifyNoTraceProbeOrder}` (used in §5)
 - `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (used in §6)
 - `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` (used in §7)
@@ -119,47 +119,42 @@ uv run {runLockHelper} acquire \
 
 Report: "**Copied** `{old_skill_group}` → `{new_skill_group}`{if forge_move: ' and `{old_forge_group}` → `{new_forge_group}`'}." Name only what was copied.
 
-### 2. Rename Inner Version Directories
+### 2. Rename the Packages and Rewrite the Name
 
-For each version `v` in `affected_versions`: when `{new_skill_group}/{v}/{old_name}/` exists, move it within its parent, `mv {new_skill_group}/{v}/{old_name} {new_skill_group}/{v}/{new_name}`, and add `v` to `renamed_versions`. When it does not (a manifest version with no folder, or a version folder an interrupted run left without a package), add a warning to `section2_warnings` and skip the version: an absent package is not a failure, and §5 verifies only `renamed_versions`. Only a failed `mv` takes the rollback below.
-
-**Rollback on a failed move:**
-
-- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
-- Halt with: "**Inner directory rename failed** at `{v}/{old_name}`: {error}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:inner-rename`).
-
-Report: "**Renamed {count} inner directories** to `{new_name}/`."
-
-### 3. Update File Contents Inside the New Location
-
-For each version `v` in `affected_versions`, operate on the files inside `{new_skill_group}/{v}/{new_name}/` (the freshly renamed inner directory) and, only when `{forge_move}` or `{same_folder}` is true, `{new_forge_group}/{v}/`.
-
-**One helper call per file (3a to 3d).** `{rewriteSkillNameHelper}` rewrites the name in one file and writes it atomically. Never compute file content in the prompt: a hand edit can reorder JSON keys, or rewrite the wrong place when `{old_name}` is part of a longer name (`rename` in `renamer`). Invoke it once per file:
+`{rewriteSkillNameHelper}` does this in one call, inside the new location only. For each version in `affected_versions` it moves `{new_skill_group}/{v}/{old_name}/` to `{new_skill_group}/{v}/{new_name}/` when that package is there, then rewrites the name in each moved package's files, writing each one atomically. Never move a package or compute file content in the prompt: a hand edit can reorder JSON keys, or rewrite the wrong place when `{old_name}` is part of a longer name (`rename` in `renamer`). From `{project-root}`:
 
 ```bash
-uv run {rewriteSkillNameHelper} "{target_path}" \
-  --kind {skill-frontmatter|metadata-json|context-snippet|provenance-json} \
-  --old-name {old_name} --new-name {new_name} [--moved-folder "{folder}"]
+uv run {rewriteSkillNameHelper} --skill-group "{new_skill_group}" \
+  --versions {comma-separated affected_versions} \
+  --old-name {old_name} --new-name {new_name} --moved-folder "{skills_output_folder}" \
+  [--forge-group "{new_forge_group}" --moved-folder "{forge_data_folder}"] \
+  --result-to "{run_dir}/rename-rewrite.json"
 ```
 
-**Moved folders (3b and 3d only).** Pass `--moved-folder "{skills_output_folder}"`, and also `--moved-folder "{forge_data_folder}"` when `{forge_move}` or `{same_folder}` is true: those are the folders this rename moves `{old_name}/` out of. A forge folder left in place keeps its name, so paths into it stay as they are.
+Pass the bracketed group only when `{forge_move}` or `{same_folder}` is true: then this rename moves `{old_name}/` out of `{forge_data_folder}` too, and the helper also rewrites each version's provenance map. A forge folder left in place keeps its name, so paths into it stay as they are.
 
-Check that the target file exists first: a missing file is not a failure, so skip the call and record the file in `section3_warnings`. On exit 0, when its `wrote` is not null, add `{kind, path}` (the `--kind` and the `wrote` path) to `files_rewritten`, the record step 3 counts and lists the rewritten files from. A non-zero exit is a **file update failure**: take the rollback below.
+What each file keeps:
 
-**3a. SKILL.md frontmatter**: `--kind skill-frontmatter` on `{new_skill_group}/{v}/{new_name}/SKILL.md`. It rewrites the frontmatter `name` only: a mention of `{old_name}` in the body stays.
+- **SKILL.md**: the frontmatter `name` only; a mention of `{old_name}` in the body stays.
+- **metadata.json**: `name`, and the paths into the moved folders point at `{new_name}`; the values that name the upstream source stay.
+- **context-snippet.md**: the name where SKF's snippet template writes it: the header, the `|IMPORTANT:` line and each `root:` path. Nothing else in the snippet changes: a name anywhere else stays, §5 reports it and the rename rolls back rather than commit a changed snippet.
+- **provenance-map.json** (`{new_forge_group}/{v}/` of every version, with the bracketed group only): `skill_name`, and the paths into the moved folders, as in metadata.json.
 
-**3b. metadata.json**: `--kind metadata-json` on `{new_skill_group}/{v}/{new_name}/metadata.json`, with the moved folders above. It sets `name` and points the paths into the moved folders at `{new_name}`; the values that name the upstream source stay.
+It prints its result as JSON on stdout and writes the same to `{run_dir}/rename-rewrite.json`, the record step 3 reads back. A version with no package to move (a manifest version with no folder, or a version folder an interrupted run left without a package) and a file that is not there are not failures: the helper names them in `package_warnings` and `missing_files` and goes on. Only a move, a rewrite or the record write that fails stops it, with exit 2 and an `error` that names its `stage`, `path` and `message`.
 
-**3c. context-snippet.md**: `--kind context-snippet` on `{new_skill_group}/{v}/{new_name}/context-snippet.md`. It rewrites the name where SKF's snippet template writes it: the header, the `|IMPORTANT:` line and each `root:` path. Nothing else in the snippet changes: a name anywhere else stays, §5 reports it and the rename rolls back rather than commit a changed snippet.
-
-**3d. provenance-map.json**: `--kind provenance-json` on `{new_forge_group}/{v}/provenance-map.json`. It sets `skill_name` and, with the moved folders above, points the paths into them at `{new_name}` as 3b does. Skip 3d when `{forge_move}` and `{same_folder}` are both false: there is no SKF forge folder to rewrite.
-
-**Rollback on any update failure (not just a missing file):**
+**Rollback on any other exit than 0:**
 
 - `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
-- Halt with: "**File update failed** at `{path}`: {error}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:rewrite`).
+- When `error.stage` is `inner-rename`, halt with: "**Inner directory rename failed** at `{error.path}`: {error.message}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:inner-rename`).
+- Otherwise halt with: "**File update failed** at `{error.path}`: {error.message}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:rewrite`).
 
-Report: "**Updated file contents:** {each file name `files_rewritten` holds, with the number of its entries, for example 'SKILL.md ×3, metadata.json ×3'}." Name only what `files_rewritten` holds, counted from it, never from the version count.
+When stdout holds no JSON (a usage error or a traceback), `{error.path}` is `{new_skill_group}` and `{error.message}` the helper's stderr.
+
+### 3. Record the Rewrite
+
+On exit 0, bind from its result `renamed_versions` ← `renamed_versions` (the versions whose package it moved: §4 and §5 read only these) and `rewrite_counts` ← `counts` (`files_rewritten` tallied by kind). Its `files_rewritten` (the `{kind, path}` of each file it wrote), `package_warnings` and `missing_files` stay in `{run_dir}/rename-rewrite.json` for step 3.
+
+Report: "**Renamed {the number of renamed_versions} inner directories** to `{new_name}/`. **Updated file contents:** {each kind whose `rewrite_counts` entry is above 0, as its file name and count, for example 'SKILL.md ×3, metadata.json ×3'}." Name only the kinds whose `rewrite_counts` entry is above 0, never a count taken from the version count.
 
 ### 4. Fix the `active` Symlink in the New Location
 
@@ -212,7 +207,7 @@ uv run {verifyNoTraceHelper} "{new_skill_group}" \
   --versions {comma-separated renamed_versions}
 ```
 
-It scans each renamed version's SKILL.md, metadata.json, context-snippet.md and provenance-map.json and the version's folder listing, and returns `clean`, `hard_matches` (the old name where it must not stay), `body_warnings` (mentions in a SKILL.md body, which stay) and `dir_violations`. A value that names the upstream source never counts, since §3 leaves it unchanged, and a missing file is listed under `skipped`, never as a match. Exit 0 = clean; exit 1 = at least one hard match or dir violation.
+It scans each renamed version's SKILL.md, metadata.json, context-snippet.md and provenance-map.json and the version's folder listing, and returns `clean`, `hard_matches` (the old name where it must not stay), `body_warnings` (mentions in a SKILL.md body, which stay) and `dir_violations`. A value that names the upstream source never counts, since §2 leaves it unchanged, and a missing file is listed under `skipped`, never as a match. Exit 0 = clean; exit 1 = at least one hard match or dir violation.
 
 Read the JSON and decide. An exit code of 2 with no JSON on stdout (the helper refuses an empty `--versions` list) counts as `clean` false: take the rollback below.
 
@@ -227,34 +222,45 @@ Report: "**Verified:** no structural references to `{old_name}` remain inside th
 
 **If `manifest_exists = false` (step 1 read no entry in the manifest):**
 
-Skip this section entirely. Set `manifest_rekeyed = false` and `manifest_backup = null`. There is no manifest entry to re-key: the skill was never exported. Section 7 still rebuilds any managed section it finds, which drops a row of `{old_name}` if one is there.
+Skip this section entirely. Set `manifest_rekeyed = false`. There is no manifest entry to re-key: the skill was never exported. Section 7 still rebuilds any managed section it finds, which drops a row of `{old_name}` if one is there.
 
 Report: "**Manifest update skipped:** the export manifest has no entries. The rename is a pure on-disk operation."
 
-**If `manifest_exists = true`:**
+**If `manifest_exists = true`:** when the manifest has no `exports.{old_name}` (the skill was on disk but never exported), skip both items below: the manifest has nothing to change. Otherwise:
 
-1. **Keep the manifest's text** as `manifest_backup` for the rollback below: read `{skills_output_folder}/.export-manifest.json` once and hold its exact text, not a parsed or re-serialized copy, so a restore writes back the same bytes.
-2. **Re-key via the helper.** If the manifest contains `exports.{old_name}`, invoke:
+1. **Back up the manifest file** into the run folder, byte for byte, for the rollback below. A halt keeps the run folder, so the backup stays with the user too:
+
+   ```bash
+   cp "{skills_output_folder}/.export-manifest.json" "{run_dir}/export-manifest.backup.json"
+   ```
+
+   When the copy fails, take the rollback below with the copy's first stderr line as `{manifest_error}`: this run has not changed the manifest yet.
+2. **Re-key via the helper:**
 
    ```bash
    uv run {manifestOpsHelper} {skills_output_folder} rename {old_name} {new_name}
    ```
 
-   The helper preserves `active_version`, `versions` map, and all fields, then writes the manifest atomically via temp + rename. It prints its result as JSON on stdout, errors included, and exits 0 only when `status` is `"ok"`. On a non-zero exit, bind `{manifest_error}` ← `error` and `{manifest_status}` ← `status`. A `not_found` result carries no `error`, because `exports.{old_name}` left the manifest after the check above: when `{manifest_status}` is `not_found`, set `{manifest_error}` to "`exports.{old_name}` is no longer in the manifest". When stdout holds no JSON (a Python traceback), set `{manifest_error}` to the helper's stderr. If the manifest does NOT contain `exports.{old_name}` (the skill was on disk but never exported), skip the invocation — the manifest has nothing to change.
+   The helper preserves `active_version`, `versions` map, and all fields, then writes the manifest atomically via temp + rename. It prints its result as JSON on stdout, errors included, and exits 0 only when `status` is `"ok"`. On a non-zero exit, bind `{manifest_error}` ← `error` and `{manifest_status}` ← `status`. A `not_found` result carries no `error`, because `exports.{old_name}` left the manifest after the check above: when `{manifest_status}` is `not_found`, set `{manifest_error}` to "`exports.{old_name}` is no longer in the manifest". When stdout holds no JSON (a Python traceback), set `{manifest_error}` to the helper's stderr.
 
-**Rollback on helper non-zero exit:**
+**Rollback on a failed backup or a helper non-zero exit:**
 
-- Read the manifest again. The helper writes it in one rename at its very end, so the only change a failed re-key can leave is the finished re-key. Only when `exports.{new_name}` is there and `exports.{old_name}` is gone, restore the backup, pasting `manifest_backup` unchanged between the two heredoc lines:
+- After a failed backup, set `{manifest_restore}` to `unchanged`. After a failed re-key, ask the manifest helper which state it left, never reading the file by eye:
 
   ```bash
-  uv run {atomicWriteHelper} write --target "{skills_output_folder}/.export-manifest.json" <<'SKF_MANIFEST_BACKUP'
-  {manifest_backup}
-  SKF_MANIFEST_BACKUP
+  uv run {manifestOpsHelper} {skills_output_folder} get {new_name}
+  uv run {manifestOpsHelper} {skills_output_folder} get {old_name}
+  ```
+
+  The helper writes the manifest in one rename at its very end, so the only change a failed re-key can leave is the finished re-key. Only when the first prints `status` `ok` and the second `status` `not_found` (`exports.{new_name}` is there and `exports.{old_name}` is gone), restore the backup:
+
+  ```bash
+  uv run {atomicWriteHelper} write --target "{skills_output_folder}/.export-manifest.json" < "{run_dir}/export-manifest.backup.json"
   ```
 
   Set `{manifest_restore}` to `restored` when it exits 0, else to `restore-failed`. In every other state (`exports.{old_name}` still there, `exports.{new_name}` absent, or a manifest that is missing or does not parse), this run did not change the manifest, and another process may have written it since step 1: set `{manifest_restore}` to `unchanged` and write nothing.
 - `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
-- Halt with: "**Manifest update failed:** {manifest_error}. {if `{manifest_restore}` is `unchanged`: 'This run did not change the manifest.'}{if `restored`: 'Restored the manifest from the backup.'}{if `restore-failed`: 'Could not restore the manifest, which may still list `{new_name}` in place of `{old_name}`: re-key it back with `uv run {manifestOpsHelper} "{skills_output_folder}" rename {new_name} {old_name}`.'} Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "manifest-write-failed"`, `emit-halt` phase `execute:manifest`).
+- Halt with: "**Manifest update failed:** {manifest_error}. {if `{manifest_restore}` is `unchanged`: 'This run did not change the manifest.'}{if `restored`: 'Restored the manifest from the backup.'}{if `restore-failed`: 'Could not restore the manifest, which may still list `{new_name}` in place of `{old_name}`: re-key it back with `uv run {manifestOpsHelper} "{skills_output_folder}" rename {new_name} {old_name}`, or copy `{run_dir}/export-manifest.backup.json` back over it.'} Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "manifest-write-failed"`, `emit-halt` phase `execute:manifest`).
 
 Set context flag `manifest_rekeyed = true` when the helper ran and exited 0, else `false` (no `exports.{old_name}` to re-key).
 
@@ -338,14 +344,10 @@ Store the following for step 3:
 
 - `old_name`: the previous skill name
 - `new_name`: the new skill name
-- `affected_versions`: every version step 1 §7 listed, the version folders §1 copied, including any whose package §2 skipped
-- `renamed_versions`: the versions whose package §2 renamed, the versions the rename moved; the envelope's `versions_renamed`
-- `files_rewritten`: the `{kind, path}` of every file a §3 helper call wrote; step 3 counts each kind from it and lists the paths in the result file
+- `affected_versions`: every version step 1 §7 listed, the version folders §1 copied, including any whose package §2 found missing
 - `manifest_rekeyed`: true only when section 6 ran the re-key and the helper exited 0
 - `context_files_updated`: list of successfully rebuilt files
 - `context_files_failed`: list of files that failed to rebuild (empty if none)
-- `section2_warnings`: list of orphaned version warnings (empty if none)
-- `section3_warnings`: list of missing file warnings (empty if none)
 - `verification_warnings`: list of informational SKILL.md body mentions of `{old_name}` retained (empty if none)
 - `deletion_errors`: list of post-commit deletion errors (empty if none)
 - `forge_move`: carried from step 1 (true when the forge folder was moved)
@@ -353,7 +355,7 @@ Store the following for step 3:
 - `same_folder`: carried from step 1 (true when `skills_output_folder` and `forge_data_folder` name one folder)
 - `run_id`, `run_dir` and `lock_owner`: carried from step 1
 
-The run's auto-decisions stay in `{run_dir}`, where step 1's gates recorded them.
+§2's record, `{run_dir}/rename-rewrite.json`, holds `renamed_versions`, `files_rewritten`, `counts`, `package_warnings` and `missing_files`: step 3 reads them there. The run's auto-decisions stay in `{run_dir}`, where step 1's gates recorded them.
 
 ### 10. Load Next Step
 
