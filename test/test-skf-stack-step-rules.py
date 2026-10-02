@@ -51,8 +51,9 @@ compose branch of the sections they govern.
   with the authority step 2 records; step 8 reads the validator's stack
   structure pass instead of checking headings, keys and labels by hand, and
   runs it again after §3 changes the package (#606).
-- Compose-mode pairs are candidates: step 5 §2 drops the pairs a document
-  only lists together, confirms the rest from their excerpts, finds pairs
+- Compose-mode pairs are candidates: the co-mention helper leaves out the
+  pairs a document only lists together and counts them, so step 5 §2
+  records one warning, confirms the rest from their excerpts, finds pairs
   with no architecture document by docs mentions or shared keywords (never
   a shared language) and judges those too, writes each pair in an evidence
   format whose label the structure pass reads, and locates the [VS] report
@@ -92,6 +93,18 @@ compose branch of the sections they govern.
   Each warning reaches the run sink as text through a staged file, every
   step that warns shows the record command, and the facts the evidence
   report lists are warnings there.
+- Step 5 saves the pair helper's result and step 4 the enumerate helper's
+  in the run folder, and step 7 writes the provenance map from them with
+  skf-render-stack-metadata.py in both modes: the helper copies each pair's
+  co-import files and each constituent's hash, so no step types them, and
+  an audit finds every constituent of a stack built under a skills folder
+  that is not the default one fresh (step 5b determinism-2, determinism-3).
+- The co-mention helper filters on no meaning: one paragraph makes a
+  candidate, an introductory section marks its evidence `excluded_section`,
+  step 5 judges both from the excerpt, and a document that names no pair
+  warns (step 5b determinism-1). compile-stack leaves the frontmatter, the
+  catalog sizing and the reference index to the template, which holds the
+  one description form (step 5b leanness-1).
 - The scope is confirmed at one gate, and a missing comention helper halts
   instead of a hand scan (#599). customize.toml keeps only the template and
   integration-pattern paths, and the metadata.json contract is fixed in
@@ -108,9 +121,11 @@ heading fails instead of passing vacuously.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
+import os
 import posixpath
 import re
 import shlex
@@ -143,6 +158,7 @@ SCRIPTS = REPO_ROOT / "src" / "shared" / "scripts"
 STATS_HELPER = SCRIPTS / "skf-render-metadata-stats.py"
 VERIFIER = SCRIPTS / "skf-verify-provenance-completeness.py"
 ENUMERATE = SCRIPTS / "skf-enumerate-stack-skills.py"
+HASH_CONTENT = SCRIPTS / "skf-hash-content.py"
 NAMES_HELPER = SCRIPTS / "skf-names-present.py"
 STACK_METADATA = SCRIPTS / "skf-render-stack-metadata.py"
 COMENTION = SCRIPTS / "skf-comention-pairs.py"
@@ -334,6 +350,28 @@ def test_catalog_structure_does_not_copy_the_inline_links():
     prose = _catalog_section().split("```", 1)[0]
     assert "verbatim" not in prose, "the catalog cannot copy the inline links verbatim"
     assert FILE_RELATIVE_LINK_RE.search(prose), "the catalog structure does not give the file-relative link"
+
+
+def test_each_per_library_summary_links_its_reference_file():
+    """compile-stack §4 leaves the summary form to the template (step 5b leanness-1), so the template
+    gives every summary its reference link, in the form the file that holds it resolves (#535)."""
+    template = _read(TEMPLATE)
+    inline = _slice(_first_fence(_h2_section(template, "## SKILL.md Section Structure")),
+                    "## Per-Library Summaries", "\n## Conventions")
+    catalog = _from(_first_fence(_catalog_section()), "## Per-Library Summaries")
+    assert _resolved_links(inline, "") == [PER_LIBRARY_FILE], inline
+    assert _resolved_links(catalog, posixpath.dirname(CATALOG_FILE)) == [PER_LIBRARY_FILE], catalog
+
+
+def test_the_template_holds_the_one_description_form():
+    """Step 5b leanness-1: the template's frontmatter carries the description with its negative
+    trigger, and compile-stack §2 defers to it instead of typing the description again."""
+    structure = _first_fence(_h2_section(_read(TEMPLATE), "## SKILL.md Section Structure"))
+    frontmatter = structure.split("\n---\n", 1)[0]
+    assert "description:" in frontmatter and "NOT for:" in frontmatter, frontmatter
+    compile_ = _read(COMPILE)
+    assert "NOT for" not in compile_, "compile-stack types the description's negative trigger again"
+    assert "template's frontmatter" in _sections(_body(compile_))["2"]
 
 
 CATALOG_MOVES = {
@@ -815,38 +853,54 @@ def test_the_line_check_calls_run_as_written(tmp_path):
     assert json.loads(verify_json.read_text(encoding="utf-8"))["stale"] == []
 
 
-def _provenance_call() -> str:
-    return _call(_sections(_body(_read(GENERATE)))["7"], "renderStackMetadataHelper", "provenance")
+def _provenance_call(mode: str = "code") -> str:
+    """Step 7 §7's provenance call under the bullet of `mode`."""
+    code, compose = _sections(_body(_read(GENERATE)))["7"].split("- **In compose-mode:**", 1)
+    return _call(code if mode == "code" else compose, "renderStackMetadataHelper", "provenance")
+
+
+def _filled_argv(call: str, values: dict[str, str]) -> list[str]:
+    if sys.platform == "win32":  # a POSIX shell split would eat a Windows path's backslashes
+        return _argv(call, "renderStackMetadataHelper", values)
+    # A run folder with a space in its path reaches the helper whole: the call quotes its paths.
+    return _shell_filled(call, "renderStackMetadataHelper", values)
 
 
 def test_step_7_writes_the_code_mode_entries_with_the_helper(tmp_path):
     """W5 handoff (determinism-5): the records step 4 checked are the map's entries and the bundle's
-    pairs its integrations, never typed again; the piped input holds only the map's anchor fields."""
+    pairs its integrations, never typed again; the piped input holds only the map's anchor fields.
+    Step 5b handoff (determinism-2): each pair's co-import files come from the pair helper's saved
+    result, matched on the two libraries, so no step types a {path, line_a, line_b} tuple."""
     seven = _sections(_body(_read(GENERATE)))["7"]
     (bullet,) = [line for line in seven.splitlines() if line.startswith("- **In code-mode:**")]
     assert "`entries` of `{exportRecordsFile}`" in bullet and "the call below writes both" in bullet
-    assert "the pairs of `{bundleFile}`" in bullet
+    assert "the pairs of `{bundleFile}`" in bullet and "co-import files from `{pairsFile}`" in bullet
     assert "one entry per export record" not in seven and "first call" not in seven and "second call" not in seven
-    # Each mode shows its own call only, under its own bullet.
+    # Each mode shows its own helper call, under its own bullet, and no map is written by hand.
     code, compose = seven.split("- **In compose-mode:**", 1)
-    assert "{atomicWriteHelper}" not in code and "{renderStackMetadataHelper}" not in compose
+    assert "{atomicWriteHelper}" not in code and "{atomicWriteHelper}" not in compose
+    assert "{renderStackMetadataHelper}" in compose
+    assert '--pairs "{pairsFile}"' in _provenance_call("code")
     run_dir = tmp_path / "run dir"
     run_dir.mkdir()
     records = run_dir / "export-records.json"
     records.write_text(json.dumps({"entries": _liba_records()}), encoding="utf-8")
     bundle = run_dir / "extraction-bundle.json"
+    # The pair helper names the pair (liba, libb); the bundle names it the other way round.
     co_import = [{"path": "src/app.py", "line_a": 1, "line_b": 2}]
-    bundle.write_text(json.dumps({"integrations": [
-        {"a": "liba", "b": "libb", "type": "adapter", "tier": "T1-low", "qualifier": "grep-co-import",
-         "detection_method": "co-import grep", "co_import_files": co_import, "key_files": [],
-         "description": "liba feeds libb"}]}), encoding="utf-8")
+    pairs = run_dir / "pair-intersect.json"
+    pairs.write_text(json.dumps({"pairs": [{"a": "liba", "b": "libb", "intersection_count": 1,
+                                            "files": co_import}], "truncated": False, "total_pairs": 1}),
+                     encoding="utf-8")
+    bundle.write_text(json.dumps({"mode": "code", "integrations": [
+        {"a": "libb", "b": "liba", "type": "adapter", "tier": "T1-low", "qualifier": "grep-co-import",
+         "detection_method": "co-import grep", "key_files": [], "description": "liba feeds libb"}]}),
+        encoding="utf-8")
     forge_version = tmp_path / "forge" / "demo-stack" / "1.0.0"
     forge_version.mkdir(parents=True)
-    values = {"{exportRecordsFile}": str(records), "{bundleFile}": str(bundle), "{forge_version}": str(forge_version)}
-    if sys.platform == "win32":  # a POSIX shell split would eat a Windows path's backslashes
-        argv = _argv(_provenance_call(), "renderStackMetadataHelper", values)
-    else:  # a run folder with a space in its path reaches the helper whole: the call quotes its paths
-        argv = _shell_filled(_provenance_call(), "renderStackMetadataHelper", values)
+    values = {"{exportRecordsFile}": str(records), "{bundleFile}": str(bundle), "{pairsFile}": str(pairs),
+              "{forge_version}": str(forge_version)}
+    argv = _filled_argv(_provenance_call(), values)
     fields = {"provenance_version": "2.0", "skill_name": "demo-stack", "skill_type": "stack", "source_repo": [],
               "source_commit": {}, "generated_at": "2026-10-02T08:00:00Z"}
     for field in fields:
@@ -856,10 +910,93 @@ def test_step_7_writes_the_code_mode_entries_with_the_helper(tmp_path):
     assert result.returncode == 0, result.stderr
     written = json.loads((forge_version / "provenance-map.json").read_text(encoding="utf-8"))
     assert written["entries"] == _liba_records()
-    assert written["integrations"] == [{"libraries": ["liba", "libb"], "pattern_type": "adapter",
-                                        "detection_method": "co-import grep", "co_import_files": co_import,
+    # line_a stays the line that imports libraries[0]: the swapped pair swaps its lines.
+    assert written["integrations"] == [{"libraries": ["libb", "liba"], "pattern_type": "adapter",
+                                        "detection_method": "co-import grep",
+                                        "co_import_files": [{"path": "src/app.py", "line_a": 2, "line_b": 1}],
                                         "confidence": "T1-low"}]
     assert list(written).index("entries") < list(written).index("integrations")
+
+
+def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
+    """Step 5b handoff (determinism-3): step 4 saves its inventory, the model writes only the cited
+    entries, and the helper writes the integrations and the constituents, each hash copied from the
+    inventory and each skill_path relative to the project root, so an audit of the stack finds every
+    constituent fresh, under a skills folder that is not the default one."""
+    extract = _read(EXTRACT)
+    assert "stackInventoryFile: '{run_dir}/stack-inventory.json'" in _frontmatter(extract)
+    enumerate_call = _call(_sections(_body(extract))["0"], "enumerateStackSkillsHelper", "enumerate").strip()
+    enumerate_call, target = enumerate_call.split(" > ")
+    assert target == '"{stackInventoryFile}"', "step 4 does not save its inventory in the run folder"
+    seven = _sections(_body(_read(GENERATE)))["7"]
+    compose = seven.split("- **In compose-mode:**", 1)[1].split("**Source lines (code mode only).**")[0]
+    assert "write only the entries" in compose and "`{composeEntriesFile}`" in compose
+    for frontmatter_key in ("stackInventoryFile: '{run_dir}/stack-inventory.json'",
+                            "composeEntriesFile: '{run_dir}/compose-entries.json'"):
+        assert frontmatter_key in _frontmatter(_read(GENERATE)), frontmatter_key
+    project = tmp_path / "my project"
+    skills_root = project / "my-skills"
+    hashes = {}
+    for name, version in (("react", "18.2.0"), ("express", "4.19.0")):
+        package = skills_root / name / version / name
+        package.mkdir(parents=True)
+        (package / "SKILL.md").write_bytes(f"# {name}\n".encode("utf-8"))
+        metadata = json.dumps({"name": name, "version": version, "generated_by": "create-skill",
+                               "exports": ["render"], "skill_type": "single"}).encode("utf-8")
+        (package / "metadata.json").write_bytes(metadata)
+        hashes[name] = "sha256:" + hashlib.sha256(metadata).hexdigest()
+        try:
+            os.symlink(version, skills_root / name / "active", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks not supported on this platform")
+    run_dir = project / "_bmad-output" / ".skf-run" / "skf-create-stack-skill-1"
+    run_dir.mkdir(parents=True)
+    inventory = run_dir / "stack-inventory.json"
+    argv = _argv(enumerate_call, "enumerateStackSkillsHelper", {"{skills_output_folder}": str(skills_root)})
+    result = subprocess.run([sys.executable, str(ENUMERATE), *argv], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    inventory.write_text(result.stdout, encoding="utf-8")  # the shell redirect
+    bundle = run_dir / "extraction-bundle.json"
+    bundle.write_text(json.dumps({
+        "mode": "compose", "scope": ["react", "express"],
+        "per_library_extractions": [
+            {"library": name, "skill_dir": name, "version": version, "confidence": "T1",
+             "skill_package_path": f"{skills_root.as_posix()}/{name}/active/{name}"}
+            for name, version in (("react", "18.2.0"), ("express", "4.19.0"))],
+        "failed": [],
+        "integrations": [{"a": "react", "b": "express", "type": "data-flow", "tier": "T1",
+                          "qualifier": "architecture-co-mention", "detection_method": "architecture_co_mention",
+                          "key_files": [], "description": "react calls express"}],
+        "hubs": [], "cross_cutting": []}), encoding="utf-8")
+    entries = run_dir / "compose-entries.json"
+    # The model writes only the cited fields; the helper adds the constituent's tier.
+    entries.write_text(json.dumps({"entries": [{"export_name": "render", "source_library": "react"}]}),
+                       encoding="utf-8")
+    forge_version = project / "forge-data" / "demo-stack" / "1.0.0"
+    values = {"{composeEntriesFile}": str(entries), "{bundleFile}": str(bundle),
+              "{stackInventoryFile}": str(inventory), "{skills_output_folder}": str(skills_root),
+              "{project-root}": str(project), "{forge_version}": str(forge_version)}
+    fields = {"provenance_version": "2.0", "skill_name": "demo-stack", "skill_type": "stack", "source_repo": None,
+              "source_commit": None, "source_ref": None, "generated_at": "2026-10-03T08:00:00Z"}
+    assert "the code-mode fields and `source_ref`" in compose
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *_filled_argv(_provenance_call("compose"), values)],
+                            input=json.dumps(fields), capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    provenance = forge_version / "provenance-map.json"
+    written = json.loads(provenance.read_text(encoding="utf-8"))
+    assert [(c["skill_name"], c["skill_path"], c["version"], c["metadata_hash"]) for c in written["constituents"]] == [
+        ("react", "my-skills/react/", "18.2.0", hashes["react"]),
+        ("express", "my-skills/express/", "4.19.0", hashes["express"])]
+    assert {c["composed_at"] for c in written["constituents"]} == {"2026-10-03T08:00:00Z"}
+    assert written["entries"] == [{"export_name": "render", "source_library": "react", "confidence": "T1",
+                                   "extraction_method": "compose-from-skill", "signature_source": "T1"}]
+    assert written["integrations"][0]["co_import_files"] == []
+    # The audit's constituent check, run as Audit Skill runs it, finds both constituents fresh.
+    audit = subprocess.run([sys.executable, str(HASH_CONTENT), "compare-constituent-hashes", str(provenance),
+                            "--skills-root", str(project)], capture_output=True, text=True)
+    assert audit.returncode == 0, audit.stderr
+    stats = json.loads(audit.stdout)["stats"]
+    assert (stats["fresh"], stats["drifted"], stats["missing"]) == (2, 0, 0), audit.stdout
 
 
 # --- #528: a stack bins libraries, not provenance entries -------------------------
@@ -938,8 +1075,12 @@ def test_compose_constituent_tier_is_the_evidence_tier():
 def test_compose_entries_carry_their_constituent_tier():
     seven = _sections(_body(_read(GENERATE)))["7"]
     (bullet,) = [line for line in seven.splitlines() if line.startswith("- **In compose-mode:**")]
-    for needle in ("`confidence`", "`signature_source`", "`per_library_extractions[].confidence`"):
+    for needle in ("`confidence`", "`signature_source`", "`extraction_method`",
+                   "`per_library_extractions[].confidence`"):
         assert needle in bullet, needle
+    # The helper sets the tier from the bundle: the model types only the cited fields (step 5b review).
+    assert "The call below sets each entry's `confidence`" in bullet, bullet
+    assert "are its constituent's tier" not in bullet
     for path in (EXTRACT, SCHEMA):
         assert "when it was forged" not in _read(path), f"{path.name} says a constituent checked the stack's labels"
 
@@ -1136,8 +1277,15 @@ def _compose_branch() -> str:
 def test_compose_candidates_are_judged_on_their_evidence():
     branch = _compose_branch()
     for needle in ("`comention_count`", "`lead_in_count`", "`list-only`", "`unit_excerpt`", "`unit_line`",
-                   "comention-list-only", "comention-unconfirmed", "`workflow_warnings[]`"):
+                   "`list_only_pair_count`", "comention-list-only", "comention-unconfirmed", "`workflow_warnings[]`"):
         assert needle in branch, needle
+    # The helper leaves out the pairs only listed together and counts them: the step drops none by
+    # hand and records one warning with the count, never one per pair (step 5b review).
+    (list_only,) = [line for line in branch.splitlines() if 'code: "comention-list-only"' in line]
+    assert "`list_only_pair_count`" in list_only and "one `workflow_warnings[]` entry" in list_only, list_only
+    assert "the pair and its `paragraph_count`" not in branch and "both 0" not in branch
+    (empty,) = [line for line in branch.splitlines() if 'code: "comention-no-candidates"' in line]
+    assert "{list_only_pair_count}" in empty, "the no-candidates warning does not give the list-only count"
     for stale in ("qualify automatically", "detected-integration-pair set", "same `language` field"):
         assert stale not in _read(DETECT), stale
     assert "the candidates §2 kept qualify" in _sections(_body(_read(DETECT)))["3"]
@@ -1151,32 +1299,62 @@ def test_the_comention_call_runs_as_written(tmp_path):
     call = _call(_compose_branch(), "comentionHelper", "comention")
     doc = tmp_path / "architecture.md"
     doc.write_bytes(
-        b"# Architecture\n\n## Tech Stack\n\n- react\n- express\n- zod\n\n"
-        b"## Components\n\n| Part | Library |\n|------|---------|\n| UI | react |\n| API | express |\n| Schemas | zod |\n\n"
+        b"# Architecture\n\n## Tech Stack\n\n- react\n- express\n- zod\n- prisma\n\n"
+        b"## Components\n\n| Part | Library |\n|------|---------|\n| UI | react |\n| API | express |\n"
+        b"| Schemas | zod |\n| Storage | prisma |\n\n"
         b"## Data Flow\n\nThe react client posts forms to express, which validates them with zod.\n\n"
         b"Every express handler parses its body with zod before it runs.\n"
     )
     argv = _argv(call, "comentionHelper", {"{architecture_doc_path}": str(doc)})
-    result = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react", "express", "zod"]',
+    result = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react", "express", "zod", "prisma"]',
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    pairs = {(p["a"], p["b"]): p for p in json.loads(result.stdout)["pairs"]}
-    # Listed together only in the Tech Stack list and the Components table, and
-    # named once in prose: dropped at §2 step 4 unless a unit names both.
+    out = json.loads(result.stdout)
+    pairs = {(p["a"], p["b"]): p for p in out["pairs"]}
+    # prisma is only listed in the Tech Stack list and the Components table: its
+    # three pairs are counted, never emitted, so §2 item 4 records one warning.
     assert set(pairs) == {("express", "react"), ("express", "zod"), ("react", "zod")}
+    assert out["list_only_pair_count"] == 3
     confirmed = pairs[("express", "zod")]
     assert confirmed["comention_count"] == 2
     assert [e["kind"] for e in confirmed["evidence"]] == ["list-only", "list-only", "co-mention", "co-mention"]
     assert all(e["unit_excerpt"] for e in confirmed["evidence"] if e["kind"] == "co-mention")
 
 
+def test_the_comention_guards_are_fields_the_step_weighs(tmp_path):
+    """Step 5b handoff (determinism-1): the script filters on no meaning. A pair one paragraph names
+    is a candidate, an introductory section marks its evidence `excluded_section`, the step judges
+    that mark from the excerpt, and a document that names no pair warns."""
+    branch = _compose_branch()
+    assert "never apply them in-prompt" not in branch and "applies the co-mention guards" not in branch
+    for needle in ("`excluded_section`", "`paragraph_count`", 'code: "comention-no-candidates"',
+                   "`excluded_section` entry whose excerpt only names both confirms nothing"):
+        assert needle in branch, needle
+    precision = _h2_section(_read(COMPOSE_RULES), "## Compose-mode Co-mention Precision")
+    for stale in ("Section filtering", "Two-paragraph minimum", "are excluded", "A single paragraph can be coincidental"):
+        assert stale not in precision, stale
+    for field in ("**`excluded_section`.**", "**`paragraph_count`.**", "weighs instead of filtering"):
+        assert field in precision, field
+    call = _call(branch, "comentionHelper", "comention")
+    doc = tmp_path / "architecture.md"
+    doc.write_bytes(b"# Shop\n\n## Overview\n\nThe React client calls the Express API for every page.\n")
+    argv = _argv(call, "comentionHelper", {"{architecture_doc_path}": str(doc)})
+    result = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react", "express"]',
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    (pair,) = out["pairs"]
+    assert [(e["kind"], e["excluded_section"]) for e in pair["evidence"]] == [("co-mention", True)]
+    assert out["excluded_section_count"] == 1
+
+
 def test_a_diagram_edge_is_a_co_mention(tmp_path):
-    """§2 step 5 counts a Mermaid edge as data flow: the script reads fenced code as text."""
+    """§2 step 5 counts a Mermaid edge as data flow: the script reads fenced code as text, and a lone
+    diagram is enough, with no prose paragraph beside it (step 5b determinism-1)."""
     assert "`react --> express`" in _compose_branch()
     call = _call(_compose_branch(), "comentionHelper", "comention")
     doc = tmp_path / "architecture.md"
-    doc.write_bytes(b"# Architecture\n\n## Flow\n\n```mermaid\ngraph LR\n  A[react] --> B[express]\n```\n\n"
-                    b"The react client calls express.\n")
+    doc.write_bytes(b"# Architecture\n\n## Flow\n\n```mermaid\ngraph LR\n  A[react] --> B[express]\n```\n")
     argv = _argv(call, "comentionHelper", {"{architecture_doc_path}": str(doc)})
     result = subprocess.run([sys.executable, str(COMENTION), *argv], input='["react", "express"]',
                             capture_output=True, text=True)
@@ -1497,6 +1675,11 @@ def test_compose_export_names_are_checked_before_the_commit():
     for needle in ("`absent[]`", "`--drop-absent`", "`{headless_mode}`", "compose-export-name-renamed",
                    "compose-export-name-dropped", "`workflow_warnings[]`"):
         assert needle in names, needle
+    # A rename edits the entries file and runs the §7 helper again, which copies each metadata_hash:
+    # the model never writes the map, so the schema's only-copier claim holds (step 5b review).
+    assert "in `{composeEntriesFile}`" in names and "§7 compose-mode `provenance` call again" in names
+    assert "{atomicWriteHelper}" not in names and "atomic writer" not in names
+    assert "the only copier of each `metadata_hash`" in _read(SCHEMA)
     # The helper owns the rule: the step matches no name itself.
     for rule_word in ("case-sensitive", "substring", "verbatim", "`::`"):
         assert rule_word not in names, f"the step still states the name rule ({rule_word})"
@@ -1817,8 +2000,10 @@ def test_step_5_takes_co_imports_from_step_3s_counts():
     found = HAND_COUNT_RE.search(code)
     assert found is None, f"step 5 still finds co-imports by hand: {found.group(0)!r}"
     for needle in ("`intersection_count` 2 or more", "`line_a`", "`line_b`",
-                   "`co_import_files` ← its `files[]` as they stand"):
+                   "The pair's co-import files stay in `{pairsFile}`"):
         assert needle in code, needle
+    # Step 5 types no co-import file: step 7's helper copies them from the saved pairs (determinism-2).
+    assert "`co_import_files` ←" not in text
     guard = _from(code, "**CCC precision guard (H3):**").split("\n\n")[0]
     assert "keep a CCC-surfaced file only when the pair's `files[]` lists it" in guard
     # A file that imports both libraries is already a pair file: CCC never raises a count.
@@ -1889,6 +2074,8 @@ def test_the_scan_count_and_pair_calls_run_as_written(tmp_path):
     assert [f["path"] for f in by_name["zustand"]["files"]] == ["apps/web/src/main.tsx", "apps/web/src/store.tsx"]
     # Step 5 §1: the counts file read as it stands; each pair carries its co-import files and lines.
     pair_call = _call(_sections(_body(_read(DETECT)))["1"], "pairIntersectHelper", "intersect").strip()
+    pair_call, target = pair_call.split(" > ")
+    assert target == '"{pairsFile}"', "step 5 does not save its pairs in the run folder"
     pairs = run(PAIR_INTERSECT, pair_call, "pairIntersectHelper", web, names=",".join(recommended))["pairs"]
     assert [(p["a"], p["b"], p["intersection_count"]) for p in pairs] == [("react-dom", "zustand", 2)]
     assert pairs[0]["files"] == [{"path": "apps/web/src/main.tsx", "line_a": 2, "line_b": 3},
@@ -2170,7 +2357,9 @@ def test_the_extraction_bundle_is_written_and_read_from_disk():
     assert "§1+" not in extract and "fan-out at" not in zero
     assert "- `usage_patterns`: read from the constituent's `SKILL.md` loaded above" in zero
     detect_graph = _sections(_body(_read(DETECT)))["4"]
-    assert "Write the graph into `{bundleFile}`" in detect_graph and '"co_import_files"' in detect_graph
+    assert "Write the graph into `{bundleFile}`" in detect_graph
+    # The bundle carries no co-import file: they stay in the saved pairs, which step 7's helper reads.
+    assert '"co_import_files"' not in detect_graph and "`{pairsFile}`" in detect_graph
     for key in ("`hubs`", "`cross_cutting`"):
         assert key in detect_graph, key
     # Step 6: the bundle, and in code mode each library's key exports from its records, which the
@@ -2216,7 +2405,7 @@ def test_the_compile_stats_come_from_the_metadata_helper():
     assert "Bind `{lib_count}` ← its `library_count` and `{integration_count}` ← its `integration_count`" in one
     # The description §2 writes and the stats §7 shows take those bindings; nothing counts by hand.
     assert "with the counts §1 bound" in sections["2"]
-    assert "{lib_count} libraries with" in _first_fence(sections["2"])
+    assert "{lib_count} libraries with" in _first_fence(_h2_section(_read(TEMPLATE), "## SKILL.md Section Structure"))
     seven = sections["7"]
     assert "renderStackMetadataHelper" not in seven and "the count of" not in text
     for field in ("{lib_count}", "{integration_count}", "`confidence_distribution.t1`"):

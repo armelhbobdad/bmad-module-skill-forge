@@ -17,6 +17,7 @@ emitEnvelopeProbeOrder:
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 bundleFile: '{run_dir}/extraction-bundle.json'
 importCountsFile: '{run_dir}/import-counts.json'
+pairsFile: '{run_dir}/pair-intersect.json'
 # A fixed path: the compose rules are not a customization surface.
 composeModeRulesPath: 'references/compose-mode-rules.md'
 ---
@@ -59,10 +60,10 @@ Of the N*(N-1)/2 pairs of `confirmed_dependencies`, only those whose per-library
 **Compute the intersection deterministically via the shared script.** Resolve `{pairIntersectHelper}` from `{pairIntersectProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `detect-integrations:pair-intersect`) with "**Cannot proceed.** `skf-pair-intersect.py` is missing, so no library pair can be found. Re-install SKF, then re-run."
 
 ```bash
-uv run {pairIntersectHelper} intersect --counts "{importCountsFile}" --only "<names>"
+uv run {pairIntersectHelper} intersect --counts "{importCountsFile}" --only "<names>" > "{pairsFile}"
 ```
 
-`{importCountsFile}` is the step 3 import-count JSON, read as it stands, and `--only` names the confirmed libraries, comma-separated, less those step 4 reported an extraction failure for. It emits `pairs[]` (`a`, `b`, `intersection_count` and `files[]`, each `{path, line_a, line_b}`: a file that imports both libraries, with the first line that imports each), sorted by `intersection_count` and capped at the Top-K below, with `truncated` and `total_pairs`. Use `pairs[]` as the candidate-pair set for §2 onward.
+`{importCountsFile}` is the step 3 import-count JSON, read as it stands, and `--only` names the confirmed libraries, comma-separated, less those step 4 reported an extraction failure for. Its JSON, in `{pairsFile}`, holds `pairs[]` (`a`, `b`, `intersection_count` and `files[]`, each `{path, line_a, line_b}`: a file that imports both libraries, with the first line that imports each), sorted by `intersection_count` and capped at the Top-K below, with `truncated` and `total_pairs`. Use `pairs[]` as the candidate-pair set for §2 onward.
 
 **Top-K cap (S7, 20):** When the script reports `truncated: true`, warn the user and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "pair-cap-truncated"`, `message`: "non-empty-intersection pair count {total_pairs} exceeds cap: analyzing top 20 by intersection size; {total_pairs - 20} pairs skipped"), which the evidence report lists.
 
@@ -76,15 +77,15 @@ A helper reports candidate pairs with their evidence; a candidate becomes an int
 
 1. Load `{composeModeRulesPath}` for the integration evidence format and labels
 2. **If `{architecture_doc_path}` is null or not available:** skip to the **No architecture document** path below
-3. **Find the candidates with the shared script**, which applies the co-mention guards `{composeModeRulesPath}` documents (never apply them in-prompt):
+3. **Find the candidates with the shared script:**
 
    ```bash
    uv run {comentionHelper} comention --doc {architecture_doc_path} --skills -
    ```
-   piping the `confirmed_dependencies` names as a JSON array on stdin (e.g. `["react", "express"]`; if stdin piping is unavailable, write it to `{run_dir}/skills.json` and pass that path to `--skills`). Each pair of its `pairs[]` has `comention_count`, `lead_in_count` and one `evidence[]` entry per body paragraph naming both, of `kind` `co-mention` (one run of prose, list item, table row or code line names both), `lead-in` (prose names one, an item or row under it the other) or `list-only` (separate items only, as a Tech Stack table gives every pair); `unit_excerpt` quotes a co-mention or lead-in, from `unit_line`. A lead-in with a blank line before its list gives no evidence.
+   piping the `confirmed_dependencies` names as a JSON array on stdin (e.g. `["react", "express"]`; if stdin piping is unavailable, write it to `{run_dir}/skills.json` and pass that path to `--skills`). Its `pairs[]` holds each pair a body paragraph names in one unit or through a lead-in, with `paragraph_count`, `comention_count`, `lead_in_count` and one `evidence[]` entry per paragraph naming both; `unit_excerpt` quotes a `co-mention` or `lead-in` entry, from `unit_line` (a `list-only` entry quotes nothing), and `excluded_section` is true under an introductory heading (Overview, Introduction and the like). `list_only_pair_count` counts the pairs only listed together, which it leaves out. When `pairs[]` is empty, append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "info"`, `code: "comention-no-candidates"`, `message`: "no passage names two confirmed libraries together ({list_only_pair_count} pairs only listed, {excluded_section_count} introductory sections)").
 
-4. **Drop the pairs that are only listed together.** A pair whose `comention_count` and `lead_in_count` are both 0 is no integration: drop it and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "info"`, `code: "comention-list-only"`, `message`: the pair and its `paragraph_count`), which the evidence report lists.
-5. **Confirm each remaining candidate** from the `unit_excerpt` of its `co-mention` and `lead-in` entries. Keep the pair only when an excerpt says how the two libraries work together: data flows from one to the other, one wraps or adapts the other, one configures or initializes the other, or one handles the other's events. The script reads fenced code as text, so a diagram line counts too: a Mermaid edge between the two (`react --> express`) shows data flow. Two names side by side ("built with React and Express") or an intro line that only names both does not confirm a pair. Drop each pair no excerpt confirms and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "comention-unconfirmed"`, `message`: the pair and the excerpts read).
+4. **Pairs only listed together.** When `list_only_pair_count` is above 0, append one `workflow_warnings[]` entry (`step: "step-05"`, `severity: "info"`, `code: "comention-list-only"`, `message`: "{list_only_pair_count} pairs only listed together"), which the evidence report lists.
+5. **Confirm each candidate** from the `unit_excerpt` of its `co-mention` and `lead-in` entries. Keep the pair only when an excerpt says how the two libraries work together: data flows from one to the other, one wraps or adapts the other, one configures or initializes the other, or one handles the other's events. The script reads fenced code as text, so a diagram line counts too: a Mermaid edge between the two (`react --> express`) shows data flow. Two names side by side ("built with React and Express") do not confirm a pair, and an `excluded_section` entry whose excerpt only names both confirms nothing; one excerpt that says how the two work together is enough, wherever it sits. Drop each pair no excerpt confirms and append a `workflow_warnings[]` entry (`step: "step-05"`, `severity: "warn"`, `code: "comention-unconfirmed"`, `message`: the pair and the excerpts read).
 6. For each confirmed pair, compose an integration section in the evidence format of `{composeModeRulesPath}` from both skills' export lists and API signatures, with the confirming `unit_excerpt` as its architecture reference and the VS verdicts below. Its tier comes from `{renderStackMetadataHelper}` in §3 (see **Confidence Tier Inheritance** in `{composeModeRulesPath}`), and every compose-mode label takes the `[composed]` suffix except an inferred-shared-domain one.
 
 **VS verdicts (architecture-document pairs).** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}` (first existing path wins) and locate the [VS] report through it (see `shared/references/feasibility-report-schema.md`):
@@ -118,7 +119,7 @@ Skip to section 3 (Classify Integration Types) with the compose-mode pairs.
 
 **If not compose_mode:**
 
-Each pair of §1's `pairs[]` already holds its co-import files: every `files[]` entry is a file that imports both libraries, as step 3's helper matched them, with `line_a` and `line_b`. For each pair, record `co_import_files` ← its `files[]` as they stand, and `count` ← its `intersection_count`.
+The pair's co-import files stay in `{pairsFile}`: each `files[]` entry of a §1 pair is a file that imports both libraries, as step 3's helper matched them, with `line_a` and `line_b`.
 
 **Threshold:** A pair must have 2+ co-import files (`intersection_count` 2 or more) to qualify as an integration pattern (single file co-imports may be incidental).
 
@@ -168,15 +169,15 @@ For each detected integration:
 
 Assemble the integration graph:
 - **Nodes:** Confirmed libraries (with extraction data from step 04)
-- **Edges:** Detected integration pairs with type, file count, and description
+- **Edges:** Detected integration pairs with type, co-import file count (the pair's `intersection_count` in `{pairsFile}`, 0 in compose mode), and description
 - Identify **hub libraries** (connected to 3+ other libraries)
 - Identify **cross-cutting patterns** (patterns spanning 3+ libraries)
 
-Write the graph into `{bundleFile}`: its `integrations[]` gets one entry per detected pair, `{"a": "<library>", "b": "<library>", "type": "<pattern type>", "tier": "<the pair's tier>", "qualifier": "<detection qualifier>", "detection_method": "<provenance detection_method>", "co_import_files": [{"path": "<path>", "line_a": 0, "line_b": 0}], "key_files": ["<path:line>"], "description": "<how they connect>"}` (`co_import_files` as §2 recorded them, `[]` in compose mode), and `hubs` and `cross_cutting` list the hub libraries and cross-cutting patterns, so steps 6 and 7 read the integration layer from disk.
+Write the graph into `{bundleFile}`: its `integrations[]` gets one entry per detected pair, `{"a": "<library>", "b": "<library>", "type": "<pattern type>", "tier": "<the pair's tier>", "qualifier": "<detection qualifier>", "detection_method": "<provenance detection_method>", "key_files": ["<path:line>"], "description": "<how they connect>"}`, and `hubs` and `cross_cutting` list the hub libraries and cross-cutting patterns, so steps 6 and 7 read the integration layer from disk.
 
 ### 5. Display Integration Summary
 
-If integrations were detected, report the integration graph (`{lib_count}` libraries, `{pair_count}` pairs): the hub libraries (connected to 3+ others) with their partners, each detected pair (library A, library B, type, co-import file count, confidence tier), and any cross-cutting patterns spanning 3+ libraries. If none were detected, report that no co-import integration patterns were found — the libraries appear to operate independently, so the stack skill will carry library summaries without an integration layer.
+If integrations were detected, report the integration graph (`{lib_count}` libraries, `{pair_count}` pairs): the hub libraries (connected to 3+ others) with their partners, each detected pair (library A, library B, type, co-import file count, confidence tier), and any cross-cutting patterns spanning 3+ libraries. If none were detected, report that the libraries appear to operate independently: the stack skill carries library summaries without an integration layer.
 
 ### 6. Auto-Proceed to Next Step
 

@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-create-stack-skill
+summary: |
+  A compose-mode `provenance-map.json` is now written by SKF's provenance helper instead of being assembled by hand. Each constituent's `metadata_hash` is copied exactly from the inventory the run read, each `skill_path` is the constituent's folder relative to the project root, so it resolves when `skills_output_folder` is not the default `skills`, and each entry takes its constituent's tier as its `confidence` and `signature_source`. An Audit Skill run on the stack no longer reports false constituent drift or missing constituents.

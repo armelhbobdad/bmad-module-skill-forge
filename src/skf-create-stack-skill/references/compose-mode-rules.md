@@ -10,13 +10,14 @@ The version-aware skill-enumeration protocol (export-manifest primary → active
 
 ## Compose-mode Co-mention Precision
 
-Prose co-mention detection is heuristic — it can only provide `Plausible`-class evidence (compared to code-mode's co-imports, which are literal). To reduce false positives the matcher in step 5 §2 applies three guards:
+Prose co-mention detection is heuristic: it can only provide `Plausible`-class evidence (compared to code-mode's co-imports, which are literal). The matcher in step 5 §2 applies two guards, and reports two evidence fields that step 5 §2 weighs instead of filtering on them:
 
-1. **Word-boundary matching** (`\b{skill_name}\b`, case-insensitive). Substring matches are rejected (no `react` inside `reactive`).
-2. **Section filtering.** Paragraphs under H1/H2 headers that normalise to `introduction`, `overview`, `glossary`, `table of contents`, `references`, `appendix`, or `index` are excluded — they typically enumerate all libraries without describing integration. Headings themselves are also excluded as co-mention sources.
-3. **Two-paragraph minimum.** A pair `(A, B)` requires at least two distinct body paragraphs co-mentioning both names. A single paragraph can be coincidental.
+1. **Word-boundary matching** (`\b{skill_name}\b`, case-insensitive). Substring matches are rejected (no `react` inside `reactive`). Headings are never co-mention sources.
+2. **Listed pairs left out.** A pair named only in separate list items, table rows or code lines, as a Tech Stack table names every pair, is no candidate: `list_only_pair_count` counts those pairs.
+3. **`excluded_section`.** True on an evidence entry whose paragraph sits under an introductory H1/H2 header (Overview, Introduction, Glossary and the like; `skf-comention-pairs.py`'s docstring lists the set): such sections often enumerate every library without describing an integration.
+4. **`paragraph_count`.** The number of body paragraphs that name both libraries. One is enough to make a candidate: whether that passage describes an integration is a judgment on its excerpt.
 
-**Known limitations:** even with these guards, a co-mention only witnesses that two libraries are discussed together; it does not prove an integration exists, so every pair the matcher reports is a candidate step 5 §2 judges. Downstream consumers should prefer stack manifests (`skf-create-stack-skill` output) to prose-derived evidence when both are available.
+**Known limitations:** even with the guards, a co-mention only witnesses that two libraries are discussed together; it does not prove an integration exists, so every pair the matcher reports is a candidate step 5 §2 judges. Downstream consumers should prefer stack manifests (`skf-create-stack-skill` output) to prose-derived evidence when both are available.
 
 ## Architecture Integration Mapping
 

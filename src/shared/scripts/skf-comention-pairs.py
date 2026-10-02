@@ -82,15 +82,20 @@ Paragraphs, units and evidence kinds:
 
 Subcommands:
   comention --doc <md-file-or-'-'> --skills <json-file-or-'-'>
-      Applies three guards: the matching above; section filtering, where
-      paragraphs governed by an H1/H2 header that normalises to one of
+      Emits every pair that one body paragraph or more names in one unit
+      or through a lead-in, by the matching above; heading text is never a
+      source. A pair only ever listed together is left out and counted, as
+      mentions does: that is a structural kind of evidence, and nothing is
+      filtered on meaning. Whether a passage describes an integration is the
+      calling step's judgment, from its excerpt, and two fields carry what
+      it weighs. `excluded_section` is true on an evidence entry whose
+      paragraph an H1/H2 header governs that normalises to one of
       {introduction, overview, glossary, table of contents, references,
-      appendix, index} are excluded and heading text is never a source;
-      and a two-paragraph minimum, where a pair needs at least two body
-      paragraphs that each name both skills. Fenced code is read as body
-      text here, as this mode always read it, so its pairs are the ones
-      earlier releases emitted: a `#` line inside a fence still counts as
-      a header.
+      appendix, index}, sections that often only list the libraries;
+      `paragraph_count` counts the body paragraphs that name the pair,
+      one being enough. Fenced code is read as body text here, as this
+      mode always read it, so a diagram line names a pair like any other
+      line, and a `#` line inside a fence still counts as a header.
 
       Emit JSON:
         {
@@ -105,23 +110,26 @@ Subcommands:
                             "line": L,
                             "kind": "co-mention|lead-in|list-only",
                             "unit_line": U-or-null,
-                            "unit_excerpt": "<text-naming-both>-or-null"},
+                            "unit_excerpt": "<text-naming-both>-or-null",
+                            "excluded_section": true|false},
                            ...]
             },
             ...
           ],
+          "list_only_pair_count": P,
           "excluded_section_count": M
         }
 
-      Only unordered pairs (a < b lexicographically) with paragraph_count
-      >= 2 are emitted, and each is a candidate: comention_count and
-      lead_in_count count its co-mention and lead-in entries, so a pair
-      with both at 0 was only listed together. `pairs[]` is sorted by
+      Only unordered pairs (a < b lexicographically) are emitted, each a
+      candidate with comention_count + lead_in_count >= 1 (its co-mention
+      and lead-in entries; a list-only entry from another paragraph stays
+      in its evidence). `list_only_pair_count` counts the pairs only ever
+      listed together, which are not emitted. `pairs[]` is sorted by
       paragraph_count DESC, then (a, b) ASC, mirroring
       skf-pair-intersect.py. `evidence[]` is in document order.
-      `excluded_section_count` is the number of DISTINCT excluded H1/H2
-      sections (by normalised header) that governed at least one body
-      paragraph: a diagnostic for the caller, not a gate.
+      `excluded_section_count` is the number of DISTINCT such introductory
+      H1/H2 sections (by normalised header) that governed at least one
+      body paragraph: a diagnostic for the caller.
 
   mentions --doc <md-file-or-'-'> --skills <json-file-or-'-'>
            [--technologies <json-file-or-'-'>]
@@ -145,7 +153,8 @@ Subcommands:
           "mentioned": ["<skill>", ...],
           "fenced_only": ["<skill>", ...],
           "unmentioned": ["<skill>", ...],
-          "candidates": [<a pair shaped as a comention pair>, ...],
+          "candidates": [<a pair shaped as a comention pair, its
+                          evidence without `excluded_section`>, ...],
           "list_only_pair_count": P,
           "fenced_block_count": B,
           "fenced_blocks": [{"line": L, "info": "<info string>"}, ...]
@@ -179,20 +188,26 @@ Subcommands:
       adds two keys:
         "technologies": [{"name": "<as given>",
                           "covered_by": [{"skill": "<skill>",
-                                          "term": "<the skill's term>"},
+                                          "term": "<the skill's term>",
+                                          "kind": "name|alias|alias-contained"},
                                          ...]}, ...],
         "unverified_technologies": ["<name>", ...]
       in the order given, a repeat (ignoring case and runs of whitespace)
       dropped. A skill covers a technology when the matching above finds
-      one of its terms inside the name, each occurrence read as its
+      its name inside the technology name, each occurrence read as its
       longest term (a `next` skill covers `Next.js`), or when one of its
-      terms equals the name once case, whitespace, hyphens, dots and
-      underscores are dropped (a `react-router` skill covers `React
-      Router`, a `tailwindcss` skill `Tailwind CSS`). The match runs one
-      way: a `storybook-react-vite` skill does not cover `React`.
-      `covered_by` is sorted by skill, each with the first of its terms
-      that covers the name, and `unverified_technologies` lists the names
-      no skill covers.
+      terms, an alias included, equals the name once case, whitespace,
+      hyphens, dots and underscores are dropped (a `react-router` skill
+      covers `React Router`, a `tailwindcss` skill `Tailwind CSS`, a skill
+      with the alias `cognee` `Cognee`). An alias found only inside a
+      longer name covers nothing: aliases are repository and folder names,
+      often common words, so `ai` inside `Azure AI Search` or `core` inside
+      `ASP.NET Core` is listed with kind `alias-contained` and the name
+      stays unverified, for the caller to judge. The match runs one way: a
+      `storybook-react-vite` skill does not cover `React`. `covered_by` is
+      sorted by skill, each with the first of its terms that covers the
+      name (or, for an `alias-contained` entry, the alias found) and its
+      kind, and `unverified_technologies` lists the names no skill covers.
 
   infer --skills <json-file-or-'-'> [--top-k N]
       A pair is a candidate on either kind of evidence:
@@ -275,9 +290,10 @@ from pathlib import Path
 from typing import NamedTuple
 
 
-# Closed exclusion set — governing H1/H2 headers that normalise to one of
-# these drop their paragraphs from co-mention analysis (they typically
-# enumerate all libraries without describing an integration).
+# The introductory sections: comention marks `excluded_section` on the
+# evidence of a paragraph whose governing H1/H2 header normalises to one of
+# these, since such sections often list every library without describing an
+# integration. The calling step weighs the mark; nothing is dropped.
 EXCLUDED_HEADERS = frozenset({
     "introduction",
     "overview",
@@ -325,6 +341,8 @@ LEAD_IN = "lead-in"
 LIST_ONLY = "list-only"
 DOCS_MENTION = "docs-mention"
 SHARED_KEYWORDS = "shared-keywords"
+# The covered_by kind of an alias found only inside a longer technology name.
+ALIAS_CONTAINED = "alias-contained"
 
 
 class UserError(Exception):
@@ -968,8 +986,10 @@ def _pair_entry(a: str, b: str, evidence: list[dict]) -> dict:
 
 
 def analyze(doc_text: str, skills: list[Skill | str]) -> dict:
-    """comention: candidate pairs that at least two body paragraphs name,
-    with their evidence.
+    """comention: every candidate pair a body paragraph names in one unit
+    or through a lead-in, with its evidence, each entry marking whether an
+    introductory section holds it, and the count of pairs only listed
+    together.
 
     Deterministic: same (doc_text, skills) → identical output.
     """
@@ -980,25 +1000,31 @@ def analyze(doc_text: str, skills: list[Skill | str]) -> dict:
     pair_evidence: dict[tuple[str, str], list[dict]] = {}
 
     for para in read_markdown(doc_text, skip_fenced=False).paragraphs:
+        excluded = False
         if para.header is not None:
             norm = normalize_header(para.header)
             if norm in EXCLUDED_HEADERS:
                 excluded_sections.add(norm)
-                continue
+                excluded = True
         # `present` is sorted → pairs are (a < b)
         present = sorted(matcher.names(para.text))
         for pair, entry in _paragraph_evidence(para, present, matcher):
+            entry["excluded_section"] = excluded
             pair_evidence.setdefault(pair, []).append(entry)
 
-    pairs = [
-        _pair_entry(a, b, evidence)
-        for (a, b), evidence in pair_evidence.items()
-        if len(evidence) >= 2
-    ]
+    pairs: list[dict] = []
+    list_only_pairs = 0
+    for (a, b), evidence in pair_evidence.items():
+        entry = _pair_entry(a, b, evidence)
+        if entry["comention_count"] or entry["lead_in_count"]:
+            pairs.append(entry)
+        else:
+            list_only_pairs += 1
     pairs.sort(key=lambda p: (-p["paragraph_count"], p["a"], p["b"]))
 
     return {
         "pairs": pairs,
+        "list_only_pair_count": list_only_pairs,
         "excluded_section_count": len(excluded_sections),
     }
 
@@ -1025,25 +1051,43 @@ def coverage(
 ) -> tuple[list[dict], list[str]]:
     """Which skills cover each technology name, and the names none covers.
     Names are trimmed, and a repeat (ignoring case and runs of whitespace)
-    is dropped."""
+    is dropped. A skill's name covers a technology from inside it, an
+    alias only by squashed equality: an alias found only inside the name
+    is listed as `alias-contained` and covers nothing."""
     technologies = list(_dedupe(tuple(t.strip() for t in technologies), key=_norm))
     squashed = [
-        (n, t, _squash(t)) for n in sorted(specs) for t in specs[n].terms
+        (n, t, "name" if i == 0 else "alias", _squash(t))
+        for n in sorted(specs) for i, t in enumerate(specs[n].terms)
     ]
     entries: list[dict] = []
     unverified: list[str] = []
     for tech in technologies:
-        found: dict[str, str] = {}
+        # skill -> (term, kind): the skills that cover the name.
+        found: dict[str, tuple[str, str]] = {}
+        # skill -> alias: the skills one of whose aliases sits inside the name.
+        contained: dict[str, str] = {}
         for occurrence in matcher.find(tech):
             for n in sorted(occurrence.names):
-                found.setdefault(n, _spelling(specs[n], occurrence.term)[0])
+                term, kind = _spelling(specs[n], occurrence.term)
+                if kind == "alias":
+                    contained.setdefault(n, term)
+                else:
+                    found.setdefault(n, (term, kind))
         target = _squash(tech)
-        for n, term, flat in squashed:
+        for n, term, kind, flat in squashed:
             if flat and flat == target:
-                found.setdefault(n, term)
+                found.setdefault(n, (term, kind))
+        covered_by = {
+            n: {"skill": n, "term": term, "kind": kind}
+            for n, (term, kind) in found.items()
+        }
+        for n, term in contained.items():
+            covered_by.setdefault(
+                n, {"skill": n, "term": term, "kind": ALIAS_CONTAINED}
+            )
         entries.append({
             "name": tech,
-            "covered_by": [{"skill": n, "term": found[n]} for n in sorted(found)],
+            "covered_by": [covered_by[n] for n in sorted(covered_by)],
         })
         if not found:
             unverified.append(tech)
@@ -1345,8 +1389,9 @@ def _cmd_comention(args: argparse.Namespace) -> int:
     if args.verbose:
         print(
             f"analyzed {len({s.name for s in skills})} distinct skill names; "
-            f"{len(result['pairs'])} qualifying pairs; "
-            f"{result['excluded_section_count']} excluded sections",
+            f"{len(result['pairs'])} candidate pairs; "
+            f"{result['list_only_pair_count']} list-only pairs; "
+            f"{result['excluded_section_count']} introductory sections",
             file=sys.stderr,
         )
     return _emit(result)
@@ -1432,8 +1477,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cm = sub.add_parser(
         "comention",
         help=(
-            "emit candidate co-mention pairs (>=2 body paragraphs, "
-            "word-boundary, section-filtered) with evidence kinds as JSON"
+            "emit every candidate pair a body paragraph names in one unit "
+            "or through a lead-in (word-boundary), with evidence kinds and "
+            "introductory sections marked, and count the pairs only listed "
+            "together, as JSON"
         ),
     )
     _add_doc_and_skills(

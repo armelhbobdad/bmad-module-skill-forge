@@ -8,10 +8,11 @@ create-stack-skill relabels its code-mode export records and sets each
 library's tier from them (parallel-extract section 3a), gives each
 integration the tier of its pair (detect-integrations section 3), writes the
 counted and ranked fields of metadata.json (generate-output section 6) and
-writes the code-mode provenance map's entries and integrations from the
-records and the extraction bundle (generate-output section 7). This helper holds those rules once, so no step
-file restates them, and skf-validate-output.py --skill-type stack recomputes
-the dominant tier with dominant_tier here.
+writes the provenance map from the run's files in either mode: its entries,
+its integrations and, in compose mode, its constituents (generate-output
+section 7). This helper holds those rules once, so no step file restates
+them, and skf-validate-output.py --skill-type stack recomputes the dominant
+tier with dominant_tier here.
 
 Rules:
   Tiers, from the strongest: T1, T1-low, T2, T3.
@@ -115,24 +116,51 @@ Subcommands:
                  "confidence_tier": "<dominant tier>",
                  "source_authority": "<authority>",
                  "integrations": [{"a": "<a>", "b": "<b>", "tier": "<tier>"}, ...]}
-  provenance  writes a code-mode provenance-map.json to --target atomically
-              (generate-output section 7): the object --input holds (the
-              map's provenance_version, skill_name, skill_type, source_repo,
-              source_commit and generated_at) with `entries` set to the
-              records' entries as they stand and `integrations` built from
-              the extraction bundle --bundle names, one per pair of its
-              `integrations`: libraries [a, b], pattern_type from its type,
-              its detection_method, its co_import_files as they stand and
-              confidence from its tier. Each replaces the field of that name
-              the input holds. It prints
+  provenance  writes provenance-map.json to --target atomically
+              (generate-output section 7), in the mode the extraction
+              bundle --bundle names: the object --input holds (the map's
+              provenance_version, skill_name, skill_type, source_repo,
+              source_commit, source_ref and generated_at) with `entries` set
+              to the records' entries (as they stand in code mode) and
+              `integrations` built
+              from the bundle, one per pair of its `integrations`: libraries
+              [a, b], pattern_type from its type, its detection_method,
+              co_import_files and confidence from its tier. Each replaces
+              the field of that name the input holds.
+              code mode takes --pairs, the skf-pair-intersect.py result
+              (detect-integrations section 1): a pair's co_import_files are
+              the files of its entry there, {path, line_a, line_b}, matched
+              on the two libraries in either order (line_a and line_b swap
+              when the bundle names the pair the other way round); a bundle
+              pair with no entry is an input error.
+              compose mode takes --inventory, step 4's
+              skf-enumerate-stack-skills.py result, --skills-root and
+              --project-root. Each entry takes its constituent's tier, the
+              confidence of the per_library_extractions[] entry whose library
+              is its source_library, as its confidence and signature_source,
+              and extraction_method compose-from-skill (an entry naming no
+              library of the bundle is an input error), so the records hold
+              only the cited fields. Its co_import_files are [], and it adds
+              `constituents`, one per per_library_extractions[] entry in its
+              order: skill_name its library, skill_path the folder
+              {skills-root}/{skill_dir} relative to the project root with a
+              trailing slash (absolute when no relative path reaches it; a
+              folder that does not exist is an input error), its version,
+              composed_at the input's generated_at, and metadata_hash copied
+              from the inventory's `skills[]` entry whose name is its
+              skill_dir, never computed. It prints
                 {"target": "<path>", "entry_count": N, "integration_count": M}
+              with "constituent_count": K added in compose mode.
 
 CLI:
   uv run skf-render-stack-metadata.py relabel --records export-records.json
   uv run skf-render-stack-metadata.py library-tiers --records export-records.json --libraries "react,zod"
   uv run skf-render-stack-metadata.py pair-tiers --input -
   uv run skf-render-stack-metadata.py metadata --input stack.json
-  uv run skf-render-stack-metadata.py provenance --records export-records.json --bundle extraction-bundle.json --input - --target provenance-map.json
+  uv run skf-render-stack-metadata.py provenance --records export-records.json --bundle extraction-bundle.json \\
+      --pairs pair-intersect.json --input - --target provenance-map.json
+  uv run skf-render-stack-metadata.py provenance --records compose-entries.json --bundle extraction-bundle.json \\
+      --inventory stack-inventory.json --skills-root skills --project-root . --input - --target provenance-map.json
 
 Exit codes:
   0  the JSON is printed (relabel: the records pass the label check)
@@ -164,6 +192,8 @@ MODES = ("code", "compose")
 # The extraction_method of an export an ast-grep rule matched: the only one
 # that keeps a code-mode library at T1.
 AST_METHOD = "ast_bridge"
+# The extraction_method of every compose-mode entry: copied from a constituent skill.
+COMPOSE_METHOD = "compose-from-skill"
 # Authorities from the highest to the lowest.
 AUTHORITIES = ("official", "community", "internal")
 # The authority of a library that records none.
@@ -491,13 +521,58 @@ def relabel(stats, entries: list[dict]) -> tuple[list[dict], dict, dict]:
 # --------------------------------------------------------------------------
 
 
-def bundle_integrations(bundle) -> list[dict]:
+def bundle_mode(bundle) -> str:
+    """The extraction bundle's `mode`, code or compose. Raises InputError."""
+    if not isinstance(bundle, dict):
+        raise InputError(f"the extraction bundle must be a JSON object; got {type(bundle).__name__}")
+    return _token(bundle.get("mode"), MODES, "the bundle's mode")
+
+
+def pair_files(data) -> dict[frozenset[str], tuple[str, list[dict]]]:
+    """Each pair of a skf-pair-intersect.py result, keyed by its two libraries:
+    its `a` and its co-import files, each {path, line_a, line_b}.
+
+    Raises InputError on a result with no `pairs` array, or a pair that names
+    no two libraries or whose files are not {path, ...} objects.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("pairs"), list):
+        raise InputError("the pair-intersect result (--pairs) must be a JSON object with a `pairs` array")
+    out: dict[frozenset[str], tuple[str, list[dict]]] = {}
+    for i, pair in enumerate(data["pairs"]):
+        where = f"the pair-intersect result's pairs[{i}]"
+        if not isinstance(pair, dict):
+            raise InputError(f"{where} must be an object; got {pair!r}")
+        for key in ("a", "b"):
+            if not isinstance(pair.get(key), str) or not pair[key].strip():
+                raise InputError(f"{where}.{key} must be a non-empty string; got {pair.get(key)!r}")
+        files = pair.get("files")
+        if not isinstance(files, list) or not all(
+            isinstance(item, dict) and isinstance(item.get("path"), str) for item in files
+        ):
+            raise InputError(f"{where}.files must be an array of {{path, line_a, line_b}} objects")
+        out[frozenset((pair["a"], pair["b"]))] = (pair["a"], files)
+    return out
+
+
+def _co_import_files(a: str, found: tuple[str, list[dict]]) -> list[dict]:
+    """A pair's co-import files with `line_a` the line that imports `a`: the
+    pair-intersect files as they stand, or with the two lines swapped when
+    that result names the pair the other way round."""
+    first, files = found
+    if first == a:
+        return files
+    return [dict(item, line_a=item.get("line_b"), line_b=item.get("line_a")) for item in files]
+
+
+def bundle_integrations(bundle, pairs: dict | None = None) -> list[dict]:
     """The provenance map's integrations[] from the extraction bundle's, in its order.
 
-    Each bundle pair {a, b, type, tier, detection_method, co_import_files, ...}
-    gives {libraries: [a, b], pattern_type, detection_method, co_import_files,
-    confidence}, the co-import files as they stand. Raises InputError on a
-    bundle with no `integrations` array or a pair missing one of those fields.
+    Each bundle pair {a, b, type, tier, detection_method, ...} gives
+    {libraries: [a, b], pattern_type, detection_method, co_import_files,
+    confidence}. With `pairs` (code mode, from pair_files) its co-import files
+    are its entry's there; without (compose mode) they are []. Raises
+    InputError on a bundle with no `integrations` array, a pair missing one of
+    those fields, or a code-mode pair `pairs` has no entry for.
     """
     if not isinstance(bundle, dict) or not isinstance(bundle.get("integrations"), list):
         raise InputError("the extraction bundle must be a JSON object with an `integrations` array")
@@ -509,32 +584,138 @@ def bundle_integrations(bundle) -> list[dict]:
         for key in ("a", "b", "type", "detection_method"):
             if not isinstance(pair.get(key), str) or not pair[key].strip():
                 raise InputError(f"{where}.{key} must be a non-empty string; got {pair.get(key)!r}")
-        if not isinstance(pair.get("co_import_files"), list):
-            raise InputError(f"{where}.co_import_files must be an array; got {pair.get('co_import_files')!r}")
+        co_import_files: list[dict] = []
+        if pairs is not None:
+            found = pairs.get(frozenset((pair["a"], pair["b"])))
+            if found is None:
+                raise InputError(
+                    f"{where} ({pair['a']} + {pair['b']}) has no entry in the pair-intersect result (--pairs)")
+            co_import_files = _co_import_files(pair["a"], found)
         out.append({
             "libraries": [pair["a"], pair["b"]],
             "pattern_type": pair["type"],
             "detection_method": pair["detection_method"],
-            "co_import_files": pair["co_import_files"],
+            "co_import_files": co_import_files,
             "confidence": _token(pair.get("tier"), TIERS, f"{where}.tier"),
         })
     return out
 
 
-def provenance_map(base, entries: list[dict], integrations: list[dict] | None = None) -> dict:
-    """The code-mode provenance map: `base` with `entries` set to the records
-    and, when given, `integrations` set to the bundle's.
+def inventory_hashes(data) -> dict[str, str]:
+    """Each skill's metadata_hash in a skf-enumerate-stack-skills.py result, by name.
+
+    Raises InputError on a result with no `skills` array. A skill without a
+    string hash is left out, so a constituent naming it is refused.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("skills"), list):
+        raise InputError("the stack inventory (--inventory) must be a JSON object with a `skills` array")
+    return {
+        skill["name"]: skill["metadata_hash"]
+        for skill in data["skills"]
+        if isinstance(skill, dict) and isinstance(skill.get("name"), str)
+        and isinstance(skill.get("metadata_hash"), str) and skill["metadata_hash"].strip()
+    }
+
+
+def _skill_path(skills_root: str, skill_dir: str, project_root: str) -> str:
+    """The skill's folder, {skills_root}/{skill_dir}, relative to the project
+    root, forward-slash, with a trailing slash; absolute when no relative
+    path reaches it (another drive on Windows)."""
+    folder = os.path.abspath(os.path.join(skills_root, skill_dir))
+    try:
+        path = os.path.relpath(folder, os.path.abspath(project_root))
+    except ValueError:
+        path = folder
+    return Path(path).as_posix().rstrip("/") + "/"
+
+
+def compose_constituents(bundle, hashes: dict[str, str], skills_root: str, project_root: str,
+                         composed_at) -> list[dict]:
+    """The compose-mode map's constituents[], one per per_library_extractions[] entry, in its order.
+
+    skill_name is the entry's library, skill_path its skill folder (see
+    _skill_path), version its version, composed_at the map's generated_at
+    and metadata_hash the hash step 4's inventory recorded for its skill_dir,
+    copied, never computed. Raises InputError on a missing field, a skill
+    folder that does not exist, or a skill_dir the inventory does not hold.
+    """
+    if not isinstance(composed_at, str) or not composed_at.strip():
+        raise InputError(f"compose mode takes composed_at from the input's generated_at, "
+                         f"a non-empty string; got {composed_at!r}")
+    entries = bundle.get("per_library_extractions")
+    if not isinstance(entries, list):
+        raise InputError("the extraction bundle must have a `per_library_extractions` array")
+    out = []
+    for i, entry in enumerate(entries):
+        where = f"the bundle's per_library_extractions[{i}]"
+        if not isinstance(entry, dict):
+            raise InputError(f"{where} must be an object; got {entry!r}")
+        for key in ("library", "skill_dir"):
+            if not isinstance(entry.get(key), str) or not entry[key].strip():
+                raise InputError(f"{where}.{key} must be a non-empty string; got {entry.get(key)!r}")
+        skill_dir, version = entry["skill_dir"], entry.get("version")
+        if skill_dir in (".", "..") or "/" in skill_dir or "\\" in skill_dir:
+            raise InputError(f"{where}.skill_dir must be a folder name; got {skill_dir!r}")
+        if version is not None and not isinstance(version, str):
+            raise InputError(f"{where}.version must be a string or null; got {version!r}")
+        if not os.path.isdir(os.path.join(skills_root, skill_dir)):
+            raise InputError(f"{where}: no skill folder {skill_dir!r} under --skills-root {skills_root}")
+        if skill_dir not in hashes:
+            raise InputError(f"{where}: the stack inventory (--inventory) holds no metadata_hash for {skill_dir!r}")
+        out.append({
+            "skill_name": entry["library"],
+            "skill_path": _skill_path(skills_root, skill_dir, project_root),
+            "version": version,
+            "composed_at": composed_at,
+            "metadata_hash": hashes[skill_dir],
+        })
+    return out
+
+
+def compose_entries(bundle, entries: list[dict]) -> list[dict]:
+    """The compose-mode map's entries: each record with confidence and
+    signature_source set to its constituent's tier, the confidence of the
+    per_library_extractions[] entry whose library is its source_library, and
+    extraction_method set to COMPOSE_METHOD.
+
+    Raises InputError on a record naming no library of the bundle, or a
+    constituent whose confidence is not a tier.
+    """
+    tiers: dict[str, tuple[object, str]] = {}
+    for i, entry in enumerate(bundle.get("per_library_extractions") or []):
+        if isinstance(entry, dict) and isinstance(entry.get("library"), str):
+            tiers[entry["library"]] = (entry.get("confidence"),
+                                       f"the bundle's per_library_extractions[{i}].confidence")
+    out = []
+    for i, record in enumerate(entries):
+        library = record.get("source_library")
+        if not isinstance(library, str) or library not in tiers:
+            raise InputError(f"entries[{i}].source_library {library!r} is not a library of the bundle's "
+                             f"per_library_extractions")
+        value, where = tiers[library]
+        tier = _token(value, TIERS, where)
+        out.append(dict(record, confidence=tier, extraction_method=COMPOSE_METHOD, signature_source=tier))
+    return out
+
+
+def provenance_map(base, entries: list[dict], integrations: list[dict] | None = None,
+                   constituents: list[dict] | None = None) -> dict:
+    """The provenance map: `base` with `entries` set to the records and, when
+    given, `integrations` set to the bundle's and `constituents` to the
+    compose-mode constituents.
 
     The entries take the place of any `entries` in `base`, or go before its
-    `integrations` (the schema's order), or last; the given integrations
-    take the place of any in `base`, or go last. Raises InputError when
-    `base` is not an object.
+    `integrations` (the schema's order), or last; the given integrations and
+    constituents take the place of any in `base`, or go last, in that order.
+    Raises InputError when `base` is not an object.
     """
     if not isinstance(base, dict):
         raise InputError(f"the provenance map input must be a JSON object; got {type(base).__name__}")
     fields = dict(base)
     if integrations is not None:
         fields["integrations"] = integrations
+    if constituents is not None:
+        fields["constituents"] = constituents
     out: dict = {}
     for key, value in fields.items():
         if key == "entries" or (key == "integrations" and "entries" not in fields):
@@ -654,10 +835,40 @@ def _cmd_metadata(args: argparse.Namespace) -> dict:
 
 def _cmd_provenance(args: argparse.Namespace) -> dict:
     entries = parse_records(_read_input(_records_file(args.records, "provenance")))
-    integrations = bundle_integrations(_read_input(_records_file(args.bundle, "provenance", "--bundle")))
+    bundle = _read_input(_records_file(args.bundle, "provenance", "--bundle"))
+    mode = bundle_mode(bundle)
+    compose_flags = {"--inventory": args.inventory, "--skills-root": args.skills_root,
+                     "--project-root": args.project_root}
+    if mode == "code":
+        given = [flag for flag, value in compose_flags.items() if value is not None]
+        if given:
+            raise InputError(f"{', '.join(given)} is for a compose-mode bundle; this bundle's mode is code")
+        if args.pairs is None:
+            raise InputError("a code-mode bundle needs --pairs, the skf-pair-intersect.py result")
+        pairs = pair_files(_read_input(_records_file(args.pairs, "provenance", "--pairs")))
+    elif args.pairs is not None:
+        raise InputError("--pairs is for a code-mode bundle; this bundle's mode is compose")
+    else:
+        missing = [flag for flag, value in compose_flags.items() if value is None]
+        if missing:
+            raise InputError(f"a compose-mode bundle needs {', '.join(missing)}")
+        pairs = None
+    base = _read_input(args.input)
+    if not isinstance(base, dict):
+        raise InputError(f"the provenance map input must be a JSON object; got {type(base).__name__}")
+    integrations = bundle_integrations(bundle, pairs)
+    constituents = None
+    if mode == "compose":
+        hashes = inventory_hashes(_read_input(_records_file(args.inventory, "provenance", "--inventory")))
+        constituents = compose_constituents(bundle, hashes, args.skills_root, args.project_root,
+                                            base.get("generated_at"))
+        entries = compose_entries(bundle, entries)
     target = Path(args.target)
-    _write_atomic(target, provenance_map(_read_input(args.input), entries, integrations))
-    return {"target": str(target), "entry_count": len(entries), "integration_count": len(integrations)}
+    _write_atomic(target, provenance_map(base, entries, integrations, constituents))
+    result = {"target": str(target), "entry_count": len(entries), "integration_count": len(integrations)}
+    if constituents is not None:
+        result["constituent_count"] = len(constituents)
+    return result
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -671,8 +882,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "of its metadata.json: counts, libraries, integration_pairs, "
             "confidence_distribution (each library once), confidence_tier (the "
             "dominant tier) and source_authority (the lowest, community for a "
-            "library that records none), and write its provenance map's entries "
-            "and integrations from the records and the extraction bundle."
+            "library that records none), and write its provenance map from the "
+            "records, the extraction bundle and, in code mode, the pair-intersect "
+            "result or, in compose mode, the stack inventory."
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -706,11 +918,20 @@ def _build_parser() -> argparse.ArgumentParser:
             help="path to the stack JSON ({mode, libraries, integrations}), or '-' for stdin",
         )
         command.set_defaults(func=func)
-    text = "write the code-mode provenance-map.json with its entries and integrations from the run's files"
+    text = ("write provenance-map.json from the run's files: its entries and integrations, "
+            "and its constituents in compose mode")
     command = sub.add_parser("provenance", help=text, description=text)
     command.add_argument("--records", required=True, help="path to the export records JSON ({entries: [...]})")
     command.add_argument(
-        "--bundle", required=True, help="path to the extraction bundle JSON, whose integrations[] the map takes")
+        "--bundle", required=True,
+        help="path to the extraction bundle JSON, whose mode and integrations[] the map takes")
+    command.add_argument(
+        "--pairs", help="code mode: path to the skf-pair-intersect.py result, which holds each pair's co-import files")
+    command.add_argument(
+        "--inventory",
+        help="compose mode: path to step 4's skf-enumerate-stack-skills.py result, which holds each metadata_hash")
+    command.add_argument("--skills-root", help="compose mode: the skills output folder that holds each constituent")
+    command.add_argument("--project-root", help="compose mode: the project root each skill_path is relative to")
     command.add_argument(
         "--input",
         required=True,

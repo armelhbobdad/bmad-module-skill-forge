@@ -12,6 +12,7 @@ emitEnvelopeProbeOrder:
 bundleFile: '{run_dir}/extraction-bundle.json'
 exportRecordsFile: '{run_dir}/export-records.json'
 importCountsFile: '{run_dir}/import-counts.json'
+stackInventoryFile: '{run_dir}/stack-inventory.json'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -59,7 +60,7 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
 }
 ```
 
-`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations`, `hubs` and `cross_cutting`. A compose-mode entry also holds `skill_dir`, `skill_package_path`, `exports`, `exports_source`, `source_authority` and `metadata_hash` (§0). A code-mode entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
+`scope` is step 3's `confirmed_dependencies`; step 5 fills `integrations`, `hubs` and `cross_cutting`. A compose-mode entry also holds `skill_dir`, `skill_package_path`, `exports`, `exports_source` and `source_authority` (§0). A code-mode entry also holds `file_count`, the library's step 3 import count, and its export records sit beside the bundle in `{exportRecordsFile}` (§3a).
 
 ### 0. Check Compose Mode
 
@@ -69,7 +70,7 @@ Display the line it prints, then stop with the halt's exit code (`references/inv
 
 For each confirmed skill, load SKILL.md from its `skill_package_path` (step 2, refreshed below): its usage patterns come from there.
 
-**Re-resolve at step 4 entry (S17):** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. **The provenance anchor (S13) is the hash of the package this step reads**: step 2's value, unless the package changed since. When the `metadata_hash` diverges from the value step 2 stored, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "constituent-changed"`, `message`: "constituent '{skill_name}' changed between step 2 and step 4: using fresh values") and replace the workflow-state entry. Step 7 writes the bundle's `metadata_hash` into `constituents[].metadata_hash` and never hashes again. If a confirmed skill has no `skills[]` entry now, HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:constituent-gone`) with "constituent `{skill_dir}` is no longer an SKF skill package: re-run [SS]."
+**Re-resolve at step 4 entry (S17):** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. **The provenance anchor (S13) is the hash of the package this step reads**: step 2's value, unless the package changed since. When the `metadata_hash` diverges from the value step 2 stored, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "constituent-changed"`, `message`: "constituent '{skill_name}' changed between step 2 and step 4: using fresh values") and replace the workflow-state entry. If a confirmed skill has no `skills[]` entry now, HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:constituent-gone`) with "constituent `{skill_dir}` is no longer an SKF skill package: re-run [SS]."
 
 Use `skill_package_path` directly — it points to the package the helper resolved.
 
@@ -78,10 +79,10 @@ Use `skill_package_path` directly — it points to the package the helper resolv
 **Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:enumerate`) with "**Cannot proceed.** `skf-enumerate-stack-skills.py` is missing, so no constituent's exports can be read. Re-install SKF, then re-run."
 
 ```bash
-uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder}
+uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder} > "{stackInventoryFile}"
 ```
 
-The script emits JSON of the form:
+Its JSON, in `{stackInventoryFile}`, has the form:
 
 ```json
 {
@@ -102,14 +103,14 @@ The script emits JSON of the form:
 }
 ```
 
-Cache this result as `stack_skill_inventory` in workflow state: each constituent's exports come from it, never from re-reading its `SKILL.md`, `metadata.json` or `references/`. Append to `workflow_warnings[]` the `warnings[]` entries that name a confirmed skill (each starts with `<skill_dir>: `, e.g. `"<skill-name>: no exports found via any resolution path"`). If `cycles[]` names a confirmed skill, a composes-cycle makes the stack unbuildable: HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:cycle`) with "composes cycle among the confirmed skills: {the `cycles[]` names}."
+§0 reads this JSON from `{stackInventoryFile}`: each constituent's exports come from it, never from memory or from re-reading its `SKILL.md`, `metadata.json` or `references/`. Append to `workflow_warnings[]` the `warnings[]` entries that name a confirmed skill (each starts with `<skill_dir>: `, e.g. `"<skill-name>: no exports found via any resolution path"`). If `cycles[]` names a confirmed skill, a composes-cycle makes the stack unbuildable: HALT (exit 3, `halt_reason: "resolution-failure"`, phase `parallel-extract:cycle`) with "composes cycle among the confirmed skills: {the `cycles[]` names}."
 
 Build a `per_library_extractions[]` entry for each confirmed skill, from the `skills[]` entry whose `name` is its `skill_dir`:
 - `library`: `inventory.skills[i].name`
 - `exports`: `inventory.skills[i].exports`
 - `exports_source`: `inventory.skills[i].exports_source` (one of `metadata|references|skill-md|unknown` — capture for step 7 provenance)
 - `confidence`: `inventory.skills[i].evidence_tier` (one of `T1|T1-low|T2|T3`), the library's tier, which steps 5 and 7 read. Never `inventory.skills[i].confidence`: it only says where the export list came from.
-- `metadata_hash`: that entry's `metadata_hash`, the provenance anchor above.
+- No `metadata_hash`: step 7's provenance helper copies the anchor above from `{stackInventoryFile}` into `constituents[]`.
 - `skill_dir`, `skill_package_path`, `version` and `source_authority`: from step 2's entry, the path refreshed above.
 - `usage_patterns`: read from the constituent's `SKILL.md` loaded above, each with the file and line it cites there.
 
