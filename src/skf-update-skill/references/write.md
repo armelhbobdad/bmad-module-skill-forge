@@ -480,10 +480,10 @@ The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, mi
 
 - **`ok`** (exit 0): symlink already points at `{version}`, so no disk write. Continue to §8a.
 - **`flipped`** (exit 0): symlink was atomically updated (temp-and-replace). Continue to §8a.
-- **`missing-target`** (exit 2): `{skill_group}/{version}/` does not exist on disk, so step 4 §6b did not create it. HALT and display `halt_message` verbatim.
-- **`mismatch`** (exit 2): the link still points elsewhere after the flip. HALT and display `halt_message` verbatim.
+- **`missing-target`** (exit 2): `{skill_group}/{version}/` does not exist on disk, so step 4 §6b did not create it. HALT with status `halted-for-write-failure` and display `halt_message` verbatim.
+- **`mismatch`** (exit 2): the link still points elsewhere after the flip. HALT with status `halted-for-write-failure` and display `halt_message` verbatim.
 
-Both exit-2 halts carry status `halted-for-write-failure`; the halt procedure takes `phase: "write:active-symlink"`, `path: "{skill_group}/active"`, `reason: "<status>: <halt_message>"`. Its rollback removes the new version (the `active` link does not name it) or, in gap-driven mode, restores the package from the snapshot.
+For both exit-2 halts, the halt procedure takes `phase: "write:active-symlink"`, `path: "{skill_group}/active"`, `reason: "<status>: <halt_message>"`. Its rollback removes the new version (the `active` link does not name it) or, in gap-driven mode, restores the package from the snapshot.
 
 ### 8a. Verify the Active Symlink
 

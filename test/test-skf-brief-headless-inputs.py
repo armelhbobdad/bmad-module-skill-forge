@@ -243,7 +243,7 @@ def test_every_source_scope_type_has_a_headless_boundary_default_or_a_halt():
     assert "`include` and `exclude` as given" in gate
     # docs-only takes every collected URL in §2, with the recommender's short-circuit.
     docs_only = _section(_read(SCOPE_DEFINITION), "### 2. Handle Docs-Only Mode (if applicable)")
-    [headless] = [line for line in docs_only.splitlines() if line.startswith("**Headless:**")]
+    [headless] = [line for line in docs_only.splitlines() if line.startswith("**GATE [default: every collected doc URL]**")]
     assert "every collected doc URL" in headless and '"docs-only"' in headless
 
 

@@ -86,7 +86,7 @@ The strategy view is the last review surface before a potentially long, mostly-u
 - `[P]roceed`: write the plan (§7), then chain to `{nextStepFile}`.
 - `[C]ancel`: log the cancel, then stop with exit code 12 (`user-cancelled`). Nothing of this stage is written, so the state is intact and a resume shows this plan again. To change targets, tiers, pins or dependencies, re-run `campaign` and choose overwrite: they live in the state that Setup wrote, and editing `campaign-brief.yaml` does not reach them.
 
-**HALT and wait for operator input.** In headless mode, auto-proceed with `[P]` and log "headless: auto-proceed past plan-confirmation gate" (type `auto`).
+**HALT and wait for operator input.** **GATE [default: P]**: in headless mode, auto-proceed with `[P]` and log "headless: auto-proceed past plan-confirmation gate" (type `auto`).
 
 ### §7: Write State
 

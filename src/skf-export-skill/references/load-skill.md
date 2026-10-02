@@ -236,7 +236,7 @@ Display: "**Select:** [C] Continue to packaging | [X] Cancel and exit (or type `
 - **[C]** — proceed with the loaded skill data: load, read entirely, and execute `{nextStepFile}`.
 - **[X]** / `cancel` / `exit` / `:q`: display "Cancelled: no packaging or context file writes were performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `load-skill §6`).
 - **Any other input** — help the user respond, then redisplay this gate.
-- **Headless** [default C]: record the decision in the run sink with the command below, log "headless: auto-continue past skill confirmation", then auto-proceed with [C]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
+- **GATE [default: C]**: headless, record the decision in the run sink with the command below, log "headless: auto-continue past skill confirmation", then auto-proceed with [C]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'

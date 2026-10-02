@@ -1312,6 +1312,18 @@ def test_contract_promises_only_the_final_message():
     assert "all `claude -p` prints" in _read(HEADLESS_CONVENTION)
 
 
+def test_convention_names_every_switch_that_makes_setup_envelope_only():
+    """The convention's skf-setup exception names each switch the contract's
+    Headless row names: the preference as well as the flag and its alias."""
+    exception = next(paragraph for paragraph in _read(HEADLESS_CONVENTION).split("\n\n")
+                     if paragraph.startswith("Exception: skf-setup"))
+    headless = next(line for line in _section(_read(INVOCATION_CONTRACT), "## Invocation Contract").splitlines()
+                    if line.startswith("| **Headless**"))
+    for switch in ("`--headless`", "`--quiet`", "`headless_mode: true` in `{sidecar_path}/preferences.yaml`"):
+        assert switch in exception, switch
+        assert switch in headless, switch
+
+
 def test_workflows_doc_promises_only_the_final_message():
     doc = _read(WORKFLOWS_DOC)
     for overclaim in ("only line the agent displays", "the only line the run displays",

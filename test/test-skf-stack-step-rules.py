@@ -21,8 +21,9 @@ compose branch of the sections they govern.
   the gate records its warnings in `workflow_warnings[]`, the report lists
   that accumulator, and nothing later in the run tells the agent to add to
   the written report (#585, create-stack part).
-- No create-stack step keeps a blanket no-write rule ahead of a write one
-  of its sections makes, and every in-file anchor link names a heading.
+- Every in-file anchor link names a heading. (That no step keeps a blanket
+  no-write rule ahead of a write one of its sections makes is checked for
+  every workflow in test-skf-chain-reachability.py.)
 - Labels follow the tool at every forge tier: step 4 returns one labeled
   record per export, relative to step 1's project root, relabels the
   records in code mode with skf-render-stack-metadata.py `relabel`, which
@@ -1676,7 +1677,7 @@ def test_step_1_binds_the_scan_root():
     assert "It is `project_path` when given" in root and "else `project_root`" in root
     scope = _from(three, "**Scan scope (code mode).**")
     assert "no `project_path` was given, ask once" in scope
-    assert "**Headless:** do not ask; keep the project root" in scope
+    assert "**GATE [default: A]**: headless, do not ask; keep the project root" in scope
     # The recorded decision tells the user to pass project_path; no warning repeats it.
     assert "pass project_path to scan one package" in _decision("init.scan-root")["reason"]
     assert "headless-scan-root-default" not in scope
@@ -1735,7 +1736,7 @@ def test_compose_candidates_come_from_the_helper():
     assert ".export-manifest.json" not in three, "step 1 still reads the export manifest by hand"
     assert "**Compose-mode skill names.**" not in three, "step 1 still reduces package paths by hand"
     # A headless run accepts the suggestion, which names only the listed skills when a list is given.
-    headless = _from(three, "**Headless default (B8):**").split("\n\n")[0]
+    headless = _from(three, "**GATE [default: accept]**, headless default (B8):").split("\n\n")[0]
     assert "accept the suggestion" in headless and "With `explicit_deps`, keep code mode" not in headless
 
 
@@ -1897,28 +1898,9 @@ def test_the_scan_count_and_pair_calls_run_as_written(tmp_path):
 # --- Every create-stack step file -------------------------------------------------
 
 
-# #585 plans this rule for every skill in test-skf-chain-reachability.py; this
-# is the create-stack slice, to fold in there when that lands.
-@pytest.mark.parametrize("path", STEP_FILES, ids=lambda p: p.name)
-def test_no_blanket_no_write_rule_ahead_of_a_write(path):
-    text = _read(path)
-    if "## Rules\n" not in text:
-        pytest.skip(f"{path.name} has no Rules block")
-    forbid = BLANKET_NO_WRITE_RE.search(_rules(text))
-    if forbid is None:
-        return
-    write = WRITE_OP_RE.search(_body(text))
-    assert write is None, (
-        f"{path.name}: the Rules say {forbid.group(0)!r} but a section runs {write.group(0)!r}; "
-        "name the write in the Rules instead"
-    )
-
-
-def test_the_scan_reads_the_steps_that_write():
-    with_rules = {path for path in STEP_FILES if "## Rules\n" in _read(path)}
-    assert {GENERATE, VALIDATE, REPORT} <= with_rules
-
-
+# The rule that no Rules block forbids every write ahead of a section that
+# writes runs for every workflow in test-skf-chain-reachability.py (#585);
+# these pin the two patterns the #536 and #539 checks above use.
 @pytest.mark.parametrize("rule", [
     "Do not write or modify any files: report is console output only",
     "Validate structure and completeness, not content quality: validation is read-only",

@@ -37,7 +37,7 @@ Emit the warning and gate:
 
 Wait for user choice.
 
-**Headless / non-interactive default:** when `{headless_mode}` (or dry-run, or unattended), default to **(b) keep** and print the warning only — no destructive action without explicit consent.
+**GATE [default: b]**, headless or non-interactive: when `{headless_mode}` (or dry-run, or unattended), default to **(b) keep** and print the warning only: no destructive action without explicit consent.
 
 When `{headless_mode}` is true, also record the decision in the run sink, listing each orphaned file's `file_path` with `/` in place of `\` so it stays a JSON string. If `record` exits non-zero, display its error line and go on (a failed `record` never stops the run):
 

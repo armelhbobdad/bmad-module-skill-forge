@@ -152,7 +152,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 
    Steps 4 and 5 are the decision protocol for a scope candidate, which §1c follows too, with the differences it names. Every amendment they append goes to `brief.scope.amendments[]` with `path: candidate.path`, `heuristic: {basename}`, `date: {today ISO}` and `workflow: "skf-update-skill"`, and every brief write goes to `{brief_path}` (the run folder's copy in a read-only mode), preserving all other fields.
 
-4. **Headless mode (`{headless_mode}` is true):** promote nothing and decide nothing: whether a path belongs in scope needs a person. Leave every candidate out of this run and record it as deferred, so the next interactive run asks: append an amendment `action: "deferred-headless"`, `reason: "headless: no user to prompt; left for the next interactive run"`, except for a candidate whose `prior_action` is `deferred-headless`, which a headless run already recorded: write no second amendment for it. A non-interactive update run must never silently add files to scope, and never records a skip no person chose. **Also record one decision per candidate path**, from `{project-root}`:
+4. **GATE [default: defer]**: in headless mode (`{headless_mode}` is true), promote nothing and decide nothing: whether a path belongs in scope needs a person. Leave every candidate out of this run and record it as deferred, so the next interactive run asks: append an amendment `action: "deferred-headless"`, `reason: "headless: no user to prompt; left for the next interactive run"`, except for a candidate whose `prior_action` is `deferred-headless`, which a headless run already recorded: write no second amendment for it. A non-interactive update run must never silently add files to scope, and never records a skip no person chose. **Also record one decision per candidate path**, from `{project-root}`:
 
    ```bash
    uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
@@ -246,7 +246,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
    [U] Update  — halt this run and return to skf-brief-skill to refine scope
    ```
 
-4. **Headless mode (`{headless_mode}` is true):** defer each candidate as §1b step 4 does, with this section's amendment fields (step 5) and the gate `detect-changes.scope-expansion` in its decision record: a non-interactive update run must never silently expand scope.
+4. **GATE [default: defer]**: in headless mode (`{headless_mode}` is true), defer each candidate as §1b step 4 does, with this section's amendment fields (step 5) and the gate `detect-changes.scope-expansion` in its decision record: a non-interactive update run must never silently expand scope.
 
 5. **Apply decision** as §1b step 5 does, with these differences:
 
@@ -441,7 +441,7 @@ The upstream surface appears to have been substantially replaced. The brief's
 [A] Audit    — halt and run skf-audit-skill to map the new surface, then re-run update-skill
 ```
 
-**Headless mode (`{headless_mode}` is true):** auto-select `[C] Continue`, append the record `scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "headless-continue"}` to `{run_dir}/evidence-records.jsonl` as one JSON line keyed `scope_reconciliation_post` (step 5 §4 lists it in the evidence report), and surface the warning in step 6's report. A non-interactive run must not silently halt, but the user must be able to see the signal post-hoc. **Also record the decision**, from `{project-root}`:
+**GATE [default: C]**: in headless mode (`{headless_mode}` is true), auto-select `[C] Continue`, append the record `scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "headless-continue"}` to `{run_dir}/evidence-records.jsonl` as one JSON line keyed `scope_reconciliation_post` (step 5 §4 lists it in the evidence report), and surface the warning in step 6's report. A non-interactive run must not silently halt, but the user must be able to see the signal post-hoc. **Also record the decision**, from `{project-root}`:
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'

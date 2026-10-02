@@ -241,11 +241,11 @@ def test_the_layout_question_and_the_mismatch_gate_have_headless_defaults():
     probe = _read(PROBE)
     layout = _section(probe, "## Layout Question", "## Mismatch Gate")
     for option in ("**[I] IDE skill folder** (default)", "**[S] Shared skills folder**", "**[X] Cancel**",
-                   "**Headless** [default I]", '"gate":"load-skill.snippet-root-layout"'):
+                   "**GATE [default: I]**: headless", '"gate":"load-skill.snippet-root-layout"'):
         assert option in layout, option
     assert "`{project-root}/_bmad/skf/config.yaml`" in layout, "the halt message names the project path"
     gate = _section(probe, "## Mismatch Gate", "### Choice handling")
-    assert "**Headless default, by the disk:** take (d) when `disk_root` is the observed prefix" in gate
+    assert "**GATE [default: (d) or (b), by the disk]**: headless, take (d) when `disk_root` is the observed prefix" in gate
     assert '"gate":"load-skill.snippet-root-probe"' in gate and '"disk_root":"{disk_root}"' in gate
     choices = _section(probe, "### Choice handling", None)
     assert "bind `{snippet_skill_root_override}` ← the observed prefix for this run" in choices

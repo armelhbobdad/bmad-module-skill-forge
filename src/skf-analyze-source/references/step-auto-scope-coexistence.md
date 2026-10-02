@@ -24,7 +24,7 @@ Actions:
 Choose [A/M/S]:
 ```
 
-In headless mode (`{headless_mode}` is true): auto-select `[A]longside` and log: "Headless: coexistence detected for {target_name}, auto-selecting [A]longside". The envelope's `coexistence` field carries the choice.
+**GATE [default: A]**: in headless mode (`{headless_mode}` is true), auto-select `[A]longside` and log: "Headless: coexistence detected for {target_name}, auto-selecting [A]longside". The envelope's `coexistence` field carries the choice.
 
 ### 5. Handle the Selection
 

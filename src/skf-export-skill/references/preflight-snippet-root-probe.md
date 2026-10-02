@@ -40,7 +40,7 @@ Wait for the user's choice.
 - **[I]**: return to load-skill.md §1b.
 - **[S]**: display "Add `snippet_skill_root_override: {skills_prefix}` to `{project-root}/_bmad/skf/config.yaml`, then re-run the export." and HALT (exit code 6, `halt_reason: "user-cancelled"`): the workflow never edits `config.yaml`. `{skills_prefix}` is the path of `{skills_output_folder}` from `{project-root}`, with a trailing `/`, such as `skills/`.
 - **[X]** / `cancel` / `exit` / `:q`: HALT (exit code 6, `halt_reason: "user-cancelled"`). Nothing was written.
-- **Headless** [default I]: record the decision in the run sink with the command below, log "headless: no earlier export chose a snippet root, using the IDE skill folder", then take [I]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
+- **GATE [default: I]**: headless, record the decision in the run sink with the command below, log "headless: no earlier export chose a snippet root, using the IDE skill folder", then take [I]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'
@@ -63,7 +63,7 @@ SKF_JSON
 
 Wait for the user's choice.
 
-**Headless default, by the disk:** take (d) when `disk_root` is the observed prefix (that folder holds the skills and `{reference_root}` does not), else (b): `{reference_root}` holds them, or no folder does yet, as in a project that installs its skills after the export. `{choice}` is the option taken. Log it with the observed prefixes, record the decision in the run sink with the command below (`{disk_root}` is `none` when it is null), then take that option. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
+**GATE [default: (d) or (b), by the disk]**: headless, take (d) when `disk_root` is the observed prefix (that folder holds the skills and `{reference_root}` does not), else (b): `{reference_root}` holds them, or no folder does yet, as in a project that installs its skills after the export. `{choice}` is the option taken. Log it with the observed prefixes, record the decision in the run sink with the command below (`{disk_root}` is `none` when it is null), then take that option. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'

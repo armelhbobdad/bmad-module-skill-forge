@@ -57,7 +57,7 @@ Overwrite it with the brief you just approved? [Y/N]"
 - **[Y]** Overwrite — proceed to §3.
 - **[N]** Cancel — emit a single-line stderr log `brief-skill: overwrite-cancelled at {path}` and HALT with exit code 5 (do not chain to step 6; the run produced no new artifact).
 
-**Headless (`{headless_mode}` is true):**
+**GATE [default: HALT unless `force` was supplied]**: headless (`{headless_mode}` is true):
 
 If the file exists:
 

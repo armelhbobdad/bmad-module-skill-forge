@@ -62,7 +62,7 @@ It returns the stage to resume and its `step_file`, with the `reason`: `active-s
   - `[N]ext`: run the `resume` call again with `--next`, which resumes at the next pending or active skill after it in `dependency_graph.execution_order`.
   - `[H]alt`: stop without resuming.
 
-  In headless mode, default to `[N]ext` and log the auto-decision. Log the chosen action (type `decision`).
+  **GATE [default: N]**: in headless mode, default to `[N]ext` and log the auto-decision. Log the chosen action (type `decision`).
 - **`active_other`** set: warn "Skill '{active_other}' is currently active: honoring explicit --from override."
 
 ### §4: Resume Routing

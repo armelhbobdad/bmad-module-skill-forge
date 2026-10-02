@@ -721,7 +721,7 @@ def test_audit_reads_a_private_tree_and_moves_no_clone():
     for path in (AUDIT_INIT, AUDIT_CHECKOUT):
         for gone in ("cccGitHygiene", "git checkout", "git stash", "stash pop"):
             assert gone not in _read(path), (path.name, gone)
-    upstream = _slice(_read(AUDIT_CHECKOUT), "**Gate handling:**", "**Headless default**")
+    upstream = _slice(_read(AUDIT_CHECKOUT), "**Gate handling:**", "**GATE [default: C]**")
     assert 'uv run {sourceTreeHelper} resolve --source-repo "{source_repo}"' in upstream
     assert "never writes to the clone (the call passes no `--update-clone`)" in upstream
 

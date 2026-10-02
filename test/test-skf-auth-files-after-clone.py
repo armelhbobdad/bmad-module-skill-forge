@@ -173,7 +173,8 @@ def test_filtered_list_is_trimmed_only_where_section_2_built_one() -> None:
 
 
 def test_headless_defers_instead_of_skipping() -> None:
-    headless = _section(_read(PROTOCOL), "4. **Headless mode (`{headless_mode}` is true):**", "5. **Apply decision:**")
+    headless = _section(_read(PROTOCOL), "4. **GATE [default: defer]**: in headless mode (`{headless_mode}` is true)",
+                        "5. **Apply decision:**")
     assert '`action: "skipped"`' not in headless and "headless: no user to prompt" not in headless
     assert "promote nothing and decline nothing" in headless
     assert '"gate": "authoritative-file:{path}", "decision": "deferred-headless"' in headless

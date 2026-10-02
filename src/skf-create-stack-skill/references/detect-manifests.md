@@ -108,7 +108,7 @@ uv run {scanManifestsHelper} scan {scan_root} --include-dev
 
 If `manifests` is empty:
 
-**Headless auto-cancel (S2):** If `{headless_mode}` is true, do NOT wait for user input: HALT (exit 2, `halt_reason: "no-manifests"`, phase `detect-manifests:no-manifests`) with "**Cannot proceed.** No dependency manifests in `{scan_root}`, and a headless run needs one or an explicit `skills` list."
+**GATE [default: HALT]**, headless auto-cancel (S2): if `{headless_mode}` is true, do NOT wait for user input: HALT (exit 2, `halt_reason: "no-manifests"`, phase `detect-manifests:no-manifests`) with "**Cannot proceed.** No dependency manifests in `{scan_root}`, and a headless run needs one or an explicit `skills` list."
 
 **Interactive mode:**
 

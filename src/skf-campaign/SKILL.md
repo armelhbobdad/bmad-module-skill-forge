@@ -84,10 +84,10 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 0 | Setup | references/step-01-setup.md | Yes |
-| 1 | Strategy | references/step-02-strategy.md | Yes |
+| 1 | Strategy | references/step-02-strategy.md | No (plan confirmation; headless takes [P]) |
 | 2 | Pin Validation | references/step-03-pins.md | Yes |
 | 3 | Provenance | references/step-04-provenance.md | Yes |
-| 4 | Skill Loop | references/step-05-skill-loop.md | Yes |
+| 4 | Skill Loop | references/step-05-skill-loop.md | Conditional (a blocked dependency) |
 | 5 | Tier B Batch | references/step-06-batch.md | Yes |
 | 6 | Capstone | references/step-07-capstone.md | Yes |
 | 7 | Verification | references/step-08-verify.md | Yes |
@@ -114,5 +114,5 @@ On invocation:
 
 1. **`campaign resume [--from=<skill>]`**: load `references/step-resume.md` (validates state, recovers from backup, chains to the stage `campaign-state.py resume` computes). `--from=<skill>` overrides the resume point to the named skill.
 2. **`campaign`** (new, no existing state) to run from stage 0 (Setup).
-3. **`campaign`** (state exists): when `{campaignWorkspacePath}/_campaign-state.yaml` or its `.bak` exists, prompt **resume** (via `references/step-resume.md`) or **overwrite**. On overwrite, first run `uv run scripts/campaign-state.py archive --state-file {campaignWorkspacePath}/_campaign-state.yaml --brief-file {campaignWorkspacePath}/campaign-brief.yaml`, which moves the state, its `.bak` and the brief into a new folder under `{campaignWorkspacePath}/archive/`, and log the `archive_dir` it returns (type `decision`) before chaining to step-01 (its `init` refuses to overwrite a state or backup). A `--brief` that named the workspace's `campaign-brief.yaml` is then read from `archive_dir`. In headless mode, default to **resume** (never silently clobber); archive-and-overwrite only when `--brief`/`--manifest` explicitly seeds a new campaign.
+3. **`campaign`** (state exists): when `{campaignWorkspacePath}/_campaign-state.yaml` or its `.bak` exists, prompt **resume** (via `references/step-resume.md`) or **overwrite**. On overwrite, first run `uv run scripts/campaign-state.py archive --state-file {campaignWorkspacePath}/_campaign-state.yaml --brief-file {campaignWorkspacePath}/campaign-brief.yaml`, which moves the state, its `.bak` and the brief into a new folder under `{campaignWorkspacePath}/archive/`, and log the `archive_dir` it returns (type `decision`) before chaining to step-01 (its `init` refuses to overwrite a state or backup). A `--brief` that named the workspace's `campaign-brief.yaml` is then read from `archive_dir`. **GATE [default: resume]**: in headless mode, default to **resume** (never silently clobber); archive-and-overwrite only when `--brief`/`--manifest` explicitly seeds a new campaign.
 4. **`campaign status`** (read-only): load `{campaignWorkspacePath}/_campaign-state.yaml`, validate it via `campaign-validate-state.py`, then run `uv run scripts/campaign-status.py --state-file {campaignWorkspacePath}/_campaign-state.yaml` and display its summary (campaign name, current stage, completed-vs-total, per-status counts) followed by the last ~15 lines of `{campaignWorkspacePath}/_campaign-decision-log.md` for the recent decision trail, then stop. No backup, no mutation, no chaining. Exit 0 (or 9 if the state is unrecoverable).

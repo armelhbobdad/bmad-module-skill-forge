@@ -18,6 +18,18 @@ workflows add:
 - the emitter's halt envelope, for every halt_reason the schema lists (one
   halt when it lists none), validates against the schema under jsonschema,
   an independent validator, and carries the exit code the settings map.
+
+Across the workflows (#593):
+
+- every workflow but the forger has its schema, so each one's halts go
+  through the emitter;
+- every halt_reason a workflow's step files and contracts name is one its
+  schema lists, every one its schema lists is named there, and an
+  exit-code table row that names a halt_reason carries the code the schema
+  maps it to; the emitter then emits each of them (above), audit's
+  `no-baseline` included;
+- docs/_internal/STABILITY.md names every envelope schema, and the
+  workflow it belongs to, as covered surface.
 """
 
 from __future__ import annotations
@@ -68,10 +80,22 @@ def _halt_reasons(schema: dict) -> list:
     return [r for r in prop.get("enum", []) if r is not None]
 
 
+# Every workflow under src/: the forger is an agent, with no headless contract.
+WORKFLOWS = sorted(d.name for d in SRC.iterdir()
+                   if d.is_dir() and d.name.startswith("skf-") and d.name != "skf-forger")
+STABILITY = ROOT / "docs" / "_internal" / "STABILITY.md"
+
+
 def test_the_known_envelope_schemas_are_found():
     names = {p.name for p in ENVELOPE_SCHEMAS}
     assert {"skf-setup-result-envelope.v1.json", "skf-brief-result-envelope.v1.json",
             "skf-update-result-envelope.v1.json"} <= names
+
+
+def test_every_workflow_has_an_envelope_schema():
+    claimed = {_meta(_load(p))["workflow"] for p in ENVELOPE_SCHEMAS}
+    assert len(WORKFLOWS) == 15, WORKFLOWS
+    assert claimed == set(WORKFLOWS), sorted(set(WORKFLOWS) ^ claimed)
 
 
 @pytest.mark.parametrize("path", ENVELOPE_SCHEMAS, ids=IDS)
@@ -254,3 +278,131 @@ def test_every_halt_reason_emits_a_schema_valid_envelope(path, halt_reason):
 def test_setup_prefix_matches_the_emitter_constant():
     meta = _meta(_load(SCHEMA_DIR / "skf-setup-result-envelope.v1.json"))
     assert f"{meta['prefix']}: " == mod.ENVELOPE_PREFIX
+
+
+# ---------------------------------------------------------------------------
+# Every halt_reason a workflow names, against its schema (#593)
+# ---------------------------------------------------------------------------
+
+
+def _newest_schema(workflow: str) -> dict:
+    paths = [p for p in ENVELOPE_SCHEMAS if _meta(_load(p))["workflow"] == workflow]
+    return _load(max(paths, key=lambda p: mod._schema_version(p)[1]))
+
+
+def _workflow_markdown(workflow: str) -> list[Path]:
+    skill = SRC / workflow
+    return [skill / "SKILL.md", *sorted((skill / "references").rglob("*.md"))]
+
+
+def _token(reason: str) -> re.Pattern:
+    return re.compile(rf"(?<![\w-]){re.escape(reason)}(?![\w-])")
+
+
+# A halt_reason a payload or a HALT names outright. The other mentions (a
+# script's own halt_reason that a step maps to another, a class name in an
+# exit-code table) are not a value the emitter receives.
+EXPLICIT_REASON_RES = (
+    re.compile(r'`halt_reason: "([a-z][a-z0-9-]*)"`'),
+    re.compile(r'"halt_reason": "([a-z][a-z0-9-]*)"'),
+    re.compile(r"--halt-reason ([a-z][a-z0-9-]*)\b"),
+)
+CODED = [w for w in WORKFLOWS if _meta(_newest_schema(w)).get("exit_codes")]
+
+
+def _explicit_reasons(workflow: str) -> dict[str, list[str]]:
+    found: dict[str, list[str]] = {}
+    for path in _workflow_markdown(workflow):
+        text = path.read_text(encoding="utf-8")
+        for pattern in EXPLICIT_REASON_RES:
+            for reason in pattern.findall(text):
+                found.setdefault(reason, []).append(path.relative_to(SRC).as_posix())
+    return found
+
+
+@pytest.mark.parametrize("workflow", CODED)
+def test_every_halt_reason_a_workflow_names_is_in_its_schema(workflow):
+    """The emitter refuses a halt_reason its schema does not list, so a halt
+    that names one would print no envelope."""
+    reasons = set(_meta(_newest_schema(workflow))["exit_codes"])
+    unknown = {r: sorted(set(w)) for r, w in _explicit_reasons(workflow).items() if r not in reasons}
+    assert not unknown, f"{workflow}: halt_reason values its schema does not list: {unknown}"
+
+
+@pytest.mark.parametrize("workflow", CODED)
+def test_every_schema_halt_reason_is_named_by_the_workflow(workflow):
+    """A halt_reason no step or contract names is one no run can raise."""
+    text = "\n".join(p.read_text(encoding="utf-8") for p in _workflow_markdown(workflow))
+    unnamed = [r for r in _meta(_newest_schema(workflow))["exit_codes"] if not _token(r).search(text)]
+    assert not unnamed, f"{workflow}: schema halt_reason values no step names: {unnamed}"
+
+
+def _exit_code_rows(workflow: str):
+    """(file, code, row text) for each row of the workflow's exit-code tables."""
+    for path in _workflow_markdown(workflow):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines):
+            if not re.match(r"^\|\s*Code\s*\|\s*Meaning\b", line):
+                continue
+            for row in lines[i + 2:]:
+                if not row.startswith("|"):
+                    break
+                cells = [c.strip() for c in row.strip().strip("|").split("|")]
+                if cells[0].isdigit():
+                    yield path.relative_to(SRC).as_posix(), int(cells[0]), " | ".join(cells[1:])
+
+
+@pytest.mark.parametrize("workflow", CODED)
+def test_exit_code_tables_map_each_halt_reason_as_the_schema_does(workflow):
+    codes = _meta(_newest_schema(workflow))["exit_codes"]
+    rows = list(_exit_code_rows(workflow))
+    # "every `halt_reason` below but `hard-gate-blocked`" names a reason the row excludes.
+    wrong = [f"{where}: exit {code} names `{reason}`, which the schema maps to {codes[reason]}"
+             for where, code, text in rows
+             if not where.endswith("step-shape-detect.md")
+             for reason in codes
+             if _token(reason).search(text) and f"but `{reason}`" not in text and codes[reason] != code]
+    assert not wrong, "\n".join(wrong)
+
+
+def test_audit_no_baseline_is_a_documented_exit_3_halt():
+    """A skill with no provenance map halts with `no-baseline` (exit 3); the
+    exit-code table, the step that raises it and the schema agree."""
+    codes = _meta(_newest_schema("skf-audit-skill"))["exit_codes"]
+    assert codes["no-baseline"] == 3
+    table = [text for _, code, text in _exit_code_rows("skf-audit-skill") if code == 3]
+    assert len(table) == 1 and "`no-baseline`" in table[0], table
+    init = (SRC / "skf-audit-skill" / "references" / "init.md").read_text(encoding="utf-8")
+    assert 'HALT with **exit 3**, `halt_reason: "no-baseline"`, phase `init:provenance`' in init
+    assert ("skf-audit-result-envelope.v1.json", "no-baseline") in HALTS_BY_NAME
+
+
+HALTS_BY_NAME = {(path.name, reason) for path, reason in HALTS}
+
+
+# ---------------------------------------------------------------------------
+# STABILITY.md names every envelope schema as covered surface
+# ---------------------------------------------------------------------------
+
+
+def _stability_schema_entry() -> str:
+    text = STABILITY.read_text(encoding="utf-8")
+    [entry] = [line for line in text.splitlines()
+               if line.startswith("- **Schema enum values and properties.**")]
+    return entry
+
+
+@pytest.mark.parametrize("path", ENVELOPE_SCHEMAS, ids=IDS)
+def test_stability_names_the_schema_and_its_workflow(path):
+    entry = _stability_schema_entry()
+    workflow = _meta(_load(path))["workflow"]
+    assert f"`{workflow}` (`{path.name}`" in entry, f"STABILITY.md does not name {workflow}'s {path.name}"
+
+
+def test_stability_covers_the_envelope_values_from_3_0_0():
+    entry = _stability_schema_entry()
+    assert "covered from 3.0.0 with its `status`, `exit_code` and `halt_reason` values and its properties" in entry
+    for token in ("`helper-missing`", "`provenance-invalid`", "`source-unreadable`", "`no-baseline`",
+                  "`upstream_moved`", "`upstream_ref`", "`run_id`", "`result_path`", "`headless_decisions`",
+                  "`warnings`"):
+        assert token in entry, token

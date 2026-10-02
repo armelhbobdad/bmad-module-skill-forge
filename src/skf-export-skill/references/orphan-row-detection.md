@@ -41,7 +41,7 @@ Emit the gate:
 
 Wait for user choice.
 
-**Headless default** (when `{headless_mode}`): auto-select **(b) Preserve verbatim**, with the same `deviations[]` entry. Emit a loud log line:
+**GATE [default: b]** (when `{headless_mode}`): auto-select **(b) Preserve verbatim**, with the same `deviations[]` entry. Emit a loud log line:
 
 > `headless: {N} managed-section rows had no manifest entry; preserving verbatim with deviations[].kind = preserve_external_skills. Run export-skill on each skill SKF generated to add it to the manifest; remove the rows of other skills from the context files yourself.`
 
