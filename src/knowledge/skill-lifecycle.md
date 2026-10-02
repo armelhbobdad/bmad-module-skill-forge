@@ -175,17 +175,19 @@ SS (compose) → SKILL.md (stack skill synthesized from individual skills + arch
 Users can chain workflows by providing multiple codes to Ferris, or one of four aliases:
 
 ```
-BS CS TS EX                    # codes, space- or arrow-separated
-forge-auto <repo-or-doc-url>   # auto-scope, auto-brief, compile, test and export
-forge                          # alias for BS CS TS EX
-forge-quick                    # alias for QS TS EX
-maintain                       # alias for AS US TS EX
-CS[cocoindex] TS[min:80] EX    # a target argument and a circuit-breaker override
+BS CS TS EX                             # codes, space- or arrow-separated
+forge-auto <repo-or-doc-url>            # auto-scope, auto-brief, compile, test and export
+forge <repo-url-or-path> <skill-name>   # alias for BS CS TS EX
+forge-quick <package-or-url>            # alias for QS TS EX
+maintain <skill>                        # alias for AS US TS EX
+CS[cocoindex] TS[min:80] EX             # a target argument and a circuit-breaker override
 ```
+
+A chain of codes whose first workflow lacks its input, such as `QS TS EX`, asks for that input before any workflow runs (`SF` and `SS` take none), and a headless one halts there instead. A chain led by `BS` gets its target and skill name only as `forge <repo-url-or-path> <skill-name>`, `RS` and `DS` need more than one bracket and run on their own, and a headless chain led by `CS` leaves the brief to create-skill, which compiles the only one and halts naming them when there are several.
 
 `forge-auto` is the one-command verified path: it needs no brief, and its test step is stricter than the other pipelines'. `CA` (campaign) is not an alias and does not chain with other codes: it is a workflow of its own that drives many skills through this pipeline in dependency order and can resume across sessions.
 
-Pipelines automatically activate headless mode. The forger passes data between workflows using the artifact flow described above. Circuit breakers halt the pipeline when a workflow's output falls below its quality threshold. `shared/references/pipeline-contracts.md` holds each alias's expansion and every threshold, including the test threshold each pipeline uses.
+Pipelines automatically activate headless mode. The forger passes data between workflows using the artifact flow described above. A circuit breaker halts the pipeline on the gate a workflow's result fails: TS on any verdict but PASS, VS on zero coverage. `shared/references/pipeline-contracts.md` holds each alias's expansion and every threshold its gates apply, and Test Skill's `skf-test-skill/references/init.md` §1b the test threshold each pipeline uses.
 
 ## Integration Points
 

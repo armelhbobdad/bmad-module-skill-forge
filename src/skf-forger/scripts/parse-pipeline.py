@@ -22,10 +22,13 @@ arguments after it (`forge-auto <repo-or-doc-url>`, `forge <repo-url-or-path>
 bind, in order, to the inputs of the alias's first workflow (ALIAS_INPUTS);
 `--pin` joins them, as the Pipeline Arguments rule says. An input left
 unbound is reported, because that workflow requires it and a pipeline runs
-headless. A quoted argument (a path with a space) stays one token. Codes and
-the bracket keywords `min` and `auto` match in any case; a bracket that starts
-like `min` but is not `min:<number>` is reported as malformed instead of
-passing on as a target.
+headless. A chain of codes binds no input, so a runnable plan whose first
+workflow (past a leading SF) starts from an input that no bracket gives
+reports it as `first_input` (FIRST_INPUTS) and stays valid: the forger asks
+for it, or halts headless, before any workflow runs. A quoted argument (a
+path with a space) stays one token. Codes and the bracket keywords `min` and
+`auto` match in any case; a bracket that starts like `min` but is not
+`min:<number>` is reported as malformed instead of passing on as a target.
 
 The alias-expansion and anti-pattern tables mirror
 `src/shared/references/pipeline-contracts.md` (the human-readable contract);
@@ -35,6 +38,7 @@ CLI usage:
   uv run scripts/parse-pipeline.py 'BS CS TS EX'      # positional
   uv run scripts/parse-pipeline.py 'forge-quick cognee'
   uv run scripts/parse-pipeline.py 'forge-quick'      # exit 3: missing_args [target]
+  uv run scripts/parse-pipeline.py 'QS TS EX'         # exit 0: first_input, QS's target
   uv run scripts/parse-pipeline.py 'forge-auto https://github.com/o/r --pin 0.2.1'
   echo 'AN -> CS -> TS -> EX' | uv run scripts/parse-pipeline.py --stdin
 
@@ -53,6 +57,7 @@ Output (stdout, one object):
     "missing_args": [],               # alias inputs left unbound, e.g. "target"
     "malformed_brackets": [],         # e.g. "TS[min:80%]"
     "anti_patterns": [{"pattern","message","suggestion"}, ...],
+    "first_input": null | {"code","input","form","halt_reason"},
     "valid": <bool>                   # runnable: real codes, nothing unknown,
   }                                   # unexpected, missing or malformed, not
                                       # removed
@@ -61,6 +66,16 @@ Output (stdout, one object):
 `target_repo` and `skill_name` (forge), `target` (forge-quick), `skill_name`
 (maintain), and `pin`. `--headless`/`-H` is Ferris's own flag, read at
 activation, so it is accepted and not returned.
+
+`first_input` names the input the chain's first workflow lacks (`input`, as
+"a target"). `form` is the invocation to parse again with the answer in
+place of each `<...>` placeholder (`QS[<target>] TS EX`), or null when no
+chain can carry that input: RS and DS need more than one bracket, a BS
+outside `forge <repo-url-or-path> <skill-name>` has no bracket for its skill
+name, and a bracket that already holds `min:N` or `auto` holds one value.
+`halt_reason` is what a headless run halts with (`QS needs a target before
+the pipeline can start: give it as QS[<target>]`), or null for a leading CS:
+create-skill compiles the only brief, or halts naming the briefs.
 
 Exit codes:
   0  parsed, runnable (anti-patterns and a deprecated alias are warnings)
@@ -112,6 +127,35 @@ ALIAS_INPUTS = {
     "forge": ("target_repo", "skill_name"),
     "forge-quick": ("target",),
     "maintain": ("skill_name",),
+}
+
+# What a code's workflow starts from at the head of a chain of codes, where no
+# alias argument binds it: the `args` keys that give it, the input as the ask
+# names it, and the placeholder its bracket takes. A pipeline runs every
+# workflow headless, so one left without its input halts at once. SF and SS
+# start from none, and the check looks past a leading SF. CS's input is its
+# brief: headless, create-skill compiles the only brief or halts naming them,
+# so a leading CS is asked for its input but never halted for it.
+FIRST_INPUTS = {
+    "AN": (("project_path",), "a project path", "<project-path>"),
+    "QS": (("target",), "a target", "<target>"),
+    "CS": (("skill_name", "brief_path"), "a skill name", "<skill-name>"),
+    "TS": (("skill_name",), "a skill name", "<skill-name>"),
+    "EX": (("skill_name",), "a skill name", "<skill-name>"),
+    "US": (("skill_name",), "a skill name", "<skill-name>"),
+    "AS": (("skill_name",), "a skill name", "<skill-name>"),
+    "VS": (("architecture_doc_path",), "an architecture document", "<architecture-doc>"),
+    "RA": (("architecture_doc_path",), "an architecture document", "<architecture-doc>"),
+}
+# BS needs a target and a skill name, and a bracket holds one value: only the
+# `forge` alias gives it both.
+BS_INPUTS = ("target_repo", "skill_name")
+FORGE_FORM = "forge <repo-url-or-path> <skill-name>"
+# These need more than a bracket can hold (rename-skill a new name, drop-skill
+# a version and a drop mode), so they run on their own, outside a chain.
+ON_THEIR_OWN = {
+    "RS": "a skill name and its new name",
+    "DS": "a skill name, a version and a drop mode",
 }
 
 # Pipeline-level flags (pipeline-contracts.md Pipeline Arguments): each takes a
@@ -284,6 +328,74 @@ def _min_ignored(tokens):
     }
 
 
+def _form(result, index, token):
+    """The invocation again, with `token` in place of the plan entry at `index`."""
+    tokens = list(result["expanded"])
+    tokens[index] = token
+    return _with_pin(" ".join(tokens), result["args"])
+
+
+def _with_pin(text, args):
+    return f"{text} --pin {shlex.quote(args['pin'])}" if args.get("pin") else text
+
+
+def _needs(code, needs, form, rest):
+    """A `first_input` entry; `rest` follows the reason's fixed opening."""
+    reason = f"{code} needs {needs} before the pipeline can start{rest}" if rest is not None else None
+    return {"code": code, "input": needs, "form": form, "halt_reason": reason}
+
+
+def _bs_input(result, index, entry):
+    """BS's two inputs: the forge alias gives both, a chain of codes no skill name."""
+    if all(key in result["args"] for key in BS_INPUTS):
+        return None
+    target = entry["target"]
+    after = result["plan"][index + 1:]
+    if (index == 0 and result["codes"] == ALIASES["forge"] and entry["mode"] is None
+            and all(e["min"] is None and e["mode"] is None and e["target"] is None for e in after)):
+        needs = "a skill name" if target else "a target and a skill name"
+        form = FORGE_FORM.replace("<repo-url-or-path>", target) if target else FORGE_FORM
+        return _needs("BS", needs, _with_pin(form, result["args"]),
+                      f": give {'it' if target else 'them'} as {form}")
+    return _needs("BS", "a target and a skill name", None,
+                  f", and a chain gives it one bracket: run BS on its own first, or use {FORGE_FORM}")
+
+
+def _first_input(result):
+    """The input the chain's first workflow lacks, or None (pipeline-mode.md step 1).
+
+    Only for a runnable plan. The first workflow is the first plan entry
+    other than SF, and it lacks its input when no bracket target and no
+    alias argument gives it.
+    """
+    if not result["valid"]:
+        return None
+    index = next((i for i, e in enumerate(result["plan"]) if e["code"] != "SF"), None)
+    if index is None:
+        return None
+    entry = result["plan"][index]
+    code = entry["code"]
+    if code in ON_THEIR_OWN:
+        return _needs(code, ON_THEIR_OWN[code], None,
+                      f", and a chain gives it one bracket: run {code} on its own, outside a chain")
+    if code == "BS":
+        return _bs_input(result, index, entry)
+    if code not in FIRST_INPUTS:
+        return None
+    keys, needs, placeholder = FIRST_INPUTS[code]
+    if entry["target"] is not None or any(key in result["args"] for key in keys):
+        return None
+    taken = "auto" if entry["mode"] else (f"min:{entry['min']}" if entry["min"] is not None else None)
+    token = f"{code}[{placeholder}]"
+    if code == "CS":
+        return None if taken else _needs(code, needs, _form(result, index, token), None)
+    if taken:
+        hint = ", so start the chain as forge-auto <repo-or-doc-url>" if code == "AN" and taken == "auto" else ""
+        return _needs(code, needs, None,
+                      f", and its bracket already holds {taken}: a bracket holds one value{hint}")
+    return _needs(code, needs, _form(result, index, token), f": give it as {token}")
+
+
 def parse_pipeline(raw):
     """Parse and validate a raw pipeline invocation. Deterministic."""
     result = {
@@ -300,6 +412,7 @@ def parse_pipeline(raw):
         "missing_args": [],
         "malformed_brackets": [],
         "anti_patterns": [],
+        "first_input": None,
         "valid": False,
     }
     tokens, args, unexpected = _split_flags(_tokenize(raw))
@@ -360,6 +473,7 @@ def parse_pipeline(raw):
         and not result["missing_args"]
         and not result["malformed_brackets"]
     )
+    result["first_input"] = _first_input(result)
     return result
 
 
