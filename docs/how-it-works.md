@@ -23,9 +23,9 @@ In under a minute, plus one preview for you to approve, you get a `SKILL.md` you
 
 ### 2. The workflow resolves your target
 
-Ferris turns your input into a GitHub repository. A GitHub URL is used as given; a package name is looked up on npm, PyPI and crates.io, with a web search as the last resort. He then detects the main language from the repository's files, starting with its manifest (`pyproject.toml`, `package.json`, etc.). By default Quick Skill reads the repository's default branch. To pin a release, add it to the command (`@Ferris QS cognee@1.0.0`): Ferris checks that the matching git tag exists, stops if it doesn't, and reads everything from that tag.
+Ferris turns your input into a GitHub repository. A GitHub URL is used as given. A package name is looked up on every registry of npm, PyPI and crates.io (a language hint asks only that language's registry), with a web search as the last resort. When more than one registry answers, an interactive run lists every candidate and asks which project you mean, and a headless run keeps the first registry's pick (npm, then PyPI, then crates.io) and records an `also_found_in` warning in its result envelope. He then detects the main language from the repository's files, starting with its manifest (`pyproject.toml`, `package.json`, etc.). By default Quick Skill reads the repository's default branch. To pin a release, add it to the command (`@Ferris QS cognee@1.0.0`): Ferris checks that the matching git tag exists, stops if it doesn't, and reads everything from that tag.
 
-Before reading any code, he checks agentskills.io for an official cognee skill. If one exists, he asks whether to build your own anyway, install the official one instead, or stop. If none turns up, he moves on without a word.
+Quick Skill has a step that checks for an official skill before it reads any code, but it skips that check until agentskills.io offers a registry API to ask, so Ferris goes straight on to extraction.
 
 ### 3. He extracts the API
 
@@ -47,7 +47,7 @@ Alongside the skill, Ferris leaves a `metadata.json` (the source repository, the
 
 That's the whole pipeline. One trigger in, one reviewed skill out, built from cognee's own source and README. Next, run `@Ferris TS` to score the skill, then `@Ferris EX` to export it.
 
-Quick Skill is the fastest path, not the most thorough one. When you want every instruction tied to a file and a line, use the brief-driven [`create-skill`](/docs/workflows.md#create-skill-cs) path instead: describe the skill's scope with `@Ferris BS`, which writes a `skill-brief.yaml`, then compile it with `@Ferris CS`. That path records the exact commit it read, and with ast-grep installed each instruction carries a receipt like this one:
+Quick Skill is the fastest path, not the most thorough one. When you want every instruction tied to a file and a line, use the brief-driven [`create-skill`](/docs/workflows.md#create-skill-cs) path instead: describe the skill's scope with `@Ferris BS`, which writes a `skill-brief.yaml`, then compile it with `@Ferris CS`. That path records the exact commit it read, and with ast-grep installed each export an ast-grep rule matches carries a receipt like this one:
 
 ```python
 await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
@@ -55,7 +55,7 @@ await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
 )
 ```
 
-The tag means *this came from AST extraction of this exact file at this exact line.* The same run writes a `provenance-map.json` that lists every receipt and an `evidence-report.md` build log, so you can open the upstream file at the pinned commit and check it yourself.
+The `AST` tag means *ast-grep matched this definition in this exact file at this exact line.* An export ast-grep cannot match is read by eye and carries an `[SRC:...]` receipt instead, with a lower confidence label (T1-low), so you can tell which receipts the code's structure backs. The same run writes a `provenance-map.json` that lists every receipt and the tool that read it, and an `evidence-report.md` build log, so you can open the upstream file at the pinned commit and check it yourself.
 
 ---
 

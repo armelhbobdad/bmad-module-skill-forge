@@ -44,6 +44,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -781,7 +782,11 @@ def test_campaign_setup_asks_one_question_and_drafts_the_table():
 
 
 def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
-    """A `file:` path that names no file stops the kickoff; a glob that matches nothing adds nothing."""
+    """A `file:` path that names no file stops the kickoff; a glob that matches nothing adds nothing.
+
+    The line also says how an override drops the bundled default (#596, the maintainer's 2026-10-02 decision): a
+    `!` entry naming the default exactly as customize.toml's persistent_facts array holds it.
+    """
     kickoff = _kickoff()
     with pytest.raises(FileNotFoundError):
         kickoff.load_facts(["file:{project-root}/no-such-facts.md"], str(tmp_path))
@@ -792,3 +797,450 @@ def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
     for token in ("A `file:` path with no glob character that names no file stops the campaign at its first Tier A "
                   "kickoff with exit code 2", "a glob that matches nothing adds nothing"):
         assert token in line, token
+    default = "file:{project-root}/**/project-context.md"
+    assert tomllib.loads(_read(SRC / "skf-campaign" / "customize.toml"))["workflow"]["persistent_facts"] == [default]
+    for token in (f'`persistent_facts = ["!{default}"]`', "a team or personal override",
+                  "an entry that starts with `!` adds nothing and removes every earlier entry it names",
+                  "those files stay out of every Tier A kickoff"):
+        assert token in line, token
+
+
+# --------------------------------------------------------------------------
+# Provenance labels follow the tool (the #556 pre-release docs drift fix):
+# the label rule, the tier text, the receipts and the oms-cognee example
+# --------------------------------------------------------------------------
+
+CONCEPTS = DOCS / "concepts.md"
+EXAMPLES = DOCS / "examples.md"
+HOW_IT_WORKS = DOCS / "how-it-works.md"
+INDEX = DOCS / "index.md"
+README = REPO_ROOT / "README.md"
+METADATA_STATS = SRC / "shared" / "scripts" / "skf-render-metadata-stats.py"
+COMPUTE_SCORE = TEST_SKILL / "scripts" / "compute-score.py"
+CAMPAIGN = SRC / "skf-campaign"
+LABEL_TABLE = "Provenance label differences (not drift)"
+AST_RECEIPT = "[AST:cognee/api/v1/search/search.py:L27]"
+SCORE_CATEGORIES = ("exportCoverage", "signatureAccuracy", "typeCoverage", "coherence", "externalValidation")
+
+
+def _script(path: Path):
+    """The module of a script whose file name has hyphens."""
+    spec = importlib.util.spec_from_file_location(path.stem.replace("-", "_") + "_user_docs", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _score(threshold: int, score: int, tooling: str = "ok") -> dict:
+    """compute-score.py's verdict for a Deep contextual run scoring `score` in every category."""
+    return _script(COMPUTE_SCORE).compute_score({
+        "mode": "contextual", "tier": "Deep", "threshold": threshold, "toolingStatus": tooling,
+        "scores": dict.fromkeys(SCORE_CATEGORIES, score)})
+
+
+def test_verifying_example_entry_carries_the_labels_its_tool_implies():
+    """The step 2 entry passes the label check; the published entry the page describes is flagged by it.
+
+    The checks bullet the step links to describes that label check and the relabel Create Skill applies.
+    """
+    step = _slice(_read(VERIFYING), "### 2. Open the skill's `provenance-map.json`", "### 3. ")
+    entry = json.loads(_slice(step, "```json\n", "```\n")[len("```json\n"):])
+    check = _script(METADATA_STATS).check_label_agreement
+    assert (entry["extraction_method"], entry["confidence"], entry["source_line"]) == ("ast-grep", "T1", 27)
+    assert check({"entries": [entry]}) == []
+    assert [v["expected"] for v in check({"entries": [{**entry, "ast_node_type": None}]})] == ["non-null"]
+    published = {**entry, "extraction_method": "source-read", "source_line": 26}
+    expected = {v["field"].rsplit(".", 1)[1]: v["expected"] for v in check({"entries": [published]})}
+    assert expected == {"confidence": "T1-low", "signature_source": "T1-low", "ast_node_type": None}, expected
+    for token in ("`[AST:file:Lnn]` for an export ast-grep matched or `[SRC:file:Lnn]` for one read by eye",
+                  "gets `T1-low`, `source-read`, no node kind and an `[SRC:]` citation, at every forge tier",
+                  "It records `search` as `source-read` but labels it `T1`",
+                  "points at line 26, the blank line above the definition", f"cites `{AST_RECEIPT}`",
+                  "a source read is `T1-low` with an `[SRC:]` citation, and its line is 27, the `def` line",
+                  "[line, label and citation checks](#workflow-time-enforcement)"):
+        assert token in step, token
+    relabel = _read(SRC / "skf-create-skill" / "references" / "relabel-rule.md")
+    assert ("Set the entry's `confidence`, `signature_source` and `ast_node_type` to the violation's `expected`"
+            in relabel)
+    bullet = "- **Line, label and citation checks.**"
+    [checks] = [line for line in _read(VERIFYING).splitlines() if line.startswith(bullet)]
+    for token in ("an ast-grep entry is `T1` with a node kind",
+                  "an entry read by eye is `T1-low` with no node kind and a `signature_source` other than `T1`",
+                  "They relabel an entry that disagrees, so a source read labeled `T1` becomes `T1-low`"):
+        assert token in checks, token
+
+
+def test_docs_say_labels_follow_the_tool_and_t1_counts_drop():
+    """A label names the tool that read the export, at every tier, and Audit Skill lists label changes apart."""
+    assert "The label follows the tool that produced the claim, not the forge tier" in _read(
+        SRC / "knowledge" / "confidence-tiers.md")
+    audit = SRC / "skf-audit-skill" / "references"
+    assert LABEL_TABLE in _read(audit / "structural-diff.md")
+    assert f"**{LABEL_TABLE}** table) is never a finding" in _read(audit / "severity-classify.md")
+    concepts = _paragraph(_read(CONCEPTS), "**The label follows the tool, not the tier.**")
+    model = _paragraph(_read(SKILL_MODEL), "**Labels follow the tool that read each export, not the forge tier.**")
+    for text in (concepts, model):
+        for token in (f'"{LABEL_TABLE}"', "with nothing less extracted",
+                      "Before SKF 3.0.0 the label followed the forge tier"):
+            assert token in text, token
+    for token in ("an ast-grep match is T1 at any tier", "an export read by eye is T1-low, even in a Deep-tier skill",
+                  "fewer T1 claims", "does not count them as drift"):
+        assert token in concepts, token
+    methods = re.findall(r"`([a-z-]+)`", model.split("`extraction_method` (", 1)[1].split(")", 1)[0])
+    assert methods == ["ast-grep", "source-read"]
+    assert set(methods) <= set(_script(METADATA_STATS)._KNOWN_METHODS)
+    for token in ("Expect lower T1 counts", "`confidence_distribution`", "never counts it as drift"):
+        assert token in model, token
+    drift = _paragraph(_read(CONCEPTS), "Audit Skill also checks the documentation pages")
+    assert f'(T1 to T1-low, or back): Audit Skill lists it under "{LABEL_TABLE}"' in drift
+    excerpt = _paragraph(_read(SKILL_MODEL), "The excerpt's `t1` count of 34")
+    assert '"t1": 34' in _read(SKILL_MODEL) and "which SKF 3.0.0 counts as `t1_low`" in excerpt
+    assert "Set `ast_node_count` to the number of exports ast-grep matched" in _read(
+        SRC / "skf-create-skill" / "references" / "compile.md")
+    assert '"ast_node_count": 34' in _read(SKILL_MODEL) and "`ast_node_count` counts only those exports" in excerpt
+
+
+def test_tier_text_promises_t1_only_for_an_ast_grep_match():
+    """No tier makes every signature T1 and `[AST:]`: an export ast-grep cannot match stays T1-low at any tier."""
+    rule = _read(SRC / "skf-create-skill" / "references" / "tier-degradation-rules.md")
+    assert "Label the export by the tool that produced it, not by the tier" in rule
+    model, examples, trouble, concepts = (_read(p) for p in (SKILL_MODEL, EXAMPLES, TROUBLESHOOTING, CONCEPTS))
+    [forge] = [line for line in model.splitlines() if line.startswith("| **Forge** |")]
+    assert "T1 confidence" not in forge
+    assert ("Each export an ast-grep rule matches is AST-verified and labeled T1; one it cannot match is read by eye "
+            "and labeled T1-low") in forge
+    assert "an export it could not match is labeled T1-low and cited `[SRC:...]`, even in a Deep-tier skill" in model
+    for stale, text in (("Every signature must be AST-verified", examples),
+                        ("Every signature carries `[AST:file:Lnn]` at T1", examples),
+                        ("for AST-verified signatures (T1 confidence)", trouble),
+                        ("Every parameter and location is AST-verified", concepts),
+                        ("| Structural (AST-verified) |", model)):
+        assert stale not in text, stale
+    scenario = _slice(examples, "### Scenario G:", "### Scenario H:")
+    assert "An export it could not match is read by eye and carries `[SRC:file:Lnn]` at T1-low" in scenario
+    quick = _slice(trouble, "### Quick-tier skills have lower confidence scores", "\n### ")
+    assert "The label follows the tool that read the export, not the tier" in quick
+    assert "one it cannot match is read by eye and stays T1-low" in _slice(concepts, "- **Forge:**", "\n")
+
+
+def test_receipt_pages_say_ast_means_an_ast_grep_match():
+    """Each page that shows the `search` receipt says `[AST:]` is an ast-grep match and `[SRC:]` a read by eye."""
+    pages = {
+        README: "its provenance map records `search` as read by eye, which SKF 3.0.0 cites as `[SRC:...]`",
+        GETTING_STARTED: "an export SKF read by eye instead carries an `[SRC:...]` receipt",
+        HOW_IT_WORKS: "An export ast-grep cannot match is read by eye and carries an `[SRC:...]` receipt instead",
+        INDEX: "the receipt says so: `[SRC:...]`",
+        EXAMPLES: "that record lists these functions as read by eye (`source-read`)",
+    }
+    for page, token in pages.items():
+        text = _read(page)
+        assert AST_RECEIPT in text and token in text, page.name
+    for stale, page in (("Here's a real snippet from a cognee skill SKF compiled", GETTING_STARTED),
+                        ("The tag means *this came from AST extraction", HOW_IT_WORKS),
+                        ("extracted from code via AST parsing", EXAMPLES),
+                        ("extracted from source code by AST parsing", CONCEPTS)):
+        assert stale not in _read(page), (page.name, stale)
+
+
+def test_ccc_ranks_the_files_a_step_reads_one_at_a_time():
+    """CCC orders the files a step reads by hand; the recipe runner reads every file in scope."""
+    bridge = _read(SRC / "knowledge" / "ccc-bridge.md")
+    assert "The ranking orders the files a step reads by hand; the recipe runner reads every file in scope" in bridge
+    [forge_plus] = [line for line in _read(SKILL_MODEL).splitlines() if line.startswith("| **Forge+** |")]
+    entry = _slice(_read(TROUBLESHOOTING), "### Want semantic discovery for large codebases?", "\n### ")
+    bullet = _slice(_read(CONCEPTS), "- **Forge+:**", "\n")
+    for text in (forge_plus, entry, bullet):
+        assert "a step that reads files one at a time reads the most relevant" in text, text
+        assert "recipe runner reads every file in scope" in text and "before AST extraction" not in text, text
+
+
+# --------------------------------------------------------------------------
+# Troubleshooting: the brief lookup, the ecosystem check, forge-auto's Test
+# stage and the run locks
+# --------------------------------------------------------------------------
+
+
+def test_troubleshooting_brief_entry_follows_the_brief_lookup():
+    """#594: with nothing named, Create Skill loads the only brief, asks among several, or halts headless."""
+    load = _slice(_read(SRC / "skf-create-skill" / "references" / "load-brief.md"),
+                  "### 2. Discover Skill Brief", "### 3.")
+    for token in ("**One brief:** load it", "§5's banner names it", '"Which brief should I compile?"',
+                  "exit code 2, `brief-missing`", "or `--batch` to compile them all",
+                  "No skill brief found. Run [BS] Brief Skill to create one, or use [QS] Quick Skill"):
+        assert token in load, token
+    entry = _slice(_read(TROUBLESHOOTING), '### "No skill brief found"', "\n### ")
+    for token in ("loads the only brief in `forge_data_folder` and names it in its banner", "asks which one to compile",
+                  "stops with exit code 2 (`brief-missing`) and names them", "or `--batch` to compile them all",
+                  "with nothing named, that `forge_data_folder` holds no brief", "`@Ferris BS`", "`@Ferris QS`"):
+        assert token in entry, token
+
+
+def test_docs_describe_the_skipped_ecosystem_check():
+    """#599: Quick Skill skips its official-skill check until a registry API exists, and Create Skill has none."""
+    check = _read(QUICK / "references" / "ecosystem-check.md")
+    assert "agentskills.io has no registry API" in check and "Once a registry API lists an official skill" in check
+    create = SRC / "skf-create-skill"
+    assert not (create / "references" / "ecosystem-check.md").exists()
+    check_words = ("ecosystem check", "ecosystem-check", "ecosystem match", "ecosystem-match")
+    assert not [p.name for p in create.rglob("*.md") if any(w in _read(p).lower() for w in check_words)]
+    entry = _slice(_read(TROUBLESHOOTING), '### "Ecosystem match found"', "\n### ")
+    for token in ("No run stops here today", "agentskills.io offers no registry API",
+                  "Create Skill has no such check since 3.0.0"):
+        assert token in entry, token
+    assert "it skips that check until agentskills.io offers a registry API" in _read(HOW_IT_WORKS)
+    for stale, page in (("Checks ecosystem first", EXAMPLES), ("the ecosystem check in `@Ferris QS`", EXAMPLES),
+                        ("ecosystem check messages", EXAMPLES), ("ecosystem checks", README),
+                        ("he checks agentskills.io for an official cognee skill", HOW_IT_WORKS)):
+        assert stale not in _read(page), (page.name, stale)
+
+
+def test_quick_skill_walkthrough_names_the_registry_lookup():
+    """#582: every registry is asked, a language hint asks one, and a headless run records `also_found_in`."""
+    resolve = _read(QUICK / "references" / "resolve-target.md")
+    for token in ("which asks every deterministic registry (npm, PyPI, crates.io)",
+                  "a JavaScript, TypeScript, Python or Rust hint makes the resolver ask that language's registry alone",
+                  "(the first registry, in the order npm, PyPI, crates.io, that gives a GitHub repository)",
+                  "Record the resolver's `warning` (`also_found_in: ...`)"):
+        assert token in resolve, token
+    step = _paragraph(_read(HOW_IT_WORKS), "Ferris turns your input into a GitHub repository.")
+    for token in ("looked up on every registry of npm, PyPI and crates.io",
+                  "(a language hint asks only that language's registry)", "an interactive run lists every candidate",
+                  "keeps the first registry's pick (npm, then PyPI, then crates.io)", "an `also_found_in` warning"):
+        assert token in step, token
+
+
+def test_forge_auto_entry_names_every_verdict_that_stops_ts():
+    """#586: TS stops a pipeline on any verdict but PASS, a capped FAIL included; a plain update offers the report."""
+    pipeline = _read(FORGER_SKILL.parent / "references" / "pipeline-mode.md")
+    assert "(for TS, the verdict: `FAIL`, `INCONCLUSIVE` or `pass-with-drift`)" in pipeline
+    capped = _score(90, 95, "frontmatter-validator-timeout")
+    assert (capped["result"], capped["effectiveResult"]) == ("PASS", "FAIL")
+    entry = _slice(_read(TROUBLESHOOTING), "### forge-auto halted at the Test stage", "\n### ")
+    for token in ("TS stops the pipeline on any verdict but PASS", "unless a cap fired",
+                  "a cap that turned a pass into a fail whatever the score", "INCONCLUSIVE, and pass-with-drift",
+                  "`@Ferris US <name> --from-test-report`", "no repair has applied",
+                  "finds a failed or pass-with-drift test report", "adds an `unconsumed-test-report` warning"):
+        assert token in entry, token
+    assert "does not read the test report" not in entry
+
+
+def test_troubleshooting_names_the_run_lock_halts():
+    """#588: update and rename each stop on a run lock another run holds, and say how to clear a stale one."""
+    refs = SRC / "skf-update-skill" / "references"
+    guard = _slice(_read(refs / "init.md"), "### 1b. Concurrency Guard", "### 2.")
+    for token in ('--lock "{forge_data_folder}/{skill_name}/.skf-update.lock"', "--stale-after 60",
+                  '`status: "halted-for-concurrent-run"`, `phase: "init:concurrency-guard"`',
+                  "Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true"):
+        assert token in guard, token
+    for name, phase in (("merge.md", "merge:run-lock"), ("write.md", "write:run-lock")):
+        text = _read(refs / name)
+        assert f'`phase: "{phase}"`' in text and '"run-lock-lost: ' in text, name
+    doc = _read(TROUBLESHOOTING)
+    update = _slice(doc, "### Update Skill stops with `halted-for-concurrent-run`", "\n### ")
+    for token in ("`.skf-update.lock` in `<forge_data_folder>/<name>/`", "`init:concurrency-guard`",
+                  "60 minutes after it was taken or renewed", "`--detect-only` and `--dry-run` take no lock",
+                  "delete the lock file the message names", "**`run-lock-lost`:**",
+                  "`merge:run-lock` or `write:run-lock`"):
+        assert token in update, token
+    contract = _read(SRC / "skf-rename-skill" / "references" / "invocation-contract.md")
+    assert "`{forge_data_folder}/.skf-rename-{old_name}.lock`" in contract
+    assert "(60 minutes after it was taken or renewed)" in contract and "`--dry-run` takes none" in contract
+    assert "guarded-delete" in _read(SRC / "skf-rename-skill" / "references" / "select.md")
+    verify = doc.index("### Rename Skill stops with `verify-failed`")
+    lock = doc.index("### Rename Skill stops with `halted-for-concurrent-run`")
+    assert doc.index("\n### ", verify) == lock - 1
+    rename = _slice(doc, "### Rename Skill stops with `halted-for-concurrent-run`", "\n### ")
+    for token in ("(exit `5`)", "`.skf-rename-<name>.lock` in `forge_data_folder`",
+                  "60 minutes after it was taken or renewed", "delete the lock file the message names",
+                  "`--dry-run` takes no lock"):
+        assert token in rename, token
+    leftover = _slice(doc, "### Rename Skill stops with `name-collision` and lists old folders", "\n### ")
+    assert doc.index("\n### ", lock) == doc.index("### Rename Skill stops with `name-collision`") - 1
+    for token in ("(exit `5`)", "`skf-skill-inventory.py guarded-delete`", "`@Ferris EX`"):
+        assert token in leftover, token
+
+
+# --------------------------------------------------------------------------
+# Verifying a Skill: where the scores come from, the caps and the report
+# --------------------------------------------------------------------------
+
+
+def test_verifying_scoring_lines_follow_test_skill():
+    """#613: the source access and tooling health the report records, and the caps no fallback re-flips."""
+    score = _script(COMPUTE_SCORE)
+    doc = _read(VERIFYING)
+    confidence = _paragraph(doc, "The report also records `analysisConfidence`")
+    listed = re.findall(r"`([a-z-]+)`", confidence.split("how Test Skill read the source (", 1)[1].split(")", 1)[0])
+    assert tuple(listed) == score.ANALYSIS_CONFIDENCE and "degraded" not in confidence
+    assert "toolingStatus: '{ok|frontmatter-validator-timeout}'" in _read(TEST_SKILL / "references" / "init.md")
+    assert "`toolingStatus`: `ok`, or `frontmatter-validator-timeout`" in confidence
+    [row] = [line for line in doc.splitlines() if line.startswith("| **Source not on disk**")]
+    for state in ("provenance-map", *score.NO_LOCAL_SOURCE):
+        assert f"`{state}`" in row, state
+    for state in score.NO_LOCAL_SOURCE:
+        out = score.compute_score({"mode": "naive", "tier": "Deep", "analysisConfidence": state,
+                                   "scores": {**dict.fromkeys(SCORE_CATEGORIES, 90), "coherence": None}})
+        assert {"signatureAccuracy", "typeCoverage"} <= set(out["skippedCategories"]), state
+    caps = _paragraph(doc, "Test Skill does not run without its tools")
+    for token in ("a missing `uv` or `python3` halts the run", "(`runtime-missing`)",
+                  "whenever the report's `toolingStatus` is not `ok`", "A capped run stays FAIL at any threshold"):
+        assert token in caps, token
+    assert "| `runtime-missing` |" in _read(TEST_SKILL / "references" / "invocation-contract.md")
+    for stale in ("the run is marked `degraded`", "still accepts a capped run"):
+        assert stale not in doc, stale
+    assert _paragraph(doc, "When no cap fired and a skill scores between 80% and its target threshold")
+    floor, capped = _score(90, 85), _score(90, 85, "frontmatter-validator-timeout")
+    assert (floor["effectiveResult"], floor["thresholdFallback"]) == ("PASS", True)
+    assert (capped["effectiveResult"], capped["thresholdFallback"]) == ("FAIL", False)
+
+
+def test_verifying_names_where_scores_and_reports_come_from():
+    """#613, #593: the score is read from the scripts' files by path, and a report is published only once whole."""
+    score = _script(COMPUTE_SCORE)
+    doc = _read(VERIFYING)
+    deterministic = _paragraph(doc, "The weight redistribution and score aggregation")
+    for script in ("score-signatures.py", "load-coverage-inputs.py"):
+        assert script in score.__doc__ and f"`{script}`" in deterministic, script
+    assert "halts without a score rather than scoring by hand" in deterministic
+    assert "falls back to manual calculation" not in deterministic
+    assert "A quality gate does not score by hand" in _read(TEST_SKILL / "references" / "score.md")
+    init = _read(TEST_SKILL / "references" / "init.md")
+    assert "under the in-progress name `{forge_version}/.skf-test-report-{skill_name}-{run_id}.md`" in init
+    assert 'mv "{report_file}" "{publishedReportFile}"' in _read(TEST_SKILL / "references" / "report.md")
+    [row] = [line for line in doc.splitlines() if line.startswith("| How was the skill scored?")]
+    for token in ("gives a report this name only once its checks pass", "`.skf-test-report-{name}-{run_id}.md`",
+                  "the last finished report still counts"):
+        assert token in row, token
+
+
+# --------------------------------------------------------------------------
+# Campaign: the export gate, Setup's checks, the exit codes, the state helper
+# and the result line
+# --------------------------------------------------------------------------
+
+
+def _campaign_state(scores: dict) -> dict:
+    """A campaign state whose skills completed with the given {name: (tier, score)}."""
+    return {"campaign": {"name": "demo", "started_at": "2026-01-01T00:00:00Z",
+                         "last_updated": "2026-01-01T00:00:00Z", "current_stage": 8,
+                         "quality_gate": {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}},
+            "skills": [{"name": name, "status": "completed", "tier": tier, "quality_score": value, "skill_path": None}
+                       for name, (tier, value) in scores.items()],
+            "dependency_graph": {"execution_order": [], "circular_deps_detected": False}}
+
+
+def test_campaign_doc_follows_the_export_gate():
+    """#586: a Tier A skill runs BS, CS and TS; Export exports pass and fallback skills and names the rest."""
+    loop = _read(CAMPAIGN / "references" / "step-05-skill-loop.md")
+    assert "- **BS → CS → TS**" in loop and "Campaign runs no analyze-source pass" in loop
+    gate = _script(CAMPAIGN / "scripts" / "campaign-quality-gate.py")
+    out = gate.classify(_campaign_state({"top": ("A", 95), "near": ("A", 85), "low": ("A", 70),
+                                         "batch": ("B", None)}), gate.parse_directive(""))
+    assert {s["name"]: s["verdict"] for s in out["skills"]} == {"top": "pass", "near": "fallback", "low": "fail",
+                                                                 "batch": "fail"}
+    assert out["export"] == ["top", "near"]
+    capstone = _read(CAMPAIGN / "references" / "step-07-capstone.md")
+    assert "The capstone composes the skills in its `export[]`" in capstone
+    doc = _read(CAMPAIGN_DOC)
+    for stale in ("analyze (AN)", "analyze, brief, compile and test", "fallback floor is fixed at 80%",
+                  "composed from all completed skills"):
+        assert stale not in doc, stale
+    assert doc.count("brief (BS), compile (CS) and test (TS)") == 2
+    assert "analyze, brief, compile and test" not in _read(EXAMPLES)
+    gates = _paragraph(doc, "You can change all three through")
+    for token in ("completes only on a Test Skill PASS, with `--threshold` set to its effective soft target",
+                  "at or above the soft target is `pass`", "at or above the soft fallback is `fallback`",
+                  "anything else is not exported",
+                  "classified by its skill-check score, and one without a score is not exported"):
+        assert token in gates, token
+    rows = {line.split("|")[2].strip(): line for line in doc.splitlines() if re.match(r"\| \d+ \| ", line)}
+    for token in ("names the ones the gate leaves out", "each `pass` and `fallback` skill"):
+        assert token in rows["Export"], token
+    assert "the completed skills that clear the quality gate" in rows["Capstone"]
+    assert "`[E]xport all` exports only the `pass` and `fallback` skills" in doc
+    assert "## Export Gate" in _read(CAMPAIGN / "templates" / "campaign-report-template.md")
+    assert "an Export Gate section" in doc
+
+
+def test_campaign_doc_follows_setup_strategy_and_the_exit_codes():
+    """#594, #586: Setup rejects what the manifest parser rejects, Strategy a tier inversion, and 13 is listed."""
+    manifest = _script(CAMPAIGN / "scripts" / "campaign-parse-manifest.py")
+    parsed = manifest.parse_manifest_text(
+        "core,git@github.com:acme/core.git,A,v1.2.0\ncli,acme/cli,B,main\nlab,https://gitlab.com/acme/lab,A,\n"
+        "Bad_Name,https://github.com/acme/bad,A,\nweb,https://github.com/acme/web,A,main\n"
+        "core,https://github.com/acme/core2,B,\nsub,https://github.com/acme/sub/tree/main,A,\n")
+    assert [(t["name"], t["repo_url"]) for t in parsed["targets"]] == [
+        ("core", "https://github.com/acme/core"), ("cli", "https://github.com/acme/cli")]
+    assert [e["line"] for e in parsed["errors"]] == [3, 4, 5, 6, 7]
+    doc = _read(CAMPAIGN_DOC)
+    columns = _slice(doc, "- `repo_url`:", "- `depends_on`:")
+    for token in ("as a URL, an SSH URL or `owner/repo`", "`https://github.com/<owner>/<repo>`",
+                  "rejects another host or a path inside a repository",
+                  "A Tier A pin must be a full `X.Y.Z` version (a `v` prefix is allowed)",
+                  "a Tier B pin may also be a branch"):
+        assert token in columns, token
+    checks = _paragraph(doc, "Setup checks every target the same way")
+    for token in ("a `repo_url` that is not a GitHub repository", f"at most {manifest.MAX_NAME} characters",
+                  "a Tier A pin that is not an `X.Y.Z` version", "a duplicate name", "stops with exit code 2"):
+        assert token in checks, token
+    contracts = _read(CAMPAIGN / "references" / "campaign-contracts.md")
+    assert re.search(r"^\| 13 +\| dependency-blocked", contracts, re.M)
+    schema = json.loads(_read(SCHEMAS / "skf-campaign-result-envelope.v1.json"))
+    [exits] = [line for line in doc.splitlines() if line.startswith("- **Exit codes**:")]
+    for reason, code in schema["$defs"]["skf-envelope"]["const"]["exit_codes"].items():
+        assert f"`{code}` {reason}" in exits, reason
+    loop = _read(CAMPAIGN / "references" / "step-05-skill-loop.md")
+    assert "`skip` (every unmet dependency failed or was skipped" in loop
+    assert "`halt` (a dependency is still pending or active" in loop
+    dependency = _paragraph(doc, "Campaign orders skills by their `depends_on` lists")
+    for token in ("exit code 13 (`dependency-blocked`)",
+                  "skips the waiting skill when every unmet dependency failed or was skipped",
+                  "halts with exit code 13 only while a dependency is still pending or active"):
+        assert token in dependency, token
+    strategy = _read(CAMPAIGN / "references" / "step-02-strategy.md")
+    assert "**Tier A on Tier B**" in strategy and "HALT (exit code 4, `circular-deps`)" in strategy
+    tiers = _paragraph(doc, "Do not make a Tier A library depend on a Tier B library")
+    assert "Strategy rejects such a plan with exit code 4" in tiers and "(`tier_inversions`)" in tiers
+
+
+def test_campaign_doc_follows_the_state_helper_and_the_result_line():
+    """#587, #593: one helper writes, archives and recovers the state; the log is typed; the line has a schema."""
+    contracts = _read(CAMPAIGN / "references" / "campaign-contracts.md")
+    for token in ("copies the valid primary it read to `_campaign-state.yaml.bak`", "renamed over the old one",
+                  "from the clock in UTC", "one typed and timestamped line per entry"):
+        assert token in contracts, token
+    assert "archive/<campaign name>-<UTC stamp>/" in _read(CAMPAIGN / "scripts" / "campaign-state.py")
+    resume = _read(CAMPAIGN / "references" / "step-resume.md")
+    assert "**`stage` 1 with no `{briefFile}`:**" in resume and "HALT (exit code 8, `missing-brief`)" in resume
+    doc = _read(CAMPAIGN_DOC)
+    for stale in ("[R]ecover", "[K]eep"):
+        assert stale not in doc and stale not in resume, stale
+    state = _paragraph(doc, "The single source of truth for campaign progress.")
+    for token in ("`campaign-state.py`", "validates the state before and after the change", "(never an invalid one)",
+                  "writes the new state atomically", "in UTC"):
+        assert token in state, token
+    recovery = _slice(doc, "### Re-invocation and recovery", "\n---\n")
+    for token in ("`campaign-state.py archive`", "`archive/<name>-<UTC timestamp>/`",
+                  "Setup itself refuses to overwrite a state file or a backup", "`campaign-state.py recover`"):
+        assert token in recovery, token
+    log = _paragraph(doc, "This log only grows.")
+    assert "timestamped" in log and all(f"`{kind}`" in log for kind in ("decision", "auto", "event"))
+    assert "halts the resume with exit code 8 (`missing-brief`)" in doc
+    assert "a headless resume prints the campaign's success line again" in doc
+    maintenance = _read(CAMPAIGN / "references" / "step-11-maintenance.md")
+    assert "run it now, after the final state write" in maintenance
+    assert "run `{onComplete}` without `--report-path`" in maintenance
+    [hook] = [line for line in doc.splitlines() if line.startswith("- **`on_complete`**")]
+    assert "after its final state write" in hook and "only when the report was written" in hook
+    schema = json.loads(_read(SCHEMAS / "skf-campaign-result-envelope.v1.json"))
+    assert {"exit_code", "halt_reason", "export_verdicts", "skills_excluded"} <= set(schema["required"])
+    for token in ("`skf-campaign-result-envelope.v1.json`", "`export_verdicts`", "`skills_excluded`",
+                  "the health check displays the `SKF_CAMPAIGN_RESULT_JSON` line as the run's last line",
+                  "every field the schema requires"):
+        assert token in doc, token
+    seeded = "a seeded run is an unattended run (CI)"
+    assert seeded in _read(CAMPAIGN / "SKILL.md")
+    [brief] = [line for line in doc.splitlines() if line.startswith("| `--brief <file>` |")]
+    for token in ("a seeded run is an unattended (CI) run that takes every default",
+                  "give the same file at the Setup question instead, which stays interactive"):
+        assert token in brief, token

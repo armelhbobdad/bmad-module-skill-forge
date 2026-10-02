@@ -5,7 +5,7 @@ description: Install Skill Forge and generate your first verified skill in under
 
 ## In 60 seconds
 
-One command. One verified skill. Here's a real snippet from a cognee skill SKF compiled:
+One command. One verified skill. Here's what an instruction in a cognee skill looks like:
 
 ```python
 await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
@@ -13,7 +13,7 @@ await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
 )
 ```
 
-Every instruction carries a receipt: the file and line in the upstream repo it came from. The skill's `metadata.json` records the commit SHA those lines were read at. Your AI reads these instead of guessing from training data, and you can open the source at that commit to confirm the function exists. Nothing is made up, and everything can be checked.
+Every instruction carries a receipt: the file and line in the upstream repo it came from. `AST` means ast-grep matched the definition there; an export SKF read by eye instead carries an `[SRC:...]` receipt and a lower confidence label. The skill's `metadata.json` records the commit SHA those lines were read at. Your AI reads these instead of guessing from training data, and you can open the source at that commit to confirm the function exists. Nothing is made up, and everything can be checked.
 
 Want to see the full audit on a real shipped skill before you install anything? → [Verifying a Skill](/docs/verifying-a-skill.md).
 

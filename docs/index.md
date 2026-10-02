@@ -25,12 +25,12 @@ AI agents hallucinate API calls. They invent function names, guess parameter typ
 Skill Forge reads a library's source code and docs and writes a skill: an instruction file (SKILL.md) your AI agent loads before it writes code. Every function signature, parameter type, and usage pattern in it comes with a receipt. The receipt points back to where it came from: a file and line at a pinned commit in the upstream repository, or the documentation page it was read from.
 
 <div class="receipt-sample">
-  <span class="receipt-sample__label">A receipt looks like</span>
+  <span class="receipt-sample__label">An ast-grep receipt looks like</span>
   <code class="receipt-sample__chip">[AST:cognee/api/v1/search/search.py:L27]</code>
   <span class="receipt-sample__check" aria-label="verified">✓</span>
 </div>
 
-When SKF can't cite a source, it leaves the instruction out. The main exception is Quick Skill (QS), a fast, best-effort draft with no receipt on each instruction.
+When SKF reads a definition by eye instead, the receipt says so: `[SRC:...]`, with a lower confidence label. When SKF can't cite a source, it leaves the instruction out. The main exception is Quick Skill (QS), a fast, best-effort draft with no receipt on each instruction.
 
 <!-- Raw HTML bypasses rehype-markdown-links, so this href ships verbatim and
      cannot take the `/docs/*.md` form the Markdown links use: nothing would
