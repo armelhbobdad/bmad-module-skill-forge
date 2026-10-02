@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """SKF Forge Tier RW — Read/write primitives for forger-sidecar YAML files.
@@ -787,5 +787,17 @@ def main() -> None:
         cmd_register_ccc_index(args.target, lock_timeout)
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdin and the JSON streams to UTF-8 (a Windows console uses cp1252)."""
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdin, sys.stdout, sys.stderr)
     main()

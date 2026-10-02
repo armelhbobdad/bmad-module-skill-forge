@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """SKF Recommend Scope Type: the scope-type ladder, applied to facts and to

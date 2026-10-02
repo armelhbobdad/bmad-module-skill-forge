@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """Campaign Render Batch: build the QS `--batch` input file for Tier B skills.

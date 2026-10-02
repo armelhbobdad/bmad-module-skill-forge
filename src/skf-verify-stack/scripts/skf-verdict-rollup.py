@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """Deterministic overall-feasibility verdict rollup for skf-verify-stack (synthesize.md §1).

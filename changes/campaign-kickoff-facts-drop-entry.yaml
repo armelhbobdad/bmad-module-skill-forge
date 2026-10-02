@@ -1,0 +1,5 @@
+type: changed
+scope: skf-campaign
+summary: |
+  A `persistent_facts` entry prefixed `!` now drops every earlier entry it names from every Tier A kickoff, and adds no fact of its own, so `!file:{project-root}/**/project-context.md` in a team or personal override (`_bmad/custom/skf-campaign.toml` or `_bmad/custom/skf-campaign.user.toml`) keeps the bundled default's `project-context.md` files out of the kickoffs. A dropped `file:` entry is never read. A `!` entry that names no earlier entry changes nothing.
+issues: [596]

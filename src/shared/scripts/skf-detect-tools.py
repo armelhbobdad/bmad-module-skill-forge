@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """SKF Detect Tools — Parallel tool detection + tier calculation for skf-setup.
@@ -558,9 +558,9 @@ def read_prior_state(prior_state_path) -> dict:
 def _parse_iso_timestamp(value) -> datetime | None:
     """Parse an ISO 8601 timestamp into a timezone-aware datetime, or None.
 
-    Normalizes a trailing 'Z' (UTC designator) to '+00:00' because
-    `datetime.fromisoformat` does not accept 'Z' on Python < 3.11 and
-    requires-python here is >=3.10. A naive result (no tzinfo) is assumed to be
+    Normalizes a trailing 'Z' or 'z' (UTC designator) to '+00:00' because
+    `datetime.fromisoformat` accepts 'Z' from Python 3.11 on (this script's
+    floor) but still rejects 'z'. A naive result (no tzinfo) is assumed to be
     UTC so it can be compared against a tz-aware `now` without raising. Returns
     None on any parse failure (non-string, empty, malformed).
     """

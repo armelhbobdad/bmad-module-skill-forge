@@ -1,0 +1,5 @@
+type: changed
+scope: requirements
+summary: |
+  Every SKF helper script now declares `requires-python = ">=3.11"` in its uv header, the Python minimum the docs already state. 78 scripts still declared 3.9 or 3.10, so in a project pinned to Python 3.10 (a `.python-version` file) `uv run` ran them on 3.10; it now runs every helper on Python 3.11 or newer, fetching one when uv is allowed to download Python. Where uv may not download Python and only an older one is installed, `uv run` now stops with an error naming the requirement (`No interpreter found for Python >=3.11`): install Python 3.11 or newer.
+issues: [576]

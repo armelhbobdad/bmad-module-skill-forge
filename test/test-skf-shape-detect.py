@@ -1157,6 +1157,70 @@ path = "src/main.rs"
 
 
 # --------------------------------------------------------------------------
+# TOML manifests are read with tomllib (issue #562): the hand-written
+# fallback parser, which the Python 3.9 and 3.10 floors reached, is gone
+# --------------------------------------------------------------------------
+
+
+class TestTomllib:
+    def test_a_pep508_extra_and_a_bracketed_comment_keep_every_dependency(self, tmp_path):
+        """The fallback ended a multi-line array at the first `]`, the one of
+        `requests[socks]` or of a trailing comment, and lost lark and flask."""
+        path = write_pyproject_toml(tmp_path, """
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = [
+  "requests[socks]>=2",  # pinned [2.28]
+  "lark>=1",
+  "flask",
+]
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert "parser_dep:lark" in result["signals"]
+        assert "framework_dep:flask" in result["signals"]
+        assert result["shape"] == "language-reference"
+
+    def test_a_dotted_cargo_key_names_the_dependency(self, tmp_path):
+        """`pest.workspace = true` is the dependency pest, which the fallback
+        read as one flat key `pest.workspace`."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "my-lang"
+version = "0.1.0"
+
+[dependencies]
+pest.workspace = true
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert "parser_dep:pest" in result["signals"]
+
+    def test_no_fallback_parser_is_left(self):
+        for name in ("_split_preserving_nesting", "_decode_toml_value", "_loads_toml_fallback"):
+            assert not hasattr(mod, name), name
+        assert mod.tomllib is sys.modules["tomllib"]
+
+    def test_without_tomllib_the_script_does_not_start(self, tmp_path):
+        """Below Python 3.11 (tomllib hidden here) the script stops at its
+        import instead of classifying from a misread manifest."""
+        path = write_pyproject_toml(tmp_path, '[project]\nname = "demo"\n')
+        runner = (
+            "import runpy, sys\n"
+            "sys.modules['tomllib'] = None\n"
+            "script = sys.argv[1]\n"
+            "sys.argv = [script, '--repo-url', sys.argv[2], '--manifests', sys.argv[3]]\n"
+            "runpy.run_path(script, run_name='__main__')\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", runner, str(SCRIPT_PATH), REPO_URL, path],
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
+        )
+        assert proc.returncode != 0
+        assert "tomllib" in proc.stderr
+        assert proc.stdout == ""
+
+
+# --------------------------------------------------------------------------
 # CLI wiring (subprocess)
 # --------------------------------------------------------------------------
 
@@ -1352,6 +1416,17 @@ TSGO_FILES = ["internal/compiler/program.go", "internal/parser/parser.go", "inte
               "internal/ast/ast.go", "internal/checker/checker.go", "go.mod"]
 # A compiler folder with a lexer+parser+AST triad and no corroborating member.
 NO_W_MEMBER = ["src/compiler/lexer.ts", "src/compiler/parser.ts", "src/compiler/ast.ts", "src/index.ts"]
+# A sympy-shaped tree: a docs tree, many modules (codegen/ among them, a
+# corroborating member for gate W), and the grammars of the input formats its
+# parsing/ folder reads, two of them within _GRAMMAR_MAX_DEPTH.
+SYMPY_FILES = ["README.md", "doc/src/index.rst", "doc/src/modules/parsing.rst", "sympy/__init__.py",
+               "sympy/core/basic.py", "sympy/core/expr.py", "sympy/functions/elementary/trigonometric.py",
+               "sympy/matrices/dense.py", "sympy/solvers/solvers.py", "sympy/printing/latex.py",
+               "sympy/codegen/ast.py", "sympy/parsing/__init__.py", "sympy/parsing/ast_parser.py",
+               "sympy/parsing/sympy_parser.py", "sympy/parsing/latex/LaTeX.g4",
+               "sympy/parsing/latex/_antlr/latexlexer.py", "sympy/parsing/latex/_antlr/latexparser.py",
+               "sympy/parsing/latex/lark/grammar/latex.lark", "sympy/parsing/autolev/Autolev.g4",
+               "sympy/parsing/autolev/_antlr/autolevparser.py", "sympy/parsing/smtlib/lark/grammar/smtlib.lark"]
 
 
 def _tree_file(tmp_path: Path, paths, name: str = "tree.txt") -> str:
@@ -1426,6 +1501,34 @@ class TestTreeFile:
         proc = run_tree(tmp_path, ["README.md", "tests/fixtures/grammars/c/parse.y"])
         assert proc.returncode == 1
         assert json.loads(proc.stdout)["shape"] == "unknown"
+
+    def test_a_library_that_reads_formats_stays_a_library(self, tmp_path):
+        """sympy: a library with a docs tree and many modules, whose
+        sympy/parsing/ holds the grammars of the formats it reads (LaTeX,
+        Autolev). They are no language of its own, so it is a library."""
+        manifest = write_pyproject_toml(tmp_path, '[project]\nname = "sympy"\ndependencies = ["mpmath>=1.1.0"]\n')
+        proc = run_tree(tmp_path, ["pyproject.toml", *SYMPY_FILES], manifests=manifest)
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["shape"] == "library-API"
+        assert not any(sig.startswith(("grammar_file:", "tree_triad:")) for sig in out["signals"])
+        # without the manifest the tree carries no language signal at all
+        assert json.loads(run_tree(tmp_path, SYMPY_FILES).stdout)["shape"] == "unknown"
+
+    @pytest.mark.parametrize(
+        "path,kept",
+        [
+            pytest.param("sympy/parsing/latex/LaTeX.g4", False, id="below-a-package-parsing-folder"),
+            pytest.param("lib/parsers/sql.y", False, id="below-a-parsers-folder"),
+            pytest.param("parsing/parser.y", True, id="a-top-parsing-folder"),
+            pytest.param("vyper/ast/grammar.lark", True, id="in-a-package"),
+            pytest.param("src/backend/parser/gram.y", True, id="a-parser-folder"),
+        ],
+    )
+    def test_a_grammar_below_a_parsing_folder_is_a_format_reader(self, path, kept):
+        grammar, tree = mod.tree_signals([path])
+        assert grammar == ([path] if kept else [])
+        assert path in tree
 
     @pytest.mark.parametrize(
         "files,pkg",

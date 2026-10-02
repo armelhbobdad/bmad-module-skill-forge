@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """SKF Validate Brief Inputs — pre-pass validation for brief-skill headless invocation.
@@ -365,5 +365,17 @@ def main() -> int:
     return 0 if result["valid"] else 1
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure stdin and the JSON streams to UTF-8 (a Windows console uses cp1252)."""
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 if __name__ == "__main__":
+    _force_utf8(sys.stdin, sys.stdout, sys.stderr)
     sys.exit(main())

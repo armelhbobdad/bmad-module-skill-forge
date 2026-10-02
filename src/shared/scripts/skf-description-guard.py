@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """SKF Description Guard — defend SKILL.md frontmatter description against
@@ -189,7 +189,7 @@ def restore_description(skill_md: Path, captured: str) -> None:
     block scalars and nested `description:` keys in sibling mappings.
 
     Key order is preserved (PyYAML's `safe_dump` honours dict insertion order;
-    this module's `requires-python = ">=3.10"` guarantees ordered dicts).
+    this module's `requires-python = ">=3.11"` guarantees ordered dicts).
     Quoting style of *other* fields may change to whatever `safe_dump`
     chooses for each scalar — downstream readers parse YAML, so any valid
     YAML emission is acceptable.

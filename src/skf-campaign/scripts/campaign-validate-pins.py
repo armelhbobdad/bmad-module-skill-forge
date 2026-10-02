@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """Campaign Validate Pins — validate all version pins in a campaign state file.

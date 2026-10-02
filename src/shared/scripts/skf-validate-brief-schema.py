@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml", "jsonschema>=4.0"]
 # ///
 """SKF Validate Brief Schema — schema check for a skill-brief.yaml on disk.

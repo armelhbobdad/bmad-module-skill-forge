@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml", "jsonschema>=4.0"]
 # ///
 """SKF Write Skill Brief — Schema-validated atomic writer for skill-brief.yaml.

@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """Campaign Render Kickoff: render the per-skill kickoff message, every slot.
@@ -23,7 +23,10 @@ and risked paraphrasing or cutting the operator's directive.
     names no file.
   - {{persistent_facts}}: one bullet per persistent fact, or "None". An entry
     `file:<path-or-glob>` adds the content of each file it names, with
-    `{project-root}` replaced by --project-root; any other entry is a fact
+    `{project-root}` replaced by --project-root; an entry `!<entry>` adds
+    nothing and drops every earlier entry equal to `<entry>`, so a team or
+    personal override drops a bundled default
+    (`!file:{project-root}/**/project-context.md`); any other entry is a fact
     sentence.
 
 CLI:
@@ -74,6 +77,7 @@ import yaml
 NO_DIRECTIVE = "No directive configured"
 NO_FACTS = "None"
 FILE_PREFIX = "file:"
+DROP_PREFIX = "!"
 PROJECT_ROOT = "{project-root}"
 # The key the customization resolver prints for --key workflow.persistent_facts
 # (it prints {} when no layer sets it).
@@ -198,13 +202,22 @@ def _fact_files(entry: str, pattern: str, root: str) -> List[Path]:
 def load_facts(entries: List[str], project_root: Optional[str] = None) -> List[str]:
     """Turn persistent-facts entries into the facts the kickoff lists.
 
-    A `file:` entry adds one fact per file it names, headed by the file's
-    path. Raises ValueError on an entry that keeps a placeholder (as
-    `{project-root}` does when project_root is None), FileNotFoundError on a
-    path that names no file, OSError on a file that cannot be read.
+    A `!` entry adds nothing and drops every earlier entry equal to what
+    follows the `!`, before any `file:` entry is read, so a dropped file is
+    never opened. A `file:` entry adds one fact per file it names, headed by
+    the file's path. Raises ValueError on an entry that keeps a placeholder
+    (as `{project-root}` does when project_root is None), FileNotFoundError
+    on a path that names no file, OSError on a file that cannot be read.
     """
-    facts: List[str] = []
+    kept: List[str] = []
     for entry in entries:
+        if entry.startswith(DROP_PREFIX):
+            dropped = entry[len(DROP_PREFIX):]
+            kept = [earlier for earlier in kept if earlier != dropped]
+        else:
+            kept.append(entry)
+    facts: List[str] = []
+    for entry in kept:
         if not entry.startswith(FILE_PREFIX):
             facts.append(entry)
             continue
@@ -389,8 +402,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--facts-json",
-        help="persistent facts as a JSON list of sentences and file:<path-or-glob> entries, or - to "
-        "read them from stdin (a list, or the resolver's output for --key workflow.persistent_facts)",
+        help="persistent facts as a JSON list of sentences, file:<path-or-glob> entries and !<entry> "
+        "entries (each drops the earlier entries equal to <entry>), or - to read them from stdin "
+        "(a list, or the resolver's output for --key workflow.persistent_facts)",
     )
     parser.add_argument(
         "--project-root",

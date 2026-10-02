@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """SKF Shape Detect — classify repos into known skill shapes from manifest files.
@@ -68,7 +68,9 @@ docs, examples, benchmarks, scripts and tools): a CI workflow's check.yml,
 scripts/check.sh or a test fixture's vm.js is not the repository's own
 code. The grammar files are the paths _is_grammar_file() accepts at most
 _GRAMMAR_MAX_DEPTH segments deep (a grammar deeper in the tree is a vendored
-or test fixture), and the tree paths are every folder (with a trailing /)
+or test fixture) and outside a parsing folder below the top of the tree (a
+library's reader of an input format, such as sympy/parsing/latex/LaTeX.g4,
+_FORMAT_PARSER_DIRS), and the tree paths are every folder (with a trailing /)
 and every file, which the compiler-folder, triad and corroborating-member
 gates of _whole_language_tree() then judge: the triad among the paths near a
 compiler folder, the corroborating member anywhere. A listing that says it
@@ -98,13 +100,9 @@ import importlib.util
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
-
-try:
-    import tomllib
-except ImportError:
-    tomllib = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Parser/grammar deps that signal language-reference shape
@@ -146,6 +144,14 @@ _GRAMMAR_BASENAMES = frozenset({"grammar.js", "grammar.json", "python.gram"})
 # A grammar file deeper than this many path segments is a vendored or test
 # fixture, not the repo's own grammar (Grammar/python.gram is 2 deep).
 _GRAMMAR_MAX_DEPTH = 4
+# A library keeps its readers of other formats in a parsing folder of its own
+# package: sympy's sympy/parsing/latex/LaTeX.g4 and
+# sympy/parsing/autolev/Autolev.g4 sit beside sympy/core/ and the library's
+# other modules. A grammar below such a folder parses an input the library
+# reads, not the language the repository implements. A parsing folder at the
+# top of the tree is not one of these: there the parser is the repository's
+# own.
+_FORMAT_PARSER_DIRS = frozenset({"parsing", "parsers"})
 
 # Concrete parsers a repo CONSUMES. If a repo's own runtime deps contain one of
 # these it delegates parsing — a formatter/linter/bundler, never a
@@ -367,7 +373,8 @@ def _near_compiler_dir(path: str, compiler_dir: str) -> bool:
 def tree_signals(files: list[str]) -> tuple[list[str], list[str]]:
     """(grammar files, tree paths) of a repository's whole file list, the
     tree-level inputs of detect(): the grammar files _is_grammar_file()
-    accepts at most _GRAMMAR_MAX_DEPTH segments deep, and every folder (with
+    accepts at most _GRAMMAR_MAX_DEPTH segments deep and not below a
+    _FORMAT_PARSER_DIRS folder under the top one, and every folder (with
     a trailing /) then every file as tree paths, so the gates of
     _whole_language_tree(), not a name filter, decide what counts. A path
     with a hidden segment or a segment of _NON_CORE_PATH_SEGMENTS (tests and
@@ -387,7 +394,8 @@ def tree_signals(files: list[str]) -> tuple[list[str], list[str]]:
             dirs.add(path + "/")
         else:
             names.add(path)
-            if len(parts) <= _GRAMMAR_MAX_DEPTH and _is_grammar_file(path):
+            if (len(parts) <= _GRAMMAR_MAX_DEPTH and _is_grammar_file(path)
+                    and not any(p.lower() in _FORMAT_PARSER_DIRS for p in parts[1:-1])):
                 grammar.add(path)
         for depth in range(1, len(parts)):
             dirs.add("/".join(parts[:depth]) + "/")
@@ -417,161 +425,8 @@ def _sibling(filename: str) -> Any:
     return module
 
 
-# ---------------------------------------------------------------------------
-# Minimal TOML parser (Python < 3.11 fallback)
-# ---------------------------------------------------------------------------
-
-def _split_preserving_nesting(s: str, sep: str) -> list[str]:
-    parts: list[str] = []
-    buf: list[str] = []
-    depth = 0
-    in_str = ""
-    for ch in s:
-        if in_str:
-            buf.append(ch)
-            if ch == in_str:
-                in_str = ""
-            continue
-        if ch in ('"', "'"):
-            in_str = ch
-            buf.append(ch)
-            continue
-        if ch in ("[", "{"):
-            depth += 1
-            buf.append(ch)
-            continue
-        if ch in ("]", "}"):
-            depth -= 1
-            buf.append(ch)
-            continue
-        if ch == sep and depth == 0:
-            parts.append("".join(buf))
-            buf = []
-            continue
-        buf.append(ch)
-    if buf:
-        parts.append("".join(buf))
-    return parts
-
-
-def _decode_toml_value(raw: str) -> Any:
-    s = raw.strip()
-    if not s:
-        return ""
-    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
-        return s[1:-1]
-    if len(s) >= 2 and s[0] == "'" and s[-1] == "'":
-        return s[1:-1]
-    if s == "true":
-        return True
-    if s == "false":
-        return False
-    if s.startswith("["):
-        idx = s.rfind("]")
-        if idx < 0:
-            return []
-        inner = s[1:idx].strip()
-        if not inner:
-            return []
-        items = []
-        for item in _split_preserving_nesting(inner, ","):
-            item = item.strip()
-            if item and item[0] != "#":
-                items.append(_decode_toml_value(item))
-        return items
-    if s.startswith("{"):
-        idx = s.rfind("}")
-        if idx < 0:
-            return {}
-        inner = s[1:idx].strip()
-        result: dict[str, Any] = {}
-        for pair in _split_preserving_nesting(inner, ","):
-            pair = pair.strip()
-            if "=" in pair:
-                k, _, v = pair.partition("=")
-                result[k.strip()] = _decode_toml_value(v.strip())
-        return result
-    try:
-        return int(s) if "." not in s else float(s)
-    except ValueError:
-        return s
-
-
-def _loads_toml_fallback(content: str) -> dict[str, Any]:
-    """Parse the TOML subset found in pyproject.toml / Cargo.toml."""
-    root: dict[str, Any] = {}
-    current = root
-    lines = content.split("\n")
-    i = 0
-    while i < len(lines):
-        raw = lines[i]
-        i += 1
-        stripped = raw.strip()
-        if not stripped or stripped[0] == "#":
-            continue
-
-        # [[array.of.tables]]
-        if stripped.startswith("[["):
-            end = stripped.find("]]")
-            if end < 0:
-                continue
-            path = [p.strip() for p in stripped[2:end].split(".")]
-            target = root
-            for key in path[:-1]:
-                target = target.setdefault(key, {})
-            arr = target.setdefault(path[-1], [])
-            if not isinstance(arr, list):
-                arr = [arr]
-                target[path[-1]] = arr
-            entry: dict[str, Any] = {}
-            arr.append(entry)
-            current = entry
-            continue
-
-        # [table]
-        if stripped.startswith("[") and not stripped.startswith("[["):
-            end = stripped.find("]")
-            if end < 0:
-                continue
-            path = [p.strip() for p in stripped[1:end].split(".")]
-            current = root
-            for key in path:
-                nxt = current.setdefault(key, {})
-                if not isinstance(nxt, dict):
-                    nxt = {}
-                    current[key] = nxt
-                current = nxt
-            continue
-
-        # key = value
-        eq = stripped.find("=")
-        if eq < 0:
-            continue
-        key = stripped[:eq].strip().strip('"')
-        val_str = stripped[eq + 1:].strip()
-
-        # Remove trailing comment outside strings
-        if val_str and val_str[0] not in ('"', "'", "[", "{"):
-            ci = val_str.find(" #")
-            if ci >= 0:
-                val_str = val_str[:ci].strip()
-
-        # Multi-line array
-        if val_str.startswith("[") and "]" not in val_str:
-            while i < len(lines):
-                val_str += " " + lines[i].strip()
-                i += 1
-                if "]" in val_str:
-                    break
-
-        current[key] = _decode_toml_value(val_str)
-    return root
-
-
 def _parse_toml(content: str) -> dict[str, Any]:
-    if tomllib is not None:
-        return tomllib.loads(content)
-    return _loads_toml_fallback(content)
+    return tomllib.loads(content)
 
 
 # ---------------------------------------------------------------------------

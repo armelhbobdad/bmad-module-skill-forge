@@ -6,7 +6,7 @@
  * prose minimums and the README badge, engines.node, .nvmrc, the workflows'
  * node-version and python-version, written out or in a matrix, the
  * ast-grep-cli pin, the README Acknowledgements rows, the list's own schema),
- * --write, and the requires-python header check, which ships switched off.
+ * --write, and the PEP 723 requires-python headers under src/.
  *
  * Each case copies the files the tool reads into a throwaway folder, changes
  * one thing and runs the tool there through --root. Expected line numbers are
@@ -537,22 +537,27 @@ test('in GitHub Actions each finding is also an error annotation', () => {
   assert.match(out, /^::error file=\.nvmrc,line=1::/m);
 });
 
-// --- requires-python headers (off until every header declares the minimum) ---
+// --- requires-python headers ---
 
-test('requires-python headers: off by default, and reported with file and line when on', () => {
+test('a requires-python header below the Python minimum, at its file and line; a docstring that quotes one is not read', () => {
   const root = makeRoot();
   const header = (spec) => `# /// script\n# requires-python = "${spec}"\n# dependencies = []\n# ///\n`;
   write(root, 'src/shared/scripts/old.py', `${header('>=3.9')}"""Quotes requires-python = ">=3.8" in its docstring."""\n`);
+  write(root, 'src/skf-campaign/scripts/shebang.py', `#!/usr/bin/env python3\n${header('>=3.10')}import tomllib\n`);
   write(root, 'src/skf-setup/scripts/new.py', `${header('>=3.11,<4')}print("ok")\n`);
   write(root, 'src/shared/scripts/plain.py', 'print("no header")\n');
-  const off = run(root);
-  assert.strictEqual(off.status, 0, off.out);
-  const findings = checkAll(root, loadRequirements(root), { requiresPython: true });
+  expectFinding(root, 'src/shared/scripts/old.py', 2, /requires-python = ">=3\.9" is below the Python minimum .*: declare ">=3\.11"/);
+  expectFinding(root, 'src/skf-campaign/scripts/shebang.py', 3, /requires-python = ">=3\.10"/);
   assert.deepStrictEqual(
-    findings.map((finding) => `${finding.file}:${finding.line}`),
-    ['src/shared/scripts/old.py:2'],
+    checkAll(root, loadRequirements(root)).map((finding) => `${finding.file}:${finding.line}`),
+    ['src/shared/scripts/old.py:2', 'src/skf-campaign/scripts/shebang.py:3'],
   );
-  assert.match(findings[0].message, /requires-python = ">=3\.9" is below the Python minimum .*: declare ">=3\.11"/);
+});
+
+test('every requires-python header under src/ declares the Python minimum', () => {
+  const minimum = loadRequirements(REPO).data.tools.python.minimum;
+  const below = checkAll(REPO, loadRequirements(REPO)).filter((finding) => /requires-python/.test(finding.message));
+  assert.deepStrictEqual(below, [], `headers below ">=${minimum}"`);
 });
 
 for (const root of tmpRoots) fs.rmSync(root, { recursive: true, force: true });

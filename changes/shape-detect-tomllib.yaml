@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-analyze-source
+summary: |
+  The shape detection behind Analyze Source's auto-scope (`skf-shape-detect.py`) now reads `pyproject.toml` and `Cargo.toml` with Python's standard `tomllib` parser. On Python 3.9 and 3.10 it used a hand-written fallback that misread common manifests: a PEP 508 extra such as `requests[socks]` or a `]` in a trailing comment cut the dependency list short, and a dotted key such as `pest.workspace = true` lost its dependency, so a parser or framework dependency could go unseen and the repository get another shape. The fallback is gone, and the script needs Python 3.11 like every other helper. A grammar file below a library's `parsing/` or `parsers/` folder (sympy's `sympy/parsing/latex/LaTeX.g4`) no longer makes the repository a `language-reference`: it parses a format the library reads. A library such as sympy is classified by its other signals instead: `library-API` when its `pyproject.toml` has a `[project]` table, and with sympy's own manifest, which has none, auto-scope cannot classify it and switches to the interactive analysis instead of picking a wrong shape.
+issues: [562]

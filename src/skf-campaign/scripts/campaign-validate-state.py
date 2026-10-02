@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml", "jsonschema>=4.0"]
 # ///
 """Campaign Validate State — schema check for _campaign-state.yaml on disk.
