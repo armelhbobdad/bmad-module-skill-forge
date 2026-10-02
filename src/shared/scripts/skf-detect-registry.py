@@ -26,7 +26,10 @@ CLI:
 --files-from reads a file list: one path per line, relative to the source
 root, or a JSON list of paths; `-` reads it from stdin. A list that opens
 with `[` but is not a JSON list of strings is read line by line (a Next.js
-route such as `[slug]/page.tsx` can come first).
+route such as `[slug]/page.tsx` can come first). It also reads the listing
+skf-github-probe.py tree --out writes (the sibling in this folder), the
+tree.json skf-brief-skill stages in its run folder: a JSON object whose
+`tree` lists the paths; one whose `status` is not `ok` is a usage error.
 
 demo
 ----
@@ -263,11 +266,19 @@ def read_file_list(source: str) -> list[str]:
         except (OSError, UnicodeDecodeError) as exc:
             raise UsageError(f"cannot read file list {source}: {exc}") from exc
     items: object = None
-    if text.lstrip().startswith("["):
+    if text.lstrip().startswith(("[", "{")):
         try:
             items = json.loads(text)
         except ValueError:
             items = None
+    if isinstance(items, dict):
+        # skf-github-probe.py tree --out: the paths are its `tree`
+        if items.get("status", "ok") != "ok":
+            raise UsageError(f"file list {source} reports a failure ({items.get('status')}): "
+                             f"{items.get('message') or 'no message'}")
+        items = items.get("tree")
+        if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
+            raise UsageError(f"file list {source} holds no `tree` list of paths")
     if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
         items = text.splitlines()
     return list(dict.fromkeys(rel for rel in (_norm(item) for item in items) if rel))
@@ -785,7 +796,7 @@ def _build_parser() -> argparse.ArgumentParser:
     files = demo.add_mutually_exclusive_group(required=True)
     files.add_argument("--source-root", metavar="DIR", help="list the files under this folder")
     files.add_argument("--files-from", metavar="FILE",
-                       help="a file list: one path per line or a JSON list; - for stdin")
+                       help="a file list: one path per line, a JSON list or a tree listing; - for stdin")
     demo.add_argument("--brief", metavar="FILE", help="keep the files in this skill brief's scope")
     demo.add_argument("--pattern", action="append", metavar="GLOB",
                       help="a demo pattern (the brief's scope.demo_patterns or the user's); repeatable")
@@ -793,7 +804,8 @@ def _build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--kept-to", metavar="FILE", help="write the files no pattern matches here, as a JSON list")
     registry = sub.add_parser("registry", help="find and score the component registry candidates")
     registry.add_argument("--files-from", metavar="FILE",
-                          help="the filtered file list: one path per line or a JSON list; - for stdin")
+                          help="the filtered file list: one path per line, a JSON list or a tree listing; "
+                               "- for stdin")
     registry.add_argument("--source-root", metavar="DIR", help="the folder the listed paths are relative to")
     registry.add_argument("--path", metavar="FILE", help="score this file only (relative to --source-root)")
     registry.add_argument("--candidates-only", action="store_true",

@@ -101,5 +101,5 @@ Previously, each tool invocation in each calling stage carried its own copy of t
 ## Calling Workflows
 
 - `src/skf-create-skill/references/validate.md` — wraps `skill-check check --fix` (§2) and `split-body` (§4). Runs the optional post-restore re-validation.
-- `src/skf-update-skill/references/write.md` — wraps `skill-check check --fix` and `skill-check split-body --write` in §7. Does not run post-restore re-validation today; the post-write checks in §1 catch downstream issues.
+- `src/skf-update-skill/references/write.md`: wraps `skill-check check --fix` and `skill-check split-body --write` in §7, then re-checks the [MANUAL] blocks. Does not run post-restore re-validation.
 - `src/skf-quick-skill/references/write-and-validate.md`: wraps `skill-check check --fix` in §4, which also states the restore and empty-snapshot rules. With no guard helper it runs skill-check without `--fix`. Does not run post-restore re-validation.

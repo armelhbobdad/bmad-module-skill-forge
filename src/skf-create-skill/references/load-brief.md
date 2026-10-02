@@ -23,13 +23,13 @@ To load and validate the skill-brief.yaml compilation config, resolve the source
 ## Rules
 
 - Focus only on loading brief, resolving source, and determining tier — do not begin extraction or compilation
-- Write nothing but the brief's run folder (§0), the decisions recorded in it, and `batch_active: false` in `batch-state.yaml` when §2 finds a stale `--batch` checkpoint: this step loads and validates
+- Write nothing but the brief's run folder (§0) and the decisions recorded in it: this step loads and validates
 
 ## MANDATORY SEQUENCE
 
 ### 0. Start the Run Folder
 
-Every brief gets a run folder of its own, a `--batch` run's next brief included: the decisions recorded in it and the staged envelope payloads belong to this brief. Create it:
+Every brief gets a run folder of its own: the decisions recorded in it and the staged envelope payloads belong to this brief. Under `--batch`, `references/batch-mode.md` §2 created it and bound `{run_dir}`: go on to §1. Otherwise create it:
 
 ```bash
 mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-create-skill-XXXXXXXX"
@@ -72,15 +72,14 @@ Step 5 §7 renders the sink into the evidence report's `## Auto-Decisions` table
 - Otherwise, treat it as a skill name and search `{forge_data_folder}/{skill-name}/skill-brief.yaml`
 - If found, load it completely
 
-**If user invoked with --batch flag:**
-- Check `{sidecar_path}/batch-state.yaml` for an active batch checkpoint:
-  - If `batch_active: true`: validate the checkpoint before trusting it — both conditions below must hold:
-    1. `0 <= current_index < len(brief_list)` — the index points inside the recorded list.
-    2. `os.path.exists(brief_list[current_index])` — the brief file is still on disk.
-    If both hold, load the brief at `brief_list[current_index]` (resuming a batch loop from step 8). If **either** check fails, the checkpoint is stale (briefs renamed, moved, or deleted between runs; index off the end after a partial failure). Log a warning — "Stale batch checkpoint — current_index={i}, brief_list length={n}, brief_exists={bool}. Resetting and re-discovering." — then set `batch_active: false` in `batch-state.yaml` and fall through to the no-checkpoint branch below.
-  - If no checkpoint exists or `batch_active` is false: search specified directory for all `skill-brief.yaml` files, list discovered briefs with skill names, store list for batch loop processing, and load the FIRST brief
+**Under `--batch`:** `references/batch-mode.md` §2 handed out this brief as `{brief_path}`, after the validator checked every brief of the batch: load it.
 
-**Bind `{brief_path}`** ← the path of the `skill-brief.yaml` this section loaded: the path given, `{forge_data_folder}/{skill-name}/skill-brief.yaml` for a skill name, or under `--batch` the brief at `brief_list[current_index]` (the first brief discovered on a new batch), never the batch folder. Later steps hand it to their helpers (`--brief`, `amend --target`).
+**If no brief path, skill name or `--batch` was given:** list the files that match `{forge_data_folder}/*/skill-brief.yaml`, the brief in each skill's forge folder.
+- **One brief:** load it, and record the pick in the run sink per the Workflow Rules, in every mode: `{"step": "load-brief", "gate": "brief-selection", "decision": "only-brief", "value": "<its path>", "rationale": "no brief named; the only brief in forge_data_folder", "timestamp": "{ISO}"}`. §5's banner names it.
+- **Several briefs:** interactive, list each one by its skill name (its folder's name) and ask "Which brief should I compile?", then load the one the user names. **GATE [default: HALT]**: headless, ask nothing: **HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "No brief named, and {N} briefs are in `{forge_data_folder}`: {their skill names}. Pass the brief's path or skill name, or `--batch` to compile them all."
+- **None:** the halt below.
+
+**Bind `{brief_path}`** ← the path of the `skill-brief.yaml` this section loaded: the path given, `{forge_data_folder}/{skill-name}/skill-brief.yaml` for a skill name, the brief the list above gave, or under `--batch` the brief batch-mode.md handed out, never a folder. Later steps hand it to their helpers (`--brief`, `amend --target`).
 
 **If no brief found:**
 **HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "No skill brief found. Run [BS] Brief Skill to create one, or use [QS] Quick Skill for brief-less generation."
@@ -142,6 +141,7 @@ Display initialization summary:
 
 "**Forge initialized.**
 
+**Brief:** `{brief_path}`
 **Skill:** {name} v{version}
 **Source:** {source_repo} @ {branch}
 **Language:** {language}

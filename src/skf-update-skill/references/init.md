@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'detect-changes.md'
-manualSectionRulesFile: 'references/manual-section-rules.md'
 # Resolve `{hashContentHelper}` to the first existing path; HALT if neither
 # candidate exists: a [MANUAL] marker count by eye misses a truncated block.
 hashContentProbeOrder:
@@ -44,7 +43,7 @@ Load the existing skill and all its provenance data, detect whether this is an i
 ## Rules
 
 - Focus only on loading existing artifacts and establishing the baseline: read-only operations, except the flat-to-versioned migration in §1, the cleanup of an interrupted update §1b finds, and the private source tree §6b prepares (a folder of this run's own, never the shared workspace clone)
-- Do not begin change detection (Step 02)
+- Do not begin change detection (step 2)
 
 ## Steps
 
@@ -77,9 +76,9 @@ Provide either:
 - A skill name (resolves via version-aware path resolution — see `knowledge/version-paths.md`)
 - A full path to the skill folder
 - A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
-- `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the step 3 §0.a guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there, reads no signature, parameter list, return type or node kind there and counts no public API there, and step 3 §0.a halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does, and on every rescope; step 6 will NOT automatically re-pin
+- `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the step 3 §0.a guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there, reads no signature, parameter list, return type or node kind there and counts no public API there, and step 3 §0.a halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does, and on every rescope; step 5 will NOT automatically re-pin
 - `--allow-degraded` (headless mode only) to pre-authorize the lossy degraded full re-extraction if §4 finds no provenance map — without it, a headless run halts `blocked` there rather than silently rebuilding
-- `--target-ref <tag|branch|HEAD|commit>` (normal mode, a skill forged from a remote repository) to read that ref's current commit instead of the skill's recorded `source_ref` (for example the `upstream_ref` an audit reports). When the update writes, step 6 records the ref as the new `source_ref` together with the commit it read. `HEAD` follows the remote's default branch; a full 40-character commit pins that commit
+- `--target-ref <tag|branch|HEAD|commit>` (normal mode, a skill forged from a remote repository) to read that ref's current commit instead of the skill's recorded `source_ref` (for example the `upstream_ref` an audit reports). When the update writes, step 5 records the ref as the new `source_ref` together with the commit it read. `HEAD` follows the remote's default branch; a full 40-character commit pins that commit
 - `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
 - `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact, and a re-extract halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it
 
@@ -87,7 +86,7 @@ Provide either:
 
 **Version-Aware Path Resolution:**
 1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
-2. If found: **Manifest-lag guard.** Also read the `active` link at `{skills_output_folder}/{skill-name}/active`. When it resolves to a different version than `active_version`, bind `{active_version}` to the link's target version instead and show an Info note: "manifest active_version {M} lags the active link {N} — updating {N}, the version the last update or forge wrote; run export-skill to publish it." The manifest advances only when export-skill runs, while every update that writes makes a new version and points `active` at it (step 6 §5b): a manifest-first read would update the previous version again, and step 4 §6b would then stop at the version folder the last update created. Resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` (see `knowledge/version-paths.md` "Reading Workflows")
+2. If found: **Manifest-lag guard.** Also read the `active` link at `{skills_output_folder}/{skill-name}/active`. When it resolves to a different version than `active_version`, bind `{active_version}` to the link's target version instead and show an Info note: "manifest active_version {M} lags the active link {N}: updating {N}, the version the last update or forge wrote; run export-skill to publish it." The manifest advances only when export-skill runs, while every update that writes makes a new version and points `active` at it (step 5 §8): a manifest-first read would update the previous version again, and step 4 §6b would then stop at the version folder the last update created. Resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` (see `knowledge/version-paths.md` "Reading Workflows")
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — bind `{active_version}` to the version it names and resolve to `{skill_group}/active/{skill-name}/`
 4. If neither: fall back to the flat path `{skills_output_folder}/{skill-name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
    - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
@@ -118,9 +117,9 @@ Pass `--version` only when steps 1-3 above bound `{active_version}` (the flat fa
 
 **If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; §6b passes it to `{sourceTreeHelper}`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect, since gap-driven mode repairs the skill at its pinned commit, so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report`: gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}`; when §4b switches a run to gap-driven mode, it unsets it with the same warning.
 
-**If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes, jump directly to step 7 (report) — skip re-extract, merge, validate, and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before §0.a runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only` — workspace drift guard runs in step 3 §0.a, which is skipped").
+**If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes, jump directly to step 6 (report): skip re-extract, merge and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before §0.a runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only`: the workspace drift guard runs in step 3 §0.a, which is skipped").
 
-**If `--dry-run` was provided:** set `dry_run_mode: true` in workflow context. After step 3 (re-extract) completes, jump directly to step 7 (report): skip merge, validate, and write. The report emits what would change with `status: "dry-run"` in the envelope. No artifact on disk is modified, in any mode (a repair from a test report and a docs-only skill included), and step 2 reports each skill brief amendment it would make as proposed instead of writing it: `--dry-run` is the "show me what an update would do without committing" mode.
+**If `--dry-run` was provided:** set `dry_run_mode: true` in workflow context. After step 3 (re-extract) completes, jump directly to step 6 (report): skip merge and write. The report emits what would change with `status: "dry-run"` in the envelope. No artifact on disk is modified, in any mode (a repair from a test report and a docs-only skill included), and step 2 reports each skill brief amendment it would make as proposed instead of writing it: `--dry-run` is the "show me what an update would do without committing" mode.
 
 **If BOTH `--detect-only` AND `--dry-run` were provided:** `--detect-only` wins (it's the more restrictive). Warn the user once: "`--detect-only` supersedes `--dry-run`; re-extract is skipped." Set `detect_only_mode: true`, ignore `dry_run_mode`.
 
@@ -128,7 +127,7 @@ Pass `--version` only when steps 1-3 above bound `{active_version}` (the flat fa
 
 **Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true.** Both inspection modes are read-only, and the private source tree §6b prepares for them never writes to the shared workspace clone.
 
-Two concurrent `skf-update-skill` runs against the same `{forge_data_folder}/{skill_name}/` can corrupt provenance: one would write metadata.json mid-way through the other's extraction. The run lock is separate from the `.skf-workspace.lock` on the source clone, which only write.md §6b takes.
+Two concurrent `skf-update-skill` runs against the same `{forge_data_folder}/{skill_name}/` can corrupt provenance: one would write metadata.json mid-way through the other's extraction. The run lock is separate from the `.skf-workspace.lock` on the source clone, which only write.md §9 takes.
 
 Resolve `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`; it stays bound for the rest of the run. The lock's owner carries this run's `{run_id}`, the name of its run folder, so a later update that finds the lock stale knows which run folder holds what this run wrote. From `{project-root}`, run:
 
@@ -159,9 +158,9 @@ It finds that run's folder by the run id in the owner (`update-skill:{skill_name
 
 **Release contract:**
 
-- Every exit after this section releases the lock, so a run that halts does not block the next one: step 8 on a run that reaches it, and every other exit through the halt procedure of the step file it fires in: in this step §2's ABORTs, the Stack Skill Guard, §3, the §4 and §6 halts and the §6b source tree halts, and every later step's halts through their own. The release never stops on the result: when it fails or prints no JSON, the halt helper adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to its envelope's `warnings[]`. A release deletes the lock only while `{lock_owner}` holds it, so it never removes a lock another run took; the read-only modes take no lock and release none.
+- Every exit after this section releases the lock, so a run that halts does not block the next one: step 7 on a run that reaches it, and every other exit through the halt procedure of the step file it fires in: in this step §2's ABORTs, the Stack Skill Guard, §3, the §4 and §6 halts and the §6b source tree halts, and every later step's halts through their own. The release never stops on the result: when it fails or prints no JSON, the halt helper adds `run-lock-not-released: {forge_data_folder}/{skill_name}/.skf-update.lock` to its envelope's `warnings[]`. A release deletes the lock only while `{lock_owner}` holds it, so it never removes a lock another run took; the read-only modes take no lock and release none.
 - A crashed or killed run leaves its lock until it goes stale. A run that waits at a gate past that time can lose its lock to the next update, so merge.md §6b and write.md §2 renew the lock before the run writes the skill, and halt `halted-for-concurrent-run` when this run no longer holds it.
-- The private source tree §6b prepares has its own contract: step 8 removes it, every HALT or ABORT after §6b removes it first (the halt procedure of its step file), and a later run's §6b removes a tree a crashed or abandoned run left behind once it is seven days old.
+- The private source tree §6b prepares has its own contract: step 7 removes it, every HALT or ABORT after §6b removes it first (the halt procedure of its step file), and a later run's §6b removes a tree a crashed or abandoned run left behind once it is seven days old.
 
 ### 2. Validate Required Artifacts
 
@@ -207,7 +206,7 @@ After loading metadata.json, check `skill_type`:
 
 ### 4. Load Provenance Map
 
-**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path found. Do not load the map into context: the steps that need it read the file themselves (step 2's helpers, step 3's spot-checks and step 6's `apply`). Read from it only what §7 shows: the number of `entries[]` (`{export_count}`) and the provenance age, the days since its `last_update`, else its `generated_at`.
+**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path found. Do not load the map into context: the steps that need it read the file themselves (step 2's helpers, step 3's spot-checks and step 5's `apply`). Read from it only what §7 shows: the number of `entries[]` (`{export_count}`) and the provenance age, the days since its `last_update`, else its `generated_at`.
 
 **If provenance map missing at both paths:**
 
@@ -261,24 +260,22 @@ The report is **unconsumed** when `status` is `found`, `report_exists` is true, 
   - **[S]:** keep normal mode and add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`.
 - **Headless (`{headless_mode}` true):** keep normal mode, the mode the caller asked for, and add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`. It is a notice, not a gate the run resolves: no `headless_decisions[]` entry.
 
-While `{unconsumed_test_report}` stays bound, step 7's no-change report points to it instead of saying no action is required.
+While `{unconsumed_test_report}` stays bound, step 6's no-change report points to it instead of saying no action is required.
 
 ### 5. Load [MANUAL] Section Inventory
 
-Load {manualSectionRulesFile} to understand [MANUAL] detection patterns (the human-readable rules for markers, parent-section mapping, and orphan/nesting handling).
-
-**Capture the [MANUAL] inventory deterministically.** The workflow's headline rule is "[MANUAL] sections survive regeneration with zero content loss" — the pre-write inventory captured here is the exact baseline that write.md §1 and validate.md Check B verify against, so it must be a per-block byte-exact hash, not an eyeballed marker count. Run the `manual-inventory` subcommand of `{hashContentHelper}` and persist its JSON beside the §1b lock, never in a version folder: an update that writes leaves the previous version's folders unchanged (step 4 §6b).
+**Capture the [MANUAL] inventory deterministically.** The workflow's headline rule is "[MANUAL] sections survive regeneration with zero content loss", and the pre-write inventory captured here is the exact baseline step 4 §4 amends with the user's decisions and write.md §1 verifies against, so it must be a per-block byte-exact hash, not an eyeballed marker count. Run the `manual-inventory` subcommand of `{hashContentHelper}` and persist its JSON beside the §1b lock, never in a version folder: an update that writes leaves the previous version's folders unchanged (step 4 §6b).
 
 ```bash
 uv run {hashContentHelper} manual-inventory {resolved_skill_package}/SKILL.md \
     > {forge_data_folder}/{skill_name}/.skf-update-manual-inventory.json
 ```
 
-When `detect_only_mode` or `dry_run_mode` is true, run the same command without the redirect and read its output instead: those modes write nothing and never verify the inventory. The emitted JSON is `{"blocks":[{name, content_hash, byte_offset, parent_heading}...], "count":N}` — each `content_hash` covers the block's byte-exact interior, so a later interior truncation that leaves the marker count unchanged is still caught. Bind the persisted path as `{manual_inventory}` in context (the read-only modes bind none); write.md §1 and validate.md Check B pass it to `manual-verify`. Surface the block `count` in the baseline summary (§7 `{manual_count}`).
+When `detect_only_mode` or `dry_run_mode` is true, run the same command without the redirect and read its output instead: those modes write nothing and never verify the inventory. The emitted JSON is `{"blocks":[{name, content_hash, byte_offset, parent_heading}...], "count":N}`: each `content_hash` covers the block's byte-exact interior, so a later interior truncation that leaves the marker count unchanged is still caught. Bind the persisted path as `{manual_inventory}` in context (the read-only modes bind none); step 4 §4 amends it and rebinds `{manual_inventory}` to the amended copy that later `manual-verify` calls read. Surface the block `count` in the baseline summary (§7 `{manual_count}`).
 
 ### 6. Resolve the Source
 
-Bind the source fields from the `metadata.json` loaded in §2 — the provenance map does not carry `source_root`: `{source_root}` ← `source_root`, `{source_repo}` ← `source_repo`, `{source_ref}` ← `source_ref` and `{source_commit}` ← `source_commit`, each an empty string when the field is null or missing. `{source_ref}` and `{source_commit}` keep these values for the whole run: step 6 records any new commit in the artifacts only.
+Bind the source fields from the `metadata.json` loaded in §2 (the provenance map does not carry `source_root`): `{source_root}` ← `source_root`, `{source_repo}` ← `source_repo`, `{source_ref}` ← `source_ref` and `{source_commit}` ← `source_commit`, each an empty string when the field is null or missing. `{source_ref}` and `{source_commit}` keep these values for the whole run: step 5 records any new commit in the artifacts only.
 
 - **Docs-only skill** (`source_type: "docs-only"` in the brief or metadata.json, as step 3 §1 checks): there is no source tree. Skip §6b, §6c and the path check below. If `{target_ref_override}` is set, HALT as §6b's **Every §6b HALT** describes, with `{source_tree_reason}` = `target-ref-needs-remote-source` and `{source_tree_message}` = "`--target-ref` applies only to a skill forged from a remote repository".
 - **Gap-driven mode** (`update_mode` is `gap-driven`): a repair reads the commit the skill is pinned to, and step 3 §0.a checks that `{source_root}` holds it before reading anything. Skip §6b and §6c and run the path check below.
@@ -299,7 +296,7 @@ Bind `{source_root}` to the path the user gives.
 
 ### 6b. Prepare the Source Tree
 
-A skill forged from a remote repository at Forge tier or above records, as its `source_root`, the clone SKF keeps for that repository. Every SKF run on the repository shares that clone and leaves it at the commit it needed, so this run never reads it as it stands. `{sourceTreeHelper}` gives the run a private tree at one commit — the commit `{source_ref}` points to upstream now, or the tag, branch, `HEAD` or commit `--target-ref` names — and lists the files git changed between `{source_commit}` and that commit. Change detection, re-extraction, merge's file copies and write's citation check all read that tree. The helper never writes to the shared clone — step 6 moves the clone at the end of a real update — so this section runs in every mode.
+A skill forged from a remote repository at Forge tier or above records, as its `source_root`, the clone SKF keeps for that repository. Every SKF run on the repository shares that clone and leaves it at the commit it needed, so this run never reads it as it stands. `{sourceTreeHelper}` gives the run a private tree at one commit (the commit `{source_ref}` points to upstream now, or the tag, branch, `HEAD` or commit `--target-ref` names) and lists the files git changed between `{source_commit}` and that commit. Change detection, re-extraction, merge's file copies and write's citation check all read that tree. The helper never writes to the shared clone (step 5 moves the clone at the end of a real update), so this section runs in every mode.
 
 Resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`. Bind `{tree_timeout}` to the seconds the helper may take: `100` when your shell tool stops a command after two minutes or you do not know its limit, otherwise a little under that limit, such as `540` under a 10-minute limit: a first fetch of a large repository is slow. The helper stops itself within `--timeout` seconds and still prints its result, so give the command a shell timeout longer than `{tree_timeout}`. From `{project-root}`, run:
 
@@ -344,7 +341,7 @@ uv run {skillInventoryHelper} version order "{the source's version}" "{version}"
 
 It prints `order` and `major_minor` (the source's version against `{version}`) and `a.normalized` (the source's version as a version folder name). Never compare the two by hand.
 
-- **`order` is `higher`** (a higher semantic version than the metadata.json `version`): bind `{source_version_detected}` ← `a.normalized`. Step 4 §6b and step 6 §2 name the version this update writes after it.
+- **`order` is `higher`** (a higher semantic version than the metadata.json `version`): bind `{source_version_detected}` ← `a.normalized`. Step 4 §6b and step 5 §2 name the version this update writes after it.
 - **Otherwise** leave `{source_version_detected}` unset. When `major_minor` is `lower`, add `source-version-lower: {target_ref} reads {a.normalized}, older than {version}; this update keeps the patch-version rule` to `warnings[]`. A source version lower only in its patch number is expected, not a regression: every update that finds no higher version increments the skill's patch number (step 4 §6b), so a skill forged at the source's 1.2.0 is 1.2.1 after one update while the source still reads 1.2.0.
 - **Exit 1** (`code` `NOT_A_VERSION`: a value that names no version, such as a dynamic version in `pyproject.toml`), **no candidate, or no JSON:** leave `{source_version_detected}` unset: step 4 §6b takes the next patch version.
 
@@ -381,13 +378,13 @@ It prints `order` and `major_minor` (the source's version against `{version}`) a
 - `offline`: `{source_commit} (upstream not reached — comparing the pinned commit only)`;
 - any other source: `{source_commit} (read as it stands)`.
 
-Steps 6 and 7 reuse `{source_display}` and `{source_commit_line}`.
+Steps 5 and 6 reuse `{source_display}` and `{source_commit_line}`.
 
 ### 8. Confirmation Gate
 
 Present "**Select:** [C] Continue to Change Detection" and wait for the user to confirm; on [C], load, read the full file, then execute {nextStepFile}.
 
-**Headless (`{headless_mode}` true):** auto-continue and record the decision in the run's decision log, from `{project-root}` (the emitter checks it against `shared/scripts/schemas/skf-update-result-envelope.v1.json`, and step 7's line carries it):
+**Headless (`{headless_mode}` true):** auto-continue and record the decision in the run's decision log, from `{project-root}` (the emitter checks it against `shared/scripts/schemas/skf-update-result-envelope.v1.json`, and step 6's line carries it):
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'

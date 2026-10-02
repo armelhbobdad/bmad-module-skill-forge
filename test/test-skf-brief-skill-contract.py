@@ -12,9 +12,15 @@ that can raise one. The emitter takes only strings, so a helper warning
 that is a {field, message} object goes in as one `field: message` line.
 
 #585 (brief part): on_complete runs right after the envelope on the [auto]
-approve paths (step-auto-validate.md section 4), as it does in
-write-brief.md section 6b; the local health-check relay stays a pure
-relay, and customize.toml names both places.
+path (step-auto-validate.md section 3), as it does in write-brief.md
+section 6b; the local health-check relay stays a pure relay, and
+customize.toml names both places.
+
+#599 (brief part): a pipeline always runs BS[auto] headless, so the [auto]
+validation step asks nothing: its approve, edit and reject menu is gone.
+#594 and #600 (brief part): the headless input gate (headless-args.md) and
+the ratify route (gather-intent-ratify.md) left gather-intent.md, so their
+halts and the validators' warnings are pinned where they now live.
 
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
@@ -43,6 +49,9 @@ AUTO_BRIEF = REFERENCES / "step-auto-brief.md"
 AUTO_VALIDATE = REFERENCES / "step-auto-validate.md"
 ANALYZE_TARGET = REFERENCES / "analyze-target.md"
 GATHER_INTENT = REFERENCES / "gather-intent.md"
+HEADLESS_ARGS = REFERENCES / "headless-args.md"
+RATIFY = REFERENCES / "gather-intent-ratify.md"
+SCOPE_DEFINITION = REFERENCES / "scope-definition.md"
 HEALTH_CHECK = REFERENCES / "health-check.md"
 QMD_REGISTRATION = REFERENCES / "qmd-collection-registration.md"
 PORTFOLIO_CHECK = REFERENCES / "portfolio-similarity-check.md"
@@ -60,7 +69,10 @@ HEREDOC_RE = re.compile(r"<<'(?P<tag>[A-Z_]+)'\n(?P<body>.*?)\n(?P=tag)\n", re.D
 # The halt command each halt site names, with its halt_reason beside it.
 HALT_CALL = "`uv run {emitBriefEnvelopeHelper} emit --target stderr`"
 # The step files whose halts call the emitter where they stop.
-HALT_SITE_FILES = (GATHER_INTENT, ANALYZE_TARGET, AUTO_BRIEF, AUTO_VALIDATE, WRITE_BRIEF)
+HALT_SITE_FILES = (GATHER_INTENT, HEADLESS_ARGS, RATIFY, ANALYZE_TARGET, SCOPE_DEFINITION, AUTO_BRIEF, AUTO_VALIDATE,
+                   WRITE_BRIEF)
+# The [auto] success path: the envelope, the hook, the run folder's removal, the chain.
+AUTO_SUCCESS = "### 3. Envelope, Hook and Chain"
 HALT_LINE_RE = re.compile(r'halt_reason: "(?P<reason>[a-z-]+)".*\bHALT\b.*?exit code (?P<code>\d+)')
 HOOK_CALL = "{onCompleteCommand} --result-path={brief_path}"
 # A warning with a single quote, which would end an `echo '...'` payload.
@@ -270,8 +282,9 @@ def test_every_halt_site_emits_its_envelope_before_it_stops():
             # The envelope first, then the halt.
             assert re.search(re.escape(HALT_CALL) + r".*\bthen (?:HARD )?HALT\b", line), where
             assert int(match.group("code")) == SETTINGS["exit_codes"][match.group("reason")], where
-    # gather-intent 5, analyze-target 5, step-auto-brief 4, step-auto-validate 2, write-brief 3
-    assert sites == 19, sites
+    # gather-intent 3, gather-intent-ratify 2, analyze-target 5, scope-definition 1, step-auto-brief 4,
+    # step-auto-validate 2, write-brief 3 (headless-args.md's one halt names the validator's halt_reason)
+    assert sites == 20, sites
 
 
 def test_write_brief_points_step_one_halts_at_the_halt_contract():
@@ -283,15 +296,20 @@ def test_write_brief_points_step_one_halts_at_the_halt_contract():
 def test_step_one_halts_emit_in_headless_and_auto_mode_alike():
     """The Halt Contract fires on {headless_mode} or {auto_mode}: no step 1 halt narrows it to headless,
     points at write-brief.md section 4b or restates the `unknown` placeholder rule."""
-    text = _read(GATHER_INTENT)
-    assert "In headless mode, emit" not in text
-    assert "§4b" not in text and "step 5 section 4b" not in text and "placeholder convention" not in text
-    [auto] = [line for line in text.splitlines() if "brief_path` is not available" in line]
+    step_one = (GATHER_INTENT, HEADLESS_ARGS, RATIFY)
+    for path in step_one:
+        text = _read(path)
+        assert "In headless mode, emit" not in text, path.name
+        assert "§4b" not in text and "step 5 section 4b" not in text and "placeholder convention" not in text
+    [auto] = [line for line in _read(GATHER_INTENT).splitlines() if "brief_path` is not available" in line]
     assert HALT_CALL in auto and '`halt_reason: "input-missing"`' in auto and '`"auto"`' in auto
-    # The validators' {field, message} warnings reach the envelope as one line each.
-    valid = [line for line in text.splitlines() if line.lstrip().startswith("- **`valid: true`**")]
-    headless = [line for line in valid if "workflow_warnings[]" in line]
-    assert len(headless) == 2 and all(f"`{OBJECT_WARNING}`" in line for line in headless), valid
+    # The validators' {field, message} warnings reach the envelope as one line each: the input
+    # validator's in the headless input gate, the schema validator's in the ratify route.
+    for path in (HEADLESS_ARGS, RATIFY):
+        valid = [line for line in _read(path).splitlines() if line.lstrip().startswith("- **`valid: true`**")]
+        assert len(valid) == 1 and "workflow_warnings[]" in valid[0], (path.name, valid)
+        assert f"`{OBJECT_WARNING}`" in valid[0], path.name
+    assert "- **`valid: true`**" not in _read(GATHER_INTENT)
 
 
 # --------------------------------------------------------------------------
@@ -303,7 +321,7 @@ def test_step_one_halts_emit_in_headless_and_auto_mode_alike():
     "path,heading,mode",
     [
         pytest.param(WRITE_BRIEF, "### 4b. Result Envelope (Headless)", None, id="write-brief"),
-        pytest.param(AUTO_VALIDATE, "### 4. [A]pprove Path", "auto", id="auto-approve"),
+        pytest.param(AUTO_VALIDATE, AUTO_SUCCESS, "auto", id="auto"),
     ],
 )
 def test_success_envelope_carries_the_run_warnings(path, heading, mode):
@@ -341,8 +359,7 @@ def test_a_validator_warning_reaches_every_envelope_as_one_line(validator_warnin
     proc = _emit(_fill(halt, halt_reason="input-invalid", mode="auto", warnings=[line]), "--target", "stderr")
     assert proc.returncode == 0, proc.stderr
     assert _envelope(proc.stderr.strip())["warnings"] == [line]
-    for path, heading in ((WRITE_BRIEF, "### 4b. Result Envelope (Headless)"),
-                          (AUTO_VALIDATE, "### 4. [A]pprove Path")):
+    for path, heading in ((WRITE_BRIEF, "### 4b. Result Envelope (Headless)"), (AUTO_VALIDATE, AUTO_SUCCESS)):
         _, body = _heredoc(_section(_read(path), heading), "SKF_BRIEF_RESULT")
         proc = _emit(_fill(body, warnings=[line]))
         assert proc.returncode == 0, f"{path.name}: {proc.stderr}"
@@ -378,16 +395,12 @@ def test_qmd_registration_never_halts_after_the_write():
 # --------------------------------------------------------------------------
 
 
-def test_auto_approve_runs_on_complete_right_after_the_envelope():
-    text = _read(AUTO_VALIDATE)
-    approve = _section(text, "### 4. [A]pprove Path")
+def test_auto_path_runs_on_complete_right_after_the_envelope():
+    approve = _section(_read(AUTO_VALIDATE), AUTO_SUCCESS)
     envelope = approve.index("<<'SKF_BRIEF_RESULT'")
     hook = approve.index(HOOK_CALL)
     chain = approve.index("Chain to {nextStepFile}")
     assert envelope < hook < chain
-    edit = _section(text, "### 5. [E]dit Path")
-    [approve_after_edit] = [line for line in edit.splitlines() if line.startswith("- `[A]`")]
-    assert "§4" in approve_after_edit and "on_complete" in approve_after_edit
 
 
 def test_hook_runs_in_write_brief_and_auto_approve_only():
@@ -400,7 +413,7 @@ def test_hook_runs_in_write_brief_and_auto_approve_only():
 
 def test_hook_failure_is_displayed_after_the_envelope():
     for path, heading in ((WRITE_BRIEF, "### 6b. On-Complete Hook (pipeline integration)"),
-                          (AUTO_VALIDATE, "### 4. [A]pprove Path")):
+                          (AUTO_VALIDATE, AUTO_SUCCESS)):
         section = _section(_read(path), heading)
         assert "`on_complete hook failed (exit {code}): {first line of its stderr}`" in section, path.name
         assert "does not carry this line" in section, path.name
@@ -411,20 +424,29 @@ def test_customize_toml_names_both_hook_sites():
     text = _read(CUSTOMIZE)
     comment = text[:text.index('on_complete = ""')].rstrip().rsplit("\n\n", 1)[-1]
     flat = " ".join(line.lstrip("#").strip() for line in comment.splitlines())
-    for needle in ("write-brief.md §6b", "step-auto-validate.md §4", "[auto]", "[A]pprove",
+    for needle in ("write-brief.md §6b", "step-auto-validate.md §3", "[auto]", "a shell command",
                    "on_complete hook failed",
                    # An interactive run outside [auto] prints no envelope.
                    "once the brief is written (and, in a headless or [auto] run, the result envelope is printed)"):
         assert needle in flat, needle
     assert "step 5)" not in comment and "workflow_warnings" not in comment
     [line] = [line for line in _read(SKILL_MD).splitlines() if "`{onCompleteCommand}` ←" in line]
-    assert "write-brief.md §6b" in line and "step-auto-validate.md §4" in line
+    assert "write-brief.md §6b" in line and "step-auto-validate.md §3" in line
 
 
-def test_reject_leaves_auto_mode_before_the_interactive_chain():
-    reject = _section(_read(AUTO_VALIDATE), "### 6. [R]eject Path")
-    leave = reject.index("set `{auto_mode}` to false")
-    assert leave < reject.index("Chain to {rejectTargetFile}")
+def test_the_auto_validation_step_asks_nothing():
+    """#599: the forger runs every pipeline stage headless, so BS[auto] never reached the approve, edit and
+    reject menu. The step checks, summarizes and goes on, and no file promises the menu any more."""
+    text = _read(AUTO_VALIDATE)
+    for gone in ("[E]dit", "[R]eject", "rejectTargetFile", "writeSkillBriefProbeOrder", "Validation Gate"):
+        assert gone not in text, gone
+    headings = re.findall(r"^### (\d+)\. ", text, re.M)
+    assert headings == ["1", "2", "3"], headings
+    for path in (SKILL_MD, CONTRACT, CUSTOMIZE, AUTO_BRIEF, WRITE_BRIEF):
+        body = _read(path)
+        assert "[R]eject" not in body and "step-auto-validate.md §4" not in body, path.name
+    [row] = [line for line in _read(SKILL_MD).splitlines() if "references/step-auto-validate.md" in line]
+    assert row.rstrip().endswith("| Yes |"), row
 
 
 def test_ratify_version_line_names_the_r_pass():

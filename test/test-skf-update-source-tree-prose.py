@@ -50,8 +50,8 @@ And they pin the helpers update-skill hands its deterministic work to:
 - skf-skill-inventory.py `version` compares the source's version in init.md
   and gives merge.md the next patch version;
 - the verifier's `definition-lines` finds the spot-check's definition lines,
-  its `kind-at` looks up node kinds in write.md §2 and §6a, its `fix`
-  applies §6a's citation and line fixes, and §6a skips the export set diff
+  its `kind-at` looks up node kinds in write.md §2 and §6, its `fix`
+  applies §6's citation and line fixes, and §6 skips the export set diff
   for a reference app, both through the helper and in the by-hand fallback;
 - every path a documented helper call passes sits in double quotes;
 - re-extract's Forge tier runs the recipe runner (skf-extract-public-api.py
@@ -79,7 +79,20 @@ And how a run reads a test report and detects drift through scripts:
   step 3 reuses, and skf-structural-diff.py, in order A, B, C, and §3's
   build maps them; §1b comes from skf-resolve-authoritative-files.py resolve
   --provenance-map; the helpers pass their JSON through one run folder,
-  which step 8 removes, and every documented call runs as written.
+  which step 7 removes, and every documented call runs as written.
+
+And the leaner stage chain (#599, #600, #596 update parts):
+
+- there is no validate stage: merge chains to write, skill-check runs once,
+  in write.md §7, which re-checks the [MANUAL] blocks after its edits; the
+  active link moves to the new version only after §6 and §7, the last
+  checks that can halt, and §10 then closes the rollback window; the report
+  reads the Validation Summary write.md recorded;
+- the headless contract lives in references/invocation-contract.md, its
+  Gates row lists the gates the stages raise, and every step and section
+  the stage files cite exists under the Stages table's numbering;
+- persistent_facts keeps its project-context.md default with a documented
+  way to drop it, and the one static rule file holds no copy of merge.md.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -114,6 +127,7 @@ WRITE = REFS / "write.md"
 REPORT = REFS / "report.md"
 HEALTH = REFS / "health-check.md"
 SKILL = UPDATE / "SKILL.md"
+CONTRACT = REFS / "invocation-contract.md"
 HELPER = SRC / "shared" / "scripts" / "skf-source-tree.py"
 STATS_HELPER = SRC / "shared" / "scripts" / "skf-render-metadata-stats.py"
 SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-update-result-envelope.v1.json"
@@ -244,8 +258,8 @@ def _skill_binding(name: str) -> str:
     return re.search(r"`\{project-root\}/(src/[^`]+\.py)`", line).group(1)
 
 
-def _write_6b() -> str:
-    return _slice(_read(WRITE), "### 6b. Move the Workspace Clone", "### 7.")
+def _write_9() -> str:
+    return _slice(_read(WRITE), "### 9. Move the Workspace Clone", "### 10.")
 
 
 # --------------------------------------------------------------------------
@@ -293,7 +307,7 @@ def test_init_6_reads_metadata():
 def test_init_6b_flags_match_parser():
     open_flags = set(FLAG_RE.findall(_fence(_init_6b(), "uv run {sourceTreeHelper} open")))
     assert open_flags == _subparser_flags("open")
-    advance_flags = set(FLAG_RE.findall(_fence(_write_6b(), "uv run {sourceTreeHelper} advance")))
+    advance_flags = set(FLAG_RE.findall(_fence(_write_9(), "uv run {sourceTreeHelper} advance")))
     assert advance_flags <= _subparser_flags("advance")
     assert _subparser_flags("advance") - advance_flags == {"--lock-timeout"}
     health = _read(HEALTH)
@@ -321,12 +335,12 @@ def test_init_6b_binds_every_consumed_field(tmp_path):
         text = _read(path)
         for flag in flags:
             assert flag in text, (path.name, flag)
-    write_6b = _write_6b()
+    write_9 = _write_9()
     result = helper.advance(helper._build_parser().parse_args(
         ["advance", "--clone", str(tmp_path / "c"), "--source-repo", "acme/lib", "--target", "xyz"]))
     assert result["skip_reason"] == "invalid-target"
     for flag, field in ADVANCE_BINDINGS.items():
-        assert f"`{flag}` ← `{field}`" in write_6b, flag
+        assert f"`{flag}` ← `{field}`" in write_9, flag
         assert field in result, field
 
 
@@ -352,7 +366,7 @@ def test_init_6b_reasons_and_time_limit():
     assert "Bind `{tree_timeout}`" in six_b and "`100`" in six_b
     assert "longest timeout your shell tool allows" not in _read(INIT)
     assert '--timeout "{tree_timeout}"' in _fence(six_b, "uv run {sourceTreeHelper} open")
-    assert '--timeout "{tree_timeout}"' in _fence(_write_6b(), "uv run {sourceTreeHelper} advance")
+    assert '--timeout "{tree_timeout}"' in _fence(_write_9(), "uv run {sourceTreeHelper} advance")
     assert "skf-source-tree.py did not finish" in six_b and "did not run" not in six_b
     assert "whatever the letter case of those folder names" in six_b
     assert "letter case does not matter" not in six_b
@@ -629,11 +643,11 @@ def test_write_records_commit_and_never_writes_tree():
     assert "**Source commit:** {source_commit_line}" in four
 
 
-def test_write_6b_advance_contract():
+def test_write_9_advance_contract():
     text = _read(WRITE)
-    marks = [text.index("### 6a."), text.index("### 6b. Move the Workspace Clone"), text.index("### 7.")]
+    marks = [text.index("### 8a."), text.index("### 9. Move the Workspace Clone"), text.index("### 10.")]
     assert marks == sorted(marks)
-    six_b = _write_6b()
+    six_b = _write_9()
     command = _fence(six_b, "uv run {sourceTreeHelper} advance")
     for token in ('--expect-commit "{source_commit}"', '--target "{target_commit}"',
                   '--hygiene-helper "{cccGitHygieneHelper}"', '--drift-helper "{checkWorkspaceDriftHelper}"',
@@ -711,20 +725,21 @@ def test_health_check_removes_tree_every_mode(tmp_path):
 
 def test_skill_md_contract():
     text = _read(SKILL)
-    flags = _slice(text, "| **Flags** |", "\n")
+    contract = _read(CONTRACT)
+    flags = _slice(contract, "| **Flags** |", "\n")
     assert "`--target-ref <ref>`" in flags
     # One sentence for the caller: init.md §1b holds the lock's owner, stale time, renewals and releases.
-    concurrency = _slice(text, "| **Concurrency** |", "\n")
+    concurrency = _slice(contract, "| **Concurrency** |", "\n")
     for token in ("A second real update of the same skill halts `halted-for-concurrent-run` while the first holds "
                   "its run lock (init.md §1b)", "`--detect-only` and `--dry-run` take no lock"):
         assert token in concurrency, token
     for gone in ("PID", "self-heal", "minutes", "renews", "\u2014"):
         assert gone not in concurrency, gone
-    assert "no mode writes to the shared workspace clone before write.md §6b" in concurrency
+    assert "no mode writes to the shared workspace clone before write.md §9" in concurrency
     rules = _slice(text, "## Workflow Rules", "## Stages")
     assert "source-tree-missing" in rules and "reads nothing from its output" not in rules
     # The halt-time cleanup sits where halts fire (#593): each step file's halt procedure, which SKILL.md names
-    rule = _slice(rules, "- Every HALT, ABORT or other exit before step 8", "\n")
+    rule = _slice(rules, "- Every HALT, ABORT or other exit before step 7", "\n")
     assert "runs the **Halt procedure** of the step file it fires in" in rule
     assert "`{runStateHelper}` `halt` call" in rule
     assert 'close --tree "{source_tree}"' not in rules and "{runLockHelper}" not in rules
@@ -923,8 +938,8 @@ def test_run_lock_replaces_the_pid_guard():
     assert (write.index("### 2. Write Updated metadata.json") < write.index("**Renew the run lock first:**")
             < write.index("Update `{skill_package}/metadata.json`:") < write.index("### 3."))
     rule = _slice(_slice(_read(SKILL), "## Workflow Rules", "## Stages"),
-                  "- Every HALT, ABORT or other exit before step 8", "\n")
-    assert "releases the run lock" in rule and "A halt never falls through to step 7" in rule
+                  "- Every HALT, ABORT or other exit before step 7", "\n")
+    assert "releases the run lock" in rule and "A halt never falls through to step 6" in rule
     for path in STEP_FILES:
         procedure = _halt_procedure(path)
         assert "`run-lock-not-released`" in procedure, path.name
@@ -957,7 +972,9 @@ def test_run_lock_replaces_the_pid_guard():
     status = props["status"]["description"]
     for token in ("'init:concurrency-guard'", "'merge:run-lock' or 'write:run-lock'", "'run-lock-lost: ...'",
                   "never a PID",
-                  "after write.md §6a's provenance fixes (both error.phase 'write:verify-manual-integrity')"):
+                  "after write.md §6's provenance fixes and after write.md §7's skill-check edits (all error.phase "
+                  "'write:verify-manual-integrity')", "a failed write in write.md §2 to §5 (error.phase "
+                  "'write:artifact-write')", "only after §6 and §7, the last checks that can halt"):
         assert token in status, token
     assert "PID-file" not in status and "minutes" not in status and "\u2014" not in status
     for token in ("run-lock-replaced", "run-lock-not-released"):
@@ -1101,7 +1118,7 @@ API_PY = b"import os\n\n\n@decorate\ndef search(q):\n    return q\n"
 
 
 def test_spot_check_reads_definition_lines_from_the_verifier(tmp_path, capsys):
-    """re-extract §0's spot-check asks definition-lines, the rules write §6a's verify applies (#584)."""
+    """re-extract §0's spot-check asks definition-lines, the rules write §6's verify applies (#584)."""
     text = _read(RE_EXTRACT)
     assert yaml.safe_load(_frontmatter(text))["verifyProvenanceCompletenessProbeOrder"] == VERIFIER_PATHS
     # one missing-helper policy for the verifier in every stage file: advisory, and never a line found by eye
@@ -1150,9 +1167,9 @@ def test_spot_check_reads_definition_lines_from_the_verifier(tmp_path, capsys):
     assert rust["line_check"] == "skipped-language"
 
 
-def test_6a_fixes_through_the_verifier_and_skips_the_set_diff_for_a_reference_app(tmp_path, capsys):
-    """§6a writes verify's JSON beside the lock and hands it to fix; a reference app gets no orphans (#549, #584)."""
-    six_a = _slice(_read(WRITE), "### 6a.", "### 6b.")
+def test_6_fixes_through_the_verifier_and_skips_the_set_diff_for_a_reference_app(tmp_path, capsys):
+    """§6 writes verify's JSON beside the lock and hands it to fix; a reference app gets no orphans (#549, #584)."""
+    six_a = _slice(_read(WRITE), "### 6. Provenance Completeness", "### 7.")
     verify = _fence(six_a, "uv run {verifyProvenanceCompletenessHelper} verify")
     fix = _fence(six_a, "uv run {verifyProvenanceCompletenessHelper} fix")
     assert f'-o "{VERIFY_JSON}"' in verify and f'--verify "{VERIFY_JSON}"' in fix
@@ -1250,19 +1267,20 @@ def test_documented_helper_calls_quote_every_path():
     verifier = "verifyProvenanceCompletenessHelper"
     found = _slice(_read(RE_EXTRACT), "   - **If export found:**", "   - Record verification outcome:")
     calls.append((_fence(found, "uv run {" + verifier + "} definition-lines"), verifier))
-    six_a = _slice(_read(WRITE), "### 6a.", "### 6b.")
+    six_a = _slice(_read(WRITE), "### 6. Provenance Completeness", "### 7.")
     for sub in ("verify", "fix"):
         calls.append((_fence(six_a, "uv run {" + verifier + "} " + sub), verifier))
     kind_at = re.findall(r"`(uv run \{" + verifier + r"\} kind-at [^`]*)`", _read(WRITE))
-    assert len(kind_at) == 2, kind_at
+    assert len(kind_at) == 1, kind_at
     calls += [(call, verifier) for call in kind_at]
-    assert len(calls) == 16
+    assert len(calls) == 15
     for call, helper in calls:
         assert _unquoted_placeholders(call, helper) == [], call
 
 
 def test_node_kinds_are_looked_up_with_kind_at():
-    """write §2's relabel and §6a's node-kind fix run one kind-at call, with the patterns file as --recipes (#584)."""
+    """§6's node-kind fix runs kind-at with the patterns file as --recipes (#584); write §2 relabels by the Relabel
+    Rule that file states once, which runs the same call (W3-create-extraction handoff, #600)."""
     write = _read(WRITE)
     frontmatter = yaml.safe_load(_frontmatter(write))
     # one name for extraction-patterns.md in every stage file, as re-extract.md names it
@@ -1272,23 +1290,25 @@ def test_node_kinds_are_looked_up_with_kind_at():
         "{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md",
         "{project-root}/src/skf-create-skill/references/extraction-patterns.md"]
     two = _slice(write, "### 2. Write Updated metadata.json", "### 3.")
-    six_a = _slice(write, "### 6a.", "### 6b.")
-    calls = []
-    for section in (two, six_a):
-        match = re.search(r"`(uv run \{verifyProvenanceCompletenessHelper\} kind-at [^`]*)`", section)
-        assert match, "no kind-at call"
-        calls.append(match.group(1))
-    assert calls[0] == calls[1]
-    assert '--recipes "{extractionPatternsData}"' in calls[0]
+    six_a = _slice(write, "### 6. Provenance Completeness", "### 7.")
+    match = re.search(r"`(uv run \{verifyProvenanceCompletenessHelper\} kind-at [^`]*)`", six_a)
+    assert match, "no kind-at call"
+    assert '--recipes "{extractionPatternsData}"' in match.group(1)
     assert "which runs the ast-grep recipes for its language" not in two
-    for section in (two, six_a):
-        assert "`status` is `found`" in section and "never invent a kind" in section.replace("Never", "never")
+    assert "`status` is `found`" in six_a and "never invent a kind" in six_a.replace("Never", "never")
     assert "run the recipes `{extraction" not in six_a
+    # §2 states no copy of the general rule: it relabels by the rule's one home and keeps only update's own clauses
+    relabel = _slice(two, "**Label violations.**", "\n")
+    assert "relabel it by the `## Relabel Rule` section of `{extractionPatternsData}`" in relabel
+    assert "## Relabel Rule" in _read(SRC / "skf-create-skill" / "references" / "extraction-patterns.md")
+    for gone in ("kind-at --source-root", "so `direct-read` becomes `source-read`", "**Where the kind and the tool come from:**",
+                 "T1 needs evidence that an ast-grep rule matched"):
+        assert gone not in relabel, gone
 
 
 @pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
 def test_the_documented_kind_at_call_runs(tmp_path, capsys):
-    """The kind-at call write §2 and §6a document finds a recipe's kind with the probe-ordered patterns (#584)."""
+    """The kind-at call write §2 and §6 document finds a recipe's kind with the probe-ordered patterns (#584)."""
     write = _read(WRITE)
     call = re.search(r"`(uv run \{verifyProvenanceCompletenessHelper\} kind-at [^`]*)`", write).group(1)
     patterns = yaml.safe_load(_frontmatter(write))["extractionPatternsDataProbeOrder"][1]
@@ -1314,9 +1334,10 @@ def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
     counts = _slice(two, "  **Public API counts under the drift override**", "\n")
     for token in ("count nothing at `{source_root}`, which is HEAD, not the pinned commit",
                   "the values `{skill_package}/metadata.json` records in `stats`",
-                  "once the queued `metadata_patches[]` above are applied",
-                  "step 3's drift gate halted on every new, modified or rescoped export"):
+                  "once the queued `metadata_patches[]` above are applied"):
         assert token in counts, token
+    # the drift gate's own text says no new, modified or rescoped export gets here; write states only its action
+    assert "drift gate halted" not in counts and "A stack never reaches this step" not in two
     assert (two.index("  **Judgment payload") < two.index("  **Public API counts under the drift override**")
             < two.index("  **Shape:**"))
     assert "- `a public API recount from the tree (rule R1)`: a rescope (`DELETED_EXPORT`);" in _drift_gate()
@@ -1324,11 +1345,11 @@ def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
     assert "and on every rescope, whose stats recount would count the public API there" in zero_a
     assert "write.md §2 keeps the public API counts metadata.json records" in zero_a
     deleted = _slice(_read(RE_EXTRACT), "   - **If the entry is `DELETED_EXPORT` (rescope, rule R1):**", "\n")
-    assert "the §0.a drift gate halted on every `DELETED_EXPORT` before bullet 1" in deleted
+    assert "drift gate halted" not in deleted and "reaches this branch" not in deleted  # no unreachable route (#600)
     init = _slice(_read(INIT), "- `--allow-workspace-drift` (gap-driven mode only)", "\n")
     assert "counts no public API there" in init
     assert "which every new or modified export does, and on every rescope" in init
-    flags = _slice(_read(SKILL), "| **Flags** |", "\n")
+    flags = _slice(_read(CONTRACT), "| **Flags** |", "\n")
     assert "a gap that needs the pinned tree, a rescope included, halts `halted-for-workspace-drift`" in flags
     # the rescope's amendment is not in the brief before step 4 §6b writes it: the halt leaves the brief as it
     # was, and a re-run asks again (W2 handoff: rule R1's brief write is idempotent and deferred)
@@ -1557,14 +1578,15 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
     assert "Never under the drift override (`{workspace_drift_status}` is `overridden`)" in used_by
     four = _slice(text, "4. Set `no_reextraction: true`", "\n")
     assert "a cited `NEW_EXPORT` whose spot-check pinned a line gets a new `source-read` entry at that line" in four
-    assert ("a spot-check that would move one records `unknown` with `unknown_reason: drift-override`, and §0.a's "
-            "drift gate has already halted on every `NEW_EXPORT` and `MODIFIED_EXPORT`, so §0a never runs") in four
+    assert ("Under the drift override no line moves: a spot-check that would move one records `unknown` with "
+            "`unknown_reason: drift-override`.") in four
+    assert "so §0a never runs" not in four  # §0a's Used by line says when it runs (#600 leanness)
     zero_a = _zero_a()
     # what the override keeps out, by name: write §2 still counts the public surface at `{source_root}`
     assert ("so update-skill takes no provenance line, signature, parameter list, return type or node kind "
             "from it") in zero_a
     assert "takes nothing from it" not in zero_a
-    assert "write.md §2 and §6a look up no node kind there" in zero_a
+    assert "write.md §2 and §6 look up no node kind there" in zero_a
     assert "lines move and node kinds are looked up as usual" in zero_a
 
 
@@ -1583,32 +1605,30 @@ def test_every_change_category_halts_or_passes_the_drift_gate():
     assert "`NEW_EXPORT`" in halts and "`MODIFIED_EXPORT`" in halts and "`DELETED_EXPORT`" in halts
 
 
-def test_merge_says_no_new_or_modified_export_arrives_under_the_override():
-    """Merge Priority 1, 4 and 5 state the route under the override: the drift gate halted first (#557)."""
+def test_merge_states_no_unreachable_override_route():
+    """Step 3's drift gate halts on every new, modified or rescoped export before merge (#557), so merge Priority 1, 4
+    and 5 no longer narrate a route no entry takes (#600 leanness); Priority 2 keeps the rule that acts."""
     merge = _read(MERGE)
-    one = _slice(merge, "**Priority 1", "**Priority 2")
-    assert "no `DELETED_EXPORT` reaches this priority: step 3's drift gate halted on every rescope" in one
-    four = _slice(merge, "**Priority 4", "**Priority 5")
-    assert "no `MODIFIED_EXPORT` reaches this priority" in four
-    assert "could only be read at HEAD, so step 3's drift gate halted on it before merge" in four
-    five = _slice(merge, "**Priority 5", "**Priority 6")
-    assert "no `NEW_EXPORT` reaches this priority either" in five
-    assert "whatever its severity and whether the provenance map holds it" in five
+    for start, end in (("**Priority 1", "**Priority 2"), ("**Priority 4", "**Priority 5"), ("**Priority 5", "**Priority 6")):
+        section = _slice(merge, start, end)
+        assert "drift override" not in section and "reaches this priority" not in section, start
+    two = _slice(merge, "**Priority 2", "**Priority 3")
+    assert "A `MOVED_EXPORT` that recorded `unknown` (the drift override among the causes)" in two
 
 
 def test_relabel_runs_no_recipe_under_the_override():
     """write §2 looks up no node kind at HEAD: the violation stays, with a WARN that names the drift (#557)."""
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
     relabel = _slice(two, "**Label violations.**", "\n")
-    drift = _slice(relabel, "**Under the drift override**", "When the run cannot tell")
+    drift = _slice(relabel, "**Under the drift override**", "Rewrite `{forge_version}/provenance-map.json`")
     for token in ("run no recipe at `{source_root}`, so no `kind-at`",
                   "Leave each violation that needs a kind from the tree in place",
                   "list it as a WARN ending ` " + DRIFT_NOTE + ")`",
                   "a relabel that reads nothing from the tree still applies",
-                  "With the status `ok` or `skipped`, run the lookup as above"):
+                  "With the status `ok` or `skipped`, run the lookup as the rule says"):
         assert token in drift, token
-    # the gate follows the lookup it gates, and the re-run keeps the shape (#550)
-    assert relabel.index("kind-at --source-root") < relabel.index("**Under the drift override**")
+    # the gate follows the rule whose lookup it gates, and the re-run keeps the shape (#550)
+    assert relabel.index("`## Relabel Rule`") < relabel.index("**Under the drift override**")
     assert "re-run the helper with the same payload and `--shape`" in relabel
 
 
@@ -1616,7 +1636,7 @@ def test_name_lookup_filters_by_the_citation_file():
     """Same-name entries: the citation's normalized file, then its line, pick one; none left is not found (#530)."""
     lookup = _slice(_read(RE_EXTRACT), "   - Look up the export in the provenance map's `entries[]`", "\n")
     for token in ("take the entries whose `export_name` equals the name",
-                  "**With a `source_citation`,** keep those whose `source_file`, normalized as write.md §6a",
+                  "**With a `source_citation`,** keep those whose `source_file`, normalized as write.md §6",
                   "(a leading `./` dropped, backslashes turned to `/`)",
                   "One left: the export is found.",
                   "Several left: take the one whose `source_line` equals the citation's line, or else record "
@@ -1646,17 +1666,14 @@ def test_spot_checks_move_and_pin_no_line_under_the_override():
     assert "it records `unknown` with `unknown_reason: drift-override` where it would record `moved`" in moved_export
     assert "Record in `pinned_definition_lines` the definition lines its `remediation` lists" in moved_export
     cited = _slice(text, "     - **If the manifest entry has a `source_citation`", "\n")
-    drift = "under the drift override (`{workspace_drift_status}` is `overridden`, §0.a) no entry reaches this branch"
-    assert drift in cited
-    assert cited.index(drift) < cited.index("Otherwise run the \"export found\" branch's `definition-lines` call")
-    assert "the §0.a drift gate halted on every `NEW_EXPORT` and `MODIFIED_EXPORT` before bullet 1" in cited
+    # the drift gate halts before this branch: it states only what it does (#600 leanness)
+    assert "reaches this branch" not in cited and "drift gate halted" not in cited
+    assert "and is not a `MOVED_EXPORT`:** run the \"export found\" branch's `definition-lines` call" in cited
     assert "unknown_reason: drift-override" not in cited  # no cited export is kept from its spot-check any more
     assert "so step 6 writes" not in cited and "write.md §3 adds a full entry" in cited
-    # the reachability gate reads barrels: under the override no new export reaches it (#557)
+    # the reachability gate reads barrels; the drift gate halts every new export first (#557), unnarrated (#600)
     gate = _slice(text, "   - **Public-reachability gate (`NEW_EXPORT` only):**", "\n")
-    reach = gate[gate.index("**Under the drift override**"):]
-    assert "no entry reaches this gate" in reach
-    assert "halted on every `NEW_EXPORT` and `MODIFIED_EXPORT` before bullet 1" in reach
+    assert "**Under the drift override**" not in gate and "reaches this gate" not in gate
     assert "reachability: not-checked" not in text and "`not-checked`" not in _write_3()
     record = _fence(text, '"verification": [')
     for field in ('"unknown_reason": "<drift-override', '"pinned_definition_lines":', '"in_map":', '"map_entry":',
@@ -1705,10 +1722,9 @@ def test_write_adds_the_cited_export_entry_and_names_the_drift(tmp_path, capsys)
                   "whose public-reachability gate passed", "at most one per `export_name` and `source_file`",
                   "at the line its `source_citation` names (`verified`) or at `new_location` (`moved`)",
                   "`confidence: T1-low`", "`extraction_method: source-read`", "`ast_node_type: null`",
-                  "`signature_source: T1-low`", "from step 4's `merge-records.json`", "naming the drift under the override",
-                  "Under the drift override no line moves or is pinned: step 3's drift gate halted on every "
-                  "`NEW_EXPORT` and `MODIFIED_EXPORT` before merge."):
+                  "`signature_source: T1-low`", "from step 4's `merge-records.json`", "naming the drift under the override"):
         assert token in bullet, token
+    assert "drift gate halted" not in bullet  # an unreachable route is not narrated (#600 leanness)
     assert "**For each export in the updated skill (normal mode only):**" not in three
     assert "never by hand" in _slice(three, "### 3. Write Updated provenance-map.json", "```bash")
     call = _apply_call()
@@ -1807,7 +1823,7 @@ def test_override_is_described_where_the_flag_is():
                   "which every new or modified export does"):
         assert token in init, token
     # SKILL.md gives the caller one clause; re-extract.md §0.a holds what the override keeps out
-    flags = _slice(_read(SKILL), "| **Flags** |", "\n")
+    flags = _slice(_read(CONTRACT), "| **Flags** |", "\n")
     for token in ("update-skill takes nothing from HEAD",
                   "a gap that needs the pinned tree, a rescope included, halts `halted-for-workspace-drift` before "
                   "merge"):
@@ -1944,7 +1960,7 @@ def test_blocking_gap_without_a_path_halts_in_step_3_before_merge():
                   "c) Downgrade the gap(s) to Medium/Low/Info"):
         assert token in template, token
     exit_ = _slice(zero_a, "   Exit with status `halted-for-remediation-path`", "\n")
-    for token in ("under `--dry-run` too", "Step-04 merge has not run; no partial writes",
+    for token in ("under `--dry-run` too", "Step 4 (merge) has not run; no partial writes",
                   'phase: "re-extract:targeted-reextraction"'):
         assert token in exit_, token
     # detect-changes lists the fields the route reads; re-extract states the route once, where it acts
@@ -1967,7 +1983,7 @@ def test_gap_driven_dry_run_stops_after_step_3():
     assert "load `report.md` (NOT `{nextStepFile}`)" in six
     assert "Proceeding to merge" not in _slice(text, '"**Gap-driven re-extraction.**', "\n")  # §6 says where next
     halt = "a re-extract halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it"
-    assert halt in _slice(_read(SKILL), "| **Flags** |", "\n")
+    assert halt in _slice(_read(CONTRACT), "| **Flags** |", "\n")
     assert halt in _slice(_read(INIT), "- `--dry-run` to run detect-changes + re-extract", "\n")
 
 
@@ -2111,9 +2127,10 @@ def test_reference_app_stats_use_the_reference_app_shape():
     for token in ("read `scope_type` from `{skill_package}/metadata.json` before this section rewrites it",
                   "When it is `reference-app`, pass `--shape reference-app` and put `pattern_surfaces_documented` in "
                   "the payload",
-                  "pass no `--shape` (the helper's default, the library shape)",
-                  "Stack Skill Guard"):
+                  "pass no `--shape` (the helper's default, the library shape)"):
         assert token in shape, token
+    # init.md's Stack Skill Guard is the one gate for stacks: write does not narrate a route no stack takes (#600)
+    assert "Stack Skill Guard" not in shape and "**This guard is the single gate for stack skills**" in _read(INIT)
     payload = _slice(two, "  - `pattern_surfaces_documented` (reference app only):", "\n")
     assert "the number of rows in the `## Pattern Surface` table of the merged SKILL.md" in payload
     stats = _slice(two, "- **Compute the `stats` block", "\n")
@@ -2482,7 +2499,7 @@ def test_a_normal_run_offers_an_unconsumed_failing_report(tmp_path, result, gene
                   "add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`",
                   "It is a notice, not a gate the run resolves: no `headless_decisions[]` entry"):
         assert token in four_b, token
-    gates = _slice(_read(SKILL), "| **Gates** |", "\n")
+    gates = _slice(_read(CONTRACT), "| **Gates** |", "\n")
     assert "init.md §4b's [G]/[S] test-report offer, interactive only (headless warns `unconsumed-test-report`)" \
         in gates
 
@@ -2504,7 +2521,7 @@ def test_the_no_change_report_points_at_the_unconsumed_report():
                   "`moved-check-skipped`", "`unknown-language`"):
         assert token in five_b, token
     # the flag's cell stays the flag's: the offer is listed with the gates
-    flags = _slice(_read(SKILL), "| **Flags** |", "\n")
+    flags = _slice(_read(CONTRACT), "| **Flags** |", "\n")
     assert "`--from-test-report` (gap-driven mode);" in flags and "§2b" not in flags and "§4b" not in flags
     warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
     for token in ("unconsumed-test-report (init.md §4b", "test-report:", "no-baseline-time", "moved-check-skipped",
@@ -2633,7 +2650,7 @@ def test_the_documented_resolver_call_classifies_the_mirror(tmp_path, capsys):
     assert [(r["path"], r["prior_action"]) for r in out["unresolved"]] == [("docs/CLAUDE.md", "deferred-headless")]
 
 
-def test_the_run_folder_carries_the_helper_files_and_step_8_removes_it(tmp_path, capsys):
+def test_the_run_folder_carries_the_helper_files_and_step_7_removes_it(tmp_path, capsys):
     """The helpers pass JSON through one run folder; §2.2 and §3 read the helper files and the category JSON from it,
     with no echo and no list typed by hand."""
     detect = _read(DETECT)
@@ -2654,7 +2671,7 @@ def test_the_run_folder_carries_the_helper_files_and_step_8_removes_it(tmp_path,
     marks = [health.index("1b. **Remove the private source tree**"), health.index("1c. **Remove this update's"),
              health.index("2. Load `{nextStepFile}`")]
     assert marks == sorted(marks)
-    assert "_bmad-output/.skf-run/` that step 8 removes" in _slice(_read(SKILL), "| **Outputs** |", "\n")
+    assert "_bmad-output/.skf-run/` that step 7 removes" in _slice(_read(CONTRACT), "| **Outputs** |", "\n")
     assert 'echo "{category JSON}"' not in detect
     write = _fence(detect, 'cat > "{run_dir}/categories.json"')
     assert "category_a" not in write and "category_b" not in write  # A and B stay in the helpers' files
@@ -2795,7 +2812,7 @@ def test_every_route_out_of_step_3_honours_dry_run():
 
 
 def test_a_halt_after_the_first_gap_driven_write_restores_the_package(tmp_path):
-    """merge §6b snapshots before its first in-place write; a later halt's rollback restores it; write §6a's finish
+    """merge §6b snapshots before its first in-place write; a later halt's rollback restores it; write §10's finish
     closes the window (#587: a gap-driven halt after merge restores the package from its snapshot)."""
     merge, write = _read(MERGE), _read(WRITE)
     # SKILL.md binds the helper once, at activation, so every step file and every halt reach it
@@ -2810,8 +2827,8 @@ def test_a_halt_after_the_first_gap_driven_write_restores_the_package(tmp_path):
                                   keep=("--tree", "--lock", "--emit")) for path in STEP_FILES}
     assert len({tuple(call) for call in calls.values()}) == 1, calls
     rollback = _fence(_halt_procedure(WRITE), HALT_CALL)
-    finish = re.search(r"`(uv run \{runStateHelper\} finish [^`]*)`", _slice(write, "**Close the rollback window.**",
-                                                                           "\n")).group(1)
+    finish = re.search(r"`(uv run \{runStateHelper\} finish [^`]*)`", _slice(write, "### 10. Close the Rollback Window",
+                                                                           "### 11.")).group(1)
     in_place = _slice(merge, "**Write the merged files in place**", "**Do NOT write here:**")
     assert in_place.index("rescopes' brief amendments") < in_place.index('manual-verify "{run_dir}/SKILL.md"') < \
         in_place.index("Copy `{run_dir}/SKILL.md` to `{skill_package}/SKILL.md`")
@@ -2841,7 +2858,7 @@ def test_a_halt_after_the_first_gap_driven_write_restores_the_package(tmp_path):
     (forge_version / "evidence-report.md").write_bytes(b"## Update Operation\n")
     assert state.main(_cmd_args(rollback, "runStateHelper", values)) == 0
     assert {p: p.read_bytes() for p in before} == before and not (forge_version / "evidence-report.md").exists()
-    # a run that passed §6a's checks closes the window: a later rollback undoes nothing
+    # a run that passed every check closes the window: a later rollback undoes nothing
     run2 = tmp_path / "run" / "skf-update-skill-e5F6g7H8"
     run2.mkdir()
     values2 = {**values, "run_dir": str(run2)}
@@ -3018,7 +3035,7 @@ def test_a_headless_run_needs_the_skill_name(tmp_path):
     input-missing (#594 update part)."""
     skill = _read(SKILL)
     assert "Bind `{requested_skill}` ← the skill name or folder path the invocation passes" in skill
-    inputs = _slice(skill, "| **Inputs** |", "\n")
+    inputs = _slice(_read(CONTRACT), "| **Inputs** |", "\n")
     assert "a headless run halts `blocked` (`error.phase` `init:skill-name`, `error.reason` starting " \
            "`input-missing`)" in inputs
     one = _slice(_read(INIT), "### 1. Request Skill Path", "**Version-Aware Path Resolution:**")
@@ -3107,7 +3124,7 @@ def test_a_read_only_run_that_finds_no_change_stays_read_only():
         assert "`{run_dir}/warnings.jsonl`" in _slice(report, section, end), section
     one_c = _slice(_read(HEALTH), "1c. **Remove this update's run folder**", "\n")
     assert "step 7 already printed them and wrote them into the result files" not in one_c
-    assert "step 7 listed the warnings in a read-only run's report" in one_c
+    assert "step 6 listed the warnings in a read-only run's report" in one_c
 
 
 def test_merge_reads_the_run_state_from_disk():
@@ -3250,8 +3267,11 @@ def test_manual_decisions_amend_the_inventory_before_the_staged_check(tmp_path):
     proc = subprocess.run([sys.executable, str(HASH_CONTENT), *_cmd_args(staged, "hashContentHelper", {
         **values, "manual_inventory": str(inventory)})], capture_output=True, encoding="utf-8")
     assert json.loads(proc.stdout)["ok"] is False
-    for path, section in ((REFS / "validate.md", "**Check B"), (WRITE, "### 1. Verify SKILL.md Write")):
-        assert "amended" in _slice(_read(path), section, "```"), path.name
+    assert "amended" in _slice(_read(WRITE), "### 1. Verify SKILL.md Write", "```")
+    # write §7 re-checks the blocks after skill-check's edits, against the same amended inventory
+    recheck = _fence(_slice(_read(WRITE), "**Re-check the [MANUAL] blocks**", "**If skill-check is unavailable:**"),
+                     "manual-verify")
+    assert '--inventory "{manual_inventory}"' in recheck
 
 
 def test_the_run_state_calls_quote_every_path():
@@ -3279,3 +3299,280 @@ def test_the_run_state_calls_quote_every_path():
     for call, helper in calls:
         body = call.split("SKF_JSON\n", 2)[-1] if "<<'SKF_JSON'" in call and "cat >" in call else call
         assert _unquoted_placeholders(body, helper) == [], call
+
+
+# --------------------------------------------------------------------------
+# The leaner stage chain: no validate stage, the contract lifted (#599, #600)
+# --------------------------------------------------------------------------
+
+STAGES = ("init.md", "detect-changes.md", "re-extract.md", "merge.md", "write.md", "report.md", "health-check.md")
+
+
+def _update_markdown() -> dict[str, str]:
+    return {path.relative_to(UPDATE).as_posix(): _read(path) for path in sorted(UPDATE.rglob("*.md"))}
+
+
+def test_the_stage_chain_has_no_validate_stage():
+    """merge chains straight to write; every Stages row, step heading and nextStepFile agree (#599)."""
+    assert not (REFS / "validate.md").exists()
+    rows = re.findall(r"^\| (\d) \| ([^|]+) \| references/([\w-]+\.md) \| ([^|]+) \|$",
+                      _slice(_read(SKILL), "## Stages", "## Invocation Contract"), re.M)
+    assert [(int(n), f) for n, _, f, _ in rows] == list(enumerate(STAGES, 1))
+    assert "Write" in rows[4][1] and "Report" in rows[5][1]
+    for number, name in enumerate(STAGES, 1):
+        text = _read(REFS / name)
+        assert re.search(rf"^# Step {number}: ", text, re.M), name
+        following = STAGES[number] if number < len(STAGES) else None
+        if following:
+            assert yaml.safe_load(_frontmatter(text))["nextStepFile"] == following, name
+    for rel, text in _update_markdown().items():
+        for gone in ("validate.md", "step 05", "Step 05", "step 8", "Step 8", "steps 03-06", "merge+validate",
+                     "merge/validate/write", "re-extract, merge, validate"):
+            assert gone not in text, (rel, gone)
+
+
+def test_skill_check_runs_once_in_write():
+    """One skill-check check call per update, in write.md §7, guarded and followed by the [MANUAL] re-check (#599)."""
+    calls = [(rel, line) for rel, text in _update_markdown().items() for line in text.splitlines()
+             if "skill-check check " in line and "npx" in line]
+    assert [rel for rel, _ in calls] == ["references/write.md"], calls
+    seven = _slice(_read(WRITE), "### 7. Run Post-Write Validation", "### 8.")
+    assert "skill-check runs once per update, here" in seven
+    assert "`npx skill-check check \"{skill_package}\" --fix --format json` **inside the §0 guard**" in seven
+    assert "--no-security-scan` is passed" in seven and "--no-security-scan --" not in seven
+    assert "`npx skill-check -h`" in seven
+    assert 'npx skill-check diff "{skill_group}/{baseline_version}/{skill_name}" "{skill_package}"' in seven
+    marks = [seven.index("**Description Guard Protocol:**"), seven.index("--fix --format json"),
+             seven.index("**Re-check the [MANUAL] blocks**"), seven.index("**If skill-check is unavailable:**")]
+    assert marks == sorted(marks)
+    # every path §7 hands a tool is quoted, so a project path with a space reaches it whole
+    for call in re.findall(r"(?:npx skill-check|uv run \{\w+\}) [^`\n]*", seven):
+        assert "{skill_package}" not in call.replace('"{skill_package}', ""), call
+    # the structural check skill-check would have run goes to the output validator, never by eye (determinism-10)
+    unavailable = _slice(seven, "**If skill-check is unavailable:**", "\n")
+    assert 'uv run {validateOutputHelper} "{skill_package}"' in unavailable
+    # the row says what ran: PASS or WARN from the validator, SKIP only when none resolves
+    for token in ("`Spec compliance: PASS (skf-validate-output.py)` when it reports no issue",
+                  "`Spec compliance: WARN (skf-validate-output.py)` with each issue it reports otherwise",
+                  "when no candidate resolves, record `Spec compliance: SKIP (skill-check unavailable, no validator)`"):
+        assert token in unavailable, token
+    assert "record `Spec compliance: SKIP (skill-check unavailable)`" not in unavailable
+    assert yaml.safe_load(_frontmatter(_read(WRITE)))["validateOutputProbeOrder"] == _probe("skf-validate-output.py")
+    assert "structural checks from step 5 are sufficient" not in seven and "Deferred from" not in _read(WRITE)
+
+
+def test_write_rechecks_the_manual_blocks_after_skill_check():
+    """§7's --fix and body split can edit SKILL.md after §1's gate, so §7 re-runs manual-verify and halts as §1 does,
+    and never moves a section that holds a [MANUAL] block (BMad Builder re-check architecture-4)."""
+    write = _read(WRITE)
+    seven = _slice(write, "### 7. Run Post-Write Validation", "### 8.")
+    one = _slice(write, "### 1. Verify SKILL.md Write", "### 2.")
+    recheck = _slice(seven, "**Re-check the [MANUAL] blocks**", "**If skill-check is unavailable:**")
+    assert _fence(recheck, "manual-verify").split() == _fence(one, "manual-verify").split()
+    for token in ("HALT with status `halted-for-manual-mismatch`, as §1 does",
+                  '`phase: "write:verify-manual-integrity"`', '`path: "{skill_package}/SKILL.md"`',
+                  "[MANUAL] blocks changed after skill-check"):
+        assert token in recheck, token
+    split = _slice(seven, "If `body.max_lines` is reported", "\n")
+    assert "**Never move a section that holds a `[MANUAL]` block:**" in split
+    assert "only when SKILL.md holds no `[MANUAL]` block" in split
+    rules = _slice(write, "## Rules", "## Steps")
+    assert "§7's `skill-check check --fix` edits and body split, which moves no section that holds a `[MANUAL]` " \
+           "block; §7 re-checks the [MANUAL] blocks after them" in rules
+    # the rollback window closes after the last check that can halt, so a §7 halt still undoes a repair
+    assert "uv run {runStateHelper} finish" not in _slice(write, "### 6. Provenance Completeness", "### 10.")
+    assert "Until §10 closes the window" in _halt_procedure(WRITE)
+    assert "write.md §10 already dropped the snapshot" in _read(HEALTH)
+    assert "Update-skill does not run the optional post-restore" not in write
+
+
+def test_write_makes_the_version_live_after_the_last_check():
+    """§6 and §7 can halt, so §8 points the active link at the new version only after them, §9 moves the clone and
+    §10 closes the rollback window: a [MANUAL] halt in §6 or §7 rolls back a version no reader sees yet, as §1's
+    does (BMad Builder review: §7's halt ran after the flip and kept a live version with changed blocks)."""
+    write = _read(WRITE)
+    titles = re.findall(r"^### (\d+[a-z]?)\. (.+)$", write, re.M)
+    assert titles[6:] == [("6", "Provenance Completeness"), ("7", "Run Post-Write Validation"),
+                          ("8", "Update the Active Symlink"), ("8a", "Verify the Active Symlink"),
+                          ("9", "Move the Workspace Clone to the Recorded Commit"),
+                          ("10", "Close the Rollback Window"), ("11", "Route to Next Step")]
+    assert "`{manual_recovery}` depends on the mode:" in _slice(write, "### 1. Verify SKILL.md Write", "### 2.")
+    for start, end in (("### 6. Provenance Completeness", "### 7."), ("### 7. Run Post-Write Validation", "### 8.")):
+        section = _slice(write, start, end)
+        assert ('{manual_recovery}", with `{manual_recovery}` as §1 gives it: §8 has not pointed the `active` link '
+                "at a new version yet, so this halt rolls back as §1's does.") in section, start
+        assert "kept it" not in section and "restore the listed blocks" not in section, start
+    procedure = _halt_procedure(WRITE)
+    assert "Until §10 closes the window" in procedure
+    assert "unless the `active` link already names them (§8), which keeps that version" in procedure
+    eight = _slice(write, "### 8. Update the Active Symlink", "### 8a.")
+    assert "now that §6 and §7 have checked the written package" in eight
+    assert eight.count("Continue to §8a.") == 2
+    rules = _slice(write, "## Rules", "## Steps")
+    assert ("§8 points the `active` link at the new version only after §6 and §7, the last checks that can halt, so "
+            "every halt in this step rolls back a version no reader sees yet") in rules
+    assert "\u2014" not in _slice(rules, "- HALT immediately on verification failure", "\n")
+    # one finish, in §10, once the clone moved; nothing after it halts
+    assert write.count("uv run {runStateHelper} finish") == 1
+    assert write.index("### 9. ") < write.index("uv run {runStateHelper} finish") < write.index("### 11. ")
+    assert "never halts" in _write_9() and "HALT" not in _slice(write, "### 10. ", "### 11.")
+    # the schema tells a pipeline the same order
+    status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["description"]
+    assert "unless write.md §5b already made the new version the active one" not in status
+
+
+# A step or stage file named before §: "step 5 §8", "Step 3 §0.a", "write.md §6". Another skill's step
+# ("create-skill step 6 §8") is skipped.
+_CITE = re.compile(r"(?<![\w-])(?:[Ss]tep (\d)|(" + "|".join(re.escape(s) for s in STAGES) + r"))(?:'s)? "
+                   r"§(\d+[a-z]?(?:\.\d+|\.[a-z])?)")
+
+
+def _anchors(name: str) -> set[str]:
+    """The section labels a stage file defines: its numbered headings and its bold `**0.a ...**` labels."""
+    text = _read(REFS / name)
+    return (set(re.findall(r"^#{3,4} (\d+[a-z]?(?:\.\d+)?)[. ]", text, re.M))
+            | set(re.findall(r"^\*\*(\d+\.[a-z]) ", text, re.M)))
+
+
+def test_every_cited_step_section_exists():
+    """Every "step N §X" and "<stage>.md §X" an update-skill file cites names a section that stage defines under
+    the Stages table's numbering, spelled one way: no "Step-06", "step 05" or "step-1" (BMad Builder review: a
+    stale "Step-06 §3" sent the model to report.md for a write.md rule)."""
+    anchors = {name: _anchors(name) for name in STAGES}
+    cited = 0
+    for rel, text in _update_markdown().items():
+        assert not re.search(r"[Ss]teps?[- ]0\d|[Ss]tep-\d", text), rel
+        for match in _CITE.finditer(text):
+            if re.search(r"[a-z]+-skill'?s? $", text[max(0, match.start() - 20):match.start()]):
+                continue
+            target = STAGES[int(match.group(1)) - 1] if match.group(1) else match.group(2)
+            assert match.group(3) in anchors[target], (rel, match.group(0))
+            cited += 1
+    assert cited > 100, cited
+    # the unknown NEW_EXPORT bullet names the provenance write it means
+    assert "write.md §3 (step 5) accepts null `source_file` / `source_line` only for these" in _read(RE_EXTRACT)
+
+def test_the_report_reads_the_validation_write_recorded():
+    """report §3 renders the Validation Summary write.md recorded: [MANUAL] integrity from §1, Provenance from §6,
+    Spec compliance, Diff and Security from §7 (wave-1 re-check leanness-1)."""
+    write = _read(WRITE)
+    summary = _slice(write, "### Validation Summary", "### Description Guard")
+    for row in ("Spec compliance:", "[MANUAL] integrity:", "Confidence tiers:", "Provenance:", "Diff:", "Security:"):
+        assert row in summary, row
+    population = _slice(write, "**Validation Summary population:**", "\n")
+    for token in ("from §1's `manual-verify` verdict", "§6 fills `Provenance`",
+                  "§7 fills `Spec compliance`, `Diff` and `Security`"):
+        assert token in population, token
+    three = _slice(_read(REPORT), "### 3. Present Validation Findings", "### 4.")
+    for token in ("write.md §1's `manual-verify` verdict", "`Provenance` from §6",
+                  "`Spec compliance`, `Diff` and `Security` from §7", "| Diff |", "| Security |"):
+        assert token in three, token
+    assert "step 05" not in three
+    assert "the Validation Summary §3 read for `validation_status`" in _slice(_read(REPORT), "### 5b.", "### 6.")
+    # the derived-artifact read-back is gone: one write-error halt beside the halt procedure, and the symlink
+    # check (leanness-3)
+    six = _slice(write, "### 8a. Verify the Active Symlink", "### 9.")
+    assert "Read back the file" not in write and "| File | Status |" not in write
+    errors = _slice(write, "The halt leaves `{run_dir}` in place.", "### 0.")
+    assert "A `Write` or `Edit` call in §2 to §5 that errors" in errors and '`phase: "write:artifact-write"`' in errors
+    assert _fence(six, "uv run {updateActiveSymlinkHelper} verify").split() == [
+        "uv", "run", "{updateActiveSymlinkHelper}", "verify", "\\", "--skill-group", "{skill_group}", "\\",
+        "--version", "{version}"]
+
+
+def test_the_evidence_records_live_in_the_run_folder():
+    """The scope and targeted re-extraction records write §4 renders sit in the run folder, not in context, so a
+    compacted context still reports a decision the run made (Workflow Rules: the run log)."""
+    sink = "`{run_dir}/evidence-records.jsonl`"
+    detect = _read(DETECT)
+    for key, section, end in (("authoritative_files_mirror", "### 1b.", "### 1c."),
+                              ("scope_reconciliation_pre", "### 1c.", "### 2."),
+                              ("scope_reconciliation_post", "#### 2.2", "### 3.")):
+        body = _slice(detect, section, end)
+        assert f"to {sink} as one JSON line keyed `{key}`" in body, key
+    assert f"to {sink} the same way, and proceed to §3" in _slice(detect, "- **[C] Continue:**", "\n")
+    zero_a = _slice(_read(RE_EXTRACT), "### 0a. Targeted Re-Extraction Branch", "### 1.")
+    assert f"to {sink} as one JSON line keyed `targeted_reextraction`" in zero_a
+    assert "in workflow context" not in _slice(zero_a, "6. **Success summary:**", "\n")
+    population = _slice(_read(WRITE), "**Scope and Targeted Re-Extraction population:**", "\n")
+    assert f"read {sink}" in population and "`none` for a key no line holds" in population
+    assert "kept for the evidence report" not in population
+
+def test_the_invocation_contract_is_lifted_from_skill_md():
+    """SKILL.md points at references/invocation-contract.md, which holds the six rows; the Gates row lists the
+    gates the stages raise and the Stages table marks steps 2 and 4 Conditional (#600, architecture-5)."""
+    skill = _read(SKILL)
+    pointer = _slice(skill, "## Invocation Contract", "## On Activation")
+    assert "`references/invocation-contract.md`" in pointer and "| **" not in pointer
+    # cl100k_base reads about four characters a token in this prose: 10,000 keeps SKILL.md under 2,500 tokens
+    assert len(skill) < 10_000, len(skill)
+    contract = _read(CONTRACT)
+    rows = re.findall(r"^\| \*\*(\w+)\*\* \|", contract, re.M)
+    assert rows == ["Inputs", "Flags", "Gates", "Outputs", "Concurrency", "Headless"]
+    gates = _slice(contract, "| **Gates** |", "\n")
+    for token in ("init.md §4's degraded-rebuild gate [D]/[X]", "Confirm Gate [C] (init.md §8)",
+                  "detect-changes.md §1b's promote prompt and §1c's scope-expansion prompt [P]/[S]/[U]",
+                  "§2.2's deletion-ratio gate [C]/[B]/[A]",
+                  "step 4: Confirm Gate [C] only after the user resolved [MANUAL] conflicts",
+                  "a headless run with conflicts halts `halted-for-manual-mismatch`"):
+        assert token in gates, token
+    assert "[C if clean merge" not in contract
+    assert "at step 6 or at a HALT" in _slice(contract, "| **Headless** |", "\n")
+    stages = _slice(skill, "## Stages", "## Invocation Contract")
+    assert "| 2 | Detect Changes | references/detect-changes.md | Conditional" in stages
+    assert "| 4 | Merge | references/merge.md | Conditional" in stages
+
+
+def test_merge_routes_to_write_with_one_progress_line():
+    """merge §7 shows one line, not a table report.md repeats; §8 routes to write (#599 leanness-9)."""
+    merge = _read(MERGE)
+    seven = _slice(merge, "### 7. Report Progress", "### 8.")
+    assert "| Metric | Count |" not in seven and "The report (step 6) shows the full counts" in seven
+    eight = _slice(merge, "### 8. Route to Write", "```bash")
+    assert "[C] Continue to Write" in eight and "Validation" not in eight
+    assert "Edit/Write tools commit on call" not in merge
+    for path, heading, end in ((DETECT, "### 5. Display Change Summary and Route", "This step auto-proceeds"),
+                               (RE_EXTRACT, "### 5. Display Extraction Summary and Auto-Proceed", "### 6.")):
+        section = _slice(_read(path), heading, end)
+        assert "| Count |" not in section and "Display one line" in section, path.name
+    assert "In gap-driven mode, list after that line each gap §0 did not route" in _read(DETECT)
+    assert "below the table" not in _read(DETECT)
+    one_a = _slice(_read(REPORT), "### 1a. Handle Detect-Only Mode", "### 1b.")
+    assert "§2's Changes Applied table" in one_a and "summary table from detect-changes.md" not in one_a
+    assert "(routed here from detect-changes.md §5)" in one_a
+
+
+def test_persistent_facts_default_can_be_dropped():
+    """customize.toml keeps the project-context.md default and says how to drop it; SKILL.md applies the `!`
+    entry; the header names the override files from {project-root} (#596 update part)."""
+    import tomllib
+
+    toml_text = _read(UPDATE / "customize.toml")
+    data = tomllib.loads(toml_text)["workflow"]
+    assert data["persistent_facts"] == ["file:{project-root}/**/project-context.md"]
+    assert "# Team overrides:     {project-root}/_bmad/custom/skf-update-skill.toml" in toml_text
+    assert "# Personal overrides: {project-root}/_bmad/custom/skf-update-skill.user.toml" in toml_text
+    assert '#   persistent_facts = ["!file:{project-root}/**/project-context.md"]' in toml_text
+    assert "(uv probe, config load)" not in toml_text
+    activation = _slice(_read(SKILL), "4. **Resolve workflow customization.**", "5. Load")
+    assert ("an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's "
+            '`"!file:{project-root}/**/project-context.md"` turns that default off') in activation
+
+
+def test_the_rule_files_hold_no_copy_of_merge():
+    """manual-section-rules.md keeps the marker rules merge.md does not state; init.md no longer loads it
+    (#600 leanness-8); merge-conflict-rules.md is gone, since its rows only repeated merge.md's Rules and §4
+    (architecture-8)."""
+    rules = _read(REFS / "manual-section-rules.md")
+    assert "### Conflict Types" not in rules and "### Preservation Algorithm" not in rules
+    # one bold-term style for the four rules
+    assert re.findall(r"^\d\. \*\*([^*]+)\*\*: ", rules, re.M) == [
+        "Never delete or modify content between [MANUAL] markers without the user's merge §4 [R]emove or [E]dit "
+        "decision", "Preserve marker positions", "Multiple [MANUAL] blocks", "Nested [MANUAL] forbidden"]
+    assert not (REFS / "merge-conflict-rules.md").exists()
+    merge = _read(MERGE)
+    assert "mergeConflictRulesFile" not in merge and "merge-conflict-rules" not in merge
+    assert "the [MANUAL] rules file merge.md loads" in _read(SKILL)
+    init = _read(INIT)
+    assert "manualSectionRulesFile" not in init and "manualSectionRulesFile" in merge
+

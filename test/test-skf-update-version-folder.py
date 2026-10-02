@@ -18,7 +18,7 @@ reach it.
 The prose pins slice merge.md §6b and fail loudly on a renamed heading. The
 run test executes the stage-dir and commit-dir commands §6b spells out (the
 placeholders filled in) against the real helpers, copies the package as
-§6b says, and then runs the active-link flip write.md §5b performs, which
+§6b says, and then runs the active-link flip write.md §8 performs, which
 halted with missing-target while the version folder did not exist.
 """
 
@@ -177,7 +177,7 @@ def test_report_and_contract_name_the_new_version():
     assert "a new version folder beside the current one, `{dry_run_version}`" in dry and "{new_version}" not in dry
     assert "`{source_version_detected}` when step 1 §6c recorded one" in dry
     assert 'run `uv run {skillInventoryHelper} version next-patch "{version}"`' in dry and "as merge.md §6b does" in dry
-    outputs = _slice(_read(SKILL), "| **Outputs** |", "\n")
+    outputs = _slice(_read(REFS / "invocation-contract.md"), "| **Outputs** |", "\n")
     assert "new version folder `{skill_group}/{new_version}/`" in outputs
     status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["description"]
     assert "merge:new-version-folder" in status
@@ -348,7 +348,7 @@ def test_version_folder_steps_run_against_the_real_helpers(tmp_path):
     entry = json.loads(inventory.stdout)["skills"][0]
     assert entry["ownership"] == "skf" and entry["foreign_entries"] == []
 
-    if os.name != "nt":  # write.md §5b; the symlink helper refuses Windows
+    if os.name != "nt":  # write.md §8; the symlink helper refuses Windows
         os.symlink("1.0.0", group / "active")
         flip = subprocess.run([sys.executable, str(SYMLINK), "update", "--skill-group", str(group),
                                "--version", "1.0.1"], capture_output=True, encoding="utf-8")

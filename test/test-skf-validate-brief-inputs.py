@@ -167,8 +167,9 @@ class TestEnums:
         ],
     )
     def test_scope_type_all_six_valid(self, scope_type):
+        # reference-app needs include (TestReferenceAppConditional); every type takes one
         out = mod.validate(
-            {"target_repo": "/x", "skill_name": "foo", "scope_type": scope_type}
+            {"target_repo": "/x", "skill_name": "foo", "scope_type": scope_type, "include": "src/**"}
         )
         assert out["valid"] is True
 
@@ -210,6 +211,37 @@ class TestTargetVersion:
         )
         assert out["valid"] is False
         assert any(e["field"] == "target_version" for e in out["errors"])
+
+
+# --------------------------------------------------------------------------
+# reference-app conditional
+# --------------------------------------------------------------------------
+
+
+class TestReferenceAppConditional:
+    """A reference app's pattern surface is the caller's to name: step 3 has no headless boundary
+    default for it, so the input gate stops the run before step 2 reads the target."""
+
+    def test_reference_app_without_include_is_input_missing(self):
+        out = mod.validate({"target_repo": "/x", "skill_name": "foo", "scope_type": "reference-app"})
+        assert out["valid"] is False
+        assert [e["field"] for e in out["errors"]] == ["include"]
+        assert out["halt_reason"] == "input-missing"
+
+    @pytest.mark.parametrize("include", [pytest.param("", id="empty"), pytest.param(None, id="null")])
+    def test_an_empty_include_names_no_pattern_surface(self, include):
+        out = mod.validate({"target_repo": "/x", "skill_name": "foo", "scope_type": "reference-app",
+                            "include": include})
+        assert out["halt_reason"] == "input-missing"
+
+    def test_reference_app_with_include_is_valid(self):
+        out = mod.validate({"target_repo": "/x", "skill_name": "foo", "scope_type": "reference-app",
+                            "include": "src/main/**,electron.vite.config.ts"})
+        assert out["valid"] is True
+
+    def test_the_ratify_route_takes_the_scope_from_the_brief(self):
+        out = mod.validate({"from_brief": "/briefs/app", "scope_type": "reference-app"})
+        assert out["valid"] is True
 
 
 # --------------------------------------------------------------------------

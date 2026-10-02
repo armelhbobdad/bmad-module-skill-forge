@@ -1,0 +1,6 @@
+type: added
+scope: skf-update-skill
+summary: |
+  A `persistent_facts` entry that starts with `!` now drops the entry it names, so `persistent_facts = ["!file:{project-root}/**/project-context.md"]` in `{project-root}/_bmad/custom/skf-update-skill.toml` stops Update Skill from loading every `project-context.md`, which it loads by default.
+prs: [638]
+issues: [596]

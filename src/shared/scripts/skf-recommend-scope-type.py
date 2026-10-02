@@ -6,7 +6,7 @@
 the intent signals the caller classified.
 
 Single source of truth for the scope-type recommendation that
-skf-brief-skill step 3 §2c presents and its §6 headless gate applies. Both
+skf-brief-skill step 3 §2c presents and a headless run applies. Both
 paths call this script with the same inputs, so they cannot drift.
 
 The script reads no free text. What a user's intent asks for is a

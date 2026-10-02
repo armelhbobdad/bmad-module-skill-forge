@@ -69,7 +69,10 @@ tesslReviewRulesProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/tessl-review.md'
   - '{project-root}/src/shared/references/tessl-review.md'
 preferencesFile: '{sidecar_path}/preferences.yaml'
-# Resolve `{extractionPatternsData}` to the first existing path, as step 3 did.
+# Loaded only when §7 or §7a meets a provenance label or node-kind finding.
+relabelRuleData: 'references/relabel-rule.md'
+# Resolve `{extractionPatternsData}` to the first existing path, as step 3
+# did: the Relabel Rule's `kind-at` reads the recipes there.
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
   - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
@@ -98,7 +101,7 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 ### 0. Description Guard Protocol
 
-**Used by:** §2 (`skill-check check --fix`), §4 (`split-body`), and any future tool invocation that may modify SKILL.md.
+**Used by:** §2 (`skill-check check --fix`), §4 (the body split), and any future tool invocation that may modify SKILL.md.
 
 Resolve `{descriptionGuardProtocol}` ← first existing path in `{descriptionGuardProtocolProbeOrder}` and load it for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The load is advisory: if neither path exists, continue, because the rules below are all this step needs from it. The deterministic phases are executed via `{descriptionGuardHelper}` — the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points.
 
@@ -180,45 +183,30 @@ If fails: auto-fix (deterministic), re-validate once, record result. If passes: 
 
 ### 4. Split Oversized Body (if needed)
 
-**If step 2 reported `body.max_lines` failure:**
-
-**Description Guard Protocol:** Split operations may rewrite the frontmatter. Wrap the split invocation in the four-phase guard defined in §0:
+**If step 2 reported `body.max_lines` failure:** split the body with `{shardBodyHelper}`, the splitter step 5b auto-shard runs (resolve it from `{shardBodyProbeOrder}`; first existing path wins), inside the §0 guard, since a split may rewrite the frontmatter. Never run `npx skill-check split-body --write`: it moves every `##` section to `references/`, Tier 1 included.
 
 ```bash
-# Phase 1 — capture before the split
+# Phase 1: capture before the split
 uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md
 # stash returned `description` as `guarded_description`
 
-# Phase 2 — run the split (selective extraction or, last-resort, split-body --write)
+# Phase 2: the split
+uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --budget 400
 
-# Phases 3+4 — verify and restore after the split
+# Phases 3 and 4: verify and restore after the split
 uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \
     --captured-description "{guarded_description}"
 ```
 
 If `restored: true` in the verify-restore output, apply §0's post-restore re-validation hook.
 
-**Mandatory approach — selective split:** Identify Tier 2 sections by their `## Full` heading prefix (e.g., `## Full API Reference`, `## Full Type Definitions`, `## Full Integration Patterns`). Extract ONLY those sections to `references/`, starting with the largest. Keep ALL Tier 1 content and any smaller sections inline. Inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research).
+The splitter extracts the Tier 2 sections, those whose heading starts `## Full`, largest first, to `references/` until the body fits, puts a cross-reference blockquote in each one's place, and reports `sections_extracted`, `body_lines_after`, `tier1_preserved` (with any pulled heading in `tier1_missing`), `xref_ok` and `under_budget`. Act on them:
 
-This selective split is deterministic — run `{shardBodyHelper}` (the same splitter step 5b auto-shard uses) rather than counting and extracting by hand. **Resolve `{shardBodyHelper}`** from `{shardBodyProbeOrder}`; first existing path wins.
+- **`tier1_preserved` is false:** **HARD HALT** (exit code 5, `tier1-not-preserved`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Split reduced Tier-1 section count (missing {tier1_missing}). Tier-1 sections must remain inline. Aborting the body split: manual review required." Every Tier 1 section must remain inline, and the context snippet's `#quick-start` and `#key-types` anchors name two of them, so this one check keeps the anchors resolving too.
+- **`xref_ok` is false:** **HARD HALT** (exit code 5, `shard-xref-broken`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "The body split left a cross-reference that does not resolve. Aborting."
+- **`under_budget` is false** (rare: Tier 1 alone runs past about 300 lines): trim `## Key API Summary` and `## Architecture at a Glance` until the body fits, never moving a Tier 1 section to `references/`, then run the split again, guard included, and take `body_lines_after` from it.
 
-```bash
-uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --budget 400
-```
-
-It extracts the largest `## Full` sections to `references/` until the body fits, rewrites each as a cross-reference blockquote through the atomic-write helper, and reports `sections_extracted`, `body_lines_after`, `tier1_preserved`, `xref_ok`, and `under_budget`.
-
-**Do not run `npx skill-check split-body --write` before selective extraction.** It extracts every `##` section top-to-bottom, destroying the Tier 1 inline content the two-tier design depends on — a last resort used only after selective split has been attempted and proven insufficient.
-
-**If selective split alone does not bring body under the limit** (the splitter reports `under_budget: false` — rare, typically only when Tier 1 itself exceeds 300 lines): reduce Tier 1 Key API Summary and Architecture at a Glance sections to fit within limits. Do not fall back to automated `split-body --write` to solve a Tier 1 sizing problem.
-
-**Tier 1 preservation check:** After any split operation, verify that all of the following Tier 1 sections remain inline in SKILL.md (not moved to references/): Overview, Quick Start, Common Workflows, Key API Summary, Migration & Deprecation Warnings (if present), Key Types, Architecture at a Glance, CLI (if present), Scripts & Assets (if present), Manual Sections. If any was moved to references/, restore it immediately and re-split targeting only Tier 2 sections.
-
-**Post-split Tier-1 count check (mandatory):** do not recount Tier-1 headings by hand; consume the splitter's `tier1_preserved` field. `{shardBodyHelper}` compares the Tier-1 headings inline before extraction against those inline afterward and reports `tier1_preserved` (with any pulled headings in `tier1_missing`). Read it from the invocation above, or re-check any split's result with `uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --dry-run`. If `tier1_preserved` is false, **HARD HALT** (exit code 5, `tier1-not-preserved`, phase `validate`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Split reduced Tier-1 section count (missing {tier1_missing}). Tier-1 sections must remain inline. Aborting the body split: manual review required." Do not proceed past §4: Tier-1 preservation is a hard invariant and a `tier1_preserved: false` result means the splitter pulled an inline section into references/ regardless of the section-list check above (e.g., heading-text variation, capitalization, or the splitter's own heuristics).
-
-**Anchor validation and remediation:** After any split, verify that context-snippet section anchors (`#quick-start`, `#key-types`) still resolve to headings in SKILL.md. If an anchor no longer resolves (section was split out), restore that section to SKILL.md inline content — the context-snippet must always reference sections that exist in the main file.
-
-Then re-validate: `npx skill-check check <staging-skill-dir> --format json {security_scan_flag}` — use the flag cached from §2's probe. If `{skill_check_flag_fallback}` is true, skip re-validation and rely on the §3 manual check.
+Then re-validate: `npx skill-check check <staging-skill-dir> --format json {security_scan_flag}`, with the flag cached from §2's probe. If `{skill_check_flag_fallback}` is true, skip re-validation and rely on the §3 manual check.
 
 **If skill-check unavailable or no body size issue:** Skip.
 
@@ -311,7 +299,7 @@ uv run {renderMetadataStatsHelper} <staging-skill-dir>/provenance-map.json \
 The helper re-bins `entries[]` by `signature_source`, recomputes `exports_documented`, `exports_total`, and `public_api_coverage` / `total_coverage` (null when the denominator is 0), and cross-checks `stats.scripts_count` / `stats.assets_count` against the `scripts[]` / `assets[]` array lengths and the provenance-map `file_entries` counts. It also checks that each T1 or T1-low provenance entry's `confidence`, `signature_source` and `ast_node_type` match its `extraction_method`, and that no entry read by eye (`source-read`) carries `signature_source: "T1"` at any confidence. It takes the judgment values (`exports_public_api`, `exports_internal`, `effective_denominator`) from `metadata.json` itself and infers the shape from `scope_type` / `skill_type` (pass `--shape` to override). Parse the emitted JSON (rely on the JSON, not the exit code):
 
 - **`coherence.ok: true`** — the computed fields are internally consistent; record "Metadata: PASS".
-- **A `provenance.entries[<i>].*` violation** (handle these before any other): entry `<i>` of the staged provenance map (its `export_name` is in the violation) carries a label its `extraction_method` does not allow (one compile §4 did not settle): relabel it by the Relabel Rule in `{extractionPatternsData}`, resolving `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` for its `kind-at` lookup. Write the relabeled map with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/provenance-map.json`, then re-run the check above and act on its new result: a relabeled `signature_source` moves the distribution, so the computed-value fixes below come from the re-run, and a violation left as a WARN does not block them. Record the relabeled export names, and each WARN left, on the evidence report's `Provenance labels` line (§8).
+- **A `provenance.entries[<i>].*` violation** (handle these before any other): entry `<i>` of the staged provenance map (its `export_name` is in the violation) carries a label its `extraction_method` does not allow (one compile §4 did not settle): relabel it by the Relabel Rule in `{relabelRuleData}`, resolving `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` for its `kind-at` lookup. Write the relabeled map with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/provenance-map.json`, then re-run the check above and act on its new result: a relabeled `signature_source` moves the distribution, so the computed-value fixes below come from the re-run, and a violation left as a WARN does not block them. Record the relabeled export names, and each WARN left, on the evidence report's `Provenance labels` line (§8).
 - **`coherence.ok: false`**: each `violations[]` entry is `{field, expected, actual}` where `expected` is the correct value. **Auto-fix each computed-value violation** (`field` starting `stats.` or `confidence_distribution.`) by setting that field in `metadata.json` to `expected` (write via `python3 {atomicWriteHelper} write --target <staging-skill-dir>/metadata.json`), leaving every other stats field (e.g. `stats.notes` on a reference app) untouched. Record "Metadata: auto-fixed {N} computed-value discrepanc(y|ies)" listing the fields. These are computed values, so the helper is authoritative: a `confidence_distribution` violation is the per-entry mis-binning compile.md §4 describes (T2 annotations + T3 doc items counted on top of the per-export tiers); the helper's per-entry counts replace them. The carve-out is handled by `--shape`: a **reference-app** distribution sums to the per-citation count, a consistent state, not a violation. A `provenance.file_entries.*` violation is not a computed metadata field: it means the provenance-map `file_entries` and metadata counts disagree; record it as a warning for manual reconciliation rather than auto-editing the count.
 
 Then verify the two fields the helper does not own (genuine constants/contract):
@@ -347,7 +335,7 @@ Fix the findings that have one answer, in this order, then run the command above
    ```
 
    It gives each mismatched citation its `expected_prefix`, moves each `source_line` that has exactly one value in `definition_lines` there, with the citations of the old line in SKILL.md and `references/` (a range by both ends, each citation at most once), writes each changed file through the atomic writer, and prints `applied[]`, `left_as_warn[]` (each finding it left, with its `why`), `files_written[]` and `summary`, on exit 0 and on exit 1 (it left a WARN) alike. Exit 2 prints no JSON (its stderr line names any file it already wrote): list a WARN, `not fixed: verifier error` with that line, and go on to item 2.
-2. **Node kinds.** For each `node_kinds[]` item (`reason` is `invalid-kind` or `error-kind`), take the entry at its `entry_index` in the staged provenance map (its `export_name` and `source_file` confirm it; item 1's `fix` may have moved its `source_line`) and set its `ast_node_type` to the node kind the Relabel Rule in `{extractionPatternsData}` gives: the kind of the recipe the export's `ast_recipe` names in the extraction inventory step 3 §5 wrote, `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, else its `kind-at` lookup at the entry's current `source_line`. When the rule gives no kind, list a WARN with its reason. Never invent a kind, and never change `extraction_method` to clear the finding. Write the map with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/provenance-map.json`.
+2. **Node kinds.** For each `node_kinds[]` item (`reason` is `invalid-kind` or `error-kind`), take the entry at its `entry_index` in the staged provenance map (its `export_name` and `source_file` confirm it; item 1's `fix` may have moved its `source_line`) and set its `ast_node_type` to the node kind the Relabel Rule in `{relabelRuleData}` gives: the kind of the recipe the export's `ast_recipe` names in the extraction inventory step 3 §5 wrote, `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, else its `kind-at` lookup at the entry's current `source_line`. When the rule gives no kind, list a WARN with its reason. Never invent a kind, and never change `extraction_method` to clear the finding. Write the map with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/provenance-map.json`.
 
 If that second run leaves no JSON at `{verify_json}`, record the fixes already applied and `second run: verifier error`, and continue to §8. Fix nothing else, and triage what is left:
 
@@ -365,7 +353,7 @@ Write the validation results into the staged `<staging-skill-dir>/evidence-repor
 ## Validation Results
 - Schema: {pass/fail} (quality score: {score}/100)
 - Frontmatter: {pass/fail}
-- Body: {pass/fail} {split-body applied if applicable}
+- Body: {pass/fail} {body split applied if applicable}
 - Security: {pass/warn/skipped}
 - Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}
 - Tessl Review: {tessl_summary}
@@ -400,10 +388,10 @@ When `{tessl_status}` is not `reviewed`, the `## Tessl Review` section holds onl
 
 **Auto-Decisions:** keep the `## Auto-Decisions` section step 5 §7 rendered from the run sink as it is: every gate decided before step 5, and no step records a decision after it, so its rows already match `summary.auto_decision_count`.
 
-**Description Guard population:** if the §0 protocol fired during §2 (`skill-check --fix`) or §4 (`split-body`), fill the four Description Guard fields from context:
+**Description Guard population:** if the §0 protocol fired during §2 (`skill-check --fix`) or §4 (the body split), fill the four Description Guard fields from context:
 
 - `Restored: true` when `description_guard_restored == true`, otherwise `false`.
-- `Triggering tool`: the tool name recorded by §0 (`skill-check --fix`, `skill-check split-body`, etc.), or `—` if the guard did not fire.
+- `Triggering tool`: the tool name recorded by §0 (`skill-check --fix` in §2, `skf-shard-body.py` in §4), or the template's no-fire dash if the guard did not fire.
 - `Original description preserved`: `true` if the restore succeeded (on-disk now matches the pre-tool snapshot), `false` if restoration itself failed (rare — treat as a halt condition in a future version).
 - `Notes`: a one-sentence description of what the tool had changed, based on the recorded `description_guard_diff_kind` (`replaced`, `truncated` or `deleted`). Typical values: `"replaced with generic summary"`, `"truncated at N chars"`, `"angle-bracket tokens re-introduced"`, `"field deleted entirely"`. If `Restored: false`, use `—`.
 
@@ -411,5 +399,5 @@ When `Restored: false`, the three follow-up fields are all `—` — this is the
 
 ### 9. Auto-Proceed
 
-No user interaction: this step has no gate. After validation completes, load `{nextStepFile}`, read it fully, then execute it. Tool unavailability, validation failures and every Tessl Review result are recorded as skips and warnings; the step halts only where a section above says HALT — a helper whose probe order says HALT and that no path resolves, the §4 Tier-1 preservation check, and the §6 description check.
+No user interaction: this step has no gate. After validation completes, load `{nextStepFile}`, read it fully, then execute it. Tool unavailability, validation failures and every Tessl Review result are recorded as skips and warnings; the step halts only where a section above says HALT: a helper whose probe order says HALT and that no path resolves, the §4 Tier-1 preservation and cross-reference checks, and the §6 description check.
 

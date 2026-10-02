@@ -8,6 +8,15 @@ the page the agent reads cannot drift apart. Each subcommand runs in-process on 
 temporary run folder; the outcome of a halted target is checked against
 the exit code the shared emitter gives the same staged halt.json, and a
 whole batch runs once through the script as a program.
+
+skf-create-skill drives the same helper with `start --briefs`: every brief
+is checked with the brief schema validator before the first one compiles, a
+refused brief (or one that repeats an earlier brief's name) is recorded at
+once as failed with its create-skill exit code, each set of briefs has a
+batch run folder of its own, where a batch an ended session left is found
+again and which another set's batch never touches, and create-skill's
+batch-mode.md, load-brief.md and report.md hand each brief out and back
+through it.
 """
 
 from __future__ import annotations
@@ -27,6 +36,8 @@ SCRIPT = SCRIPTS / "skf-quick-batch.py"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 SCHEMA = SCRIPTS / "schemas" / "skf-quick-skill-result-envelope.v1.json"
 BATCH_MODE = REPO / "src" / "skf-quick-skill" / "references" / "batch-mode.md"
+CREATE_REFS = REPO / "src" / "skf-create-skill" / "references"
+CREATE_SCHEMA = SCRIPTS / "schemas" / "skf-create-skill-result-envelope.v1.json"
 
 spec = importlib.util.spec_from_file_location("skf_quick_batch", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
@@ -634,3 +645,272 @@ def test_a_bad_argument_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as exc:
         mod.main(["record", "--run-dir", "x", "--batch", "one"])
     assert exc.value.code == 2
+
+
+# --------------------------------------------------------------------------
+# skf-create-skill: a batch of briefs, each validated before the first compiles
+# --------------------------------------------------------------------------
+
+VALID_BRIEF = (
+    "name: {name}\nversion: 1.0.0\nsource_repo: https://github.com/foo/bar\nlanguage: python\n"
+    "description: Compiles things from sources.\nforge_tier: Forge\ncreated: '2026-05-15'\n"
+    "created_by: armel\nscope:\n  type: public-api\n  include: ['src/**']\n  exclude: []\n  notes: ''\n"
+)
+
+
+def _create_codes() -> dict:
+    return json.loads(CREATE_SCHEMA.read_text(encoding="utf-8"))["$defs"]["skf-envelope"]["const"]["exit_codes"]
+
+
+@pytest.fixture()
+def forge(tmp_path):
+    """A forge data folder: two valid briefs, one the schema refuses, one
+    that is no YAML mapping, and a brief in a hidden folder that never counts."""
+    root = tmp_path / "forge-data"
+    for name in ("alpha", "beta"):
+        (root / name).mkdir(parents=True)
+        (root / name / "skill-brief.yaml").write_bytes(VALID_BRIEF.format(name=name).encode("utf-8"))
+    (root / "gamma").mkdir()
+    (root / "gamma" / "skill-brief.yaml").write_bytes(VALID_BRIEF.format(name="Bad Name").encode("utf-8"))
+    (root / "delta").mkdir()
+    (root / "delta" / "skill-brief.yaml").write_bytes(b"- just\n- a list\n")
+    (root / "alpha" / ".skf-temporal").mkdir()
+    (root / "alpha" / ".skf-temporal" / "skill-brief.yaml").write_bytes(b"name: hidden\n")
+    return root, tmp_path / "_bmad-output" / ".skf-run"
+
+
+def _start(capsys, run_root: Path, *briefs: str) -> tuple[int, dict | None, str]:
+    return _run(capsys, "start", "--briefs", *briefs, "--run-root", str(run_root))
+
+
+def _briefs(root: Path, *names: str) -> list[str]:
+    return [(root / n / "skill-brief.yaml").as_posix() for n in names]
+
+
+def test_briefs_are_validated_before_the_first_compiles(forge, capsys):
+    root, run_root = forge
+    code, out, _ = _start(capsys, run_root, str(root))
+    assert code == 0
+    assert out["workflow"] == "skf-create-skill" and out["resumed"] is False and "replaced" not in out
+    run_dir = Path(out["batch_dir"])
+    assert run_dir.parent == run_root and re.fullmatch(r"skf-create-skill-batch-[0-9a-f]{12}", run_dir.name)
+    # the folder's briefs at any depth, in path order, hidden folders left out
+    assert out["input_briefs"] == _briefs(root, "alpha", "beta", "delta", "gamma")
+    assert (out["targets_total"], out["recorded"]) == (4, 2)
+    rejected = {Path(r["target"]).parent.name: r for r in out["rejected"]}
+    assert set(rejected) == {"delta", "gamma"}
+    assert rejected["delta"]["error_code"] == "brief-malformed"
+    assert rejected["gamma"]["error_code"] == "brief-invalid"
+    assert rejected["gamma"]["message"].startswith("Brief validation failed")
+    # only the valid briefs are handed out
+    handed = []
+    while True:
+        _, nxt, _ = _run(capsys, "next", "--run-dir", str(run_dir))
+        if nxt["status"] == "done":
+            break
+        handed.append(Path(nxt["target"]).parent.name)
+        # named after the batch's start, so its run_id is this brief's in this batch only
+        assert re.fullmatch(rf"skf-create-skill-batch-\d{{8}}-\d{{6}}-{nxt['batch']}", Path(nxt["run_dir"]).name)
+        assert Path(nxt["run_dir"]).parent == run_dir
+        _stage(Path(nxt["run_dir"]), "result-context.json",
+               {"status": "partial", "skill_package": f"/skills/{handed[-1]}/1.0.0/{handed[-1]}",
+                "summary": {"skill_name": handed[-1]}})
+        _run(capsys, "record", "--run-dir", str(run_dir), "--batch", str(nxt["batch"]))
+    assert handed == ["alpha", "beta"]
+
+
+def test_a_brief_batch_summary_counts_the_refused_briefs(forge, capsys, tmp_path):
+    root, run_root = forge
+    run_dir = Path(_start(capsys, run_root, str(root))[1]["batch_dir"])
+    for _ in range(2):
+        _, nxt, _ = _run(capsys, "next", "--run-dir", str(run_dir))
+        _success(Path(nxt["run_dir"]), score=None)
+        _run(capsys, "record", "--run-dir", str(run_dir), "--batch", str(nxt["batch"]))
+    output = tmp_path / "skills" / "_batch"
+    code, event, _ = _run(capsys, "summarize", "--run-dir", str(run_dir), "--output-dir", str(output))
+    assert code == 0
+    assert (event["status"], event["succeeded"], event["failed"]) == ("partial", 2, 2)
+    assert event["exit_code"] == _create_codes()["brief-invalid"] == 2
+    summary = json.loads((output / "create-skill-batch-latest.json").read_text(encoding="utf-8"))
+    assert summary["skill"] == "skf-create-skill" and "input_file" not in summary
+    assert summary["input_briefs"] == _briefs(root, "alpha", "beta", "delta", "gamma")
+    assert {(r["status"], r["error_code"]) for r in summary["results"]} == {
+        ("success", None), ("error", "brief-malformed"), ("error", "brief-invalid")}
+    assert Path(event["summary_path"]).name.startswith("create-skill-batch-")
+    assert run_dir.exists(), "a batch with a failed brief keeps its run folder"
+
+
+@pytest.mark.parametrize("reason", ["tier1-not-preserved", "source-not-found", "not-skf-output", "write-failed"])
+def test_a_brief_halt_is_recorded_with_the_create_skill_code(forge, capsys, reason):
+    """A HARD HALT ends its brief: the batch records the create-skill exit code
+    its halt_reason maps to and hands out the next brief."""
+    root, run_root = forge
+    run_dir = Path(_start(capsys, run_root, *_briefs(root, "alpha", "beta"))[1]["batch_dir"])
+    _, nxt, _ = _run(capsys, "next", "--run-dir", str(run_dir))
+    _stage(Path(nxt["run_dir"]), "halt.json", {"phase": "validate", "halt_reason": reason, "reason": "x",
+                                                "summary": {"halt_reason": reason, "evidence_report": None}})
+    code, event, _ = _run(capsys, "record", "--run-dir", str(run_dir), "--batch", "1")
+    assert code == 0 and event["status"] == "fail" and event["exit"] == _create_codes()[reason]
+    _, following, _ = _run(capsys, "next", "--run-dir", str(run_dir))
+    assert (following["status"], following["batch"]) == ("next", 2)
+
+
+def test_the_same_briefs_resume_and_other_briefs_leave_them_alone(forge, capsys):
+    root, run_root = forge
+    briefs = _briefs(root, "alpha", "beta")
+    _, first, _ = _start(capsys, run_root, *briefs)
+    run_dir = Path(first["batch_dir"])
+    _, nxt, _ = _run(capsys, "next", "--run-dir", str(run_dir))
+    _success(Path(nxt["run_dir"]))
+    _run(capsys, "record", "--run-dir", str(run_dir), "--batch", "1")
+    _, nxt, _ = _run(capsys, "next", "--run-dir", str(run_dir))
+    second = Path(nxt["run_dir"])
+    # another set of briefs, from another terminal: a batch folder of its own
+    code, other, _ = _start(capsys, run_root, *_briefs(root, "beta"))
+    assert code == 0 and (other["resumed"], other["targets_total"]) == (False, 1)
+    assert Path(other["batch_dir"]) != run_dir
+    assert second.is_dir() and (run_dir / "batch.jsonl").is_file()
+    # a session ended here: --batch with the same briefs goes on with brief 2, its first batch intact
+    code, again, _ = _start(capsys, run_root, *briefs)
+    assert code == 0 and (again["resumed"], again["recorded"], again["batch_dir"]) == (True, 1, run_dir.as_posix())
+    _, nxt, _ = _run(capsys, "next", "--run-dir", str(run_dir))
+    assert (nxt["batch"], nxt["target"]) == (2, briefs[1])
+    _success(Path(nxt["run_dir"]))
+    _, event, _ = _run(capsys, "record", "--run-dir", str(run_dir), "--batch", "2")
+    assert event["status"] == "done"
+
+
+def test_an_unfinished_batch_of_other_briefs_in_the_folder_is_refused(forge, capsys):
+    """Never deleted: only a hand-made folder (or a hash collision) holds one."""
+    root, run_root = forge
+    run_dir = mod.brief_batch_dir(run_root, _briefs(root, "alpha"))
+    run_dir.mkdir(parents=True)
+    mod._append(run_dir, {"event": "start", "status": "running", "workflow": "skf-create-skill",
+                          "input_briefs": _briefs(root, "beta"), "fail_fast": False})
+    code, out, err = _start(capsys, run_root, *_briefs(root, "alpha"))
+    assert (code, out) == (1, None) and json.loads(err)["halt_reason"] == "write-failed"
+    assert "beta" in (run_dir / "batch.jsonl").read_text(encoding="utf-8")
+
+
+def test_an_ended_brief_batch_gives_way_to_a_new_one(forge, capsys, tmp_path):
+    root, run_root = forge
+    _, first, _ = _start(capsys, run_root, *_briefs(root, "gamma"))
+    _run(capsys, "summarize", "--run-dir", first["batch_dir"], "--output-dir", str(tmp_path / "o"))
+    code, out, _ = _start(capsys, run_root, *_briefs(root, "gamma"))
+    assert code == 0 and (out["resumed"], out["recorded"], out["batch_dir"]) == (False, 1, first["batch_dir"])
+
+
+def test_an_ended_batch_that_cannot_be_emptied_is_a_write_failure(forge, capsys, tmp_path, monkeypatch):
+    """A file another process holds open on Windows survives the removal:
+    start never appends the new batch to the ended one's file."""
+    root, run_root = forge
+    _, first, _ = _start(capsys, run_root, *_briefs(root, "gamma"))
+    _run(capsys, "summarize", "--run-dir", first["batch_dir"], "--output-dir", str(tmp_path / "o"))
+    monkeypatch.setattr(mod, "_remove_tree", lambda path: None)
+    code, out, err = _start(capsys, run_root, *_briefs(root, "gamma"))
+    assert (code, out) == (1, None) and json.loads(err)["halt_reason"] == "write-failed"
+
+
+def test_a_brief_that_repeats_a_name_is_refused(forge, capsys):
+    """#594: two briefs of one name would compile into one skill folder, the
+    second over the first, so the second is recorded as refused."""
+    root, run_root = forge
+    (root / "nested" / "alpha").mkdir(parents=True)
+    (root / "nested" / "alpha" / "skill-brief.yaml").write_bytes(VALID_BRIEF.format(name="alpha").encode("utf-8"))
+    code, out, _ = _start(capsys, run_root, *_briefs(root, "alpha", "beta", "nested/alpha"))
+    assert code == 0
+    [rejected] = out["rejected"]
+    assert (rejected["batch"], rejected["error_code"]) == (3, "brief-invalid")
+    assert "`alpha`" in rejected["message"] and _briefs(root, "alpha")[0] in rejected["message"]
+
+
+def test_a_missing_brief_path_is_a_refused_brief_not_a_refused_batch(forge, capsys):
+    root, run_root = forge
+    missing = (root / "nope" / "skill-brief.yaml").as_posix()
+    code, out, _ = _start(capsys, run_root, missing, *_briefs(root, "alpha"))
+    assert code == 0 and [r["error_code"] for r in out["rejected"]] == ["brief-missing"]
+
+
+def test_no_brief_found_refuses_the_batch(tmp_path, capsys):
+    empty = tmp_path / "forge-data"
+    empty.mkdir()
+    run_root = tmp_path / ".skf-run"
+    code, out, err = _start(capsys, run_root, str(empty))
+    assert (code, out) == (1, None)
+    assert json.loads(err)["halt_reason"] == "brief-missing"
+    assert not run_root.exists()
+
+
+@pytest.mark.parametrize("argv", [["start", "--run-dir", "x"], ["start", "f.txt", "--briefs", "b", "--run-root", "x"],
+                                  ["start", "--briefs", "b", "--run-dir", "x"], ["start", "f.txt", "--run-root", "x"]],
+                         ids=["neither", "both", "briefs-with-run-dir", "file-with-run-root"])
+def test_start_takes_a_file_or_briefs(capsys, argv):
+    code, out, err = _run(capsys, *argv)
+    assert (code, out) == (1, None) and json.loads(err)["halt_reason"] == "input-invalid"
+
+
+def _create(name: str) -> str:
+    return (CREATE_REFS / name).read_text(encoding="utf-8")
+
+
+def _section_of(text: str, start: str, end: str | None) -> str:
+    assert start in text, start
+    body = text[text.index(start):]
+    return body[:body.index(end)] if end else body
+
+
+def test_create_skill_batch_mode_drives_the_helper_in_order():
+    """Start (every brief checked first), next, record, summarize, then the
+    health check once: the loop the helper keeps on disk."""
+    text = _create("batch-mode.md")
+    start = _section_of(text, "### 1. Start the Batch", "### 2. ")
+    assert ('uv run {quickBatchHelper} start --briefs {batch_paths} '
+            '--run-root "{project-root}/_bmad-output/.skf-run"') in start
+    assert "Bind `{batch_dir}` ← its `batch_dir`" in start
+    assert "before any brief compiles" in start
+    for reason in ("brief-missing", "helper-missing", "write-failed"):
+        assert f"`{reason}`, phase `batch-mode`" in start, reason
+    assert 'uv run {quickBatchHelper} next --run-dir "{batch_dir}"' in text
+    assert 'uv run {quickBatchHelper} record --run-dir "{batch_dir}" --batch {batch} --target stderr' in text
+    summary = _section_of(text, "### 4. Batch Summary", None)
+    assert '--output-dir "{skills_output_folder}/_batch"' in summary
+    assert "create-skill-batch-latest.json" in summary
+    assert summary.index("summarize") < summary.index("{healthCheckStepFile}")
+    assert "skf-create-skill-batch`" not in text, "each set of briefs has a folder of its own"
+    assert "After a compaction, `{batch_dir}` is the parent folder of the brief's `{run_dir}`" in text
+    assert mod.SUMMARY_STEMS[mod.CREATE_WORKFLOW] == "create-skill-batch"
+    # every helper call but start has a way to end the batch when it fails
+    for number in ("2", "3", "4"):
+        section = _section_of(text, f"### {number}. ", f"### {int(number) + 1}. " if number != "4" else None)
+        assert "**HARD HALT** (exit code 4, `write-failed`, phase `batch-mode`" in section, number
+
+
+def test_create_skill_steps_hand_each_brief_back_to_the_batch():
+    """load-brief takes the brief and run folder batch-mode.md hands out,
+    report.md and every HARD HALT go back to its record, and no step keeps
+    the old sidecar checkpoint."""
+    skill = (REPO / "src" / "skf-create-skill" / "SKILL.md").read_text(encoding="utf-8")
+    assert "execute `references/batch-mode.md`" in _section_of(skill, "## On Activation", None)
+    rules = _section_of(skill, "## Workflow Rules", "## Stages")
+    assert "under `--batch` the halt ends only its brief: go to `references/batch-mode.md` §3" in rules
+    load = _create("load-brief.md")
+    assert "Under `--batch`, `references/batch-mode.md` §2 created it and bound `{run_dir}`" in load
+    assert "**Under `--batch`:** `references/batch-mode.md` §2 handed out this brief as `{brief_path}`" in load
+    report = _create("report.md")
+    assert "go to `references/batch-mode.md` §3" in report
+    for path in sorted(CREATE_REFS.rglob("*.md")) + [REPO / "src" / "skf-create-skill" / "SKILL.md"]:
+        body = path.read_text(encoding="utf-8")
+        assert "batch-state.yaml" not in body and "current_index" not in body, path.name
+
+
+def test_create_skill_offers_the_briefs_when_none_is_named():
+    """#594: no brief path or name and no --batch: one brief loads, several
+    are offered (headless halts with their names), none halts as before."""
+    discover = _section_of(_create("load-brief.md"), "### 2. Discover Skill Brief", "### 3. ")
+    selection = _section_of(discover, "**If no brief path, skill name or `--batch` was given:**", "**Bind")
+    assert "`{forge_data_folder}/*/skill-brief.yaml`" in selection
+    assert '"gate": "brief-selection", "decision": "only-brief"' in selection
+    assert 'ask "Which brief should I compile?"' in selection
+    assert "**HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`" in selection
+    assert "**None:** the halt below." in selection
+    assert "**Brief:** `{brief_path}`" in _create("load-brief.md")

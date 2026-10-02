@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-brief-skill.
-# Team overrides:     _bmad/custom/skf-brief-skill.toml (under {project-root})
-# Personal overrides: _bmad/custom/skf-brief-skill.user.toml (under {project-root})
+# Team overrides:     {project-root}/_bmad/custom/skf-brief-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-brief-skill.user.toml
 
 [workflow]
 
@@ -10,15 +10,18 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any brief authoring work.
+# Steps SKILL.md On Activation step 3 runs once this file resolves: after
+# config.yaml is loaded and {headless_mode} and {auto_mode} are resolved, so
+# config values such as {forge_data_folder} and {sidecar_path} are available,
+# and before any stage loads. Overrides append. Use for org-wide pre-flight
+# checks (auth, network, compliance) that must precede any brief authoring
+# work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps to run once activation completes (the envelope emitter resolved),
+# just before step 1 (references/gather-intent.md) loads. Overrides append.
+# Use for context loads or banner customization.
 
 activation_steps_append = []
 
@@ -26,11 +29,18 @@ activation_steps_append = []
 # (house style, naming conventions, description-voice guardrails).
 # Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "Skill briefs must cite an authoritative source."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/brief-style.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
+#
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-brief-skill.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
@@ -38,26 +48,38 @@ persistent_facts = [
 
 # --- Optional asset overrides ---
 #
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
+# Each names the file a stage loads, as a path from the skill root. To use an
+# org copy, point at it with a {project-root}/... path. An empty string means
+# the default named below.
 
-description_voice_examples_path = ""
-scope_templates_path = ""
-brief_schema_path = ""
+# The five voice examples step 1 shows a first-time user and composes the
+# skill description from. A copy keeps five examples, each leading a
+# different way, and the "do not template-stamp" guidance; whatever it says,
+# step 1 still requires a literal `Use when` clause in every description.
 
-# Pipeline-integration hook invoked once the brief is written (and, in a
-# headless or [auto] run, the result envelope is printed), before the workflow
-# chains to the terminal health-check step. Every successful run calls it
-# once: write-brief.md §6b on the interactive, headless and ratify paths (an
-# [auto] brief sent back with [R]eject included), and step-auto-validate.md §4
-# on the [auto] approve paths ([A]pprove, or [E]dit then [A]pprove), right
-# after its envelope. The command is called as:
+description_voice_examples_path = "assets/description-voice-examples.md"
+
+# The scope types step 3 offers and the boundary flow of each. A copy keeps
+# the five letter-keyed types ([F] full-library, [M] specific-modules,
+# [P] public-api, [C] component-library, [R] reference-app), a boundary
+# section for each and the Docs-Only boundaries: step 3 maps the letters to
+# the scope types the brief writer accepts. Headless boundary defaults are
+# not read from it: step 3 states them.
+
+scope_templates_path = "assets/scope-templates.md"
+
+# Pipeline-integration hook: a shell command, not an instruction, invoked
+# once the brief is written (and, in a headless or [auto] run, the result
+# envelope is printed), before the workflow chains to the terminal
+# health-check step. Every successful run calls it once: write-brief.md §6b
+# on the interactive, headless and ratify paths, and step-auto-validate.md §3
+# on the [auto] path, right after its envelope. The command is called as:
 #   <on_complete> --result-path=<absolute_path_to_skill-brief.yaml>
 # Useful for chaining into create-skill, Slack notifications, dashboard ingest,
 # or CI hooks. Override wins. A failure never fails the workflow: the run
 # displays one line, "on_complete hook failed (exit <code>): <stderr>", which
 # the result envelope, printed before the hook runs, does not carry.
 #
-# Empty string = no-op (default).
+# Empty string = no hook (default).
 
 on_complete = ""

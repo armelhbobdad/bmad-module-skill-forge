@@ -18,11 +18,11 @@ partyModeSkill: '/bmad-party-mode'
 
 ### 1. Assemble Complete Brief
 
-Use the values already accepted in steps 01-03 directly — do not re-load `{briefSchemaPath}` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.
+Use the values already accepted in steps 01-03 directly: do not load `assets/skill-brief-schema.md` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.
 
-**Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (interactive `[R]` at gather-intent §3.1a, or the headless §8 GATE `from_brief` route), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output — the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 pins it via `version_resolved`).
+**Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (step 1 ratified a brief through `references/gather-intent-ratify.md`: a brief path at the first prompt, or a headless `from_brief`), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output: the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 pins it via `version_resolved`).
 
-After a `[R]` pass on a ratify run, take `scope.*`, `scripts_intent`, `assets_intent` and `doc_urls` from step 3; every other field stays hydrated.
+After a `[R]` pass on a ratify run, take `scope.*`, `scripts_intent`, `assets_intent` and `doc_urls` from step 3, except `scope.amendments`, which step 3 never writes; every other field, `scope.amendments` included, stays hydrated.
 
 Compile all gathered data from steps 01-03 into the complete brief:
 
@@ -121,7 +121,7 @@ Flag any fields that may need review:
 {If language was overridden or low confidence:}
 "**Note:** Language was {auto-detected / manually overridden}."
 
-"**Description:** synthesized and confirmed in step 1 §7b. This is the text agents read when deciding whether to route to your skill — refine here if you want to tighten it now that the full brief is visible."
+"**Description:** synthesized in step 1 and accepted there. This is the text agents read when deciding whether to route to your skill: refine it here if you want to tighten it now that the full brief is visible."
 
 {If forge tier was defaulted:}
 "**Note:** Forge tier defaulted to Quick (no forge-tier.yaml found)."
@@ -142,7 +142,7 @@ You can:
 ### 4. Handle Inline Adjustments
 
 If the user requests changes to specific fields (name, description, version, etc.):
-- If the adjustment requires explaining a field's validation rule or allowed values, load `{briefSchemaPath}` now (otherwise skip the read — the common path does not need it)
+- If the adjustment requires explaining a field's validation rule or allowed values, load `assets/skill-brief-schema.md` now (otherwise skip the read: the common path does not need it)
 - Make the adjustment
 - Re-present the updated brief
 - Return to the menu
@@ -163,6 +163,4 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 #### Execution rules:
 
 - **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Confirm, log: "headless: auto-confirm brief"
-- After other menu items execution, return to this menu
-- User can chat, request field changes, or ask questions — always respond and then redisplay menu
 

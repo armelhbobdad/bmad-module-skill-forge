@@ -52,7 +52,9 @@ Subcommands:
            export_name and source_file; by export_name alone when no
            source_file is given). A name that matches no export is listed
            in `unmatched`, one that matches several in `ambiguous`; neither
-           changes anything.
+           changes anything. params lists each parameter as the runner
+           records one, {name, type, default, optional}, or as a typed
+           string ('userId: string').
 
   set      --inventory <file>
            Read a JSON object on stdin and set each of its keys: top_exports,
@@ -63,6 +65,39 @@ Subcommands:
            to {"intent": "<free text>", "kept": [source_file, ...]}: the
            inventory keeps only the kept entries of that list and records
            the others in the mapping's `left_out`.
+
+  provenance --inventory <file> --target <provenance-map.json> [--add-entries]
+           Write the provenance map to --target, so compile never types an
+           entry the inventory holds. stdin holds the map's header, a JSON
+           object: source_repo and source_commit (required, null allowed),
+           and source_ref (default null), provenance_version (default
+           "2.0"), skill_name (default the inventory's), skill_type
+           (default "single") and generated_at (default now, ISO-8601
+           UTC); any other key is refused. entries[] holds the entry of
+           every export of the inventory, in its order: export_name,
+           export_type, params, return_type, source_file, source_line,
+           confidence, extraction_method, ast_node_type and
+           signature_source, labeled by the tool that found it. An export
+           an ast-grep rule matched is T1 (extraction_method ast-grep, the
+           ast_node_type its recipe declares, signature_source T1); any
+           other was read by eye and is T1-low (extraction_method
+           source-read, ast_node_type null, signature_source T1-low).
+           params holds the map's typed strings, one per parameter the
+           runner (or a patch) recorded: `name: type`, `name?: type` for a
+           JS/TS parameter that is optional and has no default,
+           ` = default` after a default, and the type alone for a
+           parameter with no name; a string a patch or an add sent is kept
+           as it is. params and return_type are null on an export whose
+           params is null: any export but a function, or a function nobody
+           read the signature of, which `unsigned` lists (patch them and
+           run provenance again). The inventory is not changed.
+           With --add-entries, stdin holds instead a JSON object with an
+           `entries` list, a `file_entries` list or both, appended to the
+           map at --target: the entries the inventory does not hold (T2 and
+           T3) and the file entries. An entry whose export_name and
+           source_file the map already holds, or a file entry whose
+           file_name it holds, is not added and counts in `duplicates`, so
+           an inventory export's entry is never replaced.
 
   rules    --inventory <file> --language <language> --target <file>
            Write extraction-rules.yaml (the skill, its language, tier and
@@ -88,7 +123,7 @@ Inventory shape (the keys this helper reads or writes):
     "t2_annotations": [...], "t3_items": [...], "warnings": ["..."]
   }
 
-Output (stdout, exit 0), for every subcommand but rules:
+Output (stdout, exit 0), for every subcommand but rules and provenance:
 
   {
     "status": "ok",
@@ -109,14 +144,19 @@ Output (stdout, exit 0), for every subcommand but rules:
 count the exports by their `confidence`, by_type by their `export_type`.
 t2_past and t2_future count the T2 annotations by their `temporal`, and
 functions_enriched the distinct export_name values among them. rules
-prints {"status": "ok", "target": "<path>", "bytes": N}.
+prints {"status": "ok", "target": "<path>", "bytes": N}, provenance
+{"status": "ok", "target": "<path>", "entries": N, "unsigned": ["name
+(file)", ...]}, and provenance --add-entries {"status": "ok", "target":
+"<path>", "entries": N, "file_entries": N, "added": N, "duplicates": N},
+the counts of the map after the merge.
 
 Exit codes:
   0  success
   1  input error, nothing changed: an inventory that is missing, not JSON
      or has no exports list, an --extraction or --detected file that
-     cannot be read, a stdin payload of the wrong shape, an unknown key or
-     a kept file the inventory does not list, or a write that failed
+     cannot be read, a provenance map at --target that --add-entries
+     cannot read, a stdin payload of the wrong shape, an unknown key or a
+     kept file the inventory does not list, or a write that failed
   2  usage error (argparse)
 """
 
@@ -127,6 +167,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 FIELDS = ("exports", "t2_annotations", "t3_items", "warnings")
@@ -401,6 +442,124 @@ def _intent_mapping(data: dict, mapping: dict) -> dict:
     return recorded
 
 
+JS_LANGUAGES = frozenset({"typescript", "tsx", "javascript"})
+
+
+def typed_param(param, language: str | None) -> str | None:
+    """One parameter as the provenance map writes it ('userId: string',
+    'options?: TokenOptions', 'retries: int = 3'); a string is kept."""
+    if isinstance(param, str):
+        return param
+    if not isinstance(param, dict):
+        return None
+    name, type_, default = param.get("name"), param.get("type"), param.get("default")
+    if not name:
+        return type_ or None
+    text = str(name)
+    if param.get("optional") and default is None and language in JS_LANGUAGES and not text.startswith("..."):
+        text += "?"
+    if type_:
+        text += f": {type_}"
+    if default is not None:
+        text += f" = {default}"
+    return text
+
+
+# provenance: the header keys stdin may give, and the default of each (REQUIRED: no default).
+REQUIRED = object()
+MAP_HEADER = {
+    "provenance_version": "2.0",
+    "skill_name": None,  # the inventory's
+    "skill_type": "single",
+    "source_repo": REQUIRED,
+    "source_commit": REQUIRED,
+    "source_ref": None,
+    "generated_at": None,  # now
+}
+
+
+def _labels(export: dict) -> dict:
+    """The labels the tool that found `export` gives its entry (compile.md §6)."""
+    if export.get("extraction_method") == "ast-grep":
+        return {"confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": export.get("ast_node_type"),
+                "signature_source": "T1"}
+    return {"confidence": "T1-low", "extraction_method": "source-read", "ast_node_type": None,
+            "signature_source": "T1-low"}
+
+
+def provenance_entries(data: dict) -> tuple[list[dict], list[str]]:
+    """(the provenance map entry of every export, the functions among them with no params)."""
+    entries: list[dict] = []
+    unsigned: list[str] = []
+    for export in data.get("exports") or []:
+        if not isinstance(export, dict):
+            continue
+        raw = export.get("params")
+        params = None
+        if isinstance(raw, list):
+            params = [s for s in (typed_param(p, export.get("language")) for p in raw) if s is not None]
+        elif export.get("export_type") == "function":
+            unsigned.append(f"{export.get('export_name')} ({export.get('source_file')})")
+        entries.append({
+            "export_name": export.get("export_name"),
+            "export_type": export.get("export_type"),
+            "params": params,
+            "return_type": export.get("return_type") if params is not None else None,
+            "source_file": export.get("source_file"),
+            "source_line": export.get("source_line"),
+            **_labels(export),
+        })
+    return entries, unsigned
+
+
+def map_header(data: dict, given) -> dict:
+    """The provenance map's header: stdin's keys over the defaults."""
+    if not isinstance(given, dict):
+        raise InventoryError("stdin must hold the map's header, a JSON object with source_repo and source_commit")
+    unknown = sorted(set(given) - set(MAP_HEADER))
+    if unknown:
+        raise InventoryError(f"the map's header takes only {', '.join(MAP_HEADER)}; not {', '.join(unknown)}")
+    missing = [key for key, default in MAP_HEADER.items() if default is REQUIRED and key not in given]
+    if missing:
+        raise InventoryError(f"the map's header needs {', '.join(missing)} (null when unknown)")
+    defaults = {"skill_name": data.get("skill_name"),
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    return {key: given[key] if key in given else defaults.get(key, default) for key, default in MAP_HEADER.items()}
+
+
+def provenance_map(data: dict, header) -> tuple[dict, list[str]]:
+    """(the provenance map of the inventory, the functions with no params)."""
+    entries, unsigned = provenance_entries(data)
+    return {**map_header(data, header), "entries": entries}, unsigned
+
+
+def add_map_entries(provenance: dict, payload) -> tuple[int, int]:
+    """Append stdin's `entries` and `file_entries` to the map; return (added, duplicates)."""
+    if not isinstance(payload, dict) or not payload or set(payload) - {"entries", "file_entries"}:
+        raise InventoryError('stdin must hold {"entries": [...], "file_entries": [...]} (either list, or both)')
+    keys = {"entries": ("export_name", "source_file"), "file_entries": ("file_name",)}
+    added = duplicates = 0
+    for field, items in payload.items():
+        if not isinstance(items, list) or not all(isinstance(e, dict) for e in items):
+            raise InventoryError(f"{field} must be a list of objects")
+        need = keys[field][0]
+        if not all(isinstance(e.get(need), str) and e[need] for e in items):
+            raise InventoryError(f"every {field} item needs a {need}")
+        target = provenance.setdefault(field, [])
+        if not isinstance(target, list):
+            raise InventoryError(f"the map's {field} is not a list")
+        held = {tuple(e.get(k) for k in keys[field]) for e in target if isinstance(e, dict)}
+        for item in items:
+            key = tuple(item.get(k) for k in keys[field])
+            if key in held:
+                duplicates += 1
+                continue
+            held.add(key)
+            target.append(item)
+            added += 1
+    return added, duplicates
+
+
 def rules_yaml(data: dict, language: str) -> str:
     """extraction-rules.yaml: how the skill was extracted, for a later run to reproduce it."""
     head = {"skill_name": data.get("skill_name"), "language": language, "tier": data.get("tier"),
@@ -505,6 +664,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rules.add_argument("--inventory", required=True, type=Path, help=inventory_help)
     p_rules.add_argument("--language", required=True, help="the brief's language")
     p_rules.add_argument("--target", required=True, type=Path, help="the extraction-rules.yaml to write")
+    p_prov = sub.add_parser("provenance", help="write the provenance map from the inventory, the header on stdin")
+    p_prov.add_argument("--inventory", required=True, type=Path, help=inventory_help)
+    p_prov.add_argument("--target", required=True, type=Path, help="the provenance-map.json to write")
+    p_prov.add_argument("--add-entries", action="store_true",
+                        help="append stdin's entries and file_entries to the map at --target instead")
     p_summary = sub.add_parser("summary", help="print the inventory's counts")
     p_summary.add_argument("--inventory", required=True, type=Path, help=inventory_help)
     return parser
@@ -520,6 +684,22 @@ def main(argv: list[str] | None = None) -> int:
             data = init(args.skill, args.mode, args.tier, extraction, detected)
             write(path, data)
             result = _result(path, data)
+        elif args.command == "provenance" and args.add_entries:
+            load(path)
+            provenance = _read_json(args.target, "provenance map")
+            if not isinstance(provenance, dict) or not isinstance(provenance.get("entries"), list):
+                raise InventoryError(f"the provenance map {args.target.as_posix()} has no entries list: "
+                                     "run provenance without --add-entries first")
+            added, duplicates = add_map_entries(provenance, _stdin_json())
+            write(args.target, provenance)
+            result = {"status": "ok", "target": args.target.as_posix(), "entries": len(provenance["entries"]),
+                      "file_entries": len(provenance.get("file_entries") or []), "added": added,
+                      "duplicates": duplicates}
+        elif args.command == "provenance":
+            provenance, unsigned = provenance_map(load(path), _stdin_json())
+            write(args.target, provenance)
+            result = {"status": "ok", "target": args.target.as_posix(), "entries": len(provenance["entries"]),
+                      "unsigned": unsigned}
         elif args.command == "rules":
             text = rules_yaml(load(path), args.language)
             write(args.target, text)

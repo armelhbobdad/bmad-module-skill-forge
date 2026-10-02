@@ -20,7 +20,7 @@ detectDocsProbeOrder:
 
 ## STEP GOAL:
 
-To enrich an upstream skill brief (produced by AN auto-scope) with documentation URLs discovered via `skf-detect-docs.py`, validate the enriched brief, and write it through the canonical writer. Envelope emission is deferred to step-auto-validate.md, which presents the brief for user approval before continuing. This step replaces the interactive gather-intent → analyze-target → scope-definition → confirm-brief → write-brief chain when `[auto]` mode is active.
+To enrich an upstream skill brief (produced by AN auto-scope) with documentation URLs discovered via `skf-detect-docs.py`, validate the enriched brief, and write it through the canonical writer. Envelope emission is deferred to step-auto-validate.md, which checks the written brief and summarizes it first. This step replaces the interactive gather-intent → analyze-target → scope-definition → confirm-brief → write-brief chain when `[auto]` mode is active.
 
 ## Rules
 
@@ -125,4 +125,4 @@ Leave `--doc-urls-file` out when §2 and §3 were skipped or found nothing.
 
 ### 5. Chain to Auto-Validate
 
-Load, read fully, then execute {nextStepFile} to present the auto-brief validation gate, where the user can approve, edit, or reject the brief before the pipeline continues. Do this only after the enriched brief has been written and validated.
+Load, read fully, then execute {nextStepFile}, which checks and summarizes the written brief, prints the envelope and runs the hook. Do this only after the enriched brief has been written and validated.

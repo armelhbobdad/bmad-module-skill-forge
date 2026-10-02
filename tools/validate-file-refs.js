@@ -114,8 +114,10 @@ function escapeTableCell(str) {
 // Path prefixes/patterns that only exist in installed structure, not in source.
 // `agents/` is where bmad-method core agents land under `_bmad/`; referenced by
 // some workflows (e.g. test-skill's --discovery-catalog=all escape hatch) but
-// never sourced from this repo.
-const INSTALL_ONLY_PATHS = ['_config/', '_memory/', 'agents/'];
+// never sourced from this repo. `custom/` holds a project's own customization
+// overrides ({project-root}/_bmad/custom/<skill>.toml), which a skill names
+// and never ships.
+const INSTALL_ONLY_PATHS = ['_config/', '_memory/', 'agents/', 'custom/'];
 
 // Files that are generated at install time and don't exist in the source tree
 const INSTALL_GENERATED_FILES = ['config.yaml', 'config.user.yaml', 'VERSION', 'package.json'];

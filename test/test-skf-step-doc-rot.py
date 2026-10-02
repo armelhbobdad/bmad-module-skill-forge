@@ -136,6 +136,8 @@ class TestCandidateScan:
         args = parser.parse_args(words[3:])
         stage = f"{root}/_bmad-output/.skf-stage/{{skill-name}}"
         assert args.skill_md == f"{stage}/SKILL.md"
+        # the staged map names the exports a changelog, release or PR line may name
+        assert args.provenance == f"{stage}/provenance-map.json"
         assert args.positional_feeders == [
             f"{stage}/evidence-report.md",
             f"{stage}/provenance-map.json",
@@ -180,6 +182,27 @@ class TestJudgmentPass:
         item = next(line for line in locate.splitlines() if line.startswith("2. "))
         assert "`entries[].export_name`" in item
         assert "an `export_name` in the staged provenance map (§1 item 2)" in _judgment_pass()
+
+    def test_the_pass_reads_the_scripts_headings_and_exports(self) -> None:
+        """#582's Keep a Changelog sample: a `### Removed` bullet names no
+        keyword, so the scan hands it over by the export it names, with the
+        release and section headings the pass judges it by."""
+        judgment = _judgment_pass()
+        assert "in its own words or by its `section`" in judgment
+        assert "The candidate's `release` names the release a changelog or release-notes line sits under" in judgment
+        assert "which the candidate's `exports` lists when the line names it" in judgment
+        fields = _section(_scan_section(), "Each entry in `matches` is a candidate:", "**Judgment pass.**")
+        for field in ("`exports`", "`release` and `section`"):
+            assert f"- {field}" in fields, field
+        scan = _load_script(SCAN_DOC_ROT_PY, "scan_doc_rot_headings")
+        [hit] = scan.scan_text("## [2.3.0] - 2024-05-01\n### Removed\n- `close_all`", "changelog.md",
+                               frozenset({"close_all"}), True)
+        assert (hit["release"], hit["section"], hit["exports"]) == ("## [2.3.0] - 2024-05-01", "### Removed",
+                                                                    ["close_all"])
+        # a kept export mention gets the category and pattern its block (and campaign's record) print
+        labels = _section(judgment, "A kept candidate the scan gave no `pattern` (an export mention)", "\n")
+        named = set(re.findall(r"`([A-Z][a-z]+(?: [a-z]+)*)`", labels)) - {"Removed"}
+        assert named == {category for _, category in scan.PATTERN_TABLE}, named
 
     @pytest.mark.parametrize(
         "line", list(REPRODUCED_NON_CORRECTIONS.values()), ids=list(REPRODUCED_NON_CORRECTIONS)
@@ -603,7 +626,8 @@ class TestMatchRecordFields:
     def text(self) -> str:
         return _read(STEP_DOC_ROT)
 
-    MATCH_FIELDS = ["source", "pattern", "candidate_category", "context_line", "affected"]
+    MATCH_FIELDS = ["source", "pattern", "candidate_category", "context_line", "affected", "exports", "release",
+                    "section"]
 
     @pytest.mark.parametrize("field", MATCH_FIELDS)
     def test_match_field_documented(self, text: str, field: str) -> None:
@@ -937,20 +961,24 @@ class TestTemporalCorrectionCitation:
         ) in annotate
         assert "`[QMD:{collection}:{doc}]`" in _read(SKILL_SECTIONS)
 
-    def test_staged_match_cites_its_annotation_or_file_name(self) -> None:
+    def test_staged_match_cites_its_line_or_its_export(self) -> None:
         """The script reports a feeder by the path the §2 call gave it, and the
         call gives the staged feeders their {project-root} path: an absolute
-        path on this machine that must never reach a published skill."""
+        path on this machine that must never reach a published skill. A file
+        name is no citation either (#605 architecture-4): a staged match cites
+        its line's citation, else the affected export's provenance entry."""
         annotate = _section(_read(STEP_DOC_ROT), "### §3.", "### §4.")
-        assert "`{source}` cites the feeder the line came from, never the path in the match's `source`" in annotate
-        cite = _section(annotate, "- **A match from a staged feeder** (items 1, 2 and 4 of §1)", "\n")
-        assert "cite the `[QMD:...]` or `[DOC:...]` annotation on its line when it has one" in cite
-        assert "never its `{project-root}` path" in cite
+        assert "never the path in the match's `source`" in annotate
+        cite = _section(annotate, "- **A match from a staged feeder** (items 1, 2 and 4 of §1", "\n")
+        assert "the citation its line carries when it carries one, otherwise the one the `affected` export's" in cite
+        assert "`[AST:{source_file}:L{source_line}]` for a T1 entry" in cite
+        assert "`[SRC:{source_file}:L{source_line}]` for a T1-low one" in cite
+        assert "never a `{project-root}` path" in cite
         call = _section(_scan_section(), "```bash", "\n```")
         staged = re.findall(r'"\{project-root\}/_bmad-output/\.skf-stage/\{skill-name\}/([^"/]+)"', call)
-        assert sorted(staged) == ["SKILL.md", "evidence-report.md", "provenance-map.json"]
-        for name in staged:
-            assert f"`{name}`" in cite, f"no file name to cite for {name}"
+        assert sorted(set(staged)) == ["SKILL.md", "evidence-report.md", "provenance-map.json"]
+        for name in set(staged):
+            assert f"never a file name such as" in cite and f"`{name}`" in cite, name
 
     def test_citation_names_the_collection_step_3b_indexes(self) -> None:
         index = _section(_read(FETCH_TEMPORAL), "### 4. Index Into QMD", "### 5.")
@@ -978,6 +1006,24 @@ class TestCitationRule:
         [rule] = [line for line in rules.splitlines() if "provenance citation" in line]
         assert all(f"`{form}`" in rule for form in self.FORMS), rule
         assert "Do not include any content without a provenance citation" in _read(CS_DIR / "references" / "compile.md")
+
+    def test_the_correction_source_is_a_listed_form(self) -> None:
+        """The doc-rot `## CORRECTION` block's **Source:** cites in a form the
+        rule lists, never a `[DOC:...]` annotation or a bare feeder file name."""
+        annotate = _section(_read(STEP_DOC_ROT), "### §3.", "### §4.")
+        source_rule = _section(annotate, "`{source}` is the block's provenance citation", "**Insertion rules:**")
+        named = set(re.findall(r"`(\[[A-Z]+:)", source_rule))
+        assert named and named <= {form[:-1] for form in self.FORMS}, named
+        assert "[DOC:" not in _read(STEP_DOC_ROT)
+        assert all(f"`{form}`" in source_rule for form in self.FORMS)
+        # every tier an affected export's entry can carry has a form, a docs-only skill's T2 and T3 included
+        staged = _section(annotate, "- **A match from a staged feeder**", "\n")
+        for tier, form in (("for a T1 entry", "[AST:"), ("for a T1-low one", "[SRC:"),
+                           ("for a T2 or T3 entry", "[QMD:"), ("for a T2 or T3 entry", "[EXT:")):
+            assert tier in staged and f"`{form}" in staged, (tier, form)
+        assert "`[QMD:{collection}:{doc}]` or `[EXT:{url}]` citation the compiled SKILL.md gives that export" in staged
+        block = _section(annotate, "```markdown", "\n```")
+        assert "**Source:** {source}" in block
 
     def test_every_form_is_one_a_stage_writes(self) -> None:
         """Each form the rule names is a row of the citation table compile

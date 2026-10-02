@@ -97,6 +97,27 @@ class TestFileList:
         assert proc.returncode == 2
         assert b"cannot read file list" in proc.stderr
 
+    def test_the_github_probe_listing_is_read_by_its_tree(self, tmp_path):
+        """skf-brief-skill step 3 passes step 2's tree.json, the object skf-github-probe.py tree --out writes."""
+        listing = {"status": "ok", "repo": "o/r", "ref": "main", "count": 2, "truncated": False,
+                   "tree": ["src/registry.ts", "demo/button.tsx"]}
+        listed = _write(tmp_path, "tree.json", json.dumps(listing) + "\n")
+        assert _mod().read_file_list(str(listed)) == ["src/registry.ts", "demo/button.tsx"]
+        proc = _run("demo", "--files-from", str(listed))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["patterns"][0]["pattern"] == "**/demo/**"
+
+    @pytest.mark.parametrize("listing,message", [
+        pytest.param({"status": "unavailable", "message": "Could not reach GitHub.", "tree": []},
+                     b"reports a failure (unavailable): Could not reach GitHub.", id="failed-listing"),
+        pytest.param({"status": "ok", "count": 0}, b"holds no `tree` list of paths", id="no-tree"),
+    ])
+    def test_a_listing_that_names_no_paths_is_a_usage_error(self, tmp_path, listing, message):
+        listed = _write(tmp_path, "tree.json", json.dumps(listing))
+        proc = _run("registry", "--files-from", str(listed), "--candidates-only")
+        assert proc.returncode == 2
+        assert message in proc.stderr
+
 
 # --------------------------------------------------------------------------
 # demo

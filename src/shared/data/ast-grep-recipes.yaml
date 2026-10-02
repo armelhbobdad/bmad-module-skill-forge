@@ -1,8 +1,8 @@
 # The ast-grep recipes that find the exports create-skill extracts. Each
 # item of `recipes` is one recipe: the same rule as its copy in create-skill's
-# references/extraction-patterns.md, which holds each recipe's notes and the
-# forms it does not cover (test/test-skf-create-skill-recipes.py keeps the
-# two copies identical). skf-extract-public-api.py --mode full runs these,
+# references/extraction-patterns.md, which holds the forms it does not cover
+# (its notes are in extraction-patterns-by-hand.md beside it;
+# test/test-skf-create-skill-recipes.py keeps the two copies identical). skf-extract-public-api.py --mode full runs these,
 # and skf-verify-provenance-completeness.py kind-at reads them as well as the
 # markdown copies.
 #
@@ -11,7 +11,7 @@
 #   languages    the languages this form runs in: its own `language`, then
 #                each language it also runs in unchanged, with `language`
 #                rewritten (the language selection note in
-#                extraction-patterns.md)
+#                extraction-patterns-by-hand.md)
 #   sets         the recipe sets that run it: `standard` (every scope type
 #                but component-library) and `component-library` (the
 #                recipes component-extraction.md names)

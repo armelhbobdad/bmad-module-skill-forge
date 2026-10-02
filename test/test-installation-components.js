@@ -339,8 +339,8 @@ async function runTests() {
       references: ['integration-patterns.md', 'manifest-patterns.md', 'compose-mode-rules.md'],
     },
     'update-skill': {
-      steps: ['init.md', 'detect-changes.md', 're-extract.md', 'merge.md', 'validate.md', 'write.md', 'report.md', 'health-check.md'],
-      references: ['manual-section-rules.md', 'merge-conflict-rules.md'],
+      steps: ['init.md', 'detect-changes.md', 're-extract.md', 'merge.md', 'write.md', 'report.md', 'health-check.md'],
+      references: ['manual-section-rules.md'],
     },
     'audit-skill': {
       steps: ['init.md', 're-index.md', 'structural-diff.md', 'semantic-diff.md', 'severity-classify.md', 'report.md', 'health-check.md'],

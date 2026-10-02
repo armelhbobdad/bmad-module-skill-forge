@@ -5,7 +5,7 @@
 # ///
 """SKF Verify Provenance Completeness — deterministic Check D for update-skill.
 
-`skf-update-skill/references/validate.md §2 Check D (Provenance Completeness)`
+update-skill's Check D (Provenance Completeness, now in write.md §6)
 previously asked the model to perform three deterministic set/citation
 operations by eye, against in-context data:
 
@@ -44,12 +44,11 @@ export-name strings) and `provenance-map.json` (`entries[]` with
 `write.md` §2 and §3. This script diffs the two sets and re-checks the
 citations exactly, so Check D consumes JSON rather than computing it.
 
-Timing: this runs **post-write** (`write.md` §6), after `metadata.json`
-(§2) and `provenance-map.json` (§3) are on disk. `validate.md` Check D
-defers here — the provenance map does not exist yet at validate time.
+Timing: update-skill runs it **post-write**, in write.md §6, after
+`metadata.json` (§2) and `provenance-map.json` (§3) are on disk.
 create-skill runs it too, at validate §7a against the staged package (with
-`--skill-dir` and `--check-node-kinds`, as update-skill write.md §6a does),
-and test-skill at coverage-check §4c (line check only).
+`--skill-dir` and `--check-node-kinds`, as update-skill does), and
+test-skill at coverage-check §4c (line check only).
 
 Determinism:
   - Set operations are pure over the two JSON inputs.
@@ -569,7 +568,7 @@ NODE_KIND_TIMEOUT_SEC = 20  # per ast-grep call; each parses one tiny rule
 _MD_YAML_FENCE_RE = re.compile(r"^```yaml[ \t]*\n(.*?)^```", re.M | re.S)
 # file language -> the recipe languages whose form of a recipe it runs, with
 # `language:` rewritten, when the recipe has no form of its own for it (the
-# language selection note in extraction-patterns.md): typescript and tsx
+# language selection note in extraction-patterns-by-hand.md): typescript and tsx
 # share their recipes, and javascript runs a TypeScript recipe with no
 # javascript form (one whose kinds the grammar lacks is skipped).
 RECIPE_LANGUAGE_FALLBACKS = {

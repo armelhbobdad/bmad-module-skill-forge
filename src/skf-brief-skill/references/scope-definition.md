@@ -6,10 +6,11 @@ recommendScopeTypeProbeOrder:
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+detectRegistryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'
+  - '{project-root}/src/shared/scripts/skf-detect-registry.py'
 analyzeStepFile: 'analyze-target.md'
 draftCheckpointFile: 'references/draft-checkpoint.md'
-advancedElicitationSkill: '/bmad-advanced-elicitation'
-partyModeSkill: '/bmad-party-mode'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -20,7 +21,8 @@ partyModeSkill: '/bmad-party-mode'
 
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
-- **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules — revise in place, do not append.
+- **Headless (`{headless_mode}` is true):** no section prompts. Each section's **Headless** line says what it takes instead, from the arguments step 1's input gate validated, so a headless run never waits here.
+- **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state; the three component-library fields are dropped only when this pass changes `scope.type` away from `component-library`. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules: revise in place, do not append.
 - **Staged inputs.** Step 2 staged the repository in the run folder: its file list at `{run_dir}/tree.json` and the files it fetched under `{run_dir}/files/`. §2c and §3c read them there.
 - **Resumed draft:** a run that resumed a draft at step 4 (draft-checkpoint.md Half 1) and came here through step 4's `[R]` has not run step 2 in this session. When `source_type` is `source` and `{run_dir}/tree.json` does not exist, load, read entire file, then execute {analyzeStepFile} first: it stages the analysis again at `{analysis_ref}` and chains back here.
 - **Ratify run (`ratify_mode: true`):** the hydrated brief's selections are the prior selections of the re-entry rule above, and the intent that §1 shows and §2c classifies is the change the user asked for when choosing [R], read with the hydrated `description`. For a source brief, step 2 has analyzed the brief's repository and §2c runs the recommender on that analysis: its `scope_type` and `matched_heuristic` replace the hydrated `recommended` and `heuristic`, and the §2c capture rules set the rest of `scope.rationale` from this pass (a brief without one gets one).
@@ -38,7 +40,11 @@ Based on the analysis, here's what we're working with:
 - **Modules found:** {module_count from step 2 §4.3} ({list names}; none for a docs-only target)
 - **Your intent:** {user intent from step 01}
 {If scope hints from step 01:}
-- **Your initial scope hints:** {hints}"
+- **Your initial scope hints:** {hints}
+
+Anything wrong in the analysis? Say so with your answer below."
+
+The user's next answer may carry corrections to step 2's analysis: apply them, and show the changed findings again, before a scope decision relies on them.
 
 ### 2. Handle Docs-Only Mode (if applicable)
 
@@ -58,6 +64,8 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 - `scope.include`: confirmed doc URLs
 - `scope.notes: "Generated from external documentation. All content is T3 confidence."`
 
+**Headless:** no prompt: include every collected doc URL and skip to section 5 with the fields above. Take `scope.rationale` from `uv run {recommendScopeTypeHelper} --json '{"source_type": "docs-only", "mode": "headless"}'` (the helper resolved from `{recommendScopeTypeProbeOrder}` as §2c says), which short-circuits to `docs-only` with no tree or signals, by the §2c capture rules.
+
 **If `source_type: "source"` (default):** Continue to scope templates below.
 
 ### 2b. Confirm Supplemental Documentation (if doc_urls collected)
@@ -70,11 +78,9 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 These will be included as T3 external references in the skill brief.
 Add, remove, or confirm these URLs."
 
-Wait for confirmation. Record any changes to `doc_urls`.
+Wait for confirmation. Record any changes to `doc_urls`. **Headless:** keep them as given; step 1's input gate has HEAD-checked them, so skip the check below.
 
 HEAD-check the URLs in parallel — issue all N `curl -sI --max-time 5 {url}` calls in a **single message with N parallel Bash calls**, then process the responses together. On a 4xx/5xx, DNS failure, or timeout per URL, warn `"Could not reach {url} — {status or error}."` and offer the same correct/keep choice as step 1 §3. The check is best-effort — never HALT on a failed HEAD — but the failure must surface here so it is not discovered downstream during compilation.
-
-**On re-entry from step 4 [R]:** if `doc_urls` is byte-identical to the list that was probed on the previous pass through this subsection AND the prior per-URL probe results are still recoverable from conversation context, skip the parallel HEAD-check and reuse those results. Re-running the probes when the list has not changed wastes round-trips and can flap on transient failures. Any addition, removal, or edit to a URL invalidates the cache — re-probe the entire updated set. If the prior results are not recoverable (long session, compaction, etc.), re-probe — never cache-hit on a list whose results you cannot cite.
 
 **If no supplemental doc_urls were collected:** Skip this subsection.
 
@@ -123,7 +129,7 @@ SKF_SCOPE_PAYLOAD
 ```
 
 - **A local source, or step 2's clone.** For a local path, or `{run_dir}/clone` when step 2 cloned the repository on `[L]`, drop the fetch loop and pass the folder itself, `--entry-dir "{source_path}"`: its registry files are read in place.
-- **`mode`.** `"interactive"` lets a registry file's contents decide the component-registry rule (10+ entries or a `Component[]` annotation), so a file whose contents could not be read does not count; the §6 headless GATE passes `"headless"`, which counts such a file by its presence.
+- **`mode`.** `"interactive"` lets a registry file's contents decide the component-registry rule (10+ entries or a `Component[]` annotation), so a file whose contents could not be read does not count; a headless run passes `"headless"` (the §2c GATE), which counts such a file by its presence.
 - **A failed call.** The call prints one JSON object, or exits 2 and names the problem on stderr. For a payload key or signal the script does not accept, fix the payload and run the call again. For a file list it cannot read (the stderr line names the listing's problem), run the call again with `--tree-file "{run_dir}/tree-empty.json"` after `printf '[]' > "{run_dir}/tree-empty.json"`, and log `"warn: scope-type recommendation ran without the file list ({message}); the component-registry check did not run"`, adding it to `workflow_warnings[]`. Interactively, show that warning with the recommendation, so the user can still pick [C].
 
 The script returns `{scope_type, matched_heuristic, signals, rationale}`. Use `rationale` directly — it already names the specific signals that fired.
@@ -144,9 +150,45 @@ Press Enter to accept the recommendation, or pick a different letter."
 
 Wait for user selection. Empty input or just Enter accepts the recommendation; any of the five letters overrides.
 
+**GATE [default: the recommendation]**: **Headless:** classify the `intent` and `scope_hint` arguments into the three signals by the rules above (all `false` and `[]` when neither was supplied) and log `"headless: scope signals wants_wiring_pattern={value} named_module_subset={list} wants_narrow_api={value} (from intent/scope_hint)"`, whichever way the type is set: §3 builds a `specific-modules` boundary from `named_module_subset`. A `scope_type` argument is the type: skip the menu and the call, and set `scope.rationale` with `recommended` = that argument, `heuristic` = `"user-supplied-arg"`, `chosen` = the same type, `accepted_recommendation` false, `reason` = `"headless: scope_type supplied as argument"`, `recorded` = today's date. Otherwise run the call above with `"mode": "headless"`, accept its `scope_type` by the capture rules (no "why" question) and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`.
+
 ### 3. Define Boundaries Based on Selection
 
-Using the boundary definitions from `{scopeTemplatesPath}`, present the appropriate flow for the user's selected scope type ([F], [M], [P], [C], or [R]). Follow each type's prompts and wait for user input at each phase before proceeding.
+Using the boundary definitions from `{scopeTemplatesPath}`, present the appropriate flow for the user's selected scope type ([F], [M], [P], [C], or [R]). Follow each type's prompts and wait for user input at each phase before proceeding. For [C], run the component library detection below first: the flow's phases 1 and 2 present what it found.
+
+**GATE [default: the scope type's boundary default]**: **Headless:** no boundary prompt runs. When an `include` argument was supplied, use `include` and `exclude` as given, split on commas (`exclude` empty when absent). Otherwise take the resolved scope type's default below, with the globs of an `exclude` argument, when one was supplied, added to its exclusions. Log what was chosen as `warn: headless boundary default <type>: <what was chosen>`, naming any `exclude` globs added, and add that line to `workflow_warnings[]`, so the envelope's `warnings` names the boundary nobody confirmed.
+
+| Scope type | Headless default when `include` is absent |
+|---|---|
+| `full-library` | One module include per module step 2 §4.3 picked, and the default exclusions |
+| `public-api` | One include per public API file (below), and the default exclusions |
+| `component-library` | The `full-library` default; `scope.registry_path` and `scope.demo_patterns` from the component library detection below, each demo pattern also added to the exclusions; every design system variant kept in `scope.ui_variants` |
+| `specific-modules` | One module include per module `named_module_subset` names, and the default exclusions. When it names none and the recommender matched `specific-modules-count` (the module count alone), switch to `full-library` and its default, and record the switch in `scope.rationale`: `chosen` `full-library`, `accepted_recommendation` false, `reason` `"headless: specific-modules came from the module count alone and no module was named; full-library boundaries used"`. When it names none and the type came from a `scope_type` argument, halt as below |
+| `reference-app` | None: only the caller knows the pattern surface. Halt as below (step 1's input gate already halted a `scope_type=reference-app` argument with no `include`, so this is a type the recommender picked) |
+
+- **A module include** is `<path>/**`, where `<path>` is the module's `path` in `{run_dir}/snapshot.json` (its `workspaces` or `module_candidates` entry, or the entry of `{run_dir}/package-snapshot.json` when §4.3 picked from it): repo-relative, with any workspace prefix already in it. For Maven and Gradle it is the §4.1 `modules` entry, prefixed with `{monorepo_workspace}/` when step 2 picked a workspace. A `named_module_subset` name maps to the §4.3 module it names. With no module picked, the include is `{monorepo_workspace}/**` when step 2 picked a workspace (§3b), else `**`.
+- **The default exclusions** are the Full Library template's test globs (`**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`) and build globs (`**/dist/**`, `**/build/**`, `**/target/**`). The template's configuration and documentation exclusions name no glob, and the module includes already leave the root configuration files and the docs folders out.
+- **The public API files** are the files that define the names the package's entry points export. Run §3c's recipe runner (its helper, source folder, clone and clone removal) with the `full-library` default as its globs and `-o "{run_dir}/public-api.json"`, then print the file of each public name, an entry point's own definitions and the files its re-exports lead to:
+
+  ```bash
+  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); print("\n".join(sorted({p["file"] for p in d["entry_point_diff"]["public"] if p.get("file")})))' "{run_dir}/public-api.json"
+  ```
+
+  At Quick tier, when the runner exits 1 to 3 or the clone fails, or when it prints no file, take the `full-library` default instead and give the reason in the warn line: `warn: headless boundary default public-api: full-library boundaries ({the reason})`.
+- **Component library detection** (scope type `component-library`, interactive or headless). Resolve `{detectRegistryHelper}` from `{detectRegistryProbeOrder}` (first existing path wins) and, from `{project-root}`, list the demo files and score the registry candidates of step 2's file list. For a GitHub source, the loop fetches the candidates into `{run_dir}/files` at `{analysis_ref}` and `<source folder>` is `{run_dir}/files`; for a local source or step 2's clone, drop the loop and pass `{source_path}`:
+
+  ```bash
+  uv run {detectRegistryHelper} demo --files-from "{run_dir}/tree.json"
+  uv run {detectRegistryHelper} registry --files-from "{run_dir}/tree.json" --candidates-only | while IFS= read -r rel; do
+    mkdir -p "{run_dir}/files/$(dirname "$rel")"
+    gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$rel?ref={analysis_ref}" > "{run_dir}/files/$rel" || rm -f "{run_dir}/files/$rel"
+  done
+  uv run {detectRegistryHelper} registry --files-from "{run_dir}/tree.json" --source-root "<source folder>"
+  ```
+
+  `demo` prints `patterns[]` (each glob with its `files` count and a `sample`), `excluded` and `directories`; `registry` prints `selected`, `headless_accept` and `candidates[]`, each with its `score` out of 9 and its `entry_count` (`uv run {detectRegistryHelper} --help` gives the rules). **Headless:** `scope.registry_path` is the recommender's `signals.registry_path` when §2c's call returned one, else `selected` when `headless_accept` is true (create-skill asks about a lower score), else unset; `scope.demo_patterns` is every `patterns[]` glob. When a command exits non-zero, or no candidate path resolves, add `warn: component library detection skipped ({its stderr, or skf-detect-registry.py is missing})` to `workflow_warnings[]` and go on without it: the [C] flow asks the user, and the headless default sets neither field.
+
+A scope with no default emits the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` (SKILL.md Halt Contract), then HALT (exit code 2): "**A headless `{scope_type}` scope needs an `include` argument:** pass the files or folders the skill covers as comma-separated globs, or, for `specific-modules`, name the modules in `intent` or `scope_hint`."
 
 ### 3b. Monorepo Subpackage Convention
 
@@ -193,9 +235,11 @@ The analysis detected **{language}** with low confidence. Is this correct, or sh
 
 Wait for confirmation or override.
 
-**Headless:** `language_hint`, when supplied, already set the language at step 02 §3; otherwise accept the detected language and continue. This confirmation prompt is interactive-only, so a headless run never stalls here.
+**Headless:** `language_hint`, when supplied, already set the language at step 02 §3; otherwise accept the detected language and continue.
 
 ### 5. Summarize Scope Decisions
+
+Show this summary and, when §5b applies, its question in one message, and wait once:
 
 "**Scope Summary:**
 
@@ -214,11 +258,13 @@ Wait for confirmation or override.
 
 Does this look right? You can adjust before we continue."
 
-Wait for confirmation. Make adjustments if requested.
+Wait for confirmation, which also answers §5b. Make adjustments if requested, and show the summary again when they change it.
+
+**GATE [default: C]**: **Headless:** display the summary, log `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"` and continue with no wait.
 
 ### 5b. Scripts & Assets Intent (Optional)
 
-**Only ask when `scope.type` is `full-library`, `specific-modules`, `component-library`, or `reference-app` (skip for `public-api` and `docs-only`). Reference apps routinely ship wiring scripts and build-config assets — prompt for them.**
+Asked in the §5 message. **Only ask when `scope.type` is `full-library`, `specific-modules`, `component-library`, or `reference-app` (skip for `public-api` and `docs-only`). Reference apps routinely ship wiring scripts and build-config assets: prompt for them.**
 
 "Does this library include executable scripts (CLI tools, validation scripts, setup helpers) or static assets (config templates, JSON schemas, example configs) that should be packaged with the skill?"
 
@@ -226,33 +272,12 @@ Wait for confirmation. Make adjustments if requested.
 - **[N] None expected** — skip script/asset detection
 - Or describe what you expect (free text)
 
-Record the response as `scripts_intent` and `assets_intent` in the brief. Default to `detect` if user does not respond or skips.
+Record the response as `scripts_intent` and `assets_intent` in the brief. Default to `detect` if user does not respond or skips. **Headless:** the `scripts_intent` and `assets_intent` arguments, `detect` for either one absent.
 
 ### 5c. Draft Checkpoint (interactive only)
 
 When the flow is interactive, load `{draftCheckpointFile}` and follow Half 2 (Checkpoint Write) again, now with this step's scope decisions, so a run interrupted between here and step 5 resumes at step 4 instead of redoing the analysis and the scope. A re-entry from step 4 `[R]` rewrites the draft with the revised scope. Headless runs and ratify runs skip this section.
 
-### 6. Present MENU OPTIONS
+### 6. Continue to Brief Confirmation
 
-Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Continue to Brief Confirmation [X] Cancel and exit
-
-#### Menu Handling Logic:
-
-- IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
-- IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
-- IF C: Load, read entire file, then execute {nextStepFile}
-- IF X: Treat as user-cancellation. Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). No brief was written; a draft §5c or step 1 saved stays for a later resume. `[X]` is interactive-only; the headless GATE never reaches this branch.
-- IF Any other comments or queries: help user respond then [Redisplay Menu Options](#6-present-menu-options)
-
-#### Execution rules:
-
-- **GATE [default: C]** — If `{headless_mode}`: consume the headless inputs from step 1 in priority order:
-  - If `scope_type` was supplied, use it (must match one of the six valid types) and skip the §2c template menu.
-  - Otherwise auto-select via `{recommendScopeTypeHelper}`: classify the `intent` and `scope_hint` arguments into the three signals by the §2c rules (all `false` and `[]` when neither was supplied), log `"headless: scope signals wants_wiring_pattern={value} named_module_subset={list} wants_narrow_api={value} (from intent/scope_hint)"`, then run the §2c call with `"mode": "headless"`. Use the returned `scope_type` and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`. For `source_type=docs-only`, run `uv run {recommendScopeTypeHelper} --json '{"source_type": "docs-only", "mode": "headless"}'` instead: it short-circuits to `docs-only` and needs no tree or signals.
-  - If `include`/`exclude` were supplied, use them verbatim (split on comma) instead of running the boundary prompts in §3.
-  - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
-  - Set `scope.rationale`: `recommended`/`heuristic` from the script (or `recommended = scope_type` arg, `heuristic = "user-supplied-arg"` when `scope_type` was passed); `chosen = <resolved type>`; `accepted_recommendation = (no scope_type arg)`; `reason = "<script rationale>"` (auto path) or `"headless: scope_type supplied as argument"` (arg path); `recorded = {date}`. No prompt — headless never asks "why".
-  - Log: `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"`.
-- After other menu items execution, return to this menu
-- User can chat or ask questions — always respond and then redisplay menu
-
+Load, read entire file, then execute {nextStepFile}. Step 4 shows the whole brief, with `[R]` back into this step and `[X]` to cancel.

@@ -169,6 +169,13 @@ test('.py, .toml and .json files are checked too', () => {
   }
 });
 
+test('a project override file under _bmad/custom/ is no broken reference', () => {
+  const line = 'Overrides: `{project-root}/_bmad/custom/skf-a.toml` and `{project-root}/_bmad/custom/skf-a.user.toml`.\n';
+  const { status, out } = runTool({ 'skf-a/SKILL.md': line }, ['--strict']);
+  assert.strictEqual(status, 0, out);
+  assert.match(out, /Broken references: 0/);
+});
+
 test('a paired tree passes --strict', () => {
   const { status, out } = runTool(
     {

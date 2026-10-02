@@ -1,17 +1,11 @@
 ---
 nextStepFile: 'analyze-target.md'
-ratifyTargetFile: 'confirm-brief.md'
-forgeTierFile: '{sidecar_path}/forge-tier.yaml'
+autoBriefFile: 'references/step-auto-brief.md'
 headlessArgsFile: 'references/headless-args.md'
-headlessSourceAuthorityDetectionFile: 'references/headless-source-authority-detection.md'
+ratifyFile: 'references/gather-intent-ratify.md'
+forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 portfolioSimilarityCheckFile: 'references/portfolio-similarity-check.md'
 draftCheckpointFile: 'references/draft-checkpoint.md'
-validateBriefInputsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-inputs.py'
-  - '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
-validateBriefSchemaProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
-  - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
 githubProbeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-github-probe.py'
   - '{project-root}/src/shared/scripts/skf-github-probe.py'
@@ -45,7 +39,7 @@ mkdir -p "{forge_data_folder}" && \
   mktemp -d "{project-root}/_bmad-output/.skf-run/skf-brief-skill-XXXXXXXX"
 ```
 
-Bind `{run_dir}` ← the path the last command prints. Step 5, or step-auto-validate.md on an `[auto]` approval, removes the folder once the brief is written, and an `[X]` cancel removes it before it stops; any other halt leaves it in place with what the run staged. A step stages a payload there through a quoted heredoc (`<<'SKF_JSON'`), so a quote or an apostrophe in it needs no escaping.
+Bind `{run_dir}` ← the path the last command prints. Step 5, or step-auto-validate.md at the end of an `[auto]` run, removes the folder once the brief is written, and an `[X]` cancel removes it before it stops; any other halt leaves it in place with what the run staged. A step stages a payload there through a heredoc whose delimiter is quoted (`'SKF_JSON'`), so a quote or an apostrophe in it needs no escaping.
 
 `mkdir -p` succeeds on a pre-existing read-only mount, but the `printf > file` redirect actually attempts a write, which catches read-only, disk-full, and permissions-denied uniformly. **On any non-zero exit:** emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "write-failed"` (SKILL.md Halt Contract), then HALT (exit code 4): `"**Error:** {forge_data_folder} or the run folder under {project-root}/_bmad-output/.skf-run/ is not writable: {captured stderr}. Verify the path exists, the mount is writable, and there is free disk space, then re-run."` On success, continue silently to the forge-tier load below.
 
@@ -63,19 +57,14 @@ Attempt to load `{forgeTierFile}`:
 
 **If not found:** emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "forge-tier-missing"` (SKILL.md Halt Contract), then HALT (exit code 3): "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 
-### 1b. Auto Mode Check
+### 1b. Route by Mode
 
-`{auto_mode}` is true when the invocation carried the `[auto]` flag (a pipeline's `BS[auto]`): SKILL.md On Activation step 2 resolved it.
+The first route that applies runs, and it leaves this file:
 
-**IF `{auto_mode}` is true:**
-
-1. **Load upstream brief path:** Read `brief_path` from the pipeline data context (passed by the forger from AN's `SKF_ANALYZE_RESULT_JSON` `brief_paths[]`). If `brief_path` is not available, emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` and `mode` `"auto"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Auto mode requires `brief_path` in pipeline context: AN must run before BS[auto].**"
-2. **Load source repo:** Read `source_repo` from the pipeline data context (the target repo URL or path, forwarded by the forger). If not available, attempt to extract it from the upstream brief at `brief_path`.
-3. "**Auto mode activated — bypassing interactive brief workflow.**"
-4. **Route to auto-brief:** Load, read fully, then execute `references/step-auto-brief.md`, and hand off there — do not fall through to §2 or any subsequent section of this file.
-
-**IF `{auto_mode}` is NOT true:**
-Continue to §2 as normal — the entire interactive flow below is unchanged.
+- **`{auto_mode}` is true** (a pipeline's `BS[auto]`): read `brief_path` from the pipeline data context (the forger passes it from AN's `SKF_ANALYZE_RESULT_JSON` `brief_paths[]`). If `brief_path` is not available, emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` and `mode` `"auto"` (SKILL.md Halt Contract), then HARD HALT (exit code 2): "**Auto mode requires `brief_path` in pipeline context: AN must run before BS[auto].**"
+  Read `source_repo` from the pipeline data context too (the target the forger forwards), else from the upstream brief. Display "**Auto mode activated: bypassing the interactive brief workflow.**", then load, read fully, and execute `{autoBriefFile}`.
+- **`{headless_mode}` is true:** load, read fully, and execute `{headlessArgsFile}`. Its input gate validates the arguments before any later section uses them, then continues at step 2, or ratifies the brief a `from_brief` argument names.
+- **Otherwise** the run is interactive: continue at §2.
 
 ### 2. Welcome and Explain
 
@@ -96,11 +85,11 @@ Let's get started."
 
 ### 3. Gather Target Repository
 
-This section has five sub-flows. Execute exactly one branch, 3.1a *or* 3.2 *or* 3.3, based on the user's response in 3.1 (3.1b first resolves a package name to the repository 3.3 takes), then end with the shared confirmation (3.1a is terminal for §3 and jumps directly to confirm-brief.md). Do not mix branches.
+This section has five sub-flows. Execute exactly one branch, 3.1a *or* 3.2 *or* 3.3, based on the user's response in 3.1 (3.1b first resolves a package name to the repository 3.3 takes), then end with the shared confirmation (3.1a leaves this file for the ratify flow). Do not mix branches.
 
 #### 3.1 Collect target
 
-**Open-floor opening.** Lead with an open invitation so an expert can state everything in one breath rather than being walked through seven discrete prompts — costs almost nothing token-wise and sharply improves the conversational feel of this, the most question-heavy mode. A first-timer who pastes only a bare URL still gets the full guided sequence below, unchanged.
+**Open-floor opening.** Lead with an open invitation, so an expert can state everything in one answer; a first-timer who pastes only a bare URL still gets the guided sequence below.
 
 "**What repository or documentation do you want to create a skill for?**
 
@@ -119,7 +108,7 @@ Or type `cancel` / `exit` / `[X]` to leave without writing anything.
 
 Wait for user response. **Parse the response for any of the fields the later sections collect** — `target_version` (§3b), intent (§4), scope hints (§5), source authority (§3.3), a proposed name (§6) — and pre-fill every field the user covered, holding them in workflow context. Sections §3b/§4/§5/§6/§7b then **acknowledge a pre-filled field instead of re-asking** ("I noted you're targeting v4.0.0"), and prompt only for the gaps. An expert who stated it all collapses to the §3.1 target branch plus the §7b description confirmation; a bare URL falls through to the full sequence. Then branch on the response for the target itself:
 
-- Empty input, `cancel`, `exit`, `[X]`, `q`, or `:q` → Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Headless mode never reaches this branch (the GATE in §8 short-circuits the interactive sub-flows).
+- Empty input, `cancel`, `exit`, `[X]`, `q`, or `:q` → Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 - Any other free-form question (e.g. "what is this?", "show me an example", "how does SKF work?") → answer briefly, re-display the prompt
 - Otherwise read the target the response names (the URL, path or package name, without the sentence around it) with `{resolvePackageHelper}`, resolved from `{resolvePackageProbeOrder}` (first existing path wins). Write the target exactly as given on the line between the markers, quotes, backticks and `$` included. `--local-first` reads a target that names an existing file or folder (relative to the working folder, `~` expanded) as a `local-path`, whatever its shape: `skill-brief.yaml`, `briefs/skill-brief.yaml`, `libs/mylib` or a path with a space.
 
@@ -138,60 +127,9 @@ SKF_TARGET
 
   When `{resolvePackageHelper}` has no path, or the call prints no JSON, route the target by reading it yourself, by the same kinds (a path that exists is a `local-path`).
 
-#### 3.1a Branch — Ratify existing brief
+#### 3.1a Branch: Ratify an Existing Brief
 
-This branch handles the AN→BS handoff: another workflow (typically `skf-analyze-source`) has already produced a `skill-brief.yaml`, and the user wants to review and confirm it without re-running gather-intent / analyze-target / scope-definition. **This §3.1a path is reached only interactively** — it is entered by typing a brief path at the §3.1 prompt, which headless mode never does. The headless equivalent is the §8 GATE `from_brief` route: it consumes a `from_brief` argument, runs the same schema validation, sets the same `ratify_mode`, hydrates from the same parsed payload, and jumps to step 4 exactly as `[R]` does below — see §8. Keep the two paths' hydration in sync.
-
-Resolve the path:
-
-- If the user's input ends in `skill-brief.yaml` and points at an existing file → that is the brief path.
-- Otherwise (input was a directory) → the brief path is `<input>/skill-brief.yaml`.
-
-**Validate the brief against the schema** before presenting it. Resolve `{validateBriefSchemaHelper}` from `{validateBriefSchemaProbeOrder}` (first existing path wins; HALT if no candidate exists), then:
-
-```bash
-uv run {validateBriefSchemaHelper} <resolved-brief-path>
-```
-
-The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}`. Apply the result:
-
-- **`valid: false`** — surface the `errors[]` messages and the `halt_reason` to the user, then re-display the §3.1 prompt for a corrected path (or another target altogether). Do not HALT — the user may simply have pointed at the wrong file. Example: `"**Brief at `{path}` is invalid:** {first error message}. Pick a different brief, or supply a repo / docs URL instead."`
-- **`valid: true`** — proceed with the parsed `brief` payload.
-
-Surface any non-empty `warnings[]` as a single grouped line (`"**Brief validation warnings:** {joined warnings}"`), then present the ratify menu:
-
-```
-**Existing brief detected at `{path}`.**
-
-- **Name:** {brief.name}
-- **Target:** {brief.source_repo}
-- **Description:** "{brief.description}"
-- **Created:** {brief.created} by {brief.created_by}
-- **Scope:** {brief.scope.type}
-
-Pick one:
-  [R] Ratify — review in step 4 and write (overwriting this file once approved)
-  [F] Start fresh — discard this brief and re-prompt for a target
-  [X] Cancel and exit
-```
-
-Wait for user response. Branch:
-
-- **[R] Ratify** — Confirm overwrite up front: store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context. Hydrate the brief context variables from the parsed `brief` payload so step 4 has the same field set it normally derives from steps 1-3:
-  - `name` ← `brief.name`; `version` ← `brief.version`; `target_version` ← `brief.target_version`
-  - `target_ref` ← `brief.target_ref`; `source_ref` ← `brief.source_ref` (optional git refs; preserve when present)
-  - `source_repo` ← `brief.source_repo`; `source_type` ← `brief.source_type` (`source` when absent, the schema default); `source_authority` ← `brief.source_authority`; `doc_urls` ← `brief.doc_urls`
-  - `language` ← `brief.language`; `description` ← `brief.description`; `forge_tier` ← `brief.forge_tier`
-  - `created` ← `brief.created`; `created_by` ← `brief.created_by`
-  - `scope.type` / `scope.include` / `scope.exclude` / `scope.tier_a_include` / `scope.notes` / `scope.rationale` / `scope.amendments` ← `brief.scope.*` (preserve `tier_a_include` and the `amendments` log verbatim: do not re-derive or drop them)
-  - `scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*` (a component library's registry file, design system variants and demo globs; skf-create-skill writes the registry file and the demo globs back once the user confirms them: preserve all three verbatim)
-  - `scripts_intent` ← `brief.scripts_intent`; `assets_intent` ← `brief.assets_intent`
-
-  Then load, read entirely, and execute `{ratifyTargetFile}` — bypassing §3.1b/§3.2/§3.3, §3b, §4, §5, §6, §7, §7b, and §8 entirely. Skip step 2 (analyze-target) and step 3 (scope-definition) — both would re-derive fields already on disk. The forward chain resumes at step 4 (confirm-brief) where the user gets the standard review pass and can still adjust fields inline via §4.
-
-- **[F] Start fresh** — discard the loaded brief and re-display §3.1 above (the user is now at the same point as if they had typed nothing).
-- **[X] Cancel**: remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). The brief at `{path}` is left as it is.
-- **Any other input** — treat as a fresh §3.1 response and re-evaluate the routing branches above (a typed GitHub URL after seeing the menu means "I changed my mind, brief this repo instead").
+The target is a `skill-brief.yaml`, or a folder holding one, that another workflow (typically `skf-analyze-source`) produced, to review and confirm instead of re-deriving. Load, read entirely, and execute `{ratifyFile}` with that path: it validates the brief, offers `[R]` Ratify, `[F]` Start fresh and `[X]` Cancel, and on `[R]` hands the run to step 4, past every later section of this file and steps 2 and 3.
 
 #### 3.1b Branch: Resolve a Package Name
 
@@ -213,7 +151,7 @@ Pass `--registry` when parse-target set `registry` (a registry page's, PyPI for 
 - Collect one or more doc URLs with optional labels
 - HEAD-check the collected URLs in parallel — do not loop sequentially. Issue all N `curl -sI {url}` (or equivalent) calls in a **single message with N parallel Bash calls**, then process the responses together. Each call must use a 5-second timeout (`curl -sI --max-time 5 {url}`) to bound worst-case wall-time on hung hosts. Per response:
   - On 2xx/3xx: silently accept.
-  - On 4xx/5xx, DNS failure, or timeout: warn `"Could not reach {url} — {status or error}. Confirm the URL is correct, or proceed anyway."` Interactive: re-prompt for a corrected URL or `[K] Keep anyway`. Headless: keep the URL and log the warning — the brief still records it but the failure is now visible at brief-creation time instead of materializing hours later in skf-create-skill.
+  - On 4xx/5xx, DNS failure, or timeout: warn `"Could not reach {url} ({status or error}). Confirm the URL is correct, or proceed anyway."` and re-prompt for a corrected URL or `[K] Keep anyway`.
 - Set `source_authority: "community"` (forced for docs-only — T3 external documentation; the §3.3 source-authority prompt is skipped)
 - Note: `source_repo` becomes optional (can be set to the main doc site URL for reference)
 
@@ -225,15 +163,13 @@ Skip §3.3 and continue at "Confirm the target" below.
 - **Pre-validate the target before continuing.** An access problem caught at URL entry spares the user 5+ minutes of intent investment. Never HALT here: the canonical HALT stays in step 2 §1.
   - **GitHub URL:** resolve `{githubProbeHelper}` from `{githubProbeProbeOrder}` (first existing path wins) and run `uv run {githubProbeHelper} repo --repo "{url}" --timeout 20`. It prints one JSON line, and tells a missing or logged-out `gh`, a repository that does not exist and one the account cannot read apart:
     - `status: "ok"`: accept silently, a private repository that `gh` can read included. When `gh` is `"missing"` or `"unauthenticated"` (the repository was read without it), warn `"The GitHub CLI (gh) is not installed or not logged in: step 2 reads the repository through gh and will HALT until you install it or run 'gh auth login'. Fix it now, or supply a local clone path instead."` and continue.
-    - `status: "unavailable"`: warn with its `message`, which names the cause (`cause`) and the fix, and offer `[K] Keep anyway` or a corrected URL, which is probed the same way. On `[K]`, keep the URL: step 2 §1 reports the cause again if it still holds. Headless: keep the URL and log `"warn: {message}"`; step 2 §1 halts with its classified reason if the cause still holds.
+    - `status: "unavailable"`: warn with its `message`, which names the cause (`cause`) and the fix, and offer `[K] Keep anyway` or a corrected URL, which is probed the same way. On `[K]`, keep the URL: step 2 §1 reports the cause again if it still holds.
     - No JSON (the helper is missing, or exits 1 or 2): continue silently; step 2 §1 checks the repository.
-  - **Local path:** verify the directory exists (`test -d {path}`). If not, warn `"Local path {path} does not exist."` and re-prompt. Headless: keep the path and log the warning; step 2 §1 halts with `target-inaccessible`.
+  - **Local path:** verify the directory exists (`test -d {path}`). If not, warn `"Local path {path} does not exist."` and re-prompt.
 - Optionally ask: "Are there any documentation URLs you'd like to include for supplemental context? (These will be fetched as T3 external references.)"
 - If yes: collect doc URLs into `doc_urls`
 
-**Source authority (this branch only — docs-only forces `community` in §3.2):**
-
-**Interactive only** — skip this prompt entirely when `{headless_mode}` is true; the GATE in §8 resolves source_authority headlessly via the detection branch documented there.
+**Source authority (this branch only: docs-only forces `community` in §3.2):**
 
 "**Are you the maintainer of this library, or creating a community skill?**"
 - If maintainer: set `source_authority: "official"`
@@ -246,7 +182,7 @@ Default to `"community"` if user does not specify or skips.
 
 Confirm the target.
 
-**Draft-resume check (interactive only).** Now that the target is confirmed — and *before* the version prompt (§3b), intent (§4), or scope (§5) spend the user's time — offer to resume an in-progress draft that already covers this exact target, so a returning user re-types nothing. Keying on the target (not the not-yet-derived skill name) is what lets the offer fire this early. When the flow is interactive:
+**Draft-resume check.** Now that the target is confirmed, and *before* the version prompt (§3b), intent (§4), or scope (§5) spend the user's time, offer to resume an in-progress draft that already covers this exact target, so a returning user re-types nothing. Keying on the target (not the not-yet-derived skill name) is what lets the offer fire this early:
 
 1. **Cheap pre-filter** — list any draft file that mentions the confirmed target at all:
 
@@ -258,13 +194,11 @@ Confirm the target.
 
 2. **Confirm each candidate on the target *field*, not free text.** Read the candidate draft's JSON and keep it only if its `target_repo` equals the confirmed target (source targets) or the target appears in its `doc_urls` (docs-only) — this rejects a draft that merely mentions the URL in its `intent` or `description`. Drop any candidate that has a finished `skill-brief.yaml` in the same directory (that brief is done; step 5's overwrite gate owns it).
 
-3. If one or more live drafts survive, load `{draftCheckpointFile}` and follow Half 1 (Resume Check) against the most-recently-modified survivor; its directory basename is the candidate skill name. On `[Y]` resume, Half 1 restores every answer the draft holds and jumps straight to §8, or to step 4 when the draft holds the scope too: **§3b, §4, §5, §6, §7, and §7b are all skipped**. Otherwise (headless, no surviving draft, or every match already has a finished brief beside it) skip the load and continue to §3b.
+3. If one or more live drafts survive, load `{draftCheckpointFile}` and follow Half 1 (Resume Check) against the most-recently-modified survivor; its directory basename is the candidate skill name. On `[Y]` resume, Half 1 restores every answer the draft holds and jumps straight to §8, or to step 4 when the draft holds the scope too: **§3b, §4, §5, §6, §7, and §7b are all skipped**. Otherwise (no surviving draft, or every match already has a finished brief beside it) skip the load and continue to §3b.
 
 ### 3b. Gather Target Version
 
 This step only collects `target_version` and validates its shape with the regex below — auto-detection runs in step 2 and precedence/invariant resolution lands in step 5's writer script. The canonical precedence rules live in `references/version-resolution.md`; load it from step 2 / step 5 only when the relevant section needs it.
-
-**Headless:** if `target_version` was supplied as an argument, store it and skip the interactive prompt below. If `doc_urls` were also supplied, treat the version-vs-doc-URL confirmation prompt as auto-confirmed (Y).
 
 "**Are you targeting a specific version of this library?**
 (Leave blank to auto-detect from source)"
@@ -286,7 +220,7 @@ Wait for user response.
 
 ### 4. Gather User Intent
 
-**First-timer rail (interactive only).** Before the intent prompt, check whether `{forge_data_folder}/` contains any prior briefs:
+**First-timer rail.** Before the intent prompt, check whether `{forge_data_folder}/` contains any prior briefs:
 
 ```bash
 find "{forge_data_folder}" -maxdepth 2 -name "skill-brief.yaml" -print -quit
@@ -332,35 +266,13 @@ This will be used for the output directory and file naming. Want to use this nam
 
 Wait for confirmation or alternative.
 
-**Collision check (interactive and headless):** before locking the name, check whether `{forge_data_folder}/{name}/skill-brief.yaml` already exists. If it does:
+**Collision check.** If `{forge_data_folder}/{name}/skill-brief.yaml` already exists, say so and offer up to three alternates that do not collide, numbered: `{name}-v{N}` with the smallest free `N`, `{name}-{target_version}` when `target_version` is set, and `{name}-{source_authority}` when the authority is not `community`. A number takes that name; a typed name is checked the same way; Enter keeps `{name}` and leaves the overwrite question to step 5 §2b.
 
-- Interactive: generate 1–3 non-colliding candidate alternates by scanning sibling directories under `{forge_data_folder}/`. Apply each rule that fires; skip rules whose precondition isn't met:
-  1. `{name}-v{N}` where `N` is the smallest positive integer that doesn't collide (e.g. `{name}-v2`, `{name}-v3`) — always applies
-  2. `{name}-{target_version}` if `target_version` is set and the suffix wouldn't collide (e.g. `marked-1.2.3`)
-  3. `{name}-{source_authority}` if `source_authority` is not `community` (e.g. `marked-internal` for an internal fork)
-
-  Number the surviving alternates `[1] [2] [3]…` in the order produced (1 alternate for a community-authority brief with no `target_version`; 2–3 otherwise). Then present:
-
-  ```
-  **Heads up — a brief for `{name}` already exists at `{path}`.**
-
-  Suggested alternates (none collide):
-    [1] {alternate-1}
-    {if a second alternate was produced:} [2] {alternate-2}
-    {if a third alternate was produced:} [3] {alternate-3}
-
-  Pick a number to use that name, type a different name, or press Enter to keep `{name}` and let step 5 §2b handle the overwrite prompt.
-  ```
-
-  On a numbered choice, replace `{name}` with the chosen alternate. On Enter, fall through to step 5's overwrite gate. On any other input, treat as a new candidate name and re-run the collision check against it.
-
-- Headless: log `"warn: skill name '{name}' collides with existing brief at {path}"` and proceed; the existing-brief overwrite policy in step 5 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
-
-**Portfolio-similarity check.** When the flow is interactive AND forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, load `{portfolioSimilarityCheckFile}` and follow the procedure there to catch semantic near-duplicates that exact-name collision misses. Otherwise (headless, or tier below Deep, or qmd unavailable) skip the load — the check does not run.
-
-(The resume-a-draft offer for a returning user fires earlier, right after the target is confirmed in §3 — see the §3 "Draft-resume check" — so the intent, scope, and description a draft holds are spared *before* they get re-gathered here.)
+**Portfolio-similarity check.** When forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, load `{portfolioSimilarityCheckFile}` and follow the procedure there to catch semantic near-duplicates that exact-name collision misses. Otherwise skip the load: the check does not run.
 
 ### 7. Summarize Gathered Intent
+
+Compose the §7b description first, then show this summary, the description and the §8 menu in one message, and wait once:
 
 "**Here's what I've captured:**
 
@@ -374,87 +286,29 @@ Wait for confirmation or alternative.
 - **Target version:** {target_version} (user-specified)
 {If doc_urls collected:}
 - **Doc URLs:** {count} supplemental documentation URLs
-- **Forge tier:** {tier}
-
-Ready to analyze the target repository?"
+- **Forge tier:** {tier}"
 
 ### 7b. Synthesize Skill Description
 
-The schema's `description` field is 1-3 sentences and surfaces in skill registries — it must exist by the time step 4 presents the brief. Synthesize it explicitly here, while the user's intent is fresh, instead of letting it fall out implicitly later.
-
-Compose a candidate 1-3 sentence description from the gathered material. **Write like a human library maintainer would** — what does an agent get from this skill, and when should it route here? Two facts must come through (what the skill is, when to use it); everything else is voice. Resist filling in the same skeleton every time.
-
-Load `{descriptionVoiceExamplesPath}` for the five voice examples (range of acceptable leads and structures) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints. Write it in `{document_output_language}`, the language of the text the brief persists.
+The schema's `description` field is 1-3 sentences and surfaces in skill registries, so compose it here, while the intent is fresh. Load `{descriptionVoiceExamplesPath}` and compose a candidate in that spirit from the target repo, the user's intent, the version if set and any scope hints, in `{document_output_language}`, the language of the text the brief persists.
 
 **Whatever lead you choose, the description must contain a literal `Use when` clause somewhere** — validators test for that exact phrase, so alternatives like "Triggers on…" or "Reach for this when…" do not satisfy it on their own. The clause need not lead: a descriptive opener followed by `Use when …` is both good voice and validator-clean.
 
-Present:
+Present it under the §7 summary:
 
 "**Proposed skill description:**
 
 > {synthesized description}
 
-This is the text agents read when deciding whether to route to your skill — it sits in the registry row alongside dozens of other skills. A specific 'use when…' trigger helps agents match real user requests; generic descriptions blend in and get skipped. Edit, replace, or accept as-is."
-
-Wait for user confirmation or alternative.
-
-**Soft sentence-count check (interactive only).** Before storing the accepted text, count terminal sentence punctuation (`.`, `!`, `?` followed by whitespace or end-of-string) — abbreviations like `e.g.` will inflate the count slightly but the check is a soft nudge, not a HALT. If the count exceeds 3, present:
-
-"**Heads up — that description reads as ~{N} sentences.** The conventional norm is 1-3 (it surfaces in registry rows alongside other skills, where length crowds out the trigger phrase). Tighten now, or accept as-is?"
-
-On `tighten` or a fresh edit: re-prompt for the description. On `accept` or any non-edit response: store the accepted text and proceed. Counts of 1-3 store silently.
-
-Store the accepted text as the brief's `description` field. The same field is re-presented in step 4 §3 for a final review pass — refinements there flow back to this value.
-
-**Draft checkpoint (interactive only).** Once the description is accepted, load `{draftCheckpointFile}` (or reuse it if already loaded for the §3 resume check) and follow Half 2 (Checkpoint Write), so the draft holds the gathered intent and the accepted description. Headless mode skips this: the run completes in a single invocation, so no resume is meaningful.
-
-**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesPath}` and run the same synthesis against it (in `{document_output_language}`), then store the result. If `intent` was not supplied, fall back in priority order:
-
-1. **GitHub repo description**: when `target_repo` is a GitHub URL, fetch `gh api repos/{owner}/{repo} --jq .description` (5-second timeout). If a non-empty description comes back, load `{descriptionVoiceExamplesPath}` and synthesize using the GitHub description as the seed in place of `intent`. Write the synthesized description in `{document_output_language}` regardless of the seed's language (the seed may be in any language; the output's language is dictated by the workflow's document-output configuration). Log `"info: description seeded from GitHub repo description"`.
-2. **Generic stub** — when no GitHub description is available (local-path target, GitHub repo with empty description, or `gh api` fails): derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) — the generic fallback does not need the asset — and log `"warn: description synthesized without intent or repo description — narrow registry text."`
+This is the text agents read when deciding whether to route to your skill, in a registry row beside dozens of others: a specific 'Use when' trigger helps agents match real requests. Edit it, replace it, or accept it with [C]."
 
 ### 8. Present MENU OPTIONS
 
-Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
+End the §7 message with: "**Select:** edit the description or any field above · [C] Continue to Target Analysis · [X] Cancel and exit"
 
 #### Menu Handling Logic:
 
-- IF C: Load, read entire file, then execute {nextStepFile}
-- IF X: Treat as user-cancellation. Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). When `{headless_mode}` is true the GATE auto-proceeds and never reaches this branch: `[X]` is interactive-only. No brief was written; the draft §7b saved stays for a later resume.
+- IF C: when the description runs past three sentences, nudge once to tighten it (a long one crowds the trigger out of its registry row) and keep what the user settles on. Store it as the brief's `description`: step 4 §3 shows it again for a final pass. Load `{draftCheckpointFile}` (or reuse it from the §3 resume check) and follow Half 2 (Checkpoint Write), so the draft holds the gathered intent and the accepted description. Then load, read entire file, then execute {nextStepFile}
+- IF X: Treat as user-cancellation. Remove the run folder (`case "{run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-brief-skill-"*) rm -rf "{run_dir}" ;; esac`), display `"Cancelled: no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). No brief was written; a draft saved earlier stays for a later resume.
+- IF an edit to the description or another field: apply it (a new name runs the §6 collision check again), show the summary and the description again, then [Redisplay Menu Options](#8-present-menu-options)
 - IF Any other: Help user, then [Redisplay Menu Options](#8-present-menu-options)
-
-#### Execution rules:
-
-- **Resolve `{validateBriefInputsHelper}`** from `{validateBriefInputsProbeOrder}`; first existing path wins. HALT if no candidate exists.
-
-- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsHelper}`; the table is the canonical operator-facing documentation, the script enforces it.
-
-  **Preset merge (before validation).** Skip this merge entirely when a `from_brief` argument is present — presets seed a *derived* brief and have no meaning on the ratify route below. Otherwise: if the headless args include a `preset` field, load `{sidecar_path}/brief-presets/{preset}.yaml` and merge its contents as defaults — explicit args override preset values, key by key. The preset file is YAML; if it does not exist, log `"warn: preset '{name}' not found at {path} — proceeding without preset"` and continue (do not HALT). If it parses but contains unknown fields, log per-field warnings and pass through unchanged (the validator's KNOWN_FIELDS check will catch any that survive). Drop the `preset` key itself from the merged dict before passing to the validator (it is consumed at this level and is not a brief field).
-
-  **Delegate validation to `{validateBriefInputsHelper}`** instead of reasoning through the table rules in prose. Stage the merged arguments as one JSON object in the run folder, then run the script on the file:
-
-```bash
-cat > "{run_dir}/headless-args.json" <<'SKF_JSON'
-<the merged headless arguments, as one JSON object>
-SKF_JSON
-uv run {validateBriefInputsHelper} < "{run_dir}/headless-args.json"
-```
-
-  The script returns a JSON envelope: `{valid, errors[], warnings[], normalized, halt_reason}`. Apply the result deterministically:
-
-  - **`valid: false`**: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with the script's `halt_reason` (`input-missing` for absent required args or docs-only without doc_urls; `input-invalid` for enum violations, malformed semver, malformed kebab-case skill_name) (SKILL.md Halt Contract), surface `errors[]` to the operator log so the failure is debuggable, then HALT (exit code 2).
-  - **`valid: true`**: consume the `normalized` object as the source of truth (it has defaults applied per the table). Log each `warnings[]` entry and add it to `workflow_warnings[]` as `<field>: <message>`, but do not HALT. Auto-proceed.
-
-  The script's `KNOWN_FIELDS` set must stay in sync with the table in `{headlessArgsFile}`.
-
-  **Ratify route — `from_brief` present.** After a `valid: true` result, branch on `normalized.from_brief`. When it is set, this run ratifies a pre-authored brief instead of deriving one — the headless mirror of the interactive §3.1a `[R]` branch. Take this route *before* the source-authority detection and analyze-target routing below (both belong to the derive path and do not apply here):
-
-  1. **Resolve the brief path.** If `normalized.from_brief` ends in `skill-brief.yaml`, that is the path; otherwise treat it as a directory and use `<from_brief>/skill-brief.yaml`.
-  2. **Schema-validate.** Resolve `{validateBriefSchemaHelper}` from `{validateBriefSchemaProbeOrder}` (first existing path wins; HALT if no candidate exists), then run `uv run {validateBriefSchemaHelper} <resolved-brief-path>`. The script returns `{valid, errors[], warnings[], halt_reason, brief}`. Apply it — and note that, unlike the interactive §3.1a branch (which re-prompts because the operator might have a corrected path to offer), headless has no second chance, so an unusable brief is terminal:
-     - **`valid: false`** with the script's `halt_reason` `brief-missing` (path absent or unreadable): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-missing"` (SKILL.md Halt Contract), surface `errors[]` to the operator log, then HALT (exit code 2).
-     - **`valid: false`** with any other `halt_reason` (`brief-malformed` or `brief-invalid`): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), surface `errors[]`, then HALT (exit code 2).
-     - **`valid: true`**: log any non-empty `warnings[]`, add each to `workflow_warnings[]` as `<field>: <message>`, and proceed with the parsed `brief` payload.
-  3. **Hydrate and route.** Store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context, then hydrate the brief context variables from the parsed `brief` payload exactly as the §3.1a `[R]` branch does: every field of its mapping list, each kept verbatim where that list says so (one list, so the two routes never drift apart). Load, read entirely, and execute `{ratifyTargetFile}`, bypassing step 2 (analyze-target) and step 3 (scope-definition), both of which would re-derive fields already on disk. The forward chain resumes at step 4 (confirm-brief), which auto-confirms `[C]` under headless and proceeds to step 5's write (the step 5 §2b ratify branch auto-overwrites in place). Do **not** run the source-authority detection or the `[C] → {nextStepFile}` routing below: they belong to the derive path.
-
-  **Headless source-authority detection (derive route only — no `from_brief`).** After consuming `normalized`, if `source_authority` is absent AND `source_type=source` AND `target_repo` is a GitHub URL, load `{headlessSourceAuthorityDetectionFile}` and follow the procedure there. Otherwise (precondition unmet, value already supplied, docs-only, or local-path) skip the load — `community` is the implicit default for the unmet branches.
-

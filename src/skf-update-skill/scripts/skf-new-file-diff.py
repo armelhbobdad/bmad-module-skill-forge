@@ -6,7 +6,7 @@
 
 `skf-hash-content compare` classifies files already tracked in the provenance
 map (UNCHANGED / MODIFIED_FILE / DELETED_FILE) but by design cannot report a
-file that is present in source yet absent from the provenance map — a NEW_FILE.
+file that is present in source yet absent from the provenance map: a NEW_FILE.
 Deriving that set is a set-difference plus a filter with exactly one correct
 answer per input: take every `source_file` in the scripts/assets inventory
 (emitted by `skf-detect-scripts-assets detect`), subtract the paths already in
@@ -37,10 +37,12 @@ inventory it came from (scripts -> "script", assets -> "asset"). A path found
 in both inventories is counted once, resolved as "script".
 
 Exit codes:
-  0  success
-  2  bad input (unreadable/invalid stdin JSON, missing/invalid provenance map)
+  0  success (and --help)
+  2  bad input (a usage error, unreadable/invalid stdin JSON, missing/invalid
+     provenance map)
 """
 
+import argparse
 import json
 import re
 import sys
@@ -139,11 +141,31 @@ def diff(detect: dict, tracked: set[str]) -> dict:
     }
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        _fail("usage: skf-new-file-diff.py <provenance-map-path>  (detect JSON on stdin)")
+class _JsonErrorParser(argparse.ArgumentParser):
+    """Report a usage error as the JSON error and exit 2 every other bad input gets."""
 
-    provenance_path = Path(argv[1])
+    def error(self, message: str) -> "NoReturn":  # type: ignore[valid-type]
+        _fail(f"usage: skf-new-file-diff.py <provenance-map-path>  (detect JSON on stdin): {message}")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = _JsonErrorParser(
+        prog="skf-new-file-diff.py",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "provenance_map",
+        metavar="provenance-map-path",
+        help="the skill's provenance-map.json (the detect JSON is read on stdin)",
+    )
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    args = _build_parser().parse_args(argv[1:])
+
+    provenance_path = Path(args.provenance_map)
     if not provenance_path.exists():
         _fail(f"provenance map not found: {provenance_path}")
 
