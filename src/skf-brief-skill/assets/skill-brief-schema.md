@@ -93,7 +93,7 @@ scope:
   #   - path: "python/cocoindex/_internal/api.py"
   #     action: "promoted"
   #     category: "scope-expansion"
-  #     reason: "out-of-scope new public API — drift report drift-report-20260424-212355.md"
+  #     reason: "out-of-scope new public API: drift report drift-report-20260424-212355.md"
   #     evidence: "~70 new exports flagged out-of-scope by audit"
   #     date: "2026-04-25"
   #     workflow: "skf-update-skill"
@@ -163,7 +163,7 @@ scope:
 
 **Demotion (scope-expansion only):** `demoted-include` removes a previously-promoted path from `scope.include` — used when a prior `[P]` decision is reversed. `demoted-exclude` removes a path from `scope.exclude` — used when a previously excluded path needs to be re-evaluated. Both write the structural change and append the amendment so future runs see the rationale. Demotion is not valid for `category: "auth-doc"`: auth-doc skips already prevent re-prompting without scope mutation.
 
-**Exclusion (scope-expansion only):** `excluded` adds a path to `scope.exclude` — written by `skf-update-skill` gap-driven rescope (detect-changes §0 rule R1) when a coverage gap's remediation is removal (the export is internal, `#[doc(hidden)]`, or out of scope). The amendment is the audit trail; the `scope.exclude` write is what shrinks the source barrel, so the legitimate scope reduction is expressed in the brief rather than by editing `metadata.stats`. This keeps the reduction visible to `skf-test-skill`'s denominator-deflation check, which re-derives the barrel from `scope.include` filtered by `scope.exclude`. Not valid for `category: "auth-doc"`.
+**Exclusion (scope-expansion only):** `excluded` adds a path to `scope.exclude`, written by `skf-update-skill` gap-driven rescope (gap-driven.md §1 rule R1) when a coverage gap's remediation is removal (the export is internal, `#[doc(hidden)]`, or out of scope). The amendment is the audit trail; the `scope.exclude` write is what shrinks the source barrel, so the legitimate scope reduction is expressed in the brief rather than by editing `metadata.stats`. This keeps the reduction visible to `skf-test-skill`'s denominator-deflation check, which re-derives the barrel from `scope.include` filtered by `scope.exclude`. Not valid for `category: "auth-doc"`.
 
 **Backward compatibility:** `scope.amendments` is optional. Briefs without this field validate unchanged. Treat missing as an empty list. Existing entries without `category` are equivalent to `category: "auth-doc"` — readers must default the field when absent.
 
@@ -181,7 +181,7 @@ scope:
 - `skf-create-skill` §2a (Discovered Authoritative Files Protocol) — `category: "auth-doc"`
 - `skf-update-skill` §1b (mirror of §2a applied during change detection) — `category: "auth-doc"`
 - `skf-update-skill` §1c (Major-Version Scope Reconciliation) — `category: "scope-expansion"`
-- `skf-update-skill` gap-driven rescope (detect-changes §0 rule R1) — `category: "scope-expansion"`, `action: "excluded"`
+- `skf-update-skill` gap-driven rescope (gap-driven.md §1 rule R1): `category: "scope-expansion"`, `action: "excluded"`
 - `skf-create-skill` step 3d (component-library demo exclusion and registry detection): `category: "demo-and-registry"`, `action: "demo-excluded"` or `"registry-confirmed"`, only for an answer a user gave
 - Manual edits by the brief author are permitted but should include all required fields above (and `category` when the entry is not an auth-doc decision).
 

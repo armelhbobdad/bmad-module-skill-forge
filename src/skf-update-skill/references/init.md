@@ -1,5 +1,9 @@
 ---
 nextStepFile: 'detect-changes.md'
+# `{gapDrivenStepFile}`: §8 loads it in place of `{nextStepFile}` when
+# `update_mode` is `gap-driven`: it translates and verifies the test
+# report's gaps in place of steps 2 and 3, and goes on to step 4.
+gapDrivenStepFile: 'gap-driven.md'
 # Resolve `{hashContentHelper}` to the first existing path; HALT if neither
 # candidate exists: a [MANUAL] marker count by eye misses a truncated block.
 hashContentProbeOrder:
@@ -76,11 +80,11 @@ Provide either:
 - A skill name (resolves via version-aware path resolution — see `knowledge/version-paths.md`)
 - A full path to the skill folder
 - A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
-- `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the step 3 §0.a guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there, reads no signature, parameter list, return type or node kind there and counts no public API there, and step 3 §0.a halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does, and on every rescope; step 5 will NOT automatically re-pin
+- `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the gap-driven.md §3 guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there, reads no signature, parameter list, return type or node kind there and counts no public API there, and gap-driven.md §3 halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does, and on every rescope; step 5 will NOT automatically re-pin
 - `--allow-degraded` (headless mode only) to pre-authorize the lossy degraded full re-extraction if §4 finds no provenance map — without it, a headless run halts `blocked` there rather than silently rebuilding
 - `--target-ref <tag|branch|HEAD|commit>` (normal mode, a skill forged from a remote repository) to read that ref's current commit instead of the skill's recorded `source_ref` (for example the `upstream_ref` an audit reports). When the update writes, step 5 records the ref as the new `source_ref` together with the commit it read. `HEAD` follows the remote's default branch; a full 40-character commit pins that commit
 - `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
-- `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact, and a re-extract halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it
+- `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact, and a gap-driven.md halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it
 
 **Skill:** {user provides a number from the list, a name or a path}"
 
@@ -111,15 +115,15 @@ Pass `--version` only when steps 1-3 above bound `{active_version}` (the flat fa
 - **`status` is `found` and `report_exists` is true:** set `test_report_path` ← `path`, `{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`. Name the report the helper picked (its file name, such as `test-report-{skill_name}-20260507T050917Z-487606-9b2f.md`, with its `testResult`, `score` and `source`) and each newer one it passed over as unfinished (`skipped[]`), so an operator can find them from the log, and add each of its `warnings[]` to `warnings[]` as `test-report: <entry>`.
 - **Otherwise** (`not-found`; `found` with `report_exists` false, a result file naming a report that is gone; no candidate resolves; or the command fails or prints no JSON): warn that no test report was found, with the cause, and continue in normal source drift mode.
 
-**If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by step 3 §0.a's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
+**If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by gap-driven.md §3's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
 
 **If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by §4 below when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown) or when a provenance map is present.
 
 **If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; §6b passes it to `{sourceTreeHelper}`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect, since gap-driven mode repairs the skill at its pinned commit, so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report`: gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}`; when §4b switches a run to gap-driven mode, it unsets it with the same warning.
 
-**If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes, jump directly to step 6 (report): skip re-extract, merge and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before §0.a runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only`: the workspace drift guard runs in step 3 §0.a, which is skipped").
+**If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes (gap-driven.md §2 in gap-driven mode), jump directly to step 6 (report): skip re-extract, merge and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before gap-driven.md §3 runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only`: the workspace drift guard runs after the gaps are translated, which `--detect-only` skips").
 
-**If `--dry-run` was provided:** set `dry_run_mode: true` in workflow context. After step 3 (re-extract) completes, jump directly to step 6 (report): skip merge and write. The report emits what would change with `status: "dry-run"` in the envelope. No artifact on disk is modified, in any mode (a repair from a test report and a docs-only skill included), and step 2 reports each skill brief amendment it would make as proposed instead of writing it: `--dry-run` is the "show me what an update would do without committing" mode.
+**If `--dry-run` was provided:** set `dry_run_mode: true` in workflow context. After step 3 (re-extract) completes (gap-driven.md §5 in gap-driven mode), jump directly to step 6 (report): skip merge and write. The report emits what would change with `status: "dry-run"` in the envelope. No artifact on disk is modified, in any mode (a repair from a test report and a docs-only skill included), and step 2 reports each skill brief amendment it would make as proposed instead of writing it: `--dry-run` is the "show me what an update would do without committing" mode.
 
 **If BOTH `--detect-only` AND `--dry-run` were provided:** `--detect-only` wins (it's the more restrictive). Warn the user once: "`--detect-only` supersedes `--dry-run`; re-extract is skipped." Set `detect_only_mode: true`, ignore `dry_run_mode`.
 
@@ -206,7 +210,7 @@ After loading metadata.json, check `skill_type`:
 
 ### 4. Load Provenance Map
 
-**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path found. Do not load the map into context: the steps that need it read the file themselves (step 2's helpers, step 3's spot-checks and step 5's `apply`). Read from it only what §7 shows: the number of `entries[]` (`{export_count}`) and the provenance age, the days since its `last_update`, else its `generated_at`.
+**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path found. Do not load the map into context: the steps that need it read the file themselves (step 2's helpers, gap-driven.md §1 and §4 in a repair, and step 5's `apply`). Read from it only what §7 shows: the number of `entries[]` (`{export_count}`) and the provenance age, the days since its `last_update`, else its `generated_at`.
 
 **If provenance map missing at both paths:**
 
@@ -278,7 +282,7 @@ When `detect_only_mode` or `dry_run_mode` is true, run the same command without 
 Bind the source fields from the `metadata.json` loaded in §2 (the provenance map does not carry `source_root`): `{source_root}` ← `source_root`, `{source_repo}` ← `source_repo`, `{source_ref}` ← `source_ref` and `{source_commit}` ← `source_commit`, each an empty string when the field is null or missing. `{source_ref}` and `{source_commit}` keep these values for the whole run: step 5 records any new commit in the artifacts only.
 
 - **Docs-only skill** (`source_type: "docs-only"` in the brief or metadata.json, as step 3 §1 checks): there is no source tree. Skip §6b, §6c and the path check below. If `{target_ref_override}` is set, HALT as §6b's **Every §6b HALT** describes, with `{source_tree_reason}` = `target-ref-needs-remote-source` and `{source_tree_message}` = "`--target-ref` applies only to a skill forged from a remote repository".
-- **Gap-driven mode** (`update_mode` is `gap-driven`): a repair reads the commit the skill is pinned to, and step 3 §0.a checks that `{source_root}` holds it before reading anything. Skip §6b and §6c and run the path check below.
+- **Gap-driven mode** (`update_mode` is `gap-driven`): a repair reads the commit the skill is pinned to, and gap-driven.md §3 checks that `{source_root}` holds it before reading anything. Skip §6b and §6c and run the path check below.
 - **Every other mode**, `--detect-only` and `--dry-run` included: run §6b. §6b runs the path check below only when the helper reports `skipped`.
 
 **Path check:** validate that `{source_root}` exists and is accessible.
@@ -382,7 +386,7 @@ Steps 5 and 6 reuse `{source_display}` and `{source_commit_line}`.
 
 ### 8. Confirmation Gate
 
-Present "**Select:** [C] Continue to Change Detection" and wait for the user to confirm; on [C], load, read the full file, then execute {nextStepFile}.
+Present "**Select:** [C] Continue to Change Detection" ("**Select:** [C] Continue to Gap-Driven Repair" when `update_mode` is `gap-driven`) and wait for the user to confirm; on [C], load, read the full file, then execute `{gapDrivenStepFile}` when `update_mode` is `gap-driven`, else `{nextStepFile}`.
 
 **Headless (`{headless_mode}` true):** auto-continue and record the decision in the run's decision log, from `{project-root}` (the emitter checks it against `shared/scripts/schemas/skf-update-result-envelope.v1.json`, and step 6's line carries it):
 

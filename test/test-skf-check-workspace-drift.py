@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for skf-check-workspace-drift.py.
 
-Covers the four-state guard from re-extract.md §0.a:
+Covers the four-state guard from update-skill's gap-driven.md §3:
   - skipped (no pinned commit): pinned is "", "local", or whitespace-only
   - skipped (not a git working tree): source_root is not a git repo
   - ok: HEAD matches pinned (full SHA or short-SHA prefix)

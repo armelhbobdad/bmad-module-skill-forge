@@ -67,7 +67,7 @@ From the [MANUAL] inventory captured in step 1:
 
 ### 3. Apply Merge by Priority Order
 
-Read this step's inputs from disk, never from memory: the change manifest from `{run_dir}/change-manifest.json` (step 2), the extraction or verification records from `{run_dir}/reextract-records.json` (step 3), and the documents step 2 §1b promoted from `{run_dir}/promoted-docs.json` when it wrote that file. A compacted context still merges what those steps found.
+Read this step's inputs from disk, never from memory: the change manifest from `{run_dir}/change-manifest.json` (step 2, or gap-driven.md §1 in gap-driven mode), the extraction or verification records from `{run_dir}/reextract-records.json` (step 3, or gap-driven.md §4), and the documents step 2 §1b promoted from `{run_dir}/promoted-docs.json` when it wrote that file. A compacted context still merges what those steps found.
 
 Apply merge in the following priority order:
 
@@ -76,11 +76,11 @@ Apply merge in the following priority order:
 - Check if deleted export has attached [MANUAL] blocks
 - If [MANUAL] attached: flag as ORPHAN conflict (do not remove)
 - If no [MANUAL]: remove generated content cleanly
-- **Gap-driven rescopes** (`DELETED_EXPORT` from detect-changes §0 rule R1, verification `rescoped`) are processed here with the same removal. §6b writes the entry's `rescope` (its `scope.amendments[]` entry, `action: "excluded"`, and its `scope.exclude` path) to the skill brief before SKILL.md, and step 5 removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). Step 3 §0 HALTs on a rescope that carries no `rescope`, so no unscoped removal reaches here.
+- **Gap-driven rescopes** (`DELETED_EXPORT` from gap-driven.md §1 rule R1, verification `rescoped`) are processed here with the same removal. §6b writes the entry's `rescope` (its `scope.amendments[]` entry, `action: "excluded"`, and its `scope.exclude` path) to the skill brief before SKILL.md, and step 5 removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). gap-driven.md §4 HALTs on a rescope that carries no `rescope`, so no unscoped removal reaches here.
 
 **Priority 2 — Process MOVED exports:**
 - Update file:line citations in generated content
-- **Gap-driven:** move citations only for an export whose step 3 §0 spot-check recorded `moved`. A `MOVED_EXPORT` that recorded `unknown` (the drift override among the causes), `verified` or `missing` moves none: write.md §3 leaves its line as it is.
+- **Gap-driven:** move citations only for an export whose gap-driven.md §4 spot-check recorded `moved`. A `MOVED_EXPORT` that recorded `unknown` (the drift override among the causes), `verified` or `missing` moves none: write.md §3 leaves its line as it is.
 - Update provenance map file references
 - [MANUAL] blocks unaffected (content unchanged)
 
@@ -99,7 +99,7 @@ Apply merge in the following priority order:
 - Append new export content to appropriate section
 - Place before any [MANUAL] blocks at section boundary
 - No conflicts expected (new content, no existing [MANUAL])
-- **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (step 3 §0 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check found that line by the verifier's text rules, not by an ast-grep recipe, so the prefix is `SRC`, never `AST`.
+- **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (gap-driven.md §4 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check found that line by the verifier's text rules, not by an ast-grep recipe, so the prefix is `SRC`, never `AST`.
 
 **Priority 6 — Process script/asset file changes (from Category D in change manifest):**
 
@@ -134,9 +134,9 @@ For each entry of `promoted_docs_new[]`, read from `{run_dir}/promoted-docs.json
 
 **If `promoted_docs_new[]` is empty:** skip Priority 7 silently. No report entry.
 
-**Priority 8 — Process STRUCTURAL_FIX entries (gap-driven, from detect-changes §0 rule R2):**
+**Priority 8: Process STRUCTURAL_FIX entries (gap-driven, from gap-driven.md §1 rule R2):**
 
-For each `STRUCTURAL_FIX` entry forwarded by step 3 §0/1a:
+For each `STRUCTURAL_FIX` entry gap-driven.md §4 forwarded:
 
 - Apply the surgical edit described in the entry's `remediation` text to the **generated output file only** (e.g., escape an unescaped `|` inside a code span, balance a fence, repair a broken intra-skill anchor in SKILL.md or a `references/*.md`).
 - **A split-body consistency finding** (rule R2: the SKILL.md body and a `references/*.md` file document one export differently): edit the `references/*.md` file so it documents the export as the SKILL.md body does, whichever of the two files the gap's `Source:` names. The body is authoritative (test-skill coverage-check §1b), so never change the body to match the reference file.
@@ -146,9 +146,9 @@ For each `STRUCTURAL_FIX` entry forwarded by step 3 §0/1a:
 
 **If no STRUCTURAL_FIX entries:** skip Priority 8 silently.
 
-**Priority 8b — Process metadata-update entries (gap-driven, from detect-changes §0 rule R4):**
+**Priority 8b: Process metadata-update entries (gap-driven, from gap-driven.md §1 rule R4):**
 
-For each `metadata update` entry forwarded by step 3 §0/1a:
+For each `metadata update` entry gap-driven.md §4 forwarded:
 
 - Queue the surgical metadata patch described in the entry's `remediation` (e.g., reconcile a divergent `stats` count, add an explanatory stat) in workflow context as `metadata_patches[]` for write.md §2 to apply **before** its automatic stat recount.
 - Touch no provenance `entries[]` row and no generated markdown — this priority only stages the patch; write.md §2 applies it.

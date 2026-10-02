@@ -96,7 +96,7 @@ If the validator reports failure for the `description` field, flip the Schema ro
 
 ## Why This Protocol Is Centralized
 
-Previously, each tool invocation in each calling stage carried its own copy of the capture/verify/restore prose. Duplicated defensive logic drifts: a fix in one section did not propagate to the other, and adding a new tool invocation required remembering to copy the pattern. Centralizing the protocol gives every calling stage one place to update when external validator behavior changes. The rules each calling stage acts on, the restore handling and the empty-snapshot refusal, are also stated in the stage's §0 (quick-skill, which never loads this file, states them beside its one guarded call), so the stage still follows them when this file cannot be loaded; change them there too.
+Previously, each tool invocation in each calling stage carried its own copy of the capture/verify/restore prose. Duplicated defensive logic drifts: a fix in one section did not propagate to the other, and adding a new tool invocation required remembering to copy the pattern. This file is the maintainers' reference for the guard, and no stage loads this file at run time. The rules each calling stage acts on, the restore handling and the empty-snapshot refusal, are also stated in the stage's §0 (quick-skill states them beside its one guarded call): change them there, and keep this file in step.
 
 ## Calling Workflows
 
