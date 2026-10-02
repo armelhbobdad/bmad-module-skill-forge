@@ -15,9 +15,9 @@ Setup checks for `uv` when it starts, before it detects your tools or writes any
 
 **Fix:** install `uv` from <https://docs.astral.sh/uv/getting-started/installation/> and re-run `/skf-setup`. `uv` is documented as a runtime prerequisite in [Getting Started → Prerequisites](/docs/getting-started.md#prerequisites-full-reference).
 
-### "Setup cannot proceed: `_bmad/skf/config.yaml` was not found"
+### "Setup cannot proceed: the SKF config file was not found"
 
-Surfaced by `/skf-setup` when the SKF install config is missing, usually because you ran `/skf-setup` from a folder where SKF is not installed. The check runs before setup writes anything. Under `--headless` or `--quiet`, the same message arrives as the `error.reason` of an `SKF_SETUP_RESULT_JSON` line whose `status` is `"blocked"`, but only when SKF's scripts are installed in the project and `uv` or a Python interpreter can run them. Usually they are not (the folder is not an SKF project, or the install lost its scripts), so nothing can build that line and the run's one line is the message alone. Pipelines should treat a run with no `SKF_SETUP_RESULT_JSON` line as a failure.
+Surfaced by `/skf-setup` when the SKF install config, `_bmad/skf/config.yaml`, is missing, usually because you ran `/skf-setup` from a folder where SKF is not installed. The check runs before setup writes anything. Under `--headless` or `--quiet`, the same message arrives as the `error.reason` of an `SKF_SETUP_RESULT_JSON` line whose `status` is `"blocked"`, but only when SKF's scripts are installed in the project and `uv` or a Python interpreter can run them. Usually they are not (the folder is not an SKF project, or the install lost its scripts), so nothing can build that line and the run's one line is the message alone. Pipelines should treat a run with no `SKF_SETUP_RESULT_JSON` line as a failure.
 
 Ferris makes the same check before he greets you and stops with "Cannot initialize. SKF is not installed in this project". Neither setup nor Ferris can fix this: setup reads the file and never writes it, and only the installer does, so both messages name the installer command below.
 

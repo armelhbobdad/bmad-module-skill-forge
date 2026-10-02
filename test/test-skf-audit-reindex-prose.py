@@ -311,12 +311,16 @@ def test_tool_resolution_ast_bridge_rows_name_the_recipes() -> None:
 
 
 def test_skill_md_names_both_create_skill_files() -> None:
-    coupling = _slice(_read(AUDIT_SKILL), "- **Cross-skill data coupling:**", "\n")
+    """The coupling bullet names each create-skill file re-index.md's frontmatter
+    loads; the Sibling skills rule says where such a path resolves (#601)."""
+    skill = _read(AUDIT_SKILL)
+    coupling = _slice(skill, "- **Cross-skill data coupling:**", "\n")
     frontmatter = _frontmatter(_read(RE_INDEX))
     assert "`skf-create-skill/references/`" in coupling
     for key in ("extractionPatternsData", "tierDegradationRulesData"):
-        assert f"`{key}`" in coupling, key
+        assert frontmatter[key].startswith("skf-create-skill/references/"), key
         assert f"`{Path(frontmatter[key]).name}`" in coupling, frontmatter[key]
+    assert "- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`)" in skill
 
 
 # --------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-export-skill.
-# Team overrides:     _bmad/custom/skf-export-skill.toml (under {project-root})
-# Personal overrides: _bmad/custom/skf-export-skill.user.toml (under {project-root})
+# Team overrides:     {project-root}/_bmad/custom/skf-export-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-export-skill.user.toml
 
 [workflow]
 
@@ -10,7 +10,9 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
+# Steps SKILL.md On Activation step 3 runs once this file resolves: after
+# the config load (step 1) and the headless flag (step 2), before step 4
+# resolves the helpers and creates the run folder, and before any stage.
 # Overrides append. Use for org-wide pre-flight checks (auth, network,
 # compliance) that must precede any export work.
 
@@ -26,11 +28,18 @@ activation_steps_append = []
 # (publishing standards, distribution-instruction house style, snippet
 # token-budget guardrails). Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "All exported skills must include a CHANGELOG entry."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/export-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
+#
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-export-skill.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",

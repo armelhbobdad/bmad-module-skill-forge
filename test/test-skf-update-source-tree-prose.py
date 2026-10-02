@@ -106,6 +106,7 @@ import importlib.util
 import inspect
 import io
 import json
+import os
 import re
 import shlex
 import shutil
@@ -2012,7 +2013,7 @@ def test_gap_driven_dry_run_stops_before_merge():
     """gap-driven.md §5 routes a --dry-run to the report, so a gap-driven --dry-run never loads merge (#558 item 6)."""
     text = _read(GAP)
     five = _slice(text, "### 5. Display the Repair Summary and Route", "\n- **Otherwise**")
-    for token in ("load `{reportFile}` (report.md, NOT `{resumeStepFile}`)", "so a gap-driven `--dry-run` writes nothing",
+    for token in ("load `{reportFile}` (report.md, NOT `{nextStepFile}`)", "so a gap-driven `--dry-run` writes nothing",
                   "A halt in §3 or §4a (the drift gate, the targeted re-extraction) stops a `--dry-run`"):
         assert token in five, token
     assert yaml.safe_load(_frontmatter(text))["reportFile"] == "report.md"
@@ -2856,7 +2857,7 @@ def test_every_route_out_of_step_3_honours_dry_run():
     six = _slice(text, "### 6. Route to Next Step", "\n- **Otherwise**")
     assert "Every route out of this step comes here, the docs-only one (§1) included" in six
     # a gap-driven run leaves from gap-driven.md §5, whose dry-run branch loads the report (#600 architecture-4)
-    assert "(report.md, NOT `{resumeStepFile}`)" in _slice(_read(GAP), "### 5.", "\n- **Otherwise**")
+    assert "(report.md, NOT `{nextStepFile}`)" in _slice(_read(GAP), "### 5.", "\n- **Otherwise**")
     # the read-only modes write no brief: the brief §1b and §1c amend is the run folder's copy, and rule R1 writes
     # nothing before step 4 (W1 handoff: read-only modes write the skill brief)
     detect = _read(DETECT)
@@ -3646,6 +3647,89 @@ def test_persistent_facts_default_can_be_dropped():
     activation = _slice(_read(SKILL), "4. **Resolve workflow customization.**", "5. Load")
     assert ("an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's "
             '`"!file:{project-root}/**/project-context.md"` turns that default off') in activation
+
+
+def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
+    """#595 option (a): the resolver runs under uv with --project-root, so a bare
+    python3 older than 3.11 no longer drops the overrides silently; a failure
+    prints one warning and lands in the run log, which step 3 created, through
+    a file, since a resolver error can hold quotes. #603: headless_mode is read
+    from the sidecar's preferences.yaml."""
+    activation = _slice(_read(SKILL), "4. **Resolve workflow customization.**", "5. Load")
+    assert ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+            "--project-root {project-root} --key workflow") in _fence(activation, "resolve_customization.py")
+    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in _read(SKILL)
+    flow = " ".join(activation.split())
+    for token in ("It merges the bundled `{skill-root}/customize.toml` with "
+                  "`{project-root}/_bmad/custom/skf-update-skill.toml` (team overrides, committed) and `.user.toml` "
+                  "(personal overrides, gitignored).",
+                  "When it exits non-zero, prints no JSON or is missing, print one line, "
+                  "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr "
+                  "line, `not found` when the script is missing, `no JSON` when it printed none).",
+                  "If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
+                  "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.",
+                  "write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a "
+                  "file write", "never echo it or type it into an argument"):
+        assert token in flow, token
+    assert "`warnings[]`" not in activation, "the run log, never context, holds the warning"
+    # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
+    assert re.search(r"(?<!\{project-root\}/)_bmad/", activation) is None
+    record = re.search(r"run `(uv run \{emitEnvelopeHelper\} record [^`]+)`", flow).group(1)
+    assert record == ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                      '"$(cat "{run_dir}/resolver-warning.txt")"')
+    two = _slice(_read(SKILL), "2. **Resolve `{headless_mode}`**", "3. **")
+    assert "`headless_mode: true` in `{sidecar_path}/preferences.yaml`" in two
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+def test_the_recorded_resolver_warning_keeps_its_quotes(tmp_path):
+    """The documented record call, run by bash: the reason reaches the run's
+    warnings sink whole, quotes, `$` and backticks included."""
+    flow = " ".join(_slice(_read(SKILL), "4. **Resolve workflow customization.**", "5. Load").split())
+    record = re.search(r"run `(uv run \{emitEnvelopeHelper\} record [^`]+)`", flow).group(1)
+    run_dir = tmp_path / "skf-update-skill-abcd1234"
+    run_dir.mkdir()
+    reason = "exit 3: No module named 'tomllib' in \"$HOME\" `x`"
+    (run_dir / "resolver-warning.txt").write_bytes(f"customization_resolver_unavailable: {reason}".encode("utf-8"))
+    command = (record.replace("uv run {emitEnvelopeHelper}",
+                              f"{shlex.quote(sys.executable)} {shlex.quote(EMITTER.as_posix())}")
+               .replace("{run_dir}", run_dir.as_posix()))
+    done = subprocess.run(["bash", "-c", command], capture_output=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    sink = (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in sink] == [f"customization_resolver_unavailable: {reason}"]
+
+
+def test_skill_md_routes_the_gap_driven_branch_and_names_its_files():
+    """#600: gap-driven.md is a Stages row of its own, reached from init.md §8
+    under gapDrivenStepFile in place of steps 2 and 3, and it chains to merge.md
+    by its own nextStepFile. #601: the Conventions say how module-level and
+    sibling-skill paths resolve, and name gap-driven.md's create-skill files."""
+    skill = _read(SKILL)
+    stages = _slice(skill, "## Stages", "## Invocation Contract")
+    assert ("| 2g | Gap-Driven Repair (only when `update_mode` is gap-driven: in place of steps 2 and 3) | "
+            "references/gap-driven.md | Conditional (§1 rule R1 asks [D]/[R] when a gap's remediation names "
+            "removal) |") in stages
+    # Rule R1 prompts, so neither the row nor §5 claims the step never asks.
+    gap = _read(GAP)
+    assert '"[D] Document the export / [R] Rescope (remove from the public surface)"' in _slice(gap, "- **R1:", "\n")
+    route = _slice(gap, "### 5. Display the Repair Summary and Route", "- **`dry_run_mode")
+    assert "This step asks nothing after §1's rule R1 prompts." in route and "no user choices" not in route
+    assert yaml.safe_load(_frontmatter(_read(INIT)))["gapDrivenStepFile"] == "gap-driven.md"
+    assert yaml.safe_load(_frontmatter(_read(GAP)))["nextStepFile"] == "merge.md"
+    conventions = _slice(skill, "## Conventions", "## Role")
+    assert ("chained by each file's frontmatter `nextStepFile` (init.md §8 loads `gap-driven.md` through "
+            "`gapDrivenStepFile` instead when `update_mode` is `gap-driven`)") in conventions
+    assert ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the "
+            "SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root") in conventions
+    assert ("- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the "
+            "SKF module root, and that skill must be installed with this one.") in conventions
+    coupling = _slice(skill, "- **Cross-skill data coupling:**", "\n")
+    assert ("and `gap-driven.md` pulls `extraction-patterns.md` and `tier-degradation-rules.md`") in coupling
+    front = yaml.safe_load(_frontmatter(_read(GAP)))
+    for key in ("extractionPatternsData", "tierDegradationRulesData"):
+        assert front[key].startswith("skf-create-skill/references/"), key
+        assert f"`{Path(front[key]).name}`" in coupling, key
 
 
 def test_the_rule_files_hold_no_copy_of_merge():

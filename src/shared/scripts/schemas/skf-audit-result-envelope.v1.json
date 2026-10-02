@@ -134,13 +134,13 @@
         "properties": {
           "gate": {
             "type": "string",
-            "enum": ["init.manifest-lags-link", "init.upstream-drift"],
-            "description": "The gate that auto-resolved: step 1's manifest-vs-link gate or its upstream-drift gate. Each records its decision in the run sink the moment it decides."
+            "enum": ["init.manifest-lags-link", "init.upstream-drift", "init.baseline-confirm"],
+            "description": "The gate that auto-resolved: step 1's manifest-vs-link gate, its upstream-drift gate, or its baseline confirm gate (init.baseline-confirm), which a run reaches only on a baseline doubt: the forge tier below the compile tier, or a provenance map more than 90 days old. Each records its decision in the run sink the moment it decides."
           },
           "default_action": {
             "type": "string",
             "minLength": 1,
-            "description": "The action documented as the gate's default: 'N' (audit the link's version) or 'C' (audit the upstream ref)."
+            "description": "The action documented as the gate's default: 'N' (audit the link's version) or 'C' (audit the upstream ref, or continue past the baseline doubt)."
           },
           "taken_action": {
             "type": "string",

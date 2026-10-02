@@ -1,0 +1,5 @@
+type: fixed
+scope: all workflows
+summary: |
+  `headless_mode: true` in the forge's `preferences.yaml`, in the `sidecar_path` folder that `_bmad/skf/config.yaml` sets, now makes every workflow run headless, as the docs say. Audit Skill, Update Skill and the other workflows that named the file without its folder now read it from that folder, so they no longer miss the setting and stop at their prompts.
+issues: [603]

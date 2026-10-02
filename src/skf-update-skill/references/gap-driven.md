@@ -1,8 +1,8 @@
 ---
-# `{resumeStepFile}` is where a repair goes on, step 4 (§5 loads it).
+# `{nextStepFile}` is where a repair goes on, step 4 (§5 loads it).
 # `{reportFile}` takes a detect-only run, a run with no gap to repair (§2)
 # and a dry run (§5).
-resumeStepFile: 'merge.md'
+nextStepFile: 'merge.md'
 reportFile: 'report.md'
 extractionPatternsData: 'skf-create-skill/references/extraction-patterns.md'
 tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md'
@@ -352,7 +352,7 @@ Display the summary below:
 
 When `{workspace_drift_status}` is `overridden`, add: "Every check read HEAD {head_short_sha}, not pinned {pinned_short_sha}: no line was moved or pinned."
 
-This step auto-proceeds: no user choices. Load and fully read the next file, then execute it, per the branch that applies:
+This step asks nothing after §1's rule R1 prompts. Load and fully read the next file, then execute it, per the branch that applies:
 
-- **`dry_run_mode == true`** → display "**Dry-run mode: skipping merge and write.** Loading report..." and load `{reportFile}` (report.md, NOT `{resumeStepFile}`); it emits status `dry-run` describing what merge and write would have done, so a gap-driven `--dry-run` writes nothing. A halt in §3 or §4a (the drift gate, the targeted re-extraction) stops a `--dry-run` as it stops any other run.
-- **Otherwise** → display "**Proceeding to merge...**" and load `{resumeStepFile}` (merge.md) to begin the merge operation.
+- **`dry_run_mode == true`** → display "**Dry-run mode: skipping merge and write.** Loading report..." and load `{reportFile}` (report.md, NOT `{nextStepFile}`); it emits status `dry-run` describing what merge and write would have done, so a gap-driven `--dry-run` writes nothing. A halt in §3 or §4a (the drift gate, the targeted re-extraction) stops a `--dry-run` as it stops any other run.
+- **Otherwise** → display "**Proceeding to merge...**" and load `{nextStepFile}` (merge.md) to begin the merge operation.

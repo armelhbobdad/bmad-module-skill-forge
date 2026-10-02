@@ -982,6 +982,51 @@ def test_the_baseline_stops_only_on_doubt():
     assert init.count("**GATE") == 1
 
 
+BASELINE_RECORD = ('uv run {emitEnvelopeHelper} record --workflow skf-audit-skill --run-dir "{run_dir}" --decision '
+                   '< "{run_dir}/decision.json"')
+
+
+@pytest.mark.parametrize("original_tier", ["Forge+", None], ids=["tier-dropped", "no-compile-tier"])
+def test_the_headless_baseline_confirm_records_its_decision(tmp_path, original_tier):
+    """headless-gate-convention.md: a headless run that continues past a
+    baseline doubt records the decision in the run sink, as step 1's other
+    gates do, so the envelope's headless_decisions carries the doubt. The
+    schema lists the gate, so the emitter's --workflow check takes the record,
+    and the evidence holds a null compile tier as JSON null."""
+    gate = _slice(_read(INIT), "**GATE", "\n")
+    assert BASELINE_RECORD in gate
+    # Only the headless auto-decision is recorded: an interactive [C] adds no `headless:` entry.
+    assert ('({each doubt that holds})". In headless mode, after that log line, record the decision in the run '
+            "sink: stage `{run_dir}/decision.json`") in gate
+    staged = re.search(r"stage `\{run_dir\}/decision\.json` as `(\{\"gate\": \"init\.baseline-confirm\".*?\}\})`", gate)
+    assert staged, "the decision the gate stages"
+    assert "with JSON `null` for an `{original_tier}` that is null" in gate
+    reason = "headless: auto-continue past baseline confirmation (the baseline is old)"
+    tier = json.dumps(original_tier)
+    decision = (staged.group(1).replace('"{original_tier}"', tier).replace("{current_tier}", "Forge")
+                .replace("{provenance_age_days}", "120").replace("<the log line>", reason))
+    run_dir = tmp_path / "skf-audit-skill-20260101-000000"
+    run_dir.mkdir()
+    (run_dir / "decision.json").write_bytes(decision.encode("utf-8"))
+    # The prose command, its stdin redirect fed by hand.
+    words = shlex.split(BASELINE_RECORD.partition(" < ")[0])
+    assert words[:3] == ["uv", "run", "{emitEnvelopeHelper}"]
+    args = [word.replace("{run_dir}", str(run_dir)) for word in words[3:]]
+    done = subprocess.run([sys.executable, str(EMITTER), *args], input=decision.encode("utf-8"),
+                          capture_output=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    halt = {"phase": "init:baseline-confirm", "reason": "stopped", "halt_reason": "user-cancelled"}
+    envelope = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-audit-skill",
+                               "--run-dir", str(run_dir), "--target", "stdout"],
+                              input=json.dumps(halt).encode("utf-8"), capture_output=True, timeout=60, check=False)
+    assert envelope.returncode == 0, envelope.stderr
+    line = envelope.stdout.decode("utf-8").strip()
+    [recorded] = json.loads(line[line.index("{"):])["headless_decisions"]
+    assert recorded == {"gate": "init.baseline-confirm", "default_action": "C", "taken_action": "C",
+                        "reason": reason, "evidence": {"original_tier": original_tier, "current_tier": "Forge",
+                                                       "provenance_age_days": 120}}
+
+
 def _two_versions(tmp_path: Path) -> tuple[Path, Path]:
     """demo 1.0.0 in the export manifest, 1.1.0 behind the `active` link (update-skill ran since)."""
     skills, forge = tmp_path / "skills", tmp_path / "forge"
@@ -1259,7 +1304,7 @@ def test_init_routes_a_docs_only_skill_to_its_document_hashes():
         assert ("`{docs_only_skill}` is the `docs_only_skill` value step 1 §6 wrote into {outputFile}'s "
                 "frontmatter: read it there, not from memory") in _flow(_read(path)), path.name
     stages = _flow(_slice(_read(SKILL), "## Stages", "## Invocation Contract"))
-    assert ("A docs-only skill skips stages 2 to 4 too (step 1 §3): init.md → step-doc-drift.md → "
+    assert ("A docs-only skill skips stages 2 to 4 too (step 1 §3): init.md → doc-drift.md → "
             "severity-classify.md → report.md.") in stages
     severity = _slice(_read(SEVERITY), "### 1. Build the Findings File", "### 2.")
     assert _fenced_line(severity, "--doc-drift") == (

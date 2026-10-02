@@ -449,6 +449,102 @@ def test_every_halt_names_its_phase_and_states_no_envelope_of_its_own(rel):
     assert sites, rel
 
 
+def test_activation_halts_name_their_phase_and_leave_the_envelope_to_the_contract():
+    """leanness-4: result-envelope.md states the headless HALT envelope once, so
+    each On Activation halt names its exit code, halt_reason and phase, and a
+    Workflow Rule points every HALT at the contract."""
+    skill = _read(SKILL_MD)
+    rules = _section(skill, "## Workflow Rules", "## Stages")
+    assert ("- Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its "
+            "envelope as `references/result-envelope.md` states") in rules
+    activation = _section(skill, "## On Activation", None)
+    assert "envelope per" not in activation and "`skills: []`" not in activation
+    assert "context_files_updated: []" not in activation and "manifest_path: null" not in activation
+    sites = re.findall(r'HALT \(exit code (\d), `halt_reason: "([a-z-]+)"`\) at phase `([^`]+)`', activation)
+    assert sites == [("4", "context-rebuild-failed", "on-activation §4"), ("4", "write-failed", "on-activation §4"),
+                     ("4", "write-failed", "on-activation §5")]
+    for code, reason, _ in sites:
+        assert META["exit_codes"][reason] == int(code), reason
+    # The contract covers what the cut sites stated: no --run-dir and `skills: []` before step 1.
+    envelope = _read(ENVELOPE)
+    assert "`[]` only before step 1 bound `skill_batch`, as at every On Activation halt" in envelope
+    assert "Pass `--run-dir` once On Activation bound `{run_dir}`" in envelope
+
+
+def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
+    """#595 option (a): the resolver runs under uv with --project-root; a failure
+    prints one warning, and a headless run records the reason in its run sink,
+    through a file, once step 4 created the folder, so the envelope carries it.
+    #596: a `!` entry drops the project-context default, and customize.toml
+    says how; the prepend comment says when SKILL.md runs it (customization-2)."""
+    activation = " ".join(_section(_read(SKILL_MD), "## On Activation", None).split())
+    assert ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+            "--project-root {project-root} --key workflow") in activation
+    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in activation
+    for token in ("It merges the bundled `{skill-root}/customize.toml` with "
+                  "`{project-root}/_bmad/custom/skf-export-skill.toml` (team overrides, committed) and `.user.toml` "
+                  "(personal overrides, gitignored).",
+                  "When it exits non-zero, prints no JSON or is missing, print one line, "
+                  "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr "
+                  "line, `not found` when the script is missing, `no JSON` when it printed none).",
+                  "If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
+                  "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.",
+                  "Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): a "
+                  "headless run records it once step 4 creates its run folder, and an interactive run only "
+                  "prints it.",
+                  'write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a '
+                  'file write', 'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                  '"$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`',
+                  "the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed "
+                  "`!` drops each earlier entry it names and loads nothing itself, so an override's "
+                  '`"!file:{project-root}/**/project-context.md"` turns that default off',
+                  "`headless_mode: true` in `{sidecar_path}/preferences.yaml`"):
+        assert token in activation, token
+    assert "\u2014" not in _section(_read(SKILL_MD), "3. **Resolve workflow customization.**", "4. **Resolve")
+    # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
+    assert re.search(r"(?<!\{project-root\}/)_bmad/", activation) is None
+    toml = " ".join(re.sub(r"(?m)^# ?", "", _read("customize.toml")).split())
+    assert "Steps to run before the standard activation (uv probe, config load)" not in toml
+    assert ("Steps SKILL.md On Activation step 3 runs once this file resolves: after the config load (step 1) and "
+            "the headless flag (step 2), before step 4 resolves the helpers and creates the run folder") in toml
+    assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-export-skill.toml: '
+            'persistent_facts = ["!file:{project-root}/**/project-context.md"]') in toml
+    assert "Team overrides: {project-root}/_bmad/custom/skf-export-skill.toml" in toml
+    assert "Each entry is either:" not in toml
+    assert ("Each entry is one of: - a literal sentence" in toml
+            and "- an entry prefixed with `!`, which loads nothing and drops each earlier entry it names." in toml)
+
+
+def test_conventions_route_every_reference_file():
+    """#601 (export architecture-8): the Conventions name the stage that loads
+    each reference outside the Stages table, and how module-level and
+    sibling-skill paths resolve."""
+    skill = _read(SKILL_MD)
+    conventions = _section(skill, "## Conventions", "## Role")
+    assert ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the "
+            "SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root") in conventions
+    assert ("- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the "
+            "SKF module root, and that skill must be installed with this one.") in conventions
+    # Export holds no scripts/ folder: the Conventions name only the folders it has.
+    assert not (EXPORT / "scripts").exists() and "`scripts/`" not in conventions
+    assert "`assets/` holds the snippet and managed-section templates." in conventions
+    assert sorted(p.name for p in (EXPORT / "assets").iterdir()) == ["managed-section-format.md", "snippet-format.md"]
+    routes = {"load-skill.md": ("multi-skill-mode.md", "preflight-snippet-root-probe.md"),
+              "update-context.md": ("orphan-context-detection.md", "orphan-row-detection.md", "manifest-rebuild.md")}
+    for loader, files in routes.items():
+        for name in files:
+            assert f"`{name}`" in conventions, name
+            assert name in _read(f"references/{loader}"), (loader, name)
+    stages = set(re.findall(r"\| (references/[a-z-]+\.md) \|", _section(skill, "## Stages", "## Invocation")))
+    named = {f"references/{n}" for files in routes.values() for n in files}
+    named |= {"references/invocation-contract.md", "references/result-envelope.md"}
+    for path in sorted((EXPORT / "references").glob("*.md")):
+        rel = f"references/{path.name}"
+        assert rel in stages or rel in named, f"{rel}: no Stages row and no Conventions route"
+        if rel in named:
+            assert f"`{path.name}`" in conventions, rel
+
+
 def test_the_dry_run_shows_the_manifest_line_where_it_runs():
     """architecture-2: a dry run with passive context on leaves step 4 at §8, so §8 shows the line too."""
     update = _read(UPDATE)

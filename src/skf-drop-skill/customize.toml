@@ -29,11 +29,18 @@ activation_steps_append = []
 # (drop-policy reminders, retention guardrails, audit-trail rules).
 # Overrides append.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "Purges of skills tagged `compliance` require ticket reference."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/drop-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
+#
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-drop-skill.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
