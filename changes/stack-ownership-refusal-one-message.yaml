@@ -1,0 +1,6 @@
+type: changed
+scope: skf-create-stack-skill
+summary: |
+  Every ownership refusal of Stack Skill now reads "`<stack>`: nothing was written." followed by its reason: the stack still uses the flat layout, the folder is not SKF output, SKF could not check who generated it, or `skf-skill-inventory.py` is missing. The remedy each one gives is unchanged, and so are the halt reasons (`flat-layout` and `not-skf-output`) and exit code `5`. When `skf-skill-inventory.py` is missing, the halt's `path` now names the stack's folder in `skills_output_folder`, since no write check ran to name another.
+prs: [644]
+issues: [600]

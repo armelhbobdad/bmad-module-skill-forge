@@ -3,7 +3,8 @@
 tree, asks the remote once, and prints every envelope through the emitter.
 
 #588 (audit part): step 1 §5b asks skf-check-workspace-drift.py `upstream`
-whether the remote moved, in one call, and its [C] choice reads the upstream
+whether the remote moved, in one call, and when it moved, the [C] choice of
+references/upstream-checkout.md, which init.md loads then, reads the upstream
 ref with skf-source-tree.py `resolve` into a tree of the run's own: no lock,
 no hygiene pass, no dirty-worktree sub-gate, no `dirty_worktree_choice` or
 `force`, and [C] is the headless default because nothing on disk changes.
@@ -30,6 +31,14 @@ the stages share, halting `helper-missing` before the first prompt, so the
 stages keep no fallback for them; `no-baseline` joins the exit-3 reasons;
 the Gates row lists only the gates the stages run; customize.toml drops
 `severity_rules_path` and says what its template and hook settings do.
+
+#599 and #600 (audit part, BMad Builder architecture-5): the upstream-moved
+gate lives in upstream-checkout.md, loaded only when upstream moved, so the
+init.md every audit loads no longer carries it. It is no nextStepFile stage:
+it binds the audit-ref values and goes back to init.md §6 under
+resumeStepFile, and every citation of its [C] outside SKILL.md names it.
+#593 (audit part, BMad Builder determinism-3): report.md's payload holds one
+placeholder per value, never a quoted `a | b` a literal fill would emit.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -62,7 +71,8 @@ RE_INDEX = REFS / "re-index.md"
 STRUCTURAL = REFS / "structural-diff.md"
 SEVERITY = REFS / "severity-classify.md"
 COMPOSE = REFS / "constituent-freshness.md"
-DOC_DRIFT = REFS / "step-doc-drift.md"
+DOC_DRIFT = REFS / "doc-drift.md"
+CHECKOUT = REFS / "upstream-checkout.md"
 REPORT = REFS / "report.md"
 SCRIPTS = SRC / "shared" / "scripts"
 SCHEMA = SCRIPTS / "schemas" / "skf-audit-result-envelope.v1.json"
@@ -74,7 +84,7 @@ CONTRACTS = SRC / "shared" / "references" / "pipeline-contracts.md"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 URL = "https://github.com/acme/lib"
 
-HALT_STAGES = [INIT, RE_INDEX, STRUCTURAL, COMPOSE, SEVERITY, DOC_DRIFT, REPORT]
+HALT_STAGES = [INIT, CHECKOUT, RE_INDEX, STRUCTURAL, COMPOSE, SEVERITY, DOC_DRIFT, REPORT]
 HALT_IDS = [p.stem for p in HALT_STAGES]
 EMIT_HALT = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" '
              '--target stderr < "{run_dir}/halt.json"')
@@ -122,6 +132,11 @@ def _upstream() -> str:
     return _slice(_read(INIT), "### 5b. Detect Upstream Drift", "### 6. Create Drift Report")
 
 
+def _checkout() -> str:
+    """The upstream-moved gate, which step 1 §5b loads only when upstream moved."""
+    return _slice(_read(CHECKOUT), "## MANDATORY SEQUENCE", "### 3. Go Back to Step 1")
+
+
 # --------------------------------------------------------------------------
 # #588: one upstream call, a private tree, no lock and no sub-gate
 # --------------------------------------------------------------------------
@@ -143,7 +158,7 @@ def test_the_upstream_check_is_one_helper_call():
 
 
 def test_c_reads_the_upstream_ref_into_a_private_tree():
-    section = _upstream()
+    section = _checkout()
     resolve = _fenced(section, "{sourceTreeHelper} resolve")
     assert resolve == ('uv run {sourceTreeHelper} resolve --source-repo "{source_repo}" --source-root '
                        '"{source_root}" --target-ref "{upstream_ref}" --timeout "{tree_timeout}"')
@@ -166,7 +181,7 @@ def test_no_step_moves_the_shared_clone_or_holds_a_lock(path):
 
 
 def test_c_is_the_headless_default_and_the_inputs_lose_the_consent_flags():
-    flow = _flow(_upstream())
+    flow = _flow(_checkout())
     assert "Unset or `C` runs **[C]**, the default: it reads a private tree and changes nothing on disk" in flow
     skill = _read(SKILL)
     inputs = _slice(skill, "| **Inputs** |", "\n")
@@ -192,6 +207,56 @@ def test_every_halt_after_the_tree_closes_it():
     contract = _flow(_slice(_read(REPORT), "**Remove the private source tree first.**", "The shared emitter"))
     assert 'run `uv run {sourceTreeHelper} close --tree "{source_tree}"`' in contract
     assert "source_tree_not_removed" in contract
+
+
+def test_the_upstream_gate_is_loaded_only_when_upstream_moved():
+    """BMad Builder architecture-5: init.md loads on every audit, the gate
+    only when upstream moved. init.md keeps the one upstream call (the
+    helper-call contract unpacks it there) and loads the gate under its own
+    key; the gate goes back to §6 under resumeStepFile, never nextStepFile,
+    which would read as a stage that starts init.md again at §1."""
+    assert _frontmatter(INIT)["upstreamCheckoutFile"] == CHECKOUT.name
+    checkout = _frontmatter(CHECKOUT)
+    assert "nextStepFile" not in checkout and checkout["resumeStepFile"] == INIT.name
+    assert checkout["sourceTreeProbeOrder"] == ["{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py",
+                                               "{project-root}/src/shared/scripts/skf-source-tree.py"]
+    init = _read(INIT)
+    for moved in ("**User gate: upstream moved.**", "**Gate handling:**", "{sourceTreeHelper} resolve",
+                  "upstream_drift_choice", "**Select:** [C] / [S] / [X]"):
+        assert moved not in init, moved
+        assert moved in _read(CHECKOUT), moved
+    flow = _flow(_upstream())
+    assert ("- **`moved`**: set `upstream_fetch = \"ok\"`, `upstream_moved = true` and `upstream_ref` ← "
+            "`upstream_ref`") in flow
+    assert ("Then load, read the full file and execute `{upstreamCheckoutFile}`: its gate decides whether this run "
+            "reads `{upstream_ref}` from a private tree or stays on the baseline") in flow
+    back = _flow(_read(CHECKOUT).split("### 3. Go Back to Step 1", 1)[1])
+    assert ("load and read the full file `{resumeStepFile}`, and continue it at §5b's **Record for report**, then "
+            "§6 (Create Drift Report): do not run its §1 to §5b again") in back
+    assert "<!-- Config: communicate in {communication_language}. -->" in _read(CHECKOUT)
+    halt = _flow(_slice(_read(CHECKOUT), "**Halt envelope.**", "```bash"))
+    assert 'It exits 6 with `halt_reason: "user-cancelled"` at phase `init:upstream-drift`' in halt
+
+
+@pytest.mark.parametrize("path", sorted(REFS.glob("*.md")) + [AUDIT / "assets" / "drift-report-template.md"],
+                         ids=lambda p: p.name)
+def test_every_citation_of_the_c_names_the_checkout(path):
+    """Outside SKILL.md, nothing cites step 1 §5b for the [C] choice or the
+    gate: they live in upstream-checkout.md."""
+    text = _read(path)
+    for gone in ("§5b's [C]", "§5b upstream-drift gate", "§5b audited a newer", "step 1 §5b's private tree"):
+        assert gone not in text, (path.name, gone)
+
+
+def test_each_halt_names_the_file_that_reads_the_tree():
+    for path in (INIT, RE_INDEX, STRUCTURAL, SEVERITY, REPORT):
+        envelope = _flow(_slice(_read(path), "**Halt envelope.**", "```bash"))
+        assert "When `{source_tree}` is set (the [C] of `upstream-checkout.md`)" in envelope, path.name
+    assert "the [C] of `upstream-checkout.md` read the source there" in _read(REPORT)
+    assert "is the private tree the [C] of `upstream-checkout.md` read, which has no ccc index" in _flow(
+        _read(STRUCTURAL))
+    row = _slice(_read(HEADLESS), "| 6    | user-cancelled", "\n")
+    assert "step 1's upstream-drift gate `[X]` (`upstream-checkout.md`)" in row
 
 
 def test_a_private_tree_has_no_ccc_index_so_relocations_use_git_grep():
@@ -304,7 +369,7 @@ def test_a_tag_pinned_clone_reads_unchanged_then_moved_and_c_leaves_it_alone(ups
     result = run(check, values)
     assert (result["status"], result["upstream_ref"], result["upstream_commit"]) == ("moved", "v1.1.0", new)
     values["{upstream_ref}"] = result["upstream_ref"]
-    tree = run(_fenced(_upstream(), "{sourceTreeHelper} resolve"), values)
+    tree = run(_fenced(_checkout(), "{sourceTreeHelper} resolve"), values)
     assert (tree["status"], tree["tag_resolution"]["status"], tree["source_commit"]) == ("ready", "target-ref", new)
     assert b"def b():" in (Path(tree["tree"]) / "lib.py").read_bytes()
     # Nothing moved the shared clone.
@@ -428,7 +493,7 @@ def test_c_records_its_decision_once_it_ran_and_its_warning_by_code():
     """A headless [C] that falls back to the baseline records S with the
     fallback's code, and the warning holds a code, never a git message whose
     apostrophe would break a single-quoted shell argument."""
-    section = _flow(_upstream())
+    section = _flow(_checkout())
     assert "record the decision in the run sink once the choice has run, and before an [X] halt" in section
     assert ("with `taken_action` `S` and `\"fallback\": \"<code>\"` in the evidence when [C] could not read the "
             "tree") in section
@@ -453,12 +518,16 @@ def test_the_hook_failure_is_shown_and_the_resolver_fallback_is_a_warning():
 
 
 def test_the_gates_record_the_decisions_the_schema_names():
-    gates = set(re.findall(r'\{"gate": "(init\.[a-z-]+)"', _read(INIT)))
+    """Step 1's two choice gates: the manifest-vs-link gate in init.md, the
+    upstream-drift gate in the file init.md loads when upstream moved."""
+    step_1 = _read(INIT) + _read(CHECKOUT)
+    gates = set(re.findall(r'\{"gate": "(init\.[a-z-]+)"', step_1))
     enum = set(_schema()["properties"]["headless_decisions"]["items"]["properties"]["gate"]["enum"])
     assert gates == enum
+    assert '{"gate": "init.upstream-drift"' in _read(CHECKOUT) and '"init.upstream-drift"' not in _read(INIT)
     record = ('uv run {emitEnvelopeHelper} record --workflow skf-audit-skill --run-dir "{run_dir}" --decision '
               '< "{run_dir}/decision.json"')
-    assert _read(INIT).count(record) == len(enum)
+    assert step_1.count(record) == len(enum)
 
 
 def test_activation_resolves_the_emitter_and_creates_the_run_folder():
@@ -582,6 +651,27 @@ def test_the_report_payload_holds_the_envelope_fields():
     assert _fenced(_read(REPORT), " emit --workflow") == (
         'uv run {emitEnvelopeHelper} emit --workflow skf-audit-skill --run-dir "{run_dir}" '
         '--result-dir "{forge_version}" < "{run_dir}/result-context.json"')
+
+
+def test_the_report_payload_holds_one_placeholder_per_value():
+    """BMad Builder determinism-3: a quoted alternative such as
+    `"<update-skill>" | null` reads as the string "null" when filled
+    literally, where the schema wants JSON null. Each value has one
+    placeholder, and the paragraph after the fence says when it is null."""
+    block = _slice(_read(REPORT), "Write `{run_dir}/result-context.json`:", "Then run, in every mode")
+    fence = _slice(block, "```json", "\n```\n")
+    assert " | " not in fence, fence
+    for field in ("next_workflow", "upstream_moved", "upstream_ref"):
+        assert fence.count(f'"{field}": <{field}>') == 2, field
+    flow = _flow(block)
+    assert ("`<next_workflow>` is `\"update-skill\"` exactly when §4 set the frontmatter's `nextWorkflow` "
+            "(CRITICAL or HIGH findings, or `upstream_moved` true), else JSON `null`") in flow
+    assert ("`<upstream_moved>` is JSON `true` when upstream moved, `false` when the check found it unchanged and "
+            "`null` when the check was skipped or failed") in flow
+    assert ("`<upstream_ref>` is the ref upstream moved to, as a JSON string, when `upstream_moved` is true, "
+            "else `null`") in flow
+    # The emitter-built line keeps the module's a|b sketch: no one fills it in.
+    assert '"next_workflow":"update-skill|null"' in _read(HEADLESS)
 
 
 @pytest.mark.parametrize("drift_score,moved,ref", [("CLEAN", True, "v1.1.0"), ("CLEAN", False, None),

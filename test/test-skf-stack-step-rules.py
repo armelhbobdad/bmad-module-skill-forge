@@ -24,12 +24,14 @@ compose branch of the sections they govern.
 - No create-stack step keeps a blanket no-write rule ahead of a write one
   of its sections makes, and every in-file anchor link names a heading.
 - Labels follow the tool at every forge tier: step 4 returns one labeled
-  record per export, relative to step 1's project root, checks the labels
-  with skf-render-metadata-stats.py in code mode (§3a) and makes a library
-  T1 only when an ast-grep rule matched every export it recorded; the
-  stack provenance schema holds step 4's labels and no node kind; step 7
-  runs the provenance verifier on the code-mode map and lets it move the
-  lines with one answer (#555).
+  record per export, relative to step 1's project root, relabels the
+  records in code mode with skf-render-stack-metadata.py `relabel`, which
+  runs skf-render-metadata-stats.py's check and reruns it itself (§3a), and
+  makes a library T1 only when an ast-grep rule matched every export it
+  recorded; the stack provenance schema holds step 4's labels and no node
+  kind; step 7 writes the code-mode map's entries from the records with the
+  same helper and runs the provenance verifier on it, which moves the lines
+  with one answer (#555, #606).
 - A stack's metadata.json bins each library once, so its distribution sums
   to library_count, and the approval preview and final report show those
   library bins, T3 included; the evidence report bins the provenance
@@ -630,24 +632,37 @@ def test_source_files_are_relative_to_step_1s_project_root():
         assert "step 2 scanned" not in text, where
 
 
+def _relabel_call() -> str:
+    return _call(_sections(_body(_read(EXTRACT)))["3a"], "renderStackMetadataHelper", "relabel")
+
+
 def test_the_label_check_runs_between_extraction_and_the_summary():
     text = _read(EXTRACT)
-    assert _probe_script(text, "renderMetadataStats") == STATS_HELPER
+    # The stack helper runs the stats helper's check itself (W5 handoff, determinism-5).
+    assert "renderMetadataStatsProbeOrder" not in _frontmatter(text)
+    assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
     sections = _sections(_body(text))
     order = list(sections)
     assert order.index("3") + 1 == order.index("3a") == order.index("4") - 1
     check = sections["3a"]
     assert "Code mode only" in check.split("\n\n")[1], "§3a does not open with its code-mode guard"
-    call = _call(check, "renderMetadataStatsHelper")
-    assert "--shape stack" in call and "--check" not in call, call
-    assert "`coherence`" in check and "`confidence_distribution`" in check
+    call = _relabel_call()
+    assert call.strip() == 'uv run {renderStackMetadataHelper} relabel --records "{exportRecordsFile}"', call
+    for needle in ("`coherence.violations[]`", "`confidence_distribution`", "`relabeled[]`", "export-labels-relabeled",
+                   "label-check-skipped"):
+        assert needle in check, needle
+    # The helper relabels and reruns the check: the step copies no `expected` value, runs no loop
+    # and leaves the helper's own steps to its --help.
+    for stale in ("run the helper again until", "Rewrite the file", "`expected` value", "until `coherence.ok`",
+                  "rewrites the file", "sets each mislabeled field"):
+        assert stale not in check, stale
     assert "§3a" in sections["4"], "§4 does not show the export label counts §3a kept"
+    halt = '(exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:library-tiers`)'
+    assert check.index(halt) < check.index(call), "the missing helper must halt before the relabel call"
     tiers = _from(check, "**Library tiers.**")
     assert "`per_library_extractions[].confidence`" in tiers and "`tier`" in tiers
     # The tier rule lives in the helper (W3 handoff): the step names no method or tier itself.
     assert "`ast_bridge`" not in tiers and "otherwise" not in tiers, "§3a still works the library tier out by hand"
-    assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
-    assert '(exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:library-tiers`)' in tiers
 
 
 def _library_tiers_call() -> str:
@@ -674,8 +689,7 @@ def test_the_records_file_lives_in_the_run_folder():
     assert re.search(r"^exportRecordsFile: '\{run_dir\}/[^']+\.json'$", _frontmatter(text), re.MULTILINE)
     assert re.search(r"^bundleFile: '\{run_dir\}/[^']+\.json'$", _frontmatter(text), re.MULTILINE)
     check = _sections(_body(text))["3a"]
-    assert _call(check, "renderMetadataStatsHelper").split("uv run {renderMetadataStatsHelper}", 1)[1].split()[0] \
-        == "{exportRecordsFile}"
+    assert shlex.split(_relabel_call().split("--records", 1)[1])[0] == "{exportRecordsFile}"
     assert "delete the file" not in check and ".skf-labels.json" not in text
     purge = 'rm -rf "{run_dir}"'
     (cancel_3,) = [line for line in _read(RANK).splitlines() if line.startswith("- IF X:")]
@@ -691,35 +705,37 @@ def test_the_records_file_lives_in_the_run_folder():
     all_failed = _from(_sections(_body(text))["3"], "**If ALL extractions fail:**").split("\n\n")[0]
     assert "The run folder stays" in all_failed and "`extraction-failed`" in all_failed
     assert "deleted when the run finishes or the user cancels and kept after any other HALT" in _contract_row("Outputs")
-    # {version} is first bound at step 7 §1 (S11): no earlier step names a staging folder under it.
+    # {version} is first bound at step 7 §1's Stack version paragraph: no earlier step names a
+    # staging folder under it.
     for path in (RANK, EXTRACT, COMPILE):
         assert "{version}/*-tmp" not in _read(path), path.name
 
 
-def test_the_label_check_call_runs_as_written(tmp_path, monkeypatch, capsys):
-    check = _sections(_body(_read(EXTRACT)))["3a"]
-    call = _call(check, "renderMetadataStatsHelper")
-    payload = re.search(r"echo '(.*?)' \|", call).group(1)
-    argv = _argv(call, "renderMetadataStatsHelper", {"{exportRecordsFile}": str(tmp_path / "export-records.json")})
-    labels = Path(argv[0])
-    stats = _load(STATS_HELPER, "skf_render_metadata_stats_stack_rules")
+def test_the_label_check_call_runs_as_written(tmp_path):
+    """The documented relabel call fixes the records in place, so the next run finds nothing to fix."""
+    records = tmp_path / "run" / "export-records.json"
+    records.parent.mkdir()
+    argv = _argv(_relabel_call(), "renderStackMetadataHelper", {"{exportRecordsFile}": str(records)})
 
-    def run(records):
-        labels.write_text(json.dumps({"entries": records}), encoding="utf-8")
-        monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
-        code = stats.main(argv)
-        return code, json.loads(capsys.readouterr().out)
+    def run():
+        result = subprocess.run([sys.executable, str(STACK_METADATA), *argv], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
 
     # Client was read by eye but labeled T1, the Forge-tier label before #555.
-    code, out = run(_liba_records(client_tier="T1"))
-    assert code == 1
-    assert [(v["field"], v["expected"]) for v in out["coherence"]["violations"]] == [
-        ("provenance.entries[2].confidence", "T1-low"),
-        ("provenance.entries[2].signature_source", "T1-low"),
-    ]
-    code, out = run(_liba_records())
-    assert (code, out["coherence"]) == (0, {"ok": True, "violations": []})
+    records.write_text(json.dumps({"entries": _liba_records(client_tier="T1")}), encoding="utf-8")
+    out = run()
+    assert [(r["entry_index"], r["export_name"], r["source_library"]) for r in out["relabeled"]] == [
+        (2, "Client", "liba")]
+    assert [(c["field"], c["to"]) for c in out["relabeled"][0]["changes"]] == [
+        ("confidence", "T1-low"), ("signature_source", "T1-low")]
+    assert out["coherence"] == {"ok": True, "violations": []}
     assert out["confidence_distribution"] == {"t1": 2, "t1_low": 1, "t2": 0, "t3": 0}  # §4's label counts
+    assert json.loads(records.read_text(encoding="utf-8")) == {"entries": _liba_records()}
+    # The stats helper the step used to run agrees: the records pass its check now.
+    stats = _load(STATS_HELPER, "skf_render_metadata_stats_stack_rules")
+    assert stats.check_label_agreement({"entries": _liba_records()}) == []
+    assert run()["relabeled"] == []
 
 
 def _template_values(template: str, key: str) -> set[str]:
@@ -798,16 +814,64 @@ def test_the_line_check_calls_run_as_written(tmp_path):
     assert json.loads(verify_json.read_text(encoding="utf-8"))["stale"] == []
 
 
+def _provenance_call() -> str:
+    return _call(_sections(_body(_read(GENERATE)))["7"], "renderStackMetadataHelper", "provenance")
+
+
+def test_step_7_writes_the_code_mode_entries_with_the_helper(tmp_path):
+    """W5 handoff (determinism-5): the records step 4 checked are the map's entries and the bundle's
+    pairs its integrations, never typed again; the piped input holds only the map's anchor fields."""
+    seven = _sections(_body(_read(GENERATE)))["7"]
+    (bullet,) = [line for line in seven.splitlines() if line.startswith("- **In code-mode:**")]
+    assert "`entries` of `{exportRecordsFile}`" in bullet and "the call below writes both" in bullet
+    assert "the pairs of `{bundleFile}`" in bullet
+    assert "one entry per export record" not in seven and "first call" not in seven and "second call" not in seven
+    # Each mode shows its own call only, under its own bullet.
+    code, compose = seven.split("- **In compose-mode:**", 1)
+    assert "{atomicWriteHelper}" not in code and "{renderStackMetadataHelper}" not in compose
+    run_dir = tmp_path / "run dir"
+    run_dir.mkdir()
+    records = run_dir / "export-records.json"
+    records.write_text(json.dumps({"entries": _liba_records()}), encoding="utf-8")
+    bundle = run_dir / "extraction-bundle.json"
+    co_import = [{"path": "src/app.py", "line_a": 1, "line_b": 2}]
+    bundle.write_text(json.dumps({"integrations": [
+        {"a": "liba", "b": "libb", "type": "adapter", "tier": "T1-low", "qualifier": "grep-co-import",
+         "detection_method": "co-import grep", "co_import_files": co_import, "key_files": [],
+         "description": "liba feeds libb"}]}), encoding="utf-8")
+    forge_version = tmp_path / "forge" / "demo-stack" / "1.0.0"
+    forge_version.mkdir(parents=True)
+    values = {"{exportRecordsFile}": str(records), "{bundleFile}": str(bundle), "{forge_version}": str(forge_version)}
+    if sys.platform == "win32":  # a POSIX shell split would eat a Windows path's backslashes
+        argv = _argv(_provenance_call(), "renderStackMetadataHelper", values)
+    else:  # a run folder with a space in its path reaches the helper whole: the call quotes its paths
+        argv = _shell_filled(_provenance_call(), "renderStackMetadataHelper", values)
+    fields = {"provenance_version": "2.0", "skill_name": "demo-stack", "skill_type": "stack", "source_repo": [],
+              "source_commit": {}, "generated_at": "2026-10-02T08:00:00Z"}
+    for field in fields:
+        assert f"`{field}`" in bullet, field
+    result = subprocess.run([sys.executable, str(STACK_METADATA), *argv], input=json.dumps(fields),
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    written = json.loads((forge_version / "provenance-map.json").read_text(encoding="utf-8"))
+    assert written["entries"] == _liba_records()
+    assert written["integrations"] == [{"libraries": ["liba", "libb"], "pattern_type": "adapter",
+                                        "detection_method": "co-import grep", "co_import_files": co_import,
+                                        "confidence": "T1-low"}]
+    assert list(written).index("entries") < list(written).index("integrations")
+
+
 # --- #528: a stack bins libraries, not provenance entries -------------------------
 
 
 def test_stack_distribution_counts_each_library_once():
     six = _sections(_body(_read(GENERATE)))["6"]
-    # §6 pipes each library's step-4 tier to the helper, which bins each library once.
-    for needle in ("`confidence_distribution`", "per_library_extractions[].confidence", "`library_count`",
-                   "evidence report"):
-        assert needle in six, needle
+    # §6 pipes each library's step-4 tier to the helper, which bins each library once; the
+    # contract it writes to says what the distribution counts (W5 handoff, leanness-6).
+    assert "per_library_extractions[].confidence" in six and "`assets/metadata-contract.md`" in six
     note = _h2_section(_read(METADATA_CONTRACT), "## metadata.json Structure").split("```")[-1]
+    for needle in ("`confidence_distribution`", "`library_count`", "evidence report"):
+        assert needle in note, needle
     knowledge = _slice(_read(TIERS), "## Confidence Distribution in Metadata", "## Anti-Patterns")
     for where, text in (("the metadata contract note", note), ("confidence-tiers.md", knowledge)):
         assert "`library_count`" in text and "`per_library_extractions[].confidence`" in text, where
@@ -991,12 +1055,15 @@ def test_step_7_writes_the_metadata_projection():
     text = _read(GENERATE)
     assert _probe_script(text, "renderStackMetadata") == STACK_METADATA
     six = _sections(_body(text))["6"]
-    for field in ("library_count", "integration_count", "libraries", "integration_pairs",
-                  "confidence_distribution", "confidence_tier", "source_authority"):
-        assert f"`{field}`" in six, field
-    assert "verbatim" in six and "rollback contract" in six
+    # §6 writes the fields the contract takes from the helper, and lists them no second time.
+    assert "write the fields the contract takes from it verbatim" in six and "rollback contract" in six
     contract_note = _h2_section(_read(METADATA_CONTRACT), "## metadata.json Structure").split("```")[-1]
     assert "`skf-render-stack-metadata.py`" in contract_note
+    out = _run_stack_metadata(_metadata_call(), _stack_input())
+    for field in ("library_count", "integration_count", "libraries", "integration_pairs",
+                  "confidence_distribution", "confidence_tier", "source_authority"):
+        assert f"`{field}`" in contract_note and field in out, field
+        assert f"`{field}`" not in six, f"§6 restates the contract's field {field}"
 
 
 def test_the_metadata_call_runs_as_written():
@@ -2291,9 +2358,9 @@ def test_generate_output_states_each_rule_once():
     assert "#" not in _frontmatter(text), "generate-output's frontmatter still carries comments"
     one = _sections(_body(text))["1"]
     assert one.index("**The atomic writer.**") < one.index("stage-dir --target {skill_package}")
-    assert one.index("**Pre-flight: ownership, phase 1 (S3).**") < one.index("**Stack version (S11).**") \
+    assert one.index("**Pre-flight: ownership, phase 1 (S3).**") < one.index("**Stack version.**") \
         < one.index("**Pre-flight: ownership, phase 2.**")
-    assert "the pre-flight below resolves it" not in one and "per S11 below" not in one
+    assert "the pre-flight below resolves it" not in one and "S11" not in one
     five = _sections(_body(text))["5"]
     assert "|IMPORTANT:" not in five and "context-snippet format of `{stackSkillTemplatePath}`" in five
     for internal in (".skf-rollback-", "flock", "ECH BLOCKER", "Workflow Rules in SKILL.md"):

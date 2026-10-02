@@ -28,6 +28,11 @@ commands against the real helpers:
 - the stage data folder keeps the version folder SKF's own for drop-skill
   and rename-skill, where a bare new name would not.
 
+#589 (audit part, BMad Builder determinism-5): step 3 §5 and step 5 §3
+print their tables with the skill's render-drift-tables.py from the saved
+JSON, so 15 added exports in one file read as one rollup row of each and
+still grade HIGH (test-skf-render-drift-tables.py tests the renderer).
+
 #597 (audit part): init §1 binds one audited version from
 skf-skill-inventory.py resolve in every branch, and `{forge_version}` and the
 provenance map come from it, so the manifest-lag default [N] reads and writes
@@ -37,6 +42,11 @@ no provenance map.
 #587 (audit part): the drift report's frontmatter holds the run context each
 step writes, report.md builds its Provenance table from it, and every run
 creates a fresh report.
+
+#599 (audit part, BMad Builder enhancement-8): step 1 §7 shows the
+baseline and goes on, stopping for confirmation only when the tier dropped
+below the compile tier or the provenance map is more than 90 days old, and
+there [X] stops the run (user-cancelled) with the baseline-only report.
 
 #594 and #599 (audit part): the baseline a skill records decides its route.
 A skill with no provenance map stops at step 1 (`no-baseline`) and names
@@ -75,7 +85,7 @@ SKILL = AUDIT / "SKILL.md"
 HEADLESS = REFS / "headless-contract.md"
 INIT = REFS / "init.md"
 COMPOSE = REFS / "constituent-freshness.md"
-DOC_DRIFT = REFS / "step-doc-drift.md"
+DOC_DRIFT = REFS / "doc-drift.md"
 RE_INDEX = REFS / "re-index.md"
 STRUCTURAL = REFS / "structural-diff.md"
 SEMANTIC = REFS / "semantic-diff.md"
@@ -91,6 +101,7 @@ LOAD_PROVENANCE = SCRIPTS / "skf-load-provenance.py"
 SNAPSHOT = SCRIPTS / "skf-extraction-snapshot.py"
 DETECT_DOCS = SCRIPTS / "skf-detect-docs.py"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
+RENDER = AUDIT / "scripts" / "render-drift-tables.py"
 # The script each prose placeholder names, for running a prose command.
 PROSE_SCRIPTS = {
     "{extractionSnapshotHelper}": SNAPSHOT,
@@ -101,6 +112,7 @@ PROSE_SCRIPTS = {
     "{loadProvenanceHelper}": LOAD_PROVENANCE,
     "{compareDocHashesHelper}": DETECT_DOCS,
     "{emitEnvelopeHelper}": EMITTER,
+    "{renderDriftTablesScript}": RENDER,
 }
 
 STAGE_DATA = "{forge_version}/.skf-audit/{timestamp}"
@@ -285,6 +297,12 @@ class Audit:
         assert result.returncode == 0, result.stdout + result.stderr
         return _load(self.data / "severity.json")
 
+    def render(self, path: Path) -> str:
+        """The tables the stage's render command prints."""
+        result = self.run(path, "{renderDriftTablesScript} ")
+        assert result.returncode == 0, result.stdout + result.stderr
+        return result.stdout
+
 
 # --------------------------------------------------------------------------
 # #589: the stages pass the helpers' JSON through files
@@ -349,35 +367,40 @@ def test_the_helpers_report_what_the_branches_read(tmp_path):
     assert "problems" not in out and out["error"].startswith("Cannot write output")
 
 
-def test_structural_diff_sketch_lists_what_the_helper_saves(tmp_path):
-    """The JSON sketch names every key of a saved diff, the summary's included."""
-    section = _slice(_read(STRUCTURAL), "Read the saved diff from the file:", "An `<entry>`")
-    audit = Audit(tmp_path, [_entry("a", "a.py", 1)], [_export("a", "a.py", 2)])
+def test_step_3_names_only_the_diff_fields_it_reads_itself(tmp_path):
+    """§5's renderer prints every set, so the step names only the fields §1b
+    and §6 read, and each is one the helper saves (BMad Builder leanness)."""
+    section = _flow(_slice(_read(STRUCTURAL), "The saved diff holds every set §5 renders.", "### 1b."))
+    assert ("§1b reads `summary.removed` and the `name` of each `removed[]` entry (an export in the provenance map "
+            "but not in the snapshot), and §6 records `applied_transforms`") in section
+    audit = Audit(tmp_path, [_entry("a", "a.py", 1)], [_export("b", "b.py", 2)])
     saved = audit.diff()
-    sketch_keys = set(re.findall(r'"(\w+)"', section))
-    assert set(saved) <= sketch_keys, set(saved) - sketch_keys
-    assert set(saved["summary"]) <= sketch_keys, set(saved["summary"]) - sketch_keys
+    assert saved["summary"]["removed"] == 1 and saved["removed"][0]["name"] == "a"
+    assert isinstance(saved["applied_transforms"], list)
+    structural = _read(STRUCTURAL)
+    for gone in ("Read the saved diff from the file:", "An `<entry>` in `added[]` or `removed[]` holds",
+                 "### 3. Read Changed Exports from the Diff", "### 3b. Read Provenance Label Differences"):
+        assert gone not in structural, gone
 
 
-def test_ambiguous_names_and_unverified_signatures_are_stated_once():
-    """The sketch names the two fields; §2 and §3 say what they are."""
-    sketch = _slice(_read(STRUCTURAL), "Read the saved diff from the file:", "An `<entry>`")
-    for line in sketch.splitlines():
-        if line.strip().startswith(('"ambiguous_names"', '"signature_unverified"')):
-            assert "//" not in line, line
-
-
-def test_changed_exports_take_their_label_from_the_diff():
-    section = _slice(_read(STRUCTURAL), "### 3. Read Changed Exports from the Diff", "### 3b.")
-    assert "carry no label" not in section
-    assert "The Confidence column of Changed Exports (§5) is the item's `confidence`" in section
-    assert "`summary.signature_unverified`" in section
+def test_the_diff_section_keeps_what_steers_judgment():
+    """§2 keeps the facts later steps judge by: a move is no removal, an
+    ambiguous name goes to step 5, and two fields are not drift."""
+    section = _flow(_slice(_read(STRUCTURAL), "### 2. What the Diff Decides", "### 4b."))
+    assert "never from set arithmetic of your own" in section
+    assert "A move is **not** a removal." in section
+    assert ("**Not drift:** `summary.signature_unverified` counts matched exports whose signature sits in "
+            "different fields on the two sides") in section
+    assert "`label_changes[]` lists matched exports whose `confidence` or `extraction_method` differs" in section
+    assert "Neither is counted in Total Drift Items, and step 5 classifies neither." in section
 
 
 def test_ambiguous_names_are_shown_and_judged():
     structural = _read(STRUCTURAL)
-    assert "**Ambiguous names** (`ambiguous_names[]`)" in _slice(structural, "### 2. Read Added", "### 3.")
-    assert "### Ambiguous Names ({count})" in _slice(structural, "### 5. Compile", "### 6.")
+    section = _flow(_slice(structural, "### 2. What the Diff Decides", "### 4b."))
+    assert "**Ambiguous names** (`ambiguous_names[]`)" in section
+    assert ("step 5 judges whether a removed and an added entry of one name are one export that "
+            "moved") in section
     judged = _flow(_slice(_read(SEVERITY), "2. **Ambiguous names.**", "Keep one finding per item"))
     # Recorded the way skf-severity-classify.py --from-diff describes a judged move.
     assert '`{type: "moved", category: "export", detail: "moved from {removed file:line} to {file:line}"}`' in judged
@@ -411,7 +434,9 @@ def test_severity_classify_projects_the_saved_files():
     for gone in ("`optional_parameter`, `function` (for a move)", "Gather every drift item already recorded",
                  "however step 3 rendered them", "so a `detail` that quotes a signature arrives intact"):
         assert gone not in text, gone
-    assert "| **Total** | {total_items} |" in text
+    # §3's renderer prints the Total from total_items; no hand template is left.
+    assert "| **Total** |" not in text
+    assert "It prints the section's tables (`--help` lists them)." in _flow(text)
 
 
 def test_every_pair_the_prose_maps_is_graded():
@@ -462,9 +487,12 @@ def test_constituent_findings_map_as_the_rules_say():
 
 def test_rollups_are_rendering_only():
     assert "Keep one finding per item: a rollup belongs to the tables §3 renders" in _read(SEVERITY)
-    structural = _read(STRUCTURAL)
-    assert "a rollup changes no count and no grade" in structural
-    assert "Record which groupings were collapsed" not in structural
+    for path in (STRUCTURAL, SEVERITY):
+        text = _read(path)
+        assert "A rollup changes no count: the headings and the summary come from the JSON." in text, path.name
+        # The renderer's docstring is the one statement of the rollup rule.
+        assert "**Rollup.**" not in text, path.name
+    assert "Record which groupings were collapsed" not in _read(STRUCTURAL)
 
 
 def test_report_counts_come_from_the_saved_classification():
@@ -522,14 +550,24 @@ def test_forty_line_only_changes_score_minor(tmp_path):
 
 
 def test_fifteen_added_exports_grade_high_however_they_render(tmp_path):
-    """Step 3 may render these as one rollup row; step 5 classifies the saved diff."""
+    """Step 3 renders these as one rollup row; step 5 classifies the saved
+    diff, one finding per export, and renders them as one row again."""
     audit = Audit(tmp_path, [], [_export(f"g{i}", "api/routes.py", i + 1) for i in range(15)])
     audit.diff()
+    tables = audit.render(STRUCTURAL)
+    # The diff lists exports by name, and a rollup row shows the first three.
+    assert "### Added Exports (15)" in tables
+    assert "| 15 exports (rep: `g0`, `g1`, `g10`, …) | function | n/a | `api/routes.py` | T1 |" in tables
+    assert "| **Total Drift Items** | 15 |" in tables
     result = audit.classify(audit.project())
     assert result["by_severity"]["HIGH"] == 15
     assert result["total_findings"] == result["total_items"] == 15
     assert result["drift_score"] == "SIGNIFICANT"
     assert _next_workflow(result) == "update-skill"
+    tables = audit.render(SEVERITY)
+    assert "**Overall Drift Score: SIGNIFICANT**" in tables and "### HIGH (15)" in tables
+    assert "| 1 | added in `api/routes.py` (×15; rep: `g0`, `g1`, `g10`, …) | structural |" in tables
+    assert "| **Total** | 15 |" in tables
 
 
 def test_a_relocated_export_becomes_a_move(tmp_path):
@@ -690,7 +728,7 @@ def test_init_sends_a_compose_stack_around_the_source_tree():
     assert "`{compose_mode_stack}`: stack-skill flags" in init
     detection = _flow(_slice(init, "### Stack Skill Detection", "### 5."))
     assert "If `{compose_mode_stack}` is true" in detection
-    assert "so §5 and §5b skip, and on confirmation §7 loads `{composeStepFile}` (step 1c)" in detection
+    assert "so §5 and §5b skip, and §7 then loads `{composeStepFile}` (step 1c)" in detection
     source = _flow(_slice(init, "### 5. Resolve Source Path", "### 5b."))
     assert ("**A compose-mode stack** (`{compose_mode_stack}`) has no source tree to resolve: skip this "
             "section, and §5b skips too.") in source
@@ -900,6 +938,48 @@ def test_init_loads_the_bound_provenance_map():
         assert f"`{name}` ← `{field}`" in section, name
     baseline = _slice(_read(INIT), "### 7. Present Baseline Summary", "**Analysis plan")
     assert "{provenance_age_days} days" in baseline and "{export_count} exports" in baseline
+
+
+def test_the_baseline_stops_only_on_doubt():
+    """BMad Builder enhancement-8 (#599): every real choice has its own gate
+    before §7, so §7 shows the baseline and goes on; it stops only when the
+    baseline looks wrong, and there [X] stops the run with the baseline-only
+    report. The headless default is unchanged, and the GATE line names the
+    gate the Gates row lists, with its options and its [C] default."""
+    init = _read(INIT)
+    confirm = _flow(_slice(init, "### 7. Present Baseline Summary (Confirm Only on Doubt)", "**GATE"))
+    assert "Ready to begin drift analysis?" not in init
+    assert ("Display the summary and the plan. When neither doubt below holds, go straight on: load, read the "
+            "entire file, and execute") in confirm
+    assert "Either of these doubts stops the run here:" in confirm
+    assert ("**The tier dropped:** the run takes steps 2 to 4 (neither a compose-mode stack nor a docs-only "
+            "skill), and `{current_tier}` (§2) comes before `{original_tier}` (§3) in the order Quick, Forge, "
+            "Forge+, Deep. A null `{original_tier}` never counts as a drop.") in confirm
+    assert "**The baseline is old:** `{provenance_age_days}` (§4) is above 90." in confirm
+    # The number is stated once; each reason once, in the prompt line, by the tool the run lacks.
+    assert init.count("90") == 1
+    assert ("so it lacks {Quick: ast-grep, so exports are read by eye / Forge: ccc, so an export moved out of the "
+            "scan list reads as removed / Forge+: QMD, so no semantic diff runs}, and its drift can reflect the "
+            "tools rather than the source.") in confirm
+    assert "`[US] Update Skill` (for a stack, `[SS] Create Stack Skill`) refreshes it." in confirm
+    assert "- **[C] Continue the audit** (default) - **[X] Stop**, to refresh the baseline first" in confirm
+    assert ('**[X]** HALTs with **exit 6**, `halt_reason: "user-cancelled"`, phase `init:baseline-confirm`: '
+            '"Audit stopped: `{outputFile}` holds the baseline only.') in confirm
+    # §6 wrote the report, so the halt envelope adds its path.
+    assert '`"report_path": "{outputFile}"` once §6 wrote the report' in _read(INIT)
+    row = _slice(_read(HEADLESS), "| 6    | user-cancelled", "\n")
+    assert "step 1 §7 baseline confirm gate `[X]`" in row
+    # Both tiers are bound by name: the run's in §2, the compile tier where the metadata is read.
+    tier = _flow(_slice(init, "**Apply tier override:**", "\n"))
+    assert tier.endswith("log which one set the tier, and bind it as `{current_tier}`.")
+    artifacts = _flow(_slice(init, "### 3. Load Skill Artifacts", "### 4."))
+    assert ("`{original_tier}`, the tier the skill was compiled at: `forge_tier` when it holds Quick, Forge, "
+            "Forge+ or Deep (a stack records it there), else `confidence_tier` when it does (a single skill "
+            "records it there), else null") in artifacts
+    gate = _slice(init, "**GATE", "\n")
+    assert gate.startswith("**GATE [default: C]**: Baseline Confirm Gate [C/X], reached only on a doubt above.")
+    assert 'log: "headless: auto-continue past baseline confirmation ({each doubt that holds})"' in gate
+    assert init.count("**GATE") == 1
 
 
 def _two_versions(tmp_path: Path) -> tuple[Path, Path]:

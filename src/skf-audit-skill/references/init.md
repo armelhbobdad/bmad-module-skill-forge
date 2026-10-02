@@ -1,11 +1,14 @@
 ---
 nextStepFile: 're-index.md'
-# A compose-mode stack (§4) has no source tree: on confirmation §7 loads this
-# step in place of steps 2 to 4.
+# A compose-mode stack (§4) has no source tree: §7 loads this step in place
+# of steps 2 to 4.
 composeStepFile: 'constituent-freshness.md'
-# A docs-only skill (§3) has no source tree either: on confirmation §7 loads
-# step 5a, which compares its documents' hashes, in place of steps 2 to 4.
-docsOnlyStepFile: 'step-doc-drift.md'
+# A docs-only skill (§3) has no source tree either: §7 loads step 5a, which
+# compares its documents' hashes, in place of steps 2 to 4.
+docsOnlyStepFile: 'doc-drift.md'
+# §5b loads the upstream-moved gate only when upstream moved; the gate binds
+# the audit-ref values and brings the run back to §6.
+upstreamCheckoutFile: 'upstream-checkout.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 templateFile: '{driftReportTemplatePath}'
 loadProvenanceProbeOrder:
@@ -24,9 +27,9 @@ skillInventoryProbeOrder:
 checkWorkspaceDriftProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
   - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
-# Resolve `{sourceTreeHelper}` to the first existing path: §5b's [C] reads the
-# upstream ref into a private tree with `resolve`, and every later HALT and
-# step 6 remove that tree with `close`.
+# Resolve `{sourceTreeHelper}` to the first existing path: once the [C] of
+# upstream-checkout.md has read the upstream ref into a private tree, every
+# HALT of this step removes that tree with `close`.
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
@@ -38,18 +41,18 @@ sourceTreeProbeOrder:
 
 ## STEP GOAL:
 
-Load the existing skill artifacts, provenance map, and forge tier configuration to establish the baseline for drift detection. Create the drift report document and present a baseline summary for user confirmation before proceeding with analysis.
+Load the existing skill artifacts, provenance map, and forge tier configuration to establish the baseline for drift detection. Create the drift report document and present a baseline summary, stopping for the user's confirmation only when the baseline looks wrong (§7).
 
 ## Rules
 
 - Focus only on loading skill artifacts and establishing the baseline — do not perform any diff or analysis
 - Do not proceed if skill path is invalid or SKILL.md not found
-- Present baseline summary clearly so user can confirm before analysis begins
+- Present the baseline summary clearly, and ask for confirmation only when §7 finds a reason to doubt the baseline
 - A skill is audited against the baseline it recorded: a provenance map for a skill built from source (§4), the documents' content hashes for a docs-only skill (§3). A skill that records neither stops at step 1 (`no-baseline`)
 
 ## MANDATORY SEQUENCE
 
-**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (§5b's [C]), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, adding `"skill_name"` once §1 named the skill, `"report_path": "{outputFile}"` once §6 wrote the report, and `"path"` when the halt names one, then run:
+**Halt envelope.** Every HALT in this step names its exit code, `halt_reason` and phase. When `{source_tree}` is set (the [C] of `upstream-checkout.md`), first run `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and go on whatever it prints. In headless mode, stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>"}`, adding `"skill_name"` once §1 named the skill, `"report_path": "{outputFile}"` once §6 wrote the report, and `"path"` when the halt names one, then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -139,7 +142,7 @@ Load `{sidecar_path}/forge-tier.yaml` to detect available tools.
 - Extract tier level: Quick / Forge / Forge+ / Deep
 - Extract available tools: gh_bridge, ast_bridge, qmd_bridge — see `knowledge/tool-resolution.md` for concrete tool resolution per IDE
 
-**Apply tier override:** the invocation's `tier_override` input wins, then `tier_override` in `{sidecar_path}/preferences.yaml`, then the detected tier: use the first that is a valid tier value (Quick, Forge, Forge+ or Deep), and log which one set the tier.
+**Apply tier override:** the invocation's `tier_override` input wins, then `tier_override` in `{sidecar_path}/preferences.yaml`, then the detected tier: use the first that is a valid tier value (Quick, Forge, Forge+ or Deep), log which one set the tier, and bind it as `{current_tier}`.
 
 ### 3. Load Skill Artifacts
 
@@ -150,9 +153,9 @@ Load the following from the skill directory:
 - `metadata.json` — Skill metadata (version, created date, export count)
 
 **Extract from metadata.json:**
-- `name`, `version`, `generation_date`, `confidence_tier` used during creation
+- `name`, `version` and `generation_date`, and `{original_tier}`, the tier the skill was compiled at: `forge_tier` when it holds Quick, Forge, Forge+ or Deep (a stack records it there), else `confidence_tier` when it does (a single skill records it there), else null
 - `source_root` — Resolved source code path used during extraction
-- `source_repo`: the repository the skill was built from, which §5b's [C] reads a newer ref of (`{source_repo}`, an empty string when the field is null or missing)
+- `source_repo`: the repository the skill was built from, which the [C] of `upstream-checkout.md` reads a newer ref of (`{source_repo}`, an empty string when the field is null or missing)
 
 **A docs-only skill** (its `scope_type`, or the `source_type` an older `metadata.json` records, is `docs-only`) has no source tree: create-skill recorded each document it was built from in `doc_sources`, with its content hash, and step 5a compares them. Set `{docs_only_skill}` to true. When `doc_sources` is missing or empty, or no entry of it has a `content_hash` (create-skill records null for a document it could not fetch), nothing records the documents' state: HALT with **exit 3**, `halt_reason: "no-baseline"`, phase `init:baseline`: "**`{skill_name}` records no documentation hashes, so there is no baseline to audit it against.** Re-create it with `[CS] Create Skill`, which records them." Otherwise skip §4, Stack Skill Detection and §5, take §5b's docs-only skip, and continue at §6. Every other skill sets `{docs_only_skill}` to false and continues at §4.
 
@@ -183,7 +186,7 @@ Load the provenance map at `{provenanceMap}`, the path §1 bound: the audited ve
 
 `{is_stack_skill}`, `{legacy_stack_provenance}` and `{compose_mode_stack}` are already resolved by the normalize call in §4: no additional walk needed. Apply the post-detection logic:
 
-If `{compose_mode_stack}` is true (a stack whose map holds `constituents[]`: a compose-mode stack), the audit takes the compose route. Its provenance entries record the constituent skills it was composed from, not a source tree, so §5 and §5b skip, and on confirmation §7 loads `{composeStepFile}` (step 1c), which checks each constituent's freshness in place of steps 2 to 4. Comparing hashes is analysis, which this step does not do.
+If `{compose_mode_stack}` is true (a stack whose map holds `constituents[]`: a compose-mode stack), the audit takes the compose route. Its provenance entries record the constituent skills it was composed from, not a source tree, so §5 and §5b skip, and §7 then loads `{composeStepFile}` (step 1c), which checks each constituent's freshness in place of steps 2 to 4. Comparing hashes is analysis, which this step does not do.
 
 If `{legacy_stack_provenance}` is true: log a note that this stack uses the v1 provenance format, whose entries name no library, so step 3 diffs its exports as one list; re-compose it with `[SS]` for per-library results.
 
@@ -214,41 +217,8 @@ It reads the remote's default branch and tags with one `git ls-remote`, fetches 
 - **`unchanged`**: set `upstream_fetch = "ok"`, `upstream_moved = false`, `upstream_ref = null`, and `audit_ref`, `audit_ref_source` and `audit_commit` to the JSON's values of those names (the baseline). Continue to §6.
 - **`skipped`** (`skip_reason` says why: no baseline ref or commit, not a git tree, git unavailable, a baseline ref the remote no longer has, and the like): set `upstream_fetch = "skipped: {skip_reason}"`, `upstream_moved = null`, `upstream_ref = null`, and the audit-ref values from the JSON. Continue to §6.
 - **`fetch-failed`** (no network, no remote, a remote that did not answer in time): log `fetch_error`, set `upstream_fetch = "failed:{fetch_error}"`, `upstream_moved = null`, `upstream_ref = null`, and the audit-ref values from the JSON. Continue to §6 without gating.
-- **`moved`**: set `upstream_fetch = "ok"`, `upstream_moved = true` and `upstream_ref` ← `upstream_ref`, the ref to read instead (the newer tag, the moved tag or branch, or `HEAD`), and present the gate below.
+- **`moved`**: set `upstream_fetch = "ok"`, `upstream_moved = true` and `upstream_ref` ← `upstream_ref`, the ref to read instead (the newer tag, the moved tag or branch, or `HEAD`). Then load, read the full file and execute `{upstreamCheckoutFile}`: its gate decides whether this run reads `{upstream_ref}` from a private tree or stays on the baseline, binds `audit_ref`, `audit_ref_source` and `audit_commit`, and brings the run back here, to **Record for report** and §6.
 - **No candidate resolves, or the command exits non-zero or prints no JSON:** set `upstream_fetch = "failed:helper-unavailable"`, `upstream_moved = null`, `upstream_ref = null`, `audit_ref` and `audit_commit` to `baseline_ref` and `baseline_commit` (`"(unknown)"` when unset) and `audit_ref_source = "baseline"`. Continue to §6 without gating.
-
-**User gate: upstream moved.**
-
-"**Upstream has moved since this skill was created.**
-
-| | Baseline | Upstream |
-|---|---|---|
-| Ref | `{baseline_ref}` | `{upstream_ref}` |
-| Commit | `{baseline_commit_short}` | `{upstream_commit_short}` |
-
-The remote's default branch is at `{remote_head_short}`. Auditing the baseline tree reports little or no structural drift even when the upstream API changed. Options:
-
-- **[C] Audit `{upstream_ref}`** (default): read `{upstream_ref}` into a private source tree of this run's own and audit against it. Nothing on disk changes: SKF's clone at `{source_root}` stays at the commit it holds.
-- **[S] Stay on the baseline**: audit the unchanged tree at `{baseline_ref}`. The report says upstream moved and recommends `[US] Update Skill` with `--target-ref {upstream_ref}`.
-- **[X] Abort**: halt the workflow without producing a report.
-
-**Select:** [C] / [S] / [X]"
-
-**Gate handling:**
-- **[C]:** Resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`; it stays bound for the rest of the run (step 6 and every HALT use it). Bind `{tree_timeout}` to the seconds the helper may take: `100` when your shell tool stops a command after two minutes or you do not know its limit, otherwise a little under that limit, such as `540` under a 10-minute limit. The helper stops itself within `--timeout` seconds and still prints its result, so give the command a shell timeout longer than `{tree_timeout}`. From `{project-root}`, run:
-
-  ```bash
-  uv run {sourceTreeHelper} resolve --source-repo "{source_repo}" --source-root "{source_root}" --target-ref "{upstream_ref}" --timeout "{tree_timeout}"
-  ```
-
-  It reads `{upstream_ref}` into a private tree, from SKF's clone when the clone holds the commit and from the remote otherwise, and never writes to the clone (the call passes no `--update-clone`), so this run holds no lock and leaves the clone's checkout as it found it. Display each entry of its `warnings`, then:
-  - **`status` is `ready` and `tag_resolution.status` is `target-ref`:** bind `{source_tree}` ← `tree` and `{source_root}` ← `{source_tree}`: every later step reads the source in this tree. Set `audit_ref = {upstream_ref}`, `audit_ref_source = "checkout-latest"` and `audit_commit` ← `source_commit`.
-  - **Anything else** (`skipped`, because `{source_repo}` is no remote repository; `unavailable`, with its `reason` and `message`; a `ready` tree read at another ref, whose `tree` you first remove with `uv run {sourceTreeHelper} close --tree "<tree>"`; no candidate; a command that fails or prints no JSON): this run cannot read `{upstream_ref}` without changing a folder it does not own. Display "Could not read `{upstream_ref}` into a private tree ({the message or reason}); auditing the baseline instead. Run `[US] Update Skill` with `--target-ref {upstream_ref}` to update the skill to it.", record the warning by its code alone, which holds no quote: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "upstream_tree_unavailable: <code>"`, the code being `skipped`, the `reason` of an `unavailable` result, `other-ref` or `helper-unavailable`. Then continue as **[S]**.
-- **[S]:** Keep the baseline: set `audit_ref`, `audit_ref_source` and `audit_commit` to the upstream JSON's values of those names.
-- **[X]:** HALT (exit 6, `halt_reason: "user-cancelled"`, phase `init:upstream-drift`): do not create a drift report.
-- **Other input:** help user, redisplay gate.
-
-**Headless default** (when `{headless_mode}`): consume the pre-supplied `upstream_drift_choice` from the Invocation Contract. Unset or `C` runs **[C]**, the default: it reads a private tree and changes nothing on disk, so it needs no consent. `S` runs **[S]**, and `X` halts as **[X]** does. Log `"headless: upstream moved ({baseline_ref} -> {upstream_ref}); <auditing {upstream_ref} | staying on the baseline | aborting> per upstream_drift_choice=<value or 'default C'>."` and record the decision in the run sink once the choice has run, and before an [X] halt: stage `{run_dir}/decision.json` as `{"gate": "init.upstream-drift", "default_action": "C", "taken_action": "<C, S or X>", "reason": "<the log line>", "evidence": {"baseline_ref": "{baseline_ref}", "upstream_ref": "{upstream_ref}"}}`, with `taken_action` `S` and `"fallback": "<code>"` in the evidence when [C] could not read the tree and the run stayed on the baseline, and run `uv run {emitEnvelopeHelper} record --workflow skf-audit-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 
 **Record for report:** keep `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, `upstream_fetch`, `upstream_moved`, `upstream_ref`, `{source_tree}`, `baseline_ref` and `baseline_commit`: §6 writes them into the drift report's frontmatter, step 6 builds its Provenance section and its workflow recommendation from there, and the result envelope carries `upstream_moved` and `upstream_ref`, so readers and pipelines can tell which comparison actually ran and whether the skill's ref is behind upstream.
 
@@ -257,13 +227,13 @@ The remote's default branch is at `{remote_head_short}`. Auditing the baseline t
 Create `{outputFile}` from `{templateFile}`:
 
 - Populate frontmatter: skill_name, skill_path, source_path, forge_tier, date, user_name
-- Record the run context in the frontmatter, so later steps read it from the file rather than from a session that may have been compacted: `audited_version`, `audited_version_reason` and `manifest_version` (§1); `docs_only_skill` (§3: `{docs_only_skill}`, which steps 5a and 5 read here to pick their next step); `provenance_map` (`{provenanceMap}`), `provenance_generated_at` and `provenance_age_days` (§4); `baseline_ref`, `baseline_commit`, `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, `upstream_fetch`, `upstream_moved`, `upstream_ref` and `source_tree` (`{source_tree}`, the private tree every later step reads the source in) (§5b). Write null for a value the run does not have. `source_path` keeps the source root the provenance map records.
+- Record the run context in the frontmatter, so later steps read it from the file rather than from a session that may have been compacted: `audited_version`, `audited_version_reason` and `manifest_version` (§1); `docs_only_skill` (§3: `{docs_only_skill}`, which steps 5a and 5 read here to pick their next step); `provenance_map` (`{provenanceMap}`), `provenance_generated_at` and `provenance_age_days` (§4); `baseline_ref`, `baseline_commit`, `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, `upstream_fetch`, `upstream_moved`, `upstream_ref` and `source_tree` (`{source_tree}`, the private tree every later step reads the source in) (§5b, and `upstream-checkout.md` when upstream moved). Write null for a value the run does not have. `source_path` keeps the source root the provenance map records.
 - Set `stepsCompleted: ['init']`
 - Fill Audit Summary skeleton with loaded baseline data
 
 If the write fails (read-only mount, disk full, permissions denied) → HALT with **exit 4**, `halt_reason: "write-failed"`, phase `init:write-report`, `"path": "{outputFile}"`, and no `report_path` in the payload.
 
-### 7. Present Baseline Summary and Confirm (User Gate)
+### 7. Present Baseline Summary (Confirm Only on Doubt)
 
 "**Audit Baseline Loaded**
 
@@ -284,11 +254,22 @@ Show `n/a` for a value the run does not have (a docs-only skill reads no provena
 - {Forge+: AST structural comparison + CCC-assisted rename detection → the same labels as Forge}
 - {Deep: AST structural + QMD semantic comparison → the same labels as Forge, plus T2}
 - {Compose-mode stack, at any tier: constituent freshness by metadata hash (step 1c), with no source re-index}
-- {Docs-only skill, at any tier: each tracked document's content hash against the one recorded at compile time (step 5a), each changed document graded by step 5, with no source re-index}
+- {Docs-only skill, at any tier: each tracked document's content hash against the one recorded at compile time (step 5a), each changed document graded by step 5, with no source re-index}"
 
-**Ready to begin drift analysis?**"
+Display the summary and the plan. When neither doubt below holds, go straight on: load, read the entire file, and execute `{nextStepFile}`, or `{composeStepFile}` when `{compose_mode_stack}` is true, or `{docsOnlyStepFile}` when `{docs_only_skill}` is true (§6 already wrote the baseline and `stepsCompleted`). Either of these doubts stops the run here:
 
-Halt and wait for the user's go-ahead. Only proceed once the drift report has been created with baseline data populated. On confirmation (§6 already wrote the baseline and `stepsCompleted`), load, read the entire file, and execute `{nextStepFile}`, or `{composeStepFile}` when `{compose_mode_stack}` is true, or `{docsOnlyStepFile}` when `{docs_only_skill}` is true. On any other input, help the user, then re-ask.
+- **The tier dropped:** the run takes steps 2 to 4 (neither a compose-mode stack nor a docs-only skill), and `{current_tier}` (§2) comes before `{original_tier}` (§3) in the order Quick, Forge, Forge+, Deep. A null `{original_tier}` never counts as a drop.
+- **The baseline is old:** `{provenance_age_days}` (§4) is above 90.
 
-**GATE [default: proceed]** — if `{headless_mode}`, auto-proceed and log: "headless: auto-continue past baseline confirmation".
+On a doubt, ask, keeping the line of each that holds:
 
+"**This baseline may mislead the audit:**
+- {The tier dropped: the skill was compiled at {original_tier} and this run is at {current_tier}, so it lacks {Quick: ast-grep, so exports are read by eye / Forge: ccc, so an export moved out of the scan list reads as removed / Forge+: QMD, so no semantic diff runs}, and its drift can reflect the tools rather than the source. `[SF] Setup Forge` detects the tools again.}
+- {The baseline is old: the provenance map is {provenance_age_days} days old, so the report can list the changes of many releases at once. `[US] Update Skill` (for a stack, `[SS] Create Stack Skill`) refreshes it.}
+
+- **[C] Continue the audit** (default)
+- **[X] Stop**, to refresh the baseline first"
+
+Halt and wait for the user's answer. **[C]** loads the next file as above. **[X]** HALTs with **exit 6**, `halt_reason: "user-cancelled"`, phase `init:baseline-confirm`: "Audit stopped: `{outputFile}` holds the baseline only. Refresh it as above, then run `[AS] Audit Skill` again." On any other input, help the user, then re-ask.
+
+**GATE [default: C]**: Baseline Confirm Gate [C/X], reached only on a doubt above. If `{headless_mode}`, continue with [C] and log: "headless: auto-continue past baseline confirmation ({each doubt that holds})".

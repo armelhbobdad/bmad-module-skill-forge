@@ -6,8 +6,10 @@ coverage and integration verdict rankings, unordered integration-pair matching,
 Replaced bucketing, evidence-tier downgrade detection on the one T-code scale
 (any other tier token is rejected as UNKNOWN_TIER), validation, reading the
 two reports (--previous-report, --current-report) from the template the
-producer fills, the reports it does not read (INVALID_REPORT), this run's tiers
-from the enumerate inventory (--inventory), the installed layout that finds the
+producer fills, the reports it does not read (INVALID_REPORT), the rows
+skf-coverage-tally.py --render writes into the report read back as the findings
+they hold (a rationale's pipe and a cycle row included), this run's tiers from
+the enumerate inventory (--inventory), the installed layout that finds the
 shared reader, the subprocess CLI contract, and the call synthesize.md makes.
 """
 
@@ -29,6 +31,7 @@ SYNTHESIZE = SKILL / "references" / "synthesize.md"
 COVERAGE = SKILL / "references" / "coverage.md"
 TEMPLATE = SKILL / "assets" / "feasibility-report-template.md"
 READER_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-validate-feasibility-report.py"
+TALLY_PATH = SKILL / "scripts" / "skf-coverage-tally.py"
 
 spec = importlib.util.spec_from_file_location("skf_report_delta", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
@@ -392,6 +395,33 @@ def test_reads_both_reports_from_the_template_it_fills(tmp_path):
     assert out["tierDowngrades"] == [{"skill": "react", "from": "T1", "to": "T1-low"}]
     assert out["tiersCompared"] is True
     assert out["previousTiersRecorded"] is True
+
+
+def test_the_rendered_rows_read_back_as_their_findings(tmp_path):
+    """coverage.md and integrations.md write the tally's rendered rows: the delta reads the same findings."""
+    spec = importlib.util.spec_from_file_location("skf_coverage_tally_for_delta", TALLY_PATH)
+    tally = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tally)
+    coverage = tally.render_coverage({"rows": [
+        {"technology": "react", "verdict": "Covered", "section": "Tech Stack", "skill": "react"},
+        {"technology": "postgres", "verdict": "Missing", "section": "Data | Storage", "skill": None},
+        {"technology": "old-orm", "verdict": "Replaced", "section": None, "skill": None}]})
+    verdicts = tally.render_integrations(
+        {"rows": [{"lib_a": "react", "lib_b": "zod", "verdict": "Plausible",
+                   "rationale": "checks 1 to 3 pass | neither SKILL.md cites the other"}]},
+        {"cycles": [["react", "zod", "vite", "react"]]})
+    report = tmp_path / "feasibility-report-my-app-20261002-101500.md"
+    report.write_bytes(_report_text(coverage_lines=[COVERAGE_HEADER, "|---|---|---|---|", *coverage],
+                                    pairs=()).replace(
+        VERDICT_HEADER + "\n|-------|-------|---------|-----------|",
+        VERDICT_HEADER + "\n|-------|-------|---------|-----------|\n" + "\n".join(verdicts)).encode("utf-8"))
+    side, _tiers = mod.read_report(str(report), READER, with_tiers=False)
+    assert side["coverage"] == [{"technology": "react", "verdict": "Covered"},
+                                {"technology": "postgres", "verdict": "Missing"},
+                                {"technology": "old-orm", "verdict": "Replaced"}]
+    assert side["integration"] == [{"libA": "react", "libB": "zod", "verdict": "Plausible"},
+                                   {"libA": "cycle", "libB": "react \u2192 zod \u2192 vite \u2192 react",
+                                    "verdict": "Risky"}]
 
 
 def test_reading_a_report_equals_passing_its_findings(tmp_path):

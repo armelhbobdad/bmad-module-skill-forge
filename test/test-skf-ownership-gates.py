@@ -690,6 +690,24 @@ def test_stack_gate_runs_in_two_phases():
     assert "state-conflict" in _row(exit_codes, "| 5 ")
 
 
+def test_stack_refusals_share_one_message():
+    """Every create-stack ownership refusal reads '`<stack>`: nothing was written.', then its reason (#600)."""
+    refusals = _section(_read(SS_GENERATE), "**Ownership refusals (both phases).**", "Each refusal is a HARD HALT")
+    assert refusals.count('"**`{stack_name}`: nothing was written.** {clause}"') == 1
+    clauses = [line for line in refusals.splitlines() if line.startswith("- ")]
+    # One clause per verdict: flat layout, not SKF output, an unchecked folder, a missing helper.
+    assert [clause.split(":", 1)[0] for clause in clauses] == [
+        '- `{write_verdict}` is `"flat-layout"`', '- `{write_verdict}` is `"not-skf-output"`',
+        "- The status is not `ok`, or the output has no `write_check` (an older helper with no `--write-check` "
+        "reports a new skill as `SKILL_NOT_FOUND`)", "- No helper candidate resolved"]
+    assert not [clause for clause in clauses if "nothing was written" in clause], "a clause repeats the template"
+    # Every case but the flat layout ends with the one remedy the shared-folder pins read.
+    assert [("{remedy}" in clause) for clause in clauses] == [False, True, True, True]
+    (remedy,) = [p for p in refusals.split("\n\n") if p.startswith("`{remedy}` is ")]
+    assert "SKF leaves the skills it did not generate alone" in remedy and "module's own source" in remedy
+    assert "\u2014" not in refusals
+
+
 @pytest.mark.parametrize("rel", WRITER_SKILLS)
 def test_writer_skills_carry_the_ownership_rule(rel):
     assert "Never write into a skill folder SKF did not generate" in _read(rel)

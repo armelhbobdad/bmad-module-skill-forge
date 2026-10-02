@@ -6,7 +6,7 @@
 """Signature Accuracy and Type Coverage for SKF test-skill, from checked per-file results.
 
 coverage-check.md section 2 compares each documented signature with the
-source and section 4 scores two categories from the comparison: Signature
+source and section 2b scores two categories from the comparison: Signature
 Accuracy and Type Coverage, 22% and 14% of a contextual score. Which
 signature differs is a judgment, made by a subagent that reads the source;
 everything after it has one answer per input and runs here: the list of

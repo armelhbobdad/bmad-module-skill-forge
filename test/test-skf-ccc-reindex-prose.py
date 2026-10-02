@@ -66,6 +66,8 @@ SOURCE_RESOLUTION = SRC / "skf-create-skill" / "references" / "source-resolution
 TIER_DEGRADATION = SRC / "skf-create-skill" / "references" / "tier-degradation-rules.md"
 UPDATE_WRITE = SRC / "skf-update-skill" / "references" / "write.md"
 AUDIT_INIT = SRC / "skf-audit-skill" / "references" / "init.md"
+# The upstream-moved gate step 1 §5b loads, whose [C] reads the private tree.
+AUDIT_CHECKOUT = SRC / "skf-audit-skill" / "references" / "upstream-checkout.md"
 TROUBLESHOOTING = REPO_ROOT / "docs" / "troubleshooting.md"
 HYGIENE_HELPER = SRC / "shared" / "scripts" / "skf-ccc-git-hygiene.py"
 SETUP_ENVELOPE_SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-setup-result-envelope.v1.json"
@@ -714,11 +716,12 @@ def test_audit_reads_a_private_tree_and_moves_no_clone():
     """#588: audit's [C] used to check the shared clone out in place, after a
     hygiene pass and a dirty-worktree probe; it now reads the upstream ref
     into a private tree, so the clone keeps its checkout and needs no
-    clean-up."""
-    text = _read(AUDIT_INIT)
-    for gone in ("cccGitHygiene", "git checkout", "git stash", "stash pop"):
-        assert gone not in text, gone
-    upstream = _slice(text, "**Gate handling:**", "**Headless default**")
+    clean-up. The [C] lives in upstream-checkout.md, which init.md loads when
+    upstream moved."""
+    for path in (AUDIT_INIT, AUDIT_CHECKOUT):
+        for gone in ("cccGitHygiene", "git checkout", "git stash", "stash pop"):
+            assert gone not in _read(path), (path.name, gone)
+    upstream = _slice(_read(AUDIT_CHECKOUT), "**Gate handling:**", "**Headless default**")
     assert 'uv run {sourceTreeHelper} resolve --source-repo "{source_repo}"' in upstream
     assert "never writes to the clone (the call passes no `--update-clone`)" in upstream
 

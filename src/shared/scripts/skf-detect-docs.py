@@ -48,7 +48,7 @@ Doc-drift detection for audit-skill.  Given a set of tracked doc sources
 the SAME fetch+sha256 primitive the compile side used, and classify each entry
 as changed / unchanged / fetch_failed / skipped_null_hash.  This replaces the
 per-URL fetch/hash/compare/count prose at
-`src/skf-audit-skill/references/step-doc-drift.md` §2-3 — the model no longer
+`src/skf-audit-skill/references/doc-drift.md` §2-3: the model no longer
 orchestrates HTTP GETs or computes sha256 by hand, and correctness no longer
 depends on whether a WebFetch tool is wired.
 

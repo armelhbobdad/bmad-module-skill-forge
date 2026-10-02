@@ -77,7 +77,7 @@ previousWorkflow: 'create-skill'
 
 ## Documentation Drift
 
-<!-- Appended by step-doc-drift -->
+<!-- Appended by doc-drift -->
 
 ---
 

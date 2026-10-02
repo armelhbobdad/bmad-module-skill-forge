@@ -40,13 +40,17 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 1. Calculate Overall Verdict
 
-**The verdict token is deterministic: do not walk the ladder in prose.** All three passes have already persisted their counts in `{outputFile}` frontmatter, each from its tally helper: `coveragePercentage`, `coverageMissing`, `coverageCovered` and `coverageReplaced` (step 2), `pairsBlocked`/`pairsRisky`/`pairsPlausible`/`pairsVerified` (step 3, each cycle row counted as `Risky`), and `requirementsPass` + `requirementsNotAddressed`/`requirementsPartial` (step 4). Rolling them up into one token has a single correct answer per input, and so has the number of recommendations they call for, so delegate both. Assemble the counts and run:
+**The verdict token is deterministic: do not walk the ladder in prose.** All three passes have already persisted their counts in the `{outputFile}` frontmatter, each from its tally helper. Rolling them up into one token has a single correct answer per input, and so has the number of recommendations they call for, so delegate both, and let the script read the counts from the report itself:
 
 ```bash
-echo '<counts JSON>' | uv run {verdictRollupScript} --stdin
+uv run {verdictRollupScript} --report "{outputFile}"
 ```
 
-Input keys: `coveragePercentage`, `missingCount` ← `coverageMissing`, `coveredCount` ← `coverageCovered`, `replacedCount` ← `coverageReplaced`, `pairsBlocked`, `pairsRisky`, `pairsPlausible`, `pairsVerified`; plus, only when the requirements pass ran (`requirementsPass == "completed"`), `requirementsEvaluated: true` with `requirementsNotAddressed`/`requirementsPartial`. Half-up rounding can leave `coveragePercentage == 100` with one technology still Missing, so the percentage stands in for neither count. The script (run `uv run {verdictRollupScript} --help` for the ladder) returns `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired), `zeroPairsGuardFired`, `recommendations` (how many recommendations of each kind section 2 writes) and `recommendationCount` (their sum). When it exits non-zero, it rejected its input and says why (its JSON `error`, or a usage line for an empty input): fix the input and run it again.
+`--report` reads `coverageCovered`, `coverageMissing` and the other counts steps 2 to 4 persisted, once `stepsCompleted` lists `coverage`, `integrations` and `requirements`; `uv run {verdictRollupScript} --help` gives each key, the input it fills and the ladder. The script returns `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired), `zeroPairsGuardFired`, `recommendations` (how many recommendations of each kind section 2 writes) and `recommendationCount` (their sum). Branch on its exit code and its JSON `code`:
+
+- `HELPER_MISSING` (exit 1): the shared report reader it loads is not installed; HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:rollup`.
+- `INVALID_REPORT` or `INVALID_INPUT` (exit 2): its `error` names a stage `stepsCompleted` does not list, a count a stage left out of the frontmatter, or counts that disagree; HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `synthesize:rollup`, naming that `error`.
+- Any other non-zero exit (no JSON on stdout): HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:rollup` with its stderr.
 
 Technologies marked **Replaced** in Step 02 are intentionally being removed and are already excluded from `missingCount` and the coverage denominator: they never trigger `CONDITIONALLY_FEASIBLE` or a [CS]/[QS] recommendation.
 

@@ -40,20 +40,24 @@ take, and run each prose command against the real helper:
 - the workspace drift guard (#588 item 4): init.md §5b runs
   skf-check-workspace-drift.py once per source tree instead of git by hand;
 - the Quick-tier scan and the workspace layout (#584): coverage-check.md
-  runs skf-extract-public-api.py --mode quick on the files by path (for a
-  skill quick-skill built), pipes the payload stage-helper-payload.py reads
-  from disk into skf-detect-workspaces.py, and the source access protocol's
-  monorepo tests read the detector's answer.
+  §2 loads coverage-check-tiers.md at Quick tier, which runs
+  skf-extract-public-api.py --mode quick on the files by path (for a skill
+  quick-skill built); coverage-check.md pipes the payload
+  stage-helper-payload.py reads from disk into skf-detect-workspaces.py, and
+  the source access protocol's monorepo tests read the detector's answer.
 
 They keep the scoring inputs scripted (#613, #540, #596): every script of
 the coverage and score steps reads the run files the one before it wrote,
 by path, in a run folder init.md creates and report.md removes, and the
 prose commands run end to end against the real scripts, from the citation
-census to compute-score.py reading every score file; the inventory a
-subagent returns is validated from its saved file and re-dispatched once
-before `inventory-invalid` halts the run; tooling health is `toolingStatus`,
-never `analysisConfidence`; and scoring-rules.md, customize.toml and SKILL.md
-keep no copy of the scoring rules and no override of them.
+census to compute-score.py reading every score file, the fallback per-file
+scan's commands included; the inventory a subagent returns is validated
+from its saved file and re-dispatched once before `inventory-invalid` halts
+the run; tooling health is `toolingStatus`, never `analysisConfidence`;
+scoring-rules.md, customize.toml and SKILL.md keep no copy of the scoring
+rules and no override of them; and coverage-check.md stays under the
+single-purpose reference budget (#600), its Quick-tier and fallback scans
+carved into coverage-check-tiers.md, loaded only by the branch that needs it.
 
 They also keep coherence-check section 5 on the integration entries
 create-stack-skill emits (#544): only the cross-cutting and library-pair
@@ -92,6 +96,8 @@ MIGRATION = REFS / "migration-section-rules.md"
 EXTERNAL = REFS / "external-validators.md"
 SOURCE_ACCESS = REFS / "source-access-protocol.md"
 COVERAGE = REFS / "coverage-check.md"
+# The §2 branches most runs never take, carved out of coverage-check.md (#600).
+COVERAGE_TIERS = REFS / "coverage-check-tiers.md"
 COHERENCE = REFS / "coherence-check.md"
 SCORING = REFS / "scoring-rules.md"
 INVENTORY = SRC / "shared" / "scripts" / "skf-skill-inventory.py"
@@ -700,7 +706,7 @@ WORKSPACES_CMD = ('uv run {stageHelperPayloadScript} detect-workspaces --source-
 
 
 def _quick_tier() -> str:
-    return _slice(_read(COVERAGE), "**Quick Tier (no AST tools):**", "**Forge Tier (ast-grep available):**")
+    return _slice(_read(COVERAGE_TIERS), "## Quick Tier", "## Fallback Per-File Scan")
 
 
 def test_coverage_binds_the_helpers_and_the_payload_script():
@@ -711,9 +717,10 @@ def test_coverage_binds_the_helpers_and_the_payload_script():
                                     f"{{project-root}}/src/shared/scripts/{script}"]
     assert frontmatter["stageHelperPayloadScript"] == "scripts/stage-helper-payload.py"
     # The model copies no file text into a payload.
-    text = _read(COVERAGE)
-    for by_hand in ("file-write tool", ".skf-quick-exports-", ".skf-workspaces-"):
-        assert by_hand not in text, by_hand
+    for path in (COVERAGE, COVERAGE_TIERS):
+        text = _read(path)
+        for by_hand in ("file-write tool", ".skf-quick-exports-", ".skf-workspaces-"):
+            assert by_hand not in text, (path.name, by_hand)
 
 
 def test_quick_tier_parses_a_quick_skill_skill_with_its_parser():
@@ -725,14 +732,14 @@ def test_quick_tier_parses_a_quick_skill_skill_with_its_parser():
     assert '`{"file": "<entry path>", "exports_found": [' in flow
     for by_hand in ("exports_documented", "missing_docs", "by name matching", "`kotlin`"):
         assert by_hand not in flow, by_hand
-    # The parser reads re-exports, async declarations and CommonJS itself; its
-    # warnings name what the entry file alone cannot give, read by eye.
-    for form in ("`from ... import`", "`pub use`", "`export * as`", "`async def`", "`module.exports`"):
-        assert form in flow, form
-    for warned in ("`export * from`", "a star import", "a non-literal `__all__` part", "`pub use x::*`",
-                   "`module.exports = require(...)`"):
-        assert warned in flow, warned
+    # The parser's `warnings` name what the entry file alone cannot give, and
+    # only that is read by eye. The forms the parser reads, and the ones it
+    # warns about, are the parser's to list (#600, w3 leanness-5).
+    assert "Its `warnings` name each statement whose names the entry file alone cannot give" in flow
     assert "Read by eye only the statements its warnings name" in flow
+    for restated in ("`from ... import`", "`export * as`", "`async def`", "`pub use x::*`",
+                     "`module.exports = require(...)`"):
+        assert restated not in flow, restated
     assert flow.count("read by eye") + flow.count("read them by eye") >= 2
     # Its output reaches the surface by path.
     assert f'{QUICK_CMD} > "{{run_dir}}/quick-<n>.json"' in flow
@@ -771,7 +778,7 @@ def test_the_prose_quick_tier_surface_reads_the_brief(tmp_path):
         {"skill_type": "single", "exports": ["fetchData"], "stats": {"effective_denominator": 1}})})
     values = {"{run_dir}": run.as_posix(), "{forge_data_folder}": forge.as_posix(), "{skill_name}": "demo",
               "{resolved_skill_package}": skill.as_posix(), "<n>": "1"}
-    command = _choose(_command(COVERAGE, "surface --quick"), keep=("--brief",))
+    command = _choose(_command(COVERAGE_TIERS, "surface --quick"), keep=("--brief",))
     surface = _exec(command, values, tmp_path)
     assert surface["sets"]["all"] == ["fetchData", "helper"], "metadata.json adds no name to a source read"
     assert surface["sets"]["tier_a_include"] == ["fetchData", "helper"]
@@ -1242,6 +1249,104 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     # naive weights 45/25/20/10: 45 + 12.5 + 20 + 8
     assert (score["totalScore"], score["result"]) == (85.5, "PASS")
     assert "effectiveResult" not in score
+
+
+def test_the_prose_fallback_scan_runs(tmp_path):
+    """coverage-check-tiers.md's Fallback Per-File Scan, as written: `plan` without `--surface` maps every
+    documented signature, the saved per-file responses (fence and all) build the surface, and §2b's
+    `score` reads those same files as its results."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "# Demo\n\n`fetchData(url)` fetches. `Options` configures.\n",
+        "metadata.json": json.dumps({"skill_type": "single", "exports": ["fetchData", "Options"]}),
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory-response.txt").write_bytes(json.dumps({"exports": [
+        {"name": "fetchData", "kind": "function", "params": "url: string", "return_type": "string",
+         "description": "Fetches."},
+        {"name": "Options", "kind": "interface", "description": "Configures."},
+    ], "cross_check_mismatches": []}).encode("utf-8"))
+    (run / "per-file-1.txt").write_bytes(("```json\n" + json.dumps({
+        "file": "src/index.ts", "exports_found": ["fetchData", "Options"], "types_found": ["Options"],
+        "signature_mismatches": [{"name": "fetchData", "line": 1,
+                                  "source_sig": "(url: string, init?: object) => string",
+                                  "documented_sig": "(url: string) => string",
+                                  "issue": "missing optional parameter 'init'"}],
+    }) + "\n```\n").encode("utf-8"))
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(), "<n>": "1"}
+
+    assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
+    plan = _exec(_command(COVERAGE_TIERS, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
+    assert (plan["files"], plan["documentedSignatures"]) == (
+        [], {"fetchData": {"params": "url: string", "return_type": "string"}})
+    surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
+    assert surface["sets"]["all"] == ["Options", "fetchData"]
+    assert "the fallback scan's `per-file-<n>.txt`" in _flow(_slice(_read(COVERAGE), "**Score the signatures**",
+                                                                   "### 2c."))
+    command = _command(COVERAGE, "uv run {scoreSignaturesScript} score").replace(
+        '"{run_dir}/signatures-<n>.txt"', '"{run_dir}/per-file-<n>.txt"').replace("<set>", "all")
+    scores = _exec(command, values, tmp_path)
+    assert (scores["signatureAccuracy"], scores["typeCoverage"]) == (0.0, 100.0)
+    assert [record["title"] for record in json.loads((run / "signature-gaps.json").read_bytes())] == [
+        "Signature mismatch: fetchData"]
+
+
+def test_the_prose_state_4_surface_runs(tmp_path):
+    """State 4 reads no tier branch, so its `surface` call is spelled in coverage-check.md itself: the names
+    read remotely by eye, saved as a per-file result, are the surface, and the metadata adds no name."""
+    state4 = _flow(_slice(_read(COVERAGE), "- **State 4**:", "### 2b."))
+    calls = re.findall(r"`(surface --per-file [^`]+)`", state4)
+    assert len(calls) == 1, state4
+    skill = _write_tree(tmp_path / "skill", {
+        "metadata.json": json.dumps({"skill_type": "single", "exports": ["fetchData", "Options", "helper"]}),
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "per-file-1.json").write_bytes(json.dumps({"file": "src/index.ts", "exports_found": ["fetchData", "Options"],
+                                                      "signature_mismatches": []}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(), "<n>": "1"}
+    surface = _exec(_choose("uv run {coverageInputsScript} " + calls[0]), values, tmp_path)
+    assert surface["sets"]["all"] == ["Options", "fetchData"]
+    assert (run / "surface.json").is_file()
+
+
+# coverage-check.md's budget as a single-purpose reference (#600): about 9,000
+# tiktoken cl100k_base tokens; this prose runs about 4 characters a token, so
+# 36,000 characters stand in for it here.
+COVERAGE_CHAR_BUDGET = 36_000
+
+
+def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
+    """#600, #613 (w3 leanness-5, architecture-6): coverage-check.md keeps each call, its bindings and the
+    branch the model takes, under budget. The Quick-tier scan and the fallback per-file scan, which most
+    runs never take, live in coverage-check-tiers.md: only the §2 branch that takes one loads it, and it
+    has no frontmatter, so no nextStepFile makes it a step a chain must reach."""
+    text = _read(COVERAGE)
+    assert len(text) < COVERAGE_CHAR_BUDGET, len(text)
+    assert _frontmatter(COVERAGE)["coverageTiersFile"] == "references/coverage-check-tiers.md"
+    tiers = _read(COVERAGE_TIERS)
+    assert not tiers.startswith("---"), "a branch file, not a step file"
+    assert re.findall(r"^## (.+)$", tiers, re.M) == ["Quick Tier", "Fallback Per-File Scan"]
+    assert "HALT" not in tiers, "§2's Exits halt for the commands it runs"
+    assert "§2 **Exits** apply here unchanged" in _flow(tiers)
+    section2 = _slice(text, "### 2. Analyze Source Code", "### 2b.")
+    body = text.split("\n---\n", 1)[1]
+    assert body.count("{coverageTiersFile}") == section2.count("{coverageTiersFile}") == 2
+    quick = _flow(_slice(section2, "**Quick Tier (no AST tools):**", "**Forge Tier"))
+    assert "load `{coverageTiersFile}` and follow its **Quick Tier** section" in quick
+    forge = _flow(_slice(section2, "**Forge Tier (ast-grep available):**", "**Compare the signatures.**"))
+    assert "load `{coverageTiersFile}` and run its **Fallback Per-File Scan**" in forge
+    # A per-file result has one shape, given once in §2 for every branch that reads names by eye.
+    assert '`{"file": "<path>", "exports_found": [<each name>], "signature_mismatches": []}`' in _flow(section2)
+    # What a script owns is not restated: no formula or return list around a call, no hand guard
+    # after one, and no §3 drafting the table §5 writes (w3 leanness-9).
+    for restated in ("documented_set ∩ barrel_set", "max(0,", "do not re-derive", "**do not",
+                     "### 3. Build Coverage Results", "Signature Match", "Weight application is deferred"):
+        assert restated not in text, restated
+    summary = _flow(_slice(text, "### Coverage Summary", "### Category Scores"))
+    for field in ("`denominator`", "`documented`", "`exportCoverage`", "`missingCount`", "`staleCount`",
+                  "`numeratorSurplus`", "`coverageUncapped`"):
+        assert field in summary, field
 
 
 # --------------------------------------------------------------------------

@@ -8,8 +8,9 @@ lists synthesize and it passes the feasibility-report check, both read with the
 shared report reader), the reports it never picks (this run's own, -latest,
 another project's whose slug extends this one, one it cannot read, one a halted
 run left unfinished or unchecked), the not-found path (a path it cannot read
-included), the missing shared reader (exit 3), the installed layout, usage
-errors, the CLI exit codes, and the init.md prose that calls the helper, asks
+included), the missing shared reader (exit 3), a report whose tables hold the rows
+skf-coverage-tally.py --render prints counting as finished, the installed
+layout, usage errors, the CLI exit codes, and the init.md prose that calls the helper, asks
 again on an interactive collision, maps a headless one to the exit 5 halt and
 records the headless pick.
 """
@@ -343,6 +344,29 @@ def test_a_report_that_is_not_utf8_is_skipped(tmp_path):
     result, code = resolve(str(tmp_path), SLUG, NOW)
     assert code == 0
     assert _posix(result["previousReport"]) == older.as_posix()
+
+
+def test_a_report_of_rendered_rows_is_finished(tmp_path):
+    """The rows coverage.md and integrations.md render pass the check report.md runs, so the next run picks them."""
+    tally_path = SKILL / "scripts" / "skf-coverage-tally.py"
+    spec = importlib.util.spec_from_file_location("skf_coverage_tally_for_previous", tally_path)
+    tally = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tally)
+    coverage = tally.render_coverage({"rows": [{"technology": "react", "verdict": "Covered", "skill": "react"}]})
+    verdicts = tally.render_integrations(
+        {"rows": [{"lib_a": "react", "lib_b": "zod", "verdict": "Risky", "rationale": "an adapter | a bridge"}]},
+        {"cycles": [["react", "zod", "vite", "react"]]})
+    body = CHECKED_BODY.replace(
+        "## Coverage Analysis\n\n",
+        "## Coverage Analysis\n\n| Technology | Source Section | Skill Match | Verdict |\n|---|---|---|---|\n"
+        + "\n".join(coverage) + "\n\n").replace(
+        "|---|---|---|---|\n\n## Recommendations", "|---|---|---|---|\n" + "\n".join(verdicts) + "\n\n## Recommendations")
+    earlier = _report(tmp_path, "20260101-080000",
+                      body=CHECKED_FRONTMATTER + "stepsCompleted: ['coverage', 'synthesize']\n---\n" + body)
+    out, code = resolve(str(tmp_path), SLUG, NOW)
+    assert (code, out["status"], _posix(out["previousReport"])) == (0, "discovered", earlier.as_posix())
+    fields, ok = mod.load_reader().read_report(earlier.read_text(encoding="utf-8"))
+    assert ok and [(v["lib_a"], v["verdict"]) for v in fields["pairVerdicts"]] == [("react", "Risky"), ("cycle", "Risky")]
 
 
 def test_a_given_unfinished_report_is_still_used(tmp_path):

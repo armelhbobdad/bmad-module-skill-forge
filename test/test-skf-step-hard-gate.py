@@ -377,7 +377,7 @@ class TestRunningTheGate:
 
     def test_two_missing_names_from_one_file_are_two_records(self, values: dict[str, str]) -> None:
         """§2c titles a missing name after it and sets `export`, so two names of one file never merge."""
-        section = _flow(_slice(_read(COVERAGE_FILE), "**Classify what the script found.**", "### 3. Build"))
+        section = _flow(_slice(_read(COVERAGE_FILE), "**Classify what the script found.**", "### 4. Category"))
         title = re.search(r"`missing-export` gap titled `([^`]+)`", section).group(1)
         assert title == "Missing export: {name}" and "with `export` `{name}`" in section
         out = _record("coverage-check", [
@@ -694,7 +694,7 @@ class TestStaleNameLineCheck:
     @pytest.fixture
     def section(self) -> str:
         text = _read(COVERAGE_FILE)
-        return text[text.index("- **Stale names**"):text.index("### 3. Build Coverage Results")]
+        return text[text.index("- **Stale names**"):text.index("### 4. Category Scores")]
 
     def test_the_call_is_fenced_with_its_probe_order(self, section: str) -> None:
         assert self.CALL in _fence(section, self.CALL)

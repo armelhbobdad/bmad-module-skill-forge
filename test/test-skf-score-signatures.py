@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for score-signatures.py (skf-test-skill coverage-check.md §2; #613 item 1).
+"""Tests for score-signatures.py (skf-test-skill coverage-check.md §2 and §2b; #613 item 1).
 
 Signature Accuracy and Type Coverage used to be divided by hand from
 unchecked subagent JSON, with `total_types` defined nowhere. The script:
   - plans the comparisons: each documented signature the source surface
-    lists, grouped by file, with its source line and documented signature
+    lists, grouped by file, with its source line and documented signature;
+    without a surface, the signature map coverage-check-tiers.md's fallback
+    per-file scan hands each subagent
   - schema-checks every subagent result (fence stripped), and refuses one
     that breaks the contract with violations[] and exit 2
   - scores Signature Accuracy (matching over compared, on the whole

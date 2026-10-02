@@ -2,7 +2,9 @@
 """Tests for load-coverage-inputs.py (skf-test-skill coverage-check.md §0, §2, §2b; #613, #540).
 
 coverage-check.md decides which denominator clause applies and whether a
-bookkeeping variant is a real export; the script makes every count:
+bookkeeping variant is a real export; the script makes every count, the
+surfaces of the Quick-tier and fallback per-file scans included (the
+branches coverage-check.md §2 loads from coverage-check-tiers.md):
   - census: the docs-only verdict from the citation forms a skill writes
   - metadata: Cluster A and B under check-metadata-coherence.py's keys,
     the named-export count, the inflation signature and the declared names,

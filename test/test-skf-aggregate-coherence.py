@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for src/skf-test-skill/scripts/aggregate-coherence.py.
 
-The contextual-coherence tally + 0.6/0.4 weighted mean that coverage-check.md
+The contextual-coherence tally + 0.6/0.4 weighted mean that coherence-check.md
 now delegates to instead of computing in-prompt. Runs the module's embedded
 doctests plus reference-value and CLI (exit-code) checks, and the
 per-reference input (#598): the script counts `valid_references` itself from

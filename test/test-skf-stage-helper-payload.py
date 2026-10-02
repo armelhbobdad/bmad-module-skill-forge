@@ -7,6 +7,7 @@ and a payload the model writes by hand can cut or mis-escape a file. The
 script reads the files and prints the payload instead. These tests cover
 what the payload holds, what the tree leaves out, the bytes it prints, and,
 piped into the real helper, the answer the step reads. The Quick-tier scan
+(coverage-check-tiers.md, which coverage-check.md §2 loads at Quick tier)
 no longer goes through it: skf-extract-public-api.py --mode quick reads its
 files itself (--manifest-file, --entry-file), so the extract-public-api
 subcommand is gone.
