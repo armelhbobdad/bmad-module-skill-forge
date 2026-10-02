@@ -2212,6 +2212,30 @@ def test_docs_and_knowledge():
     assert "`--target-ref {latest_tag}`" in audit and "`--target-ref HEAD`" in audit
 
 
+def test_docs_name_the_headless_halt_the_deferred_files_and_the_write_step():
+    """workflows.md's Update Skill section says what the invocation contract does (#594, #587, #599).
+
+    A headless run with no skill halts at `init:skill-name`, a file outside the scope is left to a person, a run
+    that finds no change still writes its result files, and write.md validates before the active link moves, so
+    no Validate step sits between Merge and Write.
+    """
+    contract = _read(CONTRACT)
+    inputs = _slice(contract, "| **Inputs** |", "\n")
+    assert "`error.phase` `init:skill-name`" in inputs and "`input-missing`" in inputs
+    assert "(headless: defers each candidate to a person)" in _slice(contract, "| **Gates** |", "\n")
+    assert "(a run that found no change: the current one's)" in _slice(contract, "| **Outputs** |", "\n")
+    assert "no-changes" in json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["enum"]
+    assert not (REFS / "validate.md").exists()
+    section = _slice(_read(REPO_ROOT / "docs" / "workflows.md"), "### Update Skill (US)", "**Agent:**")
+    assert "→ Merge (preserve MANUAL) → Write and validate (records the commit it read) → Report" in section
+    assert "→ Validate →" not in section
+    headless = _slice(section, "**Headless:**", "\n")
+    for token in ("`error.phase` `init:skill-name`", "starts `input-missing`", "`deferred-headless`",
+                  "the next interactive run asks about it", "still writes its result files and runs `on_complete`",
+                  "with the status `no-changes`"):
+        assert token in headless, token
+
+
 # --------------------------------------------------------------------------
 # Gap reports through the shared helpers (#583, #546) and drift through
 # scripts (#589)
