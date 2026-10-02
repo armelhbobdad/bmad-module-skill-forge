@@ -1190,7 +1190,8 @@ def test_export_reads_the_manifest_only_through_the_helper():
     parse = _section(load, "### 1. Parse Export Arguments", "### 1b. ")
     assert "**Read the export manifest** on every run" in parse and "whenever this section needs it" not in parse
     assert parse.index("**Read the export manifest**") < parse.index("**Skill Path Discovery")
-    assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`): "**Export manifest is corrupt**' in parse
+    assert ('HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): '
+            '"**Export manifest is corrupt**') in parse
     assert "`python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`" in _read(EXPORT_SNIPPET)
     assert "uv run {manifestOpsHelper} {skills_output_folder} read" in _section(
         _read(RENAME_SELECT), "### 2. Read Export Manifest", "### 3. ")
@@ -1208,8 +1209,8 @@ def test_export_measures_the_snippet_ceiling_on_a_staged_draft():
     assert "until `{count}` is 300 or below" in count
     assert "stays in-prompt" not in text
     assert "by hand" not in count, "no count in the prompt: §2.8 already needs Python for the stage folder"
-    assert ('When the helper exits non-zero, delete the '
-            '`{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`)') in count
+    assert ('When the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT (exit code 4, '
+            '`halt_reason: "context-rebuild-failed"`, phase `generate-snippet §4`)') in count
     assert "`{countTokensHelper}` ←" in _read(EXPORT_SKILL), "On Activation resolves the counter before any prompt"
     stage = _section(text, "### 2.8. Stage Folder", "### 3. ")
     assert "so a dry run leaves nothing beside a skill package or a context file" in stage
@@ -1401,7 +1402,8 @@ def _run_lifecycle(root: Path, skill: str, override: str | None) -> dict:
     bodies = {}
     for target in targets:
         path = root / target["context_file"]
-        values.update(context_path=str(path), context_file=target["context_file"], skill_root=target["skill_root"])
+        values.update(context_path=str(path), context_file=target["context_file"], skill_root=target["skill_root"],
+                      target_skill_root=target["skill_root"])
         case = _run_documented(_call(skill, "check", "check"), values, override)["case"]
         assembled = _run_documented(_call(skill, "assemble", "assemble"), values, override)
         values["content_file"] = assembled["content_file"]

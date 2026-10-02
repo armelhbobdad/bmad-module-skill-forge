@@ -31,14 +31,14 @@ Reconcile the `qmd_collections` registry with the live QMD collections, and prun
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If a section needs a helper whose probe order has no existing path, halt (an install fault, not a hygiene error) with phase `step 3:helper-missing`, `path` set to that array's first entry, and reason `Setup cannot proceed: <script file name> was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, and `--stderr-from` where the halt names it), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 - Do not fail the workflow if hygiene encounters errors; a missing helper is not a hygiene error
 
 ## MANDATORY SEQUENCE
 
 ### 1. Check Tier
 
-Set `{orphan_auto_resolution}` to null. The QMD sections (2 and 3) run only when `{calculated_tier}` is Deep, and section 4 runs when `{calculated_tier}` is Deep or `{ccc}` is true. Go to section 2 at Deep tier, else to section 4 when `{ccc}` is true, else to section 5 with no output.
+Set `{orphan_auto_resolution}` to null. When `{require_tier_satisfied}` (from step 1) is `false`, go to section 5 with no output: a run that ends `tier_failure` runs no hygiene, so it removes no collection and prunes no registry entry, and step 4 reports none. Otherwise the QMD sections (2 and 3) run only when `{calculated_tier}` is Deep, and section 4 runs when `{calculated_tier}` is Deep or `{ccc}` is true. Go to section 2 at Deep tier, else to section 4 when `{ccc}` is true, else to section 5 with no output.
 
 ### 2. Classify Live QMD Collections vs Registry
 

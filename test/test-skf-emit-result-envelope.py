@@ -1576,7 +1576,8 @@ def _detect_output() -> dict:
     }
 
 
-# What report.md section 1 stages: only the values no helper output holds.
+# What report.md section 1 stages (only the values no helper output holds), with
+# the paths --project-root, --sidecar-path and --forge-data-folder give.
 REPORT_CONTEXT = {
     "project_root": "/p", "config_path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
     "forge_data_folder": "/p/forge-data", "orphan_auto_resolution": None, "error": None,
@@ -1940,9 +1941,14 @@ BANNER_CASES = [
      "  up to date, semantic discovery ready"),
     ('ccc_index_result is "created"', _ccc(index="created", count=5), _ccc(),
      "  indexed this run, semantic discovery ready"),
-    ('ccc_index_result is "skipped"', _ccc(index="skipped"), _ccc(),
+    ('ccc_index_result is "skipped" and ccc_index_deferred is false', _ccc(index="skipped"),
+     _ccc(index="skipped", ccc_index_deferred=True),
      "  skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to build or refresh the "
      "index when you're ready"),
+    ('ccc_index_result is "skipped" and ccc_index_deferred is true', _ccc(index="skipped", ccc_index_deferred=True),
+     _ccc(index="skipped"),
+     "  skipped (--require-tier not met). The next `/skf-setup` run that meets the required tier builds or "
+     "refreshes the index"),
     ('ccc_index_result is "failed"', _ccc(index="failed", ccc_indexing_failed_reason="daemon down"), _ccc(),
      "  indexing failed, semantic discovery unavailable this session (daemon down)"),
     ("ccc_exclusion_warnings is non-empty", _ccc(ccc_exclusion_warnings=["a note"]), _ccc(),
@@ -1982,8 +1988,8 @@ BANNER_CASES = [
     ('settings_yml_written is false and ccc_index_result is "fresh"',
      _ccc(), _ccc(settings_yml_written=True),
      "  Your ccc settings were left untouched, and the ccc index was already current."),
-    ('settings_yml_written is false and ccc_index_result is "skipped"',
-     _ccc(index="skipped"), _ccc(index="skipped", settings_yml_written=True),
+    ('settings_yml_written is false and ccc_index_result is "skipped" and ccc_index_deferred is false',
+     _ccc(index="skipped"), _ccc(index="skipped", ccc_index_deferred=True),
      "  Your ccc settings were left untouched; the ccc index was not checked (--ccc-skip-index)."),
     ("{tier_changed} is false and ({tools_added} or {tools_removed} is non-empty) and {previous_tier} "
      "is non-null", GAINED_GH, {}, "  Tier unchanged: Forge."),
@@ -2089,9 +2095,9 @@ def _shown(line: str, condition: str) -> str:
 
 
 def test_every_template_condition_has_its_case_in_template_order():
-    """The template is what render-report prints: 41 conditions, a case for each."""
+    """The template is what render-report prints: 42 conditions, a case for each."""
     entries = _template_entries()
-    assert len(entries) == 41
+    assert len(entries) == 42
     assert [condition for condition, _ in entries] == [case[0] for case in BANNER_CASES]
     assert "{headless_mode}" not in "\n".join(_template_lines())
 
@@ -2466,3 +2472,258 @@ def test_cli_render_report_refuses_what_it_cannot_render(tmp_path, args, payload
                           timeout=10, cwd=tmp_path)
     assert proc.returncode == 1 and proc.stdout == ""
     assert needle in json.loads(proc.stderr)["message"]
+
+
+# ─── emit-blocked: the payload from options, the reason from stderr ──────────
+
+
+def _blocked(*args: str, stdin: bytes = b"") -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), "emit-blocked", *args], input=stdin,
+                          capture_output=True, timeout=10)
+
+
+def _blocked_envelope(done: subprocess.CompletedProcess) -> dict:
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    env = _envelope_of(done.stdout.decode("utf-8"))
+    assert mod._validate_against_schema(env, _schema()) == []
+    return env["skf_setup"]
+
+
+# A failed helper's stderr, as `2>` saved it: uv's own lines may come first.
+STDERR_CASES = [
+    (b'{"status": "error", "message": "Permission denied: /p/forge-tier.yaml"}\n',
+     "Permission denied: /p/forge-tier.yaml"),
+    (b'Installed 1 package in 3ms\n{"status":"error","message":"two\\nlines   and \\"quotes\\""}\n',
+     'two lines and "quotes"'),
+    (b'{\n  "status": "error",\n  "message": "pretty printed"\n}\n', "pretty printed"),
+    (b"\nmkdir: cannot create directory: Read-only file system\nsecond line\n",
+     "mkdir: cannot create directory: Read-only file system"),
+    (b'{"status": "error"}\nTraceback (most recent call last):\n', '{"status": "error"}'),
+    (b"", mod.NO_STDERR_MESSAGE),
+    (b"\xef\xbb\xbf\xff bad byte\n", "\ufffd bad byte"),
+]
+
+
+@pytest.mark.parametrize("raw,message", STDERR_CASES,
+                         ids=["json", "uv-lines-first", "pretty-json", "first-line", "json-without-message",
+                              "empty", "bom-and-bad-byte"])
+def test_stderr_from_takes_the_message_on_one_line(tmp_path, raw, message):
+    err = tmp_path / "write-tools.err"
+    err.write_bytes(raw)
+    env = _blocked_envelope(_blocked("--phase", "step 2:write-tools", "--path", "/p/forge-tier.yaml",
+                                     "--reason", "Setup cannot proceed: <message>", "--stderr-from", str(err)))
+    assert env["error"] == {"phase": "step 2:write-tools", "path": "/p/forge-tier.yaml",
+                            "reason": f"Setup cannot proceed: {message}"}
+    assert env["config_path"] == "/p/forge-tier.yaml" and env["status"] == "blocked"
+
+
+def test_stderr_from_dash_reads_the_pipe():
+    env = _blocked_envelope(_blocked("--phase", "step 1:run-folder", "--reason",
+                                     "Setup cannot proceed: the run folder could not be created: <message>",
+                                     "--stderr-from", "-", stdin=b"mkdir: /p/_bmad-output: Not a directory\n"))
+    assert env["error"] == {"phase": "step 1:run-folder", "path": "<n/a>",
+                            "reason": "Setup cannot proceed: the run folder could not be created: "
+                                      "mkdir: /p/_bmad-output: Not a directory"}
+
+
+def test_a_stderr_file_that_is_gone_reads_as_no_message(tmp_path):
+    env = _blocked_envelope(_blocked("--phase", "step 1:detect-tools", "--reason", "failed: <message>",
+                                     "--stderr-from", str(tmp_path / "missing.err")))
+    assert env["error"]["reason"] == f"failed: {mod.NO_STDERR_MESSAGE}"
+
+
+def test_options_and_a_typed_payload_build_the_same_envelope():
+    """The On Activation halts still pipe JSON until they switch to the options."""
+    payload = {"phase": "step 3:helper-missing", "reason": "Setup cannot proceed: x was not found.",
+               "path": "/p/_bmad/skf/shared/scripts/x.py"}
+    typed = _blocked_envelope(_blocked(stdin=json.dumps(payload).encode("utf-8")))
+    options = _blocked_envelope(_blocked("--phase", payload["phase"], "--reason", payload["reason"],
+                                         "--path", payload["path"]))
+    assert typed == options
+
+
+@pytest.mark.parametrize("args,needle", [
+    (("--reason", "r"), "need --phase"),
+    (("--stderr-from", "-"), "need --phase"),
+    (("--customization-resolver-unavailable", "r"), "need --phase"),
+    (("--phase", "p"), "must be non-empty"),
+    (("--phase", "p", "--reason", "no placeholder", "--stderr-from", "-"), "<message>"),
+    (("--phase", "p", "--reason", "x <message>"), "needs --stderr-from"),
+], ids=["reason-alone", "stderr-alone", "resolver-alone", "no-reason", "no-placeholder", "placeholder-unfilled"])
+def test_emit_blocked_refuses_options_it_cannot_use(args, needle):
+    done = _blocked(*args)
+    assert done.returncode == 1 and done.stdout == b""
+    assert needle in json.loads(done.stderr)["message"]
+
+
+@pytest.mark.parametrize("value,warning", [
+    ('resolve_customization.py: "tomllib"\n  missing', 'customization_resolver_unavailable: resolve_customization.py: '
+                                                       '"tomllib" missing'),
+    ("  ", None),
+], ids=["reason", "blank"])
+def test_a_halt_after_the_resolver_carries_its_warning(value, warning):
+    """A halt after On Activation's resolver failed still says the overrides were not applied."""
+    env = _blocked_envelope(_blocked("--phase", "step 2:write-tools", "--reason", "Setup cannot proceed: x",
+                                     "--customization-resolver-unavailable", value))
+    assert env["warnings"] == ([warning] if warning else [])
+    piped = {"phase": "step 2:write-tools", "reason": "Setup cannot proceed: x",
+             "customization_resolver_unavailable": " ".join(value.split()) or None}
+    assert _blocked_envelope(_blocked(stdin=json.dumps(piped).encode("utf-8")))["warnings"] == env["warnings"]
+
+
+def test_stderr_message_is_documented():
+    doc = mod.__doc__
+    for token in ("--phase, --reason and --path", "--stderr-from", "`<message>`", "`(no error message)`",
+                  "with no --stderr-from is refused", "--customization-resolver-unavailable"):
+        assert token in doc, token
+    assert mod.STDERR_MESSAGE == "<message>" and mod.NO_STDERR_MESSAGE == "(no error message)"
+
+
+# ─── emit and render-report: the run's paths from the project ───────────────
+
+
+PREFLIGHT_PATH = ROOT / "src" / "shared" / "scripts" / "skf-preflight.py"
+
+
+def _project(tmp_path: Path, config: bytes) -> Path:
+    project = tmp_path / "project"
+    (project / "_bmad" / "skf").mkdir(parents=True)
+    (project / "_bmad" / "skf" / "config.yaml").write_bytes(config)
+    return project
+
+
+def _preflight_config(project: Path) -> dict:
+    """The `config` skf-preflight.py prints, whose folders setup's On Activation binds."""
+    pytest.importorskip("yaml")
+    spec_pf = importlib.util.spec_from_file_location("skf_preflight_paths", PREFLIGHT_PATH)
+    preflight = importlib.util.module_from_spec(spec_pf)
+    spec_pf.loader.exec_module(preflight)
+    return preflight.run_preflight(str(project), allow_missing_sidecar=True)["config"]
+
+
+def _path_options(project: Path) -> list[str]:
+    """The path options report.md passes, filled in with what activation bound."""
+    config = _preflight_config(project)
+    return ["--project-root", str(project), "--sidecar-path", config["sidecar_path_resolved"],
+            "--forge-data-folder", config["forge_data_folder_resolved"]]
+
+
+# config.yaml as the two installers and a hand edit write it, the YAML shapes a
+# second reader of the file would get wrong among them.
+CONFIGS = [
+    (b"# SKF Configuration - Generated by installer\nuser_name: Ada\nforge_data_folder: forge-data\n"
+     b"sidecar_path: _bmad/_memory/forger-sidecar\nides:\n  - claude-code\n", "standalone-installer"),
+    (b"forge_data_folder: '{project-root}/forge-data'\nsidecar_path: '{project-root}/_bmad/_memory/forger-sidecar'\n",
+     "bmad-method-quoted"),
+    (b'forge_data_folder: "{project-root}/data/forge"  # moved\nsidecar_path: "_bmad/_memory/forger-sidecar"\n',
+     "double-quoted-with-comment"),
+    (b"forge_data_folder: '{project-root}/{output_folder}/forge'\nsidecar_path: _bmad/_memory/forger-sidecar\n",
+     "placeholder-left-in-forge-data"),
+    (b"forge_data_folder: # set me\nsidecar_path: _bmad/_memory/forger-sidecar\n", "comment-only-forge-data"),
+    (b"forge_data_folder: forge-data\nsidecar_path: >-\n  _bmad/_memory/forger-sidecar\n", "block-scalar-sidecar"),
+]
+
+
+@pytest.mark.parametrize("config", [c for c, _ in CONFIGS], ids=[i for _, i in CONFIGS])
+def test_the_paths_are_the_folders_preflight_resolved(tmp_path, config):
+    """The emitter reads no config.yaml: config_path is the forge-tier.yaml in the
+    sidecar folder activation bound from skf-preflight.py, and forge_data_folder
+    that folder too, whatever YAML shape the config uses."""
+    project = _project(tmp_path, config)
+    expected = _preflight_config(project)
+    paths = mod.setup_paths(*_path_options(project)[1::2])
+    assert paths["project_root"] == Path(expected["project_root"]).as_posix()
+    assert paths["config_path"] == (Path(expected["sidecar_path_resolved"]) / "forge-tier.yaml").as_posix()
+    if expected["forge_data_folder_resolved"]:
+        assert paths["forge_data_folder"] == Path(expected["forge_data_folder_resolved"]).as_posix()
+    else:
+        assert "forge_data_folder" not in paths
+
+
+def test_setup_paths_join_a_relative_folder_to_the_project_root(tmp_path):
+    root = tmp_path.resolve()
+    paths = mod.setup_paths(str(tmp_path), "_bmad/_memory/forger-sidecar", "forge-data")
+    assert paths == {"project_root": root.as_posix(),
+                     "config_path": (root / "_bmad" / "_memory" / "forger-sidecar" / "forge-tier.yaml").as_posix(),
+                     "forge_data_folder": (root / "forge-data").as_posix()}
+    assert mod.setup_paths(str(tmp_path), None, None) == {"project_root": root.as_posix()}
+
+
+@pytest.mark.parametrize("args", [(None, "/p/sidecar", None), (None, None, "/p/forge-data"), ("/p", " ", None)],
+                         ids=["sidecar-without-root", "forge-data-without-root", "empty-sidecar"])
+def test_setup_paths_refuse_what_they_cannot_place(args):
+    with pytest.raises(SystemExit) as exc:
+        mod.setup_paths(*args)
+    assert exc.value.code == 1
+    assert mod.setup_paths(None, None, None) == {}
+
+
+def test_emit_and_render_report_derive_the_paths_the_payload_no_longer_carries(tmp_path):
+    """determinism-2: report.md stages no path, so no escaping rule and no repair retry."""
+    project = _project(tmp_path, CONFIGS[1][0])
+    run_dir = _stage(project / "_bmad-output" / ".skf-run" / "skf-setup-RUN", detect=_detect_output())
+    payload = json.dumps({"orphan_auto_resolution": None, "customization_resolver_unavailable": None,
+                          "error": None})
+    paths = _path_options(project)
+    root = project.resolve().as_posix()
+    done = _cli_in(["emit", "--run-dir", str(run_dir), *paths], payload)
+    assert done.returncode == 0, done.stderr
+    env = _envelope_of(done.stdout)["skf_setup"]
+    assert env["config_path"] == f"{root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
+    assert env["status"] == "tier_failure" and "require_tier_failed: missing ccc" in env["warnings"]
+    banner = _cli_in(["render-report", "--run-dir", str(run_dir), *paths], payload)
+    assert banner.returncode == 0, banner.stderr
+    lines = banner.stdout.splitlines()
+    assert f"  - forge-tier.yaml: {root}/_bmad/_memory/forger-sidecar/forge-tier.yaml" in lines
+    assert f"  - {root}/forge-data/ (directory ensured)" in lines
+    # Without the options the payload must carry config_path itself, as before.
+    bare = _cli_in(["emit", "--run-dir", str(run_dir)], payload)
+    assert bare.returncode == 1 and "config_path" in json.loads(bare.stderr)["message"]
+
+
+def test_a_resolver_reason_in_the_report_payload_becomes_its_warning(tmp_path):
+    project = _project(tmp_path, CONFIGS[0][0])
+    run_dir = _stage(project / "run" / "skf-setup-RUN", detect=_detect_output())
+    payload = json.dumps({"orphan_auto_resolution": None,
+                          "customization_resolver_unavailable": 'resolve_customization.py: "tomllib" missing',
+                          "error": None})
+    done = _cli_in(["emit", "--run-dir", str(run_dir), *_path_options(project)], payload)
+    assert done.returncode == 0, done.stderr
+    warnings = _envelope_of(done.stdout)["skf_setup"]["warnings"]
+    assert warnings[0] == 'customization_resolver_unavailable: resolve_customization.py: "tomllib" missing'
+
+
+@pytest.mark.parametrize("args", [["--workflow", "skf-update-skill"], []], ids=["other-workflow", "sidecar-alone"])
+def test_the_path_options_are_setups_alone(tmp_path, args):
+    extra = ["--sidecar-path", str(tmp_path / "sidecar")]
+    if args:
+        extra = ["--project-root", str(tmp_path), *extra]
+    done = _cli_in(["emit", *args, *extra], json.dumps(_baseline_payload()))
+    assert done.returncode == 1 and done.stdout == ""
+
+
+# ─── a --require-tier miss defers a due index build ─────────────────────────
+
+
+def test_a_deferred_index_build_reads_as_skipped_and_says_why(tmp_path):
+    """The merge helper's `defer` action: the index status is an existing one
+    (`skipped`), and the banner names the tier miss, not --ccc-skip-index."""
+    deferred = {**CCC_RESULT, "written": False, "index_action": "defer",
+                "index": {"status": "skipped", "indexed_path": None, "last_indexed": None, "file_count": None,
+                          "failed_reason": None}}
+    folded = mod.fold_staged({}, {mod.STAGED_CCC: deferred})
+    assert folded["ccc_index_deferred"] is True
+    assert folded["ccc_index"] == {"status": "skipped", "indexed_path": None, "file_count": None}
+    assert mod.fold_staged({}, {mod.STAGED_CCC: CCC_RESULT})["ccc_index_deferred"] is False
+    lines = mod.render_report(_banner_payload(**_ccc(index="skipped"), **TIER_MISS, ccc_index_deferred=True), COPY)
+    assert ("  skipped (--require-tier not met). The next `/skf-setup` run that meets the required tier builds or "
+            "refreshes the index") in lines
+    assert not any("--ccc-skip-index" in line for line in lines), lines
+    detect = _detect_output()
+    detect["tools"]["ccc"] = {"available": True, "daemon": "healthy", "version": None}
+    run_dir = _stage(tmp_path / "skf-setup-RUN", detect=detect, ccc=deferred)
+    done = _cli_in(["emit", "--run-dir", str(run_dir)], json.dumps(REPORT_CONTEXT))
+    assert done.returncode == 0, done.stderr
+    env = _envelope_of(done.stdout)["skf_setup"]
+    assert (env["status"], env["ccc_index"]["status"]) == ("tier_failure", "skipped")
+    assert "ccc_index" not in env["files_written"]

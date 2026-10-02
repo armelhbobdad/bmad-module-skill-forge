@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-export-skill
+summary: |
+  Export now writes each context file's managed section with that file's own skill root. With `ides` set to `claude-code` and `codex`, the `AGENTS.md` section listed every skill under `.claude/skills/`, the root of the first configured IDE; it now lists them under `.agents/skills/`, Codex's folder, while `CLAUDE.md` keeps `.claude/skills/`. `snippet_skill_root_override` still sets one root for every file. A headless halt at context-file resolution now reports the resolved skills in its envelope's `skills`, as every later halt does.
+issues: [591, 600]

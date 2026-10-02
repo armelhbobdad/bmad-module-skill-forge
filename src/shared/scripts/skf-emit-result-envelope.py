@@ -29,10 +29,20 @@ Subcommands:
 
   emit-blocked
              skf-setup's halt: `emit-halt --workflow skf-setup` under its
-             older name. Reads {"phase", "reason", "path"?} on stdin and
-             emits a status 'blocked' envelope, with placeholders for the
-             fields a halt does not know (tier 'Quick', no tools,
-             config_path set to the path, files_written []).
+             older name. Reads {"phase", "reason", "path"?} on stdin, or
+             takes them from --phase, --reason and --path, and emits a
+             status 'blocked' envelope, with placeholders for the fields a
+             halt does not know (tier 'Quick', no tools, config_path set to
+             the path, files_written []). With the options the emitter
+             writes the JSON itself, so a step types no payload. With
+             --stderr-from (a file, or `-` for stdin) the failed command's
+             stderr fills `<message>` in --reason: the `message` of its
+             JSON error object, else its first non-blank line, folded to
+             one line (`(no error message)` when it holds neither). A
+             `<message>` with no --stderr-from is refused. A non-empty
+             --customization-resolver-unavailable is the payload key of
+             that name: the envelope warns that the `_bmad/custom/`
+             overrides were not applied.
 
   record     Append one entry to the run's sink: --decision reads one
              auto-decision (a JSON object) on stdin, --warning takes the
@@ -48,13 +58,15 @@ Subcommands:
   render-report
              skf-setup's interactive FORGE STATUS banner: reads the same
              payload as `emit` on stdin (plus the banner keys below),
-             folds in the helper outputs --run-dir holds, and prints the
-             banner's lines in English, one per line, ending with the
-             REQUIRED TIER NOT MET block when --require-tier was not met.
-             --tier-rules names skf-setup's references/tier-rules.md,
-             which holds the tier descriptions and re-run messages
-             (default: the copy beside this script's folder, in the source
-             tree and in an installed project alike).
+             folds in the helper outputs --run-dir holds and the paths
+             --project-root, --sidecar-path and --forge-data-folder give,
+             and prints the banner's lines in English, one per line,
+             ending with the REQUIRED TIER NOT MET block when
+             --require-tier was not met. --tier-rules names skf-setup's
+             references/tier-rules.md, which holds the tier descriptions
+             and re-run messages (default: the copy beside this script's
+             folder, in the source tree and in an installed project
+             alike).
 
 Workflow schemas. A workflow's envelope schema is
 `schemas/skf-<name>-result-envelope.v<N>.json`, found beside this script in
@@ -183,6 +195,15 @@ its helper failed (the classifier then reads as qmd unavailable); a file
 that is absent means its step did not run the helper, except a missing
 ccc-exclusions.json when ccc is available, which reads as a failed index.
 
+The run's paths come from options, not the payload. With --project-root,
+--sidecar-path and --forge-data-folder (the `{sidecar_path}` and
+`{forge_data_folder}` setup's On Activation bound from skf-preflight.py's
+sidecar_path_resolved and forge_data_folder_resolved), `emit` and
+`render-report` derive `project_root`, `config_path` (the forge-tier.yaml
+in the sidecar folder) and `forge_data_folder`, each written with `/`.
+The emitter reads no config.yaml value itself, so preflight stays the one
+place that resolves them. The derived values replace the payload's own.
+
 Context payload shape (consumed by `emit` for skf-setup):
 
   {
@@ -250,11 +271,13 @@ Context payload shape (consumed by `emit` for skf-setup):
   "settings_yml_patterns_added" and "settings_yml_patterns_removed"
   (int), "hygiene_result" ("completed|qmd_unavailable|skipped"),
   "hygiene_healthy", "hygiene_orphaned_removed", "hygiene_orphaned_kept",
-  "hygiene_stale_cleaned" and "ccc_registry_stale_cleaned" (int), and
-  "require_tier" (the tier --require-tier named, or null). The staged
-  helper outputs supply every one of them but the two resolved paths:
-  setup's step 4 stages only those, `config_path`, the orphan decision and
-  a null `error`.
+  "hygiene_stale_cleaned" and "ccc_registry_stale_cleaned" (int),
+  "ccc_index_deferred" (bool: --defer-index skipped a due index build),
+  and "require_tier" (the tier --require-tier named, or null). The staged
+  helper outputs supply every one of them but the two resolved paths,
+  which the path options give with `config_path`: setup's
+  step 4 stages only the orphan decision, the resolver reason and a null
+  `error`.
 
 Caller does NOT need to compute warnings, tools_added/removed, or
 tier_changed: the script derives them from the inputs above.
@@ -270,9 +293,10 @@ Activation halts, which can fire before `uv` is proven present, under
 the first of `uv run`, `python3`, `python` and `py -3` that works.
 
   echo '{...context payload...}' | uv run skf-emit-result-envelope.py emit
-  uv run skf-emit-result-envelope.py emit --run-dir "{run_dir}" < "{run_dir}/report-context.json"
-  uv run skf-emit-result-envelope.py render-report --run-dir "{run_dir}" --tier-rules "<skill>/references/tier-rules.md" < "{run_dir}/report-context.json"
+  uv run skf-emit-result-envelope.py emit --run-dir "{run_dir}" --project-root "{project-root}" --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" < "{run_dir}/report-context.json"
+  uv run skf-emit-result-envelope.py render-report --run-dir "{run_dir}" --project-root "{project-root}" --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" --tier-rules "<skill>/references/tier-rules.md" < "{run_dir}/report-context.json"
   echo '{"phase":"...","reason":"...","path":"..."}' | uv run skf-emit-result-envelope.py emit-blocked
+  uv run skf-emit-result-envelope.py emit-blocked --phase "step 2:write-tools" --path "<path>" --reason "<message>" --stderr-from "{run_dir}/write-tools.err"
   echo '{"skf_setup":{...}}' | uv run skf-emit-result-envelope.py validate
   uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warning "customization_resolver_unavailable: <reason>"
 
@@ -674,7 +698,8 @@ def fold_staged(payload: dict, staged: dict) -> dict:
       ccc-exclusions.json settings_yml_written, settings_yml_patterns_added
                           and _removed, gitignore_updated,
                           ccc_exclusion_warnings (each entry verbatim),
-                          ccc_index and ccc_indexing_failed_reason; a file
+                          ccc_index, ccc_indexing_failed_reason and
+                          ccc_index_deferred (index_action "defer"); a file
                           that holds the helper's error, or no JSON
                           object, reads as nothing written and the index
                           failed, with the error as its reason, and so
@@ -721,6 +746,7 @@ def fold_staged(payload: dict, staged: dict) -> dict:
             "settings_yml_patterns_removed": _count(result.get("patterns_removed")) if ok else 0,
             "gitignore_updated": ok and result.get("gitignore_updated") is True,
             "ccc_exclusion_warnings": _strings(result.get("warnings")) if ok else [],
+            "ccc_index_deferred": ok and result.get("index_action") == "defer",
         })
         index = _dict(result.get("index"))
         if not ok:
@@ -762,6 +788,41 @@ def fold_staged(payload: dict, staged: dict) -> dict:
         out["ccc_registry_stale_cleaned"] = len(pruned)
         out["ccc_registry_stale_removed"] = pruned
     return out
+
+
+# ─── skf-setup: the run's paths ─────────────────────────────────────────────
+
+
+def setup_paths(project_root: str | None, sidecar_path: str | None, forge_data_folder: str | None) -> dict:
+    """project_root, config_path and forge_data_folder from the path options.
+
+    --sidecar-path and --forge-data-folder take the folders setup's On
+    Activation bound from skf-preflight.py (its sidecar_path_resolved and
+    forge_data_folder_resolved), so the emitter resolves no config.yaml
+    value itself and cannot drift from preflight's rules. Each path is
+    written with `/`: the project root resolved, the forge-tier.yaml in the
+    sidecar folder, and the forge data folder (left out when empty). A
+    relative folder is joined to the project root. {} without
+    --project-root.
+    """
+    if project_root is None:
+        if sidecar_path is not None or forge_data_folder is not None:
+            _die(1, "--sidecar-path and --forge-data-folder need --project-root")
+        return {}
+    root = Path(project_root).resolve()
+    paths = {"project_root": root.as_posix()}
+
+    def folder(value: str) -> Path:
+        path = Path(value)
+        return path if path.is_absolute() else root / path
+
+    if sidecar_path is not None:
+        if not sidecar_path.strip():
+            _die(1, "--sidecar-path must be non-empty")
+        paths["config_path"] = (folder(sidecar_path) / "forge-tier.yaml").as_posix()
+    if forge_data_folder and forge_data_folder.strip():
+        paths["forge_data_folder"] = folder(forge_data_folder).as_posix()
+    return paths
 
 
 # ─── skf-setup: FORGE STATUS banner ─────────────────────────────────────────
@@ -877,6 +938,8 @@ def render_report(payload: dict, copy: dict) -> list[str]:
     root = str(payload.get("project_root") or "{project-root}").rstrip("/\\")
     hygiene = payload.get("hygiene_result")
     settings_written = payload.get("settings_yml_written")
+    # A run that missed --require-tier skipped a due index build: not --ccc-skip-index.
+    deferred = payload.get("ccc_index_deferred") is True
     # A tool below its minimum is installed: its Tool upgrades line replaces
     # an install hint, and it is never called "no longer detected".
     below = _objects(payload.get("tools_below_minimum"))
@@ -944,7 +1007,9 @@ def render_report(payload: dict, copy: dict) -> list[str]:
         ccc += [f"  {line}" for status, line in (
             ("fresh", "up to date, semantic discovery ready"),
             ("created", "indexed this run, semantic discovery ready"),
-            ("skipped", "skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to "
+            ("skipped", "skipped (--require-tier not met). The next `/skf-setup` run that meets the "
+                        "required tier builds or refreshes the index" if deferred else
+                        "skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to "
                         "build or refresh the index when you're ready"),
             ("failed", "indexing failed, semantic discovery unavailable this session"
                        + (f" ({reason})" if reason else "")),
@@ -1003,7 +1068,7 @@ def render_report(payload: dict, copy: dict) -> list[str]:
         same = [f"  {copy['same'].replace('{current}', tier)}"]
         if settings_written is False and index == "fresh":
             same.append("  Your ccc settings were left untouched, and the ccc index was already current.")
-        if settings_written is False and index == "skipped":
+        if settings_written is False and index == "skipped" and not deferred:
             same.append("  Your ccc settings were left untouched; the ccc index was not checked "
                         "(--ccc-skip-index).")
         blocks.append(same)
@@ -1611,16 +1676,26 @@ def _result_record(payload: dict, envelope: dict, timestamp, run_id, decisions: 
 
 
 def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | None = None,
-             result_dir: str | None = None, target: str = "stdout", tolerant: bool = False) -> None:
+             result_dir: str | None = None, target: str = "stdout", tolerant: bool = False,
+             payload: dict | None = None, project_root: str | None = None,
+             sidecar_path: str | None = None, forge_data_folder: str | None = None) -> None:
     """Read the payload on stdin, build, check and print the envelope, write the result files.
 
     `tolerant` passes the payload through tolerant_payload() first, for a
-    caller that keeps an older helper's tolerance.
+    caller that keeps an older helper's tolerance. A `payload` given here
+    is used instead of stdin (emit-blocked's options). `project_root`,
+    `sidecar_path` and `forge_data_folder` give skf-setup's paths
+    (setup_paths()).
     """
     schema, schema_path = load_workflow_schema(workflow or SETUP_WORKFLOW)
     meta = _meta_of(schema)
     workflow = meta["workflow"]
-    payload = _read_stdin_json(label)
+    if (project_root, sidecar_path, forge_data_folder) != (None, None, None) and (
+            workflow != SETUP_WORKFLOW or halt):
+        _die(1, f"{label}: --project-root, --sidecar-path and --forge-data-folder give the paths of a "
+                "finished skf-setup run")
+    if payload is None:
+        payload = _read_stdin_json(label)
     if not isinstance(payload, dict):
         _die(1, f"{label}: the payload must be a JSON object")
     if halt:
@@ -1636,7 +1711,8 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
     stem = meta.get("result_file")
     run_path = Path(run_dir) if run_dir else None
     if workflow == SETUP_WORKFLOW and not halt:
-        payload = fold_staged(payload, read_staged(run_path))
+        payload = {**fold_staged(payload, read_staged(run_path)),
+                   **setup_paths(project_root, sidecar_path, forge_data_folder)}
     result_path_dir = Path(result_dir) if result_dir else None
     if result_path_dir is not None and not stem:
         # Refusing would leave a halt that passed the flag by mistake with no line.
@@ -1751,12 +1827,14 @@ def cmd_validate(workflow: str | None) -> None:
         _die(1, "; ".join(errors))
 
 
-def cmd_render_report(run_dir: str | None, tier_rules: str | None) -> None:
+def cmd_render_report(run_dir: str | None, tier_rules: str | None, project_root: str | None = None,
+                      sidecar_path: str | None = None, forge_data_folder: str | None = None) -> None:
     """Print skf-setup's FORGE STATUS banner for the payload on stdin."""
     payload = _read_stdin_json("render-report")
     if not isinstance(payload, dict):
         _die(1, "render-report: the payload must be a JSON object")
-    payload = fold_staged(payload, read_staged(Path(run_dir) if run_dir else None))
+    payload = {**fold_staged(payload, read_staged(Path(run_dir) if run_dir else None)),
+               **setup_paths(project_root, sidecar_path, forge_data_folder)}
     copy = load_tier_rules(Path(tier_rules) if tier_rules else TIER_RULES_FILE)
     print("\n".join(render_report(payload, copy)))
 
@@ -1796,14 +1874,75 @@ def assemble_blocked_envelope(phase: str, reason: str, path: str | None = None) 
     }
 
 
-def cmd_emit_blocked() -> None:
+# The --reason placeholder --stderr-from fills, and its text when stderr holds no diagnostic.
+STDERR_MESSAGE = "<message>"
+NO_STDERR_MESSAGE = "(no error message)"
+
+
+def stderr_message(text: str) -> str:
+    """The diagnostic a failed command's stderr holds, folded to one line.
+
+    The `message` of a JSON error object (the whole text, else the last line
+    that holds one: a helper prints its error after any line `uv` printed),
+    else the first non-blank line, else NO_STDERR_MESSAGE.
+    """
+    lines = [line for line in text.splitlines() if line.strip()]
+    for candidate in [text, *reversed(lines)]:
+        try:
+            value = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        message = value.get("message") if isinstance(value, dict) else None
+        if isinstance(message, str) and message.strip():
+            return " ".join(message.split())
+    return " ".join(lines[0].split()) if lines else NO_STDERR_MESSAGE
+
+
+def _read_stderr(source: str) -> str:
+    """The text of --stderr-from: stdin for `-`, else the file; bytes that are not UTF-8 replaced."""
+    try:
+        raw = sys.stdin.buffer.read() if source == "-" else Path(source).read_bytes()
+    except OSError:
+        return ""
+    return raw.decode("utf-8", "replace").lstrip("\ufeff")
+
+
+def blocked_payload(phase: str | None, reason: str | None, path: str | None,
+                    stderr_from: str | None, resolver_reason: str | None = None) -> dict | None:
+    """emit-blocked's halt payload from its options; None without --phase (stdin carries it)."""
+    if phase is None:
+        if (reason, path, stderr_from, resolver_reason) != (None, None, None, None):
+            _die(1, "emit-blocked: --reason, --path, --stderr-from and --customization-resolver-unavailable "
+                    "need --phase")
+        return None
+    if not phase.strip() or not (reason or "").strip():
+        _die(1, "emit-blocked: --phase and --reason must be non-empty")
+    if stderr_from is None:
+        if STDERR_MESSAGE in reason:
+            _die(1, f"emit-blocked: {STDERR_MESSAGE} in --reason needs --stderr-from to fill it")
+    else:
+        if STDERR_MESSAGE not in reason:
+            _die(1, f"emit-blocked: --stderr-from fills {STDERR_MESSAGE} in --reason, which has none")
+        reason = reason.replace(STDERR_MESSAGE, stderr_message(_read_stderr(stderr_from)))
+    payload = {"phase": phase, "reason": " ".join(reason.split())}
+    if path:
+        payload["path"] = path
+    if resolver_reason and resolver_reason.strip():
+        payload["customization_resolver_unavailable"] = " ".join(resolver_reason.split())
+    return payload
+
+
+def cmd_emit_blocked(args) -> None:
     """Emit skf-setup's blocked envelope: `emit-halt --workflow skf-setup`.
 
     Designed for the halts (uv missing, config.yaml missing, a failed write,
     etc.) where the regular `emit` subcommand can't run because the run has
-    no complete tier/tools/config_path to report.
+    no complete tier/tools/config_path to report. The payload comes from
+    the options when --phase is given, else from stdin.
     """
-    run_emit(SETUP_WORKFLOW, halt=True, label="emit-blocked")
+    payload = blocked_payload(args.phase, args.reason, args.path, args.stderr_from,
+                              args.customization_resolver_unavailable)
+    run_emit(SETUP_WORKFLOW, halt=True, label="emit-blocked", payload=payload)
 
 
 def _force_utf8(*streams) -> None:
@@ -1834,7 +1973,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="cmd")
     p_emit = sub.add_parser("emit",          help="Build a run's envelope from its context payload (default).")
     p_halt = sub.add_parser("emit-halt",     help="Build a HARD HALT's envelope from its halt payload.")
-    sub.add_parser("emit-blocked",           help="Emit skf-setup's status='blocked' envelope for early-halt paths.")
+    p_blocked = sub.add_parser("emit-blocked", help="Emit skf-setup's status='blocked' envelope for early-halt paths.")
     p_record = sub.add_parser("record",      help="Append an auto-decision or a warning to the run's sink.")
     p_validate = sub.add_parser("validate",  help="Validate an envelope payload against the schema.")
     p_render = sub.add_parser("render-report", help="Print skf-setup's FORGE STATUS banner for its payload.")
@@ -1858,21 +1997,41 @@ def main() -> None:
     p_render.add_argument("--run-dir", default=None, help="The setup run folder that holds the staged helper outputs.")
     p_render.add_argument("--tier-rules", default=None,
                           help="skf-setup's references/tier-rules.md (default: beside this script's folder).")
+    for p in (p_emit, p_render):
+        p.add_argument("--project-root", default=None, help="skf-setup: the project root (project_root).")
+        p.add_argument("--sidecar-path", default=None,
+                       help="skf-setup: the sidecar folder activation bound (needs --project-root); "
+                            "config_path is the forge-tier.yaml in it.")
+        p.add_argument("--forge-data-folder", default=None,
+                       help="skf-setup: the forge data folder activation bound (needs --project-root).")
+    p_blocked.add_argument("--phase", default=None,
+                           help="The halt's phase; with it the payload comes from these options, not stdin.")
+    p_blocked.add_argument("--reason", default=None, help="The halt's reason (with --phase).")
+    p_blocked.add_argument("--path", default=None, help="The file or folder the halt concerns (optional).")
+    p_blocked.add_argument("--stderr-from", default=None, metavar="FILE|-",
+                           help="The failed command's stderr, a file or - for stdin: its diagnostic fills "
+                                "<message> in --reason.")
+    p_blocked.add_argument("--customization-resolver-unavailable", default=None, metavar="REASON",
+                           help="The On Activation resolver's failure reason (with --phase): the envelope warns "
+                                "that the _bmad/custom/ overrides were not applied.")
     args = parser.parse_args()
 
     cmd = args.cmd or "emit"
     if cmd in ("emit", "emit-halt"):
         run_emit(getattr(args, "workflow", None), halt=cmd == "emit-halt", label=cmd,
                  run_dir=getattr(args, "run_dir", None), result_dir=getattr(args, "result_dir", None),
-                 target=getattr(args, "target", "stdout"))
+                 target=getattr(args, "target", "stdout"), project_root=getattr(args, "project_root", None),
+                 sidecar_path=getattr(args, "sidecar_path", None),
+                 forge_data_folder=getattr(args, "forge_data_folder", None))
     elif cmd == "emit-blocked":
-        cmd_emit_blocked()
+        cmd_emit_blocked(args)
     elif cmd == "record":
         cmd_record(args)
     elif cmd == "validate":
         cmd_validate(args.workflow)
     elif cmd == "render-report":
-        cmd_render_report(args.run_dir, args.tier_rules)
+        cmd_render_report(args.run_dir, args.tier_rules, args.project_root, args.sidecar_path,
+                          args.forge_data_folder)
 
 
 if __name__ == "__main__":

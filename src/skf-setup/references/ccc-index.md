@@ -27,7 +27,7 @@ When ccc is available, run `{mergeCccExclusionsHelper}` once: it prepares `.coco
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If no path in `mergeCccExclusionsProbeOrder` exists when section 2 runs (an install fault, not a settings failure), halt with phase `step 1b:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-merge-ccc-exclusions.py was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, and `--stderr-from` where the halt names it), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 
@@ -39,7 +39,7 @@ If `{ccc}` (from step 1) is false, go to section 3 with no output. Otherwise con
 
 Unless `{quiet_mode}` is true, display: "**Preparing the ccc settings, then the semantic index if it needs building: a first index can take several minutes on large codebases (1000+ files). Run `ccc status` in another terminal to monitor progress.**"
 
-Pass `{ccc_index_fresh}` (from step 1) and `{ccc_skip_index}` as `true` or `false`, and give the call an extended timeout (or run it in the background and wait for it to finish):
+Pass `{ccc_index_fresh}` (from step 1) and `{ccc_skip_index}` as `true` or `false`, and add `--defer-index` only when `{require_tier_satisfied}` (from step 1) is `false`: a run that ends `tier_failure` then builds no index that is due, while a fresh index record still carries forward. Give the call an extended timeout (or run it in the background and wait for it to finish):
 
 ```bash
 uv run {mergeCccExclusionsHelper} \
@@ -48,6 +48,7 @@ uv run {mergeCccExclusionsHelper} \
     --prior-state-from "{sidecar_path}/forge-tier.yaml" \
     --index-fresh "{ccc_index_fresh}" \
     --skip-index "{ccc_skip_index}" \
+    [--defer-index] \
     --build-index \
     --result-to "{run_dir}/ccc-exclusions.json"
 ```

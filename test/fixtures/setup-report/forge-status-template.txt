@@ -49,7 +49,8 @@
   CCC Index:
   {if ccc_index_result is "fresh": up to date, semantic discovery ready}
   {if ccc_index_result is "created": indexed this run, semantic discovery ready}
-  {if ccc_index_result is "skipped": skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to build or refresh the index when you're ready}
+  {if ccc_index_result is "skipped" and ccc_index_deferred is false: skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to build or refresh the index when you're ready}
+  {if ccc_index_result is "skipped" and ccc_index_deferred is true: skipped (--require-tier not met). The next `/skf-setup` run that meets the required tier builds or refreshes the index}
   {if ccc_index_result is "failed": indexing failed, semantic discovery unavailable this session ({ccc_indexing_failed_reason})}
   {if ccc_exclusion_warnings is non-empty:}
   CCC exclusion notes:
@@ -93,7 +94,7 @@
 {if {tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} is non-null:}
   {same-tier message from tier-rules.md}
   {if settings_yml_written is false and ccc_index_result is "fresh": Your ccc settings were left untouched, and the ccc index was already current.}
-  {if settings_yml_written is false and ccc_index_result is "skipped": Your ccc settings were left untouched; the ccc index was not checked (--ccc-skip-index).}
+  {if settings_yml_written is false and ccc_index_result is "skipped" and ccc_index_deferred is false: Your ccc settings were left untouched; the ccc index was not checked (--ccc-skip-index).}
 
 {if {tier_changed} is false and ({tools_added} or {tools_removed} is non-empty) and {previous_tier} is non-null:}
   Tier unchanged: {calculated_tier}.
