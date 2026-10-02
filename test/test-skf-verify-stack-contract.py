@@ -28,10 +28,16 @@ and pin the prose around them:
   folder, --expect-hashes naming a skill changed mid-run, the SKILL.md scanner
   reading that inventory (source basenames as aliases) for Check 4, its
   citations file into the cycle finder as integrations.md calls it (rejected
-  directions left out, two skills that cite each other no cycle), and the
-  tally counting each cycle as a Risky row;
+  directions left out, two skills that cite each other no cycle), the
+  tally counting each cycle as a Risky row, and the canonical rows rendered
+  from the same rows file, each pair with its rationale and each cycle as a
+  row of its own;
 - a cycle row names `cycle` and its chain, so the delta never merges it into
   the pair row of two of its skills;
+- the API-surface reads fall back to one SKILL.md at a time when subagents
+  are unavailable, each summary written to disk before the next read, and a
+  Blocked recommendation states synthesize's Named-candidate requirement in
+  place;
 - a pair of one skill is dropped before the scanner and the tally, which both
   refuse it, and a pair whose skill changed mid-run is a Risky row;
 - coverage finds the skills the document names, by name or source basename,
@@ -601,14 +607,28 @@ def test_the_documented_pipeline_runs_end_to_end(tmp_path):
     (run_dir / "cycles.json").write_bytes(found.stdout.encode("utf-8"))
     assert json.loads(found.stdout)["cycles"] == [["oms-cognee", "zod", "react-query", "oms-cognee"]]
 
-    rows = {"rows": [{"lib_a": "react-query", "lib_b": "zod", "verdict": "Verified"},
-                     {"lib_a": "oms-cognee", "lib_b": "react-query", "verdict": "Verified"},
-                     {"lib_a": "oms-cognee", "lib_b": "zod", "verdict": "Verified"}]}
+    rows = {"rows": [{"lib_a": "react-query", "lib_b": "zod", "verdict": "Verified", "rationale": "zod cites it"},
+                     {"lib_a": "oms-cognee", "lib_b": "react-query", "verdict": "Verified",
+                      "rationale": "react-query cites Cognee"},
+                     {"lib_a": "oms-cognee", "lib_b": "zod", "verdict": "Verified", "rationale": "oms-cognee cites zod"}]}
+    (run_dir / "verdict-rows.json").write_bytes(json.dumps(rows).encode("utf-8"))
     tally = _run([TALLY, "--kind", "integrations", "--cycles", run_dir / "cycles.json", "--stdin"],
                  stdin=json.dumps(rows))
     assert tally.returncode == 0, tally.stdout
     counts = json.loads(tally.stdout)
     assert (counts["pairs_verified"], counts["pairs_risky"], counts["row_count"]) == (3, 1, 4)
+    # §6 renders the canonical rows from the same files, as integrations.md calls it.
+    write = _section(_read(REFERENCES / "integrations.md"), "### 6. Append to Report", "### 7.")
+    [render] = [line.strip() for line in write.splitlines() if line.strip().startswith("uv run {coverageTallyScript}")]
+    command, source = render.split("uv run {coverageTallyScript}", 1)[1].split(" < ")
+    render_args = shlex.split(command.replace("{run_dir}", run_dir.as_posix()))
+    assert shlex.split(source) == ["{run_dir}/verdict-rows.json"]
+    rendered = _run([TALLY, *render_args], stdin=(run_dir / "verdict-rows.json").read_text(encoding="utf-8"))
+    assert rendered.returncode == 0, rendered.stdout
+    lines = rendered.stdout.splitlines()
+    assert len(lines) == counts["row_count"]
+    assert lines[0] == "| react-query | zod | Verified | zod cites it |"
+    assert lines[-1].startswith("| cycle | oms-cognee \u2192 zod \u2192 react-query \u2192 oms-cognee | Risky |")
 
     # A direction Check 4 rejects as a common word leaves the cycle.
     rejected.write_bytes(json.dumps({"edges": [["oms-cognee", "zod"]]}).encode("utf-8"))
@@ -831,20 +851,60 @@ def test_integrations_judges_the_mentions_candidates(tmp_path):
 def test_a_cycle_row_never_merges_into_a_pair_row():
     text = _read(REFERENCES / "integrations.md")
     rows = _section(text, "**For each cycle**", "**Count the verdicts deterministically.**")
-    assert "`lib_a` is `cycle`, `lib_b` the arrow chain rendered from the cycle's node path" in rows
+    # The tally's --render owns the row's format: the prose keeps only why it has its own label.
+    assert "one more `Risky` row, which §6 renders after the pair rows" in rows
+    assert "Its `lib_a`, `cycle`, keeps the row apart from every pair row" in rows
+    assert "arrow chain" not in rows and "append a synthetic row" not in rows
     risky = _section(_read(REFERENCES / "synthesize.md"), "**Risky integration (from Step 03):**", "**Plausible integration")
     assert "`cycle` in its `lib_a`, the chain in its `lib_b`" in risky
+    # The tally renders that row, with the label and the chain the delta reads.
+    spec = importlib.util.spec_from_file_location("skf_coverage_tally_contract", TALLY)
+    tally = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tally)
+    chain = ["oms-cognee", "zod", "react-query", "oms-cognee"]
+    [row] = tally.render_integrations({"rows": []}, {"cycles": [chain]})
+    cells = [cell.strip() for cell in row.strip("|").split("|")]
+    assert cells[:3] == ["cycle", "oms-cognee → zod → react-query → oms-cognee", "Risky"]
     # The delta keys rows on their two libraries: the cycle row stays its own row.
     spec = importlib.util.spec_from_file_location("skf_report_delta_contract", REPORT_DELTA)
     delta = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(delta)
     pair = {"libA": "react-query", "libB": "zod", "verdict": "Verified"}
-    cycle = {"libA": "cycle", "libB": "oms-cognee → zod → react-query → oms-cognee", "verdict": "Risky"}
+    cycle = {"libA": cells[0], "libB": cells[1], "verdict": cells[2]}
     out = delta.compute({"previous": {"coverage": [], "integration": [pair]},
                          "current": {"coverage": [], "integration": [pair, cycle]}})
     assert out["unchanged"] == ["react-query ↔ zod"]
     assert out["new"] == ["cycle ↔ oms-cognee → zod → react-query → oms-cognee"]
     assert out["regressedCount"] == 0
+
+
+def test_the_api_surface_reads_have_a_sequential_fallback():
+    """enhancement-5: without subagents, the parent reads one SKILL.md at a time and puts each
+    summary on disk before the next, so a compaction loses none."""
+    surfaces = _section(_read(REFERENCES / "integrations.md"), "### 3. Load Skill API Surfaces", "### 4.")
+    [fallback] = [p for p in surfaces.split("\n\n") if p.startswith("**When subagents are unavailable**")]
+    for needle in ("one at a time", "compact JSON by the rules above",
+                   "append it to `{run_dir}/skill-summaries.json` at once, then go on to the next",
+                   "The 20% budget below counts subagent replies only."):
+        assert needle in fallback, needle
+    assert "keep only that JSON" not in fallback
+    [collect] = [p for p in surfaces.split("\n\n") if p.startswith("**Parent collects all JSON summaries.**")]
+    assert "Append the accepted summaries of each batch to `{run_dir}/skill-summaries.json`" in collect
+    assert surfaces.index("**When subagents are unavailable**") < surfaces.index("**Schema validation (parent):**")
+    assert "Do not load full SKILL.md content into parent context" not in surfaces
+    assert "never load a full SKILL.md into the parent context" in surfaces
+
+
+def test_a_blocked_recommendation_follows_the_named_candidate_requirement():
+    """w3 architecture-3: the report section states the rule itself, since step 5 is not loaded yet."""
+    integrations = _read(REFERENCES / "integrations.md")
+    assert "H6" not in integrations and "step 5 §2" not in integrations
+    write = _section(integrations, "### 6. Append to Report", "### 7.")
+    assert ("a Blocked one that proposes a replacement names at least one alternative library with a one-line "
+            "justification, or says no named candidate was found and gives the selection criteria") in write
+    blocked = _section(_read(REFERENCES / "synthesize.md"), "**Blocked integration (from Step 03):**",
+                       "**Not Addressed requirement")
+    assert "**Named-candidate requirement:**" in blocked
 
 
 def test_requirements_reads_the_step_3_summaries_not_skill_md():

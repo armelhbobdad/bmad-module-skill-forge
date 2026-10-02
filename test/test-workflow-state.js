@@ -105,12 +105,17 @@ async function runTests() {
   // Step-05 must write delta fields to frontmatter
   assert(vsStep05.includes('deltaImproved'), 'VS step 5 writes delta fields to frontmatter', 'synthesize.md should set delta* fields');
 
-  // The coverage counts step 2 writes and step 5's verdict rollup reads
+  // The coverage counts step 2 writes and step 5's verdict rollup reads from the report itself
   const vsStep02Coverage = await readFile(path.join(srcDir, 'skf-verify-stack/references/coverage.md'));
+  assert(
+    vsStep05.includes('uv run {verdictRollupScript} --report "{outputFile}"'),
+    'VS step 5 runs the verdict rollup on the report',
+    'synthesize.md should let the rollup read the report frontmatter (--report)',
+  );
   for (const field of ['coverageCovered', 'coverageMissing']) {
     assert(templateFields.has(field), `VS template has coverage count field: ${field}`, 'Missing from feasibility-report-template.md');
     assert(vsStep02Coverage.includes(`\`${field}\``), `VS step 2 writes ${field}`, 'coverage.md should set it from the tally');
-    assert(vsStep05.includes(`\`${field}\``), `VS step 5 reads ${field}`, 'synthesize.md should pass it to the verdict rollup');
+    assert(vsStep05.includes(`\`${field}\``), `VS step 5 reads ${field}`, 'synthesize.md should name it among the keys --report reads');
   }
 
   // Requirements fields should init to null (not 0) for proper N/A fallback

@@ -4,22 +4,30 @@ The deterministic overall-feasibility verdict rollup that verify-stack now
 delegates to instead of an in-prompt threshold cascade (zero-coverage
 short-circuit, blocked/missing/risky conditions, plausible cap, requirements
 gaps, zero-pairs guard, the recommendation count derived from the same
-counts, and CLI exit codes), and the rollup input that synthesize.md builds
-for it.
+counts, and CLI exit codes), the --report mode that reads those counts from
+the report frontmatter itself and fails on a count a stage never wrote or a
+stage stepsCompleted does not list (while rollup()'s defaults stay for the
+callers that pass JSON), and the one
+call synthesize.md makes.
 """
 
 import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 SKILL = REPO / "src" / "skf-verify-stack"
 SCRIPT = SKILL / "scripts" / "skf-verdict-rollup.py"
 SYNTHESIZE = SKILL / "references" / "synthesize.md"
+TEMPLATE = SKILL / "assets" / "feasibility-report-template.md"
+READER_PATH = REPO / "src" / "shared" / "scripts" / "skf-validate-feasibility-report.py"
 spec = importlib.util.spec_from_file_location("rollup_mod", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
@@ -217,16 +225,31 @@ def _synthesize_section(heading, end, path=SYNTHESIZE):
     return text[start:text.index(end, start)]
 
 
-def test_synthesize_passes_every_input_the_rollup_reads():
+def _rollup_call():
     section = _synthesize_section("### 1. Calculate Overall Verdict", "### 2.")
-    # A key opens a code span: `coveredCount` or `requirementsEvaluated: true`.
+    [call] = [line for line in section.splitlines() if line.startswith("uv run {verdictRollupScript} ")]
+    return section, call
+
+
+def test_synthesize_runs_the_rollup_on_the_report():
+    section, call = _rollup_call()
+    assert call == 'uv run {verdictRollupScript} --report "{outputFile}"'
+    args = mod._build_parser().parse_args(shlex.split(call.split("uv run {verdictRollupScript}", 1)[1]))
+    assert args.report == "{outputFile}" and not args.stdin
+    # The script reads the frontmatter, and --help lists its keys: the stage names
+    # the two the workflow-state test pins and the stage list, and assembles no input itself.
     named = set(re.findall(r"`([A-Za-z]+)\b", section))
-    for field in ("coveragePercentage", *mod.REQUIRED_COUNTS, *mod.OPTIONAL_COUNTS, "requirementsEvaluated"):
-        assert field in named, f"synthesize.md section 1 never names the rollup input {field}"
-    # The two coverage counts come from the frontmatter step 2 wrote, not
-    # from a second tally run over the report's rows.
-    assert "`coveredCount` \u2190 `coverageCovered`" in section
-    assert "`missingCount` \u2190 `coverageMissing`" in section
+    for key in ("coverageCovered", "coverageMissing", mod.STEPS_COMPLETED_KEY):
+        assert key in named, f"synthesize.md section 1 never names the frontmatter key {key}"
+    for key, _ in mod.REPORT_COUNTS:
+        assert key in mod.__doc__, key
+    assert "`pairsVerified`, `pairsPlausible`" not in section
+    for stale in ("echo '<counts JSON>'", "Assemble the counts", "Input keys:", "fix the input and run it again"):
+        assert stale not in section, stale
+    for code in ("HELPER_MISSING", "INVALID_REPORT", "INVALID_INPUT"):
+        assert f"`{code}`" in section and code in mod.__doc__, code
+    assert '(exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:rollup`' in section
+    assert '(exit code 5, `halt_reason: "schema-violation"`) at phase `synthesize:rollup`' in section
     synthesize = SYNTHESIZE.read_text(encoding="utf-8")
     assert "coverageTallyScript" not in synthesize
     assert "serialize the Coverage Analysis table" not in synthesize
@@ -304,7 +327,8 @@ def test_validation_replaced_count():
 
 def test_synthesize_takes_the_recommendation_count_from_the_rollup():
     section = _synthesize_section("### 1. Calculate Overall Verdict", "### 2.")
-    assert "`replacedCount` \u2190 `coverageReplaced`" in section
+    # --report reads the Replaced count itself; its --help names the key.
+    assert ("coverageReplaced", "replacedCount") in mod.REPORT_COUNTS and "coverageReplaced" in mod.__doc__
     assert "`recommendationCount`" in section and "`recommendations`" in section
     compile_section = _synthesize_section("### 4. Compile Synthesis Section", "### 5.")
     assert "count total recommendations" not in compile_section
@@ -324,3 +348,148 @@ def test_synthesize_zero_pairs_recommendation_keys_on_the_guard():
     section = _synthesize_section("### 2. Generate Prescriptive Recommendations", "### 3.")
     assert "`zero-integration-pairs`" in section
     assert "2+ technologies" not in section
+
+
+# --- --report: the counts from the report frontmatter ---------------------------
+
+# The counts each stage persists, as a finished run leaves them.
+STAGE_COUNTS = {"coveragePercentage": "75", "coverageCovered": "3", "coverageMissing": "1", "coverageReplaced": "2",
+                "pairsVerified": "1", "pairsPlausible": "1", "pairsRisky": "0", "pairsBlocked": "0",
+                "requirementsPass": "'completed'", "requirementsNotAddressed": "1", "requirementsPartial": "0",
+                "stepsCompleted": "['init', 'coverage', 'integrations', 'requirements']"}
+
+
+def _report(tmp_path, name="feasibility-report-my-app-20261002-101500.md", drop=(), **values):
+    """The report template with its frontmatter keys set as the stages set them."""
+    lines = TEMPLATE.read_text(encoding="utf-8").split("\n")
+    wanted = {**STAGE_COUNTS, **values}
+    end = lines.index("---", 1)
+    out = []
+    for i, line in enumerate(lines):
+        key = line.split(":", 1)[0]
+        if 0 < i < end and key in drop:
+            continue
+        out.append(f"{key}: {wanted[key]}" if 0 < i < end and key in wanted else line)
+    path = tmp_path / name
+    path.write_bytes("\n".join(out).encode("utf-8"))
+    return path
+
+
+def _run_report(path, script=SCRIPT):
+    p = subprocess.run([sys.executable, str(script), "--report", str(path)], capture_output=True, text=True,
+                       check=False)
+    return p.returncode, json.loads(p.stdout)
+
+
+def test_the_report_gives_the_rollup_its_counts(tmp_path):
+    code, out = _run_report(_report(tmp_path))
+    assert code == 0
+    assert out == rollup({"coveragePercentage": 75, "coveredCount": 3, "missingCount": 1, "replacedCount": 2,
+                          "pairsVerified": 1, "pairsPlausible": 1, "pairsRisky": 0, "pairsBlocked": 0,
+                          "requirementsEvaluated": True, "requirementsNotAddressed": 1, "requirementsPartial": 0})
+    assert out["overallVerdict"] == "CONDITIONALLY_FEASIBLE"
+    assert out["recommendations"] == {"blocked": 0, "missing": 1, "replaced": 2, "risky": 0, "plausible": 1,
+                                      "zeroPairs": 0, "notAddressed": 1, "partial": 0}
+
+
+def test_a_skipped_requirements_pass_reads_no_requirement_count(tmp_path):
+    # The requirements stage leaves both counts at the template's null when it skips.
+    path = _report(tmp_path, requirementsPass='"skipped"', requirementsNotAddressed="null",
+                   requirementsPartial="null")
+    code, out = _run_report(path)
+    assert code == 0 and out["recommendations"]["notAddressed"] == 0
+    assert "requirements-not-addressed" not in out["matchedConditions"]
+
+
+@pytest.mark.parametrize("key", [key for key, _ in mod.REPORT_COUNTS])
+def test_a_count_a_stage_never_wrote_fails(tmp_path, key):
+    """A key left at the template's null, or missing, is an error, never a default 0."""
+    for path in (_report(tmp_path, **{key: "null"}), _report(tmp_path, name="dropped.md", drop=(key,))):
+        code, out = _run_report(path)
+        assert (code, out["code"]) == (2, "INVALID_REPORT"), path.name
+        assert key in out["error"], out["error"]
+
+
+@pytest.mark.parametrize("stage", list(mod.REPORT_STAGES))
+def test_a_stage_the_report_does_not_list_fails(tmp_path, stage):
+    """The template starts coveragePercentage and the pair counts at 0: only a finished stage measured them."""
+    steps = [step for step in ("init", *mod.REPORT_STAGES) if step != stage]
+    code, out = _run_report(_report(tmp_path, stepsCompleted="[" + ", ".join(steps) + "]"))
+    assert (code, out["code"]) == (2, "INVALID_REPORT")
+    assert "stepsCompleted" in out["error"] and stage in out["error"], out["error"]
+
+
+def test_a_block_list_of_the_stages_is_read(tmp_path):
+    path = _report(tmp_path, stepsCompleted="\n  - init\n  - coverage\n  - integrations\n  - requirements")
+    assert _run_report(path)[0] == 0
+    assert _run_report(_report(tmp_path, name="none.md", stepsCompleted="[]"))[1]["code"] == "INVALID_REPORT"
+
+
+@pytest.mark.parametrize("values", [
+    {"requirementsPass": "''"},
+    {"requirementsPass": "'partial'"},
+    {"requirementsNotAddressed": "null"},
+    {"requirementsPartial": "two"},
+], ids=["pass-unset", "pass-unknown", "not-addressed-unset", "partial-not-a-count"])
+def test_the_requirements_pass_and_its_counts_must_be_recorded(tmp_path, values):
+    code, out = _run_report(_report(tmp_path, **values))
+    assert (code, out["code"]) == (2, "INVALID_REPORT")
+    assert next(iter(values)) in out["error"]
+
+
+def test_quotes_and_comments_around_a_count_are_read(tmp_path):
+    code, out = _run_report(_report(tmp_path, pairsRisky='"2"', coverageMissing="1  # one left"))
+    assert code == 0 and out["recommendations"]["risky"] == 2 and out["recommendations"]["missing"] == 1
+
+
+def test_counts_that_disagree_are_invalid_input(tmp_path):
+    code, out = _run_report(_report(tmp_path, coverageCovered="0", coverageMissing="4"))
+    assert (code, out["code"]) == (2, "INVALID_INPUT")
+
+
+def test_a_report_it_cannot_read_is_invalid(tmp_path):
+    code, out = _run_report(tmp_path / "missing.md")
+    assert (code, out["code"]) == (2, "INVALID_REPORT")
+    bad = tmp_path / "latin1.md"
+    bad.write_bytes(b"---\ncoveragePercentage: 75\nnote: caf\xe9\n---\n")
+    assert _run_report(bad)[1]["code"] == "INVALID_REPORT"
+
+
+def _install(root, with_reader):
+    """The installed layout: _bmad/skf/<skill>/scripts/ beside _bmad/skf/shared/scripts/."""
+    script = root / "_bmad" / "skf" / "skf-verify-stack" / "scripts" / SCRIPT.name
+    script.parent.mkdir(parents=True)
+    script.write_bytes(SCRIPT.read_bytes())
+    if with_reader:
+        shared = root / "_bmad" / "skf" / "shared" / "scripts"
+        shared.mkdir(parents=True)
+        (shared / READER_PATH.name).write_bytes(READER_PATH.read_bytes())
+    return script
+
+
+def test_the_installed_layout_reads_the_report(tmp_path):
+    script = _install(tmp_path / "project", with_reader=True)
+    assert _run_report(_report(tmp_path), script=script)[0] == 0
+    assert mod.SHARED_READER == READER_PATH.resolve()
+
+
+def test_a_missing_shared_reader_exits_1(tmp_path):
+    script = _install(tmp_path / "project", with_reader=False)
+    code, out = _run_report(_report(tmp_path), script=script)
+    assert (code, out["code"]) == (1, "HELPER_MISSING")
+    # Counts passed as JSON need no reader.
+    p = subprocess.run([sys.executable, str(script), "--stdin"], input=json.dumps(base()), capture_output=True,
+                       text=True, check=False)
+    assert p.returncode == 0, p.stdout
+
+
+def test_report_takes_no_second_input():
+    p = subprocess.run([sys.executable, str(SCRIPT), "--report", "r.md", "--stdin"], capture_output=True,
+                       text=True, check=False)
+    assert p.returncode == 2 and p.stdout == ""
+
+
+def test_rollup_keeps_its_defaults_for_json_callers():
+    """The strictness lives in the frontmatter reader only."""
+    assert rollup(base())["recommendations"]["replaced"] == 0
+    assert rollup(base(requirementsNotAddressed=3))["overallVerdict"] == "FEASIBLE"

@@ -91,15 +91,13 @@ Record the cited section heading or annotation text as evidence for every techno
 - **Replaced** — no matching skill exists AND a deliberate-removal signal (above) was found; the technology is intentionally being removed/replaced, so no skill should exist for it
 - **Missing** — no matching skill found and no removal signal
 
-Build the coverage matrix as a structured table.
-
-**Tally the matrix deterministically.** Assigning each verdict is judgment; counting the classes and computing the percentage has one correct answer, so delegate it. Serialize the matrix as `{"rows": [{"technology": "…", "verdict": "Covered|Missing|Replaced"}, …]}` and run:
+**Tally the matrix deterministically.** Assigning each verdict is judgment; counting the classes and computing the percentage has one correct answer, so delegate it. Write the matrix to `{run_dir}/coverage-rows.json` as `{"rows": [{"technology": "…", "section": "<its source section, or null>", "skill": "<the matching skill's name, or null>", "verdict": "Covered|Missing|Replaced"}, …]}`, one row per technology, and run:
 
 ```bash
-echo '<rows JSON>' | uv run {coverageTallyScript} --stdin
+uv run {coverageTallyScript} --stdin < "{run_dir}/coverage-rows.json"
 ```
 
-The script (run `uv run {coverageTallyScript} --help` for the contract) returns `covered_count`, `missing_count`, `replaced_count`, `live_count` (the denominator: Covered + Missing, with Replaced excluded because a technology being removed is not a gap to close), `total_referenced`, and `coverage_percentage` (Replaced excluded from the denominator, half-up rounding pinned so the same matrix always yields the same integer). Consume these values in §5, §6 and §7 rather than recomputing them.
+The script (run `uv run {coverageTallyScript} --help` for the contract) returns `covered_count`, `missing_count`, `replaced_count`, `live_count` (the denominator: Covered + Missing, with Replaced excluded because a technology being removed is not a gap to close), `total_referenced`, and `coverage_percentage` (Replaced excluded from the denominator, half-up rounding pinned so the same matrix always yields the same integer). Consume these values in §5, §6 and §7 rather than recomputing them. When it exits non-zero, it rejected the rows and says why (its JSON `error`): fix them and run it again.
 
 ### 4. Detect Extra Skills
 
@@ -117,11 +115,19 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 
 ### 5. Display Coverage Results
 
+Render the matrix's table rows from the §3 rows file, once, for this display and the report (§6):
+
+```bash
+uv run {coverageTallyScript} --render --stdin < "{run_dir}/coverage-rows.json"
+```
+
+It prints one row per technology, its Source Section and Skill Match `none` where the rows file names none. On a non-zero exit it prints a JSON `error` instead: fix the row it names in `{run_dir}/coverage-rows.json`, run the §3 tally again, then this call, and never paste that output into the table.
+
 "**Pass 1: Technology Coverage**
 
 | Technology | Source Section | Skill Match | Verdict |
 |------------|---------------|-------------|---------|
-| {tech_name} | {section_heading} | {skill_name or '—'} | {Covered / Missing / Replaced} |
+{the rendered rows, as printed}
 
 **Coverage: {covered_count}/{live_count} ({coverage_percentage}%)** (from the §3 tally; `live_count` excludes **Replaced** technologies)
 
@@ -153,7 +159,7 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
 Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySchemaRef}` — section headings are fixed and ordered: `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`):
-- Include the full coverage table, with the §5 header `| Technology | Source Section | Skill Match | Verdict |` and one token alone in each Verdict cell (`Covered`, `Missing` or `Replaced`): the next run's delta reads the Technology and Verdict columns
+- Include the full coverage table: the §5 header `| Technology | Source Section | Skill Match | Verdict |`, its delimiter row and the rows §5 rendered, as printed, so each Verdict cell holds one token alone (`Covered`, `Missing` or `Replaced`): the next run's delta reads the Technology and Verdict columns
 - Include coverage percentage
 - Include missing skill recommendations
 - Include the Replaced (being removed/replaced) subdivision from section 3, with the cited removal evidence — these are not gaps and carry no [CS]/[QS] recommendation

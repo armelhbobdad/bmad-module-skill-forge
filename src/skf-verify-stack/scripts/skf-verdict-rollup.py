@@ -44,9 +44,28 @@ Covered technology means 0% coverage, so coveredCount 0 with a percentage above 
 rejected (a caller that left the count at 0 would silently switch the guard off).
 
 CLI usage:
+  uv run skf-verdict-rollup.py --report <feasibility-report.md>  # the report's frontmatter
   uv run skf-verdict-rollup.py '<JSON>'                  # JSON literal positional
   uv run skf-verdict-rollup.py --json-input '<JSON>'     # explicit flag form
   cat input.json | uv run skf-verdict-rollup.py --stdin  # piped input
+
+Reading the report (--report, the call synthesize.md section 1 makes): the
+input below comes from the report's frontmatter, read with split_frontmatter()
+of the shared skf-validate-feasibility-report.py, the reader the report's
+consumers use. coveragePercentage and the four pair counts keep their names;
+coverageCovered gives coveredCount, coverageMissing missingCount and
+coverageReplaced replacedCount; requirementsPass gives requirementsEvaluated
+(true for `completed`, false for `skipped`), and with `completed`,
+requirementsNotAddressed and requirementsPartial come in too. Every one of
+those keys must hold a whole number (requirementsPass one of its two
+values): a key missing from the frontmatter, or still at the template's null
+or empty value, fails the run (INVALID_REPORT) rather than reading as 0 or
+false, so the defaults below serve only the callers that pass JSON. The
+template starts coveragePercentage and the four pair counts at 0, a value
+no stage need have written, so the frontmatter's stepsCompleted list
+(read with the shared reader's frontmatter_list()) must name coverage,
+integrations and requirements, the three stages that write the counts: a
+report whose list lacks one fails the same way.
 
 Input schema (one object; counts come straight from the report frontmatter/tables):
   {
@@ -88,17 +107,29 @@ Condition codes (stable; the prompt cites these when synthesizing the rationale)
   zero-coverage · blocked-integration · missing-coverage · risky-integration ·
   requirements-not-addressed · requirements-partial · plausible-cap · zero-integration-pairs
 
+Errors (stdout, one object): {"error": "<why>", "code": "<code>"}:
+  INVALID_INPUT   the counts do not fit the input schema above
+  INVALID_REPORT  --report: the report cannot be read, a key above is
+                  missing or holds no count, or stepsCompleted does not
+                  list a stage that writes them
+  HELPER_MISSING  --report: the shared skf-validate-feasibility-report.py is
+                  not in the shared scripts folder beside this skill's folder
+
 Exit codes:
-  0  — verdict emitted successfully
-  1  — no input / input could not be parsed as JSON
-  2  — input parsed but schema/semantics invalid (error object emitted as JSON)
+  0  verdict emitted successfully
+  1  no input, input that could not be parsed as JSON, or HELPER_MISSING
+  2  input parsed but schema/semantics invalid: INVALID_INPUT or
+     INVALID_REPORT (error object emitted as JSON)
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import re
 import sys
+from pathlib import Path
 
 VERDICTS = ("FEASIBLE", "CONDITIONALLY_FEASIBLE", "NOT_FEASIBLE")
 REQUIRED_COUNTS = (
@@ -111,14 +142,48 @@ REQUIRED_COUNTS = (
 )
 OPTIONAL_COUNTS = ("requirementsNotAddressed", "requirementsPartial", "replacedCount")
 
+# --report: each frontmatter key the stages persist, with the input it fills.
+REPORT_COUNTS = (
+    ("coveragePercentage", "coveragePercentage"),
+    ("coverageMissing", "missingCount"),
+    ("coverageCovered", "coveredCount"),
+    ("coverageReplaced", "replacedCount"),
+    ("pairsBlocked", "pairsBlocked"),
+    ("pairsRisky", "pairsRisky"),
+    ("pairsPlausible", "pairsPlausible"),
+    ("pairsVerified", "pairsVerified"),
+)
+# --report: the stages that write those counts, each of which the frontmatter's
+# stepsCompleted must list: the template's 0 is no count until its stage ran.
+STEPS_COMPLETED_KEY = "stepsCompleted"
+REPORT_STAGES = ("coverage", "integrations", "requirements")
+REQUIREMENTS_PASS_KEY = "requirementsPass"
+REQUIREMENTS_PASSES = ("completed", "skipped")
+# Read only when requirementsPass is `completed`.
+REQUIREMENT_COUNTS = ("requirementsNotAddressed", "requirementsPartial")
+INVALID_REPORT = "INVALID_REPORT"
+HELPER_MISSING = "HELPER_MISSING"
+# A frontmatter count: a whole number, a trailing comment allowed.
+_COUNT_RE = re.compile(r"([0-9]+)(?:\s+#.*)?")
+
+# The shared feasibility-report reader. Installed (under _bmad/skf/ or an
+# IDE's skills folder) and in a dev checkout (src/), shared/ sits beside
+# this skill's folder.
+SHARED_READER = (
+    Path(__file__).resolve().parent.parent.parent
+    / "shared"
+    / "scripts"
+    / "skf-validate-feasibility-report.py"
+)
+
 # The zero-pairs guard needs a pair that could have been found: two Covered
 # technologies (the schema's "two or more live technologies", all of them Covered
 # whenever the verdict could otherwise be FEASIBLE).
 ZERO_PAIRS_MIN_COVERED = 2
 
 
-def make_error(message):
-    return {"error": message, "code": "INVALID_INPUT"}
+def make_error(message, code="INVALID_INPUT"):
+    return {"error": message, "code": code}
 
 
 def _is_nonneg_int(value):
@@ -236,6 +301,81 @@ def rollup(inp):
     }
 
 
+# --- Reading the report -------------------------------------------------------
+
+
+def load_reader():
+    """Import the shared feasibility-report reader, or None when it is missing."""
+    try:
+        if not SHARED_READER.is_file():
+            return None
+    except OSError:
+        return None  # a folder on the way that cannot be searched
+    spec = importlib.util.spec_from_file_location("skf_validate_feasibility_report", SHARED_READER)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _report_count(frontmatter, key):
+    """A frontmatter key's whole number, or (None, why it holds none)."""
+    if key not in frontmatter:
+        return None, f"the report frontmatter has no {key}: the stage that writes it did not record it"
+    match = _COUNT_RE.fullmatch(frontmatter[key].strip())
+    if match is None:
+        return None, (f"the report frontmatter's {key} is {frontmatter[key]!r}, not a whole number: "
+                      "the stage that writes it did not record it")
+    return int(match.group(1)), None
+
+
+def counts_from_report(frontmatter, steps):
+    """The rollup input from a report's frontmatter scalars (split_frontmatter())
+    and its stepsCompleted items (frontmatter_list(), None when it has none).
+
+    Returns (input, None), or (None, error) when a stage that writes the counts
+    is not in `steps`, or a key the stages persist is missing or holds no count.
+    Unlike rollup(), nothing defaults: requirementsPass must be `completed` or
+    `skipped`, and `completed` needs both requirement counts.
+    """
+    for stage in REPORT_STAGES:
+        if stage not in (steps or ()):
+            return None, (f"the report frontmatter's {STEPS_COMPLETED_KEY} does not list {stage}: "
+                          "that stage did not finish, so its counts are the template's")
+    inp = {}
+    for key, field in REPORT_COUNTS:
+        inp[field], err = _report_count(frontmatter, key)
+        if err:
+            return None, err
+    passed = frontmatter.get(REQUIREMENTS_PASS_KEY, "").split("#", 1)[0].strip()
+    if passed not in REQUIREMENTS_PASSES:
+        return None, (f"the report frontmatter's {REQUIREMENTS_PASS_KEY} is {passed!r}, not completed or "
+                      "skipped: the requirements stage did not record its pass")
+    inp["requirementsEvaluated"] = passed == "completed"
+    if inp["requirementsEvaluated"]:
+        for key in REQUIREMENT_COUNTS:
+            inp[key], err = _report_count(frontmatter, key)
+            if err:
+                return None, err
+    return inp, None
+
+
+def rollup_report(path, reader):
+    """(result, exit code) of the rollup over the report at `path`, read with `reader`."""
+    try:
+        # utf-8-sig drops a byte order mark, as the shared reader does.
+        content = Path(path).read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        return make_error(f"cannot read the report {path}: {exc}", INVALID_REPORT), 2
+    frontmatter, _body = reader.split_frontmatter(content)
+    inp, err = counts_from_report(frontmatter, reader.frontmatter_list(content, STEPS_COMPLETED_KEY))
+    if err:
+        return make_error(err, INVALID_REPORT), 2
+    result = rollup(inp)
+    return result, 2 if result.get("code") == "INVALID_INPUT" else 0
+
+
 # --- CLI --------------------------------------------------------------------
 
 
@@ -247,7 +387,8 @@ def _build_parser():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Example:\n"
+            "Examples:\n"
+            "  uv run skf-verdict-rollup.py --report feasibility-report-my-app-20261002-101500.md\n"
             "  uv run skf-verdict-rollup.py "
             "'{\"coveragePercentage\":100,\"missingCount\":0,\"coveredCount\":4,"
             "\"pairsBlocked\":0,\"pairsRisky\":0,\"pairsPlausible\":0,\"pairsVerified\":3}'"
@@ -257,6 +398,11 @@ def _build_parser():
     src.add_argument("json_input", nargs="?", help="JSON object as a positional argument.")
     src.add_argument("--json-input", dest="json_input_flag", help="JSON object passed via flag.")
     src.add_argument("--stdin", action="store_true", help="Read the JSON object from stdin.")
+    src.add_argument(
+        "--report",
+        metavar="REPORT",
+        help="Read the counts from this feasibility report's frontmatter; a missing count fails.",
+    )
     return parser
 
 
@@ -273,6 +419,15 @@ def _resolve_input(args):
 def main(argv=None):
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.report is not None:
+        reader = load_reader()
+        if reader is None:
+            message = f"the shared report reader {SHARED_READER.name} is not installed beside this skill"
+            print(json.dumps(make_error(message, HELPER_MISSING), indent=2))
+            return 1
+        result, code = rollup_report(args.report, reader)
+        print(json.dumps(result, indent=2))
+        return code
     raw = _resolve_input(args)
     if not raw.strip():
         parser.print_usage(file=sys.stderr)

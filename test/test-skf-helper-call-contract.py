@@ -467,16 +467,19 @@ MUST_FIND = [
     ("src/skf-audit-skill/references/structural-diff.md", "skf-extraction-snapshot.py", "relocate"),
     ("src/skf-audit-skill/references/report.md", "skf-emit-result-envelope.py", "emit"),
     ("src/skf-audit-skill/references/report.md", "skf-source-tree.py", "close"),
-    # create-stack-skill (#593, #587): the halt, decision and success emitter
-    # calls, the library tiers step 4 takes from the stack helper and the
-    # step 6 stats.
+    # create-stack-skill (#593, #587, #606): the halt, decision and success
+    # emitter calls, the relabel and library tiers step 4 takes from the stack
+    # helper, the step 6 stats and the code-mode entries and integrations step 7
+    # writes with it.
     ("src/skf-create-stack-skill/references/init.md", "skf-emit-result-envelope.py", "emit-halt"),
     ("src/skf-create-stack-skill/references/rank-and-confirm.md", "skf-emit-result-envelope.py", "record"),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-emit-result-envelope.py", "emit-halt"),
     ("src/skf-create-stack-skill/references/report.md", "skf-emit-result-envelope.py", "emit"),
     ("src/skf-create-stack-skill/references/report.md", "skf-atomic-write.py", "write"),
+    ("src/skf-create-stack-skill/references/parallel-extract.md", "skf-render-stack-metadata.py", "relabel"),
     ("src/skf-create-stack-skill/references/parallel-extract.md", "skf-render-stack-metadata.py", "library-tiers"),
     ("src/skf-create-stack-skill/references/compile-stack.md", "skf-render-stack-metadata.py", "metadata"),
+    ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-stack-metadata.py", "provenance"),
 ]
 
 
@@ -506,8 +509,6 @@ FLAG_ONLY_MUST_FIND = [
     ("src/skf-create-skill/references/compile.md", "skf-render-metadata-stats.py", ()),
     ("src/skf-create-skill/references/validate.md", "skf-render-metadata-stats.py", ("--check",)),
     ("src/skf-update-skill/references/write.md", "skf-render-metadata-stats.py", ("--shape", "reference-app")),
-    ("src/skf-create-stack-skill/references/parallel-extract.md", "skf-render-metadata-stats.py",
-     ("--shape", "stack")),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-render-metadata-stats.py",
      ("--shape", "stack")),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-names-present.py",

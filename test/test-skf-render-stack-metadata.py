@@ -1,9 +1,24 @@
 #!/usr/bin/env python3
 """Tests for src/shared/scripts/skf-render-stack-metadata.py.
 
-The helper create-stack-skill runs for a stack's tiers and metadata.json
-(parallel-extract section 3a, detect-integrations section 3,
-generate-output section 6):
+The helper create-stack-skill runs for a stack's labels, tiers, metadata.json
+and provenance map (parallel-extract section 3a, detect-integrations
+section 3, generate-output sections 6 and 7):
+  - `relabel` runs skf-render-metadata-stats.py's label check on the export
+    records and sets each mislabeled field to the value the check expects
+    (an unknown method to source_reading, a known one to its canonical
+    spelling, an ast-grep record with no kind to ast_bridge, a missing
+    signature_source to its method's label) until the check passes, so a
+    second run changes nothing; it rewrites the file only when a label
+    changed, prints each relabeled export and the label counts, exits 1
+    when a violation no rule fixes is left, and exits 2 with nothing
+    written when the stats helper is not beside it or the records are
+    malformed
+  - `provenance` writes the code-mode map with its entries from the
+    records and its integrations from the extraction bundle's pairs (a, b,
+    type and tier renamed to the schema's fields, the co-import files as
+    they stand), in the schema's place, atomically, and writes nothing on a
+    bad input, a bad bundle or a target it cannot create
   - `library-tiers` makes a code-mode library T1 only when it has export
     records and an ast-grep rule matched every one, T1-low otherwise (a
     library with no record included), in the order --libraries gives; a
@@ -39,6 +54,7 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parent.parent / "src" / "shared" / "scripts"
 SCRIPT = SCRIPTS / "skf-render-stack-metadata.py"
 ENUMERATE = SCRIPTS / "skf-enumerate-stack-skills.py"
+STATS = SCRIPTS / "skf-render-metadata-stats.py"
 
 
 def _load(path: Path, name: str):
@@ -50,6 +66,7 @@ def _load(path: Path, name: str):
 
 mod = _load(SCRIPT, "skf_render_stack_metadata")
 enumerate_mod = _load(ENUMERATE, "skf_enumerate_stack_skills_for_stack_metadata")
+stats_mod = _load(STATS, "skf_render_metadata_stats_for_stack_metadata")
 
 MODES = ("code", "compose")
 
@@ -164,6 +181,285 @@ def test_library_tiers_reads_stdin():
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
         "libraries": [{"name": "liba", "tier": "T1-low", "export_count": 1, "ast_bridge_count": 0}]}
+
+
+# --------------------------------------------------------------------------
+# relabel
+# --------------------------------------------------------------------------
+
+
+def record(name, method, confidence=None, signature=None, library="liba", **extra) -> dict:
+    """One export record as parallel-extract section 3a writes it; None leaves a label out."""
+    out = {"export_name": name, "source_library": library, "extraction_method": method, "params": []}
+    if confidence is not None:
+        out["confidence"] = confidence
+    if signature is not None:
+        out["signature_source"] = signature
+    out.update(extra)
+    return out
+
+
+# One record per rule: the label each one ends with.
+RELABEL_CASES = [
+    (record("Client", "source_reading", "T1", "T1"),
+     {"extraction_method": "source_reading", "confidence": "T1-low", "signature_source": "T1-low"}),
+    (record("magic", "regex", "T1", "T1"),
+     {"extraction_method": "source_reading", "confidence": "T1-low", "signature_source": "T1-low"}),
+    (record("nomethod", None, "T1", "T1"),
+     {"extraction_method": "source_reading", "confidence": "T1-low", "signature_source": "T1-low"}),
+    (record("spelled", " AST_Bridge ", "T1", "T1"),
+     {"extraction_method": "ast_bridge", "confidence": "T1", "signature_source": "T1"}),
+    (record("nokind", "ast-grep", "T1", "T1"),
+     {"extraction_method": "ast_bridge", "confidence": "T1", "signature_source": "T1"}),
+    (record("kind", "source-read", "T1-low", "T1-low", ast_node_type="function_definition"),
+     {"extraction_method": "source-read", "confidence": "T1-low", "signature_source": "T1-low"}),
+    (record("unsigned", "ast_bridge", "T1"),
+     {"extraction_method": "ast_bridge", "confidence": "T1", "signature_source": "T1"}),
+    (record("unsigned-eye", "source_reading", "T1-low", "Deep"),
+     {"extraction_method": "source_reading", "confidence": "T1-low", "signature_source": "T1-low"}),
+    (record("matched-low", "ast_bridge", "T1-low", "T1-low"),
+     {"extraction_method": "ast_bridge", "confidence": "T1", "signature_source": "T1-low"}),
+]
+
+
+@pytest.mark.parametrize("before, after", RELABEL_CASES, ids=[case[0]["export_name"] for case in RELABEL_CASES])
+def test_relabel_sets_the_label_the_method_implies(before, after):
+    entries = [dict(before)]
+    relabeled, _distribution, coherence = mod.relabel(stats_mod, entries)
+    assert coherence == {"ok": True, "violations": []}
+    assert {key: entries[0].get(key) for key in after} == after
+    assert "ast_node_type" not in entries[0] or before["extraction_method"] == "ast-grep"
+    assert relabeled and relabeled[0]["entry_index"] == 0 and relabeled[0]["export_name"] == before["export_name"]
+    # The labels it set pass the check it ran: a second run changes nothing.
+    assert mod.relabel(stats_mod, entries)[0] == []
+
+
+def test_relabel_keeps_a_record_the_check_passes():
+    entries = [record("connect", "ast_bridge", "T1", "T1"), record("Client", "source_reading", "T1-low", "T1-low")]
+    before = json.loads(json.dumps(entries))
+    relabeled, distribution, coherence = mod.relabel(stats_mod, entries)
+    assert (relabeled, entries, coherence["ok"]) == ([], before, True)
+    assert distribution == {"t1": 1, "t1_low": 1, "t2": 0, "t3": 0}
+
+
+def test_relabel_lists_each_export_once_with_its_changes():
+    entries = [record("connect", "ast_bridge", "T1", "T1"), record("magic", "regex", "T1", "T1", library="libb")]
+    relabeled, distribution, _coherence = mod.relabel(stats_mod, entries)
+    assert relabeled == [{
+        "entry_index": 1, "export_name": "magic", "source_library": "libb",
+        "changes": [{"field": "extraction_method", "from": "regex", "to": "source_reading"},
+                    {"field": "confidence", "from": "T1", "to": "T1-low"},
+                    {"field": "signature_source", "from": "T1", "to": "T1-low"}],
+    }]
+    # The label counts bin every record once, by its signature_source.
+    assert distribution == {"t1": 1, "t1_low": 1, "t2": 0, "t3": 0}
+    assert sum(distribution.values()) == len(entries)
+
+
+def test_the_relabeled_records_pass_the_stats_helper():
+    """The check relabel runs is the stats helper's own, so its CLI agrees."""
+    entries = [dict(before) for before, _ in RELABEL_CASES]
+    mod.relabel(stats_mod, entries)
+    assert stats_mod.check_label_agreement({"entries": entries}) == []
+    derived = stats_mod.derive_stats({"entries": entries}, {}, "stack")
+    assert stats_mod.coherence_compute(derived, {"entries": entries})["ok"] is True
+
+
+class _StubStats:
+    """A label check that reports a violation no relabel rule fixes."""
+
+    _SIG_MAP = stats_mod._SIG_MAP
+    _KNOWN_METHODS = stats_mod._KNOWN_METHODS
+
+    @staticmethod
+    def derive_stats(prov, judgment, shape):
+        return {"confidence_distribution": {"t1": 0, "t1_low": 0, "t2": 0, "t3": 0}}
+
+    @staticmethod
+    def coherence_compute(derived, prov):
+        return {"ok": False, "violations": [{"field": "stats.scripts_count", "expected": 1, "actual": 0}]}
+
+
+def test_a_violation_no_rule_fixes_is_left_and_exits_1(tmp_path, monkeypatch, capsys):
+    relabeled, _distribution, coherence = mod.relabel(_StubStats, [record("connect", "ast_bridge", "T1", "T1")])
+    assert relabeled == [] and coherence["ok"] is False
+    path = tmp_path / "export-records.json"
+    path.write_bytes(json.dumps({"entries": [record("connect", "ast_bridge", "T1", "T1")]}).encode("utf-8"))
+    monkeypatch.setattr(mod, "_load_stats_rules", lambda: _StubStats)
+    assert mod.main(["relabel", "--records", str(path)]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["coherence"]["violations"] == [{"field": "stats.scripts_count", "expected": 1, "actual": 0}]
+
+
+def test_relabel_rewrites_the_file_only_when_a_label_changed(tmp_path):
+    path = tmp_path / "run" / "export-records.json"
+    path.parent.mkdir()
+    clean = json.dumps({"entries": [record("café", "ast_bridge", "T1", "T1")]}, ensure_ascii=False)
+    path.write_bytes(clean.encode("utf-8"))
+    result = run("relabel", "--records", str(path))
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["relabeled"] == []
+    assert path.read_bytes() == clean.encode("utf-8"), "a file with nothing to relabel was rewritten"
+    path.write_bytes(json.dumps({"entries": [record("café", "source_reading", "T1", "T1")]},
+                                ensure_ascii=False).encode("utf-8"))
+    result = run("relabel", "--records", str(path))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.isascii(), "non-ASCII names are escaped for a Windows console"
+    out = json.loads(result.stdout)
+    assert [r["export_name"] for r in out["relabeled"]] == ["café"]
+    stored = json.loads(path.read_bytes().decode("utf-8"))["entries"][0]
+    assert (stored["export_name"], stored["confidence"], stored["signature_source"]) == ("café", "T1-low", "T1-low")
+    assert stored["params"] == [], "a field the check does not read is kept"
+    assert sorted(p.name for p in path.parent.iterdir()) == ["export-records.json"], "a temp file was left"
+
+
+def test_relabel_needs_the_stats_helper_beside_it(tmp_path):
+    """Installed without skf-render-metadata-stats.py, relabel runs no check and writes nothing."""
+    alone = tmp_path / "scripts" / SCRIPT.name
+    alone.parent.mkdir()
+    alone.write_bytes(SCRIPT.read_bytes())
+    path = tmp_path / "export-records.json"
+    data = json.dumps({"entries": [record("Client", "source_reading", "T1", "T1")]}).encode("utf-8")
+    path.write_bytes(data)
+    result = subprocess.run([sys.executable, str(alone), "relabel", "--records", str(path)],
+                            capture_output=True, text=True)
+    assert (result.returncode, result.stdout) == (2, "")
+    assert "skf-render-metadata-stats.py not found" in result.stderr
+    assert path.read_bytes() == data
+
+
+@pytest.mark.parametrize("args, content, needle", [
+    (("relabel", "--records", "-"), None, "not stdin"),
+    (("relabel", "--records", "export-records.json"), '{"entries": ["connect"]}', "entries[0] must be an object"),
+    (("relabel", "--records", "export-records.json"), '{"rows": []}', "`entries` array"),
+    (("relabel", "--records", "export-records.json"), "{not json", "not valid JSON"),
+], ids=["stdin", "record-not-an-object", "no-entries", "bad-json"])
+def test_relabel_refuses_a_bad_records_file(args, content, needle, tmp_path):
+    if content is not None:
+        (tmp_path / "export-records.json").write_bytes(content.encode("utf-8"))
+    result = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, cwd=tmp_path)
+    assert (result.returncode, result.stdout) == (2, "")
+    assert needle in result.stderr and len(result.stderr.strip().splitlines()) == 1
+    if content is not None:
+        assert (tmp_path / "export-records.json").read_bytes() == content.encode("utf-8")
+
+
+# --------------------------------------------------------------------------
+# provenance
+# --------------------------------------------------------------------------
+
+MAP_FIELDS = {"provenance_version": "2.0", "skill_name": "demo-stack", "skill_type": "stack",
+              "source_repo": ["https://github.com/acme/app"], "source_commit": {"app": "abc123"},
+              "generated_at": "2026-10-02T08:00:00Z", "integrations": []}
+# The extraction bundle's pairs, as detect-integrations section 4 writes them.
+BUNDLE_PAIR = {"a": "liba", "b": "libb", "type": "adapter", "tier": "t1-LOW", "qualifier": "grep-co-import",
+               "detection_method": "co-import grep",
+               "co_import_files": [{"path": "src/app.py", "line_a": 1, "line_b": 2},
+                                   {"path": "src/db.py", "line_a": 4, "line_b": 3}],
+               "key_files": ["src/app.py:9"], "description": "liba feeds libb"}
+MAP_PAIR = {"libraries": ["liba", "libb"], "pattern_type": "adapter", "detection_method": "co-import grep",
+            "co_import_files": BUNDLE_PAIR["co_import_files"], "confidence": "T1-low"}
+
+
+def _bundle(tmp_path, *pairs):
+    path = tmp_path / "extraction-bundle.json"
+    path.write_bytes(json.dumps({"per_library_extractions": [], "integrations": list(pairs)}).encode("utf-8"))
+    return path
+
+
+def test_provenance_writes_the_records_as_the_map_entries(tmp_path):
+    records = tmp_path / "export-records.json"
+    entries = [record("connect", "ast_bridge", "T1", "T1", source_file="libs/liba/api.py", source_line=6)]
+    records.write_bytes(json.dumps({"entries": entries}).encode("utf-8"))
+    target = tmp_path / "forge" / "demo-stack" / "1.0.0" / "provenance-map.json"
+    result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path, BUNDLE_PAIR)),
+                 "--input", "-", "--target", str(target),
+                 stdin=json.dumps(dict(MAP_FIELDS, entries=[{"export_name": "typed by hand"}])))
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"target": str(target), "entry_count": 1, "integration_count": 1}
+    written = json.loads(target.read_bytes().decode("utf-8"))
+    assert written["entries"] == entries, "the records replace the entries the input held"
+    assert written["integrations"] == [MAP_PAIR], "the bundle's pairs replace the integrations the input held"
+    assert list(written) == [*MAP_FIELDS, "entries"], "the entries keep the place the input gave them"
+    assert sorted(p.name for p in target.parent.iterdir()) == ["provenance-map.json"]
+
+
+def test_the_map_integrations_are_the_bundle_pairs():
+    """w3 determinism-5: no step types a second list of pairs; the bundle's is projected."""
+    assert mod.bundle_integrations({"integrations": [BUNDLE_PAIR, dict(BUNDLE_PAIR, a="libc", tier="T2",
+                                                                       co_import_files=[])]}) == [
+        MAP_PAIR, dict(MAP_PAIR, libraries=["libc", "libb"], confidence="T2", co_import_files=[])]
+    assert mod.bundle_integrations({"integrations": []}) == []
+
+
+def test_the_entries_go_before_the_integrations():
+    assert list(mod.provenance_map(MAP_FIELDS, [])) == [*[*MAP_FIELDS][:6], "entries", "integrations"]
+    assert list(mod.provenance_map({"skill_name": "s"}, [])) == ["skill_name", "entries"]
+    assert list(mod.provenance_map({"entries": None, "skill_name": "s"}, [1])) == ["entries", "skill_name"]
+    # The piped fields hold no integrations: the bundle's go after the entries.
+    fields = {key: value for key, value in MAP_FIELDS.items() if key != "integrations"}
+    assert list(mod.provenance_map(fields, [], [MAP_PAIR])) == [*fields, "entries", "integrations"]
+
+
+@pytest.mark.parametrize("bundle, needle", [
+    pytest.param({"integrations": None}, "`integrations` array", id="no-integrations"),
+    pytest.param({"integrations": ["liba+libb"]}, "integrations[0] must be an object", id="pair-not-object"),
+    pytest.param({"integrations": [dict(BUNDLE_PAIR, type="")]}, "integrations[0].type", id="no-type"),
+    pytest.param({"integrations": [dict(BUNDLE_PAIR, tier="T9")]}, "integrations[0].tier", id="bad-tier"),
+    pytest.param({"integrations": [dict(BUNDLE_PAIR, co_import_files=None)]}, "co_import_files",
+                 id="no-co-import-files"),
+])
+def test_provenance_writes_nothing_on_a_bad_bundle(bundle, needle, tmp_path):
+    records = tmp_path / "export-records.json"
+    records.write_bytes(b'{"entries": []}')
+    path = tmp_path / "extraction-bundle.json"
+    path.write_bytes(json.dumps(bundle).encode("utf-8"))
+    target = tmp_path / "provenance-map.json"
+    result = run("provenance", "--records", str(records), "--bundle", str(path), "--input", "-",
+                 "--target", str(target), stdin=json.dumps(MAP_FIELDS))
+    assert (result.returncode, result.stdout) == (2, "")
+    assert needle in result.stderr and len(result.stderr.strip().splitlines()) == 1
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("args_input, stdin, needle", [
+    ("-", "[]", "must be a JSON object"),
+    ("-", "{not json", "not valid JSON"),
+    ("missing.json", None, "cannot read the input"),
+], ids=["not-an-object", "bad-json", "missing-input"])
+def test_provenance_writes_nothing_on_a_bad_input(args_input, stdin, needle, tmp_path):
+    records = tmp_path / "export-records.json"
+    records.write_bytes(b'{"entries": []}')
+    target = tmp_path / "provenance-map.json"
+    result = subprocess.run([sys.executable, str(SCRIPT), "provenance", "--records", str(records),
+                             "--bundle", str(_bundle(tmp_path)), "--input", args_input, "--target", str(target)],
+                            input=stdin, capture_output=True, text=True, cwd=tmp_path)
+    assert (result.returncode, result.stdout) == (2, "")
+    assert needle in result.stderr
+    assert not target.exists()
+
+
+def test_provenance_reports_a_target_it_cannot_write(tmp_path):
+    records = tmp_path / "export-records.json"
+    records.write_bytes(b'{"entries": []}')
+    blocker = tmp_path / "forge"
+    blocker.write_bytes(b"a file where the version folder should be")
+    target = blocker / "provenance-map.json"
+    result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path)), "--input", "-",
+                 "--target", str(target), stdin=json.dumps(MAP_FIELDS))
+    assert (result.returncode, result.stdout) == (2, "")
+    assert "cannot write" in result.stderr and len(result.stderr.strip().splitlines()) == 1
+
+
+def test_provenance_reads_the_records_and_the_bundle_from_files(tmp_path):
+    result = run("provenance", "--records", "-", "--bundle", "b.json", "--input", "-",
+                 "--target", "provenance-map.json", stdin="{}")
+    assert result.returncode == 2 and "--records from a file, not stdin" in result.stderr
+    records = tmp_path / "export-records.json"
+    records.write_bytes(b'{"entries": []}')
+    result = run("provenance", "--records", str(records), "--bundle", "-", "--input", "-",
+                 "--target", str(tmp_path / "provenance-map.json"), stdin="{}")
+    assert result.returncode == 2 and "--bundle from a file, not stdin" in result.stderr
 
 
 # --------------------------------------------------------------------------
@@ -458,9 +754,12 @@ def test_an_input_error_exits_2_with_one_line(args, stdin, needle, tmp_path):
 
 
 @pytest.mark.parametrize("args", [(), ("metadata",), ("pair-tiers", "--input"), ("render", "--input", "-"),
-                                  ("library-tiers", "--records", "-"), ("library-tiers", "--libraries", "a")],
+                                  ("library-tiers", "--records", "-"), ("library-tiers", "--libraries", "a"),
+                                  ("relabel",), ("provenance", "--records", "r.json", "--input", "-"),
+                                  ("provenance", "--records", "r.json", "--input", "-", "--target", "p.json")],
                          ids=["no-command", "no-input", "input-without-value", "unknown-command",
-                              "records-without-libraries", "libraries-without-records"])
+                              "records-without-libraries", "libraries-without-records", "relabel-without-records",
+                              "provenance-without-target", "provenance-without-bundle"])
 def test_a_usage_error_exits_2(args):
     result = run(*args, stdin="")
     assert result.returncode == 2
@@ -470,4 +769,5 @@ def test_a_usage_error_exits_2(args):
 def test_help_names_every_command():
     result = run("--help")
     assert result.returncode == 0
-    assert "library-tiers" in result.stdout and "pair-tiers" in result.stdout and "metadata" in result.stdout
+    for command in ("relabel", "library-tiers", "pair-tiers", "metadata", "provenance"):
+        assert command in result.stdout, command

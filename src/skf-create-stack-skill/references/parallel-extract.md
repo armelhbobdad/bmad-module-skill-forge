@@ -3,9 +3,6 @@ nextStepFile: 'detect-integrations.md'
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
   - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
-renderMetadataStatsProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
-  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 renderStackMetadataProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-stack-metadata.py'
   - '{project-root}/src/shared/scripts/skf-render-stack-metadata.py'
@@ -239,23 +236,18 @@ Record each excluded library in the bundle's `failed[]` and append a `workflow_w
 
 Code mode only (compose mode leaves this step at §0). Steps 5 to 7 read the labels checked here, from the file this section writes and keeps for the rest of the run.
 
-Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{exportRecordsFile}`. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}`; if neither path exists, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "label-check-skipped"`, `message`: the reason) and go to the library tiers below. Otherwise run:
+Write every export record, each with `source_library` set to its library, as `{"entries": [...]}` to `{exportRecordsFile}`. Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:library-tiers`) with "**Cannot proceed.** `skf-render-stack-metadata.py` is missing, so no export label can be checked and no library tier set. Re-install SKF, then re-run." Otherwise relabel the records:
 
 ```bash
-echo '{}' | uv run {renderMetadataStatsHelper} {exportRecordsFile} --shape stack
+uv run {renderStackMetadataHelper} relabel --records "{exportRecordsFile}"
 ```
 
-Rely on its JSON, not the exit code, and write neither its `stats` nor its `confidence_distribution` into `metadata.json`. If it exits `2` (no JSON), append a `label-check-skipped` entry with its stderr as the message and go to the library tiers. Otherwise fix each `coherence` violation in the stored records:
+Keep its `confidence_distribution` (one count per record, never `metadata.json`'s) as §4's export label counts. When its `relabeled[]` is not empty, append one `workflow_warnings[]` entry (`step: "step-04"`, `severity: "info"`, `code: "export-labels-relabeled"`) naming each relabeled export and its library. When it exits `1` (a violation it could not fix, in its `coherence.violations[]`) or `2` (no JSON: its stderr says why), append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "label-check-skipped"`, `message`: those violations or its stderr) and go on.
 
-- **`provenance.entries[<i>].<field>`:** set that field of record `<i>` to the violation's `expected` value and keep its `extraction_method`, which names the tool that read the export. When the violation is on `extraction_method` itself (unknown or missing), set `ast_bridge` only when an ast-grep rule matched the export, `source_reading` otherwise.
-- **`confidence_distribution`:** some records carry no valid `signature_source`: set `T1` on each such `ast_bridge` record and `T1-low` on each such `source_reading` record.
-
-Rewrite the file and run the helper again until `coherence.ok` is true, and keep that run's `confidence_distribution` as §4's export label counts. When a record changed, append one `workflow_warnings[]` entry (`step: "step-04"`, `severity: "info"`, `code: "export-labels-relabeled"`) naming each relabeled export and its library.
-
-**Library tiers.** Resolve `{renderStackMetadataHelper}` from `{renderStackMetadataProbeOrder}`; first existing path wins. If no candidate exists, HALT (exit 3, `halt_reason: "helper-missing"`, phase `parallel-extract:library-tiers`) with "**Cannot proceed.** `skf-render-stack-metadata.py` is missing, so no library tier can be set. Re-install SKF, then re-run." Otherwise run it on the checked records, with every library of the bundle's `per_library_extractions[]`, comma-separated:
+**Library tiers.** Run the same helper on the checked records, with every library of the bundle's `per_library_extractions[]`, comma-separated:
 
 ```bash
-uv run {renderStackMetadataHelper} library-tiers --records {exportRecordsFile} --libraries "<names>"
+uv run {renderStackMetadataHelper} library-tiers --records "{exportRecordsFile}" --libraries "<names>"
 ```
 
 Set each library's `per_library_extractions[].confidence` in `{bundleFile}` to its `tier`, the helper's one rule for a code-mode library. On exit `2` its stderr names the input it refused, such as a record whose `source_library` is not a stack library: fix the record or the list and run it again. Step 5 takes each integration's tier from these tiers, and step 7 bins each library once by them.

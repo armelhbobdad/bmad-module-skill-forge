@@ -7,8 +7,11 @@ Covers Covered/Missing/Replaced counting, the Replaced-excluded denominator,
 half-up percentage rounding, validation (bad tokens, duplicates), the
 integrations tally (pair rows by verdict, each cycle the --cycles file lists
 counted as one more Risky row, the pair checks), the requirements tally, the
-subprocess CLI contract (exit codes + JSON-on-stdout, a UTF-8 row file read
-under a cp1252 console), and the stage calls that persist the counts.
+--render mode (the coverage rows with their section and skill, the canonical
+verdict rows with their rationale and one row per cycle, each cell on one line
+with its pipes escaped, the same checks as the counts), the subprocess CLI
+contract (exit codes + JSON-on-stdout, a UTF-8 row file read under a cp1252
+console), and the stage calls that persist the counts and render the rows.
 """
 
 from __future__ import annotations
@@ -370,6 +373,121 @@ def test_cli_the_default_kind_is_coverage():
     assert json.loads(_run([payload]).stdout) == json.loads(_run(["--kind", "coverage", payload]).stdout)
 
 
+# --- --render: the report rows ----------------------------------------------------
+
+
+def _coverage(*rows):
+    return {"rows": [dict(zip(("technology", "verdict", "section", "skill"), row)) for row in rows]}
+
+
+def test_render_coverage_gives_each_technology_its_row():
+    lines = mod.render_coverage(_coverage(("React", "Covered", "Tech Stack", "react"),
+                                          ("postgres", "Missing", "Data", None),
+                                          ("old-orm", "Replaced", None, None)))
+    assert lines == ["| React | Tech Stack | react | Covered |",
+                     "| postgres | Data | none | Missing |",
+                     "| old-orm | none | none | Replaced |"]
+
+
+@pytest.mark.parametrize("rows, needle", [
+    pytest.param([("react", "Covered", "Tech Stack", None)], "names no skill", id="covered-without-skill"),
+    pytest.param([("pg", "Missing", "Data", "postgres")], "names a skill", id="missing-with-skill"),
+    pytest.param([("pg", "Replaced", None, "postgres")], "names a skill", id="replaced-with-skill"),
+    pytest.param([("react", "Covered", 3, "react")], "`section`", id="section-not-text"),
+    pytest.param([("react", "covered", None, "react")], "verdict", id="bad-token"),
+    pytest.param([("React", "Covered", None, "react"), ("react", "Missing", None, None)], "duplicate",
+                 id="duplicate"),
+])
+def test_render_coverage_checks_the_rows(rows, needle):
+    out = mod.render_coverage(_coverage(*rows))
+    assert out["code"] == "INVALID_INPUT" and needle in out["error"], out
+
+
+@pytest.mark.parametrize("rows, needle", [
+    pytest.param([("react", "Covered", "Tech Stack", None)], "names no skill", id="covered-without-skill"),
+    pytest.param([("pg", "Missing", "Data", "postgres")], "names a skill", id="missing-with-skill"),
+    pytest.param([("react", "Covered", None, 7)], "`skill`", id="skill-not-text"),
+])
+def test_the_tally_refuses_a_row_render_would_refuse(rows, needle):
+    """The section 3 tally checks the rows file as --render will, before it counts."""
+    out = mod.tally(_coverage(*rows))
+    assert out["code"] == "INVALID_INPUT" and needle in out["error"], out
+    proc = _run(["--stdin"], stdin=json.dumps(_coverage(*rows)))
+    assert proc.returncode == 2 and json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+
+
+def test_the_tally_still_counts_rows_without_a_skill_key():
+    """A direct caller's rows carry only technology and verdict: no pairing to check."""
+    out = mod.tally({"rows": [{"technology": "react", "verdict": "Covered"}]})
+    assert out["covered_count"] == 1 and out["coverage_percentage"] == 100
+
+
+def _verdicts(*rows):
+    return {"rows": [dict(zip(("lib_a", "lib_b", "verdict", "rationale"), row)) for row in rows]}
+
+
+def test_render_integrations_gives_each_pair_then_each_cycle_its_row():
+    cycles = {"cycles": [["oms-cognee", "zod", "react-query", "oms-cognee"]], "cycle_count": 1}
+    lines = mod.render_integrations(_verdicts(("react-query", "zod", "Verified", "zod cites react-query, line 3"),
+                                              ("oms-cognee", "zod", "Risky", "skill modified mid-run: re-run [VS]")),
+                                    cycles)
+    assert lines == [
+        "| react-query | zod | Verified | zod cites react-query, line 3 |",
+        "| oms-cognee | zod | Risky | skill modified mid-run: re-run [VS] |",
+        "| cycle | oms-cognee \u2192 zod \u2192 react-query \u2192 oms-cognee | Risky | circular integration "
+        "dependency detected: `oms-cognee \u2192 zod \u2192 react-query \u2192 oms-cognee` |",
+    ]
+    # The rows the table holds are the ones the tally counts.
+    counted = mod.tally_integrations(_verdicts(("a", "b", "Verified", "x"), ("c", "d", "Risky", "y")), cycles)
+    assert counted["row_count"] == len(mod.render_integrations(
+        _verdicts(("a", "b", "Verified", "x"), ("c", "d", "Risky", "y")), cycles))
+
+
+def test_a_cell_stays_on_one_line_with_its_pipes_escaped():
+    [line] = mod.render_integrations(_verdicts(("a", "b", "Plausible", "a | b, neither cites\nthe other")))
+    assert line == "| a | b | Plausible | a \\| b, neither cites the other |"
+
+
+@pytest.mark.parametrize("rows, needle", [
+    pytest.param([("a", "b", "Verified", None)], "`rationale`", id="no-rationale"),
+    pytest.param([("a", "b", "Verified", " ")], "`rationale`", id="blank-rationale"),
+    pytest.param([("a", "b", "verified", "x")], "verdict", id="bad-token"),
+    pytest.param([("a", "a", "Verified", "x")], "with itself", id="self-pair"),
+])
+def test_render_integrations_checks_the_rows(rows, needle):
+    out = mod.render_integrations(_verdicts(*rows))
+    assert out["code"] == "INVALID_INPUT" and needle in out["error"], out
+
+
+def test_render_integrations_checks_the_cycles():
+    out = mod.render_integrations(_verdicts(("a", "b", "Verified", "x")), {"cycles": [["a", "b"]]})
+    assert out["code"] == "INVALID_INPUT" and "closed node path" in out["error"]
+
+
+def test_cli_render_prints_the_rows_only(tmp_path):
+    cycles = tmp_path / "cycles.json"
+    cycles.write_bytes(json.dumps({"cycles": [["a0", "b0", "c0", "a0"]], "cycle_count": 1}).encode("utf-8"))
+    rows = json.dumps(_verdicts(("a0", "b0", "Verified", "b0 cites a0")), ensure_ascii=False).encode("utf-8")
+    args = [sys.executable, str(SCRIPT_PATH), "--kind", "integrations", "--render", "--cycles", str(cycles), "--stdin"]
+    # A Windows console's cp1252 has no arrow: the rows print as UTF-8 all the same.
+    proc = subprocess.run(args, input=rows, capture_output=True, check=False,
+                          env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.decode("utf-8").splitlines() == [
+        "| a0 | b0 | Verified | b0 cites a0 |",
+        "| cycle | a0 \u2192 b0 \u2192 c0 \u2192 a0 | Risky | circular integration dependency detected: "
+        "`a0 \u2192 b0 \u2192 c0 \u2192 a0` |"]
+    empty = _run(["--render", "--stdin"], stdin='{"rows": []}')
+    assert (empty.returncode, empty.stdout) == (0, "")
+    refused = _run(["--render", "--stdin"], stdin=json.dumps(_coverage(("react", "Covered", None, None))))
+    assert refused.returncode == 2 and json.loads(refused.stdout)["code"] == "INVALID_INPUT"
+
+
+def test_cli_render_has_no_requirements_table():
+    proc = _run(["--kind", "requirements", "--render", '{"rows": []}'])
+    assert proc.returncode == 2 and proc.stdout == ""
+
+
 # --- The stages that persist the counts -------------------------------------------
 
 
@@ -391,6 +509,10 @@ def test_integrations_shows_and_persists_the_pair_counts_from_the_tally():
     assert "{verified_count}" not in display
     write = _between(path, "### 6. Append to Report", "### 7.")
     assert call not in write
+    # The canonical rows come from the same rows file, rendered, never typed again.
+    render = 'uv run {coverageTallyScript} --kind integrations --render --cycles "{run_dir}/cycles.json" --stdin'
+    assert render + ' < "{run_dir}/verdict-rows.json"' in write
+    assert '"rationale":' in rate and "Add one row per pair" not in write
     for key, field in (("pairsVerified", "pairs_verified"), ("pairsPlausible", "pairs_plausible"),
                        ("pairsRisky", "pairs_risky"), ("pairsBlocked", "pairs_blocked")):
         assert f"`{key}` \u2190 `{field}`" in write, key
@@ -417,11 +539,25 @@ def test_requirements_shows_and_persists_its_counts_from_the_tally():
     assert "coverageTallyScript: 'scripts/skf-coverage-tally.py'" in path.read_text(encoding="utf-8")
 
 
+def test_coverage_tallies_and_renders_one_rows_file():
+    path = SKILL / "references" / "coverage.md"
+    tally_section = _between(path, "### 3. Cross-Reference Against Skills", "### 4.")
+    assert 'uv run {coverageTallyScript} --stdin < "{run_dir}/coverage-rows.json"' in tally_section
+    assert '"section":' in tally_section and '"skill":' in tally_section and "echo '<rows JSON>'" not in tally_section
+    display = _between(path, "### 5. Display Coverage Results", "### 6.")
+    assert 'uv run {coverageTallyScript} --render --stdin < "{run_dir}/coverage-rows.json"' in display
+    assert "{the rendered rows, as printed}" in display and "{tech_name} | {section_heading}" not in display
+    write = _between(path, "### 6. Append to Report", "### 7.")
+    assert "the rows §5 rendered, as printed" in write
+
+
 def test_the_stage_calls_fit_the_parser():
     parser = mod._build_parser()
     for words in (
         ["--kind", "integrations", "--cycles", "c.json", "--stdin"],
+        ["--kind", "integrations", "--render", "--cycles", "c.json", "--stdin"],
         ["--kind", "requirements", "--stdin"],
+        ["--render", "--stdin"],
         ["--stdin"],
     ):
         parser.parse_args(words)

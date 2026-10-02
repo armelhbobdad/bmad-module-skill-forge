@@ -102,11 +102,13 @@ For every skill step 2 matched to a Covered technology (the Skill Match column),
 - `capabilities`: up to 10 short phrases naming what the library does, from the SKILL.md description and its sections (the requirements stage matches each requirement against them)
 - If a field has no matches, return an empty array `[]`
 
+**When subagents are unavailable**, read the SKILL.md files yourself, one at a time and in the same order: for each skill, read its SKILL.md, write its compact JSON by the rules above and append it to `{run_dir}/skill-summaries.json` at once, then go on to the next. The 20% budget below counts subagent replies only.
+
 **These two lists are inferred from prose, not declared** (no skill's `metadata.json` has `protocols` or `data_formats`), so they are weak evidence: Check 2 reads them as `{integrationRulesData}` says.
 
 **Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`, `capabilities`). Reject responses missing required keys and exclude that skill from pair evaluation and from the requirements stage; if more than **20%** of subagent calls return malformed JSON, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) at phase `integrations:api-surfaces` with "API-surface extraction unreliable: more than 20% of subagent reads returned malformed JSON. Re-run [VS] after skills stabilize."
 
-**Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context. Write the accepted summaries to `{run_dir}/skill-summaries.json`, one JSON array: the requirements stage reads them from there, so they survive context compaction.
+**Parent collects all JSON summaries.** Apart from the one-at-a-time reads of the sequential fallback, never load a full SKILL.md into the parent context. Append the accepted summaries of each batch to `{run_dir}/skill-summaries.json`, one JSON array, as the batch returns: the requirements stage reads them from there, so they survive context compaction.
 
 **From `skill_inventory` (step 1 §2), also take** each skill's `language` (a string, or a list for a stack; it is authoritative and overrides the subagent's `language` when the two disagree), `exports` (empty for a stack skill) and `exports_documented` (the export count), reading them from `{inventoryFile}`. The enumerate helper read them from `metadata.json`, so the parent never opens it.
 
@@ -156,9 +158,9 @@ If no candidate exists, or the command exits non-zero, HALT (exit code 3, `halt_
    {"cycles": [["A", "B", "C", "A"], ...], "cycle_count": N}
    ```
    Each `cycles[]` entry is a closed node path (first node repeated at the end) through three or more skills, with at least one one-way citation; every such cycle appears exactly once, de-duplicated across rotations. With no pair it writes an empty list.
-3. **For each cycle** in `cycles[]`, append a synthetic row to the verdict table: `lib_a` is `cycle`, `lib_b` the arrow chain rendered from the cycle's node path (`A → B → C → A`), verdict `Risky`, rationale "circular integration dependency detected: `A → B → C → A`". The `cycle` keeps the row apart from every pair row: the next run's delta keys rows on their two libraries. Do not otherwise modify the individual pair verdicts.
+3. **For each cycle** in `cycles[]`, the canonical table holds one more `Risky` row, which §6 renders after the pair rows. Its `lib_a`, `cycle`, keeps the row apart from every pair row, since the next run's delta keys rows on their two libraries. Leave the pair verdicts as they are.
 
-**Count the verdicts deterministically.** Rating each pair is judgment; counting the rows of the canonical table has one correct answer, so delegate it. Write `{run_dir}/verdict-rows.json` as `{"rows": [{"lib_a": "…", "lib_b": "…", "verdict": "Verified|Plausible|Risky|Blocked"}, …]}`, one row per pair and no cycle row, and run:
+**Count the verdicts deterministically.** Rating each pair is judgment; counting the rows of the canonical table has one correct answer, so delegate it. Write `{run_dir}/verdict-rows.json` as `{"rows": [{"lib_a": "…", "lib_b": "…", "verdict": "Verified|Plausible|Risky|Blocked", "rationale": "<the checks and evidence behind the verdict, one line>"}, …]}`, one row per pair and no cycle row (§6 renders the canonical rows from it), and run:
 
 ```bash
 uv run {coverageTallyScript} --kind integrations --cycles "{run_dir}/cycles.json" --stdin < "{run_dir}/verdict-rows.json"
@@ -199,10 +201,15 @@ The Summary line shows the §4 tally's counts (`pairs_risky` includes each cycle
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `integrations:report`.
 
 Write the **Integration Verdicts** section of `{outputFile}`. The report template already holds the canonical table under `## Integration Verdicts`: the header `| lib_a | lib_b | verdict | rationale |` (per `{feasibilitySchemaRef}`) and its delimiter row. Consumers read that table and reject a report that holds it twice, so fill it in place instead of appending another one:
-- Add one row per pair and per §4 cycle row under the template's header. With zero integration pairs, leave the table with its header and delimiter rows only.
-- Each verdict token is exactly one of `Verified`, `Plausible`, `Risky`, `Blocked` (case-sensitive): any other token is a schema violation consumers reject.
+- Render its rows from the §4 rows file and the cycles, one per pair and one per §4 cycle, each verdict a schema token and each rationale kept in its cell:
+
+  ```bash
+  uv run {coverageTallyScript} --kind integrations --render --cycles "{run_dir}/cycles.json" --stdin < "{run_dir}/verdict-rows.json"
+  ```
+
+  Put the lines it prints under the template's header, as printed; on a non-zero exit, fix the row its JSON `error` names and run it again. With zero integration pairs, leave the table with its header and delimiter rows only.
 - After one blank line, add the display table with the extra Context, Source and Evidence columns for human readers (a separate table, so consumers skip it).
-- Include recommendations for Risky and Blocked pairs (each Blocked recommendation cites a named candidate per step 5 H6, or the explicit no-candidate notice)
+- Include recommendations for Risky and Blocked pairs (a Blocked one that proposes a replacement names at least one alternative library with a one-line justification, or says no named candidate was found and gives the selection criteria)
 - Update frontmatter: append `'integrations'` to `stepsCompleted`; from the §4 tally, set `pairsVerified` ← `pairs_verified`, `pairsPlausible` ← `pairs_plausible`, `pairsRisky` ← `pairs_risky` (each cycle row included) and `pairsBlocked` ← `pairs_blocked`
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `integrations:report`, with `"path": "{outputFile}"`.
 
