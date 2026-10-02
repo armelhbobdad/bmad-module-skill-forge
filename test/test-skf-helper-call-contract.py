@@ -471,6 +471,7 @@ MUST_FIND = [
     ("src/skf-audit-skill/references/report.md", "skf-source-tree.py", "close"),
     ("src/skf-audit-skill/references/structural-diff.md", "render-drift-tables.py", "structural"),
     ("src/skf-audit-skill/references/severity-classify.md", "render-drift-tables.py", "severity"),
+    ("src/skf-audit-skill/references/report.md", "render-drift-tables.py", "outside-scope"),
     # create-stack-skill (#593, #587, #606): the halt, decision and success
     # emitter calls, the relabel and library tiers step 4 takes from the stack
     # helper, the step 6 stats and the code-mode entries and integrations step 7

@@ -8,8 +8,9 @@ audit-skill saved.
 
 Step 3 (references/structural-diff.md section 5) and step 5
 (references/severity-classify.md section 3) each append a section of
-tables to the drift report. Every cell of those tables is a field of the
-JSON the step saved in its stage data folder, so this script prints them,
+tables to the drift report, and step 6 (references/report.md section 2)
+its Out-of-Scope New Public API table. Every cell of those tables is a
+field of the JSON an earlier step saved, so this script prints them,
 rather than the model copying hundreds of rows by hand, where a row can be
 dropped or mis-matched. The model keeps only what the JSON does not hold:
 the section heading and step 3's Comparison and Method lines.
@@ -59,7 +60,20 @@ severity CLASSIFICATION
   docs-only skill and `structural` for every other one; a finding with no
   confidence or file (a hash comparison) shows `n/a`.
 
-Rollup (both commands, mechanical):
+outside-scope SNAPSHOT
+  SNAPSHOT is the extraction-snapshot.json step 2 wrote
+  (skf-extraction-snapshot.py build). Prints
+    ### Out-of-Scope New Public API
+                                Path | Evidence, one row per outside_scope
+                                entry: `path` | exports `name`, ... through
+                                `entry`, ... (no `through` part when the
+                                entry names no entry point)
+  and nothing when outside_scope is empty or absent (Quick tier). The table
+  is the shape skf-provenance-gap-dispatch.py parses back for
+  update-skill's scope reconciliation, and never rolls up: the snapshot
+  already groups the names by file.
+
+Rollup (structural and severity, mechanical):
   10 or more rows of one table that share a file roll up into one row, so a
   deleted or a new file reads as one row. Removed rows go one level on: 10
   or more of the removed rows left that share a directory (never the top
@@ -87,10 +101,11 @@ Rollup (both commands, mechanical):
 Output: the markdown on stdout, UTF-8.
 
 Exit codes:
-  0  the tables were printed
-  1  DIFF or CLASSIFICATION is missing, is not JSON or is not what the
-     command reads ({"status": "error", "error"} on stdout, the error
-     starting with the input's path)
+  0  the tables were printed (for outside-scope, also when there was
+     nothing to print)
+  1  DIFF, CLASSIFICATION or SNAPSHOT is missing, is not JSON or is not
+     what the command reads ({"status": "error", "error"} on stdout, the
+     error starting with the input's path)
   2  usage error (argparse, usage on stderr)
 """
 
@@ -545,6 +560,42 @@ def render_severity(result) -> str:
 
 
 # --------------------------------------------------------------------------
+# outside-scope
+# --------------------------------------------------------------------------
+
+
+def _strings(values) -> list[str]:
+    return [v for v in values if isinstance(v, str) and v] if isinstance(values, list) else []
+
+
+def render_outside_scope(snapshot) -> str:
+    """The Out-of-Scope New Public API table of an extraction snapshot, or
+    nothing when its outside_scope is empty or absent.
+
+    >>> render_outside_scope({"exports": [], "outside_scope": [
+    ...     {"path": "src/b.ts", "names": ["Beta"], "entries": ["index.ts"]}]}).splitlines()[-1]
+    '| `src/b.ts` | exports `Beta` through `index.ts` |'
+    """
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("exports"), list) \
+            or not isinstance(snapshot.get("outside_scope", []), list):
+        raise RenderError("not an extraction snapshot: expected an object with an exports list and, when present, "
+                          "an outside_scope list (the output of skf-extraction-snapshot.py build)")
+    rows = []
+    for item in _records(snapshot, "outside_scope"):
+        names = _strings(item.get("names"))
+        if not isinstance(item.get("path"), str) or not item["path"] or not names:
+            continue
+        evidence = "exports " + ", ".join(code(n) for n in names)
+        entries = _strings(item.get("entries"))
+        if entries:
+            evidence += " through " + ", ".join(code(e) for e in entries)
+        rows.append([code(item["path"]), evidence])
+    if not rows:
+        return ""
+    return "### Out-of-Scope New Public API\n\n" + _table(("Path", "Evidence"), rows) + "\n"
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -578,6 +629,11 @@ def _severity(args) -> str:
     return _named(path, render_severity, load_json(path, "the severity classification"))
 
 
+def _outside_scope(args) -> str:
+    path = Path(args.snapshot)
+    return _named(path, render_outside_scope, load_json(path, "the extraction snapshot"))
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="render-drift-tables.py",
@@ -594,6 +650,11 @@ def _build_parser() -> argparse.ArgumentParser:
     severity = sub.add_parser("severity", help="Print step 5's Severity Classification section from severity.json")
     severity.add_argument("classification", help="severity.json, the skf-severity-classify.py result step 5 saved")
     severity.set_defaults(func=_severity)
+    outside = sub.add_parser("outside-scope",
+                             help="Print step 6's Out-of-Scope New Public API table from extraction-snapshot.json")
+    outside.add_argument("snapshot", help="extraction-snapshot.json, the snapshot step 2 wrote (nothing is printed "
+                                          "when its outside_scope is empty)")
+    outside.set_defaults(func=_outside_scope)
     return parser
 
 

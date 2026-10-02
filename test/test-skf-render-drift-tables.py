@@ -17,6 +17,14 @@ with a mechanical rollup, and the two steps call it once each. These tests:
 - check the cells: a pipe, a backtick or an underscore in a signature or a
   path cannot break the table or the markdown;
 - run the steps' own commands, and check the hand-filled templates are gone.
+
+Step 5b determinism-1: step 6 (report.md section 2) had the model open the
+whole snapshot and type its Out-of-Scope New Public API rows, which
+skf-provenance-gap-dispatch.py then parses back for update-skill. The
+`outside-scope` command prints them from the snapshot step 2 wrote, and
+these tests check that update-skill reads back every path it prints, that
+it prints nothing when there is nothing outside the scope, and that step 6
+runs it and keeps no hand-filled row.
 """
 
 from __future__ import annotations
@@ -36,13 +44,25 @@ AUDIT = REPO / "src" / "skf-audit-skill"
 SCRIPT = AUDIT / "scripts" / "render-drift-tables.py"
 STRUCTURAL = AUDIT / "references" / "structural-diff.md"
 SEVERITY = AUDIT / "references" / "severity-classify.md"
+REPORT = AUDIT / "references" / "report.md"
+TEMPLATE = AUDIT / "assets" / "drift-report-template.md"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
 DIFF = SCRIPTS / "skf-structural-diff.py"
 CLASSIFY = SCRIPTS / "skf-severity-classify.py"
+SNAPSHOT = SCRIPTS / "skf-extraction-snapshot.py"
+DISPATCH = SCRIPTS / "skf-provenance-gap-dispatch.py"
 
-spec = importlib.util.spec_from_file_location("skf_render_drift_tables", SCRIPT)
-render = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(render)
+
+def _module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+render = _module("skf_render_drift_tables", SCRIPT)
+snapshot_mod = _module("skf_extraction_snapshot_for_render", SNAPSHOT)
+dispatch = _module("skf_gap_dispatch_for_render", DISPATCH)
 
 
 def _read(path: Path) -> str:
@@ -447,7 +467,11 @@ def test_the_cli_prints_the_tables_and_skips_a_file_drift_that_was_not_saved(tmp
     ("structural", b"{not json", "is not JSON"),
     ("structural", b'{"added": []}', "not a structural diff"),
     ("severity", b"[]", "not a severity classification"),
-], ids=["missing", "not-json", "not-a-diff", "not-a-classification"])
+    ("outside-scope", None, "no such file"),
+    ("outside-scope", b'{"outside_scope": []}', "not an extraction snapshot"),
+    ("outside-scope", b'{"exports": [], "outside_scope": {"src/a.ts": ["A"]}}', "not an extraction snapshot"),
+], ids=["missing", "not-json", "not-a-diff", "not-a-classification", "snapshot-missing", "snapshot-no-exports",
+        "outside-scope-not-a-list"])
 def test_an_input_it_cannot_read_exits_1_with_a_json_error(tmp_path, command, content, needle):
     source = tmp_path / "input.json"
     if content is not None:
@@ -480,6 +504,7 @@ def test_a_saved_file_drift_it_cannot_read_skips_only_its_table(tmp_path, conten
 def test_a_usage_error_exits_2():
     assert _run().returncode == 2
     assert _run("structural").returncode == 2
+    assert _run("outside-scope").returncode == 2
     assert _run("render", "x.json").returncode == 2
 
 
@@ -488,7 +513,7 @@ def test_help_lists_each_tables_columns():
     assert proc.returncode == 0
     for columns in ("Export | Type | Signature | Location | Confidence", "Export | From | To | Confidence",
                     "Export | Removed At | Added At", "File | Change | Detail",
-                    "# | Finding | Type | Detail | Location |"):
+                    "# | Finding | Type | Detail | Location |", "Path | Evidence"):
         assert columns in proc.stdout, columns
 
 
@@ -574,3 +599,106 @@ def test_the_steps_own_commands_render_the_saved_files(tmp_path):
             assert "### Script/Asset Drift (added 1, removed 0, changed 0)" in proc.stdout
         else:
             assert "### Classification Summary" in proc.stdout
+
+
+# --------------------------------------------------------------------------
+# outside-scope: step 6's Out-of-Scope New Public API table
+# --------------------------------------------------------------------------
+
+
+OUTSIDE_SCOPE_CMD = 'uv run {renderDriftTablesScript} outside-scope "{forge_version}/extraction-snapshot.json"'
+OUTSIDE_SCOPE_SLOT = "{what the outside-scope command printed, unchanged}"
+# The runner's entry_point_diff.outside_scope: two files outside the scope,
+# one exporting two names through two entry points.
+OUTSIDE = [
+    {"name": "Zed", "language": "javascript", "entry": "index.ts", "file": "src/new/z.ts", "line": 1},
+    {"name": "Alpha", "language": "javascript", "entry": "index.ts", "file": "src/new/z.ts", "line": 4},
+    {"name": "Alpha", "language": "javascript", "entry": "next.ts", "file": "src/new/z.ts", "line": 4},
+    {"name": "Beta", "language": "javascript", "entry": "beta.ts", "file": "src/b.ts", "line": 2},
+]
+OUTSIDE_TABLE = """### Out-of-Scope New Public API
+
+| Path | Evidence |
+|------|----------|
+| `src/b.ts` | exports `Beta` through `beta.ts` |
+| `src/new/z.ts` | exports `Alpha`, `Zed` through `index.ts`, `next.ts` |
+"""
+
+
+def _snapshot(tmp_path: Path, outside: list | None, tier: str = "Forge") -> dict:
+    """What skf-extraction-snapshot.py build writes when the runner's
+    entry-point diff names `outside` (None: no runner ran, as at Quick tier)."""
+    root = tmp_path / "source"
+    root.mkdir(parents=True, exist_ok=True)
+    runner = None if outside is None else {"status": "ok", "exports": [],
+                                           "entry_point_diff": {"outside_scope": outside}}
+    return snapshot_mod.build(root, tier, "2026-01-01", None, runner, [], [])
+
+
+def test_outside_scope_prints_one_row_per_file(tmp_path):
+    snapshot = _snapshot(tmp_path, OUTSIDE)
+    assert [item["path"] for item in snapshot["outside_scope"]] == ["src/b.ts", "src/new/z.ts"]
+    assert render.render_outside_scope(snapshot) == OUTSIDE_TABLE
+
+
+def test_outside_scope_skips_what_names_no_file_or_export():
+    snapshot = {"exports": [], "outside_scope": [
+        {"path": "src/a.ts", "names": ["A"], "entries": []}, {"path": "src/none.ts", "names": []},
+        {"names": ["B"]}, "src/c.ts", {"path": "src/d.ts", "names": ["D", ""], "entries": [None, "d.ts"]}]}
+    assert _rows(render.render_outside_scope(snapshot)) == [
+        "| `src/a.ts` | exports `A` |", "| `src/d.ts` | exports `D` through `d.ts` |"]
+
+
+@pytest.mark.parametrize("outside,tier", [([], "Forge"), (None, "Quick")], ids=["nothing-outside", "quick-tier"])
+def test_outside_scope_prints_nothing_when_nothing_is_outside(tmp_path, outside, tier):
+    path = _write_json(tmp_path / "extraction-snapshot.json", _snapshot(tmp_path, outside, tier))
+    proc = _run("outside-scope", str(path))
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+    # A snapshot written before the key existed reads the same.
+    proc = _run("outside-scope", str(_write_json(tmp_path / "old.json", {"exports": []})))
+    assert (proc.returncode, proc.stdout) == (0, "")
+
+
+def test_update_skill_reads_back_every_path_the_report_prints(tmp_path):
+    """Step 6 §2's command, run as written on the snapshot step 2 wrote, and
+    its output pasted where the Remediation Suggestions template shows it:
+    skf-provenance-gap-dispatch.py, which update-skill's scope
+    reconciliation runs, reads back each path with the evidence printed."""
+    forge_version = tmp_path / "forge" / "demo" / "1.0.0"
+    snapshot = _snapshot(tmp_path, OUTSIDE)
+    _write_json(forge_version / "extraction-snapshot.json", snapshot)
+    words = shlex.split(_fenced(_read(REPORT), "{renderDriftTablesScript}"))
+    assert words[:4] == ["uv", "run", "{renderDriftTablesScript}", "outside-scope"]
+    proc = _run(*[w.replace("{forge_version}", forge_version.as_posix()) for w in words[3:]])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout == OUTSIDE_TABLE
+    template = _slice(_read(REPORT), "## Remediation Suggestions\n", "### Workflow Recommendation")
+    assert template.count(OUTSIDE_SCOPE_SLOT) == 1
+    report = ("# Drift Report\n\n" + template.replace(OUTSIDE_SCOPE_SLOT, proc.stdout)
+              + "### Workflow Recommendation\n\n**Optional:** Minor drift detected.\n\n## Provenance\n")
+    candidates = dispatch.parse_candidates(dispatch.extract_out_of_scope_section(report))
+    assert [c["path"] for c in candidates] == [item["path"] for item in snapshot["outside_scope"]]
+    assert [c["evidence"] for c in candidates] == [
+        "exports `Beta` through `beta.ts`", "exports `Alpha`, `Zed` through `index.ts`, `next.ts`"]
+
+
+def test_the_report_renders_the_out_of_scope_table_with_one_call():
+    assert "renderDriftTablesScript: 'scripts/render-drift-tables.py'" in _frontmatter(REPORT)
+    text = _read(REPORT)
+    prose = _slice(text, "**Public API outside the skill's scope.**", "Append to {outputFile}:")
+    assert _fenced(prose, "{renderDriftTablesScript}") == OUTSIDE_SCOPE_CMD
+    flow = _flow(prose)
+    for needle in ("lists in `outside_scope`", "nothing here is judged by eye", "never by hand",
+                   "`{renderDriftTablesScript}` resolves relative to the skill root",
+                   "Paste its output unchanged under Remediation Suggestions",
+                   "A compose-mode stack and a docs-only skill have no snapshot: skip the command.",
+                   "When the command exits non-zero, its JSON `error`, else its first stderr line, says what it "
+                   "could not read"):
+        assert needle in flow, needle
+    # No hand-filled row is left: the command prints the heading and the rows.
+    for gone in ("### Out-of-Scope New Public API", "| Path | Evidence |", "{outside_scope[].path}",
+                 "Write one table row per item"):
+        assert gone not in text, gone
+    # The report template still says where the subsection goes.
+    remediation = _slice(_read(TEMPLATE), "## Remediation Suggestions", "---")
+    assert "Out-of-Scope New Public API" in remediation

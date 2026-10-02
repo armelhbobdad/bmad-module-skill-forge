@@ -14,7 +14,7 @@ Detects drift between a skill and its current source code and writes a severity-
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
-- `scripts/` holds `render-drift-tables.py`, which steps 3 and 5 run to print their drift tables.
+- `scripts/` holds `render-drift-tables.py`, which steps 3, 5 and 6 run to print their drift tables.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.

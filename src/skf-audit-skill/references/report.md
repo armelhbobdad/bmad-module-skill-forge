@@ -10,6 +10,8 @@ auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
+# §2: this skill's renderer of the Out-of-Scope New Public API table, from the skill root.
+renderDriftTablesScript: 'scripts/render-drift-tables.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Drift report prose in {document_output_language}. -->
@@ -54,7 +56,13 @@ For each classified drift finding (`findings[]` of `{auditDataFolder}/severity.j
 
 Rows of step 3's **Provenance label differences (not drift)** table are not findings: they get no remediation row and do not count toward the Workflow Recommendation.
 
-**Public API outside the skill's scope.** When `{extractionSnapshot}` (`{forge_version}/extraction-snapshot.json`, step 2) lists items in `outside_scope`, a package entry point exports public API from files the skill does not cover: the recipe runner's entry-point diff found them, so nothing here is judged by eye. Write one table row per item, the defining file as the path and the names it exports (and the entry points that export them) as the evidence, in the `### Out-of-Scope New Public API` subsection below. update-skill's scope reconciliation (`skf-provenance-gap-dispatch.py`) reads that subsection from the newest drift report and asks whether to bring each path into scope. Leave the subsection out when `outside_scope` is empty or there is no snapshot with one (Quick tier, a compose-mode stack, a docs-only skill).
+**Public API outside the skill's scope.** Step 2's snapshot lists in `outside_scope` the files the skill does not cover whose public API a package entry point exports: the recipe runner's entry-point diff found them, so nothing here is judged by eye. Render their subsection from the snapshot, never by hand. `{renderDriftTablesScript}` resolves relative to the skill root; from `{project-root}`, run:
+
+```bash
+uv run {renderDriftTablesScript} outside-scope "{forge_version}/extraction-snapshot.json"
+```
+
+Paste its output unchanged under Remediation Suggestions, where the template below shows it (nothing when it prints nothing: `outside_scope` is empty, as at Quick tier). update-skill's scope reconciliation (`skf-provenance-gap-dispatch.py`) reads that subsection from the newest drift report and asks whether to bring each path into scope. A compose-mode stack and a docs-only skill have no snapshot: skip the command. When the command exits non-zero, its JSON `error`, else its first stderr line, says what it could not read: write `Out-of-Scope New Public API not rendered: {error}` in place of its output and go on.
 
 Append to {outputFile}:
 
@@ -79,11 +87,7 @@ Append to {outputFile}:
 |---|---------|-------------|
 | 1 | {finding} | {specific action} |
 
-### Out-of-Scope New Public API
-
-| Path | Evidence |
-|------|----------|
-| `{outside_scope[].path}` | exports `{name}`, `{name}` through `{entry point}` |
+{what the outside-scope command printed, unchanged}
 
 ### Workflow Recommendation
 
@@ -136,7 +140,7 @@ Build the section from the frontmatter of {outputFile}, where step 1 §6, step 2
 - **T1:** an ast-grep match (`extraction_method: ast-grep`) at any tier: high reliability, structural truth
 - **T1-low:** read by eye (`extraction_method: source-read`) at any tier: moderate reliability
 - **T1-low-fallback:** Deep-tier semantic diff read directly from the skill's docs and the current source because the QMD collection was empty: moderate reliability
-- **T2:** QMD temporal context — evidence-backed semantic analysis
+- **T2:** Deep-tier semantic diff: a claim the skill's QMD collection holds, checked against the current source line it cites: evidence-backed semantic analysis
 - **T3:** external documentation reference: variable reliability, secondary source
 ```
 

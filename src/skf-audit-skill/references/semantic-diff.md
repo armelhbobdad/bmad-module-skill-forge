@@ -11,14 +11,14 @@ auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 
 ## STEP GOAL:
 
-Compare QMD knowledge context between the original skill creation and current state to detect meaning-level changes that structural diff cannot catch. This step executes ONLY at Deep tier — at Quick, Forge, and Forge+ tiers, it appends a skip notice and auto-proceeds.
+Compare what the skill documents about each export (retrieved from its QMD extraction collection) against the current source under `{source_root}` to detect meaning-level changes that structural diff cannot catch. This step executes ONLY at Deep tier: at Quick, Forge, and Forge+ tiers, it appends a skip notice and auto-proceeds.
 
 ## Rules
 
 - At Quick/Forge/Forge+ tier, skip the entire analysis — append the skip notice only
-- Focus only on semantic/meaning-level changes via QMD context — do not repeat structural findings from Step 03
+- Find meaning-level changes in the current source; QMD only retrieves what the skill says. Do not repeat structural findings from Step 03
 - Do not classify severity (Step 05)
-- Use subprocess Pattern 3 when available for QMD queries; if unavailable, query in main thread
+- Use subprocess Pattern 3 when available for §2 items 2 to 4 (the QMD query and the source reads); if unavailable, run them in the main thread
 
 ## MANDATORY SEQUENCE
 
@@ -33,7 +33,7 @@ Append to {outputFile}:
 
 **Status:** Skipped — Semantic diff requires Deep tier (current tier: {tier})
 
-Semantic analysis compares QMD knowledge context for meaning-level changes that structural diff cannot detect. To enable semantic diff, run setup with QMD available to unlock Deep tier.
+Semantic analysis checks what the skill documents (retrieved from its QMD collection) against the current source for meaning-level changes that structural diff cannot detect. To enable semantic diff, run setup with QMD available to unlock Deep tier.
 ```
 
 Update frontmatter: append `'semantic-diff'` to `stepsCompleted`
@@ -57,17 +57,15 @@ Run item 1 in the main thread, because only the main thread can end this step, t
      - Fall through to the **direct-content fallback** below instead of skipping outright.
    - **Registry entry present and populated.** Use the `name` field from the registry entry as the collection to query. Proceed to bullet 2.
 
-   **Direct-content fallback** (used when the collection is registered but empty): load `SKILL.md` and `references/*.md` from the audited skill, then spot-check each documented export against the current source tree under `{source_root}` using the Deep-tier AST tooling this step already requires (ast_bridge; see step 2 §1 "Deep tier"). This fallback is reachable only from Deep tier — §1 short-circuits Quick/Forge/Forge+ before §2 runs, so AST tooling is guaranteed available here. Record findings with confidence label `T1-low-fallback` rather than T2 — this is direct content inspection, not QMD-backed semantic analysis. The step's output schema is otherwise unchanged; set `qmd_collection = null` in the Semantic Drift header and annotate: "Semantic diff ran in direct-content fallback mode — QMD collection was registered but empty."
+   **Direct-content fallback** (used when the collection is registered but empty): read what the skill documents about each export from `SKILL.md` and `references/*.md` of the audited skill in place of item 2's query, then run items 3 and 4 on those claims, checking the current source under `{source_root}` with the Deep-tier AST tooling this step already requires (ast_bridge; see step 2 §1 "Deep tier"). This fallback is reachable only from Deep tier: §1 short-circuits Quick/Forge/Forge+ before §2 runs, so AST tooling is guaranteed available here. Record findings with confidence label `T1-low-fallback` rather than T2: the claims come from reading the skill's files, not from its QMD collection. The step's output schema is otherwise unchanged; set `qmd_collection = null` in the Semantic Drift header and annotate: "Semantic diff ran in direct-content fallback mode: QMD collection was registered but empty."
 
-2. Queries for knowledge context around each export documented in the skill
-3. Retrieves: usage patterns, conventions, architectural context, dependency relationships
-4. Returns structured findings to parent
-
-**If subprocess unavailable:** Query QMD in main thread.
+2. Query the collection for what the skill documents about each export (usage, conventions, dependencies, architecture): the original side
+3. For each claim, read the export's current definition and call sites under `{source_root}` at the file and line `{forge_version}/extraction-snapshot.json` records for it: the current side (an export the snapshot no longer holds is a removed export step 3 already reports: skip it)
+4. Return each claim the source no longer supports with that file:line
 
 ### 3. Compare Knowledge Context
 
-For each export in the skill, compare original context (from skill creation) against current context (from QMD):
+For each export in the skill, compare original context (from skill creation, item 2) against the current source under `{source_root}` (item 3):
 
 **Detect:**
 - **New patterns:** Usage patterns that have emerged since skill was created
@@ -78,7 +76,7 @@ For each export in the skill, compare original context (from skill creation) aga
 
 For each finding, record:
 - What changed (description)
-- Evidence (QMD reference or source citation)
+- Evidence (the current source file:line; a claim with no source line is not recorded)
 - Affected exports
 - Confidence: T2
 
@@ -89,7 +87,7 @@ Append to {outputFile}:
 ```markdown
 ## Semantic Drift
 
-**Method:** QMD knowledge context comparison (Deep tier)
+**Method:** the skill's claims (from QMD) checked against the current source (Deep tier)
 **QMD Collection:** {collection_name}
 
 ### New Patterns Detected ({count})
@@ -106,9 +104,9 @@ Append to {outputFile}:
 
 ### Dependency Shifts ({count})
 
-| Export | Original Dependencies | Current Dependencies | Change | Confidence |
-|--------|---------------------|---------------------|--------|------------|
-| {export} | {old_deps} | {new_deps} | {description} | T2 |
+| Export | Original Dependencies | Current Dependencies | Change | Evidence | Confidence |
+|--------|---------------------|---------------------|--------|----------|------------|
+| {export} | {old_deps} | {new_deps} | {description} | {evidence} | T2 |
 
 ### Architectural Changes ({count})
 
@@ -134,7 +132,7 @@ Append to {outputFile}:
 | **Total Semantic Items** | {total} |
 ```
 
-Save the same rows to `{auditDataFolder}/semantic-findings.json`: step 5 classifies this file, not the tables. It is a JSON array with one object per row, `{"type": "semantic", "category", "name", "detail", "file", "line", "confidence"}`. `category` is its table's: New Patterns `pattern`, Changed Conventions `convention`, Dependency Shifts `dependency`, Architectural Changes `architecture` and Deprecated Patterns `deprecated_pattern`. `name` is the row's first cell, `detail` its description or change, `file` and `line` its evidence when that cites a source line (null otherwise), and `confidence` the row's (T2, or T1-low-fallback).
+Save the same rows to `{auditDataFolder}/semantic-findings.json`: step 5 classifies this file, not the tables. It is a JSON array with one object per row, `{"type": "semantic", "category", "name", "detail", "file", "line", "confidence"}`. `category` is its table's: New Patterns `pattern`, Changed Conventions `convention`, Dependency Shifts `dependency`, Architectural Changes `architecture` and Deprecated Patterns `deprecated_pattern`. `name` is the row's first cell, `detail` its description or change, `file` and `line` the current source line its evidence cites, and `confidence` the row's (T2, or T1-low-fallback).
 
 ### 5. Update Report and Auto-Proceed
 
