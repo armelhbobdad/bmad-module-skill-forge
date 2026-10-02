@@ -853,11 +853,11 @@ def test_version_paths_names_writers_and_forge_folders():
 
 
 # Each stack roster site: the extra bindings it makes, and whether it keeps a
-# helper-less fallback. verify-stack halts when the helper is missing (#599);
-# refine-architecture still walks the folder itself.
+# helper-less fallback. verify-stack and refine-architecture halt when the
+# helper is missing (#599).
 STACK_ROSTER_SITES = {
     "src/skf-verify-stack/references/init.md": ((), False),
-    "src/skf-refine-architecture/references/init.md": (("`{pairs}` ← `pairs`",), True),
+    "src/skf-refine-architecture/references/init.md": (("`{pairs}` ← `pairs`",), False),
 }
 
 

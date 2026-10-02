@@ -14,7 +14,10 @@ Covers:
   - aliases: alias and multi-word matching, merging, non-word term edges
   - mentions (#598): mentioned, fenced_only and unmentioned sets, fenced
     blocks skipped and listed with their info strings, headings, per-skill
-    paragraphs, candidates, each occurrence naming the longest term
+    paragraphs, candidates, each occurrence naming the longest term, the
+    terms that named each skill (name or alias, with their counts), and
+    the --technologies check of which skills cover each name (a term inside
+    the name, or equal to it with case and separators dropped, one way only)
   - infer (#582 no-document path): docs mentions with self-masking, shared
     keywords, a language (or a stack's list of them) never pairing on its
     own, the Top-K cap
@@ -883,6 +886,99 @@ class TestMentions:
         assert json.dumps(r1, sort_keys=True) == json.dumps(r2, sort_keys=True)
 
 
+class TestMentionTerms:
+    """Each skill's `terms[]`: the name or alias that named it, and where."""
+
+    DOC = (
+        "# App\n\nCognee stores vectors in Qdrant.\n\n## Cognee setup\n\n"
+        "The core services call qdrant.\n\n```mermaid\ngraph LR\n  core --> Qdrant\n```\n"
+    )
+
+    def _terms(self, name: str) -> list[dict]:
+        skills = _skills({"name": "oms-cognee", "aliases": ["Cognee", "core"]}, "qdrant", "lodash")
+        result = mod.mentions(self.DOC, skills)
+        return next(s for s in result["skills"] if s["name"] == name)["terms"]
+
+    def test_an_alias_is_named_as_an_alias_with_its_counts(self) -> None:
+        assert self._terms("oms-cognee") == [
+            {"term": "Cognee", "kind": "alias", "paragraph_count": 1, "heading_count": 1, "fenced_count": 0},
+            {"term": "core", "kind": "alias", "paragraph_count": 1, "heading_count": 0, "fenced_count": 1},
+        ]
+
+    def test_the_name_comes_first_spelled_as_the_input_gives_it(self) -> None:
+        assert self._terms("qdrant") == [
+            {"term": "qdrant", "kind": "name", "paragraph_count": 2, "heading_count": 0, "fenced_count": 1},
+        ]
+
+    def test_an_unnamed_skill_has_no_terms(self) -> None:
+        assert self._terms("lodash") == []
+
+    def test_a_term_counts_where_it_is_the_longest_term(self) -> None:
+        # `react` names nothing inside `react-dom`, so it never counts there.
+        result = mod.mentions("react-dom renders it.\n\nreact too.\n", ["react", "react-dom"])
+        terms = {s["name"]: [(t["term"], t["paragraph_count"]) for t in s["terms"]] for s in result["skills"]}
+        assert terms == {"react": [("react", 1)], "react-dom": [("react-dom", 1)]}
+
+    def test_terms_count_like_the_skill(self) -> None:
+        for skill in mod.mentions(MENTIONS_DOC, MENTIONS_SKILLS)["skills"]:
+            counts = (skill["paragraph_count"], skill["heading_count"], skill["fenced_count"])
+            if skill["terms"]:
+                [term] = skill["terms"]
+                assert (term["paragraph_count"], term["heading_count"], term["fenced_count"]) == counts
+            else:
+                assert counts == (0, 0, 0)
+
+
+class TestTechnologyCoverage:
+    SKILLS = [
+        {"name": "next"}, {"name": "react-router"}, {"name": "tailwindcss"},
+        {"name": "oms-cognee", "aliases": ["cognee"]}, {"name": "storybook-react-vite"},
+    ]
+
+    def _run(self, technologies: list[str]) -> dict:
+        return mod.mentions("", _skills(*self.SKILLS), technologies)
+
+    def _covered(self, name: str) -> list[tuple[str, str]]:
+        [entry] = [t for t in self._run([name])["technologies"] if t["name"] == name]
+        return [(c["skill"], c["term"]) for c in entry["covered_by"]]
+
+    @pytest.mark.parametrize(("name", "covered"), [
+        ("Next.js", [("next", "next")]),
+        ("React Router", [("react-router", "react-router")]),
+        ("Tailwind CSS", [("tailwindcss", "tailwindcss")]),
+        ("Cognee", [("oms-cognee", "cognee")]),
+        ("tailwind_css", [("tailwindcss", "tailwindcss")]),
+    ], ids=["term-inside-the-name", "separators-dropped", "space-dropped", "alias", "underscore-dropped"])
+    def test_a_skill_covers_a_name_by_either_rule(self, name, covered) -> None:
+        assert self._covered(name) == covered
+
+    def test_the_match_runs_one_way(self) -> None:
+        # A term inside the name covers it; the name inside a term does not.
+        assert self._covered("React") == []
+        assert self._covered("Storybook") == []
+
+    def test_unverified_keeps_the_given_order_and_drops_repeats(self) -> None:
+        result = self._run(["Redis", "Next.js", "Kafka", "redis", "  Kafka "])
+        assert [t["name"] for t in result["technologies"]] == ["Redis", "Next.js", "Kafka"]
+        assert result["unverified_technologies"] == ["Redis", "Kafka"]
+
+    def test_a_term_two_skills_share_names_both(self) -> None:
+        skills = _skills({"name": "vue-runtime", "aliases": ["vue"]}, {"name": "vue-router", "aliases": ["vue"]})
+        [entry] = mod.mentions("", skills, ["Vue 3"])["technologies"]
+        assert [c["skill"] for c in entry["covered_by"]] == ["vue-router", "vue-runtime"]
+
+    def test_no_technologies_adds_no_keys(self) -> None:
+        result = mod.mentions(MENTIONS_DOC, MENTIONS_SKILLS)
+        assert "technologies" not in result and "unverified_technologies" not in result
+        assert mod.mentions("", [], [])["unverified_technologies"] == []
+
+    @pytest.mark.parametrize("raw", ['{"a": 1}', '["Redis", ""]', '["Redis", 3]', "not json"],
+                             ids=["object", "empty-name", "number", "not-json"])
+    def test_a_malformed_list_is_a_user_error(self, raw) -> None:
+        with pytest.raises(mod.UserError):
+            mod.parse_technologies(raw)
+
+
 # --------------------------------------------------------------------------
 # infer (#582, no architecture document)
 # --------------------------------------------------------------------------
@@ -1581,6 +1677,48 @@ class TestMentionsCli:
         r2 = _run_cli("mentions", "--doc", str(doc), "--skills", str(skills))
         assert r1.returncode == 0 and r2.returncode == 0
         assert r1.stdout == r2.stdout
+
+
+class TestMentionsTechnologiesCli:
+    def test_from_files(self, tmp_path: Path) -> None:
+        doc = _write(tmp_path, "arch.md", "We use Next.js and Redis.\n")
+        skills = _write(tmp_path, "skills.json", json.dumps(["next", "express"]))
+        tech = _write(tmp_path, "technologies.json", json.dumps(["Next.js", "Redis"]))
+        result = _run_cli(
+            "mentions", "--doc", doc, "--skills", skills, "--technologies", tech, "--verbose"
+        )
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["unverified_technologies"] == ["Redis"]
+        assert payload["mentioned"] == ["next"]
+        assert result.stderr.strip().endswith("; 2 technologies, 1 not covered")
+
+    def test_technologies_from_stdin(self, tmp_path: Path) -> None:
+        doc = _write(tmp_path, "arch.md", "x\n")
+        skills = _write(tmp_path, "skills.json", json.dumps(["next"]))
+        result = _run_cli(
+            "mentions", "--doc", doc, "--skills", skills, "--technologies", "-",
+            stdin_text='["Next.js"]',
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["unverified_technologies"] == []
+
+    def test_two_inputs_on_stdin_exit_1(self, tmp_path: Path) -> None:
+        doc = _write(tmp_path, "arch.md", "x\n")
+        result = _run_cli(
+            "mentions", "--doc", doc, "--skills", "-", "--technologies", "-", stdin_text="[]",
+        )
+        assert result.returncode == 1
+        assert "can read from stdin" in result.stderr
+
+    def test_a_malformed_list_exits_1(self, tmp_path: Path) -> None:
+        doc = _write(tmp_path, "arch.md", "x\n")
+        skills = _write(tmp_path, "skills.json", "[]")
+        result = _run_cli(
+            "mentions", "--doc", doc, "--skills", skills, "--technologies", "-", stdin_text='["a", 1]',
+        )
+        assert result.returncode == 1
+        assert "--technologies[1] must be a non-empty string" in result.stderr
 
 
 class TestInferCli:

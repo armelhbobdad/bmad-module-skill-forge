@@ -17,7 +17,7 @@ emitEnvelopeProbeOrder:
 
 ## STEP GOAL:
 
-Present the complete refinement summary and the next steps, write the result contract, run the post-completion hook and finish the run. Every count comes from the files the preservation script wrote. Chains to the shared health check.
+Present where the refined document is, the skills its evidence came from and the next steps, write the result contract, run the post-completion hook and finish the run. Every count comes from the files the preservation script wrote. Chains to the shared health check.
 
 ## Rules
 
@@ -51,22 +51,15 @@ uv run {preservationScript} context --inspect "{inspectResult}" --apply "{applyR
 - **3:** HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:numbers`, naming its `error`.
 - If `uv` cannot start the script: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `report:numbers`.
 
-**Bind the metrics from the files:** `gap_count`, `issue_count` and `improvement_count` from `counts.gap`, `counts.issue` and `counts.improvement` of `{applyResult}`; the count of each severity tier from `counts.issue_tiers` and of each value tier from `counts.improvement_tiers` (each lists the tiers of the refinement rules, most severe or most valuable first); `unverified_count` from `counts.unverified` and `unverified_technologies` from its `unverified_technologies` (comma-separated, or `none`), the list the count was taken from; `skill_count` from `counts.skills`; the Evidence Sources from `evidence`; `{ranges}` from the `legacy` entries of `set_aside`, each as `start`-`end`; `previous_refined_path` from the `previous` of `{promoteResult}` (null when no earlier refined document was there); `previous_pass` from `{inspectResult}`; and `vs_coverage` from `{vs_report}` as Step 05 §5 wrote it (the `[RA-VS]` block) when a VS report was used. With no VS report, leave the VS Coverage row out of the summary below.
+**Bind what §2 and §3 show from the files:** the Evidence Sources from `evidence` of `{applyResult}`; `unverified_count` from `counts.unverified` and `unverified_technologies` from its `unverified_technologies` (comma-separated, or `none`), the list the count was taken from; `counts.issue_tiers`, which lists the severity tiers of the refinement rules, most severe first, with their counts; `{ranges}` from the `legacy` entries of `set_aside`, each as `start`-`end`; `previous_refined_path` from the `previous` of `{promoteResult}` (null when no earlier refined document was there); and `previous_pass` from `{inspectResult}`.
 
 ### 2. Display Summary
+
+Show no count table: the step 5 review showed every count, and a headless run's result line (§4) carries `gap_count`, `issue_count`, `improvement_count` and `unverified_count`.
 
 "**Refine Architecture: Refinement Complete**
 
 ---
-
-| Metric | Count |
-|--------|-------|
-| **Gaps Filled** | {gap_count} |
-| **Issues Flagged** | {issue_count} ({each tier of `counts.issue_tiers` with its count, in that order}) |
-| **Improvements Suggested** | {improvement_count} ({each tier of `counts.improvement_tiers` with its count, in that order}) |
-| **Skills Used as Evidence** | {skill_count} |
-| **Not verified (no skill)** | {unverified_count} ({unverified_technologies}) |
-| **VS Coverage** | {vs_coverage} |
 
 **Evidence Sources:** (which skills contributed evidence)
 

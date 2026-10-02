@@ -33,7 +33,9 @@ and pin the prose around them:
   result contract, runs on_complete with the emitter's result_path and shows
   its failure on a report line, takes every count and name from the build
   record, and finishes the run with no menu (the walkthrough of each
-  refinement is [R] at step 5's review, where feedback can still act).
+  refinement is [R] at step 5's review, where feedback can still act);
+- init's documented `rules` call and issue detection's `verdicts` call run
+  as written on a fixture, with the bindings the steps give them.
 """
 
 from __future__ import annotations
@@ -359,7 +361,7 @@ def test_each_documented_warning_is_a_fixed_code_the_schema_names():
         codes += WARNING_RE.findall(text)
         codes += re.findall(r"--warning '([a-z_]+): [^']+'", text)
     assert sorted(set(codes)) == ["legacy_blocks_set_aside", "malformed_ra_markers", "out_of_scope_skills",
-                                  "scope_fallback_all_skills", "unknown_scope_skills", "vs_report_not_read"]
+                                  "scope_fallback_all_skills", "unknown_scope_skills"]
     described = _schema()["properties"]["warnings"]["description"]
     for code in [*codes, "result_file_write_failed"]:
         assert code in described, code
@@ -512,9 +514,12 @@ def test_a_failed_check_never_promotes():
 
 def test_preservation_is_claimed_only_after_the_check_passed():
     review = _section(_read(COMPILE), "### 7. Present the Draft for Review", "### 8.")
-    assert "Original architecture content preserved in full: the preservation script found every line" in review
-    assert ('Say "Original architecture content preserved in full" only when the last `apply` exited 0 and its '
-            "`set_aside` holds no `legacy` entry") in review
+    # One template line: a failed check, then lines set aside unchecked, rule out the claim.
+    [claim] = [line for line in review.splitlines() if "Original architecture content preserved in full" in line]
+    assert claim.startswith("- {IF the last `apply` failed the check:}")
+    assert "{ELSE IF its `set_aside` holds a `legacy` entry:}Every original line is preserved except" in claim
+    assert claim.endswith("{ELSE:}Original architecture content preserved in full: the preservation script found "
+                          "every line unchanged{END IF}")
     shown = _section(_read(REPORT), "### 2. Display Summary", "### 3.")
     assert "The original architecture content is fully preserved." not in shown
     assert ("{IF `{ranges}` is empty:}The original architecture content is preserved in full: the preservation "
@@ -530,7 +535,7 @@ def test_an_unmarked_block_set_aside_is_shown_not_claimed(tmp_path):
     assert "record the warning `legacy_blocks_set_aside: lines <each start-end, comma-separated>`" in first
     review = _section(_read(COMPILE), "### 7. Present the Draft for Review", "### 8.")
     assert "Every original line is preserved except lines {ranges} of `{architecture_doc}`" in review
-    assert "where `{ranges}` lists each `legacy` entry's `start`-`end`" in review
+    assert "{ranges} of `{architecture_doc}` (each `legacy` entry's `start`-`end`)" in review
     shown = _section(_read(REPORT), "### 2. Display Summary", "### 3.")
     assert "{ELSE:}Every original line is preserved except lines {ranges}" in shown
     assert "`{ranges}` from the `legacy` entries of `set_aside`" in _section(_read(REPORT), "### 1.", "### 2.")
@@ -654,13 +659,79 @@ def test_the_report_finishes_the_run_without_a_menu():
 
 def test_report_takes_every_count_from_the_build_record():
     numbers = _section(_read(REPORT), "### 1. Load the Run's Numbers", "### 2.")
-    assert "`gap_count`, `issue_count` and `improvement_count` from `counts.gap`, `counts.issue` and `counts.improvement`" in numbers
+    assert "the Evidence Sources from `evidence` of `{applyResult}`" in numbers
+    assert "`unverified_count` from `counts.unverified`" in numbers
     assert "`previous_refined_path` from the `previous` of `{promoteResult}`" in numbers
-    assert "`skill_count` from `counts.skills`" in numbers
     assert "`unverified_technologies` from its `unverified_technologies`" in numbers
+    # The headless counts reach the result line through the `context` payload, never typed.
+    assert "every count from `{applyResult}`" in _section(_read(REPORT), "### 4. Result Contract", "### 5.")
     assert "[RA-SCOPE]" not in numbers, "the names come from the list the count was taken from"
     assert "Extract metrics from the Refinement Summary" not in _read(REPORT)
     frontmatter = _frontmatter(_read(REPORT))
     for key, path in (("applyResult", "{run_dir}/apply.json"), ("promoteResult", "{run_dir}/promote.json"),
                       ("inspectResult", "{run_dir}/inspect.json")):
         assert f"{key}: '{path}'" in frontmatter, key
+
+
+# --- The rules check and the verdict join, as documented --------------------------------------
+
+VS_REPORT = """---
+schemaVersion: "1.0"
+reportType: feasibility
+overallVerdict: "CONDITIONALLY_FEASIBLE"
+generatedAt: "2026-10-01T09:00:00Z"
+---
+
+# Feasibility Report
+
+## Executive Summary
+
+Summary.
+
+## Coverage Analysis
+
+Coverage.
+
+## Integration Verdicts
+
+| lib_a | lib_b | verdict | rationale |
+|-------|-------|---------|-----------|
+| loro | yjs | Blocked | no bridge |
+| cycle | loro \u2192 yjs \u2192 loro | Risky | circular integration dependency detected |
+| loro | fastapi | Risky | fastapi is out of scope |
+
+## Recommendations
+
+Recommendations.
+
+## Evidence Sources
+
+Sources.
+"""
+
+
+def test_the_documented_rules_and_verdicts_calls_run(tmp_path):
+    run_dir = _run_dir(tmp_path)
+    rules = (REFERENCES / "refinement-rules.md").as_posix()
+    checked = _run([PRESERVATION, *_bind(_call(_read(INIT), "rules"), {"refinementRulesData": rules})])
+    assert checked.returncode == 0, checked.stdout
+    tiers = json.loads(checked.stdout)["tiers"]
+    assert tiers == {"issue": ["Critical", "Major", "Minor"], "improvement": ["High", "Medium", "Low"]}
+    report = tmp_path / "feasibility-report-app-latest.md"
+    report.write_bytes(VS_REPORT.encode("utf-8"))
+    # Step 02 section 2 stages the terms both helpers read.
+    (run_dir / "skill-terms.json").write_bytes(json.dumps(
+        [{"name": "loro", "aliases": []}, {"name": "yjs", "aliases": []}, {"name": "fastapi", "aliases": []}]
+    ).encode("utf-8"))
+    values = {"vs_report_path": report.as_posix(), "vs_generated_at": "2026-10-01T09:00:00Z",
+              "run_dir": run_dir.as_posix(), "in_scope_names": "loro,yjs", "refinementRulesData": rules}
+    joined = _run([PRESERVATION, *_bind(_call(_read(ISSUES), "verdicts"), values)])
+    assert joined.returncode == 0, joined.stdout
+    result = json.loads(joined.stdout)
+    assert [(r["skill_a"], r["skill_b"], r["raises"]) for r in result["in_scope"]] == [("loro", "yjs", "Critical")]
+    assert [(r["lib_a"], r["reason"]) for r in result["out_of_scope"]] == [("cycle", "no-inventory-skill"),
+                                                                          ("loro", "out-of-scope")]
+    # A report [VS] rewrote during the run is stale: exit 1, which the step turns into exit 8.
+    values["vs_generated_at"] = "2026-09-30T09:00:00Z"
+    stale = _run([PRESERVATION, *_bind(_call(_read(ISSUES), "verdicts"), values)])
+    assert stale.returncode == 1 and json.loads(stale.stdout)["status"] == "stale"

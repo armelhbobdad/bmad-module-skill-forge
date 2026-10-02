@@ -82,7 +82,7 @@ Write the three compiled artifacts to the skill package in this order, `metadata
    uv run {atomicWriteHelper} write --target "{skill_package}/metadata.json" < "{run_dir}/metadata.json"
    ```
 
-   It writes the file in place atomically, so an interrupted run never leaves half a `metadata.json`. If no candidate exists, copy it: `cp "{run_dir}/metadata.json" "{skill_package}/metadata.json"`.
+   It writes the file in place atomically, so an interrupted run never leaves half a `metadata.json`. If no candidate exists, write nothing and HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Nothing was written to `{skill_package}`.** SKF's atomic writer (`skf-atomic-write.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "Nothing was written: the atomic writer is missing.", "skill_package": "{skill_package}", "details": {"cause": "atomic-writer-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`, without `--result-dir "{skill_package}"` when no earlier run's `metadata.json` is there (`references/halt-contract.md`).
 2. `{skill_package}/SKILL.md`: the compiled skill document.
 3. `{skill_package}/context-snippet.md`: the compressed context snippet. **Skip this write** if `{overrides.skip_snippet}` was set; the artifact is omitted from `outputs`.
 
@@ -128,7 +128,7 @@ uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" --capt
 
 Bind `{quality_score}` ← that score, and record the remaining diagnostics and security findings as validation issues. `{quality_score}` is null when skill-check did not run.
 
-**If skill-check is not available**, run the shared frontmatter validator. Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If no candidate exists, log a high-severity issue ("frontmatter validator unavailable — both `npx skill-check` and `skf-validate-frontmatter.py` missing") and skip frontmatter validation.
+**If skill-check is not available**, run the shared frontmatter validator. Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If no candidate exists, nothing can check the frontmatter: HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**`{skill_package}` was written but not validated.** skill-check is unavailable and SKF's frontmatter validator (`skf-validate-frontmatter.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF, then re-run." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "The skill was written but not validated: the frontmatter validator is missing.", "skill_package": "{skill_package}", "outputs": {<each deliverable §2 wrote, as "metadata", "skill_md" or "context_snippet" with its path>}, "details": {"cause": "frontmatter-validator-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`.
 
 ```bash
 uv run {frontmatterValidator} "{skill_package}/SKILL.md" --skill-dir-name {repo_name}
@@ -140,10 +140,10 @@ The validator emits JSON with `status` (`pass`/`fail`), `issues[]` (each with `s
 
 Run the shared output validator against the on-disk skill package — it performs the body-structure, snippet-format, and metadata-shape checks. Pass `--skip-frontmatter` since §4 has already covered frontmatter.
 
-**Resolve `{outputValidator}`:** probe `{outputValidatorProbeOrder}` (installed first, dev fallback); first existing path wins. If neither candidate exists, log a high-severity issue ("output validator unavailable — `skf-validate-output.py` missing") and skip body/snippet/metadata validation.
+**Resolve `{outputValidator}`** from `{outputValidatorProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**`{skill_package}` was written but not validated.** SKF's output validator (`skf-validate-output.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF, then re-run." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "The skill was written but not validated: the output validator is missing.", "skill_package": "{skill_package}", "outputs": {<each deliverable §2 wrote, as "metadata", "skill_md" or "context_snippet" with its path>}, "details": {"cause": "output-validator-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`. Otherwise run:
 
 ```bash
-python3 {outputValidator} "{skill_package}" --generated-by quick-skill --skip-frontmatter
+uv run {outputValidator} "{skill_package}" --generated-by quick-skill --skip-frontmatter
 ```
 
 The validator emits JSON with `result` (PASS/FAIL), `validation.skill_md.body[]`, `validation.context_snippet.issues[]`, `validation.metadata.issues[]`, and a severity-bucketed `summary`. Record each issue as a validation issue at its reported severity.

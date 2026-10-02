@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-quick-skill
+summary: |
+  A missing GitHub fetch helper (`skf-github-fetch.py`), skills-module helper (`skf-skills-module.py`), public-API extractor (`skf-extract-public-api.py`), atomic writer (`skf-atomic-write.py`), output validator (`skf-validate-output.py`) or frontmatter validator (`skf-validate-frontmatter.py`, used when skill-check is unavailable) now stops Quick Skill with exit `3` `resolution-failure`, naming the helper in the message and in the envelope's `error.details.cause`, instead of fetching files with `gh api` by hand, classifying the repository from its README alone, parsing exports in the prompt, copying `metadata.json` with `cp`, or skipping the output or frontmatter checks. The output validator now runs through `uv`.
+migration: |
+  Reinstall SKF (`npx bmad-module-skill-forge install`) or install `uv` so the shipped helpers resolve. A batch that relied on the fallback branches on exit `3`.
+issues: [599]

@@ -124,6 +124,7 @@ Subcommands:
       paragraph: a diagnostic for the caller, not a gate.
 
   mentions --doc <md-file-or-'-'> --skills <json-file-or-'-'>
+           [--technologies <json-file-or-'-'>]
       Fenced code blocks are skipped: their lines are neither paragraphs
       nor headings. No section is excluded, and one paragraph is enough.
 
@@ -132,6 +133,10 @@ Subcommands:
           "skills": [
             {"name": "<skill>",
              "paragraph_count": N, "heading_count": H, "fenced_count": F,
+             "terms": [{"term": "<the skill's term>",
+                        "kind": "name|alias",
+                        "paragraph_count": N, "heading_count": H,
+                        "fenced_count": F}, ...],
              "paragraphs": [{"header": "<governing-header-or-null>",
                              "excerpt": "<collapsed paragraph text>",
                              "line": L}, ...]},
@@ -148,10 +153,16 @@ Subcommands:
 
       `skills[]` has one entry per skill, sorted by name: how many body
       paragraphs, headings (any level) and fenced blocks name it, and each
-      such paragraph in document order. `mentioned` lists the skills a
-      paragraph or a heading names, `fenced_only` the skills named only
-      inside fenced code (a diagram, for example) and `unmentioned` the
-      rest; the three are sorted and hold every skill once.
+      such paragraph in document order. `terms[]` lists each of the
+      skill's terms that named it, spelled as the skills input gives it,
+      its name first and then its aliases in input order, with `kind`
+      saying which, and how many paragraphs, headings and fenced blocks
+      that term named the skill in: the term a scope gate shows for each
+      skill, so a skill named only through an alias reads as such.
+      `mentioned` lists the skills a paragraph or a heading names,
+      `fenced_only` the skills named only inside fenced code (a diagram,
+      for example) and `unmentioned` the rest; the three are sorted and
+      hold every skill once.
 
       `candidates[]` holds each pair that a body paragraph names in one
       unit or through a lead-in (comention_count + lead_in_count >= 1),
@@ -162,6 +173,26 @@ Subcommands:
       blocks skipped, in document order: the line of each opening fence and
       its info string, trimmed (`mermaid` for a Mermaid diagram, "" for
       none).
+
+      --technologies takes a JSON array of technology names as a document
+      writes them (the caller judges which strings are technologies) and
+      adds two keys:
+        "technologies": [{"name": "<as given>",
+                          "covered_by": [{"skill": "<skill>",
+                                          "term": "<the skill's term>"},
+                                         ...]}, ...],
+        "unverified_technologies": ["<name>", ...]
+      in the order given, a repeat (ignoring case and runs of whitespace)
+      dropped. A skill covers a technology when the matching above finds
+      one of its terms inside the name, each occurrence read as its
+      longest term (a `next` skill covers `Next.js`), or when one of its
+      terms equals the name once case, whitespace, hyphens, dots and
+      underscores are dropped (a `react-router` skill covers `React
+      Router`, a `tailwindcss` skill `Tailwind CSS`). The match runs one
+      way: a `storybook-react-vite` skill does not cover `React`.
+      `covered_by` is sorted by skill, each with the first of its terms
+      that covers the name, and `unverified_technologies` lists the names
+      no skill covers.
 
   infer --skills <json-file-or-'-'> [--top-k N]
       A pair is a candidate on either kind of evidence:
@@ -219,12 +250,15 @@ CLI examples:
   echo '["react","express"]' | uv run skf-comention-pairs.py comention \\
       --doc arch.md --skills -
   uv run skf-comention-pairs.py mentions --doc arch.md --skills skills.json
+  uv run skf-comention-pairs.py mentions --doc arch.md --skills skills.json \\
+      --technologies technologies.json
   uv run skf-comention-pairs.py infer --skills skills.json --top-k 20
 
 Exit codes:
   0  operation succeeded (including: nothing qualifies, so empty lists)
-  1  user error (bad JSON, a missing, unreadable or non-UTF-8 file, --doc
-     and --skills both on stdin, malformed skills array, negative --top-k)
+  1  user error (bad JSON, a missing, unreadable or non-UTF-8 file, two
+     inputs on stdin, malformed skills or technologies array, negative
+     --top-k)
   2  unexpected internal error
 """
 
@@ -595,11 +629,13 @@ def _skill_pattern(skill: Skill) -> re.Pattern[str]:
 
 
 class _Occurrence(NamedTuple):
-    """A match of a term in a text, and the skills it names there."""
+    """A match of a term in a text, and the skills it names there. `term`
+    is the matched term, normalised (mentions and infer only)."""
 
     start: int
     end: int
     names: frozenset[str]
+    term: str = ""
 
 
 class _EachSkill:
@@ -650,24 +686,26 @@ class _LongestTerm:
         them is left out)."""
         found: list[_Occurrence] = []
         for m in self.pattern.finditer(text) if self.pattern else ():
-            names = self._owners(m.group(0))
+            term = self._term(m.group(0))
+            names = self.owners.get(term, frozenset())
             if among is not None:
                 names &= among
             if names:
-                found.append(_Occurrence(m.start(), m.end(), names))
+                found.append(_Occurrence(m.start(), m.end(), names, term))
         return found
 
-    def _owners(self, text: str) -> frozenset[str]:
-        found = self.owners.get(_norm(text))
-        if found is not None:
-            return found
+    def _term(self, text: str) -> str:
+        """The normalised term the pattern matched in `text`."""
+        term = _norm(text)
+        if term in self.owners:
+            return term
         # A case-insensitive match that lowercasing does not map back to its
         # term (the long s matches `s`): the first term, longest first, that
         # matches the text whole is the one the pattern chose.
         for term in self.terms:
             if re.fullmatch(_term_body(term), text, re.IGNORECASE):
-                return self.owners[term]
-        return frozenset()
+                return term
+        return ""
 
 
 def _coerce(skills: list[Skill | str]) -> dict[str, Skill]:
@@ -965,19 +1003,80 @@ def analyze(doc_text: str, skills: list[Skill | str]) -> dict:
     }
 
 
-def mentions(doc_text: str, skills: list[Skill | str]) -> dict:
-    """mentions: which skills the document names outside fenced code, and
-    the candidate pairs a body paragraph names in one unit or through a
-    lead-in."""
+def _named(occurrences: list[_Occurrence]) -> set[str]:
+    return set().union(*(o.names for o in occurrences))
+
+
+def _spelling(skill: Skill, term: str) -> tuple[str, str]:
+    """The skill's own spelling of a normalised term, and its kind."""
+    for i, t in enumerate(skill.terms):
+        if _norm(t) == term:
+            return t, "name" if i == 0 else "alias"
+    return term, "alias"
+
+
+def _squash(text: str) -> str:
+    """Lowercased, with whitespace, hyphens, dots and underscores dropped."""
+    return re.sub(r"[\s\-._]+", "", text.lower())
+
+
+def coverage(
+    technologies: list[str], specs: dict[str, Skill], matcher: _LongestTerm
+) -> tuple[list[dict], list[str]]:
+    """Which skills cover each technology name, and the names none covers.
+    Names are trimmed, and a repeat (ignoring case and runs of whitespace)
+    is dropped."""
+    technologies = list(_dedupe(tuple(t.strip() for t in technologies), key=_norm))
+    squashed = [
+        (n, t, _squash(t)) for n in sorted(specs) for t in specs[n].terms
+    ]
+    entries: list[dict] = []
+    unverified: list[str] = []
+    for tech in technologies:
+        found: dict[str, str] = {}
+        for occurrence in matcher.find(tech):
+            for n in sorted(occurrence.names):
+                found.setdefault(n, _spelling(specs[n], occurrence.term)[0])
+        target = _squash(tech)
+        for n, term, flat in squashed:
+            if flat and flat == target:
+                found.setdefault(n, term)
+        entries.append({
+            "name": tech,
+            "covered_by": [{"skill": n, "term": found[n]} for n in sorted(found)],
+        })
+        if not found:
+            unverified.append(tech)
+    return entries, unverified
+
+
+def mentions(
+    doc_text: str,
+    skills: list[Skill | str],
+    technologies: list[str] | None = None,
+) -> dict:
+    """mentions: which skills the document names outside fenced code, the
+    term that named each, the candidate pairs a body paragraph names in one
+    unit or through a lead-in, and, given technology names, which skills
+    cover each."""
     specs = _coerce(skills)
     names = sorted(specs)
     matcher = _LongestTerm(specs)
     doc = read_markdown(doc_text, skip_fenced=True)
 
+    # (skill, normalised term) -> [paragraphs, headings, fenced blocks]
+    term_counts: dict[tuple[str, str], list[int]] = {}
+
+    def count_terms(occurrences: list[_Occurrence], slot: int) -> None:
+        for name, term in {(n, o.term) for o in occurrences for n in o.names}:
+            term_counts.setdefault((name, term), [0, 0, 0])[slot] += 1
+
     hits: dict[str, list[dict]] = {n: [] for n in names}
     pair_evidence: dict[tuple[str, str], list[dict]] = {}
     for para in doc.paragraphs:
-        present = sorted(matcher.names(para.text))
+        occurrences = matcher.find(para.text)
+        count_terms(occurrences, 0)
+        present = sorted(_named(occurrences))
         if not present:
             continue
         excerpt = _make_excerpt(para.text)
@@ -988,8 +1087,16 @@ def mentions(doc_text: str, skills: list[Skill | str]) -> dict:
         for pair, entry in _paragraph_evidence(para, present, matcher):
             pair_evidence.setdefault(pair, []).append(entry)
 
-    in_headings = [matcher.names(h) for h in doc.headings]
-    in_fenced = [matcher.names(f.text) for f in doc.fenced]
+    in_headings: list[set[str]] = []
+    for heading in doc.headings:
+        occurrences = matcher.find(heading)
+        count_terms(occurrences, 1)
+        in_headings.append(_named(occurrences))
+    in_fenced: list[set[str]] = []
+    for fence in doc.fenced:
+        occurrences = matcher.find(fence.text)
+        count_terms(occurrences, 2)
+        in_fenced.append(_named(occurrences))
     skills_out: list[dict] = []
     mentioned: list[str] = []
     fenced_only: list[str] = []
@@ -997,11 +1104,23 @@ def mentions(doc_text: str, skills: list[Skill | str]) -> dict:
     for n in names:
         heading_count = sum(1 for found in in_headings if n in found)
         fenced_count = sum(1 for found in in_fenced if n in found)
+        terms = []
+        for term in specs[n].terms:
+            counts = term_counts.get((n, _norm(term)))
+            if counts:
+                terms.append({
+                    "term": term,
+                    "kind": _spelling(specs[n], _norm(term))[1],
+                    "paragraph_count": counts[0],
+                    "heading_count": counts[1],
+                    "fenced_count": counts[2],
+                })
         skills_out.append({
             "name": n,
             "paragraph_count": len(hits[n]),
             "heading_count": heading_count,
             "fenced_count": fenced_count,
+            "terms": terms,
             "paragraphs": hits[n],
         })
         if hits[n] or heading_count:
@@ -1024,7 +1143,7 @@ def mentions(doc_text: str, skills: list[Skill | str]) -> dict:
         p["a"], p["b"],
     ))
 
-    return {
+    result = {
         "skills": skills_out,
         "mentioned": mentioned,
         "fenced_only": fenced_only,
@@ -1034,6 +1153,11 @@ def mentions(doc_text: str, skills: list[Skill | str]) -> dict:
         "fenced_block_count": len(doc.fenced),
         "fenced_blocks": [{"line": f.line, "info": f.info} for f in doc.fenced],
     }
+    if technologies is not None:
+        entries, unverified = coverage(technologies, specs, matcher)
+        result["technologies"] = entries
+        result["unverified_technologies"] = unverified
+    return result
 
 
 def _read_doc(path_text: str, owner: str) -> str:
@@ -1175,6 +1299,25 @@ def parse_skills(raw_text: str) -> list[Skill]:
     return skills
 
 
+def parse_technologies(raw_text: str) -> list[str]:
+    """Parse and validate the --technologies JSON array of names."""
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise UserError(f"malformed JSON in --technologies input: {exc}") from exc
+    if not isinstance(data, list):
+        raise UserError(
+            "--technologies input must be a JSON array of names; "
+            f"got {type(data).__name__}"
+        )
+    for idx, item in enumerate(data):
+        if not isinstance(item, str) or not item.strip():
+            raise UserError(
+                f"--technologies[{idx}] must be a non-empty string; got {item!r}"
+            )
+    return data
+
+
 def _read_doc_and_skills(args: argparse.Namespace) -> tuple[str, list[Skill]]:
     if args.doc == "-" and args.skills == "-":
         raise UserError(
@@ -1210,18 +1353,33 @@ def _cmd_comention(args: argparse.Namespace) -> int:
 
 
 def _cmd_mentions(args: argparse.Namespace) -> int:
+    if args.technologies == "-" and "-" in (args.doc, args.skills):
+        raise UserError(
+            "only one of --doc, --skills and --technologies can read from "
+            "stdin ('-')"
+        )
     doc_text, skills = _read_doc_and_skills(args)
-    result = mentions(doc_text, skills)
+    technologies = None
+    if args.technologies is not None:
+        technologies = parse_technologies(
+            _read_source(args.technologies, "--technologies")
+        )
+    result = mentions(doc_text, skills, technologies)
     if args.verbose:
-        print(
+        summary = (
             f"analyzed {len(result['skills'])} distinct skill names; "
             f"{len(result['mentioned'])} mentioned, "
             f"{len(result['fenced_only'])} only in fenced code, "
             f"{len(result['unmentioned'])} unmentioned; "
             f"{len(result['candidates'])} candidate pairs; "
-            f"{result['list_only_pair_count']} list-only pairs",
-            file=sys.stderr,
+            f"{result['list_only_pair_count']} list-only pairs"
         )
+        if technologies is not None:
+            summary += (
+                f"; {len(result['technologies'])} technologies, "
+                f"{len(result['unverified_technologies'])} not covered"
+            )
+        print(summary, file=sys.stderr)
     return _emit(result)
 
 
@@ -1286,12 +1444,21 @@ def _build_parser() -> argparse.ArgumentParser:
     p_mn = sub.add_parser(
         "mentions",
         help=(
-            "emit which skills a document names (fenced code skipped) and "
-            "the pairs a paragraph names together, as JSON"
+            "emit which skills a document names (fenced code skipped), the "
+            "term that named each, the pairs a paragraph names together "
+            "and, with --technologies, which skills cover each name, as JSON"
         ),
     )
     _add_doc_and_skills(
         p_mn, "path to the markdown document, or '-' for stdin"
+    )
+    p_mn.add_argument(
+        "--technologies",
+        help=(
+            "path to a JSON array of technology names as the document "
+            "writes them, or '-' for stdin: adds which skills cover each "
+            "name and the names none covers"
+        ),
     )
     p_mn.set_defaults(func=_cmd_mentions)
 

@@ -34,7 +34,19 @@ model retyping the original, so these pin what it promises (#587):
 - context merges the three records into the result contract's payload and
   refuses a record that is missing;
 - writes go through the shared atomic writer (exit 3 when it is missing), -o
-  writes the JSON only on success, and the CLI exit codes match the docstring.
+  writes the JSON only on success, and the CLI exit codes match the docstring;
+- rules (init.md section 4, #598) passes the bundled refinement rules and a
+  renamed copy, and names each table and tier rule a copy breaks: a missing
+  or empty table, a tier name the summary cannot count, a reserved or
+  repeated name, an unknown, repeated or unmapped VS token and a VS row
+  that raises no tier;
+- verdicts (issue-detection.md section 4, #598) joins each [VS] row to the
+  skill of that name or of a single alias, routes a pair with an
+  out-of-scope skill or a library no skill matches (a cycle row's `cycle`)
+  to out_of_scope, gives each in-scope row the tier its token raises, and
+  reports a report [VS] rewrote, one that cannot be read or breaks the
+  contract, and rules that changed, as stale (exit 1); a missing reader
+  exits 3.
 """
 
 from __future__ import annotations
@@ -968,9 +980,255 @@ def test_inspect_writes_its_record_only_on_success(tmp_path):
     assert (tmp_path / "s.md").read_bytes() == ARCH.encode("utf-8")
 
 
-def test_the_cli_has_the_five_subcommands():
+def test_the_cli_has_the_seven_subcommands():
     proc = _run("--help")
     assert proc.returncode == 0
-    for command in ("inspect", "apply", "check", "promote", "context"):
+    for command in ("inspect", "apply", "check", "promote", "context", "rules", "verdicts"):
         assert command in proc.stdout
     assert _run().returncode == 2
+
+
+# --------------------------------------------------------------------------
+# rules: the refinement rules a step classifies with
+# --------------------------------------------------------------------------
+
+RULES_PATH = REPO_ROOT / "src" / "skf-refine-architecture" / "references" / "refinement-rules.md"
+BUNDLED_RULES = RULES_PATH.read_bytes().decode("utf-8")
+
+
+def _rules(tmp_path, text: str) -> Path:
+    return _write(tmp_path / "rules.md", text)
+
+
+def _rules_result(tmp_path, text: str) -> tuple[int, dict]:
+    proc = _run("rules", "--rules", _rules(tmp_path, text))
+    return proc.returncode, json.loads(proc.stdout)
+
+
+def _broken(*changes: tuple[str, str]) -> str:
+    text = BUNDLED_RULES
+    for old, new in changes:
+        assert old in text, old
+        text = text.replace(old, new, 1)
+    return text
+
+
+def test_the_bundled_rules_pass(tmp_path):
+    code, result = _rules_result(tmp_path, BUNDLED_RULES)
+    assert code == 0 and result["status"] == "ok", result
+    assert result["tiers"] == {"issue": ["Critical", "Major", "Minor"], "improvement": ["High", "Medium", "Low"]}
+    assert result["vs_raises"] == {"Verified": None, "Plausible": "Minor", "Risky": "Major", "Blocked": "Critical"}
+    assert result["missing_tables"] == [] and result["violations"] == []
+
+
+def test_a_renamed_copy_passes_and_maps_its_own_tiers(tmp_path):
+    text = _broken(("**Critical**", "**Blocker**"), ("**Major**", "**Should fix**"), ("**Minor**", "**Later**"),
+                   ("A **Critical** issue", "A **blocker** issue"), ("A **Major** issue", "A **Should fix** issue"),
+                   ("A **Minor**, potential issue", "A **Later**, potential issue"))
+    code, result = _rules_result(tmp_path, text)
+    assert code == 0, result
+    assert result["tiers"]["issue"] == ["Blocker", "Should fix", "Later"]
+    assert result["vs_raises"]["Blocked"] == "Blocker" and result["vs_raises"]["Risky"] == "Should fix"
+
+
+def test_an_unbolded_copy_passes_and_maps_its_tiers(tmp_path):
+    # A team's copy need not bold the tier a VS row raises: its text names one, or says No issue or None.
+    text = _broken(("A **Critical** issue: the architecture", "A Critical issue: the architecture"),
+                   ("A **Major** issue, confirmed by the VS evidence", "major"),
+                   ("A **Minor**, potential issue", "Minor, a potential issue"), ("| No issue", "| None"))
+    code, result = _rules_result(tmp_path, text)
+    assert code == 0, result
+    assert result["vs_raises"] == {"Verified": None, "Plausible": "Minor", "Risky": "Major", "Blocked": "Critical"}
+
+
+def test_a_longer_tier_is_not_also_read_as_a_shorter_one():
+    tiers = {"severe_count": "Severe", "very_severe_count": "Very Severe"}
+    assert mod.vs_raised("A very  severe issue", tiers) == (["Very Severe"], False)
+    assert mod.vs_raised("A **Severe** issue, not Very Severe", tiers) == (["Severe"], False)
+    assert mod.vs_raised("Nothing to raise", tiers) == ([], False)
+    assert mod.vs_raised("No issue: the pair is verified", tiers) == ([], True)
+
+
+def test_a_heading_of_any_level_and_case_holds_a_table(tmp_path):
+    code, result = _rules_result(tmp_path, _broken(("## Issue Severity", "### issue severity")))
+    assert code == 0, result
+
+
+VALUE_ROWS = [line for line in BUNDLED_RULES.splitlines(keepends=True)
+              if line.startswith(("| **High**", "| **Medium**", "| **Low**"))]
+BROKEN_RULES = [
+    pytest.param((("## Improvement Value", "## Value Tiers"),), "table-missing", "lacks the Improvement Value table",
+                 id="table-missing"),
+    pytest.param(tuple((row, "") for row in VALUE_ROWS), "table-empty", "names no tier", id="table-empty"),
+    pytest.param((("**Low**    |", "**Must-fix** |"),), "tier-name", "tier `Must-fix`", id="punctuation"),
+    pytest.param((("**Low**    |", "**1st** |"),), "tier-name", "tier `1st`", id="leading-digit"),
+    pytest.param((("**Low**    |", "**Gap** |"),), "tier-reserved", "tier `Gap`", id="reserved"),
+    pytest.param((("**Low**    |", "**critical** |"),), "tier-duplicate", "same name as `Critical`",
+                 id="duplicate-across-tables"),
+    pytest.param((("| `Verified`  |", "| `VERIFIED`  |"),), "vs-token-unknown", "VS row `VERIFIED`", id="token-case"),
+    pytest.param((("| `Verified`  | No issue", "| `Risky` | No issue"),), "vs-token-duplicate",
+                 "VS token `Risky` has a second row", id="token-duplicate"),
+    pytest.param((("| `Verified`  | No issue", "| `Risky` | No issue"),), "vs-token-unmapped",
+                 "no VS Report Integration row maps `Verified`", id="token-unmapped"),
+    pytest.param((("A **Major** issue", "A **Severe** issue"),), "vs-raises", "VS row `Risky`",
+                 id="raises-unknown-tier"),
+    pytest.param((("| No issue", "| Nothing"),), "vs-raises", "VS row `Verified`", id="raises-nothing"),
+    pytest.param((("A **Major** issue, confirmed", "Major or Minor, confirmed"),), "vs-raises",
+                 "VS row `Risky` (line 57) names more than one tier of the Issue Severity table: Major, Minor",
+                 id="raises-two-tiers"),
+]
+
+
+@pytest.mark.parametrize(("changes", "rule", "detail"), BROKEN_RULES)
+def test_each_broken_rule_is_named(tmp_path, changes, rule, detail):
+    code, result = _rules_result(tmp_path, _broken(*changes))
+    assert code == 1 and result["status"] == "violations", result
+    found = [v for v in result["violations"] if v["rule"] == rule]
+    assert found and any(detail in v["detail"] for v in found), result["violations"]
+
+
+def test_a_table_in_a_code_fence_is_not_the_rules(tmp_path):
+    fenced = _broken(("## Improvement Value", "```\n## Improvement Value"))
+    code, result = _rules_result(tmp_path, fenced + "```\n")
+    assert code == 1 and result["missing_tables"] == ["Improvement Value"], result
+
+
+def test_an_unreadable_rules_file_exits_2_with_json(tmp_path):
+    proc = _run("rules", "--rules", tmp_path / "missing.md")
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["status"] == "error"
+
+
+# --------------------------------------------------------------------------
+# verdicts: the [VS] rows joined to the inventory and the scope
+# --------------------------------------------------------------------------
+
+GENERATED = "2026-10-01T10:00:00Z"
+VS_ROWS = [
+    ("loro", "yjs", "Blocked", "no bridge between the two"),
+    ("Yjs", "Loro", "Plausible", "every check passed"),
+    ("loro", "fastapi", "Risky", "fastapi is out of scope"),
+    ("cycle", "loro \u2192 yjs \u2192 loro", "Risky", "circular integration dependency detected"),
+    ("redis", "yjs", "Verified", "yjs cites redis"),
+    ("loro", "mongo", "Risky", "no skill for mongo"),
+]
+SKILL_TERMS = [{"name": "loro", "aliases": ["loro-crdt"]}, "yjs", "fastapi",
+               {"name": "redis-cache", "aliases": ["Redis"]}]
+
+
+def _vs_report(rows=VS_ROWS, generated_at=GENERATED, verdict_row=None) -> str:
+    lines = ["---", 'schemaVersion: "1.0"', "reportType: feasibility", 'overallVerdict: "CONDITIONALLY_FEASIBLE"']
+    if generated_at:
+        lines.append(f'generatedAt: "{generated_at}"')
+    lines += ["---", "", "# Feasibility Report", ""]
+    for section in ("Executive Summary", "Coverage Analysis", "Integration Verdicts", "Recommendations",
+                    "Evidence Sources"):
+        lines += [f"## {section}", "", f"Body text for {section}.", ""]
+        if section == "Integration Verdicts":
+            lines += ["| lib_a | lib_b | verdict | rationale |", "|-------|-------|---------|-----------|"]
+            lines += [f"| {a} | {b} | {v} | {r} |" for a, b, v, r in rows]
+            lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _verdicts(tmp_path, report=None, generated_at=GENERATED, skills=None, in_scope="loro,yjs,redis-cache",
+              rules=BUNDLED_RULES):
+    report_path = _write(tmp_path / "feasibility-report-app-latest.md", _vs_report() if report is None else report)
+    skills_path = _write(tmp_path / "skill-terms.json", json.dumps(SKILL_TERMS if skills is None else skills))
+    proc = _run("verdicts", "--report", report_path, "--generated-at", generated_at, "--skills", skills_path,
+                "--in-scope", in_scope, "--rules", _rules(tmp_path, rules))
+    return proc.returncode, json.loads(proc.stdout)
+
+
+def test_verdicts_route_each_row_by_the_inventory_and_the_scope(tmp_path):
+    code, result = _verdicts(tmp_path)
+    assert code == 0 and result["status"] == "ok", result
+    joined = [(r["skill_a"], r["skill_b"], r["verdict"], r["raises"]) for r in result["in_scope"]]
+    assert joined == [("loro", "yjs", "Blocked", "Critical"), ("yjs", "loro", "Plausible", "Minor"),
+                      ("redis-cache", "yjs", "Verified", None)]
+    left = [(r["lib_a"], r["reason"]) for r in result["out_of_scope"]]
+    assert left == [("loro", "out-of-scope"), ("cycle", "no-inventory-skill"), ("loro", "no-inventory-skill")]
+    assert result["issue_count"] == 2
+    assert result["generatedAt"] == GENERATED and result["overallVerdict"] == "CONDITIONALLY_FEASIBLE"
+    # Each row keeps what the report says, for the issue's citation.
+    assert result["in_scope"][0]["rationale"] == "no bridge between the two"
+
+
+def test_an_alias_two_skills_share_names_neither(tmp_path):
+    skills = [{"name": "vue-runtime", "aliases": ["core"]}, {"name": "vue-compiler", "aliases": ["core"]}, "yjs"]
+    report = _vs_report(rows=[("core", "yjs", "Risky", "x"), ("vue-runtime", "yjs", "Risky", "y")])
+    code, result = _verdicts(tmp_path, report=report, skills=skills, in_scope="vue-runtime,vue-compiler,yjs")
+    assert code == 0, result
+    assert [r["lib_a"] for r in result["out_of_scope"]] == ["core"]
+    assert [(r["skill_a"], r["raises"]) for r in result["in_scope"]] == [("vue-runtime", "Major")]
+
+
+def test_a_row_naming_one_skill_twice_is_left_out(tmp_path):
+    # A name and an alias of one skill are no pair: the pair lists never held one.
+    report = _vs_report(rows=[("loro", "Loro-CRDT", "Risky", "x"), ("loro", "yjs", "Risky", "y")])
+    code, result = _verdicts(tmp_path, report=report)
+    assert code == 0, result
+    left = [(r["skill_a"], r["skill_b"], r["reason"]) for r in result["out_of_scope"]]
+    assert left == [("loro", "loro", "same-skill")]
+    assert [(r["skill_a"], r["skill_b"]) for r in result["in_scope"]] == [("loro", "yjs")]
+    assert result["issue_count"] == 1
+
+
+def test_a_renamed_rules_copy_raises_its_own_tiers(tmp_path):
+    rules = BUNDLED_RULES.replace("**Critical**", "**Blocker**")
+    code, result = _verdicts(tmp_path, rules=rules)
+    assert code == 0, result
+    assert result["in_scope"][0]["raises"] == "Blocker"
+
+
+STALE = [
+    pytest.param({"generated_at": "2026-09-30T08:00:00Z"}, "report", "[VS] rewrote it", id="rewritten"),
+    pytest.param({"report": _vs_report(rows=[("loro", "yjs", "RISKY", "x")])}, "report",
+                 "no longer passes the feasibility-report contract", id="breaks-the-contract"),
+    pytest.param({"rules": BUNDLED_RULES.replace("## Gap Classification", "## Gaps")}, "rules",
+                 "lacks the Gap Classification table", id="rules-fail-the-check"),
+]
+
+
+@pytest.mark.parametrize(("change", "source", "detail"), STALE)
+def test_a_changed_report_or_rules_that_fail_the_check_are_stale(tmp_path, change, source, detail):
+    code, result = _verdicts(tmp_path, **change)
+    assert code == 1 and result["status"] == "stale", result
+    assert any(p["source"] == source and detail in p["detail"] for p in result["problems"]), result["problems"]
+
+
+def test_a_report_that_cannot_be_read_again_is_stale(tmp_path):
+    skills = _write(tmp_path / "skill-terms.json", json.dumps(SKILL_TERMS))
+    proc = _run("verdicts", "--report", tmp_path / "gone.md", "--generated-at", GENERATED, "--skills", skills,
+                "--in-scope", "loro", "--rules", RULES_PATH)
+    assert proc.returncode == 1
+    [problem] = json.loads(proc.stdout)["problems"]
+    assert problem["source"] == "report" and "cannot be read again" in problem["detail"]
+
+
+def test_an_empty_generated_at_matches_a_report_without_one(tmp_path):
+    code, result = _verdicts(tmp_path, report=_vs_report(generated_at=None), generated_at="")
+    assert code == 0, result
+    code, result = _verdicts(tmp_path, report=_vs_report(generated_at=None))
+    assert code == 1 and "not 2026-10-01T10:00:00Z" in result["problems"][0]["detail"]
+
+
+@pytest.mark.parametrize("skills", ['{"loro": []}', '[{"aliases": ["x"]}]', "not json"],
+                         ids=["object", "no-name", "not-json"])
+def test_a_skills_file_that_is_not_an_array_of_skills_exits_2(tmp_path, skills):
+    report = _write(tmp_path / "report.md", _vs_report())
+    proc = _run("verdicts", "--report", report, "--generated-at", GENERATED,
+                "--skills", _write(tmp_path / "skills.json", skills), "--in-scope", "loro", "--rules", RULES_PATH)
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["status"] == "error"
+
+
+def test_a_missing_reader_exits_3(tmp_path, monkeypatch, capsys):
+    assert mod.FEASIBILITY_READER.as_posix().endswith("src/shared/scripts/skf-validate-feasibility-report.py")
+    monkeypatch.setattr(mod, "FEASIBILITY_READER", tmp_path / "missing" / "skf-validate-feasibility-report.py")
+    report = _write(tmp_path / "report.md", _vs_report())
+    skills = _write(tmp_path / "skills.json", json.dumps(SKILL_TERMS))
+    code = mod.main(["verdicts", "--report", str(report), "--generated-at", GENERATED, "--skills", str(skills),
+                     "--in-scope", "loro", "--rules", str(RULES_PATH)])
+    assert code == 3
+    assert "feasibility-report reader is not installed" in json.loads(capsys.readouterr().out)["error"]
