@@ -147,8 +147,10 @@ class TestParse:
 
     def test_name_rules_are_brief_skills(self):
         brief_inputs = _shared("skf-validate-brief-inputs.py")
-        assert mod.KEBAB_RE is brief_inputs.KEBAB_RE
-        assert mod.VERSION_RE is brief_inputs.SEMVER_RE
+        # Compare pattern and flags: each module loads the script afresh, so the
+        # compiled objects are the same object only while re's cache holds them.
+        for ours, theirs in ((mod.KEBAB_RE, brief_inputs.KEBAB_RE), (mod.VERSION_RE, brief_inputs.SEMVER_RE)):
+            assert (ours.pattern, ours.flags) == (theirs.pattern, theirs.flags)
         assert mod.is_skill_name("a" * 64) and not mod.is_skill_name("a" * 65)
 
     def test_filled_name_is_checked_too(self):
