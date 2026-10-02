@@ -1048,9 +1048,9 @@ def _every_option(call: str) -> str:
     return re.sub(r"\[(--[^\]]+)\]", r"\1", call)
 
 
-def _step_4_of_activation() -> str:
+def _journal_step_of_activation() -> str:
     text = _read(FORGER_SKILL)
-    return text[text.index("4. **Read the pipeline journal**"):text.index("5. **Greet, then dispatch or wait.**")]
+    return text[text.index("5. **Read the pipeline journal**"):text.index("6. **Greet, then dispatch or wait.**")]
 
 
 def _pipeline_mode_calls() -> dict[str, str]:
@@ -1070,7 +1070,7 @@ def _pipeline_mode_calls() -> dict[str, str]:
 
 
 def test_the_activation_call_runs_as_written(tmp_path):
-    [call] = re.findall(r"^\s*(uv run scripts/pipeline-journal\.py resume .+)$", _step_4_of_activation(), re.M)
+    [call] = re.findall(r"^\s*(uv run scripts/pipeline-journal\.py resume .+)$", _journal_step_of_activation(), re.M)
     values = {"{project-root}": str(tmp_path), "{sidecar_path}": str(tmp_path / "sidecar"),
               "{forge_data_folder}": str(tmp_path / "forge-data"), "{skills_output_folder}": str(tmp_path / "skills")}
     run_root = tmp_path / "_bmad-output" / ".skf-run"
@@ -1167,7 +1167,7 @@ def test_the_discard_call_runs_as_written(tmp_path):
 
 
 def test_activation_presents_the_route_the_script_prints():
-    step = _step_4_of_activation()
+    step = _journal_step_of_activation()
     assert "re-enters Pipeline Mode with the pending codes" not in _read(FORGER_SKILL)
     for token in ("`status` `offer`", "`halted_on`", "`route`", "Resume procedure", "`warnings`"):
         assert token in step, token
@@ -1176,17 +1176,21 @@ def test_activation_presents_the_route_the_script_prints():
 
 
 def test_ws_gives_one_next_action_per_skill():
+    """WS reads the offer through forge-status.py, which puts its route in place of the named skill's code."""
     ws = _read(FORGER_SKILL).split("- **WS**:", 1)[1].split("## Pipeline Mode", 1)[0]
-    assert "`pipeline-journal.py resume` call, run again" in ws
+    assert "a stopped pipeline's offer (the On Activation step 5 call)" in ws
     assert "one next action per skill" in ws
     assert "the resume offer first" not in ws
-    assert "gets that offer's `route` instead" in ws
+    assert "where a stopped pipeline's offer stands as its `route`" in ws
+    status = _read(SRC / "skf-forger" / "scripts" / "forge-status.py")
+    assert 'JOURNAL_SCRIPT = Path(__file__).resolve().parent / "pipeline-journal.py"' in status
+    assert "journal.cmd_resume(" in status
 
 
 def test_a_pick_at_invocation_runs_and_only_the_headless_flag_halts_without_one():
     """A start headless only through preferences.yaml greets and ends at the
     menu as before: the menu is a choice point, not a gate."""
-    greeting = _read(FORGER_SKILL).split("5. **Greet, then dispatch or wait.**", 1)[1].split("\n", 1)[0]
+    greeting = _read(FORGER_SKILL).split("6. **Greet, then dispatch or wait.**", 1)[1].split("\n", 1)[0]
     assert "dispatch the pick at once" in greeting
     halt = greeting.split("When the invocation carries `--headless` or `-H` and no pick, HARD HALT", 1)[1]
     halt = halt.split("Otherwise", 1)[0]
@@ -1197,9 +1201,9 @@ def test_a_pick_at_invocation_runs_and_only_the_headless_flag_halts_without_one(
     assert "`@Ferris TS cocoindex`" in _section(_read(FORGER_SKILL), "## Overview")
 
 
-def test_step_5_and_the_overview_say_a_pick_dispatches():
+def test_step_6_and_the_overview_say_a_pick_dispatches():
     text = _read(FORGER_SKILL)
-    assert "5. **Greet, then dispatch or wait.**" in text
+    assert "6. **Greet, then dispatch or wait.**" in text
     assert "otherwise Ferris greets and waits for a pick" in _section(text, "## Overview")
 
 

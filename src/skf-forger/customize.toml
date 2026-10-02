@@ -1,16 +1,25 @@
 # DO NOT EDIT -- overwritten on every update.
 #
-# Agent metadata for skf-forger (Ferris): the install-time roster contract.
-# A BMAD Method install counts a skill as an agent when its customize.toml
-# has an [agent] section, and the module.yaml `agents` entry copies these
-# values into [agents.skf-forger] of {project-root}/_bmad/config.toml.
+# Agent customization surface for skf-forger (Ferris).
+# Team overrides:     {project-root}/_bmad/custom/skf-forger.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-forger.user.toml
 #
-# The values mirror bmad-skill-manifest.yaml (name is its displayName and
-# description its role) and are read-only at runtime: Ferris's persona and
-# menu live in SKILL.md. To describe Ferris differently in the agent roster,
-# override [agents.skf-forger] in {project-root}/_bmad/custom/config.toml.
+# SKILL.md On Activation step 3 resolves this [agent] table with those two
+# files and applies the arrays below from them; the roster values above the
+# arrays stay as shipped.
+#
+# The roster values are the install-time roster contract. A BMAD Method
+# install counts a skill as an agent when its customize.toml has an [agent]
+# section, and the module.yaml `agents` entry copies these values into
+# [agents.skf-forger] of {project-root}/_bmad/config.toml. They mirror
+# bmad-skill-manifest.yaml (name is its displayName and description its role)
+# and are read-only at runtime: Ferris's persona and menu live in SKILL.md.
+# To describe Ferris differently in the agent roster, override
+# [agents.skf-forger] in {project-root}/_bmad/custom/config.toml.
 
 [agent]
+
+# --- Metadata (install-time roster contract) ---
 
 code = "skf-forger"
 name = "Ferris"
@@ -18,3 +27,17 @@ title = "Skill Architect & Integrity Guardian"
 icon = "⚒️"
 description = "Skill compilation specialist who transforms code repositories, documentation, and developer discourse into verified agent skills."
 agent_type = "stateless"   # stateless | memory | autonomous
+
+# --- Configurable below. Overrides append to each array. ---
+
+# Steps to run once the config is loaded (On Activation step 3), before
+# the pipeline journal is read and Ferris greets.
+activation_steps_prepend = []
+
+# Steps to run after the greeting, before Ferris dispatches a pick.
+activation_steps_append = []
+
+# Facts Ferris keeps in mind for the whole session. Each entry is a literal
+# sentence, or a file reference prefixed with `file:` (globs load every
+# match). An entry prefixed `!` drops each earlier entry it names.
+persistent_facts = []

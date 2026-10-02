@@ -1,5 +1,7 @@
 # Pipeline Mode Execution
 
+Paths here resolve as the skf-forger SKILL.md **Conventions** say: each `uv run scripts/...` call runs from the skf-forger skill root (`{skill-root}`), and `pipeline-contracts.md` is `shared/references/pipeline-contracts.md`, from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev).
+
 ## Activation
 
 1. **Parse the invocation**: hand the parser the user's whole pipeline invocation, everything typed after `@Ferris` or `/skf-forger`: the codes, or the alias with the arguments after it (for example `forge-auto https://github.com/honojs/hono --pin v4.6.0` or `forge-quick cognee`), from the skf-forger skill root:
@@ -10,14 +12,15 @@
    SKF_PIPELINE
    ```
 
-   It prints `plan`/`codes`, the first workflow's `args`, `alias`, any `anti_patterns` and `valid` as JSON. Consume that output rather than re-deriving the expansion or checks by hand, and branch on it before any workflow runs:
+   It prints `plan`/`codes`, the first workflow's `args`, `alias`, any `anti_patterns`, `first_input` and `valid` as JSON. Consume that output rather than re-deriving the expansion or checks by hand, and branch on it before any workflow runs:
 
    - **No JSON object on stdout**: HALT with what the call printed as the reason. An exit 2 or 3 that prints its JSON is an answer, handled below.
    - **Exit 2** (`removed_alias` is `onboard`): HALT with "**onboard has been removed.** Use `forge-auto <repo-url>` instead. forge-auto auto-scopes, auto-briefs, and tests at 90% quality. Run `forge-auto` with any GitHub URL, doc URL, or `--pin <version>`."
    - **Exit 3** (`valid` is false): name each token in `unknown_codes`, `unexpected_args` and `malformed_brackets` (a bracket holds `min:<number>`, `auto` or a target) and each input in `missing_args` (an alias takes its argument after it, as in `forge-quick <package-or-url>`), ask the user for the corrected invocation, and parse that one. In `{headless_mode}`, ask nothing: HALT with those tokens as the reason.
    - **`deprecated_alias`** is `deepwiki`: say once "**`deepwiki` is now `forge-auto`.** The alias was renamed to avoid confusion with the DeepWiki MCP: this pipeline auto-forges a verified skill from source and does **not** call that MCP. `deepwiki` still works as a deprecated alias; prefer `forge-auto <repo-url>` going forward.", then go on with the plan, whose `alias` is `forge-auto`.
+   - **`first_input`** is set (`valid` is true, and the first workflow, past a leading `SF`, lacks the input it starts from, as for `QS TS EX` or `QS TS EX --pin 1.2.0`): the chain runs headless from step 3 on, so it cannot ask later. Ask the user for its `input`, then parse again its `form`, the invocation with the answer in place of each `<...>` placeholder, as `QS[cocoindex] TS EX`: step 4 starts the journal from that invocation. A null `form` means no chain can carry that input: say its `halt_reason`, ask the user for the corrected invocation, and parse that one. In `{headless_mode}`, ask nothing: HALT with its `halt_reason`, which for an input a bracket gives reads `<CODE> needs <input> before the pipeline can start: give it as <CODE>[<input>]`, such as `QS needs a target before the pipeline can start: give it as QS[<target>]`. A null `halt_reason` (a leading `CS`) halts nothing: go on with the chain, since create-skill compiles the only brief in `{forge_data_folder}`, and halts `brief-missing` naming the briefs when there are several.
 
-   A HALT in this step runs no workflow. In `{headless_mode}` it still writes the pipeline result, with `summary.status` `failed`, the halt reason in `summary.halt_reason` and no workflow in it, from the skf-forger skill root: `uv run scripts/pipeline-journal.py finish --result-dir "{sidecar_path}" --halt-reason '<the halt reason>'`. A reason given to a journal call goes in single quotes, with each `'` in it replaced by a backtick, so the shell runs nothing in it. Nothing ran, and an invocation that did not parse leaves nothing to resume.
+   A HALT in this step runs no workflow. In `{headless_mode}` it still writes the pipeline result, with `summary.status` `failed`, the halt reason in `summary.halt_reason` and no workflow in it, from the skf-forger skill root: `uv run scripts/pipeline-journal.py finish --result-dir "{sidecar_path}" --halt-reason '<the halt reason>'`. A reason given to a journal call goes in single quotes, with each `'` in it replaced by a backtick, so the shell runs nothing in it. Nothing ran, and a halt here starts no journal, so it leaves nothing to resume.
 
 2. **Validate the sequence**: the parse output's `anti_patterns` array already lists any matches (EX before TS, CS without a brief, duplicate codes, US without AS, a `min:N` on a code other than AN and TS), each with a message and suggestion. If it is non-empty, warn the user and ask to confirm or adjust. In `{headless_mode}`, warn but proceed.
 
@@ -33,7 +36,7 @@
 
    It prints the `journal` path, which every later journal call of this run names, and the `steps`. If it prints no JSON object, or its `status` is not `ok`, no workflow has run: write the failed pipeline result as step 1 does, with its `message` (or what it printed, when that is no JSON object) as the halt reason, then HALT with that reason. Then, for each workflow:
    - a. **Report start:** "Pipeline [{current}/{total}]: Starting {code} ({description})..."
-   - b. **Resolve inputs** from the previous workflow's output using the Data Flow table in pipeline-contracts.md. Pass any produced `skill_name`, `brief_path`, or other handoff data as the input argument: the `data` the last `step` call printed holds each one. A `target_ref` in `data` (AS hands it on when upstream moved) goes to US as `--target-ref <target_ref>`. The first workflow takes the parse's `args` instead: each key names the input it fills (`project_path`, `target_repo`, `skill_name` or `target`), and `pin` goes to its data context, as the pipeline-contracts.md Pipeline Arguments section says.
+   - b. **Resolve inputs** from the previous workflow's output using the Data Flow table in pipeline-contracts.md. Pass any produced `skill_name`, `brief_path`, or other handoff data as the input argument: the `data` the last `step` call printed holds each one. A `target_ref` in `data` (AS hands it on when upstream moved) goes to US as `--target-ref <target_ref>`. A plan entry's bracket `target`, when it has one, is its input (`QS[cocoindex]` hands QS `cocoindex`); otherwise the first workflow takes the parse's `args`: each key names the input it fills (`project_path`, `target_repo`, `skill_name` or `target`), and `pin` goes to its data context, as the pipeline-contracts.md Pipeline Arguments section says.
    - c. **Invoke the workflow** with `{headless_mode}` = true, `{pipeline_mode}` = true, `{pipeline_alias}` set to the parse's `alias` (`forge-auto`, `forge`, `forge-quick`, `maintain`, or `null` for ad-hoc sequences), any resolved arguments, and the plan entry's `flags`. When TS's plan entry has a `min`, invoke TS with `--threshold=<min>`: TS applies it, with its caps and its 80% floor fallback, and settles the verdict step d reads. `{pipeline_mode}` is how a workflow knows it runs inside a pipeline, since `{pipeline_alias}` is null for an ad-hoc sequence. When the workflow's last step finishes, control returns here: continue with d, even when that step reads as the end of the run.
    - d. **Check the circuit breaker.** After AN, TS, AS or VS, run the gate on the result envelope line the workflow just printed (`SKF_ANALYZE_RESULT_JSON`, `SKF_TEST_RESULT_JSON`, `SKF_AUDIT_RESULT_JSON` or `SKF_VERIFY_STACK_RESULT_JSON`), from the skf-forger skill root:
 
@@ -73,7 +76,7 @@
 
 ## Resume
 
-When the user accepts the offer On Activation step 4 made, run the chain from its journal instead of a new invocation: steps 1 and 2 are skipped, since the journal holds the plan the first parse produced. When the offer has a `user_action`, first confirm the user did it. Then, from the skf-forger skill root:
+When the user accepts the offer On Activation step 5 made, run the chain from its journal instead of a new invocation: steps 1 and 2 are skipped, since the journal holds the plan the first parse produced. When the offer has a `user_action`, first confirm the user did it. Then, from the skf-forger skill root:
 
 ```bash
 uv run scripts/pipeline-journal.py reopen --journal "<journal>"

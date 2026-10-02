@@ -40,6 +40,14 @@ describes, so a change on one side that the other does not follow fails:
   and hints, the brief lookup and batch, the stack inputs, the audit's
   upstream and baseline rules, the test exit code, the rename lock, the
   export snippet root, and only settings a customize.toml holds.
+- the same pages say that every workflow and Ferris run the customization
+  resolver through uv and warn when it cannot run, that a `!` entry drops
+  the persistent_facts default, which arrays Ferris's own override file
+  adds, how each workflow calls on_complete, and that a chain asks for its
+  first workflow's input or halts headless as parse-pipeline.py's
+  first_input reports it, and that every pipeline example parses as
+  runnable; and workflows.md says what a required-tier miss skips, when an
+  audit stops at its baseline, and which warnings a drop can carry.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -337,7 +345,7 @@ def test_troubleshooting_names_ferris_install_halts_and_the_installer():
 
 def test_agents_doc_lists_the_first_run_paths_ferris_highlights():
     """Ferris's first-run greeting and the Ferris page name the same starting points, in the same order."""
-    greeting = _slice(_read(FORGER_SKILL), "5. **Greet, then dispatch or wait.**", "\n")
+    greeting = _slice(_read(FORGER_SKILL), "6. **Greet, then dispatch or wait.**", "\n")
     paths = BOLD_PATH_RE.findall(_slice(greeting, "On a first run", "Otherwise"))
     assert "forge-auto `<repo-or-doc-url>`" in paths
     doc = _paragraph(_read(AGENTS), "On your first run")
@@ -1777,3 +1785,286 @@ def test_settings_list_names_only_settings_that_take_effect():
     rules = _headings(RA_REFS / "refinement-rules.md")
     for table in RA_RULES_TABLES:
         assert table in rules and table in settings, table
+
+
+# --------------------------------------------------------------------------
+# Customizing a workflow and chaining codes: the resolver warning, the `!`
+# facts drop, the on_complete call forms and the chain's first input
+# --------------------------------------------------------------------------
+
+DEFAULT_FACT = "file:{project-root}/**/project-context.md"
+RESOLVER_WARNING = "`[activation/warn] customization_resolver_unavailable: <reason>`"
+# The workflows whose on_complete is not called with --result-path, and what their customize.toml says instead.
+HOOK_FORMS = {
+    "skf-campaign": "<on_complete> --report-path=",
+    "skf-create-stack-skill": "Command invoked once a run finishes",
+    "skf-setup": "An instruction the agent carries out",
+    "skf-verify-stack": "Instruction executed when the workflow reaches its terminal stage",
+}
+CHAIN_HALT = "`<CODE> needs <input> before the pipeline can start: give it as <CODE>[<input>]`"
+CHAIN_HALT_EXAMPLE = "`QS needs a target before the pipeline can start: give it as QS[<target>]`"
+
+
+def _workflow_skills() -> list[str]:
+    """Every workflow skill folder under src/, Ferris (an agent) left out."""
+    return sorted(p.parent.name for p in SRC.glob("skf-*/SKILL.md") if p.parent.name != "skf-forger")
+
+
+def _comment_above(text: str, key: str) -> str:
+    """The `#` comment block above `key = ` in a TOML file, as one line of words."""
+    lines = text.splitlines()
+    [i] = [n for n, line in enumerate(lines) if line.startswith(f"{key} = ")]
+    j = i - 1
+    while j >= 0 and not lines[j].strip():
+        j -= 1
+    words = []
+    while j >= 0 and lines[j].startswith("#"):
+        words.append(lines[j].lstrip("#").strip())
+        j -= 1
+    return " ".join(word for word in reversed(words) if word)
+
+
+def test_customizing_section_and_chain_docs_follow_the_activation():
+    """#595, #596, #594: the resolver warning, the `!` facts drop, the hook call and a chain's first input.
+
+    The resolver blocks and the customize.toml facts are pinned where they live; this checks the docs, the two
+    exceptions they name (Campaign's decision log, interactive Export) and that each on_complete comment names
+    the call the docs give. Ferris's chain ask is documented with the example and halt reason its stage-6c
+    package fixes.
+    """
+    assert "in the decision log" in _read(SRC / "skf-campaign" / "SKILL.md")
+    assert "an interactive run only prints it" in _read(SRC / "skf-export-skill" / "SKILL.md")
+    doc = _read(WORKFLOWS)
+    customizing = _slice(doc, "## Customizing a Workflow", "Settings every workflow has:")
+    resolver = _paragraph(customizing, "These overrides are read by BMAD Method's customization script")
+    for token in ("Every workflow, and Ferris, runs that script through `uv` when it starts", RESOLVER_WARNING,
+                  "uses the bundled defaults, ignoring `_bmad/custom/`",
+                  "adds a warning naming `customization_resolver_unavailable` and its reason to the run's warnings",
+                  "Campaign logs it in its decision log", "an interactive Export Skill run only prints it",
+                  "In a project with SKF alone, that script is missing",
+                  "`customization_resolver_unavailable: not found`"):
+        assert token in resolver, token
+    forger = _paragraph(customizing, "Ferris reads `_bmad/custom/skf-forger.toml`")
+    agent = tomllib.loads(_read(SRC / "skf-forger" / "customize.toml"))["agent"]
+    arrays = sorted(key for key, value in agent.items() if isinstance(value, list))
+    assert arrays == ["activation_steps_append", "activation_steps_prepend", "persistent_facts"], arrays
+    for token in [f"`{key}`" for key in arrays] + ["`_bmad/custom/skf-forger.user.toml`",
+                                                   "roster values stay as shipped", "he has no `on_complete`",
+                                                   "the warning line opens his greeting"]:
+        assert token in forger, token
+    assert "on_complete" not in agent
+    architecture = _read(ARCHITECTURE)
+    [row] = [line for line in architecture.splitlines() if line.startswith("| `customize.toml`")]
+    [loads] = [line for line in architecture.splitlines() if line.startswith("3. **Workflow loads**")]
+    for text in (row, loads):
+        for token in ("through `uv`", "`customization_resolver_unavailable`", "bundled settings",
+                      "an interactive Export Skill run only prints it"):
+            assert token in text, token
+    assert "as Ferris does for his own settings when he starts" in loads
+
+    settings = _slice(doc, "Settings every workflow has:", "Useful settings in specific workflows:")
+    [facts] = [line for line in settings.splitlines() if line.startswith("- `persistent_facts`:")]
+    assert _settings("skf-setup")["persistent_facts"] == []
+    for token in ("Every workflow except Setup Forge loads any `project-context.md`",
+                  "an entry that starts with `!` drops each earlier entry it names and loads nothing itself",
+                  f'add `persistent_facts = ["!{DEFAULT_FACT}"]` to `_bmad/custom/<skill-name>.toml`',
+                  "Every workflow that loads the default honours such an entry", "Campaign's kickoff loader"):
+        assert token in facts, token
+    assert "Brief, Create, Update and Rename Skill" not in facts
+
+    skills = _workflow_skills()
+    assert len(skills) == 15, skills
+    for skill in skills:
+        hook = _comment_above(_read(SRC / skill / "customize.toml"), "on_complete")
+        assert hook, skill
+        if skill in HOOK_FORMS:
+            assert HOOK_FORMS[skill] in hook and "--result-path=" not in hook, skill
+        else:
+            assert "--result-path=" in hook, skill
+    quick = _comment_above(_read(QUICK / "customize.toml"), "on_complete")
+    assert "<on_complete> --result-path=<skill package>/quick-skill-result-latest.json" in quick
+    assert "skipped when the emitter wrote no result file, or not that -latest copy" in quick
+    assert "skipped when the emitter wrote no result file" in _comment_above(
+        _read(SRC / "skf-rename-skill" / "customize.toml"), "on_complete")
+    [on_complete] = [line for line in settings.splitlines() if line.startswith("- `on_complete`:")]
+    for token in ("Every workflow except Campaign, Stack Skill, Verify Stack and Setup Forge (Quick Skill included)",
+                  "`--result-path=<result file>`", "the hook is skipped when the emitter wrote no result file",
+                  "`--result-path=<skill package>/quick-skill-result-latest.json`",
+                  "the skill package is that file's folder", "or did not write that `-latest` copy",
+                  "Campaign passes `--report-path=<report>`", "Stack Skill runs the command with no argument",
+                  "Setup Forge and Verify Stack carry it out as an instruction",
+                  "A failing command never fails the workflow"):
+        assert token in on_complete, token
+
+    aliases = _paragraph(_read(AGENTS), "Ferris can run several workflows in one command.")
+    for token in ("such as `QS[cocoindex] TS EX`", "every step runs in headless mode",
+                  "When the first code has no target and its input is not among the arguments",
+                  "runs the chain as `QS[<input>] TS EX`", "stops before any workflow runs", CHAIN_HALT,
+                  CHAIN_HALT_EXAMPLE, "SF and SS take no input"):
+        assert token in aliases, token
+    assert "such as `QS TS EX`" not in aliases
+    chain = _paragraph(_slice(doc, "### Pipeline Aliases", "### How It Works"), "An alias given without its argument")
+    for token in ("A chain of codes does the same", "runs the chain as `QS[<input>] TS EX`", CHAIN_HALT,
+                  CHAIN_HALT_EXAMPLE, "SF and SS take no input"):
+        assert token in chain, token
+    syntax = _slice(doc, "### Syntax", "### Pipeline Aliases")
+    codes = re.findall(r"^\| `@Ferris ([A-Z]{2})(\[[^\]]+\])?", syntax, re.M)
+    assert codes and all(bracket for _, bracket in codes), codes
+    [arrows] = [line for line in _slice(doc, "### How It Works", "### Examples").splitlines()
+                if line.startswith("- Codes can be separated by spaces or by arrows")]
+    assert "`AN[https://github.com/honojs/hono] -> CS -> TS -> EX`" in arrows
+    chained = _paragraph(architecture, "**Chained runs**")
+    for token in ("(for example `QS[cocoindex] TS EX`)", "Ferris asks for it before the chain starts",
+                  "a headless run halts before any workflow runs"):
+        assert token in chained, token
+    assert "`BS CS TS EX`" not in chained and "Only the first workflow's input" not in chained
+
+
+PARSE_PIPELINE = SRC / "skf-forger" / "scripts" / "parse-pipeline.py"
+CONTRACTS = SRC / "shared" / "references" / "pipeline-contracts.md"
+CHAIN_TOKEN_RE = re.compile(r"^[A-Z]{2}(?:\[[^\]]*\])?$")
+
+
+def _doc_chains(text: str) -> list[str]:
+    """The chains of codes `text` shows in code spans, without `@Ferris ` and arrows."""
+    chains = []
+    for span in re.findall(r"`([^`]+)`", text):
+        tokens = span.removeprefix("@Ferris ").replace("->", " ").split()
+        if len(tokens) > 1 and all(CHAIN_TOKEN_RE.match(token) for token in tokens):
+            chains.append(" ".join(tokens))
+    return chains
+
+
+def test_chain_docs_agree_with_the_parser():
+    """#594: each chain the pipeline docs show runs as parse-pipeline.py parses it, and each first-input rule they
+    state is the parser's: the ask and its halt reason, input only in brackets, SF passed over, BS through forge, RS
+    and DS on their own, a taken bracket named, and a CS that never halts before it starts.
+    """
+    parser = _script(PARSE_PIPELINE)
+    parse = parser.parse_pipeline
+    doc = _read(WORKFLOWS)
+
+    # Every example in a command table, or among the How It Works bullets, runs as given.
+    for start, end in (("### Syntax", "### Pipeline Aliases"), ("### Examples", "## Headless Mode")):
+        rows = re.findall(r"^\| `@Ferris ([^`]+)`", _slice(doc, start, end), re.M)
+        assert rows, start
+        for raw in rows:
+            out = parse(raw)
+            assert out["valid"] and out["first_input"] is None, (raw, out["unexpected_args"], out["first_input"])
+    how = _slice(doc, "### How It Works", "### Examples")
+    assert _doc_chains(how), how
+    syntax = re.search(r"## Syntax\n.*?```\n(.*?)```", _read(CONTRACTS), re.S).group(1)
+    examples = [line.split("  #")[0].strip() for line in syntax.splitlines() if line.strip()]
+    assert len(examples) == 4 and all("  #" in line for line in syntax.splitlines() if line.strip()), syntax
+    for raw in _doc_chains(how) + examples:
+        out = parse(raw)
+        assert out["valid"] and out["first_input"] is None, (raw, out["first_input"])
+
+    # The chains the three paragraphs show: asked for an input, stopped on a taken bracket, or runnable as given.
+    chain = _paragraph(_slice(doc, "### Pipeline Aliases", "### How It Works"), "An alias given without its argument")
+    aliases = _paragraph(_read(AGENTS), "Ferris can run several workflows in one command.")
+    chained = _paragraph(_read(ARCHITECTURE), "**Chained runs**")
+    asked = {"QS TS EX": "QS[<target>] TS EX", "SF QS TS EX": "SF QS[<target>] TS EX",
+             "BS CS TS EX": parser.FORGE_FORM}
+    shown = set()
+    for text in (chain, aliases, chained):
+        for raw in _doc_chains(text):
+            shown.add(raw)
+            out = parse(raw)
+            first = out["first_input"]
+            assert out["valid"], raw
+            if raw in asked:
+                assert first["form"] == asked[raw] and first["halt_reason"], (raw, first)
+            elif raw == "TS[min:80] EX":
+                assert first["form"] is None and "its bracket already holds min:80" in first["halt_reason"], first
+            else:
+                assert first is None, (raw, first)
+    assert {"QS TS EX", "SF QS TS EX", "BS CS TS EX", "TS[min:80] EX", "QS[cocoindex] TS EX"} <= shown, shown
+    assert "`QS TS EX cognee`" in chain and parse("QS TS EX cognee")["unknown_codes"] == ["cognee"]
+
+    # The rules they state, each decided by the parser.
+    qs = parse("QS TS EX")["first_input"]
+    assert f"`{qs['halt_reason']}`" == CHAIN_HALT_EXAMPLE
+    assert parse("SS TS EX")["first_input"] is None
+    targeted = parse("BS[https://github.com/x/y] CS TS EX")["first_input"]
+    assert targeted["form"] == "forge https://github.com/x/y <skill-name>", targeted
+    for raw in ("BS CS TS", "BS CS[cocoindex] TS EX", "BS[auto] CS TS EX", "RS[cocoindex] EX", "DS[cocoindex]",
+                "QS[auto] TS EX", "AN[auto] CS TS EX", "AN[min:3] CS TS EX"):
+        first = parse(raw)["first_input"]
+        assert first["form"] is None and first["halt_reason"], (raw, first)
+    assert parse("QS[min:80] TS EX")["first_input"]["form"] == "QS[<target>] TS EX"  # min:N ignored off AN and TS
+    for raw in ("CS TS EX", "CS[min:80] TS EX"):
+        cs = parse(raw)["first_input"]
+        assert cs["form"] == "CS[<skill-name>] TS EX" and cs["halt_reason"] is None, (raw, cs)
+    assert parse("CS[auto] TS EX")["first_input"] is None
+    for raw in ("BS CS[min:5] TS EX", "BS CS TS EX[min:3]"):  # a min:N ignored off AN and TS keeps the forge ask
+        assert parse(raw)["first_input"]["form"] == parser.FORGE_FORM, raw
+    for text in (chain, aliases, chained):
+        for token in ("SF", "asks for its skill name", "unless its bracket holds `auto`", "led by `CS` never halts",
+                      "Create Skill", f"only as `{parser.FORGE_FORM}`", "the `forge` alias's codes", "`RS`", "`DS`",
+                      "led by any other code but `CS` whose bracket already holds `auto`, or by AN or TS with a `min:N` in "
+                      "its bracket"):
+            assert token in text, token
+    for text in (chain, aliases):
+        for token in ("A chain of codes takes that input only in brackets", "Ferris looks past a leading SF",
+                      "a chain that starts with SS runs as given", "with a halt reason that, for an input a bracket "
+                      "gives, reads", "with at most a target in BS's bracket and no other bracket",
+                      "A `min:N` on another code is ignored, so Ferris asks for that code's input"):
+            assert token in text, token
+    assert "so a chain that starts with either runs as given" not in chain
+    assert "past a leading `SF`" in chained
+
+    # An alias's missing argument halts; a target's form does not.
+    assert parse("forge cognee")["missing_args"] == ["skill_name"] and parse("forge cognee cognee")["valid"]
+    [halt] = [line for line in how.splitlines() if line.startswith("- **Safe halt on a missing input**")]
+    for token in ("`forge cognee`, which gives a target but no skill name", "except a chain led by `CS`",
+                  "`forge cognee cognee` starts Brief Skill"):
+        assert token in halt, token
+    assert "neither a URL nor a path), the pipeline halts" not in doc
+
+    # The contract Ferris loads states the same limits.
+    bracket = _slice(_read(CONTRACTS), "Only AN (a unit count) and TS (a test threshold) take `min:N`.", "\n")
+    assert f"a chain led by BS gets its target and skill name only as `{parser.FORGE_FORM}`" in bracket
+    assert "(CS, QS, US, etc.)" in bracket and set(parser.ON_THEIR_OWN) == {"RS", "DS"}
+
+
+def test_docs_follow_the_tier_miss_the_audit_baseline_stop_and_the_drop_warnings():
+    """#594, #599: a required-tier miss fails fast, an audit stops at its baseline only on doubt, a drop warns.
+
+    Each docs line is checked against the contract it describes: setup's invocation contract, audit's init.md
+    section 7 and exit-code table, and drop's `warnings` field rule.
+    """
+    contract = _read(SRC / "skf-setup" / "references" / "invocation-contract.md")
+    for token in ("builds no ccc index that is due", "runs no registry hygiene, so it removes no QMD collection, "
+                  "even under `--orphan-action=remove`"):
+        assert token in contract, token
+    doc = _read(WORKFLOWS)
+    require = next(line for line in _section("Setup Forge (SF)").splitlines() if line.startswith("- `--require-tier="))
+    for token in ("On a miss the workflow halts without running the health check. A miss also skips a due ccc index "
+                  "build", "and the registry cleanup", "removes no QMD collection, even under `--orphan-action=remove`",
+                  "Pipelines branch on the envelope's `status` field"):
+        assert token in require, token
+
+    init = _read(SRC / "skf-audit-skill" / "references" / "init.md")
+    for token in ("When neither doubt below holds, go straight on", "`{provenance_age_days}` (§4) is above 90",
+                  "**[X]** HALTs with **exit 6**, `halt_reason: \"user-cancelled\"`", "holds the baseline only",
+                  "If `{headless_mode}`, continue with [C]"):
+        assert token in init, token
+    [six] = [row for row in _read(SRC / "skf-audit-skill" / "references" / "headless-contract.md").splitlines()
+             if row.startswith("| 6 ")]
+    assert "baseline confirm gate `[X]`" in six
+    baseline = _paragraph(_section("Audit Skill (AS)"), "**Baseline:**")
+    for token in ("An interactive audit shows its baseline summary and analysis plan and goes straight on",
+                  "below the tier the skill was compiled at", "the provenance map is more than 90 days old",
+                  "`[C]` continues", "`[X]` stops the run with exit `6` (`user-cancelled`)",
+                  "which then holds the baseline only", "A headless run continues"):
+        assert token in baseline, token
+
+    rule = _read(SRC / "skf-drop-skill" / "references" / "invocation-contract.md")
+    [warnings] = [line for line in rule.splitlines() if line.startswith("- `warnings`:")]
+    [line] = [line for line in doc.splitlines() if line.startswith("- **`/skf-drop-skill` (DS)**")]
+    for name in ("context_rebuild_failed", "active_link_dangling", "delete_failed", "verification_failed",
+                 "customization_resolver_unavailable"):
+        assert f"`{name}: " in warnings and f"`{name}`" in line, name
+    assert "A `success` drop can still carry `warnings` that name what needs a manual fix" in line
+    assert line.index("`warnings`") < line.index("Exit codes in")

@@ -137,7 +137,7 @@ Campaign ships a `customize.toml` file that you can tune without forking the ski
 - **`on_complete`**: a command run at the end of the campaign, after its final state write. It gets `--report-path=<path>` only when the report was written. If it fails, the failure is logged and the campaign still succeeds.
 - **`activation_steps_prepend` / `activation_steps_append`**: extra steps run before or after activation, for org-wide checks or loading context.
 
-These overrides need BMAD Method's customization script, which the BMAD Method installer adds. In a project with SKF alone, the campaign ignores `_bmad/custom/` and uses the bundled values. See [Workflows: Customizing a Workflow](/docs/workflows.md#customizing-a-workflow) for the settings every workflow shares.
+These overrides need BMAD Method's customization script, which the BMAD Method installer adds. In a project with SKF alone, the campaign ignores `_bmad/custom/` and uses the bundled values, prints `[activation/warn] customization_resolver_unavailable: not found` and, except for `campaign status`, logs that event in its decision log. See [Workflows: Customizing a Workflow](/docs/workflows.md#customizing-a-workflow) for the settings every workflow shares.
 
 See the skill's [SKILL.md](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-campaign/SKILL.md) for the full merge contract.
 

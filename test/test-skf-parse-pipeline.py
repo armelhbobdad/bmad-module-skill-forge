@@ -6,7 +6,8 @@ alias expansion and sequence checks in-prompt: the whole invocation (an alias
 with its arguments and --pin), bracket keywords in any case, the problems that
 make a plan not runnable (a missing alias argument included), a `min:N` only
 on AN and TS, and the prose that hands the parser the invocation, branches on
-its answer and offers no resume for a parse halt.
+its answer (a chain whose first workflow lacks its input, `first_input`, asks
+for it or halts headless) and offers no resume for a parse halt.
 """
 
 from __future__ import annotations
@@ -476,9 +477,179 @@ def test_step_1_branches_before_any_workflow_runs():
     assert "already resolved at recognition" not in _read(PIPELINE_MODE)
 
 
+# --- first_input: the input a chain's first workflow lacks (#594) -------------
+
+FIRST_INPUT = "**`first_input`** is set"
+HALT_TEMPLATE = "`<CODE> needs <input> before the pipeline can start: give it as <CODE>[<input>]`"
+
+
+def _reason(code, needs, rest):
+    return f"{code} needs {needs} before the pipeline can start{rest}"
+
+
+@pytest.mark.parametrize("raw,args", [
+    pytest.param("QS TS EX", {}, id="bare-chain"),
+    pytest.param("QS TS EX --pin 1.2.0", {"pin": "1.2.0"}, id="pin-is-not-the-input"),
+])
+def test_a_chain_whose_first_code_has_no_input_stays_valid(raw, args):
+    """The parse stays runnable (exit 0) with its `args` as given: `first_input` carries the ask."""
+    out = mod.parse_pipeline(raw)
+    assert out["valid"] is True and out["missing_args"] == [] and out["args"] == args
+    assert out["plan"][0]["target"] is None and out["first_input"]["code"] == "QS"
+    p = _run(raw)
+    assert p.returncode == 0 and json.loads(p.stdout)["first_input"] == out["first_input"]
+
+
+@pytest.mark.parametrize("raw,needs,form", [
+    pytest.param("AN CS TS EX", "a project path", "AN[<project-path>] CS TS EX", id="AN"),
+    pytest.param("QS TS EX --pin 1.2.0", "a target", "QS[<target>] TS EX --pin 1.2.0", id="QS"),
+    pytest.param("CS TS EX", "a skill name", "CS[<skill-name>] TS EX", id="CS"),
+    pytest.param("TS EX", "a skill name", "TS[<skill-name>] EX", id="TS"),
+    pytest.param("EX US", "a skill name", "EX[<skill-name>] US", id="EX"),
+    pytest.param("US TS EX", "a skill name", "US[<skill-name>] TS EX", id="US"),
+    pytest.param("AS US TS EX", "a skill name", "AS[<skill-name>] US TS EX", id="AS"),
+    pytest.param("VS RA", "an architecture document", "VS[<architecture-doc>] RA", id="VS"),
+    pytest.param("RA VS", "an architecture document", "RA[<architecture-doc>] VS", id="RA"),
+    pytest.param("SF QS TS EX", "a target", "SF QS[<target>] TS EX", id="past-a-leading-SF"),
+    pytest.param("QS[min:80] TS", "a target", "QS[<target>] TS", id="an-ignored-min-is-no-input"),
+])
+def test_first_input_names_the_bracket_that_gives_it(raw, needs, form):
+    first = mod.parse_pipeline(raw)["first_input"]
+    token = next(t for t in form.split() if "[<" in t)
+    code, placeholder = token[:2], token[3:-1]
+    assert (first["code"], first["input"], first["form"]) == (code, needs, form)
+    assert mod.FIRST_INPUTS[code][1:] == (needs, placeholder)
+    # A leading CS halts nothing: create-skill compiles the only brief, or halts naming them.
+    assert first["halt_reason"] == (None if code == "CS" else _reason(code, needs, f": give it as {token}"))
+    again = mod.parse_pipeline(form.replace(placeholder, "cocoindex"))
+    assert again["valid"] is True and again["first_input"] is None
+    assert next(e for e in again["plan"] if e["code"] == code)["target"] == "cocoindex"
+
+
+def test_every_code_but_sf_and_ss_is_checked():
+    """Each code that starts from an input sits in exactly one of the parser's tables."""
+    tables = [set(mod.FIRST_INPUTS), {"BS"}, set(mod.ON_THEIR_OWN)]
+    assert set().union(*tables) == mod.KNOWN_CODES - {"SF", "SS"}
+    assert sum(len(t) for t in tables) == len(mod.KNOWN_CODES) - 2
+    # An alias binds the keys the table names for its first workflow.
+    for alias, keys in mod.ALIAS_INPUTS.items():
+        lead = mod.parse_pipeline(alias)["plan"][0]["code"]
+        expected = mod.BS_INPUTS if lead == "BS" else mod.FIRST_INPUTS[lead][0]
+        assert set(keys) <= set(expected), alias
+
+
+@pytest.mark.parametrize("raw,needs,form,rest", [
+    pytest.param("BS CS TS EX", "a target and a skill name", "forge <repo-url-or-path> <skill-name>",
+                 ": give them as forge <repo-url-or-path> <skill-name>", id="the-forge-chain"),
+    pytest.param("BS[hono] CS TS EX --pin 4.6.0", "a skill name", "forge hono <skill-name> --pin 4.6.0",
+                 ": give it as forge hono <skill-name>", id="the-forge-chain-with-a-target"),
+    pytest.param("BS CS TS", "a target and a skill name", None,
+                 ", and a chain gives it one bracket: run BS on its own first, or use "
+                 "forge <repo-url-or-path> <skill-name>", id="another-chain"),
+    pytest.param("BS[hono] CS TS[min:95] EX", "a target and a skill name", None,
+                 ", and a chain gives it one bracket: run BS on its own first, or use "
+                 "forge <repo-url-or-path> <skill-name>", id="a-threshold-forge-drops"),
+    pytest.param("SF BS CS TS EX", "a target and a skill name", None,
+                 ", and a chain gives it one bracket: run BS on its own first, or use "
+                 "forge <repo-url-or-path> <skill-name>", id="after-SF"),
+])
+def test_bs_takes_both_inputs_only_through_forge(raw, needs, form, rest):
+    """A bracket holds one value, and brief-skill needs a target and a skill name."""
+    first = mod.parse_pipeline(raw)["first_input"]
+    assert first == {"code": "BS", "input": needs, "form": form, "halt_reason": _reason("BS", needs, rest)}
+    if form:
+        again = mod.parse_pipeline(form.replace("<repo-url-or-path>", HONO).replace("<skill-name>", "hono"))
+        assert again["valid"] is True and again["alias"] == "forge" and again["first_input"] is None
+        assert again["args"]["skill_name"] == "hono"
+
+
+@pytest.mark.parametrize("raw", [
+    pytest.param("RS EX", id="RS"),
+    pytest.param("RS[cognee] EX", id="RS-with-its-skill"),
+    pytest.param("DS[cognee] EX", id="DS-with-its-skill"),
+])
+def test_rs_and_ds_run_on_their_own(raw):
+    """Rename needs a new name and drop a version and a mode: no bracket holds them."""
+    first = mod.parse_pipeline(raw)["first_input"]
+    code = raw[:2]
+    assert first["form"] is None and first["input"] == mod.ON_THEIR_OWN[code]
+    assert first["halt_reason"] == _reason(
+        code, mod.ON_THEIR_OWN[code], f", and a chain gives it one bracket: run {code} on its own, outside a chain")
+
+
+@pytest.mark.parametrize("raw,rest", [
+    pytest.param("TS[min:80] EX", ", and its bracket already holds min:80: a bracket holds one value",
+                 id="a-test-threshold"),
+    pytest.param("AN[min:3] CS TS EX", ", and its bracket already holds min:3: a bracket holds one value",
+                 id="a-unit-count"),
+    pytest.param("AN[auto] BS[auto] CS TS EX", ", and its bracket already holds auto: a bracket holds one value, "
+                 "so start the chain as forge-auto <repo-or-doc-url>", id="AN-auto"),
+    pytest.param("QS[auto] TS EX", ", and its bracket already holds auto: a bracket holds one value",
+                 id="QS-auto"),
+])
+def test_a_taken_bracket_is_named_not_overwritten(raw, rest):
+    """Writing the input into a bracket that holds `min:N` or `auto` would drop that value."""
+    out = mod.parse_pipeline(raw)
+    first, code = out["first_input"], raw[:2]
+    assert first["form"] is None
+    assert first["halt_reason"] == _reason(code, mod.FIRST_INPUTS[code][1], rest)
+    assert out["valid"] is True
+
+
+@pytest.mark.parametrize("raw", [
+    pytest.param("forge-quick cognee", id="forge-quick"),
+    pytest.param("maintain cocoindex", id="maintain"),
+    pytest.param(f"forge-auto {HONO}", id="forge-auto"),
+    pytest.param(f"forge {COGNEE_REPO} cognee", id="forge"),
+    pytest.param("deepwiki https://github.com/o/r", id="deepwiki"),
+    pytest.param("QS[cognee] TS EX", id="a-bracket-target"),
+    pytest.param("SF QS[cognee] TS EX", id="SF-then-a-target"),
+    pytest.param("SS TS EX", id="SS-takes-none"),
+    pytest.param("SF", id="SF-alone"),
+    pytest.param("CS[auto] TS EX", id="CS-leaves-its-brief-to-create-skill"),
+    pytest.param("QS TX EX", id="not-runnable"),
+])
+def test_first_input_is_null_when_nothing_is_missing(raw):
+    assert mod.parse_pipeline(raw)["first_input"] is None
+
+
+def test_step_1_asks_for_the_first_workflows_input():
+    """#594 (wave-3 enhancement-1): step 1 asks for the input `first_input` names, or halts headless, before any
+    journal, and keeps no code-to-input table of its own."""
+    step = _step_1()
+    assert "`first_input`" in step.split("Consume that output", 1)[0]
+    branch = _branch(step, FIRST_INPUT)
+    assert "as for `QS TS EX` or `QS TS EX --pin 1.2.0`" in branch and "past a leading `SF`" in branch
+    assert ("Ask the user for its `input`, then parse again its `form`, the invocation with the answer in place of "
+            "each `<...>` placeholder, as `QS[cocoindex] TS EX`: step 4 starts the journal from that invocation") in branch
+    assert ("A null `form` means no chain can carry that input: say its `halt_reason`, ask the user for the corrected "
+            "invocation, and parse that one") in branch
+    headless = branch.split("In `{headless_mode}`", 1)[1]
+    assert headless.startswith(", ask nothing: HALT with its `halt_reason`")
+    assert HALT_TEMPLATE in headless
+    example = "QS needs a target before the pipeline can start: give it as QS[<target>]"
+    assert f"`{example}`" in headless and mod.parse_pipeline("QS TS EX")["first_input"]["halt_reason"] == example
+    assert "A null `halt_reason` (a leading `CS`) halts nothing: go on with the chain" in headless
+    assert ("create-skill compiles the only brief in `{forge_data_folder}`, and halts `brief-missing` naming the "
+            "briefs when there are several") in headless
+    for needs in {n for _, n, _ in mod.FIRST_INPUTS.values()} - {"a target"}:
+        assert needs not in branch, needs
+    for key in ("`project_path`", "`architecture_doc_path`", "`old_name`"):
+        assert key not in branch, key
+    # The halt takes step 1's halt path: a failed result with no workflow, and no journal to resume.
+    assert step.index(FIRST_INPUT) < step.index("A HALT in this step runs no workflow.")
+    assert "a halt here starts no journal, so it leaves nothing to resume" in step
+    # The examples on the menu give the first code its target.
+    forger = _read(FORGER_SKILL)
+    assert "such as `QS[cocoindex] TS EX`" in forger and "(for example `TS[cocoindex] EX`)" in forger
+    assert "`QS TS EX`" not in forger and "(for example `TS EX`)" not in forger
+    for example in ("QS[cocoindex] TS EX", "TS[cocoindex] EX"):
+        assert mod.parse_pipeline(example)["first_input"] is None, example
+
+
 def test_resume_offer_skips_a_record_with_no_workflow(tmp_path):
     """A headless parse halt writes a failed pipeline result with no workflow
-    in it (step 1) and starts no journal: the On Activation step 4 call, run
+    in it (step 1) and starts no journal: the On Activation step 5 call, run
     as written after it, makes no offer."""
     import shlex
 
@@ -518,7 +689,11 @@ def test_legacy_alias_texts_live_in_step_1_not_in_skill_md():
 def test_first_workflow_takes_args_and_ts_takes_the_threshold():
     text = _read(PIPELINE_MODE)
     resolve = next(line for line in text.splitlines() if "**Resolve inputs**" in line)
-    assert "The first workflow takes the parse's `args`" in resolve
+    # A bracket target is the entry's input, the one step 1's ask writes (`args` stays {} for a chain).
+    assert ("A plan entry's bracket `target`, when it has one, is its input (`QS[cocoindex]` hands QS `cocoindex`); "
+            "otherwise the first workflow takes the parse's `args`") in resolve
+    assert mod.parse_pipeline("QS[cocoindex] TS EX")["args"] == {}
+    assert "the first entry takes its `target` when it has one" in text.split("## Resume", 1)[1]
     invoke = next(line for line in text.splitlines() if "**Invoke the workflow**" in line)
     assert "`{pipeline_alias}` set to the parse's `alias`" in invoke
     assert "When TS's plan entry has a `min`, invoke TS with `--threshold=<min>`" in invoke

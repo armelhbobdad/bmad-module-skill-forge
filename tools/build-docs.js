@@ -150,7 +150,7 @@ function generateLlmsTxt(outputDir) {
     `- **[Update Skill (US)](${SITE_URL}/workflows/#update-skill-us)** - Regenerate after changes`,
     `- **[Audit Skill (AS)](${SITE_URL}/workflows/#audit-skill-as)** - Drift detection`,
     `- **[Test Skill (TS)](${SITE_URL}/workflows/#test-skill-ts)** - Verify completeness`,
-    `- **[Export Skill (EX)](${SITE_URL}/workflows/#export-skill-ex)** - Package for distribution`,
+    `- **[Export Skill (EX)](${SITE_URL}/workflows/#export-skill-ex)** - Validate a skill's package and update the managed section`,
     `- **[Analyze Source (AN)](${SITE_URL}/workflows/#analyze-source-an)** - Discover what to skill`,
     '',
     '---',

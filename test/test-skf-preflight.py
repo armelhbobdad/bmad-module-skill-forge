@@ -4,9 +4,10 @@
 Ferris (src/skf-forger/SKILL.md) is the script's one caller, so its prose
 contract is checked here too: the call it makes runs as written, it reads
 only fields the script prints and binds each folder from its resolved path,
-its halts name the installer the way the script and skf-setup do, its menu
-and the lifecycle knowledge fragment show the pipeline aliases the parser
-expands, and the knowledge fragments count the workflows there are.
+its halts name the installer the way the script and skf-setup do, WS reads
+one forge-status.py call, its menu and the lifecycle knowledge fragment show
+the pipeline aliases the parser expands with their arguments, and the
+knowledge fragments count the workflows there are.
 """
 
 from __future__ import annotations
@@ -582,7 +583,6 @@ FORGER_SKILL = REPO / "src" / "skf-forger" / "SKILL.md"
 FORGER_MANIFEST = REPO / "src" / "skf-forger" / "bmad-skill-manifest.yaml"
 SETUP_SKILL = REPO / "src" / "skf-setup" / "SKILL.md"
 LIFECYCLE = REPO / "src" / "knowledge" / "skill-lifecycle.md"
-INVENTORY = REPO / "src" / "shared" / "scripts" / "skf-skill-inventory.py"
 INSTALLERS = ("npx bmad-module-skill-forge install", "npx bmad-method install")
 
 pp_spec = importlib.util.spec_from_file_location(
@@ -652,10 +652,11 @@ class TestForgerActivation:
     """Suite 11: Ferris's On Activation runs this script (#608)."""
 
     def test_order(self):
-        """The guard runs before anything loads the config, and the resume
-        offer is read before the greeting that carries it."""
+        """The guard runs before anything loads the config, the customization
+        resolver after the preflight's halts, and the resume offer is read
+        before the greeting that carries it."""
         steps = _steps()
-        expected = ["Config guard.", "Preflight.", "Resolve `{headless_mode}`",
+        expected = ["Config guard.", "Preflight.", "Resolve agent customization.", "Resolve `{headless_mode}`",
                     "Read the pipeline journal", "Greet, then dispatch or wait."]
         assert [t for _, t, _ in steps if t in expected] == expected
         assert [int(n) for n, _, _ in steps] == list(range(1, len(steps) + 1))
@@ -770,7 +771,7 @@ class TestForgerMenu:
         capabilities = _section(_read(FORGER_SKILL), "## Capabilities")
         for alias in parse_pipeline.ALIASES:
             assert re.search(rf"`{re.escape(alias)}( <[^>`]+>)*`", capabilities), alias
-        assert "`QS TS EX`" in capabilities
+        assert "`QS[cocoindex] TS EX`" in capabilities
 
     def test_every_menu_display_shows_the_pipelines_and_the_fresh_context_line(self):
         """The greeting presents "the menu", which this rule defines, so a
@@ -797,18 +798,24 @@ class TestForgerMenu:
         single = next(line for line in dispatch.splitlines() if line.startswith("- **Any other single code**"))
         assert "When another workflow already ran in this session and `{headless_mode}` is false" in single
         assert "fresh session (for example `@Ferris TS cocoindex`)" in single
-        assert "as a pipeline (for example `TS EX`)" in single
+        assert "as a pipeline (for example `TS[cocoindex] EX`)" in single
         assert "in place only when the user asks for that" in single
 
-    def test_ws_names_its_sources_and_the_next_codes(self):
+    def test_ws_reads_one_status_call(self):
+        """#608 determinism-5: forge-status.py joins the briefs, the inventory,
+        the test verdicts, the export manifest and the stopped chain's offer
+        (test-skf-forge-status.py runs the call as written), so WS globs and
+        reads none of them itself."""
         ws = _inline("WS")
-        for source in ("`derived.tier`", "skf-skill-inventory.py", "`{forge_data_folder}/*/skill-brief.yaml`",
-                       "skf-test-skill-result-latest.json", "resume offer"):
+        [call] = re.findall(r"`(uv run [^`]+)`", ws)
+        assert call.startswith("uv run scripts/forge-status.py ")
+        # The script finds the inventory under the project root: WS resolves no path itself.
+        assert '--project-root "{project-root}"' in call
+        assert "<inventory>" not in ws and "skf-skill-inventory.py" not in ws
+        for source in ("the briefs", "the skills SKF generated", "their test verdicts", "the export manifest",
+                       "a stopped pipeline's offer"):
             assert source in ws, source
-        assert ("`{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py` then "
-                "`{project-root}/src/shared/scripts/skf-skill-inventory.py`") in ws
-        for code in ("`CS <name>`", "`TS <name>`", "`US <name> --from-test-report`", "`EX <name>`"):
-            assert code in ws, code
+        assert "skill-brief.yaml" not in ws and "skf-test-skill-result-latest.json" not in ws
 
     def test_ws_reads_the_tier_and_the_pending_chain_again(self):
         """SF or a stopped pipeline in the same session changes both after
@@ -817,25 +824,8 @@ class TestForgerMenu:
         ws = _inline("WS")
         assert "Read every source again each time WS runs" in ws
         assert "`derived.tier` and `derived.tier_source` from the On Activation step 2 preflight call, run again" in ws
-        assert "`pipeline-journal.py resume` call, run again" in ws
+        assert "a stopped pipeline's offer (the On Activation step 5 call)" in ws
         assert "resume offer from On Activation" not in ws
-
-    def test_ws_inventory_call_runs_as_written(self, tmp_path):
-        argv = _call(_inline("WS"), "<inventory>")
-        assert argv[:3] == ["uv", "run", "<inventory>"]
-        skills, forge = tmp_path / "skills", tmp_path / "forge-data"
-        skills.mkdir()
-        forge.mkdir()
-        values = {"<inventory>": str(INVENTORY), "{skills_output_folder}": str(skills),
-                  "{forge_data_folder}": str(forge)}
-        done = subprocess.run(
-            [sys.executable, *[values.get(a, a) for a in argv[2:]]],
-            capture_output=True, text=True, encoding="utf-8", timeout=60,
-        )
-        assert done.returncode == 0, done.stdout + done.stderr
-        result = json.loads(done.stdout)
-        assert result["status"] == "ok"
-        assert result["skills"] == [] and result["forge_groups"] == []
 
     def test_modes_match_the_agents_doc(self):
         """docs/agents.md maps Management to RS, DS and Campaign, and Delivery to EX."""
@@ -867,6 +857,27 @@ class TestLifecycleFragment:
         invocation = _section(_read(LIFECYCLE), "## Pipeline Invocation")
         assert not re.search(r"score\s*[<>]", invocation)
         assert "`shared/references/pipeline-contracts.md` holds each alias's expansion and every threshold" in invocation
+        assert "Test Skill's `skf-test-skill/references/init.md` §1b the test threshold each pipeline uses" in invocation
+        assert ("A circuit breaker halts the pipeline on the gate a workflow's result fails: TS on any verdict but "
+                "PASS, VS on zero coverage.") in invocation
+        assert "falls below its quality threshold" not in invocation
+
+    def test_shows_each_alias_with_its_arguments(self):
+        """The alias lines take the arguments the parser binds, as the Pipelines paragraph shows them."""
+        invocation = _section(_read(LIFECYCLE), "## Pipeline Invocation")
+        pipelines = next(p for p in _read(FORGER_SKILL).split("\n\n") if p.startswith("**Pipelines.**"))
+        for alias in parse_pipeline.ALIASES:
+            [form] = re.findall(rf"`({re.escape(alias)}(?: <[^>`]+>)*)`", pipelines)
+            assert re.search(rf"^{re.escape(form)}\s+#", invocation, re.M), form
+        chain = ("A chain of codes whose first workflow lacks its input, such as `QS TS EX`, asks for that input "
+                 "before any workflow runs (`SF` and `SS` take none), and a headless one halts there instead.")
+        assert chain in invocation
+        # The codes no bracket completes, as parse-pipeline.py's first_input reports them.
+        for token in ("only as `forge <repo-url-or-path> <skill-name>`", "`RS` and `DS` need more than one bracket",
+                      "a headless chain led by `CS` leaves the brief to create-skill"):
+            assert token in invocation, token
+        assert parse_pipeline.FORGE_FORM == "forge <repo-url-or-path> <skill-name>"
+        assert set(parse_pipeline.ON_THEIR_OWN) == {"RS", "DS"}
 
     def test_counts_and_places_every_workflow(self):
         """Every workflow on Ferris's menu sits in one lifecycle phase, and the

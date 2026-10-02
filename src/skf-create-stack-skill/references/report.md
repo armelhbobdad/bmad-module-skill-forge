@@ -42,10 +42,10 @@ Surface the forge result to the console, leading with the win:
 ### 2. Recommend Next Workflows
 
 "**Next steps:**
-- **[TS] test-skill** — Validate the stack skill against its own assertions
-- **[EX] export-skill** — Package for distribution or agent loading
+- **[TS] test-skill**: Validate the stack skill against its own assertions
+- **[EX] export-skill**: Validate the package, write its context snippet and update the managed section in CLAUDE.md, AGENTS.md or .cursorrules
 
-- **[VS] verify-stack** — Validate the stack's integration feasibility against your architecture document{IF compose_mode:} (re-run to confirm feasibility after any architecture changes from **[RA] refine-architecture**){END IF}"
+- **[VS] verify-stack**: Validate the stack's integration feasibility against your architecture document{IF compose_mode:} (re-run to confirm feasibility after any architecture changes from **[RA] refine-architecture**){END IF}"
 
 ### 2b. Result Contract
 
