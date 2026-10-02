@@ -14,12 +14,12 @@ skillInventoryProbeOrder:
 
 ## STEP GOAL:
 
-To initialize the analyze-source workflow by loading configuration, detecting continuation state, accepting the target project path, checking for existing skills, and creating the analysis report document.
+To initialize the analyze-source workflow by loading configuration, detecting continuation state, taking the target project path, the analysis goal and the scope from the invocation or one opening question, checking for existing skills, and creating the analysis report document.
 
 ## Rules
 
-- Focus only on initialization — do not begin scanning or analysis
-- Collect project path and scope hints from user
+- Focus only on initialization: do not begin scanning or analysis
+- Use what the invocation already says before asking anything, and ask at most one opening question
 - Verify prerequisites before proceeding
 
 ## MANDATORY SEQUENCE
@@ -40,7 +40,7 @@ Look for {outputFile}.
 
 1. **Finished:** `stepsCompleted` holds `generate-briefs` or `auto-scope`: that analysis already ended (with its briefs, or with none). Archive it (below), announce "**The previous analysis of this workspace is finished: archived as <name>; starting a fresh analysis.**", and continue to section 2. A finished report is never resumed, in headless mode either.
 2. **Auto invocation:** this invocation carries the `[auto]` flag (e.g. `AN[auto]`). Auto mode is one pass that never resumes, so archive the unfinished report the same way, announce it, and continue to section 2.
-3. **Unfinished:** establish the requested target and compare it to the report's. If `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple); otherwise collect the path(s) with the section-3 "Collect Project Path" prompt (a headless run without `--project-path` halts there) and store them as `project_paths[]`. Section 3 does not re-prompt when `project_paths[]` is already populated here. Read the report's frontmatter `project_paths`.
+3. **Unfinished:** establish the requested target and compare it to the report's. Take `project_paths[]` from the invocation as section 3 says (`--project-path`, comma-split, or a path the message names); when it gives none, ask section 3's opening question now (a headless run halts there instead), once: section 3 then asks nothing more. Read the report's frontmatter `project_paths`.
    - **Same target:** "**Found an unfinished analysis report. Resuming the previous session...**" Load, read entirely, then execute {continueFile}. **STOP HERE**: do not continue this sequence. Headless runs resume it too. ({continueFile} is mode-aware: a report written by an interrupted auto run resumes through the auto path, not the interactive chain.)
    - **Different target (stale collision):** archive it, announce "**Existing report belongs to a different target: archived as <name>; starting a fresh analysis.**", then continue to section 2 (section 3 keeps the path already set).
 
@@ -74,7 +74,8 @@ and use the path it prints as `<name>`. If the rename fails, HARD HALT (exit cod
 
 1. **Resolve project path:** If `project_paths[]` is already populated (from §1 continuation detection or `--project-path` arg), use it. Otherwise, if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple). If neither is available, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:2b`): "**Auto mode requires `--project-path`: no project path available.**"
 2. **Validate the path(s):** For each provided path/URL, check that it exists (local) or is accessible (remote). If any invalid: HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `init:2b`, path `{path}`): "**Path `{path}` doesn't appear to be valid.**"
-3. **Create the analysis report** from {templateFile}. Populate frontmatter:
+3. **Take the hints:** `intent_hint` ← the `--intent-hint` value and `scope_hint` ← the `--scope-hint` value (empty when the flag is absent). Step 1a reads both, and so does the interactive chain it may fall back to.
+4. **Create the analysis report** from {templateFile}. Populate frontmatter:
    ```yaml
    stepsCompleted: ['init']
    lastStep: 'init'
@@ -85,70 +86,40 @@ and use the path it prints as `<name>`. If the rename fails, HARD HALT (exit cod
    project_paths: ['{provided_project_path}']
    forge_tier: '{detected_tier}'
    existing_skills: []
+   intent_hint: '{intent_hint}'
+   scope_hint: '{scope_hint}'
    confirmed_units: []
    stack_skill_candidates: []
    nextWorkflow: ''
    mode: 'auto'
    ```
-4. "**Auto mode activated — bypassing interactive analysis.**"
-5. **Route to auto-scope:** Load, read fully, then execute `references/step-auto-scope.md`. **STOP HERE** — do not continue to §3 or any subsequent section.
+5. "**Auto mode activated: bypassing interactive analysis.**"
+6. **Route to auto-scope:** Load, read fully, then execute `references/step-auto-scope.md`. **STOP HERE**: do not continue to §3 or any subsequent section.
 
-**IF `{auto_mode}` is not true:**
-Continue to §3 as normal — the entire interactive flow below is unchanged.
+**IF `{auto_mode}` is not true:** continue to §3.
 
-### 3. Collect Project Path
+### 3. Opening Question
 
-**Headless flag consumption:** If `project_paths[]` is already populated (e.g. collected by the section-1 stale-collision guard) OR `--project-path <path>` was passed at invocation, set/keep `project_paths[]` (comma-split the flag value if multiple paths were supplied), skip the prompt below, and proceed to validation. If `{headless_mode}` is true and no path is available from either source, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:3`): "**No project path: headless mode requires `--project-path`.**" (interactive prompting is unavailable headless). Otherwise prompt as today.
+Read the invocation first: its flags (`--project-path`, comma-split for several paths; `--intent-hint`; `--scope-hint`) and, in an interactive run, its message, which may name a path or URL, the goal of the analysis, or folders and packages to focus on or skip ("analyze /work/mono, I only care about auth, skip vendor/"). A flag wins over the message. `project_paths[]` set by section 1 stays as it is.
 
-**Per-path ref overrides (`--target-refs`):** If `--target-refs <mapping>` was passed at invocation, parse it as a comma-separated list of `path:ref` pairs (e.g., `owner/repo:v1.0.0,owner/repo2:main`). Build a `constituent_refs` map from the pairs. Each key must match an entry in `project_paths[]` (validated after path collection). When `--target-refs` is absent but multiple `project_paths` exist, set `constituent_refs` to `{}` (empty: all paths use default ref resolution). When only a single path exists, omit `constituent_refs` entirely (use `target_ref` if set on the brief). `constituent_refs` and `target_ref` are mutually exclusive: if both are supplied, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:3`): "`--target-refs` and `--target-ref` are mutually exclusive. Use `--target-refs` for multi-path analysis, or `--target-ref` for single-path."
+- `intent_hint`: the goal, in the user's words (a domain such as authentication, the consumers the skills serve, a constraint such as stable public APIs only).
+- `scope_hint`: the folders or packages to focus on, and those to skip.
 
-"**Please provide the project root path(s) to analyze** — I'll identify discrete skillable units and produce a skill-brief.yaml for each.
+**Headless** (`{headless_mode}` true): ask nothing. With no path from a flag or section 1, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:3`): "**No project path: headless mode requires `--project-path`.**" A hint no flag gave is empty: a headless run never reads one from the message.
 
-This can be:
-- A single root directory of a repo or multi-service project
-- Multiple paths or URLs (comma-separated) for multi-repo analysis (e.g., integration/stack skills)
+**Interactive:** ask at most one question, and only for what is still missing:
 
-Examples:
-- `/path/to/project`
-- `owner/repo, owner/repo2`
-- `/path/to/project, https://github.com/owner/repo2`"
+- **No path yet:** "**Which project should I analyze?** Give the root path(s) or URL(s), comma-separated for several repositories (`/path/to/project`, `owner/repo, owner/repo2`). Optionally add what you want out of it and anything to focus on or skip (for example: auth packages only, skip `vendor/`)."
+- **A path, but no goal:** "**What should this analysis focus on, or keep out?** A domain, packages, folders to skip. Press Enter to analyze everything."
+- **A path and a goal:** ask nothing.
 
-Wait for user input.
+Wait for the answer, then fill what is still missing from it: `project_paths[]`, `intent_hint` and `scope_hint`, each empty when the answer gives none. A value the invocation gave stays.
 
-**Validate the path(s):**
-- For each provided path/URL: check that it exists (local) or is accessible (remote)
-- **IF any invalid:** "Path `{path}` doesn't appear to be valid. Please correct it." In headless mode no one can correct it: HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `init:3`, path `{path}`) with that message.
-- Store as `project_paths[]` array in report frontmatter (single path stored as 1-element array for consistency)
-- **IF `constituent_refs` was built from `--target-refs`:** Validate that every key in the map matches an entry in `project_paths[]`. If any key has no matching path, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:3`): "constituent_refs key `{key}` does not match any entry in project_paths."
+### 4. Validate the Inputs
 
-**Collect intent hint** (drives recommendation ranking in Step 5):
+**Paths:** for each entry of `project_paths[]`, check that it exists (local) or is accessible (remote). An invalid one: "Path `{path}` doesn't appear to be valid. Please correct it." and wait for the corrected path. In headless mode no one can correct it: HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `init:4`, path `{path}`) with that message.
 
-**Headless flag consumption:** If `--intent-hint <text>` was passed at invocation, set workflow-context `intent_hint` directly from the flag value, skip the prompt below, and proceed. If `{headless_mode}` is true and no `--intent-hint` was supplied, set `intent_hint = ""` (empty) and proceed without prompting.
-
-"**Optional: What are you hoping to get out of this analysis?**
-
-For example:
-- Skills for a specific domain (e.g., 'authentication and authorization')
-- Target consumer agents (e.g., 'skills our backend team's AI assistants will call')
-- Constraints (e.g., 'we only want stable public APIs, no internal modules')
-
-Type details, or press Enter to skip."
-
-Wait for user input. Store as workflow-context `intent_hint` (empty string if skipped).
-
-### 4. Collect Optional Scope Hints
-
-**Headless flag consumption:** If `--scope-hint <text>` was passed at invocation, set workflow-context `scope_hint` directly from the flag value, skip the prompt below, and proceed. If `{headless_mode}` is true and no `--scope-hint` was supplied, set `scope_hint = ""` (empty) and proceed without prompting.
-
-"**Optional: Do you have scope hints to narrow the analysis?**
-
-For example:
-- Specific packages to focus on (e.g., `packages/auth`, `services/api`)
-- Directories to exclude (e.g., `vendor/`, `node_modules/`, `dist/`)
-
-Enter scope hints, or press Enter to analyze the entire project."
-
-Wait for user input. Document any hints provided.
+**Ref pins:** `--target-ref <ref>` names one git tag or branch for every project path: `target_ref` ← it. `--target-refs <mapping>` names one per path, as comma-separated `path:ref` pairs (`owner/repo:v1.0.0,owner/repo2:main`), and every key must be an entry of `project_paths[]`, else HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:4`): "`--target-refs` key `{key}` does not match any entry in project_paths." The two are mutually exclusive: when both are passed, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:4`): "`--target-refs` and `--target-ref` are mutually exclusive. Use `--target-refs` for one ref per path, or `--target-ref` for one ref for every path." Resolve each project path's **ref** once, here: its `--target-refs` entry, else `target_ref`, else none (the default ref: HEAD for a local path, the default branch for a remote one). `refs` ← each project path that has a ref, mapped to it (`{}` when none has one). Every later step reads a path's ref from `refs` alone: scan-project reads each path at its ref, and generate-briefs writes each unit's ref into its brief as `target_ref`.
 
 ### 5. Check for Existing Skills
 
@@ -185,7 +156,8 @@ date: '{current_date}'
 user_name: '{user_name}'
 project_name: '{project_name}'
 project_paths: ['{provided_project_path}']
-constituent_refs: {map from --target-refs, or omit if single path}
+target_ref: '{target_ref, or empty}'
+refs: {each project path with a ref: its ref}
 forge_tier: '{detected_tier}'
 existing_skills: [{list of existing skill names}]
 existing_briefs: [{name and path of each existing brief, as {name: '...', path: '...'}}]
@@ -196,14 +168,15 @@ stack_skill_candidates: []
 nextWorkflow: ''
 ```
 
-**`constituent_refs` presence rules:** Include the field only when `project_paths` has more than one entry. When present, keys are path strings matching `project_paths[]` entries, values are explicit git refs (tag/branch/commit). Paths with no explicit ref have no entry in the map (default ref resolution applies). Downstream steps (scan-project, brief generation) read this map to resolve per-constituent refs when cloning or reading off-HEAD constituents.
+`target_ref` stays for a path that discover-additional-source adds later, which takes it as its ref.
 
 "**Initialization complete.**
 
-**Project:** {project_path}
+**Project:** {project_paths, each with its ref when it has one}
 **Forge Tier:** {forge_tier}
 **Existing Skills:** {count}
-**Scope Hints:** {hints or 'None — full project analysis'}
+**Goal:** {intent_hint, or 'None: every unit is analyzed'}
+**Scope Hints:** {scope_hint, or 'None: full project analysis'}
 
 **Proceeding to project scan...**"
 

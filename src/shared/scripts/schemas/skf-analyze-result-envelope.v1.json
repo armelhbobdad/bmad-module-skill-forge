@@ -149,18 +149,26 @@
         "properties": {
           "gate": {
             "type": "string",
-            "enum": ["auto-scope.cohesion", "auto-scope.language"],
-            "description": "The decision step 1a took with no one to ask: section 3b's merge-or-split decision for a monorepo, and section 5's choice of the documented language when the language helper found more than one."
+            "enum": [
+              "auto-scope.cohesion",
+              "auto-scope.language",
+              "scan-project.scan",
+              "identify-units.classifications",
+              "map-and-detect.findings",
+              "recommend.recommendations",
+              "generate-briefs.write"
+            ],
+            "description": "The decision the run took with no one to ask. Step 1a: section 3b's merge-or-split decision for a monorepo, and section 5's choice of the documented language when the language helper found more than one. A headless run of the step-by-step chain: the default of each step's gate (continue past the scan, accept the unit classifications, accept every composite merge, confirm every recommendation and flag every stack skill candidate, write the briefs)."
           },
           "default_action": {
             "type": "string",
             "minLength": 1,
-            "description": "The documented default: 'merge' for the cohesion check, the helper's first language for the language choice."
+            "description": "The documented default: 'merge' for the cohesion check, the helper's first language for the language choice, the menu option a step-by-step gate takes ('C', or 'Y' to write the briefs)."
           },
           "taken_action": {
             "type": "string",
             "minLength": 1,
-            "description": "What the run decided: 'merge' or 'split', or the language the brief records."
+            "description": "What the run decided: 'merge' or 'split', the language the brief records, or the option a headless gate took."
           },
           "reason": {
             "type": "string",
@@ -170,7 +178,7 @@
           "evidence": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Optional decision data: the package count and the members, or the languages the helper listed."
+            "description": "Optional decision data: the package count and the members, the languages the helper listed, or what a step-by-step gate accepted (the composites, the confirmed units, the briefs)."
           }
         }
       },

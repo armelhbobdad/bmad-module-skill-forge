@@ -469,18 +469,19 @@ def test_docs_say_what_the_hard_gate_reads_and_a_blocked_run_writes():
                   "runs the `on_complete` hook and the health check, then exits with code 2",
                   "`@Ferris US <name> --from-test-report`"):
         assert token in gate, token
-    skill = _read(TEST_SKILL / "SKILL.md")
+    # The headless contract lives in references/invocation-contract.md (#600).
+    skill = _read(TEST_SKILL / "references" / "invocation-contract.md")
     [row] = [line for line in skill.splitlines() if re.match(r"\| 2 +\| fail / FAIL ", line)]
     assert '`halt_reason: "hard-gate-blocked"`' in row
-    assert "which still writes the Gap Report and the result contract" in skill
+    assert "which still writes the Gap Report and its FAIL result contract" in skill
     exits = _paragraph(_slice(_read(WORKFLOWS), "### Test Skill (TS)", "**Agent:**"), "**Verdicts and exit codes")
     for token in ("`2` FAIL", "A run the hard gate blocks on a Critical or High gap is a FAIL as well",
                   "writes the Gap Report and a FAIL result record", "runs `on_complete` and the health check",
                   "then exits `2`", "its result line, printed on stderr instead of stdout",
                   '`status: "error"`', '`halt_reason: "hard-gate-blocked"`'):
         assert token in exits, token
-    contract = _slice(skill, "## Result Contract (Headless)", "```")
-    assert "on **stdout** for a scored run, and on **stderr**" in contract and "hard gate blocked" in contract
+    contract = _slice(skill, "## Result Envelope (Headless)", "| `halt_reason` | Raised by |")
+    assert "on stdout and a halt's or a blocked run's on stderr" in contract and "hard gate blocked" in contract
     tree = _slice(_read(ARCHITECTURE), "## Workspace Artifacts", "### Pipeline Result Contracts")
     assert f"├── {ledger}" in tree
 

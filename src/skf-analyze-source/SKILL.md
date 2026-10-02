@@ -27,7 +27,7 @@ These rules apply to every step in this workflow:
 
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}` (the language for user-facing prose). Written artifact text — the per-unit recommendation `description` and `scope.notes` persisted into `skill-brief.yaml` — is in `{document_output_language}`; per-step rules call this out where it applies. The two values may be the same.
-- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
+- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action, and record each one in the run sink as the gate says
 
 ## Stages
 
@@ -35,7 +35,7 @@ These rules apply to every step in this workflow:
 |---|------|------|--------------|-----------|
 | 1 | Initialize | references/init.md | Yes | Always |
 | 1a | Auto-Scope | references/step-auto-scope.md | Yes | `[auto]` mode only — bypasses steps 2–6; owns pin resolution, coexistence detection, and the docs-only short-circuit |
-| 1b | Continue (session resume) | references/continue.md | Yes | Always |
+| 1b | Continue (session resume) | references/continue.md | Yes | An unfinished report of the same target (init section 1) |
 | 2 | Scan Project | references/scan-project.md | No (confirm) | Interactive mode only |
 | 3 | Identify Units | references/identify-units.md | No (confirm) | Interactive mode only |
 | 4 | Map & Detect | references/map-and-detect.md | No (confirm) | Interactive mode only |
@@ -43,7 +43,9 @@ These rules apply to every step in this workflow:
 | 6 | Generate Briefs | references/generate-briefs.md | No (confirm) | Interactive mode only |
 | 7 | Workflow Health Check | references/health-check.md | Yes | Always |
 
-**Auto mode path:** With `[auto]` present, init routes directly to step 1a. Step 1a may confirm N > 1 units (a monorepo splits into N briefs / N `brief_paths`, or merges to one), and routes docs-only targets to `references/auto-docs-only.md`.
+**Auto mode path:** With `[auto]` present, init routes directly to step 1a, which loads a branch file only when its branch fires: `references/step-auto-scope-coexistence.md` (a skill already matches), `references/step-auto-scope-split.md` (a monorepo splits into N briefs) and `references/step-auto-scope-corpora.md` (a whole-language reference), and routes docs-only targets to `references/auto-docs-only.md`.
+
+**[D] Discover Additional Source** (steps 4 and 5) loads `references/discover-additional-source.md`. Step 2 and [D] make each project path's scan root by `references/scan-root.md` (steps 3 and 4 make one again when a resumed session no longer finds it), and step 4 and [D] map each unit's exports by `references/map-unit-exports.md`.
 
 **Shape detection reference:** `references/step-shape-detect.md` — loaded by step 1a as a reference doc (not a chained step).
 
@@ -51,13 +53,12 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | project_path [required], scope_hint [optional]. `project_path` is a GitHub repo URL or a local filesystem path. In `[auto]` mode it may also be a documentation URL — step 1a classifies the URL type and routes docs-only targets (see Stages row 1a). |
-| **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt; in `[auto]` mode also accepts documentation URLs for docs-only mode), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5), `--pin <version>` (`[auto]` mode only — pin to a specific version tag or branch; accepts semver tags, git tags, and branch names; when absent, resolves to the latest release tag; interactive/headless runs use `--target-refs`/`--target-ref` instead) |
+| **Inputs** | project_path [required], intent_hint, scope_hint, target_ref or target_refs [optional]. `project_path` is a GitHub repo URL or a local path, or in `[auto]` mode a documentation URL (routed docs-only). An interactive run reads them from the invocation and asks at most one opening question. |
+| **Headless inputs** | `--project-path <path>` (comma-separated for several), `--scope-hint <text>` (folders or packages to focus on or skip, `[auto]` included), `--intent-hint <text>` (the goal: ranks the step 5 recommendations; an interactive run also defers the units outside it before step 4, restorable, a headless run never; `[auto]` keeps a merged repo's facets it names), `--target-ref <ref>` (a tag or branch for every project path, written into every brief; not `[auto]`, which pins with `--pin`), `--target-refs <path:ref,...>` (one ref per path, written into each unit's brief; not with `--target-ref`, and not `[auto]`), `--pin <version>` (`[auto]` only: a tag or branch; absent, the latest release tag; a step-by-step analysis an `[auto]` run falls back to keeps its pin) |
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a; see **Auto mode path** above). Pipelines pass this as `AN[auto]`. Requires `--project-path`. |
-| **Gates** | steps 2/3/4/5: Confirm Gate [C] (step 4 also accepts or rejects each composite merge proposal, default accept); step 6: Confirm Gate [Y] (write briefs); all skipped in auto mode |
+| **Gates** | one per step: steps 2 to 4 [C] (step 4 also takes composite merges, default accept); step 5 [C] after the decisions (default: confirm every card, flag every stack skill candidate); step 6 [Y] (write briefs). Headless takes each default and records it in `headless_decisions`. Auto mode: only the step 1a coexistence gate (default [A]longside) |
 | **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit) and the run's result files, written by every run that ends, zero confirmed units included; final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true. In auto mode, the envelope includes `"mode":"auto"`. |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | Envelope, emitter, result files, `halt_reason` enum and exit codes: `references/headless-contract.md` |
 
 ## On Activation
@@ -90,18 +91,12 @@ These rules apply to every step in this workflow:
    - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
    - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
 
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly. Then bind, so stage files use the variable with no conditional at the usage site:
 
-   Apply the path-scalar fallback now, so stage files reference the resolved variable with no conditional at the usage site. For each scalar, if the merged value is empty or absent, use the bundled default:
+   - `{analysisReportTemplatePath}` ← `workflow.analysis_report_template_path` (the bundled `templates/analysis-report-template.md` when an override leaves it empty)
+   - `{onCompleteCommand}` ← `workflow.on_complete` (empty: no hook)
 
-   - `{unitDetectionHeuristicsPath}` ← `workflow.unit_detection_heuristics_path` if non-empty, else `references/unit-detection-heuristics.md`
-   - `{briefSchemaPath}` ← `workflow.brief_schema_path` if non-empty, else `assets/skill-brief-schema.md`
-   - `{analysisReportTemplatePath}` ← `workflow.analysis_report_template_path` if non-empty, else `templates/analysis-report-template.md`
-   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (hook invocation skipped)
-
-   Stash all four as workflow-context variables. A non-empty value lets an org swap in a house-style copy (or wire a pipeline hook) without forking the skill.
-
-   Apply the array surfaces too: run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` after activation.
+   Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts).
 
 5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the subagents' unit records, the halt and result payloads) and the sink of its auto-decisions:
 
@@ -111,4 +106,4 @@ These rules apply to every step in this workflow:
 
    Bind `{run_dir}` ← the path it prints. The step that ends the run deletes it once the envelope is out; a HARD HALT keeps it. If it cannot be created, HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:run-folder`, path `{project-root}/_bmad-output/.skf-run`): "SKF cannot create its run folder under `{project-root}/_bmad-output/.skf-run/`: {the first stderr line}. Nothing was changed." Its envelope goes through the second command of step 1.
 
-6. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+6. Run `workflow.activation_steps_append`, then load, read the full file, and execute `references/init.md` to begin the workflow.

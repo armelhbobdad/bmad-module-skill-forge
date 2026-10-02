@@ -3,7 +3,8 @@
 rule and review preview (#609), how resolve-target reads a target (#582,
 #588), the inputs it takes by file and by flag (#592, #594), and the run
 contract the shared emitter and skf-quick-batch.py keep (#585, #586, #587,
-#593).
+#593), the customization surface (#596), the ecosystem check and the helper
+fallbacks it no longer has (#599), and one home per rule (#600).
 
 Step 1 lists the repository once, into the run folder, and every later
 read goes through that listing: step 3 fetches each file raw into the run
@@ -36,7 +37,15 @@ under a gate name the schema lists, finalize's success payload builds a
 valid envelope with the summary the schema defines (step 5's validation
 counts in the schema's shape), and under --batch every target's end (step 6,
 and every halt through its stage's Rules) returns to batch-mode.md, which
-runs the health check once.
+runs the health check once. The one halt that emits nothing is activation's
+check for python3 and uv, which the emitter itself needs.
+
+customize.toml offers only settings a step reads: each path scalar ships the
+default SKILL.md binds, the template comment names the headings the validator
+and the snippet anchors need, and the hook comments say when SKILL.md runs
+them. The ecosystem check makes no web search while agentskills.io has no
+registry API, and keeps its slug, gate and exit 8. A missing resolver or
+language detector halts instead of being worked out by hand.
 """
 
 from __future__ import annotations
@@ -49,6 +58,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -499,7 +509,7 @@ def test_metadata_is_rendered_from_files_and_installed_by_the_atomic_writer():
     write = _read(WRITE_AND_VALIDATE)
     assert ("atomicWriteProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'\n"
             "  - '{project-root}/src/shared/scripts/skf-atomic-write.py'\n") in write.split("---\n", 2)[1]
-    assert _bash_block(write, "metadata.json") == \
+    assert _nested_bash_block(write, "metadata.json") == \
         'uv run {atomicWriteHelper} write --target "{skill_package}/metadata.json" < "{run_dir}/metadata.json"\n'
     assert "Resolve `{version}` ← the `version` of `{run_dir}/metadata.json`" in write
     finalize = _read(FINALIZE)
@@ -530,12 +540,17 @@ def test_the_run_folder_removal_takes_the_fetched_files_and_nothing_else(tmp_pat
 # --------------------------------------------------------------------------
 
 
+SINGLE_TARGET_FLAGS = ("`--language-hint`, `--scope-hint`, `--description` and `--exports` are single-target "
+                       "flags: batch mode refuses them.")
+
+
 def test_the_hint_flags_are_parsed_at_activation():
     skill = _read(SKILL)
     for flag, hint in (("--language-hint <lang>", "language_hint"), ("--scope-hint <path>", "scope_hint")):
         [row] = [line for line in skill.splitlines() if line.startswith(f"   | `{flag}` |")]
-        assert f"Sets `{hint}`" in row and "Single-target runs only: batch mode refuses it." in row
+        assert f"Sets `{hint}`" in row and "batch mode refuses" not in row
         assert f"{hint} [optional, `{flag.split()[0]}`]" in skill
+    assert skill.count(SINGLE_TARGET_FLAGS) == 1
     [overrides] = [line for line in skill.splitlines() if line.startswith("| **Overrides** |")]
     assert "`--language-hint`, `--scope-hint`" in overrides
     accept = _section(_read(RESOLVE_TARGET), "### 1. Accept User Input", "### 1b. ")
@@ -627,9 +642,11 @@ def test_batch_mode_refuses_the_flags_before_the_batch_starts():
     assert '"details": {"flags": [<the flags passed>], "batch_file": "<file>"}' in before
     assert "no batch summary is written" in before
     assert 'set `{headless_mode}` to true (log "headless: coerced by --batch" if it was false)' in before
-    for flag in ("--description", "--exports"):
+    # SKILL.md states the refusal once, under the flag table; batch-mode.md enforces it.
+    assert text.count("batch mode refuses") == 1 and SINGLE_TARGET_FLAGS in text
+    for flag in ("--description", "--exports", "--batch"):
         [row] = [line for line in text.splitlines() if line.startswith(f"   | `{flag} ")]
-        assert "Single-target runs only: batch mode refuses it." in row
+        assert "refuses" not in row and "exit code 2" not in row, flag
 
 
 def test_no_file_applies_the_two_flags_to_every_target():
@@ -708,17 +725,52 @@ def test_the_redirect_examples_parse_as_their_kind():
         assert parse(example)["kind"] in ("github", "package"), example
 
 
-def test_the_registry_data_shapes_match_the_parser():
-    shapes = _section(_read(REGISTRY_RESOLUTION), "### Detection: Target Shapes", "### Resolution Fallback Chain")
+def test_the_registry_data_holds_only_the_web_search():
+    """#599: the resolver owns the target shapes and the registry chain, so the step never
+    works them out by hand; registry-resolution.md keeps the judgment the script leaves out."""
+    data = _read(REGISTRY_RESOLUTION)
+    for heading in ("## Search", "## Pick the Repository", "## Result"):
+        assert heading in data, heading
+    assert '`"{package_name} github repository"`' in data and "at most 15 seconds" in data
+    for stale in ("registry.npmjs.org", "pypi.org/pypi", "crates.io/api", "Target Shapes", "Fallback Chain",
+                  "by hand"):
+        assert stale not in data, stale
+    frontmatter = _read(RESOLVE_TARGET).split("---\n", 2)[1]
+    assert "registryResolutionData: 'references/registry-resolution.md'\n" in frontmatter
+    registry = _step("### 3. Registry Resolution", "### 3a. ")
+    [fallthrough] = [line for line in registry.splitlines() if line.startswith('- **On `status: "fallthrough"`**')]
+    assert "Load {registryResolutionData} and run its web search for `{package_name}`." in fallthrough
+    assert "§4" not in fallthrough, "the fallback is named by its file, not by a section number"
+    # The Go and Maven examples it names parse as the kinds that reach the search.
     parse = _resolver().parse_target
-    for example, kind in (("vercel/next.js", "github"), ("lodash", "package"), ("@scope/name", "package"),
-                          ("zope.interface", "package")):
-        assert f"`{example}`" in shapes, example
-        assert parse(example)["kind"] == kind, example
-    pages = re.findall(r"`(https://[^`]+)`", shapes)
-    assert len(pages) == 3
-    for page in pages:
-        assert parse(page.replace("<name>", "lodash"))["kind"] == "registry-page", page
+    assert parse("go.uber.org/zap")["kind"] == "other-host"
+    assert parse("com.google.guava:guava")["kind"] == "unparsed"
+
+
+def test_a_missing_helper_halts_instead_of_a_hand_walk():
+    """#599: resolve-target keeps no prose fallback for the resolver or the language detector;
+    a missing or failing helper halts with exit 3, as a missing GitHub probe does."""
+    text = _read(RESOLVE_TARGET)
+    for stale in ("by hand", "rule walk documented in the helper's `--help`", "`Cargo.toml` → Rust",
+                  "single source of truth"):
+        assert stale not in text, stale
+    parse = _step("### 1b. Parse the Target", "### 2. ")
+    [resolve] = [line for line in parse.splitlines() if line.startswith("**Resolve `{packageResolver}`**")]
+    for needle in ("If no candidate exists, or a call to it prints no JSON on stdout, HARD HALT with **exit code 3 "
+                   "(resolution-failure)**, in interactive mode too", "`skf-resolve-package.py`",
+                   '"details": {"cause": "<package-resolver-missing'):
+        assert needle in resolve, needle
+    detect = _step("### 4. Detect Language", "### 5. ")
+    [delegate] = [line for line in detect.splitlines() if line.startswith("2. **Delegate the rule walk")]
+    for needle in ("If no candidate exists, or its call below prints no JSON on stdout, HARD HALT with **exit code 3 "
+                   "(resolution-failure)**", "{the call's first stderr line, or with no candidate:",
+                   "`skf-detect-language.py`",
+                   '"details": {"cause": "<detect-language-missing, or detect-language-error after a call that '
+                   'printed no JSON>"}'):
+        assert needle in delegate, needle
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
+    assert "package resolver missing or failing §1b" in row3 and "language detector missing or failing" in row3
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's heredoc through a POSIX shell")
@@ -819,7 +871,6 @@ def test_an_ambiguous_name_offers_every_candidate_and_headless_keeps_the_pick():
     doc = resolver.__doc__[resolver.__doc__.index("resolve output"):]
     for field in ("also_found_in", "warning"):
         assert f"  {field}:" in doc, field
-    assert "also_found_in" in _section(_read(REGISTRY_RESOLUTION), "### Resolution Fallback Chain", "#### 1.")
 
 
 def test_the_tag_check_reads_the_github_probe_listing():
@@ -917,11 +968,40 @@ def test_the_scan_finds_every_hard_halt():
     per_file = {}
     for name, _, _, _ in _halt_sites():
         per_file[name] = per_file.get(name, 0) + 1
-    # resolve-target.md gained the step 1 §4 halt for a file listing no probe could read.
-    assert per_file == {"SKILL.md": 2, "batch-mode.md": 3, "compile.md": 1, "ecosystem-check.md": 2,
-                        "finalize.md": 1, "quick-extract.md": 2, "resolve-target.md": 10,
+    # resolve-target.md gained the step 1 §4 halt for a file listing no probe could read, and the
+    # halts for a missing resolver (§1b) and language detector (§4) in place of a by-hand walk;
+    # SKILL.md gained the runtime halt for a missing python3 or uv.
+    assert per_file == {"SKILL.md": 3, "batch-mode.md": 3, "compile.md": 1, "ecosystem-check.md": 2,
+                        "finalize.md": 1, "quick-extract.md": 2, "resolve-target.md": 12,
                         "write-and-validate.md": 3}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
+
+
+def _runtime_halt(segment: str) -> bool:
+    """SKILL.md On Activation's halt for a missing python3 or uv, which the emitter cannot run for."""
+    return "No envelope is printed: the emitter needs `uv` too." in segment[:600]
+
+
+def test_a_missing_runtime_halts_before_the_run_folder():
+    """W4 hand-off (W3 re-check enhancement-4): without uv no helper and no emitter can run,
+    so activation checks for python3 and uv before anything else and halts with exit 3."""
+    text = _read(SKILL)
+    step1 = _section(text, "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. ")
+    for needle in ("`command -v python3` and `command -v uv`", "HARD HALT with **exit code 3 (resolution-failure)**",
+                   "<https://docs.astral.sh/uv/getting-started/installation/>",
+                   "No envelope is printed: the emitter needs `uv` too."):
+        assert needle in step1, needle
+    assert step1.index("command -v uv") < step1.index("mktemp -d") < step1.index("emit-halt")
+    [site] = [s for s in _halt_sites() if s[0] == "SKILL.md" and _runtime_halt(s[3])]
+    assert site[1:3] == (3, "resolution-failure")
+    assert EMIT_HALT not in site[3][:site[3].index("Then resolve `{emitEnvelopeHelper}`")]
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
+    assert row3.split("|")[3].strip().startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing)")
+    assert ("except SKILL.md On Activation's halt for a missing `python3` or `uv`, which the emitter needs"
+            in _read(HALT_CONTRACT))
+    [exit_row] = [line for line in text.splitlines() if line.startswith("| **Exit codes** |")]
+    assert "except On Activation step 1's check for `python3` and `uv`, which prints none" in exit_row
 
 
 def test_no_stage_halts_without_an_exit_code():
@@ -934,12 +1014,16 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(24), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(27), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
-    """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names."""
+    """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names,
+    except the runtime halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder)."""
     sites = _halt_sites()
-    assert len(sites) == 24
+    assert len(sites) == 27
     name, code, reason, segment = sites[site]
+    if _runtime_halt(segment):
+        assert name == "SKILL.md"
+        return
     assert EMIT_HALT in segment and "--target stderr" in segment, (name, reason)
     payload = _filled(_staged(segment, "halt.json"))
     expected = {"not-skf-output", "flat-layout"} if code == 9 else {reason}
@@ -1045,8 +1129,8 @@ VALIDATION_ISSUES = '`{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>,
 
 def test_step_5_counts_the_validation_issues_in_the_schema_shape():
     """#586: {validation_issues} is the object the schema requires, counted from the validators' arrays."""
-    report = _section(_read(QS / "references" / "write-and-validate.md"), "### 7. Report Validation Results",
-                      "### 8. ")
+    report = _section(_read(QS / "references" / "write-and-validate.md"), "### 6. Report Validation Results",
+                      "### 7. ")
     assert f"`{{validation_issues}}` ← {VALIDATION_ISSUES}" in report
     for count in ("`skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter "
                   "validator's `issues[]`) plus `validation.skill_md.body[]`",
@@ -1203,3 +1287,208 @@ def test_stage_files_carry_their_own_formats():
         assert event in events, event
     assert "`references/batch-mode.md` §2 set `target`, `language_hint` and `scope_hint`" in _read(RESOLVE_TARGET)
     assert "a batch line's own `target_version` otherwise stays" not in _read(RESOLVE_TARGET)
+
+
+# --------------------------------------------------------------------------
+# #596: the customization surface reaches the code that owns each rule
+# --------------------------------------------------------------------------
+
+CUSTOMIZE = QS / "customize.toml"
+
+
+def _customize() -> dict:
+    return tomllib.loads(_read(CUSTOMIZE))["workflow"]
+
+
+def _comment_before(key: str) -> str:
+    """The comment block directly above `key = ...` in customize.toml."""
+    lines = _read(CUSTOMIZE).splitlines()
+    [at] = [i for i, line in enumerate(lines) if line.startswith(f"{key} = ")]
+    block = []
+    for line in reversed(lines[:at]):
+        if line.startswith("#"):
+            block.append(line.lstrip("# "))
+        elif block:
+            break
+    return " ".join(reversed(block))
+
+
+def test_registry_resolution_path_is_gone():
+    """The resolver hard-codes npm, PyPI and crates.io, so a house-style registry chain changed nothing."""
+    assert "registry_resolution_path" not in _customize()
+    for path in [SKILL, CUSTOMIZE, *(QS / "references").glob("*.md")]:
+        text = _read(path)
+        for stale in ("registry_resolution_path", "registryResolutionPath", "registry chain)"):
+            assert stale not in text, (path.name, stale)
+
+
+def test_each_path_scalar_names_the_default_skill_md_binds():
+    workflow = _customize()
+    step3 = _section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ")
+    for key, variable in (("skill_template_path", "skillTemplatePath"), ("batch_output_path", "batchOutputPath")):
+        default = workflow[key]
+        assert default, f"{key} ships its real default, not an empty string"
+        assert f"- `{{{variable}}}` ← `workflow.{key}`, else `{default}`" in step3, key
+        assert f"Default: {default}" in _comment_before(key), key
+    assert (QS / workflow["skill_template_path"]).is_file()
+    assert set(workflow) == {"activation_steps_prepend", "activation_steps_append", "persistent_facts",
+                             "skill_template_path", "batch_output_path", "on_complete"}
+
+
+def test_the_template_comment_names_what_a_copy_must_keep():
+    """The step 5 validator and the snippet anchors read the template's headings; the renderer ignores it."""
+    comment = _comment_before("skill_template_path")
+    template = _read(TEMPLATE)
+    for heading in ("## SKILL.md Section Structure", "## context-snippet.md Format", "## Overview",
+                    "## Description", "## Key Exports", "## Usage Patterns", "## metadata.json Format"):
+        assert f"`{heading}`" in comment, heading
+        assert f"\n{heading}" in template, heading
+    for anchor in ("#key-exports", "#usage-patterns"):
+        assert f"`{anchor}`" in comment and f"SKILL.md{anchor}" in template, anchor
+    assert "metadata.json is read from a copy only when skf-render-quick-metadata.py is missing or fails twice" \
+        in comment
+    validator = _load(SCRIPTS / "skf-validate-output.py", "skf_validate_output_for_quick_contract")
+    body = validator.validate_body_structure(f"---\nname: x\n---\n{template}")
+    assert body == [], "the bundled template carries every section the validator requires"
+
+
+def test_the_hook_comments_match_when_skill_md_runs_them():
+    prepend = _comment_before("activation_steps_prepend")
+    assert "SKILL.md On Activation step 3" in prepend and "before the CLI flags are parsed" in prepend
+    assert "uv probe" not in prepend
+    step3 = _section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ")
+    assert "Run each `workflow.activation_steps_prepend` entry now, in order." in step3
+    assert "Once step 4 has parsed the flags, before step 5 or 6 starts the run, run each " \
+           "`workflow.activation_steps_append` entry in order." in step3
+    assert "step 4 has parsed the CLI flags" in _comment_before("activation_steps_append")
+
+
+def test_the_persistent_facts_default_says_how_to_drop_it():
+    assert _customize()["persistent_facts"] == ["file:{project-root}/**/project-context.md"]
+    comment = _comment_before("persistent_facts")
+    for needle in ("loads every project-context.md under the project root", "nothing when there is none",
+                   "cannot remove it", "add a literal fact that says so"):
+        assert needle in comment, needle
+
+
+def test_the_on_complete_comment_is_the_call_finalize_makes():
+    comment = _comment_before("on_complete")
+    assert "a shell command, not an instruction" in comment
+    assert "<on_complete> --skill-package=<absolute path of the skill package>" in comment
+    for needle in ("once per target that finishes", "a HARD HALT never runs it", "never fails the workflow"):
+        assert needle in comment, needle
+    hook = _section(_read(FINALIZE), "**Post-completion hook (optional).**", "In a single-target run")
+    assert _bash_block(hook, "{onCompleteCommand}") == "{onCompleteCommand} --skill-package={skill_package}\n"
+    assert "Under `--batch` it runs once per target that reaches this section." in hook
+
+
+# --------------------------------------------------------------------------
+# #599: the ecosystem check asks no registry that does not exist
+# --------------------------------------------------------------------------
+
+ECOSYSTEM = QS / "references" / "ecosystem-check.md"
+
+
+def test_the_ecosystem_check_makes_no_web_search():
+    text = _read(ECOSYSTEM)
+    steps = text[text.index("## Steps"):]
+    assert steps.startswith("## Steps\n\nagentskills.io has no registry API")
+    assert "make no query and no web search" in steps and "go on as IF P does" in steps
+    for stale in ('"agentskills.io" "{repo_name}" skill', "Authority:** official", "Source:** agentskills.io",
+                  "ecosystem_status", "5-second", "timeout", "STEP GOAL", "### "):
+        assert stale not in text, stale
+
+
+def test_the_ecosystem_gate_keeps_its_slug_and_exit_8():
+    sites = [(code, reason) for name, code, reason, _ in _halt_sites() if name == "ecosystem-check.md"]
+    assert sorted(sites) == [(6, "user-cancelled"), (8, "ecosystem-redirect")]
+    text = _read(ECOSYSTEM)
+    assert text.count('"phase": "ecosystem-check"') == 2 and text.count('"skill_package": null') == 2
+    assert '"gate": "ecosystem-check.ecosystem-match"' in text
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    for code in ("6", "8"):
+        [row] = [line for line in codes.splitlines() if line.startswith(f"| {code} ")]
+        assert "step 2 (" in row and "step 2 §3" not in row, code
+    assert "2 `ecosystem-check`" in _read(HALT_CONTRACT)
+    [gates] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Gates** |")]
+    assert "step 2: ecosystem match [P/I/A] (none until agentskills.io has a registry API)" in gates
+
+
+# --------------------------------------------------------------------------
+# #600: one home per rule in SKILL.md and the stage files
+# --------------------------------------------------------------------------
+
+
+def test_compile_names_the_skill_after_its_folder():
+    """W1 re-check leanness-1: the gerund preference could pull `name` off the folder step 5 writes."""
+    text = _read(COMPILE)
+    [rule] = [line for line in text.splitlines() if line.startswith("- `name` ")]
+    assert rule == "- `name` is `{repo_name}`: step 5 writes that folder and validates the name against it."
+    assert "gerund" not in text and "that's step 6" not in text
+    assert "do not write files to disk (step 5 writes them)" in text
+    snippet = _section(text, "### 3. Generate Context Snippet", "### 4. ")
+    assert "If the assembled SKILL.md lacks a heading a snippet line anchors to, omit that line." in snippet
+    for stale in ("fewer than 5", "Deep-tier", "Step-05 §2 will skip"):
+        assert stale not in snippet, stale
+
+
+def test_compile_shows_its_menu_once():
+    text = _read(COMPILE)
+    preview = _section(text, "### 5. Present Compiled Output for Review", "### 6. ")
+    assert preview.rstrip().endswith('**Extraction confidence:** {confidence}"')
+    assert "[Q] quit without writing" not in preview
+    assert text.count("**Select:** [C] Continue to Validation") == 1
+    gate = text[text.index("#### Gate:"):]
+    assert "[E] re-renders" not in gate and "[S] discards" not in gate
+
+
+def test_step_5_writes_metadata_first_in_its_listed_order():
+    write = _section(_read(WRITE_AND_VALIDATE), "### 2. Write Deliverables", "### 3. ")
+    assert "File 1" not in write and "File 3" not in write
+    order = [write.index(f"{n}. `{{skill_package}}/{name}`") for n, name in
+             ((1, "metadata.json"), (2, "SKILL.md"), (3, "context-snippet.md"))]
+    assert order == sorted(order)
+    assert ('Confirm after each write: "Written: metadata.json" / "Written: SKILL.md" / '
+            '"Written: context-snippet.md"') in write
+
+
+def test_step_5_does_not_retell_its_validators():
+    text = _read(WRITE_AND_VALIDATE)
+    for stale in ("The validator covers:", "### 6. Security Scan", "npx startup cost", "It checks frontmatter",
+                  "skill-check is a file-based CLI", "go back to adjust", "Run [QS] with a different skill name"):
+        assert stale not in text, stale
+    assert "\n#" not in "\n" + text.split("---\n", 2)[1], "the probe orders carry no comments"
+    headings = re.findall(r"^### (\d+)\. ", text, flags=re.M)
+    assert headings == [str(n) for n in range(1, 8)], headings
+    assert 'log "security scan skipped: skill-check unavailable"' in text
+    assert "brief it with `@Ferris BS` and compile it with `@Ferris CS`" in text
+
+
+def test_finalize_relays_the_flip_helpers_message():
+    """W3 re-check leanness-4: the flip's exit 2 also means a held lock, so the halt shows the helper's message."""
+    flip = _section(_read(FINALIZE), "### 1. Create Active Pointer", "### 2. ")
+    assert _bash_block(flip, "flip-link").startswith("uv run {atomicWriteHelper} flip-link")
+    assert "the `message` of the helper's" in flip and "another process holds its lock" in flip
+    for stale in ("flock", "rename-over-symlink", "existing path is not a symlink or junction",
+                  "Reuse the same values here"):
+        assert stale not in flip, stale
+    # The exit-code map tells an automator that a held lock also ends in exit 7.
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row7] = [line for line in codes.splitlines() if line.startswith("| 7 ")]
+    assert ("step 6 §1 (the flip helper refused or failed: something that is not a link is at "
+            "`{skill_group}/active`, or another process holds its lock)") in row7
+    assert "non-link in place" not in row7
+
+
+def test_skill_md_keeps_one_home_per_rule():
+    text = _read(SKILL)
+    for stale in ("runs as today", "in parallel (one batched tool-call message", "From preferences:",
+                  "write-and-validate §1 runs the inventory's", "-latest.json", "so stage files don't have to repeat"):
+        assert stale not in text, stale
+    # "step 5" alone names write-and-validate in this table (`--skip-snippet`'s "step 5 §2").
+    [batch] = [line for line in text.splitlines() if line.startswith("   | `--batch <file>` |")]
+    assert "headless (On Activation step 5);" in batch
+    assert "or if `{sidecar_path}/preferences.yaml` sets `headless_mode: true`" in text
+    step5 = _section(text, "5. **If `--batch` is set**", "\n\n6. ")
+    assert step5.strip() == "5. **If `--batch` is set**, load and read `references/batch-mode.md` in full before " \
+                            "anything else and follow it."

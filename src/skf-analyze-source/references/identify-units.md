@@ -1,7 +1,8 @@
 ---
 nextStepFile: 'map-and-detect.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: '{unitDetectionHeuristicsPath}'
+heuristicsFile: 'references/unit-detection-heuristics.md'
+scanRootFile: 'references/scan-root.md'
 disqualifyCandidatesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-disqualify-candidates.py'
   - '{project-root}/src/shared/scripts/skf-disqualify-candidates.py'
@@ -19,7 +20,7 @@ detectLanguageProbeOrder:
 
 ## STEP GOAL:
 
-To classify each detected boundary from the project scan into discrete skillable units by applying detection heuristics, assigning boundary types and scope types, and filtering out disqualified candidates.
+To classify each detected boundary from the project scan into discrete skillable units by applying detection heuristics, assigning boundary types and scope types, filtering out disqualified candidates and, in an interactive run with a stated goal, deferring the units outside it before export mapping.
 
 ## Rules
 
@@ -40,9 +41,10 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 ### 1. Load Context
 
 Read {outputFile} to obtain:
-- Project Scan results (detected boundaries, manifests, entry points)
-- `forge_tier` from frontmatter
-- `existing_skills` and `existing_briefs` from frontmatter
+- Project Scan results (detected boundaries, manifests, entry points), grouped by project path
+- `project_paths`, `scan_roots` (each project path's scan root: the folder every helper of this step reads), `refs`, `forge_tier`, `intent_hint`, `existing_skills` and `existing_briefs` from frontmatter
+
+**A scan root that is gone.** A session that resumed this report runs in a new run folder, and the folder of the session that made a copy may be gone. When a recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `identify-units:1`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
 
 Load {heuristicsFile} for classification rules.
 
@@ -52,35 +54,31 @@ Load {heuristicsFile} for classification rules.
 
 For each detected boundary from the scan, apply the classification rules from {heuristicsFile} (loaded in §1):
 
-**Step A: Run the disqualification helper (script).** In one call it applies the deterministic subset of the rules from {heuristicsFile} (file count, LoC, generated files) and looks up the signal files and the boundary's own manifest: work with one right answer per file list. Its output is evidence that Step B judges, not a verdict.
+**Step A: Run the disqualification helper (script).** In one call per project path it lists each boundary's files itself, applies the deterministic subset of the rules from {heuristicsFile} (file count, LoC, generated files) and looks up the signal files and the boundary's own manifest. Its output is evidence that Step B judges, not a verdict.
 
-1. **Build the boundaries JSON** from the detected boundaries (one entry per candidate boundary). Use forward-slash paths throughout. Shape:
-   ```json
-   [
-     {"name": "<unit-name>",
-      "path": "<rel-from-analyzed-source-root (project_paths[0])>",
-      "files": ["<rel-from-analyzed-source-root>", ...]},
-     ...
-   ]
-   ```
-2. **Invoke the script** via stdin:
-   ```bash
-   uv run {disqualifyCandidatesHelper} filter --boundaries - --source-root {project_paths[0]}
-   ```
-   piping the boundaries JSON on stdin. `--source-root` is the analyzed-source root (`project_paths[0]`), the directory the boundaries/manifest scan ran against, not `{project-root}` (the forge workspace), which differs whenever the analyzed target lives outside the forge workspace. The script emits one record per boundary:
+Run it once per project path, the `{i}`-th entry of `project_paths[]`, over the boundaries found under it, with `{scan_root}` that path's scan root (never `{project-root}`, the forge workspace) and one entry per boundary, its path relative to the scan root (`.` for a boundary at the root), with forward slashes:
+
+```bash
+uv run {disqualifyCandidatesHelper} filter --boundaries - --source-root "{scan_root}" --tree-dir "{run_dir}/unit-trees/{i}" <<'SKF_BOUNDARIES'
+[{"name": "<boundary folder name>", "path": "<boundary path>"}, ...]
+SKF_BOUNDARIES
+```
+
+1. The script lists every boundary's files (what git lists under its path, so ignored build output and installed dependencies stay out), writes each list to the run folder and emits one record per boundary:
    ```json
    {
      "kept":    [{"name": "...", "path": "...", "files_count": N, "loc_total": L, "non_source_count": K,
                   "generated_files": [{"path": "...", "reason": "generated-code|auto-generated-tag", "match": "..."}],
                   "generated_ratio": R, "passes_with_generated": true,
                   "manifest": {"path": "...", "ecosystem": "npm", "name": "@acme/auth", "private": false},
-                  "signals": {...}}, ...],
+                  "signals": {...}, "tree_file": "..."}, ...],
      "dropped": [{"name": "...", "reason": "<too-few-files|too-low-loc|generated-code|auto-generated-tag>", "context": {...}, ...}, ...],
      "stats":   {"kept": N, "dropped": N, "mixed": N, "by_reason": {"<reason>": N, ...}}
    }
    ```
-   A `dropped[]` record carries every `kept[]` field plus `reason` and `context`. Read `files_count` and `loc_total` (the boundary's own source files, counted as {heuristicsFile}'s Disqualification Rules say), `generated_files` and `generated_ratio` (the files Step B weighs), `passes_with_generated` (whether the size rules pass with those files counted too), `manifest` (the boundary's own manifest, null without one) and `signals` (Step D).
-3. **Parse the JSON result** and stash `kept[]` and `dropped[]` in workflow state for §3 (classification table) and §5 (recommendation summary). The `kept` set is the candidate pool for the classification that follows; the `dropped` set drives the Disqualification table.
+   A `dropped[]` record carries every `kept[]` field plus `reason` and `context`. Read `files_count` and `loc_total` (the boundary's own source files, counted as {heuristicsFile}'s Disqualification Rules say), `generated_files` and `generated_ratio` (the files Step B weighs), `passes_with_generated` (whether the size rules pass with those files counted too), `manifest` (the boundary's own manifest, null without one), `signals` (Step D) and `tree_file` (the boundary's file list, which §4 hands to the language helper).
+2. A boundary path that is no folder under the scan root makes the script exit 1 and name it on stderr: correct that entry and run the call again.
+3. **Stash the results** in workflow state, each record with its project path: `kept[]` is the candidate pool for the classification that follows, and `dropped[]` drives the Disqualification table.
 
 **Step B: Judge what the script cannot.**
 
@@ -90,11 +88,11 @@ For each detected boundary from the scan, apply the classification rules from {h
   - **Pure configuration**: only config files (e.g., `.json`/`.yaml`) with no executable logic
   - **Test-only**: test utilities with no production code
 
-Show every drop and every restore in §5 with its reason and evidence (the record's `context`, `generated_ratio` and first `generated_files` path), so the user can override it; a headless run keeps the judgment made here.
+Show every drop and every restore in §6 with its reason and evidence (the record's `context`, `generated_ratio` and first `generated_files` path), so the user can override it; a headless run keeps the judgment made here.
 
 **Step C: Name each unit (script), then check it is not already skilled.** The helper that names every brief names the units too, so a unit's name here is the name its brief gets.
 
-1. Name every unit in one call, by {heuristicsFile}'s Unit Names, one entry per kept boundary straight from its record: `target` is its `path` (`{project_paths[0]}` for a boundary at the root), and `manifest_name` and `private` are its `manifest.name` and `manifest.private` (null when `manifest` is null):
+1. Name every unit in one call, by {heuristicsFile}'s Unit Names, one entry per kept boundary straight from its record: `target` is its `path` (its project path itself for a boundary at the root), and `manifest_name` and `private` are its `manifest.name` and `manifest.private` (null when `manifest` is null):
    ```bash
    uv run {skillInventoryHelper} derive-name --from - <<'SKF_UNIT_NAMES'
    [{"target": "<boundary path>", "manifest_name": <manifest.name>, "private": <manifest.private>}, ...]
@@ -111,9 +109,9 @@ Show every drop and every restore in §5 with its reason and evidence (the recor
 
 For each candidate that passes disqualification:
 
-| # | Unit Name | Path | Boundary Type | Scope Type | Files | Own Manifest | Signals | Confidence | Status |
-|---|-----------|------|---------------|------------|-------|--------------|---------|------------|--------|
-| 1 | {name} | {path} | {type} | {scope} | {files_count} | {manifest path, name and ecosystem, or --} | {signal count: strong/moderate/weak} | {high/medium/low} | {new/briefed/already-skilled} |
+| # | Unit Name | Project Path | Path | Boundary Type | Scope Type | Files | Own Manifest | Signals | Confidence | Status |
+|---|-----------|--------------|------|---------------|------------|-------|--------------|---------|------------|--------|
+| 1 | {name} | {its project path} | {path} | {type} | {scope} | {files_count} | {manifest path, name and ecosystem, or --} | {signal count: strong/moderate/weak} | {high/medium/low} | {new/briefed/deferred} |
 
 For disqualified candidates, note reason and evidence:
 
@@ -128,49 +126,54 @@ For each qualifying unit, detect the primary language deterministically via the 
 
 **Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins. If neither exists, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `identify-units:4`): "`skf-detect-language.py` is missing. Re-install SKF."
 
-For each unit, pipe its file list — the `files` array built for that boundary in the §2 boundaries JSON — as the tree:
+For each unit, hand the helper the file list §2 wrote for it, its record's `tree_file`:
 
 ```bash
-echo '{"tree": [<unit files — forward-slash, repo-relative>]}' | uv run {detectLanguageHelper}
+uv run {detectLanguageHelper} --tree-file "{the unit's tree_file}"
 ```
 
-Pass no `--workspace-signal` here: a workspace root's language would answer for every unit of the workspace (a TypeScript package in a Cargo workspace would read as `rust`). The unit's folder is the tree's root for the helper, so the unit's own manifest decides, and a manifest in its docs, examples, tests or tools folder never does while another one exists. Read `.language` and `.confidence` for the unit. When `detected_languages` has more than one entry, `.language` is the helper's first guess: choose the language the unit documents from its own manifest (the record's `manifest`), or, without one, `.source_language` (the language most of its files are written in), and name the choice and the other languages in §5. When confidence is low (the extension-frequency fallback fired: no manifest matched), surface it in §5 so the user can override the guess.
+Pass no `--workspace-signal` here: a workspace root's language would answer for every unit of the workspace (a TypeScript package in a Cargo workspace would read as `rust`). The unit's folder is the tree's root for the helper, so the unit's own manifest decides, and a manifest in its docs, examples, tests or tools folder never does while another one exists. Read `.language` and `.confidence` for the unit. When `detected_languages` has more than one entry, `.language` is the helper's first guess: choose the language the unit documents from its own manifest (the record's `manifest`), or, without one, `.source_language` (the language most of its files are written in), and name the choice and the other languages in §6. When confidence is low (the extension-frequency fallback fired: no manifest matched), surface it in §6 so the user can override the guess.
 
-### 5. Present Classifications
+### 5. Defer What the Goal Leaves Out
 
-"**Unit Identification Complete**
+Interactive runs only, and only when `intent_hint` is not empty: mark each qualifying unit the stated goal clearly leaves out `deferred` in the Status column, with one line on why (for example "deferred: payments, outside the stated goal (authentication)"). Step 4 maps only the units that are not deferred, and the deferred ones stay in the classification table, so nothing is dropped without notice. A unit you are unsure about stays in. A headless run defers nothing: there `intent_hint` only ranks the step 5 recommendations.
 
-**Qualifying Units:** {count}
+### 6. Present the Classifications and Confirm
 
-{Classification table}
+Show the user the classification table, then:
 
-**Mixed Cases:** {count}
-{For each qualifying unit with generated files: its name, `generated_ratio`, the flagged folders or headers, and why it stays; and each boundary §2 Step B restored, with the files that restored it}
+- **Mixed cases** (`stats.mixed`): for each qualifying unit with generated files, its name, `generated_ratio`, the flagged folders or headers and why it stays; and each boundary §2 Step B restored, with the files that restored it
+- **Disqualified candidates**, with the table above
+- **Already-skilled units** (from `existing_skills`), each with a recommendation to run update-skill if its source changed
+- **Deferred units**, when §5 deferred any, with how to restore them
+- **Notes:** structure patterns observed, and ambiguous boundaries that need the user's call
 
-**Disqualified Candidates:** {count}
-{Disqualification table}
+Then display:
 
-**Already-Skilled Units:** {count from existing_skills match}
-{List with recommendation to run update-skill if source has changed}
+"Add, remove, reclassify or restore any unit? Tell me, or **Select:** [C] Continue to Export Mapping and Integration Detection | [X] Cancel and exit"
 
-**Notes:**
-- {Any observations about project structure patterns}
-- {Any ambiguous boundaries that need user clarification}
+#### Menu Handling Logic:
 
-Do these classifications look correct? Should any units be added, removed, or reclassified?"
+- IF C: go to §7
+- IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `identify-units:6`): "Cancelled at unit identification."
+- IF Any other: adjust the classifications as directed (restoring a deferred unit sets its status back to new or briefed), show what changed, then [Redisplay Menu Options](#6-present-the-classifications-and-confirm)
 
-Wait for user feedback. Adjust classifications based on user input.
+**GATE [default: C]**: present the menu and wait for the user's choice. If `{headless_mode}`: accept every classification and continue with [C], and record that decision the moment it is taken: stage `{run_dir}/decision.json` as `{"gate": "identify-units.classifications", "default_action": "C", "taken_action": "C", "reason": "headless: auto-accept unit classifications", "evidence": {"qualifying": <the qualifying unit count>, "dropped": <the dropped boundary count>}}`, then run
 
-### 6. Append to Report
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
+```
 
-Append the complete "## Identified Units" section to {outputFile}:
+If the command fails, go on: only that entry is lost.
 
-Replace the placeholder `[Appended by identify-units]` with:
-- Classification table (qualifying units, under their §2 Step C names, with their file counts and own manifests)
+### 7. Append to Report and Continue
+
+Replace the placeholder `[Appended by identify-units]` in {outputFile} with:
+- Classification table (qualifying units, under their §2 Step C names, with their project paths, file counts, own manifests and statuses, deferred units included)
 - Mixed cases and restored boundaries, with their evidence
 - Disqualification table
 - Already-skilled units list
-- Language detection results
+- Language detection results, and each unit's `tree_file`
 - Any user adjustments noted
 
 Update {outputFile} frontmatter:
@@ -179,15 +182,4 @@ stepsCompleted: [append 'identify-units' to existing array]
 lastStep: 'identify-units'
 ```
 
-### 7. Present MENU OPTIONS
-
-Display: "**Select:** [C] Continue to Export Mapping and Integration Detection | [X] Cancel and exit"
-
-#### Menu Handling Logic:
-
-- IF C: Save classifications to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `identify-units:7`): "Cancelled at unit identification."
-- IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
-
-**GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: accept all classifications and auto-proceed, log: "headless: auto-accept unit classifications".
-
+Then load, read the entire file, then execute {nextStepFile}.

@@ -31,6 +31,10 @@ Covers:
     URLs, provenance citations and placeholders skipped; ok / missing /
     escapes against the skill, source and skills roots, symlink escapes,
     the Scripts & Assets section rule, roots that are not directories
+  - scripts_assets (scan and reference-check): the scripts/ and assets/
+    folders beside SKILL.md and the Scripts heading test-skill's coherence
+    check reads instead of grepping SKILL.md (any heading level, outside
+    fenced code), `missing` only when a folder exists without the section
 """
 
 from __future__ import annotations
@@ -437,7 +441,71 @@ class TestScanCombined:
             "fence_count": 0,
             "bare_opening_fences": [],
             "table_drift": [],
+            "scripts_assets": {"folders": [], "section": None, "missing": False},
         }
+
+
+# --------------------------------------------------------------------------
+# Scripts & Assets section (scan and reference-check)
+# --------------------------------------------------------------------------
+
+
+SCRIPTS_SKILL = """---
+name: demo
+description: Demo
+---
+
+# Demo
+
+```markdown
+## Scripts & Assets
+```
+
+## Usage
+
+Run it.
+
+### Scripts and Assets
+
+- `scripts/run.py`
+"""
+
+
+class TestScriptsAssets:
+    def test_no_folder_is_never_missing(self, tmp_path: Path) -> None:
+        skill = _write(tmp_path / "SKILL.md", "# Demo\n\n## Usage\n")
+        assert mod.scripts_assets_section(skill.read_text(), tmp_path) == {
+            "folders": [], "section": None, "missing": False,
+        }
+
+    @pytest.mark.parametrize("folder", ["scripts", "assets"])
+    def test_a_folder_without_the_section_is_missing(self, tmp_path: Path, folder: str) -> None:
+        skill = _write(tmp_path / "SKILL.md", "# Demo\n\n## Usage\n\n```markdown\n## Scripts\n```\n")
+        (tmp_path / folder).mkdir()
+        result = mod.scripts_assets_section(skill.read_text(), tmp_path)
+        assert result == {"folders": [folder], "section": None, "missing": True}
+
+    def test_the_first_scripts_heading_outside_fenced_code_counts(self, tmp_path: Path) -> None:
+        skill = _write(tmp_path / "SKILL.md", SCRIPTS_SKILL)
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "assets").mkdir()
+        result = mod.scripts_assets_section(skill.read_text(), tmp_path)
+        assert result == {
+            "folders": ["assets", "scripts"],
+            "section": {"heading": "Scripts and Assets", "line": _line_of(SCRIPTS_SKILL, "### Scripts and Assets")},
+            "missing": False,
+        }
+
+    @pytest.mark.parametrize("command", ["scan", "reference-check"])
+    def test_both_commands_report_it(self, tmp_path: Path, command: str) -> None:
+        skill = _write(tmp_path / "SKILL.md", SCRIPTS_SKILL)
+        (tmp_path / "scripts").mkdir()
+        result = _run_cli(command, str(skill))
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["scripts_assets"]["folders"] == ["scripts"]
+        assert payload["scripts_assets"]["missing"] is False
+        assert payload["scripts_assets"]["section"]["line"] == _line_of(SCRIPTS_SKILL, "### Scripts and Assets")
 
 
 # --------------------------------------------------------------------------

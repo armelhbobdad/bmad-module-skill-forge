@@ -22,7 +22,15 @@ Covers:
   - signals: each presence flag and its limits
   - filter_boundaries: stats by_reason and mixed, kept/dropped partitions,
     empty input
-  - validate_boundaries: missing name/path/files, wrong types
+  - validate_boundaries: missing name/path, wrong types; `files` optional
+  - listing: a boundary without `files` gets what git lists under its
+    path (ignored build output and dependencies out, each path once), or a
+    walk that skips node_modules/ and __pycache__/ outside a work tree or
+    in a folder the outer work tree ignores; hidden entries out either way;
+    `./packages/auth` and `packages/auth/` list `packages/auth`, and a path
+    that leaves the source root exits 1; --tree-dir writes each boundary's
+    list (UTF-8, whatever the names) and its record names it in
+    `tree_file`, which skf-detect-language.py reads
   - CLI: file input, stdin (-) piping, exit codes for malformed input
   - the manifest names and readers come from skf-scan-manifests.py (hence
     the Python 3.11 floor), and identify-units.md, map-and-detect.md,
@@ -34,6 +42,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -52,6 +61,7 @@ ANALYZE_REFS = REPO_ROOT / "src" / "skf-analyze-source" / "references"
 IDENTIFY_UNITS = ANALYZE_REFS / "identify-units.md"
 HEURISTICS = ANALYZE_REFS / "unit-detection-heuristics.md"
 MAP_AND_DETECT = ANALYZE_REFS / "map-and-detect.md"
+UNIT_EXPORTS = ANALYZE_REFS / "map-unit-exports.md"
 GENERATE_BRIEFS = ANALYZE_REFS / "generate-briefs.md"
 
 
@@ -992,12 +1002,13 @@ class TestValidateBoundaries:
         with pytest.raises(ValueError, match="required `path`"):
             mod.validate_boundaries([{"name": "a", "files": []}])
 
-    def test_missing_files_raises(self) -> None:
-        with pytest.raises(ValueError, match="required `files` array"):
-            mod.validate_boundaries([{"name": "a", "path": "p"}])
+    def test_missing_files_are_listed_later(self) -> None:
+        """Without `files` the helper lists the boundary's folder itself."""
+        result = mod.validate_boundaries([{"name": "a", "path": r"pkg\a"}])
+        assert result == [{"name": "a", "path": "pkg/a", "files": None}]
 
     def test_files_not_array_raises(self) -> None:
-        with pytest.raises(ValueError, match="required `files` array"):
+        with pytest.raises(ValueError, match="`files` value that is not an array"):
             mod.validate_boundaries([{"name": "a", "path": "p", "files": "x"}])
 
     def test_file_entry_not_string_raises(self) -> None:
@@ -1280,8 +1291,10 @@ def test_heuristics_state_the_script_thresholds() -> None:
 
 
 def test_map_and_detect_reads_exports_by_eye_where_no_recipe_runs() -> None:
-    """The runner reads no Java, Kotlin or Swift: exit 0 is no T1 result there."""
-    text = _read(MAP_AND_DETECT)
+    """The runner reads no Java, Kotlin or Swift: exit 0 is no T1 result there.
+    map-and-detect and the [D] file map each unit through map-unit-exports.md."""
+    assert "execute {unitExportsFile}" in _read(MAP_AND_DETECT)
+    text = _read(UNIT_EXPORTS)
     branch = text.split("**No recipe for the unit's language:**", 1)[1]
     branch = branch.split("\n", 1)[0]
     for needle in ("`files_in_scope` is 0", "`files_without_recipes`", "Java",
@@ -1290,7 +1303,8 @@ def test_map_and_detect_reads_exports_by_eye_where_no_recipe_runs() -> None:
         assert needle in branch, needle
     for field in ("entry_point_diff.extraction_gaps[]", "file_issues[]"):
         assert field in text, field
-    assert "`files_count` is the unit's file count from Identified Units" in text
+    assert "`files_count` is the unit's file count the loading file gave" in text
+    assert "its file count from Identified Units" in _read(MAP_AND_DETECT)
     assert "`files_count` is the runner's `files_in_scope`" not in text
 
 
@@ -1309,3 +1323,164 @@ def test_composites_are_decided_after_the_import_graph_and_reach_the_brief() -> 
                    if line.startswith("| scope.include |"))
     assert "`confirmed_composites` entry" in include
     assert "`<path>/**` for every constituent path" in include
+
+
+# --------------------------------------------------------------------------
+# The helper lists each boundary's files (the wave-3 determinism-3 finding)
+# --------------------------------------------------------------------------
+
+
+DETECT_LANGUAGE_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-detect-language.py"
+SOURCE = ("x = 1\n" * 40).encode("utf-8")
+
+
+def _tree(root: Path, files: dict[str, bytes]) -> None:
+    for rel, data in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, timeout=60)
+
+
+MONOREPO = {
+    "packages/auth/package.json": b'{"name": "@acme/auth"}\n',
+    "packages/auth/src/a.ts": SOURCE,
+    "packages/auth/src/b.ts": SOURCE,
+    "packages/auth/src/c.ts": SOURCE,
+    "packages/auth/node_modules/dep/index.js": SOURCE,
+    "packages/auth/.cache/x.ts": SOURCE,
+    "packages/auth/__pycache__/m.pyc": b"\x00",
+    "packages/ui/src/view.ts": SOURCE,
+    ".gitignore": b"node_modules/\n",
+}
+
+
+class TestListing:
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+    def test_git_lists_the_boundary_and_ignored_files_stay_out(self, tmp_path: Path) -> None:
+        _tree(tmp_path, MONOREPO)
+        _tree(tmp_path, {"packages/auth/src/new.ts": SOURCE})  # untracked, not ignored
+        _git(tmp_path, "init", "-q")
+        files = mod.list_source_files(tmp_path)
+        assert mod.list_boundary_files(files, "packages/auth") == [
+            "packages/auth/__pycache__/m.pyc",  # not ignored here: git lists it
+            "packages/auth/package.json",
+            "packages/auth/src/a.ts", "packages/auth/src/b.ts", "packages/auth/src/c.ts",
+            "packages/auth/src/new.ts",
+        ]
+        assert mod.list_boundary_files(files, ".") == files
+        assert ".gitignore" not in files, "hidden entries are left out"
+
+    def test_a_folder_outside_a_work_tree_is_walked(self, tmp_path: Path, monkeypatch) -> None:
+        _tree(tmp_path, MONOREPO)
+        monkeypatch.setattr(mod, "_git_files", lambda root: None)
+        files = mod.list_boundary_files(mod.list_source_files(tmp_path), "packages/auth/")
+        assert files == ["packages/auth/package.json", "packages/auth/src/a.ts",
+                         "packages/auth/src/b.ts", "packages/auth/src/c.ts"]
+
+    def test_the_cli_lists_writes_the_tree_files_and_names_them(self, tmp_path: Path) -> None:
+        root = tmp_path / "src-root"
+        _tree(root, MONOREPO)
+        trees = tmp_path / "run" / "unit-trees" / "1"
+        boundaries = [{"name": "auth", "path": "packages/auth"}, {"name": "ui", "path": "packages/ui"}]
+        result = _run_cli("filter", "--boundaries", "-", "--source-root", str(root),
+                          "--tree-dir", str(trees), stdin_text=json.dumps(boundaries))
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        [auth] = payload["kept"]
+        [ui] = payload["dropped"]
+        assert (auth["name"], auth["files_count"], ui["reason"]) == ("auth", 3, "too-few-files")
+        assert Path(auth["tree_file"]).as_posix() == (trees / "boundary-1.txt").resolve().as_posix()
+        assert Path(ui["tree_file"]).as_posix() == (trees / "boundary-2.txt").resolve().as_posix()
+        listed = Path(auth["tree_file"]).read_bytes().decode("utf-8").splitlines()
+        assert "packages/auth/src/a.ts" in listed and "packages/auth/package.json" in listed
+        assert not any("node_modules" in line or "/." in line for line in listed)
+        # identify-units hands that file to the language helper as the unit's tree
+        language = subprocess.run([sys.executable, str(DETECT_LANGUAGE_PATH), "--tree-file", auth["tree_file"]],
+                                  capture_output=True, timeout=60)
+        assert language.returncode == 0, language.stderr
+        assert json.loads(language.stdout)["language"] == "javascript"
+
+    def test_given_files_are_written_too(self, tmp_path: Path) -> None:
+        _tree(tmp_path, {"pkg/a.py": SOURCE})
+        result = _run_cli("filter", "--boundaries", "-", "--source-root", str(tmp_path),
+                          "--tree-dir", str(tmp_path / "trees"),
+                          stdin_text=json.dumps([{"name": "pkg", "path": "pkg", "files": ["pkg/a.py"]}]))
+        assert result.returncode == 0, result.stderr
+        [record] = json.loads(result.stdout)["dropped"]
+        assert Path(record["tree_file"]).read_bytes() == b"pkg/a.py\n"
+
+    def test_without_tree_dir_no_record_names_a_tree_file(self, tmp_path: Path) -> None:
+        _tree(tmp_path, MONOREPO)
+        result = _run_cli("filter", "--boundaries", "-", "--source-root", str(tmp_path),
+                          stdin_text=json.dumps([{"name": "auth", "path": "packages/auth"}]))
+        assert result.returncode == 0, result.stderr
+        assert "tree_file" not in json.loads(result.stdout)["kept"][0]
+
+    def test_a_boundary_path_that_is_no_folder_exits_1(self, tmp_path: Path) -> None:
+        result = _run_cli("filter", "--boundaries", "-", "--source-root", str(tmp_path),
+                          stdin_text=json.dumps([{"name": "x", "path": "packages/missing"}]))
+        assert result.returncode == 1
+        assert "packages/missing is not a folder under the source root" in result.stderr
+
+    @pytest.mark.parametrize("path", ["./packages/auth", "packages/auth/", "packages/./auth",
+                                      "packages//auth", r"packages\auth"],
+                             ids=["dot-slash", "trailing-slash", "inner-dot", "double-slash", "backslash"])
+    def test_an_unnormalized_boundary_path_lists_the_same_files(self, tmp_path: Path, path: str) -> None:
+        """A path the model types as `./packages/auth` is the folder `packages/auth`."""
+        _tree(tmp_path, MONOREPO)
+        result = _run_cli("filter", "--boundaries", "-", "--source-root", str(tmp_path),
+                          stdin_text=json.dumps([{"name": "a", "path": "packages/auth"},
+                                                 {"name": "b", "path": path}]))
+        assert result.returncode == 0, result.stderr
+        kept = json.loads(result.stdout)["kept"]
+        assert [(r["path"], r["files_count"]) for r in kept] == [("packages/auth", 3), ("packages/auth", 3)]
+
+    @pytest.mark.parametrize("path", ["", ".", "./", "pkg/.."], ids=["empty", "dot", "dot-slash", "up-to-root"])
+    def test_a_root_path_reads_as_dot(self, path: str) -> None:
+        [entry] = mod.validate_boundaries([{"name": "a", "path": path}])
+        assert entry["path"] == "."
+
+    @pytest.mark.parametrize("path", ["..", "../sibling", "pkg/../../x", "/abs/pkg", "C:/pkg"],
+                             ids=["parent", "sibling", "escapes", "absolute", "drive"])
+    def test_a_path_that_leaves_the_source_root_exits_1(self, tmp_path: Path, path: str) -> None:
+        result = _run_cli("filter", "--boundaries", "-", "--source-root", str(tmp_path),
+                          stdin_text=json.dumps([{"name": "x", "path": path, "files": []}]))
+        assert result.returncode == 1
+        assert "is not a folder below the source root" in result.stderr
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+    def test_a_folder_the_outer_work_tree_ignores_is_walked(self, tmp_path: Path) -> None:
+        """An extracted tarball under an ignored vendor/ is no empty unit."""
+        _tree(tmp_path, {".gitignore": b"vendor/\n", "app.py": SOURCE})
+        _git(tmp_path, "init", "-q")
+        root = tmp_path / "vendor" / "lib"
+        _tree(root, MONOREPO)
+        files = mod.list_boundary_files(mod.list_source_files(root), "packages/auth")
+        assert files == ["packages/auth/package.json", "packages/auth/src/a.ts",
+                         "packages/auth/src/b.ts", "packages/auth/src/c.ts"]
+
+    def test_a_path_git_lists_twice_counts_once(self, tmp_path: Path, monkeypatch) -> None:
+        """git ls-files prints an unmerged path once per stage."""
+        _tree(tmp_path, {"pkg/a.py": SOURCE, "pkg/b.py": SOURCE})
+        monkeypatch.setattr(mod, "_git_files", lambda root: ["pkg/b.py", "pkg/a.py", "pkg/b.py", "pkg/b.py"])
+        assert mod.list_source_files(tmp_path) == ["pkg/a.py", "pkg/b.py"]
+
+    def test_a_name_that_is_not_utf8_keeps_the_tree_file_utf8(self, tmp_path: Path) -> None:
+        name = b"pkg/caf\xe9.py".decode("utf-8", errors="surrogateescape")
+        tree = mod.write_tree_file(tmp_path, 1, ["pkg/a.py", name])
+        assert tree.read_bytes() == b"pkg/a.py\npkg/caf?.py\n"
+
+
+def test_identify_units_lets_the_helper_list_the_files() -> None:
+    """No file list passes through the model: Step A sends name and path, and
+    section 4 hands the record's tree_file to the language helper."""
+    text = _read(IDENTIFY_UNITS)
+    assert '--source-root "{scan_root}" --tree-dir "{run_dir}/unit-trees/{i}"' in text
+    assert '"files": [' not in text
+    assert 'echo \'{"tree"' not in text
+    assert 'uv run {detectLanguageHelper} --tree-file "{the unit\'s tree_file}"' in text
+    assert "project_paths[0]" not in text, "each unit is named under its own project path"

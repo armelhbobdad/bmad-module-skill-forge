@@ -1,7 +1,10 @@
 ---
 nextStepFile: 'recommend.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: '{unitDetectionHeuristicsPath}'
+heuristicsFile: 'references/unit-detection-heuristics.md'
+discoverFile: 'references/discover-additional-source.md'
+unitExportsFile: 'references/map-unit-exports.md'
+scanRootFile: 'references/scan-root.md'
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
@@ -52,8 +55,10 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 ### 1. Load Context
 
 Read {outputFile} to obtain:
-- Qualifying units from the Identified Units section: names, paths, scope types, languages, file counts and each unit's own manifest (path, name and ecosystem)
-- `forge_tier` from frontmatter
+- Qualifying units from the Identified Units section: names, project paths, paths, scope types, languages, file counts, statuses and each unit's own manifest (path, name and ecosystem). A unit whose status is `deferred` (outside the goal the user stated) stays in the report and is not analyzed here
+- `forge_tier`, `scan_roots` (each project path's scan root) and `refs` from frontmatter
+
+**A scan root that is gone.** A session that resumed this report runs in a new run folder, and the folder of the session that made a copy may be gone. When a recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:1`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
 
 Load {heuristicsFile} for stack skill candidate detection rules.
 
@@ -61,81 +66,21 @@ Load {heuristicsFile} for stack skill candidate detection rules.
 
 For each qualifying unit, delegate deep analysis to a subagent so per-unit work runs in parallel and the parent's context stays clean.
 
-**Resolve `{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}` and **`{checkUnitRecordsHelper}`** from `{checkUnitRecordsProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:2`): "`{the missing script}` is missing. Re-install SKF." Pass the resolved `{extractPublicApiHelper}` to every subagent.
+**Resolve `{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}` and **`{checkUnitRecordsHelper}`** from `{checkUnitRecordsProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:2`): "`{the missing script}` is missing. Re-install SKF."
 
 **Subagent fan-out protocol:**
 
-1. **Build the qualifying-unit list.** Read the unit list produced upstream (Step §3 / §4 outputs already in workflow context — names, paths, scope types, languages, file counts). Do not re-scan the project here.
+1. **Build the qualifying-unit list.** Read the unit list produced upstream (names, project paths, paths, scope types, languages, file counts), leaving out the deferred units. Do not re-scan the project here.
 
-2. **Delegate per-unit deep analysis to a subagent.** For each qualifying unit, launch a subagent task with these explicit constraints:
-   - The subagent reads only that unit's directory tree
-   - The subagent analyzes exports / usage / CCC signals / scripts+assets for that one unit
-   - **The parent does not read the unit's source files before delegating** (avoid the implicit-read trap — the whole point of fan-out is to keep large source bodies out of the parent's context)
-   - The subagent writes its record (point 4) to a file of the run folder and returns only that file's path, so the parent never copies a record: pass it `{run_dir}`
+2. **Map each unit's exports.** Load, read the entire file, then execute {unitExportsFile} for the qualifying units: it delegates each one to a subagent with `{unit_root}` its path under the scan root of its project path and its file count from Identified Units, has the subagent write the unit's record to `{run_dir}/unit-records/{unit_name}.json`, checks the records and returns them.
 
-3. **Per-unit analysis the subagent performs:**
-
-   **Export surface (every tier):** run the recipe runner on the unit's own folder. For the languages it has ast-grep recipes for (Python, JavaScript and TypeScript, Rust, Go, Vue) it lists the files, runs the recipes, follows the entry points and counts the public API, so the subagent neither greps nor counts those exports by hand:
-   ```bash
-   uv run {extractPublicApiHelper} --mode full --source-root "{unit_root}" --scope-type {unit_scope_type} --tier {forge_tier}
-   ```
-   `{unit_root}` is the unit's folder in the analyzed source (its path under the unit's own project path) and `{unit_scope_type}` its scope type from Identified Units.
-
-   **No recipe for the unit's language:** when `files_in_scope` is 0, or `files_without_recipes` lists the extension of the unit's language (Java, Kotlin, Swift, C#, PHP, Ruby and C or C++ have no recipe), the run counted none of its exports, whatever its exit code. Read the public declarations of the unit's source files by eye, as on exit 3: `exports_count`, `api_surface` and `export_pattern` from what you read (for example "public classes: 14, interfaces: 3"), `strategy_used: "source-read"`, `confidence: "T1-low"`.
-
-   Otherwise read the JSON by the exit code:
-   - **0 or 1:** `exports_count` ← `counts.exports_public_api`, `api_surface` ← the names in `entry_point_diff.public[]`, `export_pattern` ← `entry_points.status` with `aggregates.by_type` (for example "barrel: 12 functions, 5 classes", marked "capped" when `truncated` is true), `strategy_used: "ast-grep"`, `confidence: "T1"`. Then read by eye what the recipes could not, and name each one in `warnings`: every `entry_point_diff.extraction_gaps[]` name (public, but no recipe found its definition: read it at its `file` and `line`) and every `file_issues[]` file (one the parser could not fully read: add the exports it shows to `api_surface`). Exit 1 (`status: "incomplete"`) means an ast-grep run failed on some files: keep what it returned and put its `errors[]` in `warnings`.
-   - **3** (no ast-grep the runner can run): the JSON still lists `entry_points.files`. Read the exports from those entry-point files by eye (from the unit's source files when it lists none), with `strategy_used: "source-read"` and `confidence: "T1-low"`.
-   - **2:** an input error, named on stderr (a wrong path or flag): fix the call and run it again.
-
-   **Tier-aware extras:**
-   - **Forge+ tier:**
-     - If `tools.ccc` is true: run `ccc_bridge.search("{unit_name} exports public API", top_k=15)` to discover semantically relevant files beyond directory scan. Tool resolution: prefer the `/ccc` skill search (Claude Code) or ccc MCP server (Cursor); fall back to the `ccc search` CLI if neither is available; if no ccc tool resolves, skip CCC discovery and record `ccc: unavailable` in per-unit findings.
-     - Record CCC signals in per-unit findings: top 3 CCC-ranked file names (or "—" if no ccc results)
-   - **Deep tier:**
-     - If QMD available: query for temporal evolution of identified exports (deprecation signals, recent additions, refactoring patterns)
-     - Record semantic relationships between exports (which exports reference/depend on each other)
-
-   **Subagent must also record:**
-   - Script/asset presence: check for `scripts/`, `bin/`, `assets/`, `templates/` directories and files matching detection signals in `{heuristicsFile}`
-   - The export-surface call's `strategy_used`, `confidence` and `warnings`
-
-4. **Subagent record contract.** Each subagent writes only this JSON object, with no prose, no commentary and no markdown fence, to `{run_dir}/unit-records/{unit_name}.json` (creating the folder), and returns that path:
-
-   ```json
-   {
-     "unit_name": "...",
-     "files_count": N,
-     "exports_count": N,
-     "export_pattern": "...",
-     "api_surface": ["..."],
-     "scripts_assets": {"scripts": [], "assets": []},
-     "ccc_signals": {"top_files": [], "available": <bool>},
-     "strategy_used": "ast-grep|source-read",
-     "confidence": "T1|T1-low",
-     "warnings": []
-   }
-   ```
-
-   `files_count` is the unit's file count from Identified Units, not the runner's `files_in_scope`, which leaves out every file no recipe reads.
-
-5. **Parent post-processing.** Once every subagent has returned its path (a main-thread analysis writes its record the same way), check all the records in one call:
-
-   ```bash
-   uv run {checkUnitRecordsHelper} --dir "{run_dir}/unit-records"
-   ```
-
-   The script drops a wrapping markdown fence (a subagent sometimes writes one despite the contract), checks each record against the contract above and fills a missing or wrong-typed key with its empty value, so a degraded record still goes on. Its `records` are the per-unit payloads. Record each `problems` entry as the warning `{unit_name}: {problem}` and each `warnings` entry as it is, so they reach the envelope's `warnings`: one `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning>'` per entry, a single quote in it written as a backtick. A unit with no file in the folder, or a file the script lists in `unreadable` (it held no JSON object), is analyzed again in the main thread (graceful degradation below), and the check runs once more.
-
-6. **Aggregate.** Collect the checked `records` into `per_unit_findings[]` in workflow context for use by §3 (import graph), §4 (integration points), §5 (composites and stack candidates), §6 (findings presentation), and downstream stages (recommend.md, generate-briefs.md).
+3. **Aggregate.** Collect the checked `records` into `per_unit_findings[]` in workflow context for use by §3 (import graph), §4 (integration points), §5 (composites and stack candidates), §6 (findings presentation), and downstream stages (recommend.md, generate-briefs.md).
 
 **Per-unit export summary (built from `per_unit_findings[]`):**
 
 | Unit | Files | Exports | Export Pattern | API Surface | Scripts/Assets | CCC Signals |
 |------|-------|---------|----------------|-------------|----------------|-------------|
 | {name} | {count} | {count} | {pattern} | {small/medium/large} | {N scripts, M assets or --} | {CCC signals or --} |
-
-**Graceful degradation.** If subagents are unavailable in the current runtime, the parent performs the per-unit analysis sequentially in the main thread with the same export-surface call and tier-aware extras. Each main-thread analysis still produces the same JSON record shape so downstream stages remain agnostic to the execution mode.
 
 ### 3. Map Import Graph
 
@@ -145,7 +90,7 @@ Which unit imports which, how many files import each unit, which units are impor
 
 **Units JSON.** One entry per qualifying unit, from its Identified Units row: `{"name": "<unit name>", "path": "<its path, relative to the source root>", "manifest_name": "<its own manifest's name>", "ecosystem": "<its own manifest's ecosystem>"}`, with `manifest_name` and `ecosystem` left out for a unit without a manifest. The import helper works out the names other code imports each unit by from what the unit declares. Add `"modules"` only for a folder without a manifest that code imports by name: a Python package folder (`["acme"]`) or a Go package inside a module (`["example.com/svc/internal/auth"]`).
 
-Run this once for each entry of `project_paths[]` (`{source_root}` below), over the units under it:
+Run this once per project path, with `{source_root}` its scan root, over the units under it:
 
 ```bash
 work="$(mktemp -d)"
@@ -216,47 +161,41 @@ Decide both here, in one pass over §3's graph and §4's integration map, so eac
 - Recommended stack skill grouping
 - Evidence (specific files/lines)
 
-### 6. Present Findings
+### 6. Present the Findings and Confirm
 
-"**Export Mapping and Integration Detection Complete**
-
-**Export Map Summary:**
-{Per-unit export summary table}
-
-**Cross-Reference Matrix:**
-{Import graph matrix}
-
-**Integration Points:** {count}
-{List each integration with source → target, type, coupling}
-
-**Composite Merge Proposals:** {count}
+Show the user the per-unit export summary, the cross-reference matrix, each integration point (source to target, type, coupling), the composite merge proposals, the stack skill candidates (units involved and detection signal), and the observations (key architectural patterns, tightly and loosely coupled areas). Present the proposals as a table:
 
 | # | Composite Name | Constituents | Heuristic | Evidence |
 |---|----------------|--------------|-----------|----------|
 | 1 | {name} | {constituent unit names and paths} | {mutual hard dependency / shared integration surface / umbrella facade / shared runtime contract / internal building blocks} | {evidence} |
 
-**Stack Skill Candidates:** {count}
-{List each candidate with units involved and detection signal}
+Then display:
 
-**Observations:**
-- {Key architectural patterns observed}
-- {Tightly coupled areas}
-- {Loosely coupled areas ideal for independent skills}
+"Accept or reject each composite merge proposal (every one is accepted unless you reject it), or name an integration pattern to investigate further. **Select:** [C] Continue to Recommendations | [D] Discover Additional Source | [X] Cancel and exit"
 
-Does this analysis look complete? Any integration patterns I should investigate further? Accept or reject each composite merge proposal."
+An approved composite replaces its constituents as one unit: `Boundary Type: Composite`, its constituents' paths as its Path, the project path they share, the scope type and language of its dominant constituent (the one with the most exports), and confidence from the strength of its trigger. A rejected one leaves its constituents as separate units.
 
-Wait for user feedback. Adjust analysis based on user input. An approved composite replaces its constituents as one unit: `Boundary Type: Composite`, its constituents' paths as its Path, the scope type and language of its dominant constituent (the one with the most exports), and confidence from the strength of its trigger. A rejected one leaves its constituents as separate units.
+#### Menu Handling Logic:
 
-**GATE [default: accept]:** if `{headless_mode}`, accept every composite merge proposal and log: "headless: auto-accept {count} composite merges".
+- IF C: go to §7
+- IF D: load, read the entire file, then execute {discoverFile} with the project path the user gives. It adds the new path's units to Identified Units and returns their export records, import graph, composite proposals and stack skill candidates, which join the findings here, so §7 writes the Export Map and Integration Points with them: redisplay §6 with them included.
+- IF X: HARD HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `map-and-detect:6`): "Cancelled at the export mapping."
+- IF Any other: apply the composite decisions, investigate what the user named, show what changed, then [Redisplay Menu Options](#6-present-the-findings-and-confirm)
 
-### 7. Append to Report
+**GATE [default: C]**: present the menu and wait for the user's choice. If `{headless_mode}`: accept every composite merge proposal and continue with [C], and record that decision the moment it is taken: stage `{run_dir}/decision.json` as `{"gate": "map-and-detect.findings", "default_action": "C", "taken_action": "C", "reason": "headless: auto-accept {count} composite merges and continue past the integration analysis", "evidence": {"composites": [<the name of each accepted composite>], "stack_skill_candidates": <the candidate count>}}`, then run
 
-Append the complete "## Export Map" section to {outputFile}:
-Replace `[Appended by map-and-detect]` under Export Map with:
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
+```
+
+If the command fails, go on: only that entry is lost.
+
+### 7. Append to Report and Continue
+
+Replace `[Appended by map-and-detect]` under Export Map in {outputFile} with:
 - Per-unit export summary table
 - Export pattern analysis
 
-Append the complete "## Integration Points" section to {outputFile}:
 Replace `[Appended by map-and-detect]` under Integration Points with:
 - Cross-reference matrix
 - Integration point details
@@ -275,15 +214,4 @@ stack_skill_candidates: [{list flagged candidate groupings}]
 
 (`confirmed_composites` is an empty array when no composite was proposed or all were rejected. generate-briefs puts every constituent's path in the composite brief's `scope.include`.)
 
-### 8. Present MENU OPTIONS
-
-Display: "**Select:** [C] Continue to Recommendations | [D] Discover Additional Source"
-
-#### Menu Handling Logic:
-
-- IF C: Save findings to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF D: Accept a new repo path/URL from the user. Run a lightweight scan (directory structure + manifest detection from step 02) and classify (unit identification from step 03) for the new source only. Merge results into the existing report — append new units to the unit list, update `project_paths[]` in frontmatter. Then redisplay this step's export mapping for the new units before returning to the menu.
-- IF Any other: help user, then [Redisplay Menu Options](#8-present-menu-options)
-
-**GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: auto-proceed with [C] Continue past export/integration findings, log: "headless: auto-continue past integration analysis".
-
+Then load, read the entire file, then execute {nextStepFile}.

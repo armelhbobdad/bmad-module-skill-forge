@@ -473,7 +473,7 @@ Add `--headless` or `-H` to any workflow command to skip all confirmation gates.
 | Command | What it does |
 | --- | --- |
 | `@Ferris QS cocoindex --headless` | Quick skill with no interaction gates |
-| `@Ferris TS cocoindex --headless` | Tests the cocoindex skill without the review pause |
+| `@Ferris TS cocoindex --headless` | Tests the cocoindex skill and ends with its `SKF_TEST_RESULT_JSON` line |
 | `@Ferris EX cocoindex -H` | Exports the cocoindex skill with an auto-approved context update. A headless export needs a skill name or `--all` |
 
 You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows. Headless never turns Tessl Review on: create-skill and test-skill send a skill to Tessl only when `tessl_review_workspace` is set in the same file, and then they do so in headless runs too.

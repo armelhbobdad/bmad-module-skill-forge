@@ -16,19 +16,25 @@ that ledger (#583, #541). These tests pin that wiring and run it:
   skill cites (#583's decision), and each per-export record names its
   export;
 - a blocked run is not a halt: it writes the Completeness Score section in
-  scoring's place and ends through the report step, which renders the Gap
-  Report, writes the FAIL result contract, runs on_complete and dispatches
-  the health check before exit 2 (#583 item 2, the architecture-2 handoff);
+  scoring's place and ends through the report step, which gives the report
+  its public name only once its checks pass (#587), renders the Gap Report,
+  writes the FAIL
+  result contract (exit_code 2, the hard gate's own payload, built by
+  build-result-context.py), runs on_complete and dispatches the health check
+  (#583 item 2, the architecture-2 handoff);
 - the Gap Severity table carries the re-rated rows (#583, #545, #543), every
   category is one gap-ledger.py knows, and every severity and category the
   stage prose writes is a row of the table;
-- report.md runs its step and section checks before it writes the result
-  contract and runs on_complete, with 'report' out of the expected set and
-  recorded once the result files are written, and its grep count catches a
-  stage that skipped its section (#585, #583 item 4);
+- report.md runs its step and section checks before it publishes the
+  report, writes the result contract through the shared emitter and runs
+  on_complete, with 'report' out of the expected set and recorded once the
+  result files are written, and its grep count catches a stage that skipped
+  its section (#585, #583 item 4, #587, #593);
 - every discovery skip is a counted Info gap, and discovery gaps reach the
   Gap Report totals (#543);
-- each stage's closing line names its stepsCompleted token (#585).
+- each stage's closing line names its stepsCompleted token (#585);
+- the exit codes and the result envelope live in references/invocation-contract.md
+  (#600), and every HALT names its halt_reason and phase (#593, #594).
 """
 
 from __future__ import annotations
@@ -62,12 +68,14 @@ TEMPLATE_FILE = TS_DIR / "templates" / "test-report-template.md"
 FORMATS_FILE = TS_DIR / "assets" / "output-section-formats.md"
 GAP_LEDGER = TS_DIR / "scripts" / "gap-ledger.py"
 HARD_GATE = TS_DIR / "scripts" / "hard-gate.py"
+BUILD_CONTEXT = TS_DIR / "scripts" / "build-result-context.py"
+CONTRACT_FILE = REFS / "invocation-contract.md"
 VERIFY_PROVENANCE = REPO_ROOT / "src" / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
 
 LEDGER_BINDING = "{forge_version}/test-findings-{run_id}.json"
 GATE_CMD = (
     'uv run {hardGateScript} check --ledger "{ledgerFile}" --skill-name "{skill_name}" '
-    '--report-path "{outputFile}" --require-stage coverage-check --require-stage coherence-check '
+    '--report-path "{publishedReportFile}" --require-stage coverage-check --require-stage coherence-check '
     "--require-stage external-validators"
 )
 # The stages that record their gaps before the gate, each with the file
@@ -89,6 +97,10 @@ TEMPLATE_HEADINGS = [
     "## Gap Report",
 ]
 RUN_ID = "20260930T101010Z-ab12cd34"
+# The rule each step after the lock states before its first HALT.
+HALT_RELEASE = ('It releases the run lock first, whatever the release prints: from `{project-root}`, run '
+                '`uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"`')
+PUBLISHED = "{forge_version}/test-report-{skill_name}-{run_id}.md"
 
 
 def _load(name: str, path: pathlib.Path):
@@ -198,7 +210,8 @@ def values(tmp_path: pathlib.Path) -> dict[str, str]:
     return {
         "{ledgerFile}": (forge_version / f"test-findings-{RUN_ID}.json").as_posix(),
         "{skill_name}": "demo",
-        "{outputFile}": (forge_version / f"test-report-demo-{RUN_ID}.md").as_posix(),
+        "{outputFile}": (forge_version / f".skf-test-report-demo-{RUN_ID}.md").as_posix(),
+        "{publishedReportFile}": (forge_version / f"test-report-demo-{RUN_ID}.md").as_posix(),
     }
 
 
@@ -244,7 +257,9 @@ class TestPipelineChain:
 def test_every_ledger_reader_binds_the_same_ledger(path: pathlib.Path) -> None:
     fm = _frontmatter(path)
     assert fm["ledgerFile"] == LEDGER_BINDING
-    assert fm["outputFile"] == "{forge_version}/test-report-{skill_name}-{run_id}.md"
+    assert fm["outputFile"] == "{report_file}"
+    if path in (STEP_FILE, REPORT_FILE):
+        assert fm["publishedReportFile"] == PUBLISHED
     script = fm.get("hardGateScript") if path == STEP_FILE else fm.get("gapLedgerScript")
     assert script == ("scripts/hard-gate.py" if path == STEP_FILE else "scripts/gap-ledger.py")
     assert (TS_DIR / script).is_file()
@@ -273,9 +288,8 @@ class TestStepFileStructure:
 
     def test_every_halt_releases_the_run_lock(self, text: str) -> None:
         body = _body(STEP_FILE)
-        rule = "Every HALT in this step releases the run lock first (SKILL.md Workflow Rules)"
-        assert rule in body
-        assert body.index(rule) < body.index("HALT with")
+        assert HALT_RELEASE in body
+        assert body.index(HALT_RELEASE) < body.index("HALT (")
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +320,8 @@ class TestGateReadsTheLedger:
         for code in ("`LEDGER_MISSING`", "`STAGE_NOT_RECORDED`", "`missing_stages`"):
             assert code in section, code
             assert code.strip("`") in _read(HARD_GATE) + _read(GAP_LEDGER), code
-        assert '"halt_reason":"step-completeness-violation"' in section
+        assert 'HALT (`halt_reason: "step-completeness-violation"`, phase `hard-gate:check`)' in section
+        assert "SKF_TEST_RESULT_JSON" not in section, "the emitter prints the line"
         assert "`gate` is `blocked`" in section and "`gate` is `passed`" in section
 
     def test_the_gate_is_severity_based(self, text: str) -> None:
@@ -334,7 +349,8 @@ class TestRunningTheGate:
         assert out["gate"] == "blocked"
         assert [(g["id"], g["severity"]) for g in out["blocking"]] == [("GAP-001", "Critical"), ("GAP-003", "High")]
         assert out["non_blocking_count"] == 1
-        assert out["envelope"] == hard_gate.blocked_envelope("demo", values["{outputFile}"])
+        # The gate names the report the blocked run publishes (the public name, #587).
+        assert out["envelope"] == hard_gate.blocked_envelope("demo", values["{publishedReportFile}"])
 
     def test_a_run_whose_only_gaps_are_missing_exports_passes(self, values: dict[str, str]) -> None:
         _record("coverage-check", [
@@ -430,6 +446,20 @@ class TestBlockPath:
         assert "HALT" not in block, "a blocked run is not a halt: it ends through the report step"
         assert "release" not in block.lower(), "report.md §7 releases the lock of a blocked run"
 
+    def test_a_blocked_run_is_published_by_the_report_step(self, block: str) -> None:
+        """#587: a blocked run keeps its in-progress name until report.md §4c's checks pass, so a
+        halt in the report step leaves no partial report under the public name."""
+        move = 'mv "{report_file}" "{publishedReportFile}"'
+        assert "mv " not in block and "{publishedReportFile}" not in block
+        assert "keeps its in-progress name until report.md §4c's checks pass" in _flow(block)
+        # The gate still names the public path in the blocked payload.
+        assert _frontmatter(STEP_FILE)["publishedReportFile"] == PUBLISHED
+        assert '--report-path "{publishedReportFile}"' in GATE_CMD
+        contract = _slice(_read(REPORT_FILE), "### 4c. Result Contract", "### 5.")
+        publish = _flow(contract[contract.index("**Publish the report.**"):contract.index("**Write the result contract.**")])
+        assert move in _fence(contract, move) and "a blocked run's included" in publish
+        assert "skip the move" not in publish and "took it at the gate" not in contract
+
     def test_names_update_skill_from_test_report(self, block: str) -> None:
         assert "`@Ferris US {skill_name} --from-test-report`" in block
 
@@ -440,30 +470,46 @@ class TestBlockPath:
         contract = _flow(_slice(text, "### 4c. Result Contract", "### 5."))
         assert "A run the hard gate blocked was never scored: its expected set ends at `'hard-gate'`" in contract
         assert "the line that discovery testing did not run" in contract
-        for field in ('`status: "error"`', '`verdict: "FAIL"`', '`exit_code: 2`',
-                      '`halt_reason: "hard-gate-blocked"`', '`next_workflow: "update-skill"`'):
+        for field in ('`status: "error"`', '`verdict: "FAIL"`', "`exit_code` 2",
+                      '`halt_reason: "hard-gate-blocked"`'):
             assert field in contract, field
-        assert "never an earlier run's verdict" in contract
-        exit_code = _slice(text, "### 6b.", "### 6c.")
-        assert "`testResult: 'fail'` → exit code 2, a run the hard gate blocked included" in exit_code
+        assert "never holds an earlier run's verdict" in contract
+        # build-result-context.py's table is the one home of the exit codes: the report step restates none.
+        assert _load("skf_build_result_context_gate", BUILD_CONTEXT).VERDICTS["fail"][2] == 2
+        assert "{headless_exit_code}" not in text and "The Exit Code" not in text
+        assert "→ exit code" not in text
 
-    def test_the_blocked_envelope_is_the_gates(self) -> None:
-        section = _slice(_read(REPORT_FILE), "### 6c.", "### 7.")
-        blocked = section[section.index("**A run the hard gate blocked**"):]
-        assert "**stderr**" in blocked
-        line = next(line for line in blocked.splitlines() if line.startswith("SKF_TEST_RESULT_JSON: "))
-        envelope = json.loads(line.split(": ", 1)[1])
-        assert envelope == hard_gate.blocked_envelope("{skill_name}", "{outputFile}")
+    def test_the_blocked_envelope_is_the_gates(self, tmp_path: pathlib.Path) -> None:
+        """The report step's payload for a blocked run is the hard gate's own, built by the script."""
+        assert "SKF_TEST_RESULT_JSON: {" not in _read(REPORT_FILE), "no envelope literal is typed"
+        report = tmp_path / f"test-report-demo-{RUN_ID}.md"
+        report.write_bytes(f"---\nskillName: 'demo'\nrunId: '{RUN_ID}'\nhardGate: 'blocked'\n"
+                           "testResult: 'fail'\ntestMode: 'naive'\n---\n# R\n".encode("utf-8"))
+        ledger = tmp_path / f"test-findings-{RUN_ID}.json"
+        record = _gap("Critical", "broken-reference", "Broken reference: x")
+        subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",
+                        "coherence-check"], input=json.dumps([record]), capture_output=True, text=True,
+                       encoding="utf-8", check=True)
+        out = tmp_path / "result-context.json"
+        proc = subprocess.run([sys.executable, str(BUILD_CONTEXT), "--report", report.as_posix(), "--ledger",
+                               ledger.as_posix(), "--output", out.as_posix()],
+                              capture_output=True, text=True, encoding="utf-8")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert json.loads(proc.stdout)["target"] == "stderr"
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        contract = payload.pop("result_contract")
+        assert payload == hard_gate.blocked_envelope("demo", report.as_posix())
+        assert contract["summary"]["result"] == "FAIL" and contract["summary"]["gapCounts"]["Critical"] == 1
 
     def test_the_health_check_runs_for_a_blocked_run(self) -> None:
         """§7 dispatches it (or skips it under --no-health-check) and records healthCheckDispatched."""
         text = _read(REPORT_FILE)
         sequence = _flow(_slice(text, "### 4. The Terminal Sequence", "### 4b."))
         assert "a blocked one included" in sequence
-        assert "§7 hands over to the health check and releases the run lock" in sequence
+        assert "§7 releases the run lock and hands over to the health check" in sequence
         section7 = _flow(_slice(text, "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
         for needle in ("`--no-health-check` flag bypass", "`healthCheckDispatched: false`",
-                       "`healthCheckDispatched` field of the result contract"):
+                       "`health_check_dispatched: false` in the report"):
             assert needle in section7, needle
 
 
@@ -658,7 +704,7 @@ class TestStaleNameLineCheck:
     def test_fabricated_needs_a_cited_file_without_the_name(self, section: str) -> None:
         flow = _flow(section)
         for needle in (
-            "Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `allow_workspace_drift` not true",
+            "Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden`",
             "When every entry's `line_check` is `file-missing`, or `checked` with an empty `definition_lines`",
             "a Critical `fabricated-signature` gap titled `Fabricated signature: {name}`",
             "a Medium `stale-documentation` gap titled `Stale documentation: {name}`",
@@ -705,7 +751,7 @@ class TestReportTerminalSequence:
         assert expected == ["init", "detect-mode", "coverage-check", "coherence-check", "external-validators",
                             "hard-gate", "score"]
         # Recorded only once the result files exist: a halt before them leaves no 'report' behind.
-        assert "Once both result files are written, append `'report'` to `stepsCompleted`" in _flow(contract)
+        assert "Once the result files are written, append `'report'` to `stepsCompleted`" in _flow(contract)
 
     def test_render_and_checks_come_before_the_writes_and_the_hook(self, text: str) -> None:
         order = [
@@ -715,9 +761,11 @@ class TestReportTerminalSequence:
             "**Enforce step completeness.**",
             "**Check the report sections.**",
             "**Renew the run lock**",
-            "write --target {forge_version}/skf-test-skill-result-{run_id}.json",
-            "write --target {forge_version}/skf-test-skill-result-latest.json",
-            "Once both result files are written, append `'report'`",
+            "**Publish the report.**",
+            'mv "{report_file}" "{publishedReportFile}"',
+            '--output "{run_dir}/result-context.json"',
+            "emit --workflow skf-test-skill --run-dir",
+            "Once the result files are written, append `'report'`",
             "{onCompleteCommand} --result-path=",
             "### 6. Present Final Report",
             "### 7. Health-Check Dispatch",
@@ -734,7 +782,7 @@ class TestReportTerminalSequence:
         flow = _flow(check)
         assert "Count them with grep, not by eye" in flow
         assert "Each heading must print 1" in flow and "`placeholders` must print 0" in flow
-        assert '"halt_reason":"report-anchor-missing"' in check
+        assert 'HALT (`halt_reason: "report-anchor-missing"`, phase `report:anchors`)' in check
 
     @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the check through bash")
     @pytest.mark.parametrize("case", ["whole", "skipped", "appended"])
@@ -772,7 +820,9 @@ class TestReportTerminalSequence:
     def test_counts_come_from_the_ledger(self, text: str) -> None:
         contract = _flow(_slice(text, "### 4c. Result Contract", "### 5."))
         assert "Bind `{gap_counts}` ← `counts`, `{total_gaps}` ← `total` and `{blocking_gaps}` ← `blocking`" in contract
-        assert "`summary.gapCounts`" in contract
+        # The result contract's gap counts come from the ledger too, through the script.
+        raw = _slice(text, "### 4c. Result Contract", "### 5.")
+        assert '--ledger "{ledgerFile}"' in _fence(raw, "uv run {resultContextScript}")
         present = _slice(text, "### 6. Present Final Report", "### 6b.")
         assert "- Critical: {gap_counts.Critical}" in present
 
@@ -949,13 +999,14 @@ class TestOutputFormats:
 
 
 # ---------------------------------------------------------------------------
-# SKILL.md contract
+# SKILL.md and the invocation contract (#600: the headless sections live in
+# references/invocation-contract.md)
 # ---------------------------------------------------------------------------
 
 
 def _section(text: str, heading: str) -> str:
-    m = re.search(rf"^{re.escape(heading)}[^\n]*\n(.*?)(?=^## )", text, flags=re.MULTILINE | re.DOTALL)
-    assert m, f"SKILL.md must have a {heading} section"
+    m = re.search(rf"^{re.escape(heading)}[^\n]*\n(.*?)(?=^## |\Z)", text, flags=re.MULTILINE | re.DOTALL)
+    assert m, f"must have a {heading} section"
     return m.group(1)
 
 
@@ -973,11 +1024,22 @@ class TestStagesTable:
         numbers = [re.match(r"\|\s*(\w+)\s*\|", line).group(1) for line in rows]
         assert numbers.index("4b") < numbers.index("4c") < numbers.index("5")
 
+    def test_no_stage_waits_at_a_menu(self, rows: list[str]) -> None:
+        """#599: the report step's one-option [C] Finish menu is gone; the run chains to the health check."""
+        assert all(re.search(r"\|\s*Yes\s*\|\s*$", row) for row in rows), rows
+        assert "[C] Finish" not in _read(REPORT_FILE)
+
 
 class TestExitCodes:
     @pytest.fixture
     def section(self) -> str:
-        return _section(_read(SKILL_MD), "## Exit Codes")
+        return _section(_read(CONTRACT_FILE), "## Exit Codes")
+
+    def test_skill_md_points_at_the_contract(self) -> None:
+        text = _read(SKILL_MD)
+        for gone in ("## Exit Codes", "## Result Contract (Headless)", "| **Outputs** |"):
+            assert gone not in text, gone
+        assert "`references/invocation-contract.md`" in _section(text, "## Invocation Contract")
 
     def test_exit_code_2_row(self, section: str) -> None:
         row = next(line for line in section.splitlines() if re.match(r"\|\s*2\s*\|", line))
@@ -987,27 +1049,44 @@ class TestExitCodes:
         # report.md §4 owns the sequence; the table names the step each verdict exit leaves through.
         for code in ("0", "2", "3", "4"):
             row = next(line for line in section.splitlines() if re.match(rf"\|\s*{code}\s*\|", line))
-            assert "step 6 §6b" in row, code
+            assert "step 6: `testResult:" in row, code
         assert "(after the result contract is written in §4c)" not in section
         sequence = _flow(_slice(_read(REPORT_FILE), "### 4. The Terminal Sequence", "### 4b."))
         assert "Every run that reaches this step, a blocked one included, ends through one sequence" in sequence
         order = ["§4b records the discovery outcome", "§4c renders the Gap Report",
                  "writes the result contract and runs the on_complete hook", "§6 presents the result",
-                 "§7 hands over to the health check"]
+                 "§7 releases the run lock and hands over to the health check"]
         positions = [sequence.index(needle) for needle in order]
         assert positions == sorted(positions)
+
+    def test_the_exit_code_travels_in_the_envelope(self, section: str) -> None:
+        """A skill run cannot set the agent's exit status (the W3 enhancement-1 handoff)."""
+        flow = _flow(section)
+        assert "A skill run cannot set the process exit status of the agent that runs it" in flow
+        assert "read `exit_code` from the `SKF_TEST_RESULT_JSON` line or from `skf-test-skill-result-latest.json`" in flow
+        for path in (REPORT_FILE, STEP_FILE):
+            assert "process-exit" not in _read(path) and "exits with code 2" not in _read(path), path.name
+        # The reason is stated once, in the Exit Codes paragraph, and no HALT promises a process exit.
+        assert _read(CONTRACT_FILE).count("cannot set the process exit status") == 1
+        for path in sorted(REFS.glob("*.md")) + [SKILL_MD]:
+            if path != CONTRACT_FILE:
+                assert "cannot set the" not in _read(path), path.name
+            assert "HALT exits 1" not in _read(path) and "exits 1 and names" not in _read(path), path.name
 
 
 class TestResultContract:
     @pytest.fixture
     def section(self) -> str:
-        return _flow(_section(_read(SKILL_MD), "## Result Contract (Headless)"))
+        return _flow(_section(_read(CONTRACT_FILE), "## Result Envelope (Headless)"))
 
     def test_a_blocked_run_emits_on_stderr_and_writes_its_record(self, section: str) -> None:
-        assert 'on **stderr** with `status: "error"` and `halt_reason: "hard-gate-blocked"` for a run the hard gate blocked' in section
-        assert "A run the hard gate blocked writes it too, as a FAIL record" in section
-        assert '`"hard-gate-blocked"` (a run the step 4c hard gate blocked)' in section
+        assert '`"error"` with `halt_reason: "hard-gate-blocked"` for a run the hard gate blocked' in section
+        assert "which still writes the Gap Report and its FAIL result contract" in section
+        assert "| `hard-gate-blocked` | step 4c §3" in section
+        records = _flow(_section(_read(CONTRACT_FILE), "## Result Files"))
+        assert "A run the hard gate blocked writes it too, as a FAIL record" in records
 
     def test_the_outputs_row_names_the_ledger(self) -> None:
-        row = next(line for line in _read(SKILL_MD).splitlines() if line.startswith("| **Outputs** |"))
+        row = next(line for line in _read(CONTRACT_FILE).splitlines() if line.startswith("| **Outputs** |"))
         assert "`test-findings-{run_id}.json`" in row
+        assert "`.skf-test-report-{skill_name}-{run_id}.md`" in row

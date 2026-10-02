@@ -1,0 +1,6 @@
+type: added
+scope: skf-analyze-source
+summary: |
+  A headless step-by-step Analyze Source run now records the default each step's menu took in the envelope's `headless_decisions`, with five new values of its `gate`: `scan-project.scan`, `identify-units.classifications`, `map-and-detect.findings` (with the composite merges it accepted), `recommend.recommendations` and `generate-briefs.write`. An `AN[auto]` run also records in `warnings` a version pin it could not resolve (`pin_unresolved`) and the `-wiki` rename of a split package whose name an existing skill already holds.
+prs: [637]
+issues: [594]

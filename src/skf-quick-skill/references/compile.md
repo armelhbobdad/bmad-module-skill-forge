@@ -16,7 +16,7 @@ To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-alig
 
 ## Rules
 
-- Focus only on assembling the three output documents — do not write files to disk (that's step 6)
+- Focus only on assembling the three output documents: do not write files to disk (step 5 writes them)
 - Follow template structure exactly from {skillTemplateData}
 - Mark any sections with insufficient data as best-effort
 - A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
@@ -35,7 +35,7 @@ Load {skillTemplateData} to understand:
 Populate the SKILL.md section structure from `{skillTemplateData}` § "SKILL.md Section Structure" (the frontmatter skeleton and the Required/Optional section list live there) using extraction_inventory. The rules below are the deltas the template does not encode:
 
 **Frontmatter rules (agentskills.io compliance):**
-- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name. Prefer gerund form (`processing-pdfs`) for clarity.
+- `name` is `{repo_name}`: step 5 writes that folder and validates the name against it.
 - `description`: non-empty, max 1024 chars, optimized for agent discovery. Use third-person voice ("Processes..." not "I can..." / "You can...") so it reads correctly in the agent's skill index.
 - No other frontmatter fields — only `name` and `description` for community skills
 
@@ -51,22 +51,21 @@ Populate the SKILL.md section structure from `{skillTemplateData}` § "SKILL.md 
 
 ### 3. Generate Context Snippet
 
-**If `{overrides.skip_snippet}` is true** — skip generation and note in the §5 preview: "context-snippet.md skipped per `--skip-snippet` override." Step-05 §2 will skip the corresponding write; step 5 §5 advisory snippet validation will report a "skipped" entry.
+**If `{overrides.skip_snippet}` is true**, skip generation and note in the §5 preview: "context-snippet.md skipped per `--skip-snippet` override."
 
 Otherwise, produce context-snippet.md in the Vercel-aligned indexed format from `{skillTemplateData}` § "context-snippet.md Format" (~80-120 tokens).
 
 Its `{version}` is the version §4 gives `metadata.json`, which names the version folder: `{target_version}` when step 1 parsed one from the target, else the first `version` set in step 3's extraction files (`{run_dir}/extract.json` first), else `1.0.0`.
 
-The snippet anchors point to the QS template's actual headings — `#usage-patterns` (Usage Patterns) and `#key-exports` (Key Exports). The QS template has no `## Quick Start` / `## Key Types` headings (those are Deep-tier sections), so the Deep-tier anchors `#quick-start` / `#key-types` would dangle. If the assembled SKILL.md is missing the referenced heading, omit that line rather than emit a dangling anchor.
+If the assembled SKILL.md lacks a heading a snippet line anchors to, omit that line.
 
-**If fewer than 5 exports:** Use all available exports.
 **If no exports:** Omit the api line.
 **If no gotchas known:** Omit the gotchas line.
 **If `repo_shape` is `skills-module`:** the api line names up to five skills, without `()`, and the key-types summary lists the menu codes when there are any.
 
 ### 4. Generate Metadata JSON
 
-Run the shared renderer. It applies the constants, takes the export list, the dependencies and the manifest's version from step 3's extraction files, probes the installed SKF's version for `tool_versions.skf`, computes export counts and the ISO 8601 UTC timestamp, and writes the canonical envelope per `{skillTemplateData}` § "metadata.json Format".
+Run the shared renderer. It applies the constants, takes the export list, the dependencies and the manifest's version from step 3's extraction files, probes the installed SKF's version for `tool_versions.skf`, computes export counts and the ISO 8601 UTC timestamp, and writes the canonical envelope (it does not read the template).
 
 **Resolve `{quickMetadataRenderer}`** from `{quickMetadataRendererProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt rendering of the canonical envelope per `{skillTemplateData}` § "metadata.json Format", and write it to `{run_dir}/metadata.json`.
 
@@ -115,9 +114,7 @@ Then proceed directly to §6 — the GATE default action takes over.
 
 ---
 
-**Extraction confidence:** {confidence}
-
-Review the output above, then choose: [C] continue to validation, [E] edit the description, [S] adjust scope and re-extract, or [Q] quit without writing."
+**Extraction confidence:** {confidence}"
 
 ### 6. Present MENU OPTIONS
 
@@ -135,5 +132,4 @@ Display: **Select:** [C] Continue to Validation · [E] Edit description · [S] A
 
 - Halt and wait for user input after presenting the compiled output; only [C] (or a headless auto-approve) chains to `{nextStepFile}` for validation.
 - **GATE [default: C]**: if `{headless_mode}`, auto-proceed with [C] Continue, log "headless: auto-approve compiled output", record the decision (stage `{"gate": "compile.review", "default_action": "C", "taken_action": "C", "reason": "headless: auto-approved the compiled output"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`), and print this step's `done` event and step 5's `start` event (`references/halt-contract.md`) before loading `{nextStepFile}`.
-- [E] re-renders the preview without re-running extraction; [S] discards the compiled output and re-runs step 3 with new hints.
 

@@ -5,8 +5,13 @@ cross-check-mismatch shape, fence stripping, CLI exit codes) that
 coverage-check.md delegates to instead of validating in-prompt, the run
 files (--input reads the saved response, so an apostrophe never meets a
 shell; --output writes the validated inventory), the docs-only completeness
-count (#540: a missing description is incomplete, never invalid) and the
-shared whole-name match (`get` is found in neither `target` nor `getAll`).
+count (#540: a missing description is incomplete, never invalid), the
+shared whole-name match (`get` is found in neither `target` nor `getAll`),
+and the §1a ground-truth spot-check folded into the script (#598 item 5):
+the first, middle and last names after a sort, looked up as whole names in
+SKILL.md and the listed reference files, so an export named `$state` or
+`a.b` is neither a shell variable nor a regex, and an absent name makes the
+inventory invalid.
 """
 
 from __future__ import annotations
@@ -298,3 +303,96 @@ def test_load_doc_text_reads_skill_md_then_sorted_references(tmp_path):
     (tmp_path / "references" / "a.md").write_bytes("tw\u00f6".encode("utf-8"))
     (tmp_path / "references" / "sub" / "c.md").write_bytes(b"never")
     assert mod.load_doc_text(str(tmp_path)) == "one\ntw\u00f6\nthree"
+
+
+# --- §1a spot-check (--skill-package) ----------------------------------------
+
+
+def _package(tmp_path, skill_md, references=None):
+    pkg = tmp_path / "pkg"
+    (pkg / "references").mkdir(parents=True)
+    (pkg / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
+    for name, text in (references or {}).items():
+        (pkg / "references" / name).write_bytes(text.encode("utf-8"))
+    return pkg
+
+
+def _inventory(*names, references=None):
+    data = {"exports": [{"name": n, "kind": "function"} for n in names], "cross_check_mismatches": []}
+    if references is not None:
+        data["references"] = references
+    return json.dumps(data)
+
+
+@pytest.mark.parametrize("names, sampled", [
+    (["c", "a", "b", "e", "d"], ["a", "c", "e"]),
+    (["b", "a"], ["a", "b"]),
+    (["only"], ["only"]),
+    ([], []),
+], ids=["five", "two", "one", "none"])
+def test_the_sample_is_first_middle_and_last_after_a_sort(names, sampled):
+    assert mod.sample_names([{"name": n} for n in names]) == sampled
+
+
+def test_dollar_and_dotted_names_are_found_as_written(tmp_path):
+    """A double-quoted grep reads `$state` as an empty pattern and `a.b` as a regex: the
+    script matches both as fixed strings, so neither a lookalike nor a longer name counts."""
+    pkg = _package(tmp_path, "# Demo\n\nlet count = $state(0);\n", {"api.md": "Call `a.b(x)`.\n"})
+    r = mod.validate_inventory(_inventory("$state", "a.b", references=["references/api.md"]), pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["spotCheck"] == {"sampled": ["$state", "a.b"], "absent": [],
+                              "files": ["SKILL.md", "references/api.md"], "unread": []}
+
+
+@pytest.mark.parametrize("text", ["x$state and aXb\n", "$stated, ca.b and a.bc\n"],
+                         ids=["lookalikes", "longer-names"])
+def test_a_lookalike_never_counts(tmp_path, text):
+    pkg = _package(tmp_path, text)
+    r = mod.validate_inventory(_inventory("$state", "a.b"), pkg)
+    assert r["valid"] is False and r["inventory"] is None
+    assert r["spotCheck"]["absent"] == ["$state", "a.b"]
+    assert any("`$state` is listed as an export" in v for v in r["violations"])
+
+
+def test_a_name_only_a_listed_reference_writes_is_found(tmp_path):
+    """A split-body skill documents some exports only in references/*.md."""
+    pkg = _package(tmp_path, "# Demo\n", {"api.md": "`helper()` helps.\n"})
+    assert mod.validate_inventory(_inventory("helper", references=["references/api.md"]), pkg)["valid"] is True
+    # A reference the subagent did not list is not read.
+    assert mod.validate_inventory(_inventory("helper"), pkg)["valid"] is False
+
+
+def test_a_listed_file_outside_the_package_is_never_read(tmp_path):
+    (tmp_path / "outside.md").write_bytes(b"`helper()`\n")
+    pkg = _package(tmp_path, "# Demo\n")
+    r = mod.validate_inventory(_inventory("helper", references=["../outside.md", "references/gone.md"]), pkg)
+    assert r["valid"] is False
+    assert r["spotCheck"]["unread"] == ["../outside.md", "references/gone.md"]
+
+
+def test_no_spot_check_without_the_package_or_for_an_invalid_schema(tmp_path):
+    pkg = _package(tmp_path, "# Demo\n")
+    assert "spotCheck" not in mod.validate_inventory(_inventory("ghost"))
+    bad = json.dumps({"exports": [{"name": "ghost", "kind": "nope"}], "cross_check_mismatches": []})
+    assert "spotCheck" not in mod.validate_inventory(bad, pkg)
+
+
+def test_cli_spot_check_failure_exits_2_and_removes_the_inventory(tmp_path):
+    pkg = _package(tmp_path, "# Demo\n`real()`\n")
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_inventory("real", "ghost").encode("utf-8"))
+    out = tmp_path / "inventory.json"
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["spotCheck"]["absent"] == ["ghost"]
+    assert not out.exists()
+
+
+def test_cli_a_package_without_skill_md_exits_1(tmp_path):
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_inventory("real").encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package",
+                           str(tmp_path / "missing")], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 1 and "--skill-package" in proc.stderr

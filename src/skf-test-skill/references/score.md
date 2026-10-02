@@ -1,6 +1,6 @@
 ---
 nextStepFile: 'report.md'
-outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
+outputFile: '{report_file}'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 scoringScript: 'scripts/compute-score.py'
 # §4b.1 reads the run's gaps from the gap ledger the stages recorded them in.
@@ -16,20 +16,19 @@ gapLedgerScript: 'scripts/gap-ledger.py'
 
 Calculate the overall completeness score by aggregating coverage, coherence, and external validation category scores with the appropriate weight distribution (naive or contextual), apply the pass/fail threshold, and determine the test result.
 
-Every HALT in this step releases the run lock first (SKILL.md Workflow Rules).
+**Halt envelope.** Every HALT in this step names its `halt_reason` and phase and carries exit code 1. It releases the run lock first, whatever the release prints: from `{project-root}`, run `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"` (SKILL.md Workflow Rules). In headless mode it then writes `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{report_file}"}`, adding `"path"` when the halt names one, to `{run_dir}/halt.json` and runs:
 
-### 1. Resolve the Pass Threshold
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
+
+### 1. Read the Pass Threshold
 
 `{scoringScript}` owns the category weights, their redistribution and every verdict rule; this step sets its flags, hands it the score files and reads its output.
 
-**Resolve the pass threshold (precedence: CLI > pipeline default > scalar > bundled fallback):**
-
-1. If the workflow received `--threshold=<N>` on invocation, use that integer as `effective_threshold` (CLI wins). Set `threshold_source` = `"CLI override ({N}%)"`.
-2. Else if `{pipeline_default_threshold}` is set in workflow context (resolved by init.md §1b from the per-pipeline threshold lookup table when `{pipeline_alias}` is present), use it as `effective_threshold`. Set `threshold_source` = `"pipeline default ({pipeline_alias} → {N}%)"`.
-3. Else if the resolved `{defaultThreshold}` workflow-context variable (from SKILL.md On Activation §3 — `workflow.default_threshold` scalar, default `80`) is set, use it as `effective_threshold`. Set `threshold_source` = `"workflow default ({N}%)"`.
-4. Else fall back to `80` (the bundled default — this branch should be unreachable when SKILL.md resolution ran correctly, but keeps the step robust if customize.toml resolution failed silently). Set `threshold_source` = `"bundled fallback (80%)"`.
-
-Store `threshold_source` in workflow context for use in the score report section.
+**The pass threshold was resolved once, at init** (init.md §1b, precedence: CLI > pipeline default > scalar > bundled fallback), and init.md §6c wrote it into the report. Read `threshold` and `thresholdSource` from the `{outputFile}` frontmatter and bind `effective_threshold` ← `threshold` as a number (without its `%`) and `threshold_source` ← `thresholdSource`. Never resolve the precedence again here: the frontmatter keeps what a long run's context may lose.
 
 Pass `effective_threshold` into the scoring-input JSON's `threshold` field in §3a. The CLI flag, pipeline default, and the scalar all feed the same downstream field; the script does not need to know which layer supplied the value.
 
@@ -49,7 +48,7 @@ The category scores are never read back out of the report: each is the output fi
 
 #### 3a. Construct Scoring Input JSON
 
-Build the flags the script reads from workflow context:
+Build the flags the script reads from workflow context, and `toolingStatus` from the `{outputFile}` frontmatter (init.md §6c wrote it), never from memory:
 
 ```json
 {
@@ -59,9 +58,9 @@ Build the flags the script reads from workflow context:
   "state2": "{true if analysis_confidence is provenance-map, else false}",
   "stackSkill": "{true if metadata.json.skill_type == 'stack', else false}",
   "referenceApp": "{true if metadata.json.scope_type == 'reference-app', else false}",
-  "threshold": "{effective_threshold from §1: CLI --threshold wins, then pipeline default, then workflow.default_threshold scalar, then 80}",
+  "threshold": "{effective_threshold from §1}",
   "analysisConfidence": "{analysis_confidence: full, provenance-map, metadata-only, remote-only or docs-only}",
-  "toolingStatus": "{tooling_status from init.md §3b: ok, or frontmatter-validator-timeout}"
+  "toolingStatus": "{toolingStatus from the {outputFile} frontmatter: ok, or frontmatter-validator-timeout}"
 }
 ```
 
@@ -72,12 +71,12 @@ Build the flags the script reads from workflow context:
 Pass the §3a JSON and the score files that exist: `--signatures` when coverage-check scored the signatures, `--coherence` in contextual mode, and `--surface` at State 2:
 
 ```bash
-uv run {scoringScript} --json-input '<the §3a JSON>' --coverage "{run_dir}/coverage.json" [--signatures "{run_dir}/signatures.json"] [--coherence "{run_dir}/coherence.json"] --external "{run_dir}/external.json" [--surface "{run_dir}/surface.json"]
+uv run {scoringScript} --json-input '<the §3a JSON>' --coverage "{run_dir}/coverage.json" [--signatures "{run_dir}/signatures.json"] [--coherence "{run_dir}/coherence.json"] --external "{run_dir}/external.json" [--surface "{run_dir}/surface.json"] > "{run_dir}/score.json"
 ```
 
 Where `{scoringScript}` is the path resolved from the frontmatter variable (relative to the skill root, i.e., the skf-test-skill/ directory).
 
-Parse the JSON output. The script returns:
+Read its output from `{run_dir}/score.json`, where the report step's result contract reads `activeCategories` and `inconclusiveReasons` too. The script returns:
 - `weights`: final redistributed weights per category
 - `weightedScores`: weighted contribution per category
 - `totalScore`: the overall completeness score
@@ -100,9 +99,9 @@ Use these values for Section 4 (pass/fail/inconclusive) and Section 6 (output fo
 
 #### 3c. If the Script Refuses the Input or Does Not Run
 
-A `{"error": ..., "code": "INVALID_INPUT"}` envelope on stdout (exit 2, or exit 1 for a payload that is not JSON) means the script ran and refused what it was given: a flag is missing, mistyped or out of range, or a score file is missing its score or holds a refused result. **Correct the §3a input, or re-run the step that writes the refused file, and run it again.** Never compute a total by hand from the numbers the script refused.
+A `{"error": ..., "code": "INVALID_INPUT"}` envelope in `{run_dir}/score.json` (exit 2, or exit 1 for a payload that is not JSON) means the script ran and refused what it was given: a flag is missing, mistyped or out of range, or a score file is missing its score or holds a refused result. **Correct the §3a input, or re-run the step that writes the refused file, and run it again.** Never compute a total by hand from the numbers the script refused.
 
-No envelope at all (the script file is missing, or it cannot start): HALT with its stderr. A quality gate does not score by hand, so the run stops without a score rather than with an unchecked one.
+No envelope at all (the script file is missing, or it cannot start): HALT with its stderr (`halt_reason: "helper-failed"`, phase `score:compute`). A quality gate does not score by hand, so the run stops without a score rather than with an unchecked one.
 
 ### 3d. Read Post-Score Caps (applied by the script)
 
@@ -196,10 +195,11 @@ Based on the **settled verdict** (§4 — `effectiveResult` when the override gr
 
 **IF PASS:**
 - `nextWorkflow: 'export-skill'` — skill is ready for export
-- **Drift override:** if workflow context carries
-  `allow_workspace_drift: true` (set in step 1 §5b when the user passed
+- **Drift override:** if the `{outputFile}` frontmatter's `workspaceDrift`
+  is `overridden` (init.md §5b wrote it when the user passed
   `--allow-workspace-drift` AND the workspace HEAD did not match
-  `metadata.source_commit`), the PASS is a **conditional PASS**:
+  `metadata.source_commit`; the flag on a clean tree leaves it `ok`), the
+  PASS is a **conditional PASS**:
   - Write `testResult: 'pass-with-drift'` to the output frontmatter instead of
     bare `'pass'`. The result contract (§4c of step 6) mirrors the same
     value.
@@ -268,13 +268,11 @@ If `analysis_confidence` is not `full`, add a degradation notice at the end of t
 ### 7. Update Output Frontmatter
 
 Update `{outputFile}` frontmatter:
-- `testResult: '{pass|pass-with-drift|fail|inconclusive}'` (lowercase; mirrors the **settled verdict** — `effectiveResult` when the override group is present, else `result` — with `pass-with-drift` substituted for `pass` when `allow_workspace_drift` was set and drift was observed — see §5 drift override)
+- `testResult: '{pass|pass-with-drift|fail|inconclusive}'` (lowercase; mirrors the **settled verdict**, `effectiveResult` when the override group is present, else `result`, with `pass-with-drift` substituted for `pass` when the frontmatter's `workspaceDrift` is `overridden`: see the §5 drift override)
 - `score: '{total}%'`
-- `threshold: '{threshold}%'`
-- `thresholdSource: '{threshold_source}'`
+- `threshold: '{threshold}%'`: the threshold the verdict was settled against (80 after a threshold fallback); `thresholdSource` keeps what init.md wrote
 - When `threshold_fallback` is true, add: `thresholdFallback: true`, `originalThreshold: '{original_threshold}%'`, `evidenceReportPath: '{evidence_report_path}'`
 - `analysisConfidence: '{full|provenance-map|metadata-only|remote-only|docs-only}'`
-- `toolingStatus: '{ok|frontmatter-validator-timeout}'`
 - `nextWorkflow: '{export-skill|update-skill|manual-review}'`
 - Append `'score'` to `stepsCompleted`
 

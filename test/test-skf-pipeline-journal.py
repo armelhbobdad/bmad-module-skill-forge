@@ -51,7 +51,8 @@ FORGER_SKILL = SRC / "skf-forger" / "SKILL.md"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 CONTRACTS = SRC / "shared" / "references" / "pipeline-contracts.md"
 OUTPUT_CONTRACT = SRC / "shared" / "references" / "output-contract-schema.md"
-TEST_SKILL = SRC / "skf-test-skill" / "SKILL.md"
+# test-skill's halt reasons live in its envelope schema (#593, #600).
+TEST_SKILL_SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-test-result-envelope.v1.json"
 
 
 def _load(name: str, path: Path):
@@ -929,7 +930,7 @@ def test_every_quality_reason_is_one_a_halt_gives():
             assert reason.upper() in gate_mod.AS_SEVERITIES
         else:
             assert f'"{reason}"' in gate, (code, reason)
-    assert '`"workspace-drift"`' in _read(TEST_SKILL)  # a TS halt_reason
+    assert "workspace-drift" in json.loads(_read(TEST_SKILL_SCHEMA))["properties"]["halt_reason"]["enum"]
 
 
 def test_the_gated_codes_and_decisions_are_the_gates():

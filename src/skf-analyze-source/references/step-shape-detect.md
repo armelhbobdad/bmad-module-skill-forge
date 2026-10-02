@@ -12,9 +12,9 @@ Reference document for invoking `skf-shape-detect.py` — the shared shape class
 
 **Resolve `{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`; first existing path wins. If neither resolves, step-auto-scope.md §3 HARD HALTs with exit code 3 (`resolution-failure`).
 
-**Command** (step-auto-scope.md §3 runs it on the file list §2 wrote to `{run_dir}/tree.txt`):
+**Command** (step-auto-scope.md §3 runs it on the manifest scan and the file list §2 wrote to `{run_dir}/manifests-1.json` and `{run_dir}/tree.txt`):
 ```bash
-uv run {shapeDetectHelper} --repo-url "<url>" --manifests "<path1,path2,...>" --tree-file "{run_dir}/tree.txt"
+uv run {shapeDetectHelper} --repo-url "<url>" --manifests-file "{run_dir}/manifests-1.json" --manifest-dir "{scan_root}" --tree-file "{run_dir}/tree.txt"
 ```
 
 **Arguments:**
@@ -22,7 +22,9 @@ uv run {shapeDetectHelper} --repo-url "<url>" --manifests "<path1,path2,...>" --
 | Arg | Required | Description |
 |-----|----------|-------------|
 | `--repo-url` | Yes | Repository URL (context only — no cloning performed) |
-| `--manifests` | Yes | Comma-separated local file paths to manifest files (may be empty when a tree-level signal carries the classification) |
+| `--manifests-file` | One of the two | The JSON envelope `skf-scan-manifests.py scan` printed: the script keeps the manifest types it classifies (the supported manifests below) and resolves each `path` against `--manifest-dir`, so no caller filters, resolves or joins the list |
+| `--manifest-dir` | With `--manifests-file` | The folder the scan ran on, the scan root |
+| `--manifests` | One of the two | Comma-separated local file paths to manifest files, in place of `--manifests-file` (may be empty when a tree-level signal carries the classification) |
 | `--tree-file` | No | The repository's whole file list, one path per line (`git ls-tree -r --name-only HEAD`, `git ls-files` or `find` output) or JSON. The script finds the tree-level signals in it itself (grammar files such as `*.y`, `*.g4`, `Grammar/python.gram` or a root `grammar.js`; a `compiler/` folder or a lexer+parser+ast triad), with its own gates, so no caller filters the list first |
 | `--grammar-files`, `--tree-paths` | No | The older way to pass the same signals, harvested by the caller; not with `--tree-file` |
 
@@ -57,7 +59,7 @@ On exit code 2, error details are written to stderr as JSON: `{"error": "message
 | `library-API` | `full-library` | export_count ≤ 200 |
 | `library-API` | `public-api` | export_count > 200 (surface too large for full coverage) |
 | `reference-app` | `reference-app` | Direct mapping — apps, CLIs, demos |
-| `language-reference` | `full-library` | Language tools/parsers are library-shaped from a skill perspective. **Corpora-dependent** for a *whole-language* reference (a `grammar_file:`/`tree_triad:` signal — a compiler/interpreter): its value is the language's prose (guide/Book + std/library docs), not compiler internals, so step-auto-scope.md §6b seeds companion corpora and §6/§7 record an honest DEGRADED caveat when none are found (mirrors the §3b facet-coverage guard). A parser *library* (`parser_producer:`/`parser_dep:`) is exempt — its code is the product. |
+| `language-reference` | `full-library` | Language tools/parsers are library-shaped from a skill perspective. **Corpora-dependent** for a *whole-language* reference (a `grammar_file:`/`tree_triad:` signal: a compiler/interpreter): its value is the language's prose (guide/Book + std/library docs), not compiler internals, so step-auto-scope-corpora.md, which step-auto-scope.md §6 loads for that signal, seeds companion corpora, and §6/§7 record an honest DEGRADED caveat when none are found (mirrors the §3b facet-coverage guard). A parser *library* (`parser_producer:`/`parser_dep:`) is exempt: its code is the product. |
 | `stack-compose` | `full-library` | Decomposition candidate when `package_count > 3` — cohesion-checked in step-auto-scope.md §3b |
 | `unknown` | N/A | Triggers fallback to interactive mode |
 

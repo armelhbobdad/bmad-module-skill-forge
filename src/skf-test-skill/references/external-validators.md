@@ -1,6 +1,6 @@
 ---
 nextStepFile: 'step-hard-gate.md'
-outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
+outputFile: '{report_file}'
 externalScoreScript: 'scripts/combine-external-scores.py'
 outputFormatsFile: 'assets/output-section-formats.md'
 scoringRulesFile: 'references/scoring-rules.md'
@@ -32,40 +32,21 @@ preferencesFile: '{sidecar_path}/preferences.yaml'
 
 Run the external validators (`skill-check` whenever it is installed, and Tessl Review when the user opted in) against the skill directory, capture their scores and findings, and write their results into the test report. These tools catch complementary issues that internal coverage and coherence checks miss: `skill-check` validates spec compliance, while Tessl Review's AI judges score the description and the content of the whole skill folder.
 
-Every HALT in this step releases the run lock first (SKILL.md Workflow Rules).
+**Halt envelope.** Every HALT in this step names its `halt_reason` and phase and carries exit code 1. It releases the run lock first, whatever the release prints: from `{project-root}`, run `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"` (SKILL.md Workflow Rules). In headless mode it then writes `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{report_file}"}`, adding `"path"` when the halt names one, to `{run_dir}/halt.json` and runs:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
+```
+
+Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
 ### 1. Resolve Skill Directory
 
 Read {outputFile} frontmatter to get the skill directory path (`skillDir`).
 
-### 1b. Check for Recent Validation Results (Auto-Reuse)
-
-Before running external validators, check whether `{forge_evidence_report}`, the evidence report init.md §2 bound (the skill version folder's, or the flat copy an older skill may still keep), contains validation results (a `## Validation Results` section with quality scores). When it is null, go to section 2.
-
-**Staleness check:** Determine whether SKILL.md has changed since the evidence report was generated. Walk through these checks in order:
-
-**Pre-check (untracked or staged-only file):** Run `git ls-files --error-unmatch {skillDir}/SKILL.md 2>/dev/null`.
-- If the command fails (exit code non-zero) or git is not available, the file is either **untracked** (new, never committed) or we're in a **non-git environment**:
-  - Check if `{skillDir}/metadata.json` exists and has a `generation_date` field
-  - Compare `metadata.json` `generation_date` against the evidence report's generation date (from its frontmatter `generated` field or the `## Validation Results` timestamp)
-  - **Precision guard (mirror of the git-path Primary-cross check):** date-granularity equality is not proof of same-session generation. A same-day `update-skill` that regenerates SKILL.md *after* the cached evidence report was produced yields the same calendar date (e.g. `metadata.generation_date: 2026-05-23T00:00:00Z` vs evidence `generated: 2026-05-23`), so reusing on date-equality alone would publish pre-update scores for post-update content. Auto-reuse is safe **only** when both timestamps carry a real time-of-day component — neither a date-only string (`2026-05-23`) nor a midnight-coerced `…T00:00:00Z` — AND they match to the minute. In that case auto-reuse: the evidence report was generated from the same SKILL.md content.
-  - Otherwise — if either timestamp is date-only or midnight-coerced, if they differ, or if `metadata.json` is missing or has no `generation_date` — treat as stale and proceed to section 2 for a fresh run. Forcing a fresh run on ambiguous precision matches the git path's bias toward freshness over reusing possibly-stale scores.
-  - Note: "Staleness check: SKILL.md is untracked/non-git — using metadata.json timestamp comparison (date-only/midnight timestamps force a fresh run)."
-- If the command succeeds (file is tracked by git), continue to Primary check below.
-
-**Primary (git-tracked):** Run `git log -1 --format=%cI -- {skillDir}/SKILL.md` to get the last commit date of SKILL.md. Compare against the evidence report's generation date (from its frontmatter or the `## Validation Results` timestamp). If SKILL.md's last commit is newer, results are stale.
-
-**Primary-cross (single-commit bundle detection):** The git-commit-timestamp comparison can return a false "fresh" when `update-skill` commits a regenerated SKILL.md alongside an unchanged `evidence-report.md` in the same commit — both files share the same `%cI` even though the cached validation results inside the evidence report were produced during an earlier run. To catch this, after the Primary check also compare `{skillDir}/metadata.json`'s `generation_date` field against the evidence report's internal `## Validation Results` timestamp (or its frontmatter `generated` field). If `metadata.json.generation_date` is strictly newer than the evidence report's internal validation timestamp, treat results as stale regardless of git commit parity — SKILL.md was regenerated after the cached validation ran, so the scores no longer reflect current content. If `metadata.json` is missing or has no `generation_date`, skip this cross-check and rely on the git comparison alone.
-
-**Secondary (uncommitted changes):** Run `git diff --name-only -- {skillDir}/SKILL.md`. If output is non-empty, SKILL.md has uncommitted changes — treat results as stale regardless of commit dates. Also check `git diff --cached --name-only -- {skillDir}/SKILL.md` for staged-but-uncommitted changes — if non-empty, SKILL.md has been staged since last commit, treat results as stale.
-
-If SKILL.md was modified after the evidence report was generated (e.g., after update-skill), the cached results are stale — skip auto-reuse and proceed to section 2 for a fresh run.
-
-If recent, non-stale results exist (from a create-skill run that just completed), reuse the skill-check result instead of re-running it: take `skill_check_score` from the evidence report's `Schema:` row quality score (N/A when that row says skill-check was unavailable) and the remaining issues from its `## Remaining Warnings`, record "skill-check: reused from create-skill evidence report.", skip section 2 and continue at section 3. Never reuse a Tessl Review result from the evidence report: create-skill reviews the staged skill before step 7 copies its `scripts/` and `assets/`, and older evidence reports carry a `Content Quality (tessl)` row instead. Section 3 decides whether Tessl Review runs on this skill folder, and section 4 combines the scores.
-
-If no evidence report exists, it contains no validation section, or results are stale, proceed to section 2 (fresh run).
-
 ### 2. Run skill-check
+
+Run skill-check fresh on every test: a score cached in an evidence report can predate the SKILL.md under test, so no earlier result is reused.
 
 **Check availability (short probe — 15s timeout):**
 
@@ -177,7 +158,7 @@ When `{tessl_status}` is not `reviewed`, the Tessl Review block holds only its R
 
 Record the validators' findings in the gap ledger `{ledgerFile}`, so the Gap Report lists them beside the coverage and coherence gaps. Each is one record in the Ledger Record Format of `{outputFormatsFile}`, with the severity and category the Gap Severity table (`{scoringRulesFile}`) gives it:
 
-- each entry of `skill_check_diagnostics`, or each remaining issue §1b reused from the evidence report: a Low `external-validator` gap, with the file and line it names as its Source (else `SKILL.md`) and its message as the Issue;
+- each entry of `skill_check_diagnostics`: a Low `external-validator` gap, with the file and line it names as its Source (else `SKILL.md`) and its message as the Issue;
 - each `{tessl_validation}` finding: a Low `external-validator` gap, titled `Tessl Review: {name}`, with `SKILL.md` as its Source and its message as the Issue;
 - each of `{tessl_description_suggestions}`: a Low `description` gap titled with the suggestion, with the SKILL.md frontmatter `description` as its Source;
 - each of `{tessl_content_suggestions}` not marked `(not applicable: <rule-id>)`: an Info `external-validator` gap titled with the suggestion, with `SKILL.md` as its Source.
@@ -194,7 +175,7 @@ Rely on its JSON:
 
 - Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
 - Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0) and run the command again.
-- Exit 1: HALT with the script's `error`.
+- Exit 1: HALT with the script's `error` (`halt_reason: "helper-failed"`, phase `external-validators:ledger`).
 
 ### 6. Report Results
 

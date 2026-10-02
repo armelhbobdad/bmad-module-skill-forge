@@ -1591,3 +1591,134 @@ class TestTreeFile:
         proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
         assert proc.returncode == 2
         assert "cannot load skf-detect-language.py" in json.loads(proc.stderr)["error"]
+
+
+# --------------------------------------------------------------------------
+# --manifests-file: the scan envelope in place of a model-built list
+# (the W4 determinism-6 residual)
+# --------------------------------------------------------------------------
+
+SCAN_SCRIPT = SCRIPT_PATH.parent / "skf-scan-manifests.py"
+
+
+def _write_bytes(root: Path, rel: str, data: bytes) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
+def _envelope_file(tmp_path: Path, paths: list[str], name: str = "manifests-1.json") -> str:
+    """A skf-scan-manifests.py envelope listing `paths` (the fields the script reads)."""
+    out = tmp_path / name
+    manifests = [{"path": p, "ecosystem": "x", "name": None, "private": None, "deps": [], "internal_deps": []}
+                 for p in paths]
+    out.write_bytes(json.dumps({"manifests": manifests, "total_unique": 0, "monorepo": False}).encode("utf-8"))
+    return str(out)
+
+
+def run_manifests_file(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL, *args],
+                          capture_output=True, text=True, encoding="utf-8", timeout=60)
+
+
+class TestManifestsFile:
+    def test_the_scanner_envelope_is_read_whole(self, tmp_path):
+        """The real scan of a monorepo feeds shape detection with no list in between:
+        the same answer as the comma list of the resolved paths gives."""
+        root = tmp_path / "repo"
+        _write_bytes(root, "package.json", json.dumps({"name": "root", "private": True,
+                                                       "workspaces": ["packages/*"]}).encode("utf-8"))
+        _write_bytes(root, "packages/core/package.json",
+                     json.dumps({"name": "@acme/core", "main": "index.js"}).encode("utf-8"))
+        _write_bytes(root, "packages/api/pyproject.toml", b'[project]\nname = "acme-api"\n')
+        _write_bytes(root, "requirements.txt", b"requests\n")
+        scan = subprocess.run([sys.executable, str(SCAN_SCRIPT), "scan", str(root)],
+                              capture_output=True, timeout=60)
+        assert scan.returncode == 0, scan.stderr
+        envelope = tmp_path / "manifests-1.json"
+        envelope.write_bytes(scan.stdout)
+        by_file = run_manifests_file("--manifests-file", str(envelope), "--manifest-dir", str(root))
+        assert by_file.returncode == 0, by_file.stderr
+        listed = ",".join(str(root / p) for p in ("package.json", "packages/api/pyproject.toml",
+                                                  "packages/core/package.json"))
+        by_list = run_manifests_file("--manifests", listed)
+        out = json.loads(by_file.stdout)
+        assert out["shape"] == json.loads(by_list.stdout)["shape"] == "stack-compose"
+        assert out["package_count"] == 3, "requirements.txt is a type the script does not classify"
+
+    def test_only_the_classified_types_are_kept(self, tmp_path):
+        """A type the script cannot parse is left out, not refused as UNSUPPORTED_MANIFEST."""
+        _write_bytes(tmp_path, "Cargo.toml", b'[package]\nname = "lib"\n\n[lib]\npath = "src/lib.rs"\n')
+        envelope = _envelope_file(tmp_path, ["Gemfile", "requirements.txt", "Cargo.toml", "setup.cfg"])
+        proc = run_manifests_file("--manifests-file", envelope, "--manifest-dir", str(tmp_path))
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert (out["shape"], out["package_count"]) == ("library-API", 1)
+        assert mod.read_manifests_file(envelope) == ["Cargo.toml"]
+
+    def test_core_and_depth_read_the_path_below_the_scan_root(self, tmp_path):
+        """A repository checked out under a folder named examples/ is still its own
+        core package: the path the envelope gives, not where the root sits, decides."""
+        root = tmp_path / "examples" / "cli"
+        _write_bytes(root, "package.json", json.dumps({
+            "name": "acme-cli", "bin": {"acme": "bin/acme.js"}, "dependencies": {"commander": "^12"},
+        }).encode("utf-8"))
+        envelope = _envelope_file(tmp_path, ["package.json"])
+        proc = run_manifests_file("--manifests-file", envelope, "--manifest-dir", str(root))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["shape"] == "reference-app"
+        assert mod.is_core_manifest("package.json", "acme-cli")
+        assert not mod.is_core_manifest((root / "package.json").as_posix(), "acme-cli")
+
+    def test_an_envelope_with_no_classified_manifest_still_reads_the_tree(self, tmp_path):
+        """A manifest-less language toolchain (CPython) is classified from its files."""
+        envelope = _envelope_file(tmp_path, [])
+        proc = run_manifests_file("--manifests-file", envelope, "--manifest-dir", str(tmp_path),
+                                  "--tree-file", _tree_file(tmp_path, CPYTHON_FILES))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["shape"] == "language-reference"
+
+    @pytest.mark.parametrize(
+        "args, code",
+        [
+            pytest.param(["--manifests", "a/package.json"], "INVALID_ARGS", id="both-forms"),
+            pytest.param([], "INVALID_ARGS", id="no-manifest-dir"),
+        ],
+    )
+    def test_the_manifests_are_passed_once_with_their_root(self, tmp_path, args, code):
+        envelope = _envelope_file(tmp_path, ["package.json"])
+        extra = [] if args == [] else ["--manifest-dir", str(tmp_path)]
+        proc = run_manifests_file("--manifests-file", envelope, *extra, *args)
+        assert proc.returncode == 2
+        assert json.loads(proc.stderr)["code"] == code
+
+    def test_the_manifest_dir_goes_with_the_file(self, tmp_path):
+        proc = run_manifests_file("--manifests", "", "--manifest-dir", str(tmp_path))
+        assert proc.returncode == 2
+        assert json.loads(proc.stderr)["code"] == "INVALID_ARGS"
+
+    @pytest.mark.parametrize(
+        "content",
+        [pytest.param(b"not json", id="not-json"),
+         pytest.param(b'{"warnings": []}', id="no-manifests"),
+         pytest.param(b'{"manifests": [{"ecosystem": "npm"}]}', id="entry-without-path")],
+    )
+    def test_a_file_that_is_no_scan_envelope_exits_2(self, tmp_path, content):
+        path = tmp_path / "manifests-1.json"
+        path.write_bytes(content)
+        proc = run_manifests_file("--manifests-file", str(path), "--manifest-dir", str(tmp_path))
+        assert proc.returncode == 2
+        assert json.loads(proc.stderr)["code"] == "MANIFESTS_FILE_ERROR"
+
+    def test_a_missing_manifest_names_the_resolved_path(self, tmp_path):
+        envelope = _envelope_file(tmp_path, ["pkg/package.json"])
+        proc = run_manifests_file("--manifests-file", envelope, "--manifest-dir", str(tmp_path / "root"))
+        assert proc.returncode == 2
+        err = json.loads(proc.stderr)
+        assert err["code"] == "MANIFEST_NOT_FOUND"
+        assert (tmp_path / "root" / "pkg" / "package.json").as_posix() in err["error"]
+
+    def test_neither_form_is_an_error(self):
+        proc = run_manifests_file()
+        assert proc.returncode == 2
+        assert json.loads(proc.stderr)["code"] == "MISSING_MANIFESTS"

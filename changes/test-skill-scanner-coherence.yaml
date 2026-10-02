@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  `skf-test-skill`'s coherence check takes its facts from the shared SKILL.md scanner, `skf-scan-skill-md-structure.py`, instead of greps and one subagent per reference. The zero-usage check counts each function and method export as a whole, fixed name, so an export named `$state` or `a.b` is no longer an empty or wildcard pattern; the scanner's `reference-check` checks that each file a markdown link names, and each `references/`, `scripts/` or `assets/` path the skill mentions, exists inside the skill, its source or (for a stack) the skills folder, and any other path written outside a link is no longer checked; the Scripts & Assets section test reads the scanner's new `scripts_assets` field; and `aggregate-coherence.py` counts the valid references itself from the per-reference results (`--references`, `--judged`, `--integration`). The documented-inventory spot-check runs in `validate-inventory.py` (`--skill-package`). skill-check now runs fresh on every test instead of reusing a score from create-skill's evidence report. Coherence and external validation scores can shift where the old counts or the reused score were wrong.
+prs: [637]
+issues: [598, 599]

@@ -6,8 +6,7 @@
 name to its GitHub repository.
 
 `parse-target` splits what the user typed into its parts. `resolve` asks
-every registry of the canonical chain documented in
-`src/skf-quick-skill/references/registry-resolution.md`, in this order:
+every registry of the canonical chain, in this order:
 
   1. npm registry        (JavaScript/TypeScript)
   2. PyPI registry       (Python)
@@ -19,7 +18,8 @@ bare name such as `numpy`, which npm and PyPI both hold, never resolves to
 one project without the other being named. Per-call timeout (default
 10s); a timeout is treated as a soft failure, like a 404. Web-search
 fallback is intentionally NOT in this helper: registries are
-deterministic; web search is judgment, and stays in the LLM step.
+deterministic; web search is judgment, and stays in the LLM step
+(`src/skf-quick-skill/references/registry-resolution.md`).
 
 CLI:
 

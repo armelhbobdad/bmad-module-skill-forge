@@ -1,6 +1,6 @@
 ---
 nextStepFile: 'coverage-check.md'
-outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
+outputFile: '{report_file}'
 ---
 
 <!-- Config: communicate in {communication_language}. -->

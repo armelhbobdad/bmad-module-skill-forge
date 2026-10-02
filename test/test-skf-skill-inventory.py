@@ -2791,3 +2791,84 @@ def test_one_name_rule_on_both_paths():
         assert "`unnamed`" in text and "`duplicates`" in text
     # Section 6 takes the coexistence decision itself: [A] does not restart at section 1.
     assert "sets `{coexistence_suffix}` to `-wiki` and continues here" in auto
+
+
+# ---------------------------------------------------------------------------
+# test-skill's in-progress report (#587) and the near names test-skill shows
+# ---------------------------------------------------------------------------
+
+IN_PROGRESS_REPORT = ".skf-test-report-demo-20260601T120000Z-ab12.md"
+
+
+@pytest.mark.parametrize("with_anchor", [True, False], ids=["marked", "halted-before-anchors"])
+def test_an_in_progress_test_report_leaves_the_forge_version_skfs(tmp_path, with_anchor):
+    """A run that halts leaves its hidden report beside the lock: never a foreign entry,
+    so drop and rename can still purge or move the version."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge-data"
+    make_skill(skills, "demo")
+    _write(forge / "demo" / "skill-brief.yaml")
+    version = forge / "demo" / "1.0.0"
+    _write(version / ".test-skill.lock")
+    _write(version / IN_PROGRESS_REPORT, "---\ntestResult: ''\n---\n")
+    if with_anchor:
+        _write(version / "provenance-map.json", "{}")
+    group = mod.classify_forge_group(forge / "demo", "demo")
+    assert group["foreign_entries"] == []
+    assert group["ownership"] == "skf"
+    for version_arg in (None, "1.0.0"):
+        purge = mod.purge_check(skills, "demo", forge, version_arg)
+        assert purge["verdict"] == "ok", purge
+        assert purge["forge_foreign_entries"] == []
+    assert mod.rename_check(skills, "demo", forge)["verdict"] == "ok"
+
+
+def test_an_in_progress_test_report_in_a_shared_folder_is_skfs(tmp_path):
+    """With one folder for skills and forge data, the report sits beside the package."""
+    skills = tmp_path / "skills"
+    make_skill(skills, "demo", with_provenance=True)
+    version = skills / "demo" / "1.0.0"
+    _write(version / "provenance-map.json", "{}")
+    _write(version / ".test-skill.lock")
+    _write(version / IN_PROGRESS_REPORT)
+    result = scan_inventory(str(skills), forge_data_folder=str(skills))
+    [entry] = result["skills"]
+    assert result["same_folder"] is True
+    assert entry["ownership"] == "skf"
+    assert entry["foreign_entries"] == []
+    assert result["not_skf_output"] == []
+
+
+def test_near_lists_the_testable_skills_closest_first(tmp_path):
+    skills = tmp_path / "skills"
+    for name in ("zod", "cocoindex-code", "cocoindx"):
+        make_skill(skills, name)
+    make_skill(skills, "cocoindex-notes", with_metadata=False)  # no SKF marker: not testable
+    code, out, err = _run_inventory(str(skills), "--near", "cocoindex")
+    assert code == 0, err
+    assert out["near"] == [
+        {"name": "cocoindx", "active_version": "1.0.0", "close": True},
+        {"name": "cocoindex-code", "active_version": "1.0.0", "close": True},
+        {"name": "zod", "active_version": "1.0.0", "close": False},
+    ]
+    code, out, _ = _run_inventory(str(skills))
+    assert code == 0 and "near" not in out
+
+
+def test_near_needs_a_name(tmp_path):
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    code, out, _ = _run_inventory(str(skills), "--near")
+    assert code == 1 and out["code"] == "USAGE"
+
+
+def test_test_skill_reads_a_failed_near_list_as_no_list(tmp_path):
+    """A skills folder that does not exist exits 1 with no `near[]`; test-skill's init.md then
+    shows only the create-skill line, at the skill-name prompt and at the not-found branch."""
+    code, out, _ = _run_inventory(str(tmp_path / "missing"), "--near", "")
+    assert code == 1 and out["code"] == "DIR_NOT_FOUND" and "near" not in out
+    init = re.sub(r"\s+", " ", (REPO / "src" / "skf-test-skill" / "references" / "init.md").read_text(encoding="utf-8"))
+    prompt = init[init.index("### 1. Receive the Skill Name"):init.index("### 1b.")]
+    assert "when the helper exits non-zero, or `near[]` is absent or empty, show the create-skill line below instead" in prompt
+    not_found = init[init.index("**Not found** (step 4)"):init.index("**If SKILL.md missing**")]
+    assert "When the helper exits non-zero, or `near[]` is absent or empty" in not_found
+    assert "show no list, only that create-skill line" in not_found

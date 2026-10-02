@@ -1,6 +1,6 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-schemaFile: '{briefSchemaPath}'
+schemaFile: 'assets/skill-brief-schema.md'
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
@@ -21,7 +21,7 @@ To write a valid skill-brief.yaml for each confirmed unit through the brief writ
 ## Rules
 
 - Generate only for units in confirmed_units — no extras, no omissions
-- Do not modify recommendations or re-ask for confirmations
+- Do not revisit the per-unit decisions of step 5: the §4 preview confirms only the write
 - Every generated field must trace back to data collected in steps 02-05
 - Briefs are written only by the brief writer, from a context file: never render or hand-edit brief YAML
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is not the terminal step
@@ -41,8 +41,8 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 Read {outputFile} completely to obtain:
 - `confirmed_units` from frontmatter (names of units approved in step 05)
 - `confirmed_composites` from frontmatter (composites approved in step 04, each with its constituents' names and paths)
-- `project_paths`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
-- Recommendation cards from "## Recommendations" section (proposed brief fields per unit)
+- `project_paths`, `refs`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
+- Recommendation cards from "## Recommendations" section (proposed brief fields and the project path of each unit)
 - Export map and integration data from prior sections
 
 Load {schemaFile} for validation reference.
@@ -63,7 +63,8 @@ The brief writer renders, checks and writes each brief, and applies the version 
 |-------|--------|
 | name | Confirmed name from step 05 recommendation card: the name identify-units Step C derived, unless step 5 renamed the unit |
 | version | Not set here: `detected_version` is the version the unit's own manifest declares, found by the Version Detection rules in {schemaFile}, when it is full `X.Y.Z` semver (an optional leading `v`, an optional pre-release such as `-rc.1`); else null (a two-part or PEP 440 version such as `0.1` or `2.0.0rc1` too), since the writer rejects any other value. The writer falls back to `1.0.0` for null |
-| source_repo | `{project_paths[0]}` from frontmatter (or per-unit path if multi-repo) |
+| source_repo | The unit's project path, the `project_paths[]` entry it was found under (a composite's constituents share one) |
+| target_ref | The unit's ref: its project path's entry in `refs`, else null. Never a version: `target_version` stays null |
 | language | Language the skill **documents** (primary language detected in step 03). For a language / spec reference this is the *documented* language, which may differ from the source language it is extracted from — e.g. a SurrealQL reference extracted from a Rust engine records `surrealql`, not `rust` (see {schemaFile} "Documented vs source language") |
 | scope.type | Scope type from step 05 recommendation card |
 | scope.include | Include patterns from step 05 recommendation card, plus, for a composite (`Boundary: Composite` on its card), `<path>/**` for every constituent path of its `confirmed_composites` entry (such as `crates/animato-core/**`), so the brief spans every constituent. Find the entry by those paths, which the card's Path lists, not by name: step 05 may rename the unit |
@@ -81,7 +82,7 @@ Write each unit's context as `{run_dir}/brief-{unit-name}.json`, a file and neve
 {
   "name": "{unit-name}",
   "target_version": null,
-  "target_ref": null,
+  "target_ref": "{the unit's ref, or null}",
   "detected_version": "{version, or null}",
   "source_type": "source",
   "source_repo": "{source_repo}",
@@ -134,6 +135,7 @@ uv run {validateBriefSchemaHelper} "{run_dir}/briefs/{unit-name}/skill-brief.yam
 **If any check fails:**
 - Document the failure with specific field and reason
 - Correct the context (3a) or present to user for correction (3b semantic issues) before writing: an invalid brief is not written
+- In headless mode no one corrects it: correct what the recommendation card and the report settle and check again, once; a brief still failing a 3b check is a HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `generate-briefs:3`, path `{forge_data_folder}/{unit-name}/skill-brief.yaml`, with `unit_counts` from step 5), as in 3a: "The brief for {unit-name} failed the {check} check: {the reason}."
 
 ### 4. Present Generation Preview
 
@@ -156,7 +158,13 @@ uv run {validateBriefSchemaHelper} "{run_dir}/briefs/{unit-name}/skill-brief.yam
 
 Wait for explicit user confirmation before writing files.
 
-**GATE [default: Y]** — If `{headless_mode}` is true: auto-confirm [Y], write all briefs, and log: "headless: auto-write {count} briefs". Do not stall at this gate — it is the deliverable-producing step of a headless/pipeline run.
+**GATE [default: Y]**: if `{headless_mode}` is true, auto-confirm [Y] and write all briefs, and record that decision the moment it is taken: stage `{run_dir}/decision.json` as `{"gate": "generate-briefs.write", "default_action": "Y", "taken_action": "Y", "reason": "headless: auto-write {count} briefs", "evidence": {"briefs": [<each unit name>]}}`, then run
+
+```bash
+uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
+```
+
+If the command fails, go on: only that entry is lost. Do not stall at this gate: it is the deliverable-producing step of a headless or pipeline run.
 
 ### 5. Write Files
 

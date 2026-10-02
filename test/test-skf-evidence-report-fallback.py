@@ -4,15 +4,20 @@ Validates the threshold fallback compute-score.py applies and the score.md
 §4b fields that read it (the prose restates no trigger), evidence report path in the
 architecture spec, INCONCLUSIVE guard clause, 80% floor constant, fallback
 fields in output frontmatter (§7), fallback notice in score report (§8),
-SKILL.md outputs mention of the evidence report, result contract fallback
-fields in report.md, and report.md §6 fallback notice block.
+the invocation contract's outputs mention of the evidence report (lifted
+out of SKILL.md, #600), the result contract fallback fields, which
+build-result-context.py writes for report.md §4c (present only when the
+fallback fired, #593), and report.md §6 fallback notice block.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import re
+import subprocess
+import sys
 
 import pytest
 
@@ -21,6 +26,9 @@ TS_DIR = REPO_ROOT / "src" / "skf-test-skill"
 SCORE_FILE = TS_DIR / "references" / "score.md"
 REPORT_FILE = TS_DIR / "references" / "report.md"
 SKILL_MD = TS_DIR / "SKILL.md"
+CONTRACT_FILE = TS_DIR / "references" / "invocation-contract.md"
+BUILD_CONTEXT = TS_DIR / "scripts" / "build-result-context.py"
+GAP_LEDGER = TS_DIR / "scripts" / "gap-ledger.py"
 PIPELINE_CONTRACTS = REPO_ROOT / "src" / "shared" / "references" / "pipeline-contracts.md"
 
 
@@ -252,73 +260,42 @@ class TestScoreSection8Fallback:
 
 
 # ---------------------------------------------------------------------------
-# SKILL.md — Outputs Mention Evidence Report
+# invocation-contract.md: Outputs Mention Evidence Report
 # ---------------------------------------------------------------------------
 
 
-class TestSkillMdOutputs:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(SKILL_MD)
+def _contract_section(heading: str) -> str:
+    m = re.search(rf"^{re.escape(heading)}[^\n]*\n(.*?)(?=^## |\Z)", _read(CONTRACT_FILE),
+                  flags=re.MULTILINE | re.DOTALL)
+    assert m, f"invocation-contract.md must have a {heading} section"
+    return m.group(1)
 
-    def test_outputs_mention_evidence_report(self, text: str) -> None:
-        invocation_match = re.search(
-            r"## Invocation Contract\b(.*?)(?=^## )",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        assert invocation_match, "SKILL.md must have an Invocation Contract section"
-        section = invocation_match.group(1)
+
+class TestContractOutputs:
+    def test_outputs_mention_evidence_report(self) -> None:
+        section = _contract_section("## Invocation Contract")
         assert "evidence-report-fallback.md" in section, (
             "Invocation Contract Outputs must mention evidence-report-fallback.md"
         )
 
+    def test_skill_md_points_at_the_contract(self) -> None:
+        text = _read(SKILL_MD)
+        assert "## Result Contract" not in text and "`references/invocation-contract.md`" in text
+
 
 # ---------------------------------------------------------------------------
-# SKILL.md — Result Contract Includes Fallback Fields
+# invocation-contract.md: Result Contract Includes Fallback Fields
 # ---------------------------------------------------------------------------
 
 
-class TestSkillMdResultContract:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(SKILL_MD)
+class TestContractFallbackFields:
+    @pytest.fixture
+    def section(self) -> str:
+        return _contract_section("## Result Envelope (Headless)") + _contract_section("## Result Files")
 
-    def test_result_contract_threshold_fallback(self, text: str) -> None:
-        rc_match = re.search(
-            r"## Result Contract\b(.*?)(?=^## )",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        assert rc_match, "SKILL.md must have a Result Contract section"
-        section = rc_match.group(1)
-        assert "threshold_fallback" in section, (
-            "Result Contract must include threshold_fallback field"
-        )
-
-    def test_result_contract_original_threshold(self, text: str) -> None:
-        rc_match = re.search(
-            r"## Result Contract\b(.*?)(?=^## )",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        assert rc_match
-        section = rc_match.group(1)
-        assert "original_threshold" in section, (
-            "Result Contract must include original_threshold field"
-        )
-
-    def test_result_contract_evidence_report_path(self, text: str) -> None:
-        rc_match = re.search(
-            r"## Result Contract\b(.*?)(?=^## )",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        assert rc_match
-        section = rc_match.group(1)
-        assert "evidence_report_path" in section, (
-            "Result Contract must include evidence_report_path field"
-        )
+    @pytest.mark.parametrize("field", ["threshold_fallback", "original_threshold", "evidence_report_path"])
+    def test_result_contract_names_the_field(self, section: str, field: str) -> None:
+        assert field in section, f"the result contract must include {field}"
 
 
 # ---------------------------------------------------------------------------
@@ -357,50 +334,53 @@ class TestReportSection6Fallback:
 
 
 # ---------------------------------------------------------------------------
-# report.md §4c — Result Contract Includes Fallback Fields
+# report.md §4c: the result contract's fallback fields come from the script
 # ---------------------------------------------------------------------------
 
 
-class TestReportResultContract:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(REPORT_FILE)
+def _build(tmp_path: pathlib.Path, fallback: bool) -> dict:
+    """Run build-result-context.py on a scored report, with or without a fallback."""
+    lines = ["---", "skillName: 'demo'", "runId: '20260101T000000Z-ab12cd34'", "testMode: 'naive'",
+             "hardGate: 'passed'", "testResult: 'pass'", "score: '84.5%'"]
+    if fallback:
+        lines += ["threshold: '80%'", "thresholdFallback: true", "originalThreshold: '90%'",
+                  "evidenceReportPath: 'forge/demo/1.0.0/evidence-report-fallback.md'"]
+    else:
+        lines += ["threshold: '80%'"]
+    report = tmp_path / "test-report-demo-20260101T000000Z-ab12cd34.md"
+    report.write_bytes(("\n".join(lines + ["---", "# Report", ""])).encode("utf-8"))
+    ledger = tmp_path / "test-findings-20260101T000000Z-ab12cd34.json"
+    subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage", "coverage-check"],
+                   input="[]", capture_output=True, text=True, encoding="utf-8", check=True)
+    score = tmp_path / "score.json"
+    score.write_bytes(json.dumps({"activeCategories": ["exportCoverage", "externalValidation"]}).encode("utf-8"))
+    out = tmp_path / "result-context.json"
+    proc = subprocess.run([sys.executable, str(BUILD_CONTEXT), "--report", str(report), "--ledger", str(ledger),
+                           "--score", str(score), "--output", str(out)],
+                          capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return json.loads(out.read_text(encoding="utf-8"))
 
-    def test_result_contract_threshold_fallback(self, text: str) -> None:
+
+class TestReportResultContract:
+    def test_report_builds_the_contract_with_the_script(self) -> None:
         contract_match = re.search(
             r"### 4c\. Result Contract\b(.*?)(?=^### |\Z)",
-            text,
+            _read(REPORT_FILE),
             flags=re.MULTILINE | re.DOTALL,
         )
         assert contract_match, "report.md must have a §4c Result Contract section"
         section = contract_match.group(1)
-        assert "threshold_fallback" in section, (
-            "report.md §4c must include threshold_fallback in result contract"
-        )
+        assert "uv run {resultContextScript}" in section
+        assert "emit --workflow skf-test-skill" in section
 
-    def test_result_contract_original_threshold(self, text: str) -> None:
-        contract_match = re.search(
-            r"### 4c\. Result Contract\b(.*?)(?=^### |\Z)",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        assert contract_match
-        section = contract_match.group(1)
-        assert "original_threshold" in section, (
-            "report.md §4c must include original_threshold in result contract"
-        )
-
-    def test_result_contract_evidence_report_path(self, text: str) -> None:
-        contract_match = re.search(
-            r"### 4c\. Result Contract\b(.*?)(?=^### |\Z)",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        assert contract_match
-        section = contract_match.group(1)
-        assert "evidence_report_path" in section, (
-            "report.md §4c must include evidence_report_path in result contract"
-        )
+    def test_a_fallback_records_its_three_fields(self, tmp_path: pathlib.Path) -> None:
+        payload = _build(tmp_path, fallback=True)
+        assert (payload["threshold_fallback"], payload["original_threshold"]) == (True, 90)
+        summary = payload["result_contract"]["summary"]
+        assert (summary["threshold_fallback"], summary["original_threshold"]) == (True, 90)
+        assert summary["evidence_report_path"] == "forge/demo/1.0.0/evidence-report-fallback.md"
+        assert payload["threshold"] == 80, "the threshold the verdict was settled against"
 
 
 # ---------------------------------------------------------------------------
@@ -592,46 +572,26 @@ class TestFallbackWorkflowContext:
 
 
 # ---------------------------------------------------------------------------
-# SKILL.md — Fallback Fields Omitted (Not False/Null) When No Fallback
+# The contract: Fallback Fields Omitted (Not False/Null) When No Fallback
 # ---------------------------------------------------------------------------
 
 
-class TestSkillMdAbsentSemantics:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(SKILL_MD)
-
-    def test_headless_envelope_omits_when_no_fallback(self, text: str) -> None:
-        rc_match = re.search(
-            r"## Result Contract\b(.*?)(?=^## )",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        assert rc_match, "SKILL.md must have a Result Contract section"
-        section = rc_match.group(1)
-        assert "omit" in section.lower(), (
-            "Result Contract must state that fallback fields are omitted when no fallback occurred"
+class TestContractAbsentSemantics:
+    def test_headless_envelope_omits_when_no_fallback(self) -> None:
+        section = _contract_section("## Result Envelope (Headless)")
+        assert "appear only when the threshold fallback fired" in section, (
+            "the contract must state that fallback fields are omitted when no fallback occurred"
         )
 
 
 # ---------------------------------------------------------------------------
-# report.md §4c — Fallback Fields Absent (Not False/Null) When No Fallback
+# build-result-context.py: Fallback Fields Absent (Not False/Null) When No Fallback
 # ---------------------------------------------------------------------------
 
 
 class TestReportAbsentSemantics:
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(REPORT_FILE)
-
-    def test_result_contract_absent_not_false(self, text: str) -> None:
-        contract_match = re.search(
-            r"### 4c\. Result Contract\b(.*?)(?=^### |\Z)",
-            text,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        assert contract_match, "report.md must have a §4c Result Contract section"
-        section = contract_match.group(1)
-        assert "absent" in section.lower(), (
-            "report.md §4c must state that fallback fields are absent (not false/null) when no fallback occurred"
-        )
+    def test_result_contract_absent_not_false(self, tmp_path: pathlib.Path) -> None:
+        payload = _build(tmp_path, fallback=False)
+        for record in (payload, payload["result_contract"], payload["result_contract"]["summary"]):
+            for field in ("threshold_fallback", "original_threshold", "evidence_report_path"):
+                assert field not in record, field

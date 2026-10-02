@@ -14,8 +14,9 @@ fallback). These tests keep test-skill's step files on those bindings:
   also shows the versioned-first order the prose promises;
 - every read site (source access State 2, the coverage State 2 surface and
   the metadata loader behind the denominator, the stack denominator and the
-  Cluster-B count, the Migration & Deprecation gate, the external
-  validators' reuse check) reads its binding and names no path;
+  Cluster-B count, the Migration & Deprecation gate) reads its binding and
+  names no path; the external validators no longer reuse an evidence
+  report's score (#599: skill-check always runs fresh);
 - no test-skill file names a flat artifact path, in either spelling of the
   flat folder, and only the §4c line check names the version folder's map;
 - the awk detection contract reads `{forge_evidence_report}`, and the
@@ -32,8 +33,10 @@ take, and run each prose command against the real helper:
   releases it (a rule stated before the first HALT of a step file, or at
   the halt), a run the hard gate blocks ends through report.md instead of
   halting, and both ways report.md §7 ends a run release it with the
-  command written out; the runtime check comes before the first helper
-  call;
+  command written out; every step after the lock writes the release
+  command out in its Halt envelope paragraph, before its first HALT; the
+  runtime check comes before the first helper call, and every HALT names a
+  halt_reason the envelope schema lists (#593, #594);
 - the workspace drift guard (#588 item 4): init.md §5b runs
   skf-check-workspace-drift.py once per source tree instead of git by hand;
 - the Quick-tier scan and the workspace layout (#584): coverage-check.md
@@ -102,6 +105,7 @@ COMPILE_STACK = STACK / "references" / "compile-stack.md"
 STACK_TEMPLATE = STACK / "assets" / "stack-skill-template.md"
 VERSION_PATHS = SRC / "knowledge" / "version-paths.md"
 SKILL_MD = TEST_SKILL / "SKILL.md"
+CONTRACT = REFS / "invocation-contract.md"
 REPORT = REFS / "report.md"
 HARD_GATE = REFS / "step-hard-gate.md"
 SCRIPTS = SRC / "shared" / "scripts"
@@ -123,6 +127,9 @@ PROSE_SCRIPTS = {
     "{externalScoreScript}": TEST_SKILL / "scripts" / "combine-external-scores.py",
     "{locateExportSegmentsScript}": TEST_SKILL / "scripts" / "locate-export-segments.py",
     "{gapLedgerScript}": TEST_SKILL / "scripts" / "gap-ledger.py",
+    "{scanSkillMdStructureHelper}": SCRIPTS / "skf-scan-skill-md-structure.py",
+    "{resultContextScript}": TEST_SKILL / "scripts" / "build-result-context.py",
+    "{emitEnvelopeHelper}": SCRIPTS / "skf-emit-result-envelope.py",
 }
 
 PROVENANCE = "provenance-map.json"
@@ -159,9 +166,8 @@ READ_SITES = [
     (COVERAGE, "### 2b. Resolve the Denominator and Guard Zero Exports", "### 2c.", PROVENANCE),
     (COVERAGE, "**States 2 to 4 (no local source):**", "### 2b.", PROVENANCE),
     (MIGRATION, "## Gate Check", "## Scope of Section 4b", EVIDENCE),
-    (EXTERNAL, "### 1b. Check for Recent Validation Results", "**Staleness check:**", EVIDENCE),
 ]
-READ_SITE_IDS = ["state-2", "metadata-loader", "state-2-surface", "migration-gate", "validator-reuse"]
+READ_SITE_IDS = ["state-2", "metadata-loader", "state-2-surface", "migration-gate"]
 
 
 def _read(path: Path) -> str:
@@ -328,8 +334,7 @@ def test_only_the_line_check_names_the_version_folders_map():
 
 @pytest.mark.parametrize("path, start, end", [
     (MIGRATION, "## Gate Check", "## Scope of Section 4b"),
-    (EXTERNAL, "### 1b. Check for Recent Validation Results", "**Staleness check:**"),
-], ids=["migration-gate", "validator-reuse"])
+], ids=["migration-gate"])
 def test_evidence_readers_read_the_bound_report(path, start, end):
     section = _flow(_slice(_read(path), start, end))
     assert "`{forge_evidence_report}`" in section and BOUND_AT_INIT in section
@@ -393,7 +398,17 @@ def test_report_skill_dir_is_the_package_init_bound():
     assert "skillDir: '{resolved_skill_package}'" in template
     for path in sorted(TEST_SKILL.rglob("*.md")):
         assert "{skill_path}" not in _read(path), path.name
-    assert "`skillDir`" in _slice(_read(EXTERNAL), "### 1. Resolve Skill Directory", "### 1b.")
+    assert "`skillDir`" in _slice(_read(EXTERNAL), "### 1. Resolve Skill Directory", "### 2.")
+
+
+def test_skill_check_always_runs_fresh():
+    """#599: the evidence-report reuse cache is gone; every test runs skill-check itself."""
+    text = _read(EXTERNAL)
+    for gone in ("### 1b.", "Auto-Reuse", "Staleness check", "reused from create-skill evidence report",
+                 "{forge_evidence_report}", "git log -1", "§1b reused"):
+        assert gone not in text, gone
+    run = _flow(_slice(text, "### 2. Run skill-check", "### 3."))
+    assert "Run skill-check fresh on every test" in run
 
 
 # --------------------------------------------------------------------------
@@ -440,7 +455,8 @@ LOCK_ARGS = '--lock "{forge_version}/.test-skill.lock"'
 ACQUIRE = f'uv run {{runLockHelper}} acquire {LOCK_ARGS} --owner "test-skill:{{skill_name}}"'
 RENEW = f'uv run {{runLockHelper}} acquire {LOCK_ARGS} --owner "{{run_owner}}"'
 RELEASE = f'uv run {{runLockHelper}} release {LOCK_ARGS} --owner "{{run_owner}}"'
-STEP_RELEASE = "Every HALT in this step releases the run lock first (SKILL.md Workflow Rules)"
+# Each step after the lock writes the release command out before its first HALT.
+STEP_RELEASE = f"It releases the run lock first, whatever the release prints: from `{{project-root}}`, run `{RELEASE}`"
 RUN_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 # Step files after init.md §6a, in stage order. health-check.md is loaded
 # after report.md §7 released the lock.
@@ -465,7 +481,7 @@ def test_init_takes_the_lock_and_the_run_id_from_the_helper():
     # Taken, refused (another-run-active) and a helper failure are each handled.
     for case in ("`acquired` is true", "`acquired` is false (exit 3)", "The helper exits 1 or 2"):
         assert case in flow, case
-    assert '"halt_reason":"another-run-active"' in section
+    assert 'HALT (`halt_reason: "another-run-active"`, phase `init:run-lock`)' in flow
 
 
 def test_no_step_file_holds_a_process_lock_or_builds_a_run_id():
@@ -509,10 +525,11 @@ def test_a_release_never_removes_another_runs_lock(tmp_path):
 def test_report_renews_the_lock_before_it_writes_the_result_files(tmp_path):
     contract = _slice(_read(REPORT), "### 4c. Result Contract", "### 5. Finalize Output Document")
     assert RENEW in _fence(contract, RENEW)
-    assert contract.index(RENEW) < contract.index("write --target {forge_version}/skf-test-skill-result-")
-    renewal = _flow(contract[:contract.index("**Resolve `{atomicWriteHelper}`")])
+    assert contract.index(RENEW) < contract.index("**Publish the report.**") \
+        < contract.index("emit --workflow skf-test-skill")
+    renewal = _flow(contract[:contract.index("**Publish the report.**")])
     assert "Exit 3" in renewal and "HALT before writing anything" in renewal
-    assert '"halt_reason":"another-run-active"' in renewal
+    assert '(`halt_reason: "another-run-active"`, phase `report:run-lock`)' in renewal
 
     forge_version = tmp_path / "v"
     owner = json.loads(_run(ACQUIRE, _lock_values(forge_version), tmp_path).stdout)["owner"]
@@ -543,43 +560,62 @@ def test_the_gate_and_both_ends_of_a_run_release_the_lock():
     # A blocked run no longer halts at the gate with the lock in hand: it ends
     # through report.md, whose §7 releases the lock like any other run's.
     block = _flow(_slice(_read(HARD_GATE), "### §3. Block", "### §4. Pass"))
-    assert "load and execute `{blockedStepFile}`" in block and "HALT" not in block
+    assert "load and execute `{blockedStepFile}`" in block
+    assert "HALT" not in block
     assert _frontmatter(HARD_GATE)["blockedStepFile"] == "report.md"
     section7 = _flow(_slice(_read(REPORT), "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
-    bypass = _slice(section7, "**`--no-health-check` flag bypass", "Resolve `{healthCheckFile}`")
-    assert bypass.index("mirror `healthCheckDispatched: false`") < bypass.index(RELEASE) \
-        < bypass.index("exit the workflow")
-    menu = section7[section7.index("Also mirror the boolean into the `healthCheckDispatched` field"):]
-    assert menu.index("**Release the run lock:**") < menu.index(RELEASE) \
-        < menu.index('Display: "**Test complete.** [C] Finish"')
+    bypass = _slice(section7, "**`--no-health-check` flag bypass", "**Release the run lock:**")
+    assert bypass.index("`healthCheckDispatched: false`") < bypass.index(RELEASE) \
+        < bypass.index("display `{result_envelope_line}` verbatim as the run's last line")
+    main = section7[section7.index("**Release the run lock:**"):]
+    assert RELEASE in main
+    # Nothing after the result files halts: the health check was found before anything was published,
+    # and the local step only hands over to it.
+    assert "HALT" not in section7 and "health-check-missing" not in section7
+    found = _flow(_slice(_read(REPORT), "**Find the health check**", "**Renew the run lock**"))
+    assert 'HALT (`halt_reason: "health-check-missing"`, phase `report:health-check`)' in found
+    relay = REFS / "health-check.md"
+    assert _frontmatter(relay) == {"nextStepFile": "shared/health-check.md"}
+    assert "HALT" not in _read(relay) and "ProbeOrder" not in _read(relay)
+    # #599: no one-option menu waits between the report and the health check.
+    assert "[C] Finish" not in _read(REPORT) and "with no menu before it" in _flow(_read(REPORT))
 
 
-def test_skill_md_documents_the_lock():
-    text = _read(SKILL_MD)
+def test_the_contract_documents_the_lock():
+    text = _read(CONTRACT)
     row = next(line for line in text.splitlines() if line.startswith("| **Concurrency** |"))
     for needle in ("`{forge_version}/.test-skill.lock`", "`skf-run-lock.py`", "report.md §4c renews it",
                    '`halt_reason: "another-run-active"`', "(exit 1)"):
         assert needle in row, needle
-    contract = _slice(text, "## Result Contract (Headless)", "## On Activation")
-    assert '"another-run-active"' in contract
-    run_record = next(line for line in contract.splitlines() if "skf-test-skill-result-{run_id}.json" in line)
-    assert "PID" not in run_record and "random suffix" in run_record
+    envelope = _slice(text, "## Result Envelope (Headless)", "## Result Files")
+    assert "| `another-run-active` |" in envelope
+    records = _flow(_slice(text, "## Result Files", "## Emitting a Halt"))
+    assert "`skf-test-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name" in records
+    assert "PID" not in records
 
 
-def test_skill_md_lists_the_init_halts_without_an_envelope():
-    contract = _flow(_slice(_read(SKILL_MD), "## Result Contract (Headless)", "## On Activation"))
-    listed = _slice(contract, "without** this envelope", "When threshold fallback occurred")
-    for halt in ("init.md §1c", "init.md §2, §3a, §5b, §6a and §6b", "the lock renewal in report.md §4c",
-                 "an invalid `--tier` value (init.md §4)", "every HALT in the coverage and coherence steps"):
-        assert halt in listed, halt
-    assert "now emits" not in contract
+def test_every_halt_has_an_envelope_and_a_listed_reason():
+    """#593, #594: the halts that once exited without an envelope now name a halt_reason the schema lists."""
+    schema = json.loads(_read(SCRIPTS / "schemas" / "skf-test-result-envelope.v1.json"))
+    reasons = [r for r in schema["properties"]["halt_reason"]["enum"] if r is not None]
+    table = _slice(_read(CONTRACT), "| `halt_reason` | Raised by |", "When the emitter itself")
+    assert re.findall(r"^\| `([a-z-]+)` \|", table, re.M) == reasons
+    assert "without** this envelope" not in _read(CONTRACT) and "without** this envelope" not in _read(SKILL_MD)
+    named = set()
+    for path in sorted(REFS.glob("*.md")):
+        for short, quoted in re.findall(r'HALT[^`\n]{0,40}\(`(?:([a-z-]+)|halt_reason: "([a-z-]+)")`, phase `',
+                                        _read(path)):
+            named.add(short or quoted)
+    assert named == set(reasons) - {"hard-gate-blocked"}, sorted(set(reasons) ^ named)
 
 
 def test_runtime_is_checked_before_the_first_helper_call():
     body = _read(INIT).split("\n---\n", 1)[1]
-    check = _slice(body, "### 1c. Check the Runtime", "### 2. Validate Skill Exists")
-    assert body.index("### 1c. Check the Runtime") < body.index("uv run {")
-    assert "command -v uv" in check and "HALT" in check
+    steps = body[body.index("### 0. Resolve the Envelope Emitter"):]
+    check = _slice(steps, "### 0b. Check the Runtime", "### 1. Receive the Skill Name")
+    assert steps.index("### 0b. Check the Runtime") < steps.index("uv run {")
+    assert "command -v uv" in check and 'HALT (`halt_reason: "runtime-missing"`, phase `init:runtime`)' in check
+    assert "https://docs.astral.sh/uv/getting-started/installation/" in check, "the HALT names the install link"
     assert body.count("command -v uv") == 1, "one runtime check, before the first helper"
     assert "set `analysis_confidence: degraded`" not in check
 
@@ -626,8 +662,10 @@ def test_drift_guard_runs_through_the_helper():
     assert "git -C" not in section and "rev-parse" not in section, "no hand-run git"
     flow = _flow(section)
     assert "one call per entry" in flow and "do not skip stack skills" in flow
-    assert '"halt_reason":"workspace-drift"' in section and "`halt_message` of every tree that drifted" in flow
-    assert "`workspaceDrift: overridden`" in flow and "`allow_workspace_drift: true`" in flow
+    assert 'HALT (`halt_reason: "workspace-drift"`, phase `init:workspace-drift`)' in flow
+    assert "`halt_message` of every tree that drifted" in flow
+    # #587: the later steps read the override from the report, never from the flag.
+    assert "`workspaceDrift: overridden`" in flow and "The later steps read it there, never the flag" in flow
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -848,7 +886,7 @@ def test_only_pattern_entries_are_integration_points():
 
 def test_criterion_one_defines_the_evidence_of_each_mode():
     section = _flow(_coherence_5())
-    wiring = _slice(section, "**Wiring evidence (first criterion).**", "Build integration completeness findings:")
+    wiring = _slice(section, "**Wiring evidence (first criterion).**", "Build integration completeness findings")
     # The mode comes from the markers create-stack-skill puts on every compose-mode integration.
     for marker in ("`[composed]`", "`[composed, +T2 annotations]`", "`[inferred from shared domain]`"):
         assert marker in wiring
@@ -949,12 +987,15 @@ def _choose(command: str, keep: tuple[str, ...] = ()) -> str:
 def test_the_run_folder_is_created_at_the_lock_and_removed_at_both_ends():
     lock = _flow(_slice(_read(INIT), "**6b. Act on the result:**", "**6c. Create `{outputFile}`"))
     assert f"bind `{{run_dir}}` ← `{RUN_FOLDER}`" in lock
-    assert f'mkdir -p "{RUN_FOLDER}"' in lock and "release the run lock (SKILL.md Workflow Rules), then HALT" in lock
+    assert f'mkdir -p "{RUN_FOLDER}"' in lock
+    assert "releasing the run lock first as the **Halt envelope** paragraph says" in lock
+    halt_envelope = _flow(_slice(_read(INIT), "**Halt envelope.**", "### 0."))
+    assert f"Once §6a took the run lock, it releases the lock first, whatever the release prints: from `{{project-root}}`, run `{RELEASE}`" in halt_envelope
     section7 = _flow(_slice(_read(REPORT), "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
     assert section7.count(f'rm -rf "{RUN_FOLDER}"') == 2, "both ways a run ends remove it"
-    bypass = _slice(section7, "**`--no-health-check` flag bypass", "Resolve `{healthCheckFile}`")
-    assert bypass.index(RELEASE) < bypass.index("rm -rf") < bypass.index("exit the workflow")
-    row = next(line for line in _read(SKILL_MD).splitlines() if line.startswith("| **Outputs** |"))
+    bypass = _slice(section7, "**`--no-health-check` flag bypass", "**Release the run lock:**")
+    assert bypass.index(RELEASE) < bypass.index("rm -rf") < bypass.index("{result_envelope_line}")
+    row = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Outputs** |"))
     assert "`{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}/`" in row
 
 
@@ -998,14 +1039,20 @@ def test_the_inventory_contract_lists_the_validators_kinds():
 def test_an_invalid_inventory_is_redispatched_once_then_halts_with_its_reason():
     section = _flow(_slice(_read(COVERAGE), "#### 1a. Parent-Side Schema Validation", "### 1b."))
     assert "re-dispatch the §1 subagent once, with the script's `violations[]` appended" in section
-    assert "re-dispatch the §1 subagent once, with the absent names appended" in section
-    assert 'HALT with `halt_reason: "inventory-invalid"`' in section
-    line = next(line for line in _read(COVERAGE).splitlines() if '"halt_reason":"inventory-invalid"' in line)
-    envelope = json.loads(line.split(": ", 1)[1])
-    assert (envelope["status"], envelope["exit_code"], envelope["report_path"]) == ("error", 1, "{outputFile}")
-    contract = _flow(_slice(_read(SKILL_MD), "## Result Contract (Headless)", "## On Activation"))
-    assert '`"inventory-invalid"`' in contract
-    assert "every HALT in the coverage and coherence steps except `inventory-invalid`" in contract
+    assert "(an absent name as a name the skill does not write)" in section
+    assert 'HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`)' in section
+    assert "SKF_TEST_RESULT_JSON" not in _read(COVERAGE), "the emitter prints the line"
+    table = _flow(_slice(_read(CONTRACT), "| `halt_reason` | Raised by |", "When the emitter itself"))
+    assert "| `inventory-invalid` | coverage-check.md §1a" in table
+
+
+def test_the_spot_check_is_the_scripts():
+    """#598 item 5: the §1a sample and the look-up run in validate-inventory.py, never a grep."""
+    section = _slice(_read(COVERAGE), "#### 1a. Parent-Side Schema Validation", "### 1b.")
+    command = _command(COVERAGE, "uv run {validateInventoryScript}")
+    assert '--skill-package "{resolved_skill_package}"' in command
+    assert "grep -n" not in section and "[0, len//2, len-1]" not in section
+    assert "an export named `$state` or `a.b` is neither a shell variable nor a regex" in _flow(section)
 
 
 def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
@@ -1035,7 +1082,12 @@ def test_tooling_health_is_tooling_status_only():
     assert "`tooling_status: frontmatter-validator-timeout`" in timeout and "set `tooling_status: ok`" in timeout
     frontmatter = _flow(_slice(_read(SCORE), "### 7. Update Output Frontmatter", "### 8."))
     assert "`analysisConfidence: '{full|provenance-map|metadata-only|remote-only|docs-only}'`" in frontmatter
-    assert "`toolingStatus: '{ok|frontmatter-validator-timeout}'`" in frontmatter
+    # init.md wrote toolingStatus and nothing changes it: score.md reads it back for Cap 1, never rewrites it.
+    assert "toolingStatus" not in frontmatter
+    scoring_input = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
+    assert "`toolingStatus` from the `{outputFile}` frontmatter (init.md §6c wrote it), never from memory" in scoring_input
+    assert '"toolingStatus": "{toolingStatus from the {outputFile} frontmatter' in scoring_input
+    assert "tooling_status from init.md" not in _read(SCORE)
     assert "Always pass `toolingStatus`: any value other than `ok` fires Cap 1" in _flow(_read(SCORE))
 
 
@@ -1107,9 +1159,19 @@ def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
     for key, value in values.items():
         rest = rest.replace(key, value)
     assert not re.search(r"\{\w+\}|<[a-z][^>]*>", rest), f"unfilled placeholder in {rest!r}"
-    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS[m.group(1)]), *shlex.split(rest)], cwd=cwd,
+    words = shlex.split(rest)
+    redirect = words.index(">") if ">" in words else None  # `... > "<file>"` keeps stdout in a run file
+    if redirect is not None:
+        words, target = words[:redirect], Path(words[redirect + 1])
+    if "<" in words:  # `... < "<file>"` reads the payload from a run file
+        source = words.index("<")
+        stdin = Path(words[source + 1]).read_bytes()
+        words = words[:source] + words[source + 2:]
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS[m.group(1)]), *words], cwd=cwd,
                           input=stdin, capture_output=True, check=False)
     assert proc.returncode == 0, (command, proc.stdout.decode("utf-8"), proc.stderr.decode("utf-8"))
+    if redirect is not None:
+        target.write_bytes(proc.stdout)
     return json.loads(proc.stdout)
 
 
@@ -1180,3 +1242,157 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     # naive weights 45/25/20/10: 45 + 12.5 + 20 + 8
     assert (score["totalScore"], score["result"]) == (85.5, "PASS")
     assert "effectiveResult" not in score
+
+
+# --------------------------------------------------------------------------
+# #598: coherence-check takes its usage counts and reference checks from the
+# SKILL.md scanner; #587: the report is hidden until its checks pass;
+# #593: the result envelope is the run's last line
+# --------------------------------------------------------------------------
+
+
+STAGE_FILES = ["init.md", "detect-mode.md", "coverage-check.md", "coherence-check.md", "external-validators.md",
+               "step-hard-gate.md", "score.md", "report.md"]
+
+
+@pytest.mark.parametrize("name", STAGE_FILES)
+def test_every_stage_writes_the_report_it_was_handed(name):
+    """init.md creates the report under a `.skf-` name; the others write `{report_file}`."""
+    expected = "{forge_version}/.skf-test-report-{skill_name}-{run_id}.md" if name == "init.md" else "{report_file}"
+    assert _frontmatter(REFS / name)["outputFile"] == expected
+
+
+def test_the_report_takes_its_public_name_only_once_its_checks_pass():
+    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 5. Finalize Output Document"))
+    for check in ("**Enforce step completeness.**", "**Check the report sections.**", "**Find the health check**",
+                  "**Renew the run lock**"):
+        assert contract.index(check) < contract.index("**Publish the report.**"), check
+    assert contract.index("**Publish the report.**") < contract.index("**Write the result contract.**")
+    init = _flow(_slice(_read(INIT), "**6c. Create `{outputFile}`", "### 7."))
+    assert "bind `{report_file}` ← that path" in init and "`skf-skill-inventory.py` counts a `.skf-` name" in init
+    for path in (REPORT, HARD_GATE):
+        assert _frontmatter(path)["publishedReportFile"] == "{forge_version}/test-report-{skill_name}-{run_id}.md"
+
+
+def test_the_later_steps_read_the_verdict_inputs_from_the_report():
+    """#587 enhancement-2: the threshold and the drift override come from the frontmatter."""
+    for path in sorted(REFS.glob("*.md")):
+        if path.name != "init.md":
+            assert "allow_workspace_drift" not in _read(path), path.name
+    drift = _flow(_slice(_read(SCORE), "**IF PASS:**", "**IF FAIL:**"))
+    assert "the `{outputFile}` frontmatter's `workspaceDrift` is `overridden`" in drift
+    assert "the flag on a clean tree leaves it `ok`" in drift
+    assert "`workspaceDrift` is not `overridden`" in _flow(_read(COVERAGE))
+
+
+def test_the_naive_usage_and_scripts_checks_read_the_scanner():
+    section = _slice(_read(COHERENCE), "### 2. Naive Mode", "### 2b.")
+    command = _command(COHERENCE, "usage-scope")
+    assert command == ('uv run {scanSkillMdStructureHelper} usage-scope "{resolved_skill_package}/SKILL.md" '
+                       '--exports "{run_dir}/inventory.json" --kinds function,method [--body single] '
+                       '> "{run_dir}/usage-scope.json"')
+    for gone in ('grep -c "{export.name}"', "grep -n '^## Scripts'", "grep -n"):
+        assert gone not in section, gone
+    seven = _flow(_slice(section, "**2.7 Scripts & Assets section.**", "**Hard rule:**"))
+    assert "Read `scripts_assets` from the second JSON blob" in seven and "`missing` is true" in seven
+
+
+def test_the_contextual_reference_checks_read_the_scanner():
+    section = _flow(_slice(_read(COHERENCE), "### 3. Contextual Mode", "### 5. Contextual Mode"))
+    command = _command(COHERENCE, "reference-check")
+    assert command == ('uv run {scanSkillMdStructureHelper} reference-check "{resolved_skill_package}/SKILL.md" '
+                       '[--source-root "{source_path}"] [--skills-root "{skills_output_folder}"] '
+                       '> "{run_dir}/references.json"')
+    assert "Do not check these targets again by hand or through subagents" in section
+    assert "For EACH reference found, delegate" not in section and "os.path.realpath`) and require" not in section
+    aggregate = _command(COHERENCE, "uv run {coherenceAggregationScript}")
+    assert aggregate == ('uv run {coherenceAggregationScript} --references "{run_dir}/references.json" '
+                         '[--judged "{run_dir}/judged-references.json"] --integration "{run_dir}/integration.json" '
+                         '--output "{run_dir}/coherence.json"')
+    assert "echo '{\"valid_references\"" not in _read(COHERENCE), "no count is tallied by hand"
+
+
+def test_the_coherence_commands_run_against_the_scanner(tmp_path):
+    """The usage scope counts `$state` and `a.b` as written, and the reference checks feed the aggregate."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo\ndescription: Demo\n---\n# Demo\n\n## Usage\n\n```js\nlet c = $state(0);\n"
+                    "x$state; aXb;\n```\n\nSee [API](references/api.md), [gone](references/gone.md) and "
+                    "[escape](../../outside.md).\n",
+        "references/api.md": "# API\n",
+        "scripts/run.py": "print(1)\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory.json").write_bytes(json.dumps({"exports": [
+        {"name": "$state", "kind": "function"}, {"name": "a.b", "kind": "method"}, {"name": "Cfg", "kind": "type"},
+    ]}).encode("utf-8"))
+    values = {"{resolved_skill_package}": skill.as_posix(), "{run_dir}": run.as_posix()}
+
+    usage = _exec(_choose(_command(COHERENCE, "usage-scope")), values, tmp_path)
+    assert [(e["name"], e["count"]) for e in usage["exports"]] == [("$state", 1), ("a.b", 0)]
+    assert [e["name"] for e in usage["zero_usage"]] == ["a.b"]
+    assert json.loads((run / "usage-scope.json").read_text(encoding="utf-8")) == usage
+
+    refs = _exec(_choose(_command(COHERENCE, "reference-check")), values, tmp_path)
+    assert [(r["target"], r["status"]) for r in refs["references"]] == [
+        ("references/api.md", "ok"), ("references/gone.md", "missing"), ("../../outside.md", "escapes")]
+    assert refs["scripts_assets"]["missing"] is True, "scripts/ exists and no Scripts heading does"
+    (run / "integration.json").write_bytes(b'{"patterns_documented": 2, "patterns_complete": 1}')
+    coherence = _exec(_choose(_command(COHERENCE, "uv run {coherenceAggregationScript}")), values, tmp_path)
+    assert (coherence["input"]["valid_references"], coherence["input"]["total_references"]) == (1, 3)
+    assert [r["status"] for r in coherence["invalidReferences"]] == ["missing", "escapes"]
+    assert (run / "coherence.json").is_file()
+
+
+def test_reference_check_extracts_exactly_the_forms_section_3_names(tmp_path):
+    """§3 names what the scanner checks: markdown links and `references/`, `scripts/` and `assets/`
+    mentions. A path written outside a link (`../shared/types.ts` in inline code, an import
+    specifier) is neither extracted nor handed to a subagent, and §3 says so."""
+    section = _flow(_slice(_read(COHERENCE), "### 3. Contextual Mode", "### 4. Contextual Mode"))
+    for form in ("`[types](src/types.ts)`", "`[guide](references/guide.md)`", "`references/{file}.md`",
+                 "`scripts/{file}`", "`assets/{file}`"):
+        assert form in section, form
+    assert "Any other path written outside a link (`../shared/types.ts` in inline code, an import specifier) is not checked" in section
+    assert '"type": "skill|type-import|integration-pattern"' in section, "the subagent returns no file-path type"
+    source = tmp_path / "source"
+    skill = _write_tree(tmp_path / "source" / "skill", {
+        "SKILL.md": "---\nname: demo\ndescription: Demo\n---\n# Demo\n\n"
+                    "See [types](../shared/types.ts), [guide](references/guide.md) and [file](./path/to/file.ts).\n\n"
+                    "Bare: `../shared/types.ts`, `./path/to/file.ts` and `import { Props } from './module'`.\n\n"
+                    "Mentions: `references/api.md`, scripts/run.py and `assets/logo.png`.\n",
+        "references/guide.md": "# Guide\n",
+        "references/api.md": "# API\n",
+        "scripts/run.py": "print(1)\n",
+        "assets/logo.png": "png",
+    })
+    _write_tree(source, {"shared/types.ts": "export type Props = {};\n"})
+    run = tmp_path / "run"
+    run.mkdir()
+    values = {"{resolved_skill_package}": skill.as_posix(), "{run_dir}": run.as_posix(),
+              "{source_path}": source.as_posix()}
+    refs = _exec(_choose(_command(COHERENCE, "reference-check"), keep=("--source-root",)), values, tmp_path)
+    assert [(r["target"], r["form"], r["type"], r["status"], r["root"]) for r in refs["references"]] == [
+        ("../shared/types.ts", "link", "file-path", "ok", "source"),
+        ("references/guide.md", "link", "file-path", "ok", "skill"),
+        ("./path/to/file.ts", "link", "file-path", "missing", "skill"),
+        ("references/api.md", "mention", "file-path", "ok", "skill"),
+        ("scripts/run.py", "mention", "script-asset", "ok", "skill"),
+        ("assets/logo.png", "mention", "script-asset", "ok", "skill"),
+    ]
+    # Line 9 writes the same paths outside a link: nothing on it is a reference.
+    assert sorted({r["line"] for r in refs["references"]}) == [7, 11]
+
+
+def test_the_result_envelope_is_the_runs_last_line():
+    """The W3 enhancement-1 handoff: the shared health check shows the bound line last."""
+    shared = _read(SRC / "shared" / "health-check.md")
+    arrival = _flow(_slice(shared, "### 0. Announce Arrival", "**Display in `{communication_language}`:**"))
+    assert "may bind `{result_envelope_line}`" in arrival and "In a standalone headless run" in arrival
+    for start, end in (("### 2. Reflect on Execution", "### 3."), ("### 5c. Local-Queue Path", "## CRITICAL")):
+        stop = _flow(_slice(shared, start, end))
+        assert "When `{result_envelope_line}` is bound (§0), display it verbatim after that" in stop, start
+    report = _flow(_read(REPORT))
+    assert "bind `{result_envelope_line}` ← `{result_line}`" in report
+    assert "display `{result_envelope_line}` verbatim as the run's last line" in report
+    # The stdout/stderr split is explained once, in the contract.
+    assert "the split is a label only" in _flow(_read(CONTRACT)) and "the split is a label only" not in report

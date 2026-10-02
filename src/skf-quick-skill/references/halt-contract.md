@@ -12,17 +12,17 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 | ---- | ---------------------- | ----------------------------------------------------------- |
 | 0    | success                | step 7 (terminal)                                          |
 | 2    | input-invalid          | batch mode, before any target runs (`--description`, `--exports`, `--language-hint` or `--scope-hint` passed with `--batch`; §1: a batch file it cannot read, or `skf-quick-batch.py` missing); step 1 §1 (a headless run with no target) |
-| 3    | resolution-failure     | step 1 (a target that is no GitHub repository or package §2, registry chain §3, version tag missing or not checkable §3a, file listing unreadable, language abort or no language found §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
+| 3    | resolution-failure     | SKILL.md On Activation step 1 (`python3` or `uv` missing); step 1 (package resolver missing or failing §1b, a target that is no GitHub repository or package §2, registry chain §3, version tag missing or not checkable §3a, file listing unreadable, language detector missing or failing, language abort or no language found §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
 | 4    | write-failure          | SKILL.md On Activation step 1 (the run folder cannot be created); batch mode §1 (the batch run folder cannot be written); step 5 §2 (deliverable write failed) |
 | 5    | overwrite-cancelled    | step 5 §1 (user selected [N])                              |
-| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance) and §3 ([X] at the ambiguous-name gate); step 2 §3 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) |
-| 7    | finalize-blocked       | step 6 §1 (active-pointer flip refused — non-link in place) |
-| 8    | ecosystem-redirect     | step 2 §3 ([I] Install at ecosystem-match gate — user opted to install the existing official skill instead of compiling a custom community skill) |
+| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance) and §3 ([X] at the ambiguous-name gate); step 2 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) |
+| 7    | finalize-blocked       | step 6 §1 (the flip helper refused or failed: something that is not a link is at `{skill_group}/active`, or another process holds its lock) |
+| 8    | ecosystem-redirect     | step 2 ([I] Install at ecosystem-match gate: user opted to install the existing official skill instead of compiling a custom community skill) |
 | 9    | state-conflict         | step 5 §1 (ownership check: the skill folder or the version folder it writes is not SKF output, or SKF cannot check it → error.code `not-skf-output`; an SKF skill still in the flat layout → `flat-layout`) |
 
 ## Result Contract on HARD HALT
 
-Every HARD HALT emits an **error envelope** through the shared emitter, `{emitEnvelopeHelper}`, so headless automators never meet a failed run with no result. SKILL.md On Activation step 1 resolved it; when a compaction lost it, it is the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. Stage the halt payload as `{run_dir}/halt.json` through a quoted heredoc, then run the emitter:
+Every HARD HALT emits an **error envelope** through the shared emitter, `{emitEnvelopeHelper}`, so headless automators never meet a failed run with no result, except SKILL.md On Activation's halt for a missing `python3` or `uv`, which the emitter needs: that halt displays its message alone. SKILL.md On Activation step 1 resolved the emitter; when a compaction lost it, it is the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. Stage the halt payload as `{run_dir}/halt.json` through a quoted heredoc, then run the emitter:
 
 ```bash
 cat > "{run_dir}/halt.json" <<'SKF_JSON'

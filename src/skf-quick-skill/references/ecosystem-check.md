@@ -6,68 +6,17 @@ nextStepFile: 'quick-extract.md'
 
 # Step 2: Ecosystem Check
 
-## STEP GOAL:
-
-To query the agentskills.io ecosystem for an existing official skill matching the resolved target, preventing unnecessary duplication. This is an advisory gate — it never blocks the workflow on failure.
-
 ## Rules
 
-- 5-second timeout on ecosystem queries; tool unavailability is a silent skip, not an error
-- Do not begin extraction or compilation
 - A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
 
 ## Steps
 
-### 1. Query Ecosystem
+agentskills.io has no registry API to ask whether an official skill already covers `{repo_name}`, so make no query and no web search (a search hit cannot show that a skill is official), say nothing, and go on as IF P does.
 
-Search for an existing official skill matching `{repo_name}` in the agentskills.io ecosystem.
+Once a registry API lists an official skill for `{repo_name}`, name it and offer: [P] Proceed, compiling a custom community skill anyway · [I] Install the official skill instead, which ends this workflow · [A] Abort. Answer anything else by helping, then offer again.
 
-**Query methods (try in order):**
-1. Search agentskills.io registry for `{repo_name}`
-2. Web search: `"agentskills.io" "{repo_name}" skill`
-
-**Apply 5-second timeout.** If query takes longer, treat as no-match.
-
-### 2. Evaluate Result
-
-**If tool unavailable or timeout:**
-- Set `ecosystem_status: skip`
-- Proceed silently to step 3 (auto-proceed, no message to user)
-
-**If no match found:**
-- Set `ecosystem_status: no-match`
-- Auto-proceed silently to step 3. Do not display any message — absence of a match is the expected case.
-
-**If match found:**
-- Set `ecosystem_status: match`
-- Display match details and present conditional menu:
-
-"**Existing official skill found for {repo_name}.**
-
-**Skill:** {matched_skill_name}
-**Source:** agentskills.io
-**Authority:** official
-
-An official skill already exists. You can:
-
-**[P] Proceed** — Compile a custom community skill anyway (different scope or customization)
-**[I] Install** — Install the existing official skill instead (exits this workflow)
-**[A] Abort** — Cancel compilation"
-
-### 3. Handle Match Menu (only when a match was found)
-
-#### Menu Handling Logic:
-
-- IF P: Set `ecosystem_status: match-proceed`; when `{headless_mode}` is true, print this step's `done` event and step 3's `start` event (`references/halt-contract.md`); then load, read entire file, then execute {nextStepFile}
+- IF P: when `{headless_mode}` is true, print this step's `done` event and step 3's `start` event (`references/halt-contract.md`); then load, read entire file, then execute {nextStepFile}
 - IF I: Display install instructions for the official skill, then HARD HALT with **exit code 8 (ecosystem-redirect)**: stage `{"phase": "ecosystem-check", "halt_reason": "ecosystem-redirect", "reason": "User opted to install existing official skill instead of compiling a custom community skill.", "skill_package": null}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"` (`references/halt-contract.md`). The skill package is unknown at this phase, so no result file is written.
 - IF A: Display "Compilation cancelled.", then HARD HALT with **exit code 6 (user-cancelled)**: stage `{"phase": "ecosystem-check", "halt_reason": "user-cancelled", "reason": "User aborted at ecosystem-match gate.", "skill_package": null}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. No result file is written.
-- IF Any other: help user, then redisplay the match menu
-
-#### Gate:
-
 - **GATE [default: P]**: if `{headless_mode}` and match found, auto-proceed with [P] Proceed (compile custom skill anyway), log "headless: ecosystem match found, auto-proceeding with custom compilation", and record the decision: stage `{"gate": "ecosystem-check.ecosystem-match", "default_action": "P", "taken_action": "P", "reason": "headless: compiled a custom skill beside the official one"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-quick-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`, then go on as IF P does, its events included.
-
-### 4. Auto-Proceed (No Match or Skip)
-
-For no-match and skip, load and execute {nextStepFile} to proceed to source extraction; when `{headless_mode}` is true, print this step's `done` event and step 3's `start` event first (`references/halt-contract.md`).
-

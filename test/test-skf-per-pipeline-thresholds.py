@@ -1,8 +1,10 @@
 """Structural integration tests for per-pipeline quality thresholds (story 3.2).
 
 Validates the per-pipeline threshold lookup table in init.md §1b, the
-four-layer threshold resolution precedence in score.md §1, threshold source
-logging in score.md §6/§7, pipeline_alias forwarding in the forger, and
+four-layer threshold resolution precedence, resolved once in init.md §1b and
+written into the report frontmatter, which score.md §1 reads back (#587:
+later steps read the verdict inputs from the frontmatter), threshold source
+logging in score.md §6, pipeline_alias forwarding in the forger, and
 pipeline-contracts.md documentation.  Also confirms hard-gate independence
 (AC #4): step-hard-gate.md has no threshold-driven logic.
 
@@ -24,6 +26,7 @@ INIT_FILE = TS_DIR / "references" / "init.md"
 SCORE_FILE = TS_DIR / "references" / "score.md"
 HARD_GATE_FILE = TS_DIR / "references" / "step-hard-gate.md"
 SKILL_MD = TS_DIR / "SKILL.md"
+CONTRACT_FILE = TS_DIR / "references" / "invocation-contract.md"
 CUSTOMIZE_TOML = TS_DIR / "customize.toml"
 FORGER_MD = REPO_ROOT / "src" / "skf-forger" / "SKILL.md"
 PIPELINE_CONTRACTS = REPO_ROOT / "src" / "shared" / "references" / "pipeline-contracts.md"
@@ -125,51 +128,51 @@ class TestInitPipelineThresholdSection:
 
 
 # ---------------------------------------------------------------------------
-# score.md §1 — Four-Layer Threshold Precedence
+# init.md §1b: Four-Layer Threshold Precedence, resolved once
 # ---------------------------------------------------------------------------
 
 
-class TestScoreThresholdPrecedence:
+class TestInitThresholdPrecedence:
     @pytest.fixture(scope="class")
     def text(self) -> str:
-        return _read(SCORE_FILE)
+        return _read(INIT_FILE)
 
     def test_precedence_header_mentions_pipeline_default(self, text: str) -> None:
         assert re.search(
             r"CLI\s*>\s*pipeline default\s*>\s*scalar\s*>\s*bundled fallback",
             text,
-        ), "score.md §1 precedence header must list all four layers in order"
+        ), "init.md §1b precedence header must list all four layers in order"
 
     def test_layer_1_cli_override(self, text: str) -> None:
         assert re.search(
             r"1\.\s+.*--threshold=<N>.*CLI wins", text
-        ), "score.md must document layer 1: CLI override"
+        ), "init.md §1b must document layer 1: CLI override"
 
     def test_layer_2_pipeline_default(self, text: str) -> None:
         assert re.search(
-            r"2\.\s+.*pipeline_default_threshold.*init\.md §1b", text, re.DOTALL
-        ), "score.md must document layer 2: pipeline default from init.md §1b"
+            r"2\.\s+.*pipeline_default_threshold.*pipeline default \(\{pipeline_alias\}", text
+        ), "init.md §1b must document layer 2: the pipeline default of the lookup table"
 
     def test_layer_3_workflow_scalar(self, text: str) -> None:
         assert re.search(
             r"3\.\s+.*defaultThreshold.*workflow.*scalar", text, re.DOTALL
-        ), "score.md must document layer 3: workflow default scalar"
+        ), "init.md §1b must document layer 3: workflow default scalar"
 
     def test_layer_4_bundled_fallback(self, text: str) -> None:
         assert re.search(
             r"4\.\s+.*fall back to.*80", text
-        ), "score.md must document layer 4: bundled fallback 80"
+        ), "init.md §1b must document layer 4: bundled fallback 80"
 
 
 # ---------------------------------------------------------------------------
-# score.md §1 — Threshold Source Logging
+# init.md §1b: Threshold Source Logging
 # ---------------------------------------------------------------------------
 
 
-class TestScoreThresholdSourceLogging:
+class TestInitThresholdSourceLogging:
     @pytest.fixture(scope="class")
     def text(self) -> str:
-        return _read(SCORE_FILE)
+        return _read(INIT_FILE)
 
     def test_threshold_source_variable_set(self, text: str) -> None:
         assert "threshold_source" in text, (
@@ -196,10 +199,19 @@ class TestScoreThresholdSourceLogging:
             "threshold_source for fallback must include 'bundled fallback'"
         )
 
-    def test_threshold_source_stored_in_workflow_context(self, text: str) -> None:
-        assert re.search(
-            r"Store.*threshold_source.*workflow context", text, re.IGNORECASE
-        ), "score.md must instruct storing threshold_source in workflow context"
+    def test_threshold_source_is_written_into_the_report(self, text: str) -> None:
+        assert "thresholdSource: '{threshold_source}'" in text, (
+            "init.md §6c must write threshold_source into the report frontmatter"
+        )
+        assert "threshold: '{effective_threshold}%'" in text
+
+    def test_score_reads_the_threshold_back(self) -> None:
+        score = _read(SCORE_FILE)
+        section = score[score.index("### 1. Read the Pass Threshold"):score.index("### 2.")]
+        assert "`effective_threshold` ← `threshold`" in section
+        assert "`threshold_source` ← `thresholdSource`" in section
+        assert "Never resolve the precedence again here" in section
+        assert "--threshold=<N>" not in section, "the precedence lives in init.md §1b alone"
 
 
 # ---------------------------------------------------------------------------
@@ -225,24 +237,24 @@ class TestScoreReportOutput:
 
 
 # ---------------------------------------------------------------------------
-# score.md §7 — thresholdSource in Output Frontmatter
+# init.md §6c: thresholdSource in the report frontmatter
 # ---------------------------------------------------------------------------
 
 
-class TestScoreFrontmatter:
+class TestReportFrontmatter:
     @pytest.fixture(scope="class")
     def text(self) -> str:
-        return _read(SCORE_FILE)
+        return _read(INIT_FILE)
 
     def test_threshold_source_in_frontmatter(self, text: str) -> None:
         assert re.search(
             r"thresholdSource:.*threshold_source", text
-        ), "score.md §7 frontmatter must include thresholdSource field"
+        ), "init.md §6c frontmatter must include thresholdSource field"
 
     def test_threshold_source_after_threshold_before_confidence(
         self, text: str
     ) -> None:
-        fm_section = text[text.find("### 7. Update Output Frontmatter"):]
+        fm_section = text[text.find("workflowType: 'test-skill'"):]
         threshold_idx = fm_section.find("threshold:")
         ts_idx = fm_section.find("thresholdSource:")
         confidence_idx = fm_section.find("analysisConfidence:")
@@ -252,14 +264,14 @@ class TestScoreFrontmatter:
 
 
 # ---------------------------------------------------------------------------
-# SKILL.md — Invocation Contract references per-pipeline defaults
+# references/invocation-contract.md: Invocation Contract references per-pipeline defaults
 # ---------------------------------------------------------------------------
 
 
-class TestSkillMdInvocationContract:
+class TestInvocationContract:
     @pytest.fixture(scope="class")
     def text(self) -> str:
-        return _read(SKILL_MD)
+        return _read(CONTRACT_FILE)
 
     def test_threshold_flag_references_per_pipeline_defaults(self, text: str) -> None:
         invocation_match = re.search(
@@ -267,7 +279,7 @@ class TestSkillMdInvocationContract:
             text,
             flags=re.MULTILINE | re.DOTALL,
         )
-        assert invocation_match, "SKILL.md must have an Invocation Contract section"
+        assert invocation_match, "invocation-contract.md must have an Invocation Contract section"
         section = invocation_match.group(1)
         assert "per-pipeline defaults" in section, (
             "Invocation Contract --threshold description must reference per-pipeline defaults"
@@ -286,13 +298,15 @@ class TestSkillMdOnActivation:
             flags=re.MULTILINE | re.DOTALL,
         )
         assert activation_match, "SKILL.md must have an On Activation section"
-        section = activation_match.group(1)
-        assert re.search(
-            r"per-pipeline defaults.*init\.md §1b", section
-        ), (
-            "On Activation §3 {defaultThreshold} description must reference "
-            "per-pipeline defaults from init.md §1b"
+        section = re.sub(r"\s+", " ", activation_match.group(1))
+        # The precedence has one home, init.md §1b, and score.md reads its result from the report.
+        assert ("init.md §1b resolves the precedence (CLI, then per-pipeline default, then this scalar) once "
+                "and writes `threshold` and `thresholdSource` into the report frontmatter, which score.md §1 reads"
+                ) in section, (
+            "On Activation §3 {defaultThreshold} description must point at init.md §1b, where the "
+            "precedence is resolved once"
         )
+        assert "at the usage site in `references/score.md`" not in section
 
 
 # ---------------------------------------------------------------------------
@@ -531,7 +545,8 @@ class TestCrossFileConsistency:
         """The plan's TS min reaches TS as --threshold, the flag TS takes."""
         invoke = next(line for line in _read(PIPELINE_MODE).splitlines() if "**Invoke the workflow**" in line)
         assert "invoke TS with `--threshold=<min>`" in invoke
-        assert "`--threshold=<N>`" in _read(SKILL_MD)
+        # The flag TS takes is listed in its invocation contract (#600) and read by init.md §1b.
+        assert "`--threshold=<N>`" in _read(CONTRACT_FILE) and "`--threshold=<N>`" in _read(INIT_FILE)
 
     def test_score_md_references_init_md_1b(self) -> None:
         score_text = _read(SCORE_FILE)
@@ -539,8 +554,8 @@ class TestCrossFileConsistency:
             "score.md must reference init.md §1b as the source of pipeline_default_threshold"
         )
 
-    def test_score_md_mentions_pipeline_alias(self) -> None:
-        score_text = _read(SCORE_FILE)
-        assert "{pipeline_alias}" in score_text, (
-            "score.md must reference {pipeline_alias} in the pipeline default layer"
+    def test_init_md_mentions_pipeline_alias_in_the_pipeline_layer(self) -> None:
+        init_text = _read(INIT_FILE)
+        assert re.search(r"2\.\s+.*\{pipeline_alias\}", init_text), (
+            "init.md §1b must reference {pipeline_alias} in the pipeline default layer"
         )

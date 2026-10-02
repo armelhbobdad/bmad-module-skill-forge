@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-analyze-source
+summary: |
+  Analyze Source drops two customization settings that could not do what they offered. `brief_schema_path` pointed the analysis at a copy of the brief contract, but the brief writer and the schema gate check every brief against the bundled schema, so a house-style copy either changed nothing or produced briefs the gate rejects. `unit_detection_heuristics_path` pointed it at a copy of the unit detection rules, but the size limits, the generated-file rules and the unit names come from the shared helpers, so a copy changed only some judgments. Both settings are now ignored when an override sets them. `analysis_report_template_path` now ships its real default, `templates/analysis-report-template.md`, and the comments of `customize.toml` say when the activation hooks run and that the `on_complete` command receives `--result-path` with the latest result file and never fails the run.
+migration: |
+  Remove `brief_schema_path` and `unit_detection_heuristics_path` from `_bmad/custom/skf-analyze-source.toml` and `_bmad/custom/skf-analyze-source.user.toml`. Rules your copy of the heuristics added for the analysis to keep in mind go into `persistent_facts` instead.
+prs: [637]
+issues: [596]
