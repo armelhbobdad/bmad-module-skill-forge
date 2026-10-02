@@ -3,7 +3,8 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Build, check and promote refine-architecture's refined document.
+"""Build, check and promote refine-architecture's refined document, and check
+the refinement rules and the [VS] verdicts the steps classify with.
 
 Compile (references/compile.md) never retypes the architecture document. It
 stages an insertion plan, one entry per finding, and this script copies the
@@ -11,6 +12,11 @@ original line for line, puts each entry's block where its anchor says,
 appends the Refinement Summary, checks that every original line survived and
 writes the draft. The review's [C] promotes the draft through this script
 too, so the output file is never replaced by a draft that lost a line.
+
+Init (references/init.md) checks the refinement rules with `rules`, and
+issue detection (references/issue-detection.md) joins the [VS] report's
+verdict rows to the skill inventory and the document scope with `verdicts`,
+so neither step applies a table rule or a join by hand.
 
 RA's blocks. Every block the script adds sits between two marker lines, so a
 later pass can set the whole annotation aside and write a fresh one:
@@ -91,6 +97,57 @@ Subcommands:
       Prints {status: "ok", context: OUT}. A record that is missing or not
       the JSON its subcommand wrote is an error (exit 2).
 
+  rules --rules PATH
+      Check the refinement rules file (the bundled references/
+      refinement-rules.md or a team's copy). It must hold the six tables
+      the steps read, each the first table under a heading of that title
+      (any level, case ignored): Gap Classification, Issue Classification,
+      Issue Severity, VS Report Integration, Improvement Classification and
+      Improvement Value. The first cell of each Issue Severity and
+      Improvement Value row names a tier, which becomes the summary count
+      {<tier>_count}, so a tier name starts with a letter and holds only the
+      letters A to Z, digits and spaces; no two tiers of the two tables
+      share a name, ignoring case and runs of spaces; and none is named Gap,
+      Issue, Improvement, Unverified or Skill, whose counts the summary
+      already holds. The VS Report Integration table has one row per
+      verdict token (Verified, Plausible, Risky, Blocked, case-sensitive),
+      and each row's Raises cell names one tier of Issue Severity, as a
+      whole word, ignoring case (the tiers in bold when it bolds any, as
+      the bundled rows do: `A **Major** issue`, else the tiers its text
+      names: `Major`), or names none and says No issue or None.
+      JSON: {status: "ok" | "violations", rules, missing_tables[], tiers:
+      {issue[], improvement[]}, vs_raises: {<token>: <tier> | null},
+      violations[]}. A violation is {table, line, rule, detail}, line null
+      when it names no row; rule is table-missing, table-empty, tier-name,
+      tier-reserved, tier-duplicate, vs-token-unknown, vs-token-duplicate,
+      vs-token-unmapped or vs-raises.
+
+  verdicts --report PATH --generated-at TS --skills JSON --in-scope NAMES --rules PATH
+      Read the [VS] report's verdict rows again through the shared
+      feasibility-report reader, and join each to the skill inventory and
+      the document scope. --generated-at is the report's generatedAt when
+      the run started ("" when it had none), --skills a JSON array of the
+      inventory's skills, each a name or {name, aliases}, and --in-scope
+      the in-scope skill names, comma-separated. Each row's lib_a and lib_b
+      map to the skill of that name, ignoring case and runs of spaces, else
+      to the one skill that has it as an alias. A row whose two libraries
+      are two in-scope skills goes to in_scope with raises, the tier the
+      rules' VS Report Integration table maps its token to (null: no
+      issue); any other row goes to out_of_scope with reason
+      "no-inventory-skill" (a library names no single skill, such as a
+      [VS] cycle row's `cycle`), "same-skill" (both name one skill, such as
+      its name and an alias) or "out-of-scope" (two skills, one or both
+      outside the scope).
+      JSON: {status: "ok", report, generatedAt, overallVerdict, in_scope[],
+      out_of_scope[], issue_count}, each row {lib_a, lib_b, verdict,
+      rationale, skill_a, skill_b} plus raises or reason, in report order;
+      issue_count counts the in_scope rows that raise a tier. When the
+      report is no longer the one the run started from (it cannot be read,
+      breaks the feasibility-report contract or has another generatedAt),
+      or the rules no longer pass `rules` (they break a rule above or
+      cannot be read), it prints {status: "stale", problems: [{source,
+      detail}]} instead, source "report" or "rules".
+
 The insertion plan (apply --plan) is one JSON object:
 
   {
@@ -165,20 +222,27 @@ heading), occurrence-out-of-range, summary-has-marker,
 summary-unclosed-fence, summary-count-typed and summary-placeholder.
 
 Exit codes:
-  0  inspect, apply, check, promote or context succeeded (check: preserved)
+  0  inspect, apply, check, promote, context, rules or verdicts succeeded
+     (check: preserved; rules: no violation)
   1  apply: the plan has problems, or the draft would not preserve the
      original (status "not-preserved"); check: not preserved; promote: the
-     draft does not preserve the original, and nothing was moved
+     draft does not preserve the original, and nothing was moved; rules:
+     the rules break a rule (status "violations"); verdicts: the report
+     changed or the rules no longer pass (status "stale")
   2  a usage error (argparse prints it, no JSON), or a file that cannot be
      read or is not UTF-8 text, or a context record that is not its
-     subcommand's JSON ({status: "error", error})
+     subcommand's JSON, or a --skills file that is not a JSON array of
+     skills ({status: "error", error})
   3  a write failed ({status: "error", error}): the shared atomic writer is
      missing or failed, or promote could not rename or move a file or write
      its -o record (it puts the earlier output back first, and the error
-     names where each file is when it cannot)
+     names where each file is when it cannot); verdicts: the shared
+     feasibility-report reader is missing
 
-Writes go through the shared skf-atomic-write.py, which sits in the shared
-scripts folder beside this skill's folder, installed and in a dev checkout.
+Writes go through the shared skf-atomic-write.py, and verdicts reads the
+report through the shared skf-validate-feasibility-report.py: both sit in
+the shared scripts folder beside this skill's folder, installed and in a
+dev checkout.
 """
 
 from __future__ import annotations
@@ -186,6 +250,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import errno
+import importlib.util
 import json
 import os
 import re
@@ -195,9 +260,9 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
-ATOMIC_WRITER = (
-    Path(__file__).resolve().parent.parent.parent / "shared" / "scripts" / "skf-atomic-write.py"
-)
+SHARED_SCRIPTS = Path(__file__).resolve().parent.parent.parent / "shared" / "scripts"
+ATOMIC_WRITER = SHARED_SCRIPTS / "skf-atomic-write.py"
+FEASIBILITY_READER = SHARED_SCRIPTS / "skf-validate-feasibility-report.py"
 
 KINDS = ("gap", "issue", "improvement")
 # Entries placed at one point, and the fallback sections, keep this order.
@@ -231,6 +296,22 @@ LEGACY_CALLOUTS = (
 )
 SUMMARY_TITLE = "refinement summary"
 
+# The tables the steps read from the refinement rules, in the file's order.
+RULE_TABLES = ("Gap Classification", "Issue Classification", "Issue Severity", "VS Report Integration",
+               "Improvement Classification", "Improvement Value")
+TIER_TABLES = (("issue", "Issue Severity"), ("improvement", "Improvement Value"))
+VS_TABLE = "VS Report Integration"
+VS_TOKENS = ("Verified", "Plausible", "Risky", "Blocked")
+# A tier becomes the summary's {<tier>_count}, which PLACEHOLDER_RE fills only
+# for a name of ASCII letters, digits and spaces that starts with a letter.
+TIER_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9 ]*")
+RESERVED_COUNTS = (*REQUIRED_PLACEHOLDERS, "unverified_count", "skill_count")
+TABLE_ROW_RE = re.compile(r"^ {0,3}\|")
+TABLE_DELIM_RE = re.compile(r"^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$")
+CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
+NO_ISSUE_RE = re.compile(r"(?<![A-Za-z0-9])(?:no\s+issue|none)(?![A-Za-z0-9])", re.IGNORECASE)
+
 
 class DocError(Exception):
     """A file that cannot be read as UTF-8 text (exit 2)."""
@@ -238,6 +319,10 @@ class DocError(Exception):
 
 class WriteError(Exception):
     """A write that failed (exit 3)."""
+
+
+class HelperMissing(Exception):
+    """A shared helper this script runs is not installed (exit 3)."""
 
 
 class Line(NamedTuple):
@@ -931,8 +1016,249 @@ def fill_summary(resolved: dict) -> list[str]:
 
 
 # --------------------------------------------------------------------------
-# Subcommands
+# Refinement rules and [VS] verdicts
 # --------------------------------------------------------------------------
+
+
+def _plain(cell: str) -> str:
+    """A table cell without the bold, italic or code markers that wrap it."""
+    text = cell.strip()
+    while True:
+        for mark in ("**", "__", "`", "*", "_"):
+            if len(text) > 2 * len(mark) and text.startswith(mark) and text.endswith(mark):
+                text = text[len(mark):-len(mark)].strip()
+                break
+        else:
+            return text
+
+
+def _cells(text: str) -> list[str]:
+    row = text.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|") and not row.endswith("\\|"):
+        row = row[:-1]
+    return [cell.strip() for cell in CELL_SPLIT_RE.split(row)]
+
+
+def rule_tables(texts: list[str]) -> dict[str, list[tuple[int, list[str]]]]:
+    """{heading title, case folded: the data rows of the first table in its section}.
+
+    A section runs from its heading to the next heading of the same or a
+    higher level; frontmatter and fenced code are skipped. Each row is
+    (1-based line, cells). The first heading of a title wins.
+    """
+    st = scan(texts)
+    usable = [not (st.front[i] or st.fence[i]) for i in range(len(texts))]
+    tables: dict[str, list[tuple[int, list[str]]]] = {}
+    for h, level in enumerate(st.level):
+        if not level or not usable[h]:
+            continue
+        key = _plain(heading_text(texts[h])).casefold()
+        if key in tables:
+            continue
+        end = section_end(st, h)
+        for i in range(h + 1, end - 1):
+            if usable[i] and usable[i + 1] and TABLE_ROW_RE.match(texts[i]) and TABLE_DELIM_RE.match(texts[i + 1]):
+                rows = []
+                j = i + 2
+                while j < end and usable[j] and TABLE_ROW_RE.match(texts[j]):
+                    rows.append((j + 1, _cells(texts[j])))
+                    j += 1
+                tables[key] = rows
+                break
+    return tables
+
+
+def _violation(table: str, line, rule: str, detail: str) -> dict:
+    return {"table": table, "line": line, "rule": rule, "detail": detail}
+
+
+def _named_tiers(text: str, severities: dict[str, str]) -> list[str]:
+    """The tiers `text` names as whole words, ignoring case and runs of spaces, longest name first.
+
+    A longer tier's words are not read again as a shorter one (`Very High` is not also `High`).
+    """
+    found: list[str] = []
+    taken: list[tuple[int, int]] = []
+    for tier in sorted(severities.values(), key=len, reverse=True):
+        words = r"\s+".join(re.escape(word) for word in tier.split())
+        for m in re.finditer(r"(?<![A-Za-z0-9])" + words + r"(?![A-Za-z0-9])", text, re.IGNORECASE):
+            if not any(m.start() < end and start < m.end() for start, end in taken):
+                taken.append(m.span())
+                if tier not in found:
+                    found.append(tier)
+    return found
+
+
+def vs_raised(cell: str, severities: dict[str, str]) -> tuple[list[str], bool]:
+    """The tiers a VS Report Integration Raises cell names, and whether it says no issue.
+
+    The tiers named in bold count when there are any (`A **Major** issue`); otherwise the
+    tiers its text names as whole words (`Major`, `A Critical issue`). A cell that names no
+    tier raises no issue when it says No issue or None, ignoring case.
+    """
+    bold = [(m.group(1) or m.group(2)).strip() for m in BOLD_RE.finditer(cell)]
+    named = [severities[_placeholder(b)] for b in bold if TIER_NAME_RE.fullmatch(b) and _placeholder(b) in severities]
+    named = list(dict.fromkeys(named)) or _named_tiers(cell, severities)
+    return named, not named and bool(NO_ISSUE_RE.search(cell))
+
+
+def check_rules(path: str) -> dict:
+    """Check the refinement rules file: the tables the steps read and the tier rules."""
+    texts = [line.text for line in read_lines(path)]
+    tables = rule_tables(texts)
+    violations = []
+    missing = [name for name in RULE_TABLES if name.casefold() not in tables]
+    for name in missing:
+        violations.append(_violation(name, None, "table-missing", f"lacks the {name} table"))
+    tiers: dict[str, list[str]] = {}
+    seen: dict[str, str] = {}  # each tier's count placeholder: the tier that took it
+    for kind, table in TIER_TABLES:
+        rows = tables.get(table.casefold())
+        if rows is None:
+            continue
+        named = [(line, _plain(cells[0])) for line, cells in rows if _plain(cells[0])]
+        tiers[kind] = [name for _, name in named]
+        if not named:
+            violations.append(_violation(table, None, "table-empty", f"the {table} table names no tier"))
+        for line, name in named:
+            if not TIER_NAME_RE.fullmatch(name):
+                violations.append(_violation(table, line, "tier-name", f"tier `{name}` (line {line}) must start with "
+                                             "a letter and hold only the letters A to Z, digits and spaces"))
+                continue
+            key = _placeholder(name)
+            if key in RESERVED_COUNTS:
+                violations.append(_violation(table, line, "tier-reserved", f"tier `{name}` (line {line}) takes a "
+                                             "name whose count the Refinement Summary already holds"))
+            elif key in seen:
+                violations.append(_violation(table, line, "tier-duplicate", f"tier `{name}` (line {line}) has the "
+                                             f"same name as `{seen[key]}`, ignoring case"))
+            else:
+                seen[key] = name
+    severities = {_placeholder(t): t for t in tiers.get("issue", []) if TIER_NAME_RE.fullmatch(t)}
+    vs_raises: dict[str, str | None] = {}
+    rows = tables.get(VS_TABLE.casefold())
+    if rows is not None:
+        rowed = set()
+        for line, cells in rows:
+            token = _plain(cells[0])
+            if token not in VS_TOKENS:
+                violations.append(_violation(VS_TABLE, line, "vs-token-unknown", f"VS row `{token}` (line {line}) "
+                                             "is not a verdict token: `Verified`, `Plausible`, `Risky` or "
+                                             "`Blocked`, case-sensitive"))
+                continue
+            if token in rowed:
+                violations.append(_violation(VS_TABLE, line, "vs-token-duplicate",
+                                             f"VS token `{token}` has a second row (line {line})"))
+                continue
+            rowed.add(token)
+            named, no_issue = vs_raised(cells[1] if len(cells) > 1 else "", severities)
+            if len(named) == 1 or no_issue:
+                vs_raises[token] = named[0] if named else None
+            elif named:
+                violations.append(_violation(VS_TABLE, line, "vs-raises", f"VS row `{token}` (line {line}) names "
+                                             f"more than one tier of the Issue Severity table: {', '.join(named)}"))
+            else:
+                violations.append(_violation(VS_TABLE, line, "vs-raises", f"VS row `{token}` (line {line}) raises "
+                                             "neither a tier of the Issue Severity table nor No issue"))
+        for token in VS_TOKENS:
+            if token not in rowed:
+                violations.append(_violation(VS_TABLE, None, "vs-token-unmapped",
+                                             f"no VS Report Integration row maps `{token}`"))
+    return {
+        "status": "violations" if violations else "ok",
+        "rules": Path(path).as_posix(),
+        "missing_tables": missing,
+        "tiers": {kind: tiers.get(kind, []) for kind, _ in TIER_TABLES},
+        "vs_raises": {token: vs_raises[token] for token in VS_TOKENS if token in vs_raises},
+        "violations": violations,
+    }
+
+
+def load_feasibility_reader():
+    """Import the shared feasibility-report reader, or None when it is missing."""
+    try:
+        if not FEASIBILITY_READER.is_file():
+            return None
+    except OSError:
+        return None  # a folder on the way that cannot be searched
+    spec = importlib.util.spec_from_file_location("skf_validate_feasibility_report", FEASIBILITY_READER)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _key(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+def read_skill_terms(path: str) -> list[tuple[str, list[str]]]:
+    """The --skills JSON array: (name, aliases) per skill, a plain string being a name."""
+    try:
+        raw = Path(path).read_bytes().decode("utf-8")
+    except OSError as e:
+        raise DocError(f"{path}: {e.strerror or e}") from e
+    except UnicodeDecodeError as e:
+        raise DocError(f"{path}: not UTF-8 text ({e.reason} at byte {e.start})") from e
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        raise DocError(f"{path}: not JSON ({e})") from e
+    shape = f"{path}: not a JSON array of skills, each a name or {{name, aliases}}"
+    if not isinstance(data, list):
+        raise DocError(shape)
+    skills = []
+    for item in data:
+        if isinstance(item, str) and item.strip():
+            skills.append((item.strip(), []))
+            continue
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
+            raise DocError(shape)
+        aliases = item.get("aliases") or []
+        if not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
+            raise DocError(shape)
+        skills.append((item["name"].strip(), [a for a in aliases if a.strip()]))
+    return skills
+
+
+def skill_matcher(skills: list[tuple[str, list[str]]]):
+    """A function from a library as a report names it to its inventory skill, or None.
+
+    A skill's name wins, ignoring case and runs of spaces; otherwise the one
+    skill that has the library as an alias. An alias two skills share names
+    neither.
+    """
+    names: dict[str, str] = {}
+    aliases: dict[str, set[str]] = {}
+    for name, _ in skills:
+        names.setdefault(_key(name), name)
+    for name, terms in skills:
+        for term in terms:
+            aliases.setdefault(_key(term), set()).add(name)
+
+    def match(library: str) -> str | None:
+        key = _key(library)
+        if key in names:
+            return names[key]
+        owners = aliases.get(key, set())
+        return next(iter(owners)) if len(owners) == 1 else None
+
+    return match
+
+
+def _report_problem(report: dict, code: int, generated_at: str) -> str | None:
+    """Why the report is not the one the run started from, or None."""
+    if code == 2 or report.get("violation") == "io-error":
+        return f"it cannot be read again: {report.get('error') or 'unreadable'}"
+    if code != 0:
+        return "it no longer passes the feasibility-report contract"
+    found = report.get("generatedAt") or ""
+    if found != generated_at:
+        return f"its generatedAt is {found or 'empty'}, not {generated_at or 'empty'}: [VS] rewrote it during the run"
+    return None
 
 
 def cmd_inspect(args) -> tuple[dict, int]:
@@ -1115,6 +1441,54 @@ def cmd_context(args) -> tuple[dict, int]:
     return {"status": "ok", "context": out.as_posix()}, 0
 
 
+def cmd_rules(args) -> tuple[dict, int]:
+    result = check_rules(args.rules)
+    return result, 1 if result["violations"] else 0
+
+
+def cmd_verdicts(args) -> tuple[dict, int]:
+    match = skill_matcher(read_skill_terms(args.skills))
+    in_scope = {_key(name) for name in args.in_scope.split(",") if name.strip()}
+    reader = load_feasibility_reader()
+    if reader is None:
+        raise HelperMissing(f"the shared feasibility-report reader is not installed: {FEASIBILITY_READER.as_posix()}")
+    problems = []
+    report, code = reader.validate_report(args.report)
+    problem = _report_problem(report, code, args.generated_at)
+    if problem:
+        problems.append({"source": "report", "detail": f"{Path(args.report).as_posix()}: {problem}"})
+    try:
+        rules = check_rules(args.rules)
+    except DocError as e:
+        problems.append({"source": "rules", "detail": str(e)})
+    else:
+        problems += [{"source": "rules", "detail": v["detail"]} for v in rules["violations"]]
+    if problems:
+        return {"status": "stale", "problems": problems}, 1
+    joined: list[dict] = []
+    left_out: list[dict] = []
+    for row in report["pairVerdicts"]:
+        skill_a, skill_b = match(row["lib_a"]), match(row["lib_b"])
+        entry = {**row, "skill_a": skill_a, "skill_b": skill_b}
+        if skill_a is None or skill_b is None:
+            left_out.append({**entry, "reason": "no-inventory-skill"})
+        elif skill_a == skill_b:
+            left_out.append({**entry, "reason": "same-skill"})
+        elif _key(skill_a) in in_scope and _key(skill_b) in in_scope:
+            joined.append({**entry, "raises": rules["vs_raises"].get(row["verdict"])})
+        else:
+            left_out.append({**entry, "reason": "out-of-scope"})
+    return {
+        "status": "ok",
+        "report": Path(report["path"]).as_posix(),
+        "generatedAt": report.get("generatedAt"),
+        "overallVerdict": report.get("overallVerdict"),
+        "in_scope": joined,
+        "out_of_scope": left_out,
+        "issue_count": sum(1 for row in joined if row["raises"] is not None),
+    }, 0
+
+
 def _timestamp(value: str) -> str:
     if not TIMESTAMP_RE.match(value):
         raise argparse.ArgumentTypeError(f"{value!r} is not YYYYMMDD-HHmmss")
@@ -1129,7 +1503,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "document keeps every line of the original, promote the draft to the output file, "
             "and stage the result contract's payload from the run's records. RA's marked "
             "blocks (and the unmarked annotations of an older pass) are set aside in both "
-            "documents first. Prints JSON."
+            "documents first. Also check the refinement rules, and join the [VS] report's "
+            "verdicts to the skill inventory and the document scope. Prints JSON."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -1141,7 +1516,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "  uv run skf-check-preservation.py promote --original arch.md --draft forge/.skf-ra-draft-app.md "
             "--output docs/refined-architecture-app.md --timestamp 20261001-120000\n"
             "  uv run skf-check-preservation.py context --inspect run/inspect.json --apply run/apply.json "
-            "--promote run/promote.json --out run/result-context.json"
+            "--promote run/promote.json --out run/result-context.json\n"
+            "  uv run skf-check-preservation.py rules --rules references/refinement-rules.md\n"
+            "  uv run skf-check-preservation.py verdicts --report forge/feasibility-report-app-latest.md "
+            "--generated-at 2026-10-01T10:00:00Z --skills run/skill-terms.json --in-scope loro,yjs "
+            "--rules references/refinement-rules.md"
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1174,6 +1553,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--promote", required=True, help="promote's -o record")
     p.add_argument("--out", required=True, help="where to write the payload")
     p.set_defaults(func=cmd_context)
+    p = sub.add_parser("rules", help="Check the refinement rules: the six tables and the tier rules.")
+    p.add_argument("--rules", required=True, help="the refinement rules file")
+    p.set_defaults(func=cmd_rules)
+    p = sub.add_parser("verdicts", help="Join the [VS] report's verdicts to the inventory and the scope.")
+    p.add_argument("--report", required=True, help="the [VS] feasibility report the run uses")
+    p.add_argument("--generated-at", required=True,
+                   help="the report's generatedAt when the run started, \"\" when it had none")
+    p.add_argument("--skills", required=True, help="JSON array of the inventory's skills, names or {name, aliases}")
+    p.add_argument("--in-scope", required=True, help="the in-scope skill names, comma-separated")
+    p.add_argument("--rules", required=True, help="the refinement rules file")
+    p.set_defaults(func=cmd_verdicts)
     return parser
 
 
@@ -1183,7 +1573,7 @@ def main(argv: list[str] | None = None) -> int:
         result, code = args.func(args)
     except DocError as e:
         result, code = {"status": "error", "error": str(e)}, 2
-    except WriteError as e:
+    except (WriteError, HelperMissing) as e:
         result, code = {"status": "error", "error": str(e)}, 3
     text = json.dumps(result, indent=2, ensure_ascii=False)
     if getattr(args, "output_json", None) and code == 0:

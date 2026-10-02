@@ -45,6 +45,7 @@ WRITE = REFS / "write.md"
 REPORT = REFS / "report.md"
 DETECT = REFS / "detect-changes.md"
 RE_EXTRACT = REFS / "re-extract.md"
+GAP_DRIVEN = REFS / "gap-driven.md"
 SKILL = SRC / "skf-update-skill" / "SKILL.md"
 SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-update-result-envelope.v1.json"
 SCRIPTS = SRC / "shared" / "scripts"
@@ -232,13 +233,21 @@ def test_manual_mismatch_recovery_depends_on_mode():
 
 
 def test_read_only_modes_never_reach_merge():
-    """--detect-only leaves from step 2 and --dry-run from step 3, before §6b."""
+    """--detect-only leaves from step 2 and --dry-run from step 3, before §6b; a gap-driven run leaves from
+    gap-driven.md §2 and §5, which stand in for them (#600 architecture-4)."""
     text = _read(DETECT)
     assert text.count("### 5. Display Change Summary and Route") == 1
     route = text[text.index("### 5. Display Change Summary and Route"):]
     assert "Do not load `{nextStepFile}`" in _slice(route, "**`detect_only_mode == true`**", "\n")
     six = _slice(_read(RE_EXTRACT), "### 6. Route to Next Step", "- **Otherwise**")
     assert "load `report.md` (NOT `{nextStepFile}`)" in _slice(six, "**`dry_run_mode == true`**", "\n")
+    gap = _read(GAP_DRIVEN)
+    two = _slice(gap, "### 2. Display the Gap Summary and Route", "### 3.")
+    assert "then execute `{reportFile}` (report.md), which emits status `detect-only`" in \
+        _slice(two, "**`detect_only_mode == true`**", "\n")
+    five = _slice(gap, "### 5. Display the Repair Summary and Route", "- **Otherwise**")
+    assert "load `{reportFile}` (report.md, NOT `{resumeStepFile}`)" in _slice(five, "**`dry_run_mode == true`**", "\n")
+    assert yaml.safe_load(gap[4:gap.index("\n---\n", 4)])["resumeStepFile"] == "merge.md"
 
 
 def test_docs_and_knowledge_describe_version_folders():

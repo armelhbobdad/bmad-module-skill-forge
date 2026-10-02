@@ -551,22 +551,6 @@ POPULATORS = {
     "create-skill": ("**Description Guard population:**", "### 9. Auto-Proceed"),
     "update-skill": ("**Description Guard population**", "**Context Snippet population**"),
 }
-PROTOCOL_PROBE_BLOCK = (
-    "# Resolve `{descriptionGuardProtocol}` (the guard's prose protocol, not its\n"
-    "# helper script) by probing `{descriptionGuardProtocolProbeOrder}` in order\n"
-    "# (installed SKF module path first, src/ dev-checkout fallback); first\n"
-    "# existing path wins. Advisory: if neither path exists, skip the load and\n"
-    "# continue, because §0 states every guard rule this step acts on and the\n"
-    "# protocol only explains them.\n"
-    "descriptionGuardProtocolProbeOrder:\n"
-    "  - '{project-root}/_bmad/skf/shared/references/description-guard-protocol.md'\n"
-    "  - '{project-root}/src/shared/references/description-guard-protocol.md'\n"
-)
-PROTOCOL_PROBE_ORDER = [
-    "{project-root}/_bmad/skf/shared/references/description-guard-protocol.md",
-    "{project-root}/src/shared/references/description-guard-protocol.md",
-]
-
 
 def _read(path: Path) -> str:
     assert path.is_file(), f"missing {path}"
@@ -593,29 +577,17 @@ def _section0(path: Path, end: str) -> str:
 
 @pytest.mark.parametrize("step", sorted(GUARD_STEPS))
 class TestGuardStepProse:
-    def test_protocol_resolves_by_probe_order(self, step: str) -> None:
-        path, _, _, _ = GUARD_STEPS[step]
-        fm_text = _step_frontmatter(_read(path))
-        assert PROTOCOL_PROBE_BLOCK in fm_text
-        fm = yaml.safe_load(fm_text)
-        assert fm.get("descriptionGuardProtocolProbeOrder") == PROTOCOL_PROBE_ORDER
-        assert "descriptionGuardProtocol" not in fm, "the bare src/ scalar must be gone"
-        comment = _slice(
-            fm_text,
-            "# Resolve `{descriptionGuardProtocol}` (the guard's prose protocol",
-            "descriptionGuardProtocolProbeOrder:",
-        )
-        assert "Advisory" in comment and "HALT" not in comment
-
-    def test_section0_resolves_the_protocol_without_halting(self, step: str) -> None:
+    def test_section0_loads_no_protocol_file(self, step: str) -> None:
+        # §0 states every rule the step acts on and the helper runs the
+        # phases, so neither the frontmatter nor §0 loads the prose protocol
+        # (BMad Builder leanness-5, #600).
         path, end, _, _ = GUARD_STEPS[step]
+        assert "descriptionGuardProtocol" not in _step_frontmatter(_read(path))
         section = _section0(path, end)
-        assert (
-            "Resolve `{descriptionGuardProtocol}` ← first existing path in "
-            "`{descriptionGuardProtocolProbeOrder}` and load it" in section
-        )
-        assert "The load is advisory: if neither path exists, continue" in section
-        assert "Load `{descriptionGuardProtocol}`" not in section, "resolve before loading"
+        assert "descriptionGuardProtocol" not in section
+        assert "description-guard-protocol.md" not in section
+        assert "any future tool invocation" not in section
+        assert "The deterministic phases are executed via `{descriptionGuardHelper}`:" in section
         assert "HALT" not in section
 
     def test_section0_binds_the_helper_outputs(self, step: str) -> None:
@@ -978,4 +950,7 @@ class TestQuickSkillGuardProse:
         calling = text[text.index("## Calling Workflows"):]
         assert "- `src/skf-quick-skill/references/write-and-validate.md`: wraps `skill-check check --fix` in §4" in calling
         centralized = _slice(text, "## Why This Protocol Is Centralized", "## Calling Workflows")
-        assert "quick-skill, which never loads this file, states them beside its one guarded call" in centralized
+        assert "quick-skill states them beside its one guarded call" in centralized
+        # no calling stage loads the protocol any more (#600 leanness-5): §0 holds every rule it acts on
+        assert "no stage loads this file at run time" in centralized
+        assert "when this file cannot be loaded" not in centralized

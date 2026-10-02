@@ -13,7 +13,8 @@ These tests keep the step files on that contract:
   column and a headless run's log name the term that named each skill, the
   cancel tokens halt with exit 6 ahead of the edit branch, and a
   `--scope-skills` scope or the safe default shows no gate;
-- a technology counts as covered as the mentions helper matches a skill;
+- the mentions helper, not the prose, decides which technologies a skill
+  covers, and gives the term that named each skill for the gate;
 - section 6 names the technologies with no skill and appends the
   `[RA-SCOPE]` block that steps 4 and 5 read back;
 - improvements sections 3 and 4 compare in-scope skills and in-scope pairs
@@ -23,9 +24,10 @@ These tests keep the step files on that contract:
   writes the "Not verified (no skill)" row, the VS Coverage row (only with a
   VS report, `not recorded` when that run never reached its coverage step,
   and naming the report by file name only) and a [CS] or [QS] next step;
-- the report takes the counts from the record of the draft's build (never
-  from a Refinement Summary), shows the same rows and points to [CS] or [QS]
-  before [SS];
+- the report takes what it shows from the record of the draft's build
+  (never from a Refinement Summary), repeats no count table (the review
+  showed it, and a headless run reads the counts in its result line) and
+  points to [CS] or [QS] before [SS];
 - SKILL.md lists the gate in the Stages table and the Gates row, says in the
   Flags and Headless rows that `--scope-skills` skips it, and names it in the
   exit 6 row;
@@ -40,15 +42,22 @@ through the shared helpers (#590, #598):
   that breaks the contract, caches the helper's JSON as the only source for
   the report, and records it in the `[RA-VS]` state block; the input flags
   apply in every mode, and `--vs-report-path none` refines without a report;
-- issue detection reads the verdicts from that JSON, matches the tokens
-  exactly, keys the Plausible rule on the token, and scopes the verdicts by
-  the pair lists; a lost JSON is read again through the helper, and a report
-  [VS] rewrote meanwhile halts with exit 8;
+- a missing feasibility, enumerate or mentions helper, or an enumerate or
+  mentions call that fails, halts with exit 3 at its own phase (#599)
+  instead of a skipped report, a hand walk or hand co-mention facts, and
+  exit-codes.md names the three phases;
+- issue detection joins the verdicts to the inventory and the scope with
+  skf-check-preservation.py `verdicts`, which reads the report again,
+  routes a row naming no skill out of scope, gives each in-scope row the
+  tier its token raises (the Plausible rule keys on the token), and reports
+  a report [VS] rewrote meanwhile, or rules that no longer pass step 1's
+  check, which halt with exit 8;
 - gap analysis runs skf-comention-pairs.py `mentions` once, on the analysis
   copy that sets an earlier RA pass aside (documented-pair candidates, the
-  Mermaid note, the derived scope), splits the pairs once
-  with skf-enumerate-stack-skills.py `scope` (naming a `--scope-skills`
-  name that is no inventory skill), and reads `language` from the inventory;
+  Mermaid note, the derived scope, the technologies no skill covers),
+  splits the pairs once with skf-enumerate-stack-skills.py `scope` (naming
+  a `--scope-skills` name that is no inventory skill), and reads
+  `language` from the inventory;
 - compile fills the VS Coverage row from the JSON's `coverageMeasured`;
 - the helper calls fit the helpers' CLIs and quote every placeholder they
   pass, and every key the steps read is one the feasibility helper emits.
@@ -61,9 +70,10 @@ And it pins the split of the rules a team may swap from the ones it may not
   mapping) under the headings init checks, with the bundled tiers equal to
   the preservation script's defaults; the steps classify from it and restate
   no type, tier or token mapping;
-- a copy's tiers follow the rules that let the script count them, which init
-  checks: each rule is run against the script, as a broken tier set and as a
-  renamed one that fills its own counts;
+- a copy's tiers follow the rules that let the script count them, which
+  init checks with the script's `rules` subcommand: each rule is run
+  against the script, as a broken tier set and as a renamed one that fills
+  its own counts;
 - the Finding Storage contract lives in the fixed finding-storage.md, which
   steps 2 to 4 bind, and a finding an approved review dropped is recorded
   beside the output and left out of a later run on the refined document (an
@@ -266,7 +276,16 @@ def test_a_common_word_alias_makes_a_skill_ambiguous():
     [in_scope] = [row for row in _scope_gate().splitlines() if row.startswith("| {skill} | In scope |")]
     assert "named as `{term}` in {paragraph_count} paragraph(s)" in in_scope
     assert "named only as the common word `{term}`" in in_scope
-    assert "`{term}` is the skill's name or the alias that names it" in _scope_gate().splitlines()[0]
+    first = _scope_gate().splitlines()[0]
+    assert "`{term}` is the skill's name or the alias that names it" in first
+    # determinism-7: the helper gives the term, so the gate re-derives nothing from excerpts.
+    assert "`{doc_mentions}.skills[].terms[]`" in first and "paragraphs[]` show where" not in first
+    assert "its `terms[]` holds only `alias` entries" in derive
+    helper = _comention_helper()
+    skills = helper.parse_skills('[{"name": "vue-core", "aliases": ["core"]}]')
+    [skill] = helper.mentions("The core services start first.\n", skills)["skills"]
+    assert skill["terms"] == [{"term": "core", "kind": "alias", "paragraph_count": 1, "heading_count": 0,
+                               "fenced_count": 0}]
 
 
 def test_scope_gate_runs_after_the_split_and_before_the_api_surfaces_load():
@@ -325,30 +344,30 @@ def test_scope_gate_edits_move_skills_between_the_sets():
 
 def test_unverified_technologies_rule():
     rule = _unverified_rule()
-    assert "`{unverified_technologies}` = " in rule
+    assert "`{unverified_technologies}` = `{doc_mentions}.unverified_technologies`" in rule
     assert "that no inventory skill covers" in rule
-    assert "Programming languages, protocols and data formats do not count" in rule
-    assert "deprecated, removed or being replaced" in rule
-    assert "in order of first mention" in rule
     assert "`--scope-skills` and the edits above leave it unchanged" in rule
+    # Which strings are technologies is the step's call, staged before the helper runs.
+    staged = _bullet(_gap_claims(), "`{run_dir}/technologies.json`")
+    for needle in ("libraries, frameworks, databases, services and tools", "in order of first mention",
+                   "Programming languages, protocols and data formats do not count",
+                   "deprecated, removed or being replaced"):
+        assert needle in staged, needle
 
 
-def test_a_technology_is_covered_as_the_mentions_helper_matches():
-    # Exact equality put `Next.js` under "Not verified (no skill)" while the
-    # mentions helper put a `next` skill in scope from the same words.
+def test_the_mentions_helper_decides_what_a_skill_covers():
+    # determinism-6: the coverage test is the helper's, so the prose restates no matching rule.
     rule = _unverified_rule()
-    assert "is the technology's name, compared case-insensitively" not in rule
-    assert "when §2's matching rule (case-insensitive, at word boundaries, each occurrence read" in rule
-    assert "inside the technology's name as the document writes it, so a `next` skill covers `Next.js`" in rule
-    assert "equals that name once case, spaces, hyphens, dots and underscores are ignored" in rule
-    # The examples hold for the helper: its matcher finds `next` in Next.js,
-    # while React Router and Tailwind CSS need the second rule.
+    assert "§2's matching rule" not in rule and "once case, spaces, hyphens" not in rule
+    assert "no step compares a technology with a skill by hand" in rule
+    assert '--technologies "{run_dir}/technologies.json"' in _gap_claims()
+    # The examples the prose gave hold for the helper, one way only.
     helper = _comention_helper()
-    for text, skill, named in (("Next.js", "next", True), ("React Router", "react-router", False),
-                               ("Tailwind CSS", "tailwindcss", False)):
-        skills = helper.parse_skills(f'[{{"name": "{skill}"}}]')
-        assert (helper.mentions(f"We use {text}.\n", skills)["mentioned"] == [skill]) is named, text
-        assert f"`{skill}` skill covers `{text}`" in rule
+    skills = helper.parse_skills(json.dumps(["next", "react-router", "tailwindcss", "storybook-react-vite"]))
+    covered = {t["name"]: [c["skill"] for c in t["covered_by"]]
+               for t in helper.mentions("", skills, ["Next.js", "React Router", "Tailwind CSS", "React"])["technologies"]}
+    assert covered == {"Next.js": ["next"], "React Router": ["react-router"], "Tailwind CSS": ["tailwindcss"],
+                       "React": []}
 
 
 def test_gap_report_names_unverified_technologies_and_stores_the_scope():
@@ -406,10 +425,14 @@ def test_compile_inserts_only_in_scope_improvements():
     assert "`[RA-OUT-OF-SCOPE]` and never enter the refined document" in first
 
 
+def _compile_recovery() -> str:
+    return _slice(_compile_base(), "**Context recovery check:**", "\n\n")
+
+
 def test_compile_recovers_the_scope_block():
-    recovery = _slice(_compile_base(), "**Scope recovery:**", "\n\n")
-    assert "`{unverified_technologies}`" in recovery
-    assert "`<!-- [RA-SCOPE] -->`" in recovery
+    recovery = _compile_recovery()
+    assert "`{unverified_technologies}` (Step 02 §2b), which the plan (§6) needs: the `<!-- [RA-SCOPE] -->` block" in recovery
+    assert "When a block is still missing" in recovery
     assert "exit code 8" in recovery and '`halt_reason: "recovery-failed"`' in recovery
 
 
@@ -445,27 +468,52 @@ def test_refinement_summary_next_step_points_to_cs_or_qs():
 # --- Step 6: the report carries the same rows and next step ---
 
 
-def test_report_reads_the_new_rows_from_the_run():
+def test_report_reads_what_it_shows_from_the_run():
     # An input refined before can hold an older Refinement Summary, so the
     # report reads the build record and the run's state, never the document.
-    parse = _slice(_report_parse(), "**Bind the metrics from the files:**", "\n\n")
+    parse = _slice(_report_parse(), "**Bind what §2 and §3 show from the files:**", "\n\n")
     assert "`unverified_count` from `counts.unverified`" in parse
     assert "`unverified_technologies` from its `unverified_technologies` (comma-separated, or `none`)" in parse
-    assert "`vs_coverage` from `{vs_report}` as Step 05 §5 wrote it (the `[RA-VS]` block)" in parse
-    assert f"leave the {VS_COVERAGE} row out of the summary below" in parse
+    # The counts the dropped table showed are bound no more.
+    for gone in ("vs_coverage", "`skill_count`", "`gap_count`", "counts.improvement_tiers"):
+        assert gone not in parse, gone
     assert "Extract metrics from the Refinement Summary section" not in _read(REPORT)
 
 
-def test_report_shows_the_new_rows():
-    rows = _table_rows(_report_summary())
-    assert rows[NOT_VERIFIED][1] == "{unverified_count} ({unverified_technologies})"
-    assert rows[VS_COVERAGE][1] == "{vs_coverage}"
+def _schema() -> dict:
+    return json.loads(_read(REPO_ROOT / "src" / "shared" / "scripts" / "schemas"
+                            / "skf-refine-architecture-result-envelope.v1.json"))
 
 
-def test_row_labels_match_between_compile_and_report():
+HEADLESS_COUNTS = ("gap_count", "issue_count", "improvement_count", "unverified_count")
+
+
+def test_an_interactive_report_repeats_no_count_table():
+    # Maintainer decision 2026-10-02: the step 5 review just showed the
+    # Refinement Summary, so the final report shows no `| Metric | Count |` table.
+    shown = _report_summary()
+    assert "| Metric | Count |" not in shown and _table_rows(shown) == {}
+    assert "Show no count table: the step 5 review showed every count" in shown
+    # The review the sentence names does show it.
+    review = _slice(_read(COMPILE), "### 7. Present the Draft for Review", "### 8.")
+    assert "{Display the `summary` of `{applyResult}`" in review
+
+
+def test_a_headless_run_keeps_the_counts_in_its_result():
+    shown = _report_summary()
+    assert "a headless run's result line (§4) carries" in shown
+    properties = _schema()["properties"]
+    contract = _slice(_read(REFS / "exit-codes.md"), "## Result Envelope", "## Emitting a Halt")
+    for key in HEADLESS_COUNTS:
+        assert f"`{key}`" in shown and key in properties and f"`{key}`" in contract, key
+    # Every line the emitter prints must carry them.
+    assert set(HEADLESS_COUNTS) <= set(_schema()["required"])
+
+
+def test_the_summary_rows_live_in_compile_only():
     compiled = set(_table_rows(_compile_summary()))
-    shown = set(_table_rows(_report_summary()))
-    assert {NOT_VERIFIED, VS_COVERAGE} <= compiled & shown
+    assert {NOT_VERIFIED, VS_COVERAGE} <= compiled
+    assert not set(_table_rows(_report_summary())), "the report repeats no row of the Refinement Summary"
 
 
 def test_report_next_steps_point_to_cs_or_qs_before_ss():
@@ -538,7 +586,7 @@ def test_the_probe_runs_before_the_prompt():
     )
     prompt = inputs.index('"**Refine Architecture: Evidence-Backed Refinement**')
     assert probe < prompt
-    assert "Unless `--vs-report-path` was passed, run the probe before asking anything" in inputs
+    assert "Unless `--vs-report-path` was passed, run the probe (the first command) before asking anything" in inputs
     assert "Found the [VS] report from {vs_report_date}: press Enter to use it, or give another path." in inputs
     assert "`{vs_report_date}` is the date in the probe's `generatedAt`" in inputs
 
@@ -575,22 +623,24 @@ def test_headless_uses_the_report_it_finds_and_logs_it():
 
 
 def test_a_given_report_path_goes_through_the_path_mode():
+    # One list of exit codes serves the probe and the path mode, which differ only on exit 2 with a JSON.
     inputs = _init_inputs()
-    path_mode = _slice(inputs, "**Read a report path.**", "\n\n**Unusable VS report.**")
-    assert 'uv run {validateFeasibilityReportHelper} "{vs_report_path}"' in path_mode
-    assert "exactly as `--locate` does and prints the same JSON" in path_mode
-    assert "- **1:** HALT as **Unusable VS report** says below." in path_mode
-    retry = _bullet(path_mode, "**2**")
-    assert retry.startswith("- **2** with a JSON (the file is missing or could not be read")
+    modes = _slice(inputs, "Unless `--vs-report-path` was passed, run the probe", "\n\n**Unusable VS report.**")
+    assert 'uv run {validateFeasibilityReportHelper} "{vs_report_path}"' in modes
+    assert "exactly as `--locate` does and prints the same JSON" in modes
+    assert inputs.count("Branch on its exit code:") == 1
+    halt = _bullet(modes, "**1**")
+    assert "HALT as **Unusable VS report** says below" in halt
+    retry = _bullet(modes, "**2** with a JSON from the path mode")
+    assert "(the file is missing or could not be read" in retry
     assert "run the probe above if it has not run, and ask the report question again" in retry
     assert "run the probe above and take its outcome as if `--vs-report-path` had not been passed" in retry
-    assert "- **2 with no JSON:** a malformed call, as for the probe: fix it and run it again." in path_mode
 
 
 def test_an_unusable_report_halts_input_invalid():
     inputs = _init_inputs()
-    probe = _slice(inputs, "Branch on its exit code:", "\n\n**Read a report path.**")
-    assert "- **1** (the report breaks the contract) **or 2** with a JSON" in probe
+    probe = _slice(inputs, "Branch on its exit code:", "\n\n**Unusable VS report.**")
+    assert "- **1** (the report breaks the contract), or **2** with a JSON from the probe" in probe
     assert "HALT as **Unusable VS report** says below" in _bullet(probe, "**1**")
     # argparse's own exit 2 (an unquoted path with a space, say) prints no
     # JSON and says nothing about the report: it must not halt input-invalid.
@@ -609,12 +659,52 @@ def test_an_unusable_report_halts_input_invalid():
 
 def test_the_helper_json_is_the_only_report_source():
     record = _slice(_init_inputs(), "**Record the VS report.**", "\n\n")
-    assert "Cache the JSON of the report this run uses as `{vs_report}`" in record
-    assert "the run's only source for the report" in record
+    assert "Cache the JSON of the report this run uses as `{vs_report}`: no step reads the report file by hand" in record
     assert "`vs_report_available` to true when there is one (its `status` is `ok`)" in record
-    unavailable = _slice(_init_inputs(), "If `{validateFeasibilityReportHelper}` has no existing candidate", "\n\n")
-    assert "no report is read" in unavailable
-    assert "Neither the report's file name nor its verdict table is ever worked out by hand." in unavailable
+    assert "helper is unavailable" not in record
+
+
+def test_a_missing_feasibility_helper_halts_instead_of_skipping_the_report():
+    # #599: no run goes on without the report it was meant to read; `none` needs no helper.
+    find = _slice(_init_inputs(), "**Find the [VS] report first.**", "\n\n")
+    assert find.startswith("**Find the [VS] report first.** Unless `--vs-report-path none` was passed, resolve")
+    assert ('If no candidate exists, or `uv` cannot start it, HALT (exit code 3, `halt_reason: "resolution-failure"`) '
+            "at phase `init:feasibility-validator`") in find
+    assert "`skf-validate-feasibility-report.py` is not installed" in find
+    assert "refine without a report with `--vs-report-path none`" in find
+    text = _read(INIT)
+    assert "vs_report_not_read" not in text and "VS report not read: the feasibility-report helper" not in text
+
+
+RESOLUTION_HALT = 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `{}`'
+
+
+def test_a_missing_or_failing_inventory_or_mentions_helper_halts():
+    # #599: no step lists the skills or finds the mentions by hand; a call that fails halts too.
+    claims = _gap_claims()
+    run = _slice(claims, "**Run the mentions helper once.**", "\n\n")
+    assert ("If no candidate exists, `uv` cannot start it, or the command below exits non-zero, "
+            + RESOLUTION_HALT.format("gap-analysis:comention")) in run
+    assert "{its first stderr line, or with no candidate: `skf-comention-pairs.py` is not installed." in run
+    assert "On exit 1 (its stderr names a staged input it refuses), fix that file and run the command once more before halting" in run
+    assert "No step finds the mentions by hand" in run
+    gap = _read(GAP)
+    for gone in ("Graceful degradation", "derive the pairs from the inventory"):
+        assert gone not in gap, gone
+    # Step 03 reads no pair list: it passes the scope to the `verdicts` join.
+    assert ("§5 and Step 04 §4 read these two pair lists instead of checking each pair's scope again; Step 03 §4 "
+            "passes `{in_scope_skills}` to the `verdicts` join") in _gap_split()
+    scan = _slice(_read(INIT), "### 2. Scan Skills Folder", "```bash")
+    assert ("If no candidate exists, `uv` cannot start it, or the command below exits non-zero (a "
+            "`{skills_output_folder}` that does not exist, say), " + RESOLUTION_HALT.format("init:inventory")) in scan
+    assert "{its first stderr line, or with no candidate: `skf-enumerate-stack-skills.py` is not installed." in scan
+    assert "No step walks `{skills_output_folder}` by hand" in scan
+    assert "**Fallback path" not in _read(INIT)
+    codes = _slice(_read(REFS / "exit-codes.md"), "| Code |", "## Result Envelope")
+    [exit_3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
+    assert ("a helper is not installed, cannot start or fails: step 1 §2 (`skf-enumerate-stack-skills.py`, phase "
+            "`init:inventory`), step 2 §2 (`skf-comention-pairs.py`, phase `gap-analysis:comention`)") in exit_3
+    assert "step 1 §1 (`skf-validate-feasibility-report.py`, phase `init:feasibility-validator`)" in exit_3
 
 
 def test_the_state_file_records_the_vs_report():
@@ -631,7 +721,8 @@ def test_feasibility_helper_calls_fit_its_cli():
     helper = _feasibility_helper()
     pattern = r"^uv run \{validateFeasibilityReportHelper\} (.+)$"
     calls = re.findall(pattern, _read(INIT) + _read(ISSUES), re.M)
-    assert len(calls) == 3, calls
+    assert len(calls) == 2, calls
+    assert "{validateFeasibilityReportHelper}" not in _read(ISSUES), "step 3 reads the report through `verdicts`"
     for call in calls:
         argv = [re.sub(r"\{[^{}]*\}", "value", word) for word in shlex.split(call)]
         helper._build_parser().parse_args(argv)
@@ -652,7 +743,7 @@ def test_helper_calls_quote_every_placeholder():
 # The report JSON keys the steps name; each must be one the helper emits.
 REPORT_KEYS = ("status", "path", "generatedAt", "schemaVersionOk", "missingHeadings", "orderViolations",
                "verdictTableFound", "duplicateVerdictTableLine", "unknownTokens", "pairVerdicts",
-               "overallVerdict", "coveragePercentage", "coverageMeasured")
+               "coveragePercentage", "coverageMeasured")
 
 
 def test_the_report_keys_the_steps_read_are_the_helpers(tmp_path):
@@ -670,28 +761,39 @@ def test_the_report_keys_the_steps_read_are_the_helpers(tmp_path):
 # --- Step 3: VS verdicts by their token, scoped by the pair lists ---
 
 
-def test_issue_detection_reads_the_cached_json():
+VERDICTS_CALL = ('uv run {preservationScript} verdicts --report "{vs_report_path}" --generated-at "{vs_generated_at}" '
+                 '--skills "{run_dir}/skill-terms.json" --in-scope "{in_scope_names}" --rules "{refinementRulesData}"')
+
+
+def test_issue_detection_joins_the_verdicts_with_the_script():
+    # determinism-5: one call joins the rows to the inventory and the scope.
     vs = _issue_vs()
-    read = _slice(vs, "**Read the verdicts from `{vs_report}`**", "\n\n")
-    assert "`pairVerdicts`" in read and "`unknownTokens`" in read
-    assert "never read the report file by hand" in read
-    assert "compare it exactly as written (tokens are case-sensitive)" in read
+    assert VERDICTS_CALL in vs and _read(ISSUES).count("verdicts --report") == 1
+    assert "preservationScript: 'scripts/skf-check-preservation.py'" in _frontmatter(_read(ISSUES))
+    join = _slice(vs, "**Join the verdicts to the scope.**", "\n\n")
+    for needle in ("(`pairVerdicts`) again through the shared feasibility-report reader",
+                   "the skill names and aliases in `{run_dir}/skill-terms.json` (Step 02 §2)",
+                   "the scope Step 02 §3 settled", "the VS Report Integration table of `{refinementRulesData}`"):
+        assert needle in join, needle
+    for gone in ("**Scope filter", "**Read the verdicts from `{vs_report}`**", "Map each pair's `lib_a`"):
+        assert gone not in vs, gone
     assert "(match case-insensitively)" not in vs
+    # Step 02 stages the skill terms both helpers read.
+    assert "Step 03 §4 reads it too" in _bullet(_gap_claims(), "`{run_dir}/skill-terms.json`")
 
 
-def test_issue_detection_reads_a_lost_report_again_or_halts():
-    # A lost JSON is read again through the helper this step binds, and the
-    # re-read must be the report the run started from.
-    assert "validateFeasibilityReportProbeOrder:" in _frontmatter(_read(ISSUES))
-    recover = _slice(_issue_vs(), "**Recover the report JSON.**", "**Scope filter")
-    assert "the `[RA-VS]` block" in recover
-    assert "resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`" in recover
-    assert 'uv run {validateFeasibilityReportHelper} "{vs_report_path}"' in recover
-    assert "exits 0 with the `generatedAt` the block records" in recover
-    assert "When it exits non-zero with a JSON, or its `generatedAt` differs" in recover
-    assert 'HALT (exit code 8, `halt_reason: "recovery-failed"`)' in recover
-    assert "An exit 2 with no JSON is a malformed call, as in Step 01: fix it and run it again." in recover
-    assert "the same helper gives the same JSON" not in _read(ISSUES)
+def test_issue_detection_halts_when_the_verdicts_are_gone():
+    # The report the run started from, read again; a rewrite, or rules that no longer pass, halt.
+    assert "validateFeasibilityReportProbeOrder:" not in _frontmatter(_read(ISSUES))
+    vs = _issue_vs()
+    assert "read them from the `[RA-VS]` and `[RA-SCOPE]` blocks of the RA state file" in vs
+    stale = _bullet(vs, "**1** (`status: \"stale\"`)")
+    assert 'HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:vs-report`' in stale
+    assert ("the report this run started from is gone ([VS] rewrote it during this run, or it cannot be read "
+            "again), or the refinement rules no longer pass step 1's check") in stale
+    missing = _bullet(vs, "**3**")
+    assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `issue-detection:vs-report`' in missing
+    assert "- **2 with no JSON:**" not in vs and "**2 with no JSON:** a malformed call" in vs
 
 
 VS_TOKENS = ("Blocked", "Risky", "Plausible", "Verified")
@@ -702,11 +804,14 @@ def _rules_vs() -> str:
 
 
 def test_verdicts_are_promoted_by_their_exact_token():
-    # One home for the token mapping: the rules file a team may swap.
-    promote = _slice(_issue_vs(), "**Promote the in-scope verdicts by their token:**", "\n\n")
-    assert "the VS Report Integration table of `{refinementRulesData}` maps its token to" in promote
+    # One home for the token mapping: the rules file a team may swap, which the script reads.
+    promote = _bullet(_issue_vs(), "**0:**")
+    assert "whose `raises` names a tier is an issue of that tier" in promote
     assert "never phrases in the rationale text" in promote
-    assert not [line for line in promote.splitlines() if line.startswith("- ")], "the mapping is not restated"
+    assert not TIER_RE.search(_issue_vs()), "the mapping is not restated"
+    script = _load("ra_scope_verdict_rules", PRESERVATION_SCRIPT)
+    assert script.check_rules(str(RULES))["vs_raises"] == {"Verified": None, "Plausible": "Minor", "Risky": "Major",
+                                                           "Blocked": "Critical"}
     rows = _table_rows(_rules_vs())
     assert [token for token in rows if token.startswith("`")] == [f"`{token}`" for token in VS_TOKENS]
     assert rows["`Verified`"][1] == "No issue"
@@ -728,11 +833,12 @@ def test_the_plausible_rule_keys_on_the_token():
     assert "a VS-sourced issue takes the tier its verdict's row raises" in severity
 
 
-def test_issue_detection_scopes_verdicts_by_the_pair_lists():
-    scope = _slice(_issue_vs(), "**Scope filter", "\n\n")
-    assert "`{in_scope_pairs}`" in scope and "`{out_of_scope_pairs}`" in scope
-    assert "`[RA-SCOPE]` block" in scope
-    assert "either library in `{out_of_scope_skills}`" not in scope
+def test_issue_detection_scopes_verdicts_by_the_scope():
+    vs = _issue_vs()
+    assert "`{in_scope_names}` every name in `{in_scope_skills}`, comma-separated" in vs
+    routed = _bullet(vs, "**0:**")
+    assert "Record every `out_of_scope` row" in routed and "informational Out-of-Scope bucket" in routed
+    assert "either library in `{out_of_scope_skills}`" not in vs
 
 
 # --- Step 2: scope and documented pairs through the helpers (#598) ---
@@ -751,7 +857,8 @@ def test_gap_analysis_binds_its_helpers():
 def test_the_mentions_helper_runs_once_with_aliases():
     claims = _gap_claims()
     assert _read(GAP).count("uv run {comentionHelper} mentions") == 1
-    assert 'uv run {comentionHelper} mentions --doc "{analysis_doc}" --skills -' in claims
+    assert ('uv run {comentionHelper} mentions --doc "{analysis_doc}" --skills "{run_dir}/skill-terms.json" '
+            '--technologies "{run_dir}/technologies.json"') in claims
     assert "with any earlier Refine Architecture pass set aside (Step 01 §1b)" in claims
     assert "`source_repo_basename` and `source_root_basename`" in claims
     assert "Cache its JSON as `{doc_mentions}`" in claims
@@ -829,8 +936,8 @@ def test_language_comes_from_the_inventory():
 
 
 def test_compile_recovers_the_vs_report_block():
-    recovery = _slice(_compile_base(), "**VS report recovery:**", "\n\n")
-    assert "`<!-- [RA-VS] -->`" in recovery
+    recovery = _compile_recovery()
+    assert "which the VS Coverage row (§5) needs: the `<!-- [RA-VS] -->` block" in recovery
     assert "`coverageMeasured`" in recovery and "`none`" in recovery
     assert "exit code 8" in recovery and '`halt_reason: "recovery-failed"`' in recovery
 
@@ -841,7 +948,8 @@ def test_skill_md_names_the_vs_report_halt():
     assert "a [VS] report that breaks the feasibility-report contract" in exit_2
     assert exit_2.rstrip(" |").endswith("→ `input-invalid`")
     [exit_8] = [line for line in exit_codes.splitlines() if line.startswith("| 8 ")]
-    assert "step 3 §4 (the [VS] report cannot be read again, or [VS] rewrote it during the run)" in exit_8
+    assert ("step 3 §4 (the [VS] report cannot be read again, or [VS] rewrote it during the run, or the refinement "
+            "rules no longer pass step 1's check)") in exit_8
     [headless] = [line for line in _read(SKILL).splitlines() if line.startswith("| **Headless** |")]
     assert "without `--vs-report-path` step 1 uses the [VS] report it finds" in headless
 
@@ -880,14 +988,15 @@ def test_the_rules_file_says_what_a_copy_can_change():
 
 
 def test_step_1_checks_the_tables_the_steps_read():
+    # The script holds the check, so init runs it instead of applying the rules by hand.
     check = _slice(_read(INIT), "### 4. Check the Refinement Rules", "### 5.")
-    named = check.split("six tables the steps read by name: ", 1)[1]
-    positions = [named.index(table) for table in RULE_TABLES]
-    assert positions == sorted(positions), "init names the tables in the rules file's order"
-    for token in VS_TOKENS:
-        assert f"`{token}`" in check, token
+    assert 'uv run {preservationScript} rules --rules "{refinementRulesData}"' in check
+    assert "six tables the steps read" in check
     assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:rules`' in check
     assert "Extract:" not in _read(INIT)
+    script = _load("ra_scope_rule_tables", PRESERVATION_SCRIPT)
+    assert script.RULE_TABLES == RULE_TABLES and set(script.VS_TOKENS) == set(VS_TOKENS)
+    assert script.check_rules(str(RULES))["status"] == "ok"
 
 
 def test_the_steps_classify_with_the_loaded_rules():
@@ -917,14 +1026,16 @@ def test_compile_and_the_report_take_the_tiers_from_the_rules():
     assert "a tier of the Improvement Value table of `{refinementRulesData}`" in _slice(text, "### 4.", "### 5.")
     summary = _compile_summary()
     assert "a `{<tier>_count}` for each severity and value tier" in summary
-    assert "breakdowns name the tiers of the Issue Severity and Improvement Value tables" in summary
+    # Section 5 and section 6 read the one list Step 01's `rules` check printed.
+    assert "breakdowns name each tier of `{rule_tiers}` (its `issue`, then its `improvement` list)" in summary
+    assert "of the Issue Severity and Improvement Value tables" not in summary
     build = _slice(text, "### 6. Build the Draft", "### 7.")
-    assert '`tiers` (`{"issue": [...], "improvement": [...]}`' in build
+    assert '`tiers` (`{"issue": [...], "improvement": [...]}`: `{rule_tiers}`' in build
+    assert "Bind `{rule_tiers}` ← `tiers`".lower() in _read(INIT).lower()
     parse = _report_parse()
-    assert "the count of each severity tier from `counts.issue_tiers`" in parse
-    shown = _table_rows(_report_summary())
-    assert "`counts.issue_tiers`" in shown["Issues Flagged"][1]
-    assert "`counts.improvement_tiers`" in shown["Improvements Suggested"][1]
+    assert "`counts.issue_tiers`, which lists the severity tiers of the refinement rules, most severe first" in parse
+    # The report shows no count table (the review showed it), so no tier breakdown either.
+    assert "counts.improvement_tiers" not in _report_summary()
     assert "{IF the first tier of `counts.issue_tiers`, the most severe, counts any issue:}" in _report_next_steps()
 
 
@@ -956,19 +1067,21 @@ def test_a_copy_learns_the_tier_rules_and_step_1_checks_them():
     comment = _rules_comment()
     for needle in ("starts with a letter and holds only the letters A to Z, digits and spaces",
                    "each VS Report Integration row raises a tier of the Issue Severity table, or no issue"):
-        assert needle in copy and needle in check, needle
+        assert needle in copy, needle
     assert "no two tiers share a name, ignoring case, in one table or across the two" in copy
-    assert "no other tier of either table has the same name, ignoring case" in check
+    assert "its tiers follow the rules the file's first section states" in check
+    assert sorted(name.removesuffix("_count") for name in script.RESERVED_COUNTS) == fixed
     for name in fixed:
-        assert name.capitalize() in copy and f"`{name}`" in check and name in comment, name
+        assert name.capitalize() in copy and name in comment, name
     for needle in ("a tier name starts with a letter and holds only the letters A to Z, digits and spaces",
                    "no two tiers share a name (ignoring case), severity and value tiers included",
                    "each VS Report Integration row raises a tier of Issue Severity, or no issue",
                    "step 1 halts on a copy that lacks a table or whose tiers break these rules",
                    "Fixed whatever the copy says: what each step looks for"):
         assert needle in comment, needle
-    assert ('When the file cannot be read, lacks a table or breaks a tier rule, HALT (exit code 3, '
-            '`halt_reason: "resolution-failure"`) at phase `init:rules`') in check
+    assert ('(`status: "violations"`: it lacks a table or breaks a tier rule), or **2** with a JSON (`error` says '
+            'why the file cannot be read): HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase '
+            '`init:rules`') in check
     # What a step looks for is fixed: the types only label it.
     assert "What each step looks for is fixed" in copy and "a finding no type fits takes the closest type" in copy
 
@@ -1065,6 +1178,7 @@ def test_a_finding_the_review_drops_stays_dropped():
     fields = "`{kind, skills, anchor, title, capability}`"
     assert fields in previous and fields in _read(STORAGE)
     match = _slice(_read(STORAGE), "Compare each in-scope finding", "\n")
+    assert "findingStorageData: 'references/finding-storage.md'" in _frontmatter(_read(COMPILE))
     assert "its kind (`gap`, `issue` or `improvement`) is the record's and it cites the same skills" in match
     assert "An issue must also contradict the claim the record's `anchor` holds" in match
     # Step 4 raises one improvement per unused capability, so a skill has
@@ -1073,10 +1187,10 @@ def test_a_finding_the_review_drops_stays_dropped():
     assert "so one dropped finding never hides another about the same skills" in match
     assert "with a one-line title of its own and the `title` of the record it matched" in match
     assert "inserts it only if the user takes it back" in match
-    record = _slice(_read(COMPILE), "**Record what the review dropped.**", "\n")
+    record = _slice(_read(STORAGE), "**How Step 05 records a drop.**", "\n")
     assert '`{"kind", "skills", "anchor", "title", "capability"}`' in record
     assert "`capability` the `{api}` an improvement's block names, `null` for a gap or an issue" in record
-    assert "a finding taken back removes the record it matched" in record
+    assert "a finding the user takes back removes the record it matched" in record
     assert "{api}" in _compile_improvements(), "the record's capability is the one the improvement block names"
     assert "atomicWriteProbeOrder:" in _frontmatter(_read(COMPILE))
     review = _slice(_read(COMPILE), "### 7. Present the Draft for Review", "### 8.")
@@ -1091,20 +1205,25 @@ PROMOTE = "uv run {preservationScript} promote "
 
 def test_only_an_approved_review_records_a_drop():
     # A feedback round keeps the list in the run folder: [X] or a failed
-    # promotion must leave the record a later run reads as it was.
-    text = _read(COMPILE)
-    assert text.count(DISMISSED_WRITE) == 1, "the record is written once, at [C]"
+    # promotion must leave the record a later run reads as it was. The write
+    # and the record's shape live in finding-storage.md; compile points there.
+    text, storage = _read(COMPILE), _read(STORAGE)
+    assert DISMISSED_WRITE not in text and storage.count(DISMISSED_WRITE) == 1, "the record is written once"
     approve = _slice(text, "- IF C (only while the last `apply` exited 0)", "- IF cancel")
-    assert approve.index(PROMOTE) < approve.index("  - **0:**") < approve.index(DISMISSED_WRITE)
+    assert approve.index(PROMOTE) < approve.index("  - **0:**")
     written = _slice(approve, "  - **0:**", "  - **1**")
-    assert DISMISSED_WRITE in written and "when a feedback round staged `{run_dir}/dismissed.json`" in written
-    assert written.index(DISMISSED_WRITE) < written.index("execute `{nextStepFile}`")
-    assert '"The dropped findings were not recorded ({reason}): a later run may raise them again." and go on' in written
-    record = _slice(text, "**Record what the review dropped.**", "\n")
+    assert "When a feedback round staged `{run_dir}/dismissed.json`, only now write it to `{dismissedFile}`" in written
+    assert "as `{findingStorageData}` says" in written
+    assert written.index("{findingStorageData}") < written.index("execute `{nextStepFile}`")
+    record = _slice(storage, "**How Step 05 records a drop.**", "\n\n")
     assert "Keep that list in `{run_dir}/dismissed.json`" in record
     assert "It reaches `{dismissedFile}` only at [C], once `promote` exits 0, so [X] leaves the record as it was" in record
-    assert "{atomicWriteHelper}" not in record
-    cancel = _bullet(_slice(text, "#### Menu Handling Logic:", "**Record what"), "IF cancel")
+    assert record.index("so [X] leaves the record as it was") < record.index("{atomicWriteHelper}")
+    failed = '"The dropped findings were not recorded ({reason}): a later run may raise them again." and go on'
+    assert storage.index(DISMISSED_WRITE) < storage.index(failed)
+    feedback = _bullet(_slice(text, "#### Menu Handling Logic:", "[Redisplay Menu Options]"), "IF Any other")
+    assert "record each drop or take-back in `{run_dir}/dismissed.json` as `{findingStorageData}` says" in feedback
+    cancel = _bullet(_slice(text, "#### Menu Handling Logic:", "[Redisplay Menu Options]"), "IF cancel")
     assert "{dismissedFile}" not in cancel
 
 

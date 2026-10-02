@@ -26,7 +26,7 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 
 ### 1. Handle No-Change Shortcut
 
-**If routed here from step 2 with no changes detected:**
+**If routed here from step 2 (or gap-driven.md §2) with no changes detected:**
 
 "**Update Skill Report: {skill_name}**
 
@@ -45,7 +45,7 @@ When `{unconsumed_test_report}` is bound (step 1 §4b found a test report newer 
 - `fail`: "**Recommendation:** The source has not changed, but test report `{its file name}` (fail) has not been applied to this skill. Run `@Ferris US {skill_name} --from-test-report` to repair the gaps it lists, then re-run test-skill."
 - `pass-with-drift`: "**Recommendation:** The source has not changed, but test report `{its file name}` passed only under `--allow-workspace-drift`: test-skill read a workspace HEAD other than the commit this skill is pinned to. Once the workspace holds the pinned commit, re-run test-skill without `--allow-workspace-drift` before exporting."
 
-In gap-driven mode (step 2 §0 translated none of the report's gaps), replace the sentence that starts "Source code matches provenance map exactly" with "Test report `{its file name}` lists no gap update-skill repairs.", followed by each gap §0 did not route (`{id}: {title} ({category})`), and the recommendation with "Repair the listed gaps by hand, or re-run test-skill once the skill changes."
+In gap-driven mode (gap-driven.md §1 translated none of the report's gaps), replace the sentence that starts "Source code matches provenance map exactly" with "Test report `{its file name}` lists no gap update-skill repairs.", followed by each gap it did not route (`{id}: {title} ({category})`), and the recommendation with "Repair the listed gaps by hand, or re-run test-skill once the skill changes."
 
 When `{source_moved}` is true, add before the recommendation: "Upstream moved to `{target_commit}`, but no file this skill tracks changed, so nothing was written and the skill stays pinned at `{source_commit}`." When `{target_ref_override}` is set and `{target_ref}` differs from `{source_ref}`, also add "**The re-pin to `{target_ref}` was not recorded** — an update records a new ref only when it writes, and `{target_ref}` changes no file this skill tracks." and add `target-ref-not-recorded: {target_ref} changes no file {skill_name} tracks; the skill still records {source_ref}` to `warnings[]`.
 
@@ -53,13 +53,13 @@ List under **Warnings:** each warning the run recorded (`{run_dir}/warnings.json
 
 **Result files, line and hook.** A normal or gap-driven run that found no change is a finished run: write its result contract and fire the hook as §5b does, with `status: "no-changes"` in the payload and `--result-dir "{forge_version}"`, the current version's forge folder (no version was written): `version` and `previous_version` both the metadata.json `version`, `files_written: []`, `error: null`, and in `result_contract` an empty `outputs` and `summary` `{"update_status": "no-changes", "exports_affected": 0, "files_modified": 0, "validation_status": "not-run"}`. The line carries `warnings[]` (`target-ref-not-recorded` among them). Then run `{onCompleteCommand}` as §5b says.
 
-**A read-only run stays read-only here.** When `detect_only_mode` or `dry_run_mode` is true (detect-changes.md §4 sends a read-only run that finds no change here too), stage no `result_contract` and write no result file: in `{headless_mode}`, print the line as §1a does, with `status: "no-changes"` and no `--result-dir`, and never run `{onCompleteCommand}`. Those modes take no run lock, and the result files of the current version stay as the last finished run left them.
+**A read-only run stays read-only here.** When `detect_only_mode` or `dry_run_mode` is true (detect-changes.md §4 and gap-driven.md §2 send a read-only run that finds no change here too), stage no `result_contract` and write no result file: in `{headless_mode}`, print the line as §1a does, with `status: "no-changes"` and no `--result-dir`, and never run `{onCompleteCommand}`. Those modes take no run lock, and the result files of the current version stay as the last finished run left them.
 
 → Load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
 
 ### 1a. Handle Detect-Only Mode
 
-**If `detect_only_mode` is true (routed here from detect-changes.md §5):**
+**If `detect_only_mode` is true (routed here from detect-changes.md §5 or gap-driven.md §2):**
 
 "**Update Skill Report: {skill_name} — Detect-Only Mode**
 
@@ -80,7 +80,7 @@ In `{headless_mode}`, print the line as §5b says, with `status: "detect-only"` 
 
 ### 1b. Handle Dry-Run Mode
 
-**If `dry_run_mode` is true (routed here from re-extract.md §6):**
+**If `dry_run_mode` is true (routed here from re-extract.md §6 or gap-driven.md §5):**
 
 "**Update Skill Report: {skill_name} — Dry-Run Mode**
 
@@ -133,8 +133,8 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 **`{mode_fallback_note}`** surfaces weak-signal fallbacks the workflow took silently and would otherwise be buried in the evidence report. Render it inline after the mode value when any of these conditions fire; render the empty string when none did:
 
 - `--from-test-report` was passed but no test report was found, or the one a result file named is gone, so step 1 fell back to `normal` mode → ` (gap-driven requested; test report missing, fell back to normal)`
-- `re-extract.md §0.a` skipped the workspace-drift guard because `source_root` is not a git working tree (or HEAD was unreadable) → ` (workspace-drift check skipped: {skip_reason})` where `{skip_reason}` is the helper's `skip_reason` field (`not-a-git-tree` or `HEAD unreadable`)
-- `re-extract.md §0.a` accepted a drifted workspace under `--allow-workspace-drift` (`{workspace_drift_status}` is `overridden`; this row is where the report shows §0.a's override warning) → ` (workspace drift accepted: spot-checks read HEAD {head_short_sha}, not pinned {pinned_short_sha}; no provenance line moved or pinned)`
+- `gap-driven.md §3` skipped the workspace-drift guard because `source_root` is not a git working tree (or HEAD was unreadable) → ` (workspace-drift check skipped: {skip_reason})` where `{skip_reason}` is the helper's `skip_reason` field (`not-a-git-tree` or `HEAD unreadable`)
+- `gap-driven.md §3` accepted a drifted workspace under `--allow-workspace-drift` (`{workspace_drift_status}` is `overridden`; this row is where the report shows §3's override warning) → ` (workspace drift accepted: spot-checks read HEAD {head_short_sha}, not pinned {pinned_short_sha}; no provenance line moved or pinned)`
 - init.md §6b could not reach upstream and compared the pinned commit (`{source_tree_status}` is `offline`) → ` (upstream not reached: compared the pinned commit only)`
 - init.md §6b could not read `{source_commit}`, so every tracked file was re-checked (`{source_diff_status}` is `unavailable` in a source tree) → ` (file list unavailable: every tracked file re-checked)`
 - write.md §9 left the workspace clone where it was (`{advance_status}` is `skipped`) → ` (source clone not moved: {advance_skip_reason})`
@@ -150,7 +150,7 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 | Files moved/renamed | {count} |
 | **Total exports affected** | {count} |
 
-{in gap-driven mode, when step 2 §0 left gaps unrouted: **Not repaired by this run:** each `{id}: {title} ({category})`}
+{in gap-driven mode, when gap-driven.md §1 left gaps unrouted: **Not repaired by this run:** each `{id}: {title} ({category})`}
 
 ### Export Changes
 
@@ -267,7 +267,7 @@ In `{headless_mode}`, display that line verbatim. An interactive run runs the co
 - `status`: `"success"` here; §1 stages `"no-changes"`, §1a `"detect-only"` and §1b `"dry-run"`; a halt prints its own `halted-for-*` or `blocked` line through its step's halt procedure and never reaches this step. The full enum lives in the schema.
 - `headless_decisions[]`: every gate's record in the run's decision log (init.md §4 degraded-rebuild and §8 confirmation, detect-changes.md §1b / §1c / §2.2, merge.md §8). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gate auto-resolved.
 - `error`: null on every exit this step prints. A halt's line carries `{phase, path?, reason}`, and pipelines branch on `error !== null` for non-zero exit semantics.
-- `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category})` for each gap detect-changes.md §0 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (re-extract.md §0.a), `run-state-not-finished` and `provenance:` entries (write.md §3 and §6: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
+- `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category})` for each gap gap-driven.md §1 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (gap-driven.md §3), `run-state-not-finished` and `provenance:` entries (write.md §3 and §6: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
 
 **Post-finalization hook.** A finished run, this one or §1's no-change exit, fires the hook; `--detect-only`, `--dry-run` and a halt never do (customize.toml says so). If `{onCompleteCommand}` (resolved in SKILL.md On Activation §4 from `workflow.on_complete`) is non-empty, invoke it after the emitter wrote both result files:
 

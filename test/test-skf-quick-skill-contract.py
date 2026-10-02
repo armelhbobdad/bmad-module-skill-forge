@@ -45,7 +45,11 @@ default SKILL.md binds, the template comment names the headings the validator
 and the snippet anchors need, and the hook comments say when SKILL.md runs
 them. The ecosystem check makes no web search while agentskills.io has no
 registry API, and keeps its slug, gate and exit 8. A missing resolver or
-language detector halts instead of being worked out by hand.
+language detector halts instead of being worked out by hand, and so does
+every other shipped helper a step runs (the GitHub fetch helper, the
+skills-module helper, the public-API extractor, the atomic writer and the
+two validators): no file is fetched, parsed, copied or left unchecked by
+hand (#599).
 """
 
 from __future__ import annotations
@@ -246,8 +250,8 @@ def test_a_run_that_fetched_no_source_file_still_reaches_the_zero_exports_gate(t
                    "do not run the extractor", "§4.5 decides what follows"):
         assert needle in rule, needle
     assert "Stage it the same way when the extractor exits non-zero" in parse
-    assert ("stage what it finds as `{run_dir}/extract.json` through a quoted heredoc, in the shape of the "
-            "empty envelope below") in parse
+    # #599: no envelope is parsed in the prompt when the extractor is missing; the step halts instead.
+    assert "in-prompt per-language regex parsing" not in parse
     # The call with no file exits 2 and leaves its redirect empty, which the renderer refuses.
     called = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "quick", "--language", "python",
                              "--source-root", str(tmp_path)], capture_output=True, text=True, check=False)
@@ -949,9 +953,16 @@ def _halt_sites() -> list[tuple[str, int, str, str]]:
 
 
 def _staged(segment: str, name: str) -> str:
-    """The JSON a segment stages as {run_dir}/<name>, inline or through a heredoc."""
+    """The JSON a segment stages as {run_dir}/<name>, inline or through a heredoc.
+
+    A heredoc counts when it writes that file, or, for halt.json, when it pipes the
+    payload straight to emit-halt: quick-extract §3 stages its empty extract.json
+    envelope through a heredoc too, in the same segment as the extractor's halt.
+    """
     inline = re.findall(r"[Ss]tage `(\{.*?\})` as `\{(?:run_dir|batch_dir)\}/" + re.escape(name) + "`", segment)
-    heredoc = re.findall(r"<<'SKF_JSON'\n\s*(\{.*?\})\n\s*SKF_JSON", segment, flags=re.S)
+    heredoc = [payload for opener, payload
+               in re.findall(r"([^\n]*)<<'SKF_JSON'\n\s*(\{.*?\})\n\s*SKF_JSON", segment, flags=re.S)
+               if f'/{name}"' in opener or (name == "halt.json" and "emit-halt" in opener)]
     found = inline + heredoc
     assert len(found) == 1, f"expected one staged {name}, found {len(found)} in:\n{segment[:300]}"
     return found[0]
@@ -971,9 +982,10 @@ def test_the_scan_finds_every_hard_halt():
     # resolve-target.md gained the step 1 §4 halt for a file listing no probe could read, and the
     # halts for a missing resolver (§1b) and language detector (§4) in place of a by-hand walk;
     # SKILL.md gained the runtime halt for a missing python3 or uv.
+    # quick-extract.md and write-and-validate.md gained the halts for a missing shipped helper (#599).
     assert per_file == {"SKILL.md": 3, "batch-mode.md": 3, "compile.md": 1, "ecosystem-check.md": 2,
-                        "finalize.md": 1, "quick-extract.md": 2, "resolve-target.md": 12,
-                        "write-and-validate.md": 3}
+                        "finalize.md": 1, "quick-extract.md": 5, "resolve-target.md": 12,
+                        "write-and-validate.md": 6}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
 
 
@@ -1014,12 +1026,12 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(27), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(33), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
     """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names,
     except the runtime halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder)."""
     sites = _halt_sites()
-    assert len(sites) == 27
+    assert len(sites) == 33
     name, code, reason, segment = sites[site]
     if _runtime_halt(segment):
         assert name == "SKILL.md"
@@ -1045,6 +1057,62 @@ def test_every_hard_halt_emits_through_the_emitter(site):
     # Result files only beside metadata.json: never at the ownership halt or before step 5 writes.
     writes = '--result-dir "{skill_package}"' in segment
     assert writes == (name in ("write-and-validate.md", "finalize.md") and code != 9), (name, code)
+
+
+# Each shipped helper a stage runs: its stage, the helper's file, its cause, the fallback that is gone.
+SHIPPED_HELPERS = [
+    pytest.param("quick-extract.md", "{githubFetch}", "skf-github-fetch.py", "github-fetch-missing",
+                 'gh api -H "Accept: application/vnd.github.raw"', id="github-fetch"),
+    pytest.param("quick-extract.md", "{skillsModuleHelper}", "skf-skills-module.py", "skills-module-missing",
+                 "classifies from the README alone", id="skills-module"),
+    pytest.param("quick-extract.md", "{publicApiExtractor}", "skf-extract-public-api.py",
+                 "public-api-extractor-missing", "in-prompt per-language regex parsing", id="public-api-extractor"),
+    pytest.param("write-and-validate.md", "{atomicWriteHelper}", "skf-atomic-write.py", "atomic-writer-missing",
+                 'cp "{run_dir}/metadata.json"', id="atomic-writer"),
+    pytest.param("write-and-validate.md", "{frontmatterValidator}", "skf-validate-frontmatter.py",
+                 "frontmatter-validator-missing", "skip frontmatter validation", id="frontmatter-validator"),
+    pytest.param("write-and-validate.md", "{outputValidator}", "skf-validate-output.py", "output-validator-missing",
+                 "skip body/snippet/metadata validation", id="output-validator"),
+]
+
+
+@pytest.mark.parametrize(("name", "placeholder", "script", "cause", "fallback"), SHIPPED_HELPERS)
+def test_a_missing_shipped_helper_halts_instead_of_a_fallback(name, placeholder, script, cause, fallback):
+    """#599 (W5 hand-off): no stage fetches, parses, copies or skips by hand when a shipped helper is missing;
+    it halts with exit 3 as a missing resolver does, naming the helper in its message and its details."""
+    text = _read(QS / "references" / name)
+    assert fallback not in text, fallback
+    [site] = [segment for file, code, reason, segment in _halt_sites()
+              if file == name and f'"cause": "{cause}"' in segment]
+    assert site.startswith("HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too")
+    assert f"(`{script}`) is missing from `{{project-root}}/_bmad/skf/shared/scripts/`" in site
+    assert f"is missing from `{{project-root}}/_bmad/skf/shared/scripts/`, so re-install SKF" in site
+    before = text[:text.index(site)]
+    resolve = before[before.rindex(f"`{placeholder}`"):]
+    assert re.search(r"Resolve (?:\*\*)?`" + re.escape(placeholder) + "`", before), placeholder
+    assert "first existing path" in resolve, resolve[:200]
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
+    assert f"`{script}`" in row3
+
+
+def test_the_helper_halts_follow_the_runtime_halt_in_the_contract():
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
+    raised_by = row3.split("|")[3].strip()
+    assert raised_by.startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing); a shipped helper missing, "
+                                "named in the message and in `details.cause` (step 3: `skf-github-fetch.py`, "
+                                "`skf-skills-module.py` §1, `skf-extract-public-api.py` §3; step 5: "
+                                "`skf-atomic-write.py` §2, `skf-validate-frontmatter.py` §4 when skill-check is "
+                                "unavailable, `skf-validate-output.py` §5)")
+
+
+def test_the_output_validator_runs_through_uv():
+    text = _read(QS / "references" / "write-and-validate.md")
+    assert 'uv run {outputValidator} "{skill_package}" --generated-by quick-skill --skip-frontmatter' in text
+    assert "python3 {outputValidator}" not in text
+    # The description guard keeps its own rule: without the guard, skill-check runs without --fix.
+    assert "never run `--fix` unguarded" in text and "description guard unavailable" in text
 
 
 def test_the_emitter_is_resolved_and_the_run_folder_made_before_the_first_halt():

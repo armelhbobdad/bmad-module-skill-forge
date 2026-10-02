@@ -2,15 +2,9 @@
 nextStepFile: 'improvements.md'
 refinementRulesData: '{refinementRulesPath}'
 findingStorageData: 'references/finding-storage.md'
-# Resolve `{validateFeasibilityReportHelper}` by probing
-# `{validateFeasibilityReportProbeOrder}` in order (installed SKF module
-# path first, src/ dev-checkout fallback); first existing path wins. §4
-# calls it only to read the [VS] report again when the JSON Step 01 cached
-# is no longer in context.
-validateFeasibilityReportProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
-  - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
-# The shared emitter: §4's recovery halt prints its envelope with it.
+# §4 joins the [VS] verdicts to the inventory and the scope with it.
+preservationScript: 'scripts/skf-check-preservation.py'
+# The shared emitter: §4's halts print their envelope with it.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -62,27 +56,24 @@ Check each claim against the compact API surfaces Step 02 §4 collected, the per
 
 ### 4. Incorporate VS Report (If Available)
 
-If `vs_report_available` is true:
+If `vs_report_available` is false, skip this section: issue detection proceeds with skill data only.
 
-**Read the verdicts from `{vs_report}`**, the report JSON Step 01 §1 cached from the feasibility-report helper; never read the report file by hand. Its `pairVerdicts` lists each pair of the report's canonical verdict table as `{lib_a, lib_b, verdict, rationale}`, and `overallVerdict` gives the report's overall verdict for context. Step 01 halted on a report whose `unknownTokens` was not empty, so every `verdict` is a token the schema defines: compare it exactly as written (tokens are case-sensitive) and never map another spelling.
-
-**Recover the report JSON.** If `{vs_report}` is no longer in context, read the `[RA-VS]` block of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`), resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`, and run Step 01's path mode with `{vs_report_path}` set to the `path` the block records:
+**Join the verdicts to the scope.** The report's verdicts span the whole skill set, which may exceed this architecture's surface. One call reads its verdict rows (`pairVerdicts`) again through the shared feasibility-report reader and joins them to the skill names and aliases in `{run_dir}/skill-terms.json` (Step 02 §2), the scope Step 02 §3 settled and the VS Report Integration table of `{refinementRulesData}`:
 
 ```bash
-uv run {validateFeasibilityReportHelper} "{vs_report_path}"
+uv run {preservationScript} verdicts --report "{vs_report_path}" --generated-at "{vs_generated_at}" --skills "{run_dir}/skill-terms.json" --in-scope "{in_scope_names}" --rules "{refinementRulesData}"
 ```
 
-Use its JSON when it exits 0 with the `generatedAt` the block records. When it exits non-zero with a JSON, or its `generatedAt` differs ([VS] rewrote the report during this run), the verdicts this run started from are gone: HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:vs-report`, naming the VS report, with `"path"` set to its `path`. An exit 2 with no JSON is a malformed call, as in Step 01: fix it and run it again.
+`{vs_report_path}` and `{vs_generated_at}` are the `path` and `generatedAt` of `{vs_report}` (an empty string when `generatedAt` is null), and `{in_scope_names}` every name in `{in_scope_skills}`, comma-separated. If they are no longer in context, read them from the `[RA-VS]` and `[RA-SCOPE]` blocks of the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`). Branch on its exit code:
 
-**Scope filter (reuse `{in_scope_pairs}` and `{out_of_scope_pairs}` from Step 02 §3, or the `[RA-SCOPE]` block of the same state file if they are no longer in context):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Map each pair's `lib_a` and `lib_b` to the inventory skill whose name, or one of the aliases Step 02 §2 passed to the mentions helper, equals it (compared case-insensitively). A verdict whose pair is in `{in_scope_pairs}`, in either order, is promoted by the rules below. Record every other verdict (a pair in `{out_of_scope_pairs}`, or one naming a library no inventory skill matches) under the informational Out-of-Scope bucket instead of promoting it to an issue for this architecture.
-
-**Promote the in-scope verdicts by their token:** each raises the issue the VS Report Integration table of `{refinementRulesData}` maps its token to, or none. The token alone decides, never phrases in the rationale text.
+- **0:** each `in_scope` row (both libraries in-scope skills, in report order) whose `raises` names a tier is an issue of that tier; one whose `raises` is null raises none. The token alone decides, never phrases in the rationale text. Record every `out_of_scope` row, with its `reason`, under the informational Out-of-Scope bucket instead of promoting it to an issue for this architecture.
+- **1** (`status: "stale"`): the report this run started from is gone ([VS] rewrote it during this run, or it cannot be read again), or the refinement rules no longer pass step 1's check: HALT (exit code 8, `halt_reason: "recovery-failed"`) at phase `issue-detection:vs-report`, naming the `detail` of each of its `problems`, with `"path"` set to `{vs_report_path}`.
+- **2** with a JSON (`error` names the file it could not read): stage `{run_dir}/skill-terms.json` again as Step 02 §2 does and run the command again. **2 with no JSON:** a malformed call: fix it and run it again.
+- **3**, or `uv` cannot start the script: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `issue-detection:vs-report`, naming its `error` (the shared feasibility-report reader is not installed).
 
 **For each VS-sourced issue, include dual citations:**
 - Evidence from the skill content
 - Verdict and rationale from the VS report
-
-If `vs_report_available` is false: Skip this section. Issue detection proceeds with skill data only.
 
 ### 5. Document Each Issue
 

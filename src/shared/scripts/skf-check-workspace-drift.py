@@ -4,7 +4,7 @@
 # ///
 """SKF Check Workspace Drift — pre-flight guard for gap-driven update-skill runs.
 
-`skf-update-skill/references/re-extract.md §0.a` defines a four-state guard:
+`skf-update-skill/references/gap-driven.md §3` defines a four-state guard:
 the workspace at `source_root` must point at the commit the skill was pinned
 against (`metadata.source_commit`), otherwise gap-driven spot-checks read
 bytes that differ from the pinned tree and silently produce wrong results

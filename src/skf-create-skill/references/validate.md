@@ -1,14 +1,5 @@
 ---
 nextStepFile: 'generate-artifacts.md'
-# Resolve `{descriptionGuardProtocol}` (the guard's prose protocol, not its
-# helper script) by probing `{descriptionGuardProtocolProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. Advisory: if neither path exists, skip the load and
-# continue, because §0 states every guard rule this step acts on and the
-# protocol only explains them.
-descriptionGuardProtocolProbeOrder:
-  - '{project-root}/_bmad/skf/shared/references/description-guard-protocol.md'
-  - '{project-root}/src/shared/references/description-guard-protocol.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT (exit code 3, helper-missing) if neither resolves: the
@@ -101,9 +92,9 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 ### 0. Description Guard Protocol
 
-**Used by:** §2 (`skill-check check --fix`), §4 (the body split), and any future tool invocation that may modify SKILL.md.
+**Used by:** §2 (`skill-check check --fix`) and §4 (the body split).
 
-Resolve `{descriptionGuardProtocol}` ← first existing path in `{descriptionGuardProtocolProbeOrder}` and load it for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The load is advisory: if neither path exists, continue, because the rules below are all this step needs from it. The deterministic phases are executed via `{descriptionGuardHelper}` — the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points.
+The deterministic phases are executed via `{descriptionGuardHelper}`: the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points.
 
 **Guard outputs.** Bind `{guarded_description}` ← `description` from each `capture`, which reads the staged `<staging-skill-dir>/SKILL.md` just before the tool that may rewrite it. Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from each `verify-restore`. When `{guard_restored}` is true, set the in-context `description` to `{guarded_description}` so later sections do not work from the tool-mutated value, and record `description_guard_restored: true` with the tool name and `description_guard_diff_kind: {guard_diff_kind}` in workflow context for the evidence report (§8). A later `verify-restore` that exits 0 with `{guard_restored}` false leaves those records in place.
 

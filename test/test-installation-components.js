@@ -339,7 +339,7 @@ async function runTests() {
       references: ['integration-patterns.md', 'manifest-patterns.md', 'compose-mode-rules.md'],
     },
     'update-skill': {
-      steps: ['init.md', 'detect-changes.md', 're-extract.md', 'merge.md', 'write.md', 'report.md', 'health-check.md'],
+      steps: ['init.md', 'detect-changes.md', 'gap-driven.md', 're-extract.md', 'merge.md', 'write.md', 'report.md', 'health-check.md'],
       references: ['manual-section-rules.md'],
     },
     'audit-skill': {
@@ -588,11 +588,6 @@ async function runTests() {
       }
 
       assert(probeKeys.size > 0, `found *ProbeOrder lists to check (${probeKeys.size})`);
-      assert(
-        probeKeys.has('_bmad/skf/skf-create-skill/references/validate.md#descriptionGuardProtocolProbeOrder') &&
-          probeKeys.has('_bmad/skf/skf-update-skill/references/write.md#descriptionGuardProtocolProbeOrder'),
-        'both description-guard callers resolve the protocol by probe order',
-      );
       assert(probeFailures.length === 0, 'every *ProbeOrder is [installed, src] and resolves when installed', probeFailures.join('\n  '));
       assert(
         valueFailures.length === 0,

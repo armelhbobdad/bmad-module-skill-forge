@@ -28,13 +28,13 @@ To read the resolved GitHub repository source and extract the public API surface
 
 ## Steps
 
-**Reading the repository.** Step 1 §4 wrote the repository's file listing, at the ref this step reads (`source_ref`, or the default branch when it is unset), to `{run_dir}/tree.json`. Every file this step reads is fetched from that listing into `{run_dir}/src/`, laid out as in the repository, and the helpers read it there by path: no file's text passes through a shell string, and none is read by web browsing, which gives a rendered page rather than the file's bytes. Resolve `{githubFetch}` from `{githubFetchProbeOrder}`; first existing path wins. One call fetches every file a step names:
+**Reading the repository.** Step 1 §4 wrote the repository's file listing, at the ref this step reads (`source_ref`, or the default branch when it is unset), to `{run_dir}/tree.json`. Every file this step reads is fetched from that listing into `{run_dir}/src/`, laid out as in the repository, and the helpers read it there by path: no file's text passes through a shell string, and none is read by web browsing, which gives a rendered page rather than the file's bytes. Resolve `{githubFetch}` from `{githubFetchProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot read the files of `{owner}/{repo}`.** SKF's GitHub fetch helper (`skf-github-fetch.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot read the files of {owner}/{repo}.", "skill_package": null, "details": {"cause": "github-fetch-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. No file is fetched by hand. One call fetches every file a step names:
 
 ```bash
 uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-file "{run_dir}/tree.json" --dest "{run_dir}/src" [--limit <n>] [--exclude <glob>]... <path or glob>...
 ```
 
-It reads each file from `raw.githubusercontent.com` at the ref, which needs no gh, and through `gh api` when that fails (a private repository). A path or glob the listing does not hold is reported in `unmatched` and costs no request, so name every candidate a step lists and use the ones it `fetched`. When the listing is `truncated` (GitHub cut a very large tree short), a path with no `*` or `?` that the listing lacks is read anyway, one request, and stays in `unmatched` when it cannot be read. On `status` `partial` or `unavailable` (exit 3), `failed` names each file it could not read: go on without them and say so in §5. If no `{githubFetch}` candidate exists, fetch each file the same way by hand: `gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/<path>?ref={source_ref or HEAD}" > "{run_dir}/src/<path>"`, creating its folder first.
+It reads each file from `raw.githubusercontent.com` at the ref, which needs no gh, and through `gh api` when that fails (a private repository). A path or glob the listing does not hold is reported in `unmatched` and costs no request, so name every candidate a step lists and use the ones it `fetched`. When the listing is `truncated` (GitHub cut a very large tree short), a path with no `*` or `?` that the listing lacks is read anyway, one request, and stays in `unmatched` when it cannot be read. On `status` `partial` or `unavailable` (exit 3), `failed` names each file it could not read: go on without them and say so in §5.
 
 ### 1. Read the Listing and README
 
@@ -44,14 +44,14 @@ Clear the extraction files an earlier attempt of this step left first (§4.5 [R]
 rm -f "{run_dir}"/extract*.json
 ```
 
-Fetch the root `package.json` (the sniff below reads it; nothing is fetched when the listing has none), then sniff the listing, which §1.5 classifies from. Resolve `{skillsModuleHelper}` from `{skillsModuleProbeOrder}`; first existing path wins:
+Fetch the root `package.json` (the sniff below reads it; nothing is fetched when the listing has none), then sniff the listing, which §1.5 classifies from. Resolve `{skillsModuleHelper}` from `{skillsModuleProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot classify `{owner}/{repo}`.** SKF's skills-module helper (`skf-skills-module.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot classify {owner}/{repo}.", "skill_package": null, "details": {"cause": "skills-module-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. Otherwise run:
 
 ```bash
 uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-file "{run_dir}/tree.json" --dest "{run_dir}/src" package.json
 uv run {skillsModuleHelper} sniff --tree-file "{run_dir}/tree.json" --package-json "{run_dir}/src/package.json" [--scope-hint "{scope_hint}"] --fetch-list "{run_dir}/skills-fetch.txt" > "{run_dir}/sniff.json"
 ```
 
-Pass `--scope-hint` when `scope_hint` is set. Then fetch the README that `{run_dir}/sniff.json` names in `readme` with the same fetch call (`README.md`, or another root `README` file), and read it from `{run_dir}/src/`. If no `{skillsModuleHelper}` candidate exists (an incomplete install), fetch `README.md` instead, and §1.5 classifies from the README alone, never as a skills module.
+Pass `--scope-hint` when `scope_hint` is set. Then fetch the README that `{run_dir}/sniff.json` names in `readme` with the same fetch call (`README.md`, or another root `README` file), and read it from `{run_dir}/src/`.
 
 Extract:
 - **Description:** What the package does (first paragraph or tagline)
@@ -115,7 +115,7 @@ uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-fil
 
 Run the shared extractor on the files §2 staged. The helper does manifest parse + export scan in one invocation, reads each file from `{run_dir}/src/` by its repo-relative path, and writes a structured envelope ready to feed §4's inventory.
 
-**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt per-language regex parsing of the manifest and entry-point files, and stage what it finds as `{run_dir}/extract.json` through a quoted heredoc, in the shape of the empty envelope below with its fields filled in, so step 4's renderer reads it as it reads the helper's output.
+**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot read the public API of `{repo_name}`.** SKF's public-API extractor (`skf-extract-public-api.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot read the public API of {repo_name}.", "skill_package": null, "details": {"cause": "public-api-extractor-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. No manifest or entry-point file is parsed in the prompt.
 
 ```bash
 uv run {publicApiExtractor} --mode quick --language <lang> --source-root "{run_dir}/src" --manifest-file <manifest path> --entry-file <entry path> [--entry-file <entry path>]... > "{run_dir}/extract.json"

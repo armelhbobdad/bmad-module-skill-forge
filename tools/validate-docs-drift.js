@@ -89,10 +89,11 @@ function resolveOmsPath(anchors) {
   return path.resolve(SKF_ROOT, anchors.oh_my_skills_path);
 }
 
-// Accept either a full SHA match or a short-SHA prefix match, per
-// src/skf-update-skill/references/re-extract.md:36 — the pinned commit
-// is often stored as an 8-char short hash. Both anchors and metadata are
-// lowercased before comparison; blank / null values never match.
+// Accept either a full SHA match or a short-SHA prefix match, as
+// src/skf-update-skill/references/gap-driven.md §3 (the workspace drift
+// guard) does: the pinned commit is often stored as an 8-char short
+// hash. Both anchors and metadata are lowercased before comparison;
+// blank / null values never match.
 function commitsMatch(anchorCommit, metadataCommit) {
   if (!anchorCommit || !metadataCommit) return false;
   const a = String(anchorCommit).toLowerCase();

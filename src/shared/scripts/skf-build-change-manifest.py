@@ -209,7 +209,7 @@ Apply (update-skill write.md §3):
   unknown_reason, pinned_definition_lines and reachability:
     verified (map_entry)    unchanged
     moved (map_entry)       source_line (and source_file) from new_location
-    re-extracted            the entry from its `files` record (§0a)
+    re-extracted            the entry from its `files` record (gap-driven.md §4a)
     verified/moved, not in_map, a NEW_EXPORT or MODIFIED_EXPORT whose
     reachability is not internal-unreachable
                             one source-read entry at the citation's line
