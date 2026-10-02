@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """SKF Validate Pins — resolve and validate version pins for a GitHub repository.

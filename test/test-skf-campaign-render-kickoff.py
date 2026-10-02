@@ -275,6 +275,30 @@ class TestLoadFacts:
         with pytest.raises(ValueError, match=r"\{skill-root\}"):
             mod.load_facts(["file:{skill-root}/facts.md"], str(tmp_path))
 
+    def test_a_drop_entry_after_the_default_drops_it_and_adds_no_fact(self, tmp_path):
+        """`!file:...` in a team or personal override drops the bundled
+        project-context.md default from every Tier A kickoff."""
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "project-context.md").write_bytes(b"rule\n")
+        default = "file:{project-root}/**/project-context.md"
+        assert mod.load_facts([default, "Cite sources.", f"!{default}"], str(tmp_path)) == ["Cite sources."]
+
+    def test_a_drop_entry_naming_no_earlier_entry_is_a_no_op(self, tmp_path):
+        assert mod.load_facts(["Cite sources.", "!file:{project-root}/style.md"], str(tmp_path)) == [
+            "Cite sources."
+        ]
+        assert mod.load_facts(["!Cite sources."]) == []
+
+    def test_a_drop_entry_drops_every_earlier_copy_and_no_later_one(self):
+        assert mod.load_facts(["One.", "Two.", "One.", "!One.", "One."]) == ["Two.", "One."]
+
+    def test_a_dropped_file_entry_is_never_read(self, tmp_path):
+        """The drop runs before `file:` entries expand: a dropped path that
+        names no file, or keeps a placeholder, raises nothing."""
+        gone = f"file:{(tmp_path / 'team.md').as_posix()}"
+        assert mod.load_facts([gone, f"!{gone}"]) == []
+        assert mod.load_facts(["file:{skill-root}/facts.md", "!file:{skill-root}/facts.md"], str(tmp_path)) == []
+
 
 class TestReadDirective:
     def test_no_path_is_none(self):
@@ -379,6 +403,19 @@ class TestRun:
             "",
             "  Keep names stable.",
         ])
+
+    def test_resolver_output_with_a_drop_entry_drops_the_default(self, tmp_path, capsys, monkeypatch):
+        sf, bf, tf = self._files(tmp_path)
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "project-context.md").write_bytes(b"Keep names stable.\n")
+        # The bundled default, then a team override that drops it.
+        resolved = {"workflow.persistent_facts": [
+            "file:{project-root}/**/project-context.md", "!file:{project-root}/**/project-context.md",
+        ]}
+        _stdin(monkeypatch, json.dumps(resolved).encode("utf-8"))
+        rc = mod.run(str(sf), str(bf), "auth", str(tf), None, facts_json="-", project_root=str(tmp_path))
+        assert rc == 0
+        assert _section(capsys.readouterr().out, "Campaign Facts") == "None"
 
     def test_list_on_stdin_after_a_byte_order_mark(self, tmp_path, capsys, monkeypatch):
         sf, bf, tf = self._files(tmp_path)

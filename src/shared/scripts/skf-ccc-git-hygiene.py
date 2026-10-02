@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """SKF CCC Git Hygiene — keep ccc's index folders and SKF's workspace lock

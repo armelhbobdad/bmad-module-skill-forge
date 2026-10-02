@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """SKF QMD Classify Collections — Set arithmetic over QMD collection names.

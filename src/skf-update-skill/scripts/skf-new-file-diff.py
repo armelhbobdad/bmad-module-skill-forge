@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # ///
 """Deterministic NEW_FILE detection for skf-update-skill (detect-changes Category D).
 

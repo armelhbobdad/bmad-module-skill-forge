@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -534,3 +535,19 @@ class TestCLI:
         assert code == 1
         assert out["valid"] is False
         assert out["halt_reason"] == "input-missing"
+
+    def test_cli_reads_non_ascii_stdin_as_utf8(self):
+        """A Windows console leaves stdin as cp1252 (PYTHONIOENCODING stands
+        in for it here); the script still reads its UTF-8 JSON as UTF-8."""
+        payload = {"target_repo": "/home/zoë/dépôt", "skill_name": "foo",
+                   "intent": "Analyse des données, déjà vu: 日本語"}
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH)],
+            input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            capture_output=True,
+            env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        )
+        assert proc.returncode == 0, proc.stderr
+        normalized = json.loads(proc.stdout)["normalized"]
+        assert normalized["intent"] == payload["intent"]
+        assert normalized["target_repo"] == payload["target_repo"]

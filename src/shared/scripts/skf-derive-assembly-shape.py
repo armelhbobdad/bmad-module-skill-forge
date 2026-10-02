@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """SKF Derive Assembly Shape — decide whether a brief is a whole-language reference.

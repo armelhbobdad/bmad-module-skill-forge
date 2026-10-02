@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """SKF Emit Brief Result Envelope: skf-brief-skill's name for the shared emitter.

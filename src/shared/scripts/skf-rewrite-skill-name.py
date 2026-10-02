@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # ///
 """SKF Rewrite Skill Name — field-scoped, meaning-independent rename transforms.
 

@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """SKF Detect Language — deterministic primary-language detection from a flat file tree.

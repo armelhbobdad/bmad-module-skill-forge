@@ -934,6 +934,48 @@ def test_register_ccc_missing_target_is_user_error(tmp_target):
     assert "does not exist" in stderr
 
 
+# ─── Non-ASCII JSON on stdin ─────────────────────────────────────────────────
+
+
+def _pipe_utf8(target: Path, cmd: str, payload: dict) -> subprocess.CompletedProcess:
+    """Pipe `payload` as UTF-8 bytes with the streams set to cp1252, as a
+    Windows console leaves them (PYTHONIOENCODING stands in for it)."""
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), cmd, "--target", str(target)],
+        input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        timeout=10,
+    )
+
+
+def test_write_tools_reads_non_ascii_stdin_as_utf8(tmp_target):
+    payload = _baseline_payload()
+    payload["ccc_index"]["indexed_path"] = "/home/zoë/dépôt/日本語"
+    proc = _pipe_utf8(tmp_target, "write-tools", payload)
+    assert proc.returncode == 0, proc.stderr
+    assert _read_yaml_file(tmp_target)["ccc_index"]["indexed_path"] == "/home/zoë/dépôt/日本語"
+
+
+@pytest.mark.parametrize(
+    "cmd,entry,key,registry",
+    [
+        pytest.param("register-qmd-collection",
+                     {"name": "données-brief", "type": "brief", "skill_name": "données"},
+                     "name", "qmd_collections", id="register-qmd-collection"),
+        pytest.param("register-ccc-index",
+                     {"source_repo": "https://github.com/zoë/café", "skill_name": "café",
+                      "path": "/home/zoë/café", "indexed_at": "2026-05-25T14:00:00Z"},
+                     "skill_name", "ccc_index_registry", id="register-ccc-index"),
+    ],
+)
+def test_register_reads_non_ascii_stdin_as_utf8(tmp_target, cmd, entry, key, registry):
+    _write_tools(tmp_target, _baseline_payload())
+    proc = _pipe_utf8(tmp_target, cmd, entry)
+    assert proc.returncode == 0, proc.stderr
+    assert [e[key] for e in _read_yaml_file(tmp_target)[registry]] == [entry[key]]
+
+
 class TestAtomicWriteBinary:
     """_atomic_write persists content verbatim — no CRLF injection on Windows."""
 

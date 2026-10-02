@@ -1,0 +1,40 @@
+# Update pull requests for the GitHub Actions the workflows use (issue #571).
+# Every `uses:` in .github/workflows/ names a commit SHA with its exact
+# version as a comment (`owner/repo@<sha> # vX.Y.Z`), and the validate job of
+# quality.yaml fails on any other form. Dependabot moves the SHA and the
+# comment together. The name ends in .yaml for the yml/file-extension lint
+# rule.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci
+    groups:
+      # One pull request a month for the minor and patch updates of every
+      # action the workflows use; a new action goes on this list. A major
+      # update gets a pull request of its own, because a major can change
+      # what a step does.
+      github-actions:
+        patterns:
+          - actions/checkout
+          - actions/setup-node
+          - astral-sh/setup-uv
+          - actions/upload-artifact
+          - actions/download-artifact
+          - actions/upload-pages-artifact
+          - actions/deploy-pages
+          - actions/github-script
+          - softprops/action-gh-release
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # checkout v6 changes how it stores the git credentials, and
+      # release.yaml pushes the temp branch and the release tag with them.
+      # Move to v6 only with a release run that validates it.
+      - dependency-name: actions/checkout
+        update-types: ["version-update:semver-major"]

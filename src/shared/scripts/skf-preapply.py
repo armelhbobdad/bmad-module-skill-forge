@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """SKF Pre-Apply — apply known workarounds before pipeline iteration.

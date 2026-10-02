@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """SKF Tessl Review — the optional Tessl Review for create-skill and test-skill.

@@ -33,9 +33,9 @@
  *   ast-grep's tested versions.
  * - The README Acknowledgements table has no row for a tier or optional
  *   tool (its acknowledged_as).
- * - A PEP 723 requires-python header under src/ is below Python's minimum.
- *   This check is off (REQUIRES_PYTHON_CHECK) until every header declares
- *   the minimum: turn it on in the change that raises them.
+ * - A PEP 723 requires-python header under src/ is below Python's minimum
+ *   (uv runs each script on an interpreter its header allows). A docstring
+ *   that quotes a header is not read.
  *
  * --write regenerates the table, then checks. The other copies are only
  * reported: each finding says which value the list expects there.
@@ -64,7 +64,6 @@ const START = '<!-- tool-requirements:start -->';
 const END = '<!-- tool-requirements:end -->';
 const GENERATED_NOTE =
   '<!-- Generated from src/shared/tool-requirements.yaml by `node tools/tool-requirements.js --write`: edit that file, not this table. -->';
-const REQUIRES_PYTHON_CHECK = false;
 
 const VERSION = /^\d+(?:\.\d+)*$/;
 const TIERS = ['Quick', 'Forge', 'Forge+', 'Deep'];
@@ -722,24 +721,20 @@ function checkRequiresPython(root, tools) {
   return findings;
 }
 
-/**
- * Every finding for the checkout at `root`. `options.requiresPython`
- * overrides REQUIRES_PYTHON_CHECK (its tests turn it on).
- */
-function checkAll(root, requirements, options = {}) {
+/** Every finding for the checkout at `root`. */
+function checkAll(root, requirements) {
   const invalid = validateRequirements(root, requirements);
   if (invalid.length > 0) return invalid;
   const tools = requirements.data.tools;
-  const findings = [
+  return [
     ...checkTable(root, tools),
     ...checkProse(root, tools),
     ...checkPackageJson(root, tools),
     ...checkNvmrc(root, tools),
     ...checkWorkflows(root, tools),
     ...checkAcknowledgements(root, tools),
+    ...checkRequiresPython(root, tools),
   ];
-  if (options.requiresPython ?? REQUIRES_PYTHON_CHECK) findings.push(...checkRequiresPython(root, tools));
-  return findings;
 }
 
 function main(argv = process.argv.slice(2), env = process.env) {

@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
 """Campaign Provenance: verify repo access and record commit SHAs for all targets.
