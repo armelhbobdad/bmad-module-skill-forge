@@ -1,0 +1,21 @@
+---
+created: "2026-10-02 18:52"
+session: "1eac7d31-a255-4a86-b7ad-388ffb7624ab"
+---
+
+# Scan-scripts layout findings accepted in SKF skills
+
+The BMad Builder `scan-scripts.py` lint (bmad-workflow-builder's, and bmad-agent-builder's for skf-forger) reports four rows that are SKF's deliberate script layout, not defects, so a quality run lists them under `excluded_findings` and never grades them: "scripts/tests/ directory does not exist" (rated high, once for every skill with a `scripts/` folder), "No unit test found" for each script (medium), "No json.dumps found" (medium: the campaign scripts write JSON with `json.dump`, results to stdout and error objects to stderr, and the render scripts print rendered text) and "No sys.exit() calls" (low: each script ends with `raise SystemExit(main())`). Every script has its test under the root `test/` folder, never in `scripts/tests/`, and `npm run test:python` collects each `test/test-*.py` by name ([test-python-explicit-file-list](test-python-explicit-file-list.md)), so CI runs all of them on Linux and Windows. #601 records the decision (wave-1 re-check lint-23, lint-5 and lint-8, and skf-forger lint-3); each `scripts/tests/` row below is accepted with the tests that cover its scripts, all under `test/`:
+
+- `src/skf-audit-skill/scripts/tests/`: render-drift-tables.py (test-skf-render-drift-tables.py, stage 6a).
+- `src/skf-campaign/scripts/tests/`, 11 scripts: campaign-deps.py (test-skf-campaign-deps.py), campaign-parse-manifest.py (test-skf-campaign-parse-manifest.py), campaign-provenance.py (test-skf-campaign-provenance.py), campaign-quality-gate.py (test-skf-campaign-quality-gate.py), campaign-render-batch.py (test-skf-campaign-render-batch.py), campaign-render-kickoff.py (test-skf-campaign-render-kickoff.py), campaign-report.py (test-skf-campaign-report.py), campaign-state.py (test-skf-campaign-state-helper.py and test-skf-campaign-state.py), campaign-status.py (test-skf-campaign-status.py), campaign-validate-pins.py (test-skf-campaign-pins.py) and campaign-validate-state.py (test-skf-campaign-validate-state.py).
+- `src/skf-create-skill/scripts/tests/` (lint-8): scan-doc-rot.py (test-skf-scan-doc-rot.py).
+- `src/skf-drop-skill/scripts/tests/`: dir-sizes.py (test-skf-dir-sizes.py) and drop-roster.py (test-skf-drop-roster.py, stage 6a).
+- `src/skf-forger/scripts/tests/` (lint-3): forge-status.py (test-skf-forge-status.py), parse-pipeline.py (test-skf-parse-pipeline.py), pipeline-gate.py (test-skf-pipeline-gate.py) and pipeline-journal.py (test-skf-pipeline-journal.py).
+- `src/skf-refine-architecture/scripts/tests/`: skf-check-preservation.py (test-skf-check-preservation.py).
+- `src/skf-rename-skill/scripts/tests/`: skf-validate-rename-name.py (test-skf-validate-rename-name.py).
+- `src/skf-test-skill/scripts/tests/` (lint-23), 14 scripts: aggregate-coherence.py (test-skf-aggregate-coherence.py), build-result-context.py (test-skf-build-result-context.py, wave 5), check-metadata-coherence.py (test-skf-check-metadata-coherence.py), combine-external-scores.py (test-skf-combine-external-scores.py), compute-score.py (test-compute-score-contract.py), gap-ledger.py (test-skf-gap-ledger.py), hard-gate.py (test-skf-hard-gate.py), load-coverage-inputs.py (test-skf-load-coverage-inputs.py), locate-export-segments.py (test-skf-locate-export-segments.py), reconcile-coverage.py (test-skf-reconcile-coverage.py), score-signatures.py (test-skf-score-signatures.py), stage-helper-payload.py (test-skf-stage-helper-payload.py), validate-inventory.py (test-skf-validate-inventory.py) and verify-declared-numerator.py (test-skf-verify-declared-numerator.py).
+- `src/skf-update-skill/scripts/tests/` (lint-5, beside lint-4): skf-new-file-diff.py (test-skf-new-file-diff.py).
+- `src/skf-verify-stack/scripts/tests/`: skf-coverage-tally.py (test-skf-coverage-tally.py), skf-previous-report.py (test-skf-previous-report.py), skf-report-delta.py (test-skf-report-delta.py) and skf-verdict-rollup.py (test-skf-verdict-rollup.py).
+
+Only a script with no test under `test/` is a real finding, as campaign-status.py was before test-skf-campaign-status.py, so a new script gets its `test/test-skf-<name>.py` and this list gains its line.
