@@ -9,10 +9,10 @@ Pipelines chain multiple SKF workflows in sequence. The forger orchestrates the 
 The forger recognizes pipeline invocations when the user provides multiple workflow codes:
 
 ```
-AN CS TS EX              — space-separated codes
-AN -> CS -> TS -> EX     — arrow-separated (equivalent)
-BS CS[cocoindex] TS EX   — with target argument in brackets
-CS TS[min:80] EX         — with circuit breaker threshold
+QS[cocoindex] TS EX                          # space-separated codes, the first code's input in brackets
+QS[cocoindex] -> TS -> EX                    # arrow-separated (equivalent)
+AN[https://github.com/honojs/hono] CS TS EX  # a project path in AN's bracket
+QS[cocoindex] TS[min:80] EX                  # with circuit breaker threshold
 ```
 
 The forger also accepts common pipeline aliases:
@@ -85,7 +85,7 @@ Brackets after a workflow code (`CODE[value]`) are parsed as follows:
 
 The keywords `min` and `auto` match in any case (`TS[MIN:80]`). A bracket that starts like `min` but is not `min:<number>` (`TS[min:80%]`, `TS[min=80]`) is malformed: the pipeline stops before any workflow runs rather than pass it on as a target.
 
-Only AN (a unit count) and TS (a test threshold) take `min:N`. CS, AS and VS have circuit breakers with no number to set, so a `min:N` on them, as on any other code, is ignored, and the forger warns about it. Target arguments are valid for any workflow that accepts a named input (CS, QS, BS, US, etc.).
+Only AN (a unit count) and TS (a test threshold) take `min:N`. CS, AS and VS have circuit breakers with no number to set, so a `min:N` on them, as on any other code, is ignored, and the forger warns about it. Target arguments are valid for any workflow that accepts a named input (CS, QS, US, etc.). A bracket holds one value, so a chain led by BS gets its target and skill name only as `forge <repo-url-or-path> <skill-name>`, and RS and DS, which need more than one input, run on their own, outside a chain: `parse-pipeline.py` reports each as the chain's `first_input`.
 
 ## Pipeline State
 

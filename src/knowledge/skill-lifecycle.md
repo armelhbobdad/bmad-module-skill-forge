@@ -183,7 +183,7 @@ maintain <skill>                        # alias for AS US TS EX
 CS[cocoindex] TS[min:80] EX             # a target argument and a circuit-breaker override
 ```
 
-A chain of codes whose first workflow lacks its input, such as `QS TS EX`, asks for that input before any workflow runs (`SF` and `SS` take none), and a headless one halts there instead. A chain led by `BS` gets its target and skill name only as `forge <repo-url-or-path> <skill-name>`, `RS` and `DS` need more than one bracket and run on their own, and a headless chain led by `CS` leaves the brief to create-skill, which compiles the only one and halts naming them when there are several.
+A chain of codes whose first workflow lacks its input, such as `QS TS EX`, asks for that input before any workflow runs (`SF` and `SS` take none), and a headless one halts there instead. A leading `SF` is passed over, so `SF QS TS EX` asks for QS's target. A chain led by `BS` gets its target and skill name only as `forge <repo-url-or-path> <skill-name>`, `RS` and `DS` need more than one bracket and run on their own, a first code other than `CS` whose bracket already holds `auto`, or an AN or TS whose bracket holds `min:N` (such as `TS[min:80] EX`), is named as a conflict instead of asked, since a bracket holds one value, and a headless chain led by `CS` leaves the brief to create-skill, which compiles the only one and halts naming them when there are several.
 
 `forge-auto` is the one-command verified path: it needs no brief, and its test step is stricter than the other pipelines'. `CA` (campaign) is not an alias and does not chain with other codes: it is a workflow of its own that drives many skills through this pipeline in dependency order and can resume across sessions.
 

@@ -30,7 +30,8 @@ agent_type = "stateless"   # stateless | memory | autonomous
 
 # --- Configurable below. Overrides append to each array. ---
 
-# Steps to run before the standard activation (config load, greet).
+# Steps to run once the config is loaded (On Activation step 3), before
+# the pipeline journal is read and Ferris greets.
 activation_steps_prepend = []
 
 # Steps to run after the greeting, before Ferris dispatches a pick.
