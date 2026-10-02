@@ -12,11 +12,12 @@ Drops a specific skill version or an entire skill, either as a soft deprecation 
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` holds its helpers (`dir-sizes.py`, `drop-roster.py`).
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root: install layout puts both at `{project-root}/_bmad/skf/`.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.
+- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - **Shared context-file rebuild:** `references/select.md` and `references/execute.md` resolve the context files and rebuild their managed sections through `shared/scripts/skf-rebuild-managed-sections.py`, the helper export-skill writes them with, so the three skills that write the section produce the same bytes from one IDE mapping. `skf-export-skill/assets/managed-section-format.md` documents that format.
 
 ## Role
@@ -61,30 +62,21 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
 3. **Resolve workflow customization.** Run:
 
    ```bash
-   python3 {project-root}/_bmad/scripts/resolve_customization.py \
-       --skill {skill-root} --key workflow
+   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-drop-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): the run folder does not exist yet, so step 4 records it.
 
-   - `{skill-root}/customize.toml` — bundled defaults
-   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
-   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
-
-   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each scalar.
-
-   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, the bundled default applies:
+   Bind each scalar to its bundled default when the merged value is empty or absent:
 
    - `{forbidPurgeInHeadless}` ← on when `workflow.forbid_purge_in_headless` holds any value other than the empty string (a TOML `true`, `false` or `"false"` included), else off
-   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — step 3 skips the post-drop hook entirely)
+   - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 3 then runs no hook)
 
-   Stash both as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
-
-   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents), then run `workflow.activation_steps_append` after.
+   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off), then run `workflow.activation_steps_append` after.
 
 4. **Pre-flight: helpers, run folder, write probe and headless-purge guard.** All of it runs before the first prompt, so a broken install or a read-only folder stops the run before the user answers anything. Each HALT below names its exit code, `halt_reason` and phase: in headless mode it prints its envelope as the Halt Envelope section of `references/invocation-contract.md` says, and an interactive HALT displays its message only.
 
-   First, resolve `{emitEnvelopeHelper}`, `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}`, each ← the first that exists of `{project-root}/_bmad/skf/shared/scripts/<script>` (installed) and `{project-root}/src/shared/scripts/<script>` (development tree), where `<script>` is `skf-emit-result-envelope.py`, `skf-manifest-ops.py` and `skf-rebuild-managed-sections.py` in turn. Then create the run folder for the envelope payloads, and bind `{run_dir}` ← the path it prints (step 3, or a `--dry-run` at the confirmation gate, deletes it; a HALT keeps it):
+   First, resolve `{emitEnvelopeHelper}`, `{manifestOpsHelper}` and `{rebuildManagedSectionsHelper}`, each ← the first that exists of `{project-root}/_bmad/skf/shared/scripts/<script>` (installed) and `{project-root}/src/shared/scripts/<script>` (development tree), where `<script>` is `skf-emit-result-envelope.py`, `skf-manifest-ops.py` and `skf-rebuild-managed-sections.py` in turn. Then create the run folder for the envelope payloads, and bind `{run_dir}` ← the path it prints (step 3, a `--dry-run` at the confirmation gate, or an interactive HALT in step 1 or 2 deletes it; any other HALT keeps it):
 
    ```bash
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-drop-skill-XXXXXXXX"
@@ -93,6 +85,8 @@ Headless callers and pipelines: the inputs, flags, gate map, exit codes and `SKF
    If the run folder cannot be created, HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:run-folder`): "SKF cannot create its run folder under `{project-root}/_bmad-output/.skf-run/`: {the first stderr line}. Nothing was changed."
 
    When a helper resolved to no path, HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:helpers`): "SKF cannot drop a skill without `{the missing script}`, which is not installed. Nothing was changed. Re-install SKF." A `--dry-run` stops here too.
+
+   When `{customization_resolver_unavailable}` is set, record it now, so every envelope from here on carries it: write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a file write (a resolver error can hold quotes or `$( )`, so never echo it or type it into an argument), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`.
 
    Next, check that `{skills_output_folder}` is writable:
 

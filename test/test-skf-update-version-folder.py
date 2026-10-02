@@ -246,8 +246,11 @@ def test_read_only_modes_never_reach_merge():
     assert "then execute `{reportFile}` (report.md), which emits status `detect-only`" in \
         _slice(two, "**`detect_only_mode == true`**", "\n")
     five = _slice(gap, "### 5. Display the Repair Summary and Route", "- **Otherwise**")
-    assert "load `{reportFile}` (report.md, NOT `{resumeStepFile}`)" in _slice(five, "**`dry_run_mode == true`**", "\n")
-    assert yaml.safe_load(gap[4:gap.index("\n---\n", 4)])["resumeStepFile"] == "merge.md"
+    assert "load `{reportFile}` (report.md, NOT `{nextStepFile}`)" in _slice(five, "**`dry_run_mode == true`**", "\n")
+    front = yaml.safe_load(gap[4:gap.index("\n---\n", 4)])
+    # SKILL.md's Stages row reaches gap-driven.md, so it chains to merge.md by nextStepFile (#600)
+    assert front["nextStepFile"] == "merge.md" and "resumeStepFile" not in front
+    assert front["reportFile"] == "report.md"
 
 
 def test_docs_and_knowledge_describe_version_folders():

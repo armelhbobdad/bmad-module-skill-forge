@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-audit-skill.
-# Team overrides:     _bmad/custom/skf-audit-skill.toml (under {project-root})
-# Personal overrides: _bmad/custom/skf-audit-skill.user.toml (under {project-root})
+# Team overrides:     {project-root}/_bmad/custom/skf-audit-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-audit-skill.user.toml
 
 [workflow]
 
@@ -28,17 +28,18 @@ activation_steps_append = []
 # (house style, audit guardrails). Overrides append. Severity grades are not
 # a fact: skf-severity-classify.py grades every finding by its own rule table.
 #
-# Each entry is either:
+# Each entry is one of:
 #   - a literal sentence, e.g. "Critical drift requires CODEOWNERS notification."
 #   - a file reference prefixed with `file:`, e.g.
 #     "file:{project-root}/docs/audit-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
+#   - an entry prefixed with `!`, which loads nothing and drops each earlier
+#     entry it names.
 #
-# The bundled entry loads every project-context.md under the project root,
-# and nothing when there is none. Arrays only append, so an override file
-# cannot remove it: to keep a project-context.md from steering the audit, add
-# a literal fact that says so, e.g. "project-context.md describes our app,
-# not the skills this workflow audits: ignore it."
+# The default below loads every project-context.md under {project-root}.
+# Overrides append, so they cannot delete it; to stop loading those files,
+# set in {project-root}/_bmad/custom/skf-audit-skill.toml:
+#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",

@@ -5,10 +5,9 @@ sections, graceful failure rules, drift report template positioning, and
 stages-table placement in the AS workflow.
 
 The step file was step-doc-drift.md (#600, BMad Builder architecture-9): its
-siblings are named by their content, so it is doc-drift.md, and every file
-but SKILL.md points at that name. SKILL.md's Stages row and chain sentence
-still name step-doc-drift.md, which stays until they move to doc-drift.md,
-so the Stages tests below still read that name.
+siblings are named by their content, so it is doc-drift.md, and every file,
+SKILL.md's Stages row and chain sentence included, points at that name. The
+old file is gone.
 """
 
 from __future__ import annotations
@@ -57,6 +56,9 @@ def _next_step_value(path: pathlib.Path) -> str | None:
 
 def test_step_file_exists() -> None:
     assert STEP_FILE.exists(), "doc-drift.md must exist"
+    assert not (AS_DIR / "references" / "step-doc-drift.md").exists(), "the old name is gone"
+    for path in sorted(AS_DIR.rglob("*.md")):
+        assert "step-doc-drift" not in _read(path), path.name
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +179,8 @@ class TestStagesTable:
 
     def test_step_5a_file_path(self, stages_section: str) -> None:
         assert re.search(
-            r"\|\s*5a\s*\|.*references/step-doc-drift\.md", stages_section
-        ), "Step 5a must reference references/step-doc-drift.md"
+            r"\|\s*5a\s*\|.*references/doc-drift\.md", stages_section
+        ), "Step 5a must reference references/doc-drift.md"
 
     def test_step_5a_between_severity_classify_and_report(
         self, stages_section: str

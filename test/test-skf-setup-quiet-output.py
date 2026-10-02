@@ -177,6 +177,27 @@ def test_skill_md_routes_unresolved_helpers_through_halt_contract():
     assert "helper-missing" in probe_line
 
 
+def test_conventions_say_where_each_path_resolves():
+    """#601: the installed helper folder carries {project-root}; module-level
+    and sibling-skill paths resolve from the SKF module root; tier-rules.md,
+    which no stage chains to, is named with the step that reads it."""
+    conventions = _section(_read(SKILL_MD), "## Conventions")
+    assert ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the "
+            "SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root") in conventions
+    assert ("- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the "
+            "SKF module root, and that skill must be installed with this one.") in conventions
+    probe = next(line for line in conventions.splitlines() if "ProbeOrder" in line)
+    assert ("installed path (`{project-root}/_bmad/skf/shared/scripts/<name>`) then its dev path "
+            "(`{project-root}/src/shared/scripts/<name>`)") in probe
+    assert "installed as `_bmad/" not in conventions
+    assert ("`tier-rules.md`, the tier table `report.md` passes to the emitter's banner") in conventions
+    assert '--tier-rules "{skill-root}/references/tier-rules.md"' in _read(REFS / "report.md")
+    assert "\u2014" not in conventions
+    toml = _read(CUSTOMIZE)
+    assert "# Team overrides:     {project-root}/_bmad/custom/skf-setup.toml" in toml
+    assert "# Personal overrides: {project-root}/_bmad/custom/skf-setup.user.toml" in toml
+
+
 def test_skill_md_folds_headless_into_quiet():
     text = _read(SKILL_MD)
     reconcile = next(line for line in text.splitlines() if "**Reconcile `{headless_mode}`**" in line)
@@ -297,11 +318,15 @@ def test_step_halts_run_emit_blocked_under_uv_with_a_fallback(name):
 
 
 def test_blocked_reason_rules_stated():
-    """Reasons travel inside a single-quoted shell payload and match the
-    troubleshooting headings users search for."""
+    """Reasons travel as a single-quoted `--reason`, so a fixed one holds no
+    quote, and match the troubleshooting headings users search for; text from
+    the user or a helper goes in on stdin, never typed into the argument."""
     text = _read(SKILL_MD)
     halt_contract = next(line for line in text.splitlines() if "Halt contract" in line)
-    assert HALT_RULE in halt_contract
+    assert QUOTE_RULE in halt_contract
+    assert "a backtick for either quote" not in halt_contract and "single-quoted shell payload" not in halt_contract
+    # A Windows path keeps the envelope's posix form, and a trailing `\` cannot escape the closing quote.
+    assert '--path "<path>"` (`<path>` written with `/`; no `--path` for a halt without one)' in halt_contract
     headings = re.findall(r'^### "(Setup cannot proceed: .+)"$', _read(TROUBLESHOOTING), re.MULTILINE)
     assert len(headings) >= 2
     activation = _on_activation(text)
@@ -316,19 +341,23 @@ def test_blocked_reason_rules_stated():
     assert "phase `on-activation:config-malformed`" in load
     assert "reason `Setup cannot proceed: <message>`" in load
     assert "its `error` without the leading `Cannot initialize. `" in load
-    assert "sanitized per the halt contract" in load
+    assert "passed as the halt contract says, never preflight's whole JSON" in load
+    assert "sanitized per the halt contract" not in load
 
 
 def test_config_missing_reason_names_the_installer():
     """Setup never writes config.yaml, only the installer does, so the halt
     names it (#608). The reason keeps the troubleshooting heading as its
-    prefix, and it travels in a single-quoted JSON payload from a code span,
-    so it holds no quote, backslash or backtick and the helper carries it
-    through unchanged."""
+    prefix and leaves the file's path to the envelope's `path` (#601: no bare
+    `_bmad/` path), and it travels in a single-quoted `--reason` from a code
+    span, so it holds no quote, backslash or backtick and the helper carries
+    it through unchanged."""
     m = re.search(r"phase `on-activation:config-missing`[^\n]*?reason `([^`]+)`", _on_activation(_read(SKILL_MD)))
     assert m, "config-missing halt not found"
     reason = m.group(1)
-    assert reason.startswith("Setup cannot proceed: _bmad/skf/config.yaml was not found. ")
+    assert reason.startswith("Setup cannot proceed: the SKF config file was not found. ")
+    assert "_bmad/" not in reason
+    assert '### "Setup cannot proceed: the SKF config file was not found"' in _read(TROUBLESHOOTING)
     for command in ("npx bmad-module-skill-forge install", "npx bmad-method install"):
         assert command in reason, command
     assert not set(reason) & set("'\"\\`"), reason
@@ -339,20 +368,44 @@ def test_config_missing_reason_names_the_installer():
     assert json.loads(line[len("SKF_SETUP_RESULT_JSON: "):])["skf_setup"]["error"]["reason"] == reason
 
 
-HALT_RULE = "no `'`, `\"` or `\\` in it (a backtick for either quote, `/` for a backslash)"
-# The halt contract's rule, as HALT_RULE states it.
-SANITIZE = str.maketrans({"'": "`", '"': "`", "\\": "/"})
+# The halt contract's rule for text from the user or a helper, in place of the
+# hand-typed JSON payload: it goes on stdin, and `--reason` holds `<message>`.
+QUOTE_RULE = ("Text from the user or a helper never goes into the single-quoted `--reason`: write `<message>` "
+              "there and pass the text on stdin with `--stderr-from -` and a quoted `<<'SKF_TEXT'` heredoc, "
+              "one per runner tried, for the emitter to fold to one line and escape.")
+# The resolver reason every halt passes once On Activation item 6 bound it (#595).
+RESOLVER_RULE = ("Once item 6 binds `{customization_resolver_unavailable}` to a reason, every halt also passes "
+                 "`--customization-resolver-unavailable \"<reason>\"`, escaping each `\\`, `\"`, `$` and backtick "
+                 "in it with a backslash.")
 ENVELOPE_PREFIX = "SKF_SETUP_RESULT_JSON: "
 
 
-def _typed_blocked(phase: str, reason: str, path: str) -> subprocess.CompletedProcess:
-    """emit-blocked on the payload as the halt contract has the model type it:
-    each value sanitized and put between double quotes, with no JSON escape."""
-    text = '{"phase":"%s","reason":"%s","path":"%s"}' % (
-        phase, reason.translate(SANITIZE), path.translate(SANITIZE))
-    assert "'" not in text  # it travels inside a single-quoted shell payload
-    return subprocess.run([sys.executable, str(EMIT_HELPER), "emit-blocked"], input=text.encode("utf-8"),
-                          capture_output=True, timeout=10)
+def _stdin_blocked(phase: str, reason: str, text: str, path: str | None = None) -> subprocess.CompletedProcess:
+    """emit-blocked as the halt contract runs it for text from the user or a
+    helper: the fixed reason holds `<message>`, and the text comes on stdin."""
+    argv = [sys.executable, str(EMIT_HELPER), "emit-blocked", "--phase", phase, "--reason", reason]
+    if path is not None:
+        argv += ["--path", path]
+    return subprocess.run([*argv, "--stderr-from", "-"], input=text.encode("utf-8"), capture_output=True,
+                          timeout=10)
+
+
+def _contract_call(text: str, resolver: str | None = None) -> str:
+    """The halt contract's emit-blocked call for the config-malformed halt, as a
+    bash command: single-quoted phase and reason, the text in a quoted heredoc,
+    and the resolver reason escaped as the contract says."""
+    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    call = re.search(r"run `(<runner> <helper> emit-blocked [^`]+)`", halt_contract).group(1)
+    assert call == "<runner> <helper> emit-blocked --phase '<phase>' --reason '<reason>' --path \"<path>\"", call
+    runner = f"{shlex.quote(sys.executable)} {shlex.quote(EMIT_HELPER.as_posix())}"
+    command = (call.replace("<runner> <helper>", runner)
+               .replace("<phase>", "on-activation:config-malformed")
+               .replace("<reason>", "Setup cannot proceed: <message>")
+               .replace("<path>", "/project/_bmad/skf/config.yaml"))
+    if resolver is not None:
+        escaped = "".join("\\" + ch if ch in '\\"$`' else ch for ch in resolver)
+        command += f' --customization-resolver-unavailable "{escaped}"'
+    return f"{command} --stderr-from - <<'SKF_TEXT'\n{text}\nSKF_TEXT\n"
 
 
 def _blocked_error(done: subprocess.CompletedProcess) -> dict:
@@ -366,9 +419,9 @@ def _blocked_error(done: subprocess.CompletedProcess) -> dict:
 
 def test_a_malformed_config_halt_still_emits_its_blocked_envelope(tmp_path):
     """skf-preflight.py's YAML parse error names the file between double
-    quotes. Sanitized per the halt contract, the hand-typed payload is still
-    JSON, so a quiet run gets a blocked envelope, not the bare reason."""
-    assert HALT_RULE in next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    quotes. Passed on stdin, as the halt contract says, never typed into an
+    argument, it reaches a quiet run's blocked envelope whole."""
+    assert QUOTE_RULE in next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
     config = tmp_path / "_bmad" / "skf" / "config.yaml"
     config.parent.mkdir(parents=True)
     config.write_bytes(b"project_name: demo\nbad: key: here\n")
@@ -378,20 +431,93 @@ def test_a_malformed_config_halt_still_emits_its_blocked_envelope(tmp_path):
     result = json.loads(proc.stdout)
     assert result["code"] == "CONFIG_MALFORMED"
     assert '"' in result["error"], result["error"]
-    reason = "Setup cannot proceed: " + result["error"].removeprefix("Cannot initialize. ")
-    error = _blocked_error(_typed_blocked("on-activation:config-malformed", reason, config.as_posix()))
-    assert error == {"phase": "on-activation:config-malformed", "reason": reason.translate(SANITIZE),
+    message = result["error"].removeprefix("Cannot initialize. ")
+    error = _blocked_error(_stdin_blocked("on-activation:config-malformed", "Setup cannot proceed: <message>",
+                                          message, config.as_posix()))
+    assert error == {"phase": "on-activation:config-malformed", "reason": "Setup cannot proceed: " + message,
                      "path": config.as_posix()}
+    # preflight's whole JSON would put the JSON line in the reason: it carries `error`, not `message`.
+    whole = _blocked_error(_stdin_blocked("on-activation:config-malformed", "Setup cannot proceed: <message>",
+                                          proc.stdout.decode("utf-8")))
+    assert whole["reason"] != "Setup cannot proceed: " + message
 
 
-@pytest.mark.parametrize("reason", [
-    'Setup cannot proceed: tool detection failed: C:\\Users\\bob\\x is not "readable"',
-    "Setup cannot proceed: the run folder could not be created: it's \"read-only\"",
-], ids=["windows-path-and-quotes", "both-quotes"])
-def test_the_halt_contract_rule_keeps_a_typed_payload_json(reason):
-    error = _blocked_error(_typed_blocked("step 1:detect-tools", reason, "C:\\p"))
-    assert error["reason"] == reason.translate(SANITIZE) and error["path"] == "C:/p"
-    assert not set(error["reason"]) & set("'\"\\")
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+@pytest.mark.parametrize("message", [
+    'tool detection failed: C:\\Users\\bob\\x is not "readable"',
+    "it's \"read-only\" $(touch pwned) `id` $HOME",
+], ids=["windows-path-and-quotes", "quotes-and-substitutions"])
+def test_the_halt_contract_passes_helper_text_on_stdin(tmp_path, message):
+    """The documented call, run by bash: the quoted heredoc keeps every quote,
+    backslash, `$( )` and backtick literal, and nothing runs."""
+    done = subprocess.run(["bash", "-c", _contract_call(message)], capture_output=True, timeout=20, cwd=tmp_path)
+    error = _blocked_error(done)
+    assert error["reason"] == "Setup cannot proceed: " + message
+    assert not (tmp_path / "pwned").exists()
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+def test_a_halt_after_item_6_carries_the_resolver_reason(tmp_path):
+    """#595: once item 6 bound a resolver reason, the halt passes it, escaped
+    as the contract says, and the blocked envelope warns that the overrides
+    were not applied. The reason can hold a single quote (No module named
+    'tomllib'), so it goes between double quotes."""
+    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    assert RESOLVER_RULE in halt_contract
+    reason = "exit 1: No module named 'tomllib' in \"$HOME\" `x` C:\\py"
+    done = subprocess.run(["bash", "-c", _contract_call("bad: key: here", resolver=reason)], capture_output=True,
+                          timeout=20, cwd=tmp_path)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    [line] = done.stdout.decode("utf-8").splitlines()
+    envelope = json.loads(line[len(ENVELOPE_PREFIX):])["skf_setup"]
+    assert envelope["status"] == "blocked"
+    assert envelope["warnings"] == [f"customization_resolver_unavailable: {reason}"]
+
+
+def test_every_step_halt_passes_the_resolver_reason():
+    """#595: the step files' halt rules pass the resolver reason as the halt
+    contract does, and so does every fenced emit-blocked call, which a halt
+    copies as written."""
+    fenced = []
+    for name in ("detect-and-tier.md", "write-config.md", "ccc-index.md", "auto-index.md"):
+        text = _read(REFS / name)
+        rule = next(line for line in _section(text, "## Rules").splitlines() if "emit-blocked" in line)
+        assert ("and `--customization-resolver-unavailable \"<reason>\"` once SKILL.md On Activation item 6 bound "
+                "`{customization_resolver_unavailable}` to a reason, escaped as the halt contract says") in rule, name
+        calls = [line for block in re.findall(r"```bash\n(.*?)```", text, re.DOTALL)
+                 for line in _joined(block).splitlines() if "emit-blocked" in line]
+        for call in calls:
+            assert call.rstrip().endswith(" " + RESOLVER_GROUP), (name, call)
+        if calls:
+            assert ("In each `emit-blocked` call of this step, keep the bracketed `--customization-resolver-unavailable` "
+                    "only when On Activation item 6 bound `{customization_resolver_unavailable}` to a reason, escaped "
+                    "as the halt contract says; otherwise leave it out.") in text, name
+        fenced += calls
+    assert len(fenced) == len(STDERR_HALTS)
+
+
+def test_item_6_runs_the_resolver_through_uv_and_binds_its_reason():
+    """#595 option (a): the resolver runs under uv with --project-root, a failure
+    prints one warning (never under --quiet: setup's envelope carries it) and
+    keeps the reason for report.md and every later halt."""
+    item = _section(_on_activation(_read(SKILL_MD)), "6. **Resolve workflow customization.**")
+    assert ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+            "--project-root {project-root} --key workflow") in item
+    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in item
+    flat = " ".join(item.split())
+    assert ("It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-setup.toml` "
+            "(team overrides, committed) and `.user.toml` (personal overrides, gitignored).") in flat
+    assert ("When it exits non-zero, prints no JSON or is missing, print one line, "
+            "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, "
+            "`not found` when the script is missing, `no JSON` when it printed none).") in flat
+    assert ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: "
+            "the `{project-root}/_bmad/custom/` overrides do not apply to this run.") in flat
+    assert "Bind `{customization_resolver_unavailable}` ← that reason (null when the resolver ran)" in flat
+    assert "print the warning only when `{quiet_mode}` is false" in flat
+    # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
+    assert re.search(r"(?<!\{project-root\}/)_bmad/", _on_activation(_read(SKILL_MD))) is None
+    report = _read(REFS / "report.md")
+    assert '"customization_resolver_unavailable": {customization_resolver_unavailable},' in report
 
 
 # Each step halt that quotes a failed command's stderr: its phase, and the file
@@ -407,6 +533,21 @@ STDERR_HALTS = {
 def _joined(text: str) -> str:
     """`text` with its backslash line continuations joined."""
     return re.sub(r"\\\n\s*", "", text)
+
+
+# The optional resolver option each fenced step halt carries (#595).
+RESOLVER_GROUP = '[--customization-resolver-unavailable "{customization_resolver_unavailable}"]'
+
+
+def _with_resolver(call: str, resolver: str | None = None) -> str:
+    """`call` with its resolver group left out, or filled with `resolver`,
+    escaped as the halt contract says."""
+    assert call.endswith(" " + RESOLVER_GROUP), call
+    base = call[:-len(RESOLVER_GROUP) - 1]
+    if resolver is None:
+        return base
+    escaped = "".join("\\" + ch if ch in '\\"$`' else ch for ch in resolver)
+    return f'{base} --customization-resolver-unavailable "{escaped}"'
 
 
 def _blocked_calls(text: str) -> dict[str, str]:
@@ -432,6 +573,7 @@ def test_step_files_leave_the_reason_to_the_emitter():
     for phase, (name, source) in STDERR_HALTS.items():
         call = _blocked_calls(_read(REFS / name)).get(phase)
         assert call, (name, phase)
+        call = _with_resolver(call)
         assert f'--stderr-from "{source}"' in call or (source == "-" and call.endswith("--stderr-from -")), call
         assert "<message>" in call, call
         if source != "-":
@@ -445,7 +587,7 @@ def test_step_files_leave_the_reason_to_the_emitter():
 
 def _documented_blocked(name: str, phase: str, values: dict) -> list[str]:
     """The documented emit-blocked call of `phase`, filled in, as argv for this interpreter."""
-    call = _blocked_calls(_read(REFS / name))[phase].split(" | ")[-1]
+    call = _with_resolver(_blocked_calls(_read(REFS / name))[phase]).split(" | ")[-1]
     words = shlex.split(re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), call))
     assert words[:3] == ["uv", "run", EMIT_HELPER.as_posix()], words
     return [sys.executable, *words[2:]]
@@ -471,12 +613,43 @@ def test_a_documented_stderr_halt_emits_its_blocked_envelope(tmp_path, phase):
 
 
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+@pytest.mark.parametrize("phase", sorted(STDERR_HALTS))
+def test_a_documented_step_halt_carries_the_resolver_reason(tmp_path, phase):
+    """Each fenced step halt, its resolver option filled and escaped as the
+    halt contract says, run by bash: the envelope keeps the reason whole."""
+    name, source = STDERR_HALTS[phase]
+    project = tmp_path / "project"
+    project.mkdir()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    if source == "-":
+        (project / "_bmad-output").write_bytes(b"a file where the folder goes\n")
+    else:
+        (run_dir / source.split("/")[-1]).write_bytes(b"cannot write the file\n")
+    reason = "exit 1: No module named 'tomllib' in \"$HOME\" $(touch pwned) `x` C:\\py"
+    values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "run_dir": run_dir.as_posix(),
+              "project-root": project.as_posix(), "sidecar_path": project.as_posix(),
+              "forge_data_folder": (project / "forge-data").as_posix()}
+    call = _with_resolver(_blocked_calls(_read(REFS / name))[phase], reason)
+    command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), call)
+    command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
+    done = subprocess.run(["bash", "-c", command], capture_output=True, timeout=20, cwd=tmp_path)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    [line] = done.stdout.decode("utf-8").splitlines()
+    envelope = json.loads(line[len(ENVELOPE_PREFIX):])["skf_setup"]
+    assert envelope["error"]["phase"] == phase
+    assert envelope["warnings"] == [f"customization_resolver_unavailable: {reason}"]
+    assert not (tmp_path / "pwned").exists()
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
 def test_the_run_folder_halt_pipes_the_failed_command_to_the_emitter(tmp_path):
     """No run folder holds the stderr, so the documented pipe hands it over."""
     project = tmp_path / "project"
     project.mkdir()
     (project / "_bmad-output").write_bytes(b"a file where the folder goes\n")
-    [pipe] = [c for p, c in _blocked_calls(_read(REFS / "detect-and-tier.md")).items() if p == "step 1:run-folder"]
+    [pipe] = [_with_resolver(c) for p, c in _blocked_calls(_read(REFS / "detect-and-tier.md")).items()
+              if p == "step 1:run-folder"]
     values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "project-root": project.as_posix()}
     command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), pipe)
     command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
@@ -493,7 +666,8 @@ def test_a_run_folder_repeat_that_succeeds_leaves_no_folder(tmp_path):
     and the reason says the stderr held nothing."""
     project = tmp_path / "project"
     project.mkdir()
-    [pipe] = [c for p, c in _blocked_calls(_read(REFS / "detect-and-tier.md")).items() if p == "step 1:run-folder"]
+    [pipe] = [_with_resolver(c) for p, c in _blocked_calls(_read(REFS / "detect-and-tier.md")).items()
+              if p == "step 1:run-folder"]
     values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "project-root": project.as_posix()}
     command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), pipe)
     command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
@@ -871,12 +1045,13 @@ def test_orphan_action_other_than_keep_or_remove_halts_at_activation():
     m = re.search(r"halt with phase `on-activation:orphan-action-invalid`, no `path`, and reason `([^`]+)`", parse)
     assert m, "orphan-action halt not found"
     reason = m.group(1)
-    assert reason.startswith("Setup cannot proceed: --orphan-action takes keep or remove, not <value>.")
+    assert reason.startswith("Setup cannot proceed: --orphan-action takes keep or remove, not <message>.")
     assert not set(reason) & set("'\"\\")
-    done = _emit_blocked({"phase": "on-activation:orphan-action-invalid",
-                          "reason": reason.replace("<value>", "Remove")})
-    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
-    assert "not Remove." in done.stdout.decode("utf-8")
+    # The value is the user's text, so it goes on stdin, quotes and all (halt contract).
+    assert "where `<message>` is the value as given, or `an empty value` when there is none, passed as the " \
+        "halt contract says" in parse
+    error = _blocked_error(_stdin_blocked("on-activation:orphan-action-invalid", reason, "'Remove'"))
+    assert "not 'Remove'. Re-run with" in error["reason"]
     gate = _section(_read(REFS / "auto-index.md"), "### 3.")
     assert "`{orphan_action}` is non-null (activation lets through only `keep` or `remove`)" in gate
     contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")
@@ -1164,7 +1339,7 @@ def test_docs_state_when_no_envelope_arrives():
     assert "SKF's scripts are not installed in the project" in exception
     assert "the run's one line is the bare halt reason" in exception
     assert "Pipelines should treat a missing envelope as a failure" in exception
-    entry = _section(_read(TROUBLESHOOTING), '### "Setup cannot proceed: `_bmad/skf/config.yaml` was not found"')
+    entry = _section(_read(TROUBLESHOOTING), '### "Setup cannot proceed: the SKF config file was not found"')
     assert "the run's one line is the message alone" in entry
     assert "Pipelines should treat a run with no `SKF_SETUP_RESULT_JSON` line as a failure" in entry
     contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")

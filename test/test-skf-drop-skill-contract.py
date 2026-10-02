@@ -525,6 +525,73 @@ def test_required_helpers_resolve_before_the_first_prompt():
     assert "never type an envelope or edit the manifest or a context file yourself" in rule
 
 
+def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
+    """#595 option (a): the resolver runs under uv with --project-root, so a
+    dropped `forbid_purge_in_headless` override is never silent: a failure
+    prints one warning, and step 4 records the reason in the run sink once the
+    run folder and the emitter exist, through a file, so every envelope from
+    there on carries it. #596: a `!` entry drops the project-context default."""
+    activation = _section(_read(SKILL), "## On Activation", None)
+    resolve = " ".join(_section(activation, "3. **Resolve workflow customization.**", "4. **Pre-flight").split())
+    assert ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+            "--project-root {project-root} --key workflow") in resolve
+    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in activation
+    for token in ("It merges the bundled `{skill-root}/customize.toml` with "
+                  "`{project-root}/_bmad/custom/skf-drop-skill.toml` (team overrides, committed) and `.user.toml` "
+                  "(personal overrides, gitignored).",
+                  "When it exits non-zero, prints no JSON or is missing, print one line, "
+                  "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr "
+                  "line, `not found` when the script is missing, `no JSON` when it printed none).",
+                  "If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
+                  "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.",
+                  "Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran)",
+                  "the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed "
+                  "`!` drops each earlier entry it names and loads nothing itself, so an override's "
+                  '`"!file:{project-root}/**/project-context.md"` turns that default off'):
+        assert token in resolve, token
+    # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
+    assert re.search(r"(?<!\{project-root\}/)_bmad/", resolve) is None
+    preflight = " ".join(_section(activation, "**Pre-flight: helpers", "5. Load").split())
+    record = ('write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a file '
+              'write (a resolver error can hold quotes or `$( )`, so never echo it or type it into an argument), then '
+              'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+              '"$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`')
+    assert record in preflight
+    # After the helper check (the emitter exists), before the write probe and the purge guard can halt.
+    assert (preflight.index("resolved to no path") < preflight.index(record)
+            < preflight.index("check that `{skills_output_folder}` is writable")
+            < preflight.index("Last, the headless-purge guard."))
+    warnings = next(line for line in _read(CONTRACT).splitlines() if line.startswith("- `warnings`:"))
+    assert "`customization_resolver_unavailable: <reason>` when On Activation records" in warnings
+    # An interactive HALT in step 1 or 2 deletes the run folder; the activation halts keep it.
+    assert ("(step 3, a `--dry-run` at the confirmation gate, or an interactive HALT in step 1 or 2 deletes it; "
+            "any other HALT keeps it)") in preflight
+    toml = _read(CUSTOMIZE)
+    comment = _comment(toml, "# Persistent facts the workflow keeps", "persistent_facts = [\n")
+    assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-drop-skill.toml: '
+            'persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comment
+    assert "Each entry is either:" not in comment
+    assert ("Each entry is one of: - a literal sentence" in comment
+            and "- an entry prefixed with `!`, which loads nothing and drops each earlier entry it names." in comment)
+
+
+def test_conventions_say_how_module_and_sibling_paths_resolve():
+    """#601: drop reads `shared/` scripts and export-skill's managed-section
+    format, so its Conventions say where both resolve from."""
+    conventions = _section(_read(SKILL), "## Conventions", "## Role")
+    assert ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the "
+            "SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.") in conventions
+    assert ("- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the "
+            "SKF module root, and that skill must be installed with this one.") in conventions
+    assert "`skf-export-skill/assets/managed-section-format.md`" in conventions
+    # Drop has scripts/ and no assets/: the Conventions name the helpers it holds.
+    assert not (DROP / "assets").exists() and "`assets/`" not in conventions
+    helpers = sorted(p.name for p in (DROP / "scripts").glob("*.py"))
+    assert helpers == ["dir-sizes.py", "drop-roster.py"]
+    assert "`scripts/` holds its helpers (`dir-sizes.py`, `drop-roster.py`)." in conventions
+    assert "`headless_mode: true` in `{sidecar_path}/preferences.yaml`" in _read(SKILL)
+
+
 def test_a_supplied_skill_name_answers_the_skill_gate_in_both_modes():
     ask = _section(_read(SELECT), "### 4. Ask Which Skill", "### 5. ")
     gate = next(line for line in ask.splitlines() if line.startswith("**GATE [default: use args]:**"))

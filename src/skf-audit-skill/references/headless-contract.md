@@ -1,6 +1,10 @@
 # Headless Contract
 
-The exit codes and the result envelope of skf-audit-skill. Each stage's **Halt envelope** paragraph names the exit code, `halt_reason` and phase of every HALT in it and shows the emitter command that prints it.
+The outputs, exit codes and result envelope of skf-audit-skill. Each stage's **Halt envelope** paragraph names the exit code, `halt_reason` and phase of every HALT in it and shows the emitter command that prints it.
+
+## Outputs
+
+A run writes in `{forge_version}/`, the audited version's folder: `drift-report-{timestamp}.md`, with the run context, `drift_score` and `nextWorkflow` in its frontmatter; the JSON it was built from, in `.skf-audit/{timestamp}/`; and, from step 6, the result contract `audit-skill-result-{YYYYMMDD-HHmmss}.json` and its `audit-skill-result-latest.json` copy, written by the shared emitter. The shared clone at the recorded source path never changes: an audit of a newer upstream ref reads it from a private tree.
 
 ## Exit Codes
 

@@ -319,7 +319,7 @@ def test_troubleshooting_names_ferris_install_halts_and_the_installer():
     guard = _slice(forger, "1. **Config guard.**", "\n").replace("**", "")
     scripts = _slice(forger, "2. **Preflight.**", "Otherwise run it once").replace("**", "")
     ki = _slice(forger, "- **KI**:", "\n")
-    entry = _slice(_read(TROUBLESHOOTING), '### "Setup cannot proceed: `_bmad/skf/config.yaml` was not found"',
+    entry = _slice(_read(TROUBLESHOOTING), '### "Setup cannot proceed: the SKF config file was not found"',
                    "\n### ")
     for halt, source in (("Cannot initialize. SKF is not installed in this project", guard),
                          ("Cannot initialize. SKF's scripts are missing from this project", scripts)):

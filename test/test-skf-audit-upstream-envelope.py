@@ -188,8 +188,10 @@ def test_c_is_the_headless_default_and_the_inputs_lose_the_consent_flags():
     assert "`upstream_drift_choice` [optional: C / S / X" in inputs and "C, auditing the upstream ref" in inputs
     assert "`force`" not in inputs
     gates = _slice(skill, "| **Gates** |", "\n")
-    assert gates.strip() == ("| **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] · Upstream-Drift Gate [C/S/X] · "
-                             "Baseline Confirm Gate [C] |")
+    assert gates.strip() == ("| **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] · Upstream-Drift Gate [C/S/X] "
+                             "(references/upstream-checkout.md, only when upstream moved) · Baseline Confirm Gate "
+                             "[C/X] (only on a doubt: the forge tier is below the compile tier, or the provenance map "
+                             "is more than 90 days old) |")
 
 
 def test_every_halt_after_the_tree_closes_it():
@@ -518,8 +520,9 @@ def test_the_hook_failure_is_shown_and_the_resolver_fallback_is_a_warning():
 
 
 def test_the_gates_record_the_decisions_the_schema_names():
-    """Step 1's two choice gates: the manifest-vs-link gate in init.md, the
-    upstream-drift gate in the file init.md loads when upstream moved."""
+    """Step 1's three gates: the manifest-vs-link gate and the baseline
+    confirm gate in init.md, the upstream-drift gate in the file init.md
+    loads when upstream moved."""
     step_1 = _read(INIT) + _read(CHECKOUT)
     gates = set(re.findall(r'\{"gate": "(init\.[a-z-]+)"', step_1))
     enum = set(_schema()["properties"]["headless_decisions"]["items"]["properties"]["gate"]["enum"])
@@ -555,7 +558,7 @@ def test_activation_checks_uv_and_the_shared_helpers():
     no stage halts outside the exit-code contract for a missing helper and
     no stage keeps a fallback for one."""
     activation = _flow(_slice(_read(SKILL), "## On Activation", "5. Load, read the full file"))
-    assert "run `uv --version`, and check that" in activation
+    assert "Run `uv --version`, and check that" in activation
     for path, stem, script in SHARED_HELPERS:
         assert f"`{script}`" in activation, script
         assert (SCRIPTS / script).is_file(), script
@@ -610,6 +613,87 @@ def test_the_customize_surface_reaches_what_it_overrides():
     report = _flow(_slice(_read(REPORT), "**Post-audit hook (optional).**", "### 6."))
     assert "invoke it from `{project-root}` as:" in report
     assert "{onCompleteCommand} --result-path={result_json_path}" in report
+
+
+# The shared #595 resolver block every workflow's On Activation carries, and
+# the #596 `!` persistent_facts clause (W6 handoffs).
+RESOLVER_CALL = ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+                 "--project-root {project-root} --key workflow")
+RESOLVER_LAYERS = ("It merges the bundled `{skill-root}/customize.toml` with "
+                   "`{project-root}/_bmad/custom/skf-audit-skill.toml` (team overrides, committed) and `.user.toml` "
+                   "(personal overrides, gitignored).")
+RESOLVER_WARNING = ("When it exits non-zero, prints no JSON or is missing, print one line, "
+                    "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr "
+                    "line, `not found` when the script is missing, `no JSON` when it printed none).")
+RESOLVER_FALLBACK = ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
+                     "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.")
+DROP_CLAUSE = ("the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` "
+               "drops each earlier entry it names and loads nothing itself, so an override's "
+               '`"!file:{project-root}/**/project-context.md"` turns that default off')
+
+
+def test_activation_runs_the_resolver_through_uv_and_honours_a_dropped_fact():
+    """#595 option (a): the resolver runs under uv with --project-root, so a
+    bare python3 older than 3.11 no longer drops the overrides silently; a
+    failure prints one warning and step 6 hands the reason to the emitter.
+    #603: headless_mode is read from the sidecar's preferences.yaml. #596:
+    a `!` entry drops the bundled project-context.md default, and
+    customize.toml says how instead of suggesting a counter-fact."""
+    activation = _flow(_slice(_read(SKILL), "## On Activation", "4. **Pre-flight"))
+    assert f"```bash {RESOLVER_CALL} ```" in activation
+    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in _read(SKILL)
+    assert RESOLVER_LAYERS in activation and RESOLVER_WARNING in activation and RESOLVER_FALLBACK in activation
+    # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
+    assert re.search(r"(?<!\{project-root\}/)_bmad/", activation) is None
+    assert "`headless_mode: true` in `{sidecar_path}/preferences.yaml`" in activation
+    assert DROP_CLAUSE in activation
+    raw = _read(AUDIT / "customize.toml")
+    assert tomllib.loads(raw)["workflow"]["persistent_facts"] == ["file:{project-root}/**/project-context.md"]
+    comments = _flow(re.sub(r"(?m)^# ?", "", raw))
+    assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-audit-skill.toml: '
+            'persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comments
+    for gone in ("cannot remove it", "add a literal fact", "(under {project-root})", "Each entry is either:"):
+        assert gone not in comments, gone
+    assert ("Each entry is one of: - a literal sentence" in comments
+            and "- an entry prefixed with `!`, which loads nothing and drops each earlier entry it names." in comments)
+    assert "# Team overrides:     {project-root}/_bmad/custom/skf-audit-skill.toml" in raw
+
+
+def test_skill_md_names_every_stage_and_folder_it_uses():
+    """#599 and #600: the upstream-moved gate's file is a Stages row of its own,
+    loaded only when upstream moved, with no nextStepFile (it goes back to
+    init.md §6); the baseline row says when step 1 stops. #601: Conventions
+    say how module-level and sibling-skill paths resolve and name scripts/."""
+    skill = _read(SKILL)
+    stages = _slice(skill, "## Stages", "## Invocation Contract")
+    assert ("| 1 | Initialize & Baseline | references/init.md | No (confirm on a doubt: tier below the compile tier, "
+            "or provenance map over 90 days old) |") in stages
+    assert ("| 1b | Upstream Checkout (only when upstream moved) | references/upstream-checkout.md | "
+            "No (Upstream-Drift Gate) |") in stages
+    assert "Stage 1b returns to init.md at §5b's **Record for report**, then §6." in stages
+    # upstream-checkout.md §3 resumes init.md at that paragraph, which §5b's `moved` branch names too.
+    assert "continue it at §5b's **Record for report**, then §6" in _flow(_read(CHECKOUT))
+    assert "**Record for report:**" in _slice(_read(INIT), "### 5b.", "### 6.")
+    assert "nextStepFile" not in _frontmatter(CHECKOUT)
+    rules = _flow(_slice(skill, "## Workflow Rules", "## Stages"))
+    assert "Once the [C] of `references/upstream-checkout.md` has bound `{source_tree}`" in rules
+    assert "step 1's gates (manifest-vs-link, upstream-drift, baseline confirm) also record theirs" in rules
+    assert "§5b has bound" not in rules and "init.md §5b" not in skill
+    conventions = _slice(skill, "## Conventions", "## Role")
+    assert ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the "
+            "SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root") in conventions
+    assert ("- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the "
+            "SKF module root, and that skill must be installed with this one.") in conventions
+    assert "`scripts/` holds `render-drift-tables.py`" in conventions
+    assert (AUDIT / "scripts" / "render-drift-tables.py").is_file()
+    # The Outputs row points at the reference that names each file.
+    outputs = _slice(skill, "| **Outputs** |", "\n")
+    assert "`references/headless-contract.md` names each file" in outputs
+    listed = _flow(_slice(_read(HEADLESS), "## Outputs", "## Exit Codes"))
+    for name in ("`drift-report-{timestamp}.md`", "`.skf-audit/{timestamp}/`",
+                 "`audit-skill-result-{YYYYMMDD-HHmmss}.json`", "`audit-skill-result-latest.json`",
+                 "The shared clone at the recorded source path never changes"):
+        assert name in listed, name
 
 
 @pytest.mark.parametrize("reason,phase", [("helper-missing", "on-activation:helpers"),

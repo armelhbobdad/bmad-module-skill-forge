@@ -1034,6 +1034,10 @@ def test_a_rejected_require_tier_reaches_the_blocked_envelope_through_its_stderr
     assert '2> "{run_dir}/detect-tools.err"' in text
     joined = re.sub(r"\\\n\s*", "", text)
     [call] = [line for line in joined.splitlines() if 'emit-blocked --phase "step 1:detect-tools"' in line]
+    # A run whose customization resolver ran leaves out the optional resolver group.
+    group = ' [--customization-resolver-unavailable "{customization_resolver_unavailable}"]'
+    assert call.endswith(group), call
+    call = call[:-len(group)]
     emitter = SCRIPT_PATH.parent / "skf-emit-result-envelope.py"
     values = {"emitEnvelopeHelper": emitter.as_posix(), "run_dir": run_dir.as_posix(),
               "project-root": tmp_path.as_posix()}
