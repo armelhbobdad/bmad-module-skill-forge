@@ -1,11 +1,10 @@
-"""Tests for campaign-status.py: the state summary and the backup comparison.
+"""Tests for campaign-status.py: the state summary.
 
 `campaign status` and step-resume's summary read their counts from this
-script, and step-resume's [R]ecover/[K]eep prompt reads its
-`backup_comparison.primary_behind`. These tests pin the per-status counts,
-the comparison (a lower stage or an older last_updated puts the primary
-behind; timestamps in different offsets compare as instants), and the exit
-codes for a missing or unreadable state.
+script. These tests pin the per-status counts, the absence of any backup
+comparison (step-resume recovers a damaged state through
+`campaign-state.py recover`), and the exit codes for a missing or unreadable
+state.
 """
 
 from __future__ import annotations
@@ -65,7 +64,7 @@ class TestSummary:
             "total": 6, "completed": 2, "pending": 1, "active": 1, "failed": 1, "skipped": 1}
         assert (out["campaign_name"], out["current_stage"]) == ("demo", 4)
         assert out["last_updated"] == "2026-10-01T12:00:00+00:00"
-        assert out["backup_comparison"] is None
+        assert "backup_comparison" not in out
 
     def test_no_skills(self, tmp_path, capsys):
         rc, out = _run(capsys, "--state-file", str(_write(tmp_path, "s.yaml", _state(statuses=[]))))
@@ -76,50 +75,6 @@ class TestSummary:
         rc, out = _run(capsys, "--state-file", str(_write(tmp_path, "s.yaml", _state(statuses=["done", "pending"]))))
         assert rc == 0
         assert (out["total"], out["pending"], out["completed"]) == (2, 1, 0)
-
-
-class TestBackupComparison:
-    @pytest.mark.parametrize(
-        "primary, backup, behind",
-        [
-            ((4, "2026-10-01T12:00:00+00:00"), (3, "2026-10-01T11:00:00+00:00"), False),
-            ((4, "2026-10-01T12:00:00+00:00"), (4, "2026-10-01T12:00:00+00:00"), False),
-            ((3, "2026-10-01T12:00:00+00:00"), (4, "2026-10-01T11:00:00+00:00"), True),
-            ((4, "2026-10-01T11:00:00+00:00"), (4, "2026-10-01T12:00:00+00:00"), True),
-            ((4, "2026-10-01T12:00:00Z"), (4, "2026-10-01T13:30:00+02:00"), False),
-            ((4, "2026-10-01T11:00:00Z"), (4, "2026-10-01T12:30:00+01:00"), True),
-        ],
-        ids=["ahead", "same", "lower-stage", "older-stamp", "offsets-ahead", "offsets-behind"],
-    )
-    def test_primary_behind(self, tmp_path, capsys, primary, backup, behind):
-        state = _write(tmp_path, "s.yaml", _state(stage=primary[0], last_updated=primary[1]))
-        bak = _write(tmp_path, "s.yaml.bak", _state(stage=backup[0], last_updated=backup[1]))
-        rc, out = _run(capsys, "--state-file", str(state), "--backup-file", str(bak))
-        assert rc == 0
-        comparison = out["backup_comparison"]
-        assert comparison["primary_behind"] is behind
-        assert (comparison["primary_stage"], comparison["backup_stage"]) == (primary[0], backup[0])
-        assert comparison["backup_last_updated"] == backup[1]
-
-    def test_a_timestamp_without_an_offset_defers_to_the_stage(self, tmp_path, capsys):
-        state = _write(tmp_path, "s.yaml", _state(stage=4, last_updated="2026-10-01T09:00:00"))
-        bak = _write(tmp_path, "s.yaml.bak", _state(stage=4, last_updated="2026-10-01T12:00:00+00:00"))
-        rc, out = _run(capsys, "--state-file", str(state), "--backup-file", str(bak))
-        assert rc == 0
-        assert out["backup_comparison"]["primary_behind"] is False
-
-    def test_an_unreadable_backup_gives_no_comparison(self, tmp_path, capsys):
-        state = _write(tmp_path, "s.yaml", _state())
-        bak = tmp_path / "s.yaml.bak"
-        bak.write_text("campaign: [half a wri", encoding="utf-8")
-        rc, out = _run(capsys, "--state-file", str(state), "--backup-file", str(bak))
-        assert rc == 0
-        assert out["backup_comparison"] is None
-
-    def test_a_missing_backup_gives_no_comparison(self, tmp_path, capsys):
-        state = _write(tmp_path, "s.yaml", _state())
-        rc, out = _run(capsys, "--state-file", str(state), "--backup-file", str(tmp_path / "none.bak"))
-        assert rc == 0 and out["backup_comparison"] is None
 
 
 class TestErrors:
@@ -133,6 +88,11 @@ class TestErrors:
         path.write_text(text, encoding="utf-8")
         rc, err = _run(capsys, "--state-file", str(path))
         assert (rc, err["code"]) == (2, "STATE_UNREADABLE")
+
+    def test_the_backup_file_option_is_gone(self, tmp_path):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--state-file", str(_write(tmp_path, "s.yaml", _state())), "--backup-file", "x.bak"])
+        assert exc.value.code == 2
 
     def test_state_file_is_required(self):
         with pytest.raises(SystemExit) as exc:
