@@ -2,4 +2,5 @@ type: added
 scope: skf-audit-skill
 summary: |
   A headless Audit Skill run that continues past the baseline confirmation now records that decision in its envelope's `headless_decisions`, as gate `init.baseline-confirm`, with the doubt that raised it: the tier the skill was compiled at, the tier of this run and the age of the provenance map in days. Step 1's other two gates already recorded theirs.
+prs: [649]
 issues: [599]

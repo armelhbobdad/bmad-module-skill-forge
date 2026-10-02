@@ -2,4 +2,5 @@ type: fixed
 scope: all workflows
 summary: |
   Every workflow now says where its shared and cross-skill files live: a path that starts with `knowledge/` or `shared/`, or that names another SKF skill's folder (such as `skf-create-skill/references/`), resolves from the installed SKF module under `_bmad/skf/`, not from the workflow's own folder, so a run reads the health check, the shared references and a sibling skill's extraction tables where the installer put them. A workflow that loads files from another skill names it, since that skill must be installed too. Installed paths named in the workflows now carry the project root, Audit Skill names its `scripts/` folder, Export Skill says which step loads each of its optional reference files, and Setup Forge names the tier table its report reads. Setup Forge's missing-install message now reads "Setup cannot proceed: the SKF config file was not found" and leaves the file's path to the blocked envelope's `path`, and the troubleshooting page lists it under that heading.
+prs: [649]
 issues: [601]
