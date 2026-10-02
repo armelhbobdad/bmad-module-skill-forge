@@ -19,7 +19,7 @@ It covers the four branches §2c enumerates:
     Missing = barrel_set − documented_set, Stale = documented_set − barrel_set,
     Export Coverage = |Documented| / |barrel_set| * 100.
 
-  * "scalar"  (§4 priority-1 effective_denominator, no enumerated name set) —
+  * "scalar"  (§2b priority-1 effective_denominator, no enumerated name set):
     look each documented name up in SKILL.md ∪ references/*.md;
     Documented = count present, denominator = effective_denominator,
     Missing = max(0, denominator − Documented), Stale not enumerable (empty),
@@ -304,7 +304,7 @@ def reconcile(inp, doc_text=None):
 
     numerator_source = "lookup"
     if source == "scalar" and inp.get("verifiedNumerator") is not None:
-        # §4b's numerator ground truth found the declared count padded: its
+        # §2b's numerator ground truth found the declared count padded: its
         # verified count is authoritative and replaces the lookup.
         documented = inp["verifiedNumerator"]
         numerator_source = "verified"

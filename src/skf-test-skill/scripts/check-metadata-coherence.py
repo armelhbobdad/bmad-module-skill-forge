@@ -93,7 +93,7 @@ from pathlib import Path
 DEFAULT_DRIFT_PCT = 10
 CATEGORY = "structural/metadata coherence"
 
-# Stable source labels used in finding bodies (match coverage-check.md §4b examples).
+# Stable source labels used in finding bodies.
 LABEL_EXPORTS_PUBLIC_API = "stats.exports_public_api"
 LABEL_EXPORTS_LENGTH = "exports[].length"
 LABEL_EXPORTS_DOCUMENTED = "stats.exports_documented"

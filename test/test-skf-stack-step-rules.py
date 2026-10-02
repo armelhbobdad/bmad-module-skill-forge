@@ -705,7 +705,8 @@ def test_the_records_file_lives_in_the_run_folder():
     all_failed = _from(_sections(_body(text))["3"], "**If ALL extractions fail:**").split("\n\n")[0]
     assert "The run folder stays" in all_failed and "`extraction-failed`" in all_failed
     assert "deleted when the run finishes or the user cancels and kept after any other HALT" in _contract_row("Outputs")
-    # {version} is first bound at step 7 §1 (S11): no earlier step names a staging folder under it.
+    # {version} is first bound at step 7 §1's Stack version paragraph: no earlier step names a
+    # staging folder under it.
     for path in (RANK, EXTRACT, COMPILE):
         assert "{version}/*-tmp" not in _read(path), path.name
 

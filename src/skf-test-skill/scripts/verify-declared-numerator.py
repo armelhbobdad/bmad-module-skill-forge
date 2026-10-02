@@ -5,8 +5,9 @@
 # ///
 """Deterministic numerator ground-truth verifier.
 
-Lookup-and-count helper for the SKF test-skill workflow (coverage-check.md §4b
-"Numerator ground-truth"). It fires only on the inflation signature
+Lookup-and-count helper for the SKF test-skill workflow (coverage-check.md
+§2b, its "Numerator ground truth" paragraph; §4b records the gap). It fires
+only on the inflation signature
 (`stats.exports_documented == effective_denominator` exactly): the numerator
 equals the denominator, the tell of a documented count padded to force 100%
 coverage. On that signature the declared count is not trusted: every declared
@@ -45,9 +46,9 @@ Output (stdout, one object):
   }
   or {"error": ..., "code": "INVALID_INPUT"} on a schema violation.
 
-`verified` is the numerator §4b uses for Export Coverage (it overrides the
-declared count when `inflated` is true): reconcile-coverage.py --verified
-reads this result. --output also writes it to a file.
+`verified` is the numerator §2c's reconcile-coverage.py call uses (it
+overrides the declared count when `inflated` is true): reconcile-coverage.py
+--verified reads this result. --output also writes it to a file.
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run verify-declared-numerator.py --inputs <file> --skill-dir <dir> [--output <file>]
@@ -136,7 +137,7 @@ def _build_parser():
         prog="verify-declared-numerator",
         description=(
             "Deterministic numerator ground-truth verifier (coverage-check.md "
-            "§4b). Greps the full declared export set against SKILL.md ∪ "
+            "§2b). Greps the full declared export set against SKILL.md ∪ "
             "references/*.md and enumerates the present/absent names so a padded "
             "numerator is caught and the verified count replaces it."
         ),

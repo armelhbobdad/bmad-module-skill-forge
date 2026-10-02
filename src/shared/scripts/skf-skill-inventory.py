@@ -1392,7 +1392,8 @@ def next_patch(text):
 
 
 def compose_bump(prior, prior_libraries, libraries):
-    """The compose-mode stack version after `prior` (create-stack-skill S11).
+    """The compose-mode stack version after `prior` (create-stack-skill
+    generate-output.md §1, Stack version).
 
     Major when a library of `prior_libraries` is not in `libraries` (removed
     or replaced), else minor. Returns {prior, prior_normalized, bump, version,
@@ -1414,7 +1415,8 @@ def compose_bump(prior, prior_libraries, libraries):
 
 
 def primary_library(candidates):
-    """The code-mode primary library of a stack and the version it gives (S11).
+    """The code-mode primary library of a stack and the version it gives
+    (create-stack-skill generate-output.md §1, Stack version).
 
     `candidates` is a list of {name, import_count, version}. The primary is
     the highest `import_count`. On a tie, a candidate whose version reduces
