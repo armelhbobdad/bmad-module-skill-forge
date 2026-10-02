@@ -346,9 +346,9 @@ def _full_report(
             [
                 _verdict_table(PAIR_ROWS),
                 "",
-                "| Library A | Library B | Context | Source | Verdict | Evidence |",
-                "|---|---|---|---|---|---|",
-                "| react | vite | bundles the app | prose co-mention | Risky | none |",
+                "| Library A | Library B | Context | Verdict | Evidence |",
+                "|---|---|---|---|---|",
+                "| react | vite | bundles the app | Risky | none |",
             ]
         )
     fm = ["---"]

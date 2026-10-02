@@ -8,7 +8,8 @@ killed session or a compacted context loses nothing:
   - step records each step in plan order: a gated step takes the decision
     the gate printed (a skip also records the step it passes over), any
     other step its status; a halt needs its reason, and a completed step
-    the value it hands the next
+    the value it hands the next; an AS that found upstream moved hands US the
+    new ref through the gate's `handoff`, with no --set
   - finish writes pipeline-result-<UTC>.json and its -latest copy in
     output-contract-schema.md's shape, with one fixed per-step shape
     (#593), prints the next action the stop leaves, deletes only the
@@ -374,6 +375,70 @@ def test_a_name_set_twice_holds_a_list(chain):
     out = chain.gate("AN", "continue", "--set", "brief_path=/a.yaml", "--set", "brief_path=/b.yaml",
                      "--set", "skill_name=hono")
     assert out["data"] == {"brief_path": ["/a.yaml", "/b.yaml"], "skill_name": "hono"}
+
+
+def _as_gate_json(severity: str, **fields) -> str:
+    """What pipeline-gate.py itself prints for an AS envelope before a US."""
+    gate_mod = _load("skf_pipeline_gate", GATE)
+    envelope = {"status": "success", "skill_name": "cocoindex", "drift_score": severity,
+                "report_path": "/fd/cocoindex/drift-report.md", "next_workflow": "update-skill", "exit_code": 0,
+                "halt_reason": None, **fields}
+    text = f"{gate_mod.ENVELOPES['AS']}: {json.dumps(envelope)}"
+    return json.dumps(gate_mod.gate("AS", text, next_code="US"), indent=2)
+
+
+def _gate_as(chain: Chain, stdin: str, *extra) -> dict:
+    chain.clock.tick()
+    return chain.cli("step", "--journal", chain.journal, "--code", "AS", "--gate", *extra, stdin=stdin)
+
+
+def test_the_gate_hands_an_audits_new_ref_to_the_update(chain):
+    """determinism-1: `maintain` after an upstream release. The gate's handoff,
+    not a --set typed by hand, puts `target_ref` in the journal's data, which
+    step 4b passes to US as --target-ref."""
+    chain.start("maintain cocoindex")
+    out = _gate_as(chain, _as_gate_json("CLEAN", upstream_moved=True, upstream_ref="v1.3.0"))
+    assert (out["recorded"]["status"], out["next"]["code"]) == ("completed", "US")
+    assert out["data"] == {"target_ref": "v1.3.0"}
+    assert chain.data()["data"] == {"target_ref": "v1.3.0"}
+
+
+def test_a_critical_audit_keeps_the_new_ref_for_the_repaired_update(chain):
+    """The review-drift-report repair picks the chain up at US, which still needs the ref."""
+    chain.start("maintain cocoindex")
+    out = _gate_as(chain, _as_gate_json("CRITICAL", upstream_moved=True, upstream_ref="v1.3.0"))
+    assert (out["recorded"]["status"], out["recorded"]["reason"]) == ("halted", "CRITICAL")
+    assert out["data"] == {"target_ref": "v1.3.0"}
+    reopened = chain.reopen()
+    assert reopened["run"][0]["code"] == "US" and reopened["data"] == {"target_ref": "v1.3.0"}
+
+
+def test_an_audit_that_found_no_move_hands_on_no_ref(chain):
+    chain.start("maintain cocoindex")
+    out = _gate_as(chain, _as_gate_json("MINOR", upstream_moved=False, upstream_ref=None))
+    assert (out["recorded"]["status"], out["data"]) == ("completed", {})
+
+
+def test_the_gates_ref_wins_over_one_typed_with_set(chain):
+    chain.start("maintain cocoindex")
+    out = _gate_as(chain, _as_gate_json("CLEAN", upstream_moved=True, upstream_ref="v1.3.0"),
+                   "--set", "target_ref=v1.2.0")
+    assert out["data"] == {"target_ref": "v1.3.0"}
+
+
+@pytest.mark.parametrize("handoff", [
+    pytest.param("v1.3.0", id="not-an-object"),
+    pytest.param(["target_ref"], id="a-list"),
+    pytest.param({"Target_Ref": "v1.3.0"}, id="upper-case-name"),
+    pytest.param({"target_ref": "  "}, id="blank-value"),
+    pytest.param({"target_ref": 3}, id="not-a-string"),
+])
+def test_a_handoff_that_is_not_names_and_values_records_nothing(chain, handoff):
+    chain.start("maintain cocoindex")
+    gate = {"code": "AS", "decision": "continue", "reason": None, "skip": None, "message": "AS: continue",
+            "handoff": handoff}
+    out = _gate_as(chain, json.dumps(gate))
+    assert (out["recorded"]["status"], out["data"]) == ("completed", {})
 
 
 @pytest.mark.parametrize("pair", ["Skill=x", "skill_name=", "novalue", "=x"])
@@ -965,6 +1030,18 @@ def test_the_handoffs_are_data_flow_values_step_4e_names():
     for code, name in mod.HANDOFFS.items():
         assert any(row[0] == code for row in rows), code
         assert re.search(rf"\b{code}\b", rule) and f"`{name}=<" in rule, (code, name)
+
+
+def test_step_4e_leaves_the_audits_ref_to_the_gate():
+    """No --set copies AS's upstream_ref by hand: `step --gate` records the gate's handoff."""
+    text = _read(PIPELINE_MODE)
+    record = text.split("   - e. **Record the step**", 1)[1].split("   - f. **", 1)[0]
+    assert "target_ref=<upstream_ref>" not in record and "upstream_ref" not in record
+    assert ("AS's `target_ref` takes no `--set`: when upstream moved, the gate prints it in its `handoff`, and "
+            "`step --gate` records it.") in record
+    resolve = text.split("   - b. **Resolve inputs**", 1)[1].split("   - c. **", 1)[0]
+    assert "A `target_ref` in `data` (AS hands it on when upstream moved) goes to US as `--target-ref <target_ref>`." \
+        in resolve
 
 
 def test_the_pipeline_state_table_names_every_journal_field(chain):

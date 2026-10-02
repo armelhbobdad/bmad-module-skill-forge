@@ -53,7 +53,8 @@ and both are read:
   AN  units `unit_counts.confirmed`, else the `brief_paths`, else the
       `skill-brief.yaml` paths in `outputs[]`
   AS  severity `drift_score` | `summary.severity`, route `next_workflow` |
-      `summary.next_workflow`
+      `summary.next_workflow`, handoff `upstream_moved` and `upstream_ref`
+      (or their `summary.` copies)
   VS  verdict `overall_verdict` | `summary.overallVerdict`, coverage
       `coverage_percentage` | `summary.coveragePercentage`
 
@@ -77,8 +78,15 @@ Output (stdout, one object):
     "decision": "continue" | "skip" | "halt",
     "reason": null | "<why it skips or halts>",  # TS: FAIL, INCONCLUSIVE, pass-with-drift
     "skip": null | "US",                         # the next workflow a skip passes over
-    "message": "<one line for the pipeline report>"
+    "message": "<one line for the pipeline report>",
+    "handoff": null | {"target_ref": "<ref>"}    # what the step hands the next, by Data Flow name
   }
+
+`handoff` is set only after an AS whose result says upstream moved
+(`upstream_moved` true) and names the new ref (`upstream_ref`): a continue,
+or a CRITICAL halt, whose review-drift-report repair picks the chain up at
+US. `pipeline-journal.py step --gate` records it, and US takes it as
+`--target-ref`, so the update reads the ref the audit found.
 
 Exit codes:
   0  a decision was printed (continue, skip or halt: read `decision`)
@@ -213,16 +221,17 @@ def _units(result: dict) -> int | None:
 # --------------------------------------------------------------------------
 
 
-def _decision(code, decision, reason=None, message="", skip=None):
-    return {"code": code, "decision": decision, "reason": reason, "skip": skip, "message": message}
+def _decision(code, decision, reason=None, message="", skip=None, handoff=None):
+    return {"code": code, "decision": decision, "reason": reason, "skip": skip, "message": message,
+            "handoff": handoff}
 
 
-def _halt(code, reason, message):
-    return _decision(code, "halt", reason, message)
+def _halt(code, reason, message, handoff=None):
+    return _decision(code, "halt", reason, message, handoff=handoff)
 
 
-def _go(code, message):
-    return _decision(code, "continue", message=message)
+def _go(code, message, handoff=None):
+    return _decision(code, "continue", message=message, handoff=handoff)
 
 
 def _off_the_rule(code, what, raw, allowed):
@@ -282,16 +291,18 @@ def _gate_as(result: dict, next_code: str | None) -> dict:
     severity = _token(raw)
     if severity not in AS_SEVERITIES:
         return _off_the_rule("AS", "severity", raw, "CLEAN, MINOR, SIGNIFICANT or CRITICAL")
+    moved = _field(result, "upstream_moved", "upstream_moved") is True
+    ref = _field(result, "upstream_ref", "upstream_ref")
+    handoff = {"target_ref": ref.strip()} if moved and isinstance(ref, str) and ref.strip() else None
     if severity == "CRITICAL":
         message = "AS found CRITICAL drift: review the drift report, then run US on the skill."
-        return _halt("AS", "CRITICAL", message)
+        return _halt("AS", "CRITICAL", message, handoff)
     if severity == "CLEAN" and next_code == "US":
         if _field(result, "next_workflow", "next_workflow") == UPDATE_ROUTE:
-            moved_to = _field(result, "upstream_ref", "upstream_ref")
-            where = f" to {moved_to}" if isinstance(moved_to, str) and moved_to.strip() else ""
-            return _go("AS", f"AS found no drift, but upstream moved{where}: updating.")
+            where = f" to {ref.strip()}" if isinstance(ref, str) and ref.strip() else ""
+            return _go("AS", f"AS found no drift, but upstream moved{where}: updating.", handoff)
         return _decision("AS", "skip", "CLEAN", "No drift detected: skipping update.", skip="US")
-    return _go("AS", f"AS drift severity {severity}.")
+    return _go("AS", f"AS drift severity {severity}.", handoff)
 
 
 def _gate_vs(result: dict) -> dict:

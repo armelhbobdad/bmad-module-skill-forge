@@ -43,6 +43,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -672,7 +673,13 @@ def test_no_drop_file_reads_a_default_mode():
 
 
 def test_any_non_empty_forbid_value_turns_the_purge_guard_on():
-    """A mistyped forbid_purge_in_headless blocks the purge instead of allowing it."""
+    """A mistyped forbid_purge_in_headless that still parses blocks the purge instead of allowing it.
+
+    An override file that fails to parse (an unquoted True, yes or on, or a
+    bad line elsewhere in it) stops the resolver, so the run reads the bundled
+    empty value and the guard is off: the comment, the Headless row and the
+    settings list say so and ask for a quoted value.
+    """
     activation = _section(_read(SKILL), "## On Activation", None)
     binding = next(line for line in activation.splitlines() if "`{forbidPurgeInHeadless}` ←" in line)
     assert "on when `workflow.forbid_purge_in_headless` holds any value other than the empty string" in binding
@@ -683,10 +690,35 @@ def test_any_non_empty_forbid_value_turns_the_purge_guard_on():
     assert "empty the setting in the team or personal override that sets it" in guard, "never the base file"
     comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", "forbid_purge_in_headless = ")
     assert "Any value other than the empty string turns the guard on" in comment
+    for token in ("so a mistyped value that still parses blocks the purge rather than allowing it",
+                  "An override file that fails to parse (an unquoted True, yes or on, or a bad line elsewhere in "
+                  "it) stops the resolver", "customization_resolver_unavailable and uses this file alone, so the "
+                  "guard is off", 'Quote the value, as in "true".'):
+        assert token in comment, token
     assert re.search(r'^forbid_purge_in_headless = ""$', _read(CUSTOMIZE), flags=re.M)
     headless = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Headless** |"))
     assert "Any non-empty `forbid_purge_in_headless`" in headless
     assert "never in the bundled `customize.toml`" in headless, "an edit to the DO-NOT-EDIT base file is lost on update"
+    assert ('(exit code 6, `halt_reason: "headless-purge-forbidden"`) when the customization resolver runs. When it '
+            "cannot, including an override file that fails to parse, the run warns "
+            "`customization_resolver_unavailable` and the bundled empty value leaves the guard off.") in headless
+
+
+def _unquoted_examples() -> list[str]:
+    """The unquoted values the forbid_purge_in_headless comment names, read from the shipped comment."""
+    comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", "forbid_purge_in_headless = ")
+    found = re.search(r"an unquoted (\w+), (\w+) or (\w+)", comment)
+    assert found, "the comment names the unquoted values that fail to parse"
+    return list(found.groups())
+
+
+@pytest.mark.parametrize("value", _unquoted_examples())
+def test_an_unquoted_forbid_value_is_an_override_that_fails_to_parse(value):
+    """The comment's examples: TOML refuses each one, so the resolver stops and the guard is off; quoted, it parses."""
+    with pytest.raises(tomllib.TOMLDecodeError):
+        tomllib.loads(f"[workflow]\nforbid_purge_in_headless = {value}\n")
+    quoted = tomllib.loads(f'[workflow]\nforbid_purge_in_headless = "{value}"\n')
+    assert quoted["workflow"]["forbid_purge_in_headless"] == value
 
 
 def test_hook_comments_match_when_the_hooks_run():

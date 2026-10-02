@@ -39,13 +39,15 @@ Subcommands:
            the step `completed`, `skip` also records the next step, the one
            the gate passes over, `skipped`, and `halt` records the step
            `halted` with the gate's reason (the journal is then `halted`).
-           Any other workflow, or a gate that printed no JSON, takes
-           --status `completed`, or `halted` with --reason. --set records a
-           value the step hands the next, by its Data Flow name (a name
-           given twice in one call holds a list): a completed CS, QS or US
-           must hand on `skill_name`, a completed AN or BS `brief_path`.
-           --output records a result or report path the step's envelope
-           names.
+           The gate's `handoff` is recorded too, on a halt as well: AS's
+           `target_ref` when upstream moved, which a value given with --set
+           does not replace. Any other workflow, or a gate that printed no
+           JSON, takes --status `completed`, or `halted` with --reason.
+           --set records a value the step hands the next, by its Data Flow
+           name (a name given twice in one call holds a list): a completed
+           CS, QS or US must hand on `skill_name`, a completed AN or BS
+           `brief_path`. --output records a result or report path the
+           step's envelope names.
   finish   Write the pipeline result from the journal to --result-dir:
            `pipeline-result-<YYYYMMDD-HHmmss>.json` (UTC; -2, -3 ... when a
            run already took that second's name), then its copy
@@ -684,6 +686,15 @@ def _gate_decision(text: str, code: str) -> dict:
     return value
 
 
+def _gate_handoff(decision: dict) -> dict:
+    """The values the gate's `handoff` names (AS's `target_ref`), each a lower-case name and a non-empty string."""
+    handoff = decision.get("handoff")
+    if not isinstance(handoff, dict):
+        return {}
+    return {name: value.strip() for name, value in handoff.items()
+            if isinstance(name, str) and _NAME_RE.match(name) and isinstance(value, str) and value.strip()}
+
+
 def cmd_step(args) -> dict:
     path = Path(args.journal)
     journal = load_journal(path)
@@ -698,8 +709,10 @@ def cmd_step(args) -> dict:
         raise JournalError("out-of-order", f"The next step in the journal is {steps[index]['code']} "
                                            f"(step {index + 1}), not {args.code}.")
     skipped = skip_reason = None
+    gate_handoff: dict = {}
     if args.gate:
         decision = _gate_decision(_read_stdin(), args.code)
+        gate_handoff = _gate_handoff(decision)
         status = "halted" if decision["decision"] == "halt" else "completed"
         reason = decision["reason"].strip() if status == "halted" else None
         if decision["decision"] == "skip":
@@ -716,7 +729,8 @@ def cmd_step(args) -> dict:
                                                 "JSON pipeline-gate.py printed on stdin.")
         if status == "halted" and reason is None:
             raise JournalError("reason-missing", "A halted step needs --reason: the workflow's halt reason.")
-    values = _set_values(args.set or [])
+    # The gate read the envelope the step printed, so its value wins over one typed with --set.
+    values = {**_set_values(args.set or []), **gate_handoff}
     need = HANDOFFS.get(args.code)
     if status == "completed" and need and need not in values:
         raise JournalError("handoff-missing", f"A completed {args.code} hands `{need}` to the next workflow: "

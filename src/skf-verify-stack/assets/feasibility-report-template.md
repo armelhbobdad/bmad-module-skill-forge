@@ -75,8 +75,8 @@ The report holds this table once: consumers read it and reject a second copy. --
 ## Evidence Sources
 
 <!-- Filled in place by synthesize: one row per skill goes under this header (the
-next run's delta reads its evidence_tier column), then the stack manifest (if any)
-and the architecture and PRD document paths. -->
+next run's delta reads its evidence_tier column), then the architecture and PRD
+document paths. -->
 
 | skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |
 |-------|---------------|-----------------|-------------------------|----------|

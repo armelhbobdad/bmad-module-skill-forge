@@ -57,7 +57,7 @@ How outputs from one workflow become inputs to the next:
 | TS | EX | skill name + settled verdict | EX runs only when TS settled PASS (`next_workflow` is `export-skill`); FAIL, INCONCLUSIVE and pass-with-drift halt the pipeline before EX, with the verdict as the halt reason |
 | QS | TS | skill name (from `repo_name`) | Forger passes the quick-skill's output name to TS |
 | QS | EX | skill name | Same |
-| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`, which US takes as `--target-ref`, so the update reads the ref the audit found |
+| AS | US | skill name + drift severity + route + upstream ref | The forger's gate reads the drift severity (`drift_score`) and the route (`next_workflow`) from the envelope AS printed. CLEAN skips US unless `next_workflow` is `update-skill`, which AS sets when upstream moved past the ref the skill was built from (`upstream_moved`). AS then hands on its `upstream_ref`: the gate prints it as `handoff.target_ref`, `pipeline-journal.py step --gate` records it, and US takes it as `--target-ref`, so the update reads the ref the audit found |
 | US | TS | skill name | Forger passes the `skill_name` US updated to TS: the skill `maintain` names, or the one a repair updates |
 | VS | RA | architecture doc path | Already known from VS invocation |
 

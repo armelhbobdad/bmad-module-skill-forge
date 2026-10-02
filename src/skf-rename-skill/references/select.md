@@ -305,6 +305,8 @@ Display the full operation summary:
   Manifest `exports.{old_name}` will be re-keyed to `exports.{new_name}`.
   Platform context files (CLAUDE.md, .cursorrules, AGENTS.md) will be rebuilt so
   the managed section references `{new_name}` instead of `{old_name}`.
+  Copies installed in your IDE skill folders (`npx skills add`) are not renamed;
+  unless `snippet_skill_root_override` is set, the report names any it finds.
 
 Operation is **transactional**: the new name will be fully materialized and verified
 before the old name is removed. If a step fails up to the manifest re-key, the new

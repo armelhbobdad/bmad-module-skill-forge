@@ -605,26 +605,27 @@ def test_docs_give_the_verdicts_the_rollup_returns():
         assert rollup(counts)["overallVerdict"] == "NOT_FEASIBLE", counts
     exits = _read(SRC / "skf-verify-stack" / "references" / "exit-codes.md")
     assert "analysis-halted" not in exits and not re.search(r"^\| 8 ", exits, re.M)
+    # No SKF producer writes a stack manifest's `integration_patterns` (a stack's metadata.json carries
+    # `integration_pairs`, and the inventory no integration field), so the pairs come from prose alone.
     integrations = _read(SRC / "skf-verify-stack" / "references" / "integrations.md")
-    for token in ("**Source preference:** If a stack skill assembled by `skf-create-stack-skill` is present in the "
-                  "inventory and its manifest", "declares `integration_patterns`, use THAT as the primary source",
-                  "Fall back to prose co-mention (below) only when no such manifest is available",
+    for token in ("**Prose co-mention:** step 2's mentions run already found the candidate pairs.",
                   "draws them only in fenced code, such as a Mermaid diagram, which the mentions helper never reads"):
         assert token in integrations, token
+    for gone in ("**Source preference:**", "(fallback only)", "stack manifest", "`source: prose co-mention`"):
+        assert gone not in integrations, gone
     verdicts = _paragraph(_slice(_read(WORKFLOWS), "### Verify Stack (VS)", "**Agent:**"), "**Verdicts:**")
     for token in ("every integration pair is `Verified`",
-                  "VS takes integration pairs from a stack skill's `integration_patterns` when one built by Stack "
-                  "Skill (SS) is in the inventory", "and otherwise from the architecture document's prose, never "
-                  "from a Mermaid diagram", "finds no pair between two or more covered technologies",
+                  "VS takes integration pairs from the architecture document's prose, never from a Mermaid diagram.",
+                  "finds no pair between two or more covered technologies",
                   "ends `CONDITIONALLY_FEASIBLE`", "A weak result never stops VS early", "finishes `NOT_FEASIBLE`"):
         assert token in verdicts, token
-    assert "only from the architecture document's prose" not in verdicts
     synergy = _paragraph(_read(SYNERGY), "**What flows back:** A feasibility report")
     for token in ("A pair is Verified only when one of its two skills cites the other",
-                  "VS takes the pairs from a stack skill's `integration_patterns` when one is in the inventory, and "
-                  "otherwise from your document's prose, never from a Mermaid diagram",
+                  "VS takes the pairs from your document's prose, never from a Mermaid diagram",
                   "the verdict is CONDITIONALLY_FEASIBLE", "VS finishes its report, with NOT_FEASIBLE"):
         assert token in synergy, token
+    for text in (integrations, verdicts, synergy):
+        assert "integration_patterns" not in text
 
 
 def test_refine_architecture_documents_the_report_lookup_and_its_halt():
@@ -1745,8 +1746,16 @@ def test_rename_docs_name_the_run_lock_and_the_interrupted_rename():
     for token in ("stops with `source-authority-blocked` unless you pass `--acknowledge-official`",
                   "Names given with the invocation", "ask only for a name that is missing or invalid",
                   "`name-collision` (exit `5`)", "lists the old folders left on disk",
-                  "`skf-skill-inventory.py guarded-delete`", "`@Ferris EX` rebuilds the context files"):
+                  "`skf-skill-inventory.py guarded-delete`", "`@Ferris EX` rebuilds the context files",
+                  "Rename does not rename a copy `npx skills add` installed in the IDE skill folder a context "
+                  "file's managed section points at",
+                  "the report names each one it finds with its reinstall step, and the run's warnings, in the "
+                  "envelope and the result file, carry `installed-copy-not-renamed` for each.",
+                  "No check runs when `snippet_skill_root_override` is set."):
         assert token in safety, token
+    # The warning the docs name is the one step 2 records.
+    assert '--warning "installed-copy-not-renamed: {path}"' in _read(
+        SRC / "skf-rename-skill" / "references" / "execute.md")
 
 
 def test_export_docs_name_the_context_file_flag_and_the_snippet_root():
@@ -1780,6 +1789,9 @@ def test_settings_list_names_only_settings_that_take_effect():
     for token in ("`scoring_rules_path` and `output_formats_path` are gone",
                   "Verify Stack's report always lands in `forge_data_folder`",
                   "any non-empty value blocks a headless purge (exit `6`, `headless-purge-forbidden`)",
+                  'An override file that fails to parse, the team one or your personal one, stops the '
+                  'customization script: the run warns as above and ignores both override files, which leaves '
+                  'the guard off, so write the value quoted, such as `"true"`.',
                   "`--acknowledge-official`", "the TOML boolean `true`", "the six house-style tables"):
         assert token in settings, token
     rules = _headings(RA_REFS / "refinement-rules.md")

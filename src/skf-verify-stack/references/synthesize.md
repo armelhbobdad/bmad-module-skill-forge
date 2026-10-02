@@ -152,7 +152,7 @@ Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}
 - Include prioritized recommendation list under `## Recommendations`
 - Include delta from previous run (if applicable) under `## Recommendations` as a subsection
 - Include suggested next workflow at the end of `## Recommendations`
-- Populate `## Evidence Sources`: the template already holds its table, with the header `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |`. Fill it in place with one row per skill in `skill_inventory` (`{inventoryFile}`: `name`, `evidence_tier`, `confidence_tier` or `none`, `metadata_schema_version` or `none`, and `{skills_output_folder}/{path}/SKILL.md`); the next run's delta reads its `evidence_tier` column (section 3). Below it, list the stack manifest, if any, and the architecture and PRD document paths.
+- Populate `## Evidence Sources`: the template already holds its table, with the header `| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |`. Fill it in place with one row per skill in `skill_inventory` (`{inventoryFile}`: `name`, `evidence_tier`, `confidence_tier` or `none`, `metadata_schema_version` or `none`, and `{skills_output_folder}/{path}/SKILL.md`); the next run's delta reads its `evidence_tier` column (section 3). Below it, list the architecture and PRD document paths.
 - Update frontmatter (shared-schema keys):
   - Append `'synthesize'` to `stepsCompleted`
   - Set `overallVerdict` to one of `FEASIBLE`, `CONDITIONALLY_FEASIBLE`, `NOT_FEASIBLE` (case-sensitive, underscores not spaces)

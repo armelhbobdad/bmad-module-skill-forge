@@ -55,7 +55,7 @@ Open with "**Rename complete.**", then show, each from what step 2 recorded:
 - The manifest: `exports.{new_name}`, re-keyed from `exports.{old_name}`, when `manifest_rekeyed` is true, else that no manifest entry existed for `{old_name}`.
 - The context files rebuilt (`context_files_updated`, or "(none)"). When `context_files_failed` is not empty, list it with: "Re-run `[EX] Export Skill` to retry the managed section rebuild for these files."
 - When `{forge_left_in_place}` is set: "Left in place (not SKF output): {forge_left_in_place}. SKF did not generate it, so it keeps its name."
-- Each entry of `package_warnings`, `missing_files` and `{run_warnings}`, as warnings.
+- Each entry of `package_warnings`, `missing_files` and `{run_warnings}`, as warnings, except a `{run_warnings}` entry that starts with `installed-copy-not-renamed:`, which the next steps name.
 - When `verification_warnings` is not empty, the SKILL.md files whose body text still names the old name (prose only, non-structural), with: "These are typically historical notes or changelog entries. Review and edit them by hand if you want them updated."
 - When `deletion_errors` is not empty, each one, with: "The new name is fully committed. Remove the remnants by hand with `rm -rf {path}`."
 - Each entry of `{headless_decisions}`, as "{gate}: took {taken_action} (default {default_action}): {reason}".
@@ -63,6 +63,7 @@ Open with "**Rename complete.**", then show, each from what step 2 recorded:
 
 Close with the next steps:
 
+- For each path in `installed_copies`: "`{path}` is the copy `npx skills add` installed under `{old_name}`, and the rebuilt rows point at the same folder under `{new_name}`. Remove it, run `npx skills add {new_skill_group}/{version}/{new_name}`, then reload the IDE." `{version}` is `target_version`, else the first of `renamed_versions` (newest first), and `{new_skill_group}` is absolute, as export requires.
 - Run `@Ferris EX` if you want to re-verify the managed sections in platform context files.
 - If you had QMD collections or external tooling registered under `{old_name}`, re-run `@Ferris SF` (or your registration command) to re-index under `{new_name}`.
 - If this skill was published to agentskills.io under `{old_name}`, the registry version is unchanged: this rename is a LOCAL operation only.
