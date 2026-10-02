@@ -1,5 +1,5 @@
-# Machine-generated campaign brief — resume context for fresh sessions
-# Populated by step-01-setup.md from operator inputs
+# Machine-generated campaign brief: resume context for fresh sessions
+# Written by campaign-state.py init from the parsed targets
 
 # Campaign identifier
 campaign_name: ""

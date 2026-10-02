@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-campaign
+summary: |
+  Campaign's Export stage now finds a Tier B skill whose campaign target name differs from the library name Quick Skill gave its package, as in a scoped monorepo target: it runs `skf-export-skill` under the skill folder the build wrote, the new `export_name` that `campaign-quality-gate.py classify` returns for each skill (the last part of its recorded `skill_path`, else its name), and the Export table shows it. Before, Export ran `skf-export-skill` under the campaign target name, so that skill passed the gate and the confirmation, then failed with `resolution-failure`. The capstone names its constituent skills by the same `export_name`.

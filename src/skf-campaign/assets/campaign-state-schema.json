@@ -170,6 +170,24 @@
           },
           "commit_sha": {
             "type": ["string", "null"]
+          },
+          "export": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["status"],
+            "description": "The Export stage's outcome for this skill, recorded by campaign-state.py set-skill --export after its skf-export-skill call: exported, or failed with that call's halt_reason and exit code (null when it gave none). Absent until Export runs the skill; a reset to pending removes it.",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["exported", "failed"]
+              },
+              "halt_reason": {
+                "type": ["string", "null"]
+              },
+              "exit_code": {
+                "type": ["integer", "null"]
+              }
+            }
           }
         }
       }

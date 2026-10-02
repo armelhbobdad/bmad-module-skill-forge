@@ -346,3 +346,48 @@ class TestSkillNotInBrief:
         assert exit_code == 2
         err_output = json.loads(captured_err.getvalue())
         assert err_output["code"] == "SKILL_NOT_IN_BRIEF"
+
+
+# --------------------------------------------------------------------------
+# Test: a brief target with no name or no repo_url -> exit 2, INVALID_BRIEF
+# --------------------------------------------------------------------------
+
+class TestMalformedBrief:
+    @pytest.mark.parametrize(
+        ("targets", "error"),
+        [
+            ([{"repo_url": "https://github.com/org/a"}], "Brief target 1 has no name"),
+            ([{"name": "a"}], "Brief target 1 (a) has no repo_url"),
+            ([{"name": "a", "repo_url": "  "}], "Brief target 1 (a) has no repo_url"),
+            ([{"name": "a", "repo_url": "https://github.com/org/a"}, {}],
+             "Brief target 2 has no name and no repo_url"),
+            (["a"], "Brief target 1 is not a mapping"),
+        ],
+        ids=["no-name", "no-repo-url", "blank-repo-url", "second-target-empty", "not-a-mapping"],
+    )
+    def test_target_without_name_or_repo_url_exit_2(self, tmp_path, targets, error):
+        state_file = tmp_path / "state.yaml"
+        brief_file = tmp_path / "brief.yaml"
+        _write_yaml(state_file, _make_state([_make_skill("a", pin="v1.0.0")]))
+        _write_yaml(brief_file, _make_brief(targets))
+
+        captured_err = io.StringIO()
+        with patch("sys.stderr", captured_err), patch("sys.stdout", io.StringIO()):
+            exit_code = mod.run(str(state_file), str(brief_file))
+
+        assert exit_code == 2
+        err_output = json.loads(captured_err.getvalue())
+        assert err_output == {"error": error, "code": "INVALID_BRIEF"}
+
+    def test_brief_that_is_no_mapping_exit_2(self, tmp_path):
+        state_file = tmp_path / "state.yaml"
+        brief_file = tmp_path / "brief.yaml"
+        _write_yaml(state_file, _make_state([]))
+        brief_file.write_bytes(b"- just a list\n")
+
+        captured_err = io.StringIO()
+        with patch("sys.stderr", captured_err), patch("sys.stdout", io.StringIO()):
+            exit_code = mod.run(str(state_file), str(brief_file))
+
+        assert exit_code == 2
+        assert json.loads(captured_err.getvalue())["code"] == "INVALID_BRIEF"

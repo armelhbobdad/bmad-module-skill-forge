@@ -43,7 +43,7 @@ Run the pin script, keeping its JSON output in `{pinResultsFile}` for §5:
 uv run {pinScript} --state-file {stateFile} --brief-file {briefFile} > {pinResultsFile}
 ```
 
-If the script exits 2 (a required tool such as `gh` is unavailable, or a file is unreadable), HALT (exit code 2, `invalid-input`) surfacing its error: pins cannot be validated without `gh`. Otherwise read `{pinResultsFile}`. For each result: if `status` is `"valid"` or `"resolved"`, the pin is good; if `"invalid"`, collect the failure with suggestions.
+If the script exits 2 (a required tool such as `gh` is unavailable, a file is unreadable, or `INVALID_BRIEF`: a brief that is no mapping or holds a target with no `name` or no `repo_url`), HALT (exit code 2, `invalid-input`) surfacing its error; only when `gh` is what is missing, add that pins cannot be validated without it. Otherwise read `{pinResultsFile}`. For each result: if `status` is `"valid"` or `"resolved"`, the pin is good; if `"invalid"`, collect the failure with suggestions.
 
 ### §4: Handle Invalid Pins
 

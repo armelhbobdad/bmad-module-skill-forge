@@ -34,14 +34,29 @@ Operations:
                     for stdin) and settles the quality gate through
                     campaign-quality-gate.py's check (a brief's
                     quality_gate wins when --brief-file names one). Refuses
-                    a state file or backup that already exists.
+                    a state file or backup that already exists. With
+                    --brief-out it also writes campaign-brief.yaml from
+                    --brief-template (the template's mapping, its keys in
+                    their order, after its leading comment block): the
+                    campaign name, created_at (the state's started_at), the
+                    same targets[] with every field each one carries
+                    (repo_url, which the state has no place for, and any
+                    hint), the settled quality_gate, architecture_doc_path
+                    and notes (--notes, else the --brief-file's notes, else
+                    empty). The template is read before anything is written;
+                    the brief is written right after the state, and a resume
+                    that finds the state without it halts (missing-brief).
   set-stage         Write current_stage alone: a stage's final write when it
                     records nothing else.
   set-skill         Set the status, quality_score, skill_path or brief_path
                     of one or more skills (--skill repeats). `active` stamps
                     started_at when it is not set yet (an interrupted run
                     keeps its start); `completed` stamps completed_at;
-                    `pending` (a reset for a re-run) clears both.
+                    `pending` (a reset for a re-run) clears both and the
+                    export outcome. --export records the Export stage's
+                    outcome (step-10) as `export`: `exported`, or `failed`
+                    with --export-halt-reason and --export-exit-code from
+                    the skf-export-skill call.
   apply-plan        Write the execution order and the cycle flag that
                     campaign-deps.py --compute gives for the state (step-02);
                     refuses a plan the stages cannot follow (exit 4).
@@ -100,10 +115,12 @@ active skill after it in the execution order (complete when there is none).
 CLI:
   uv run campaign-state.py init --state-file <p> --targets-file <p|-> --name <name> \\
       --hard <value> --soft-target <N> --soft-fallback <N> [--brief-file <p>] \\
-      [--directive-path <p>] [--architecture-doc-path <p>]
+      [--directive-path <p>] [--architecture-doc-path <p>] \\
+      [--brief-out <p> [--brief-template <p>] [--notes <text>]]
   uv run campaign-state.py set-stage --state-file <p> --stage <N>
   uv run campaign-state.py set-skill --state-file <p> --skill <name> [--skill <name> ...] \\
-      [--status <status>] [--quality-score <N>] [--skill-path <p>] [--brief-path <p>] [--stage <N>]
+      [--status <status>] [--quality-score <N>] [--skill-path <p>] [--brief-path <p>] \\
+      [--export exported|failed [--export-halt-reason <r>] [--export-exit-code <N>]] [--stage <N>]
   uv run campaign-state.py apply-plan --state-file <p> [--stage <N>]
   uv run campaign-state.py apply-pins --state-file <p> --results-file <p|-> [--stage <N>]
   uv run campaign-state.py apply-provenance --state-file <p> --results-file <p|-> [--stage <N>]
@@ -125,7 +142,8 @@ The backup is always <state-file>.bak.
 Output (one JSON object on stdout):
   writes:   {"op", "state_file", "backup_file", "backup_rotated",
              "last_updated", "current_stage", "changed": [...]} plus the
-             operation's own keys (apply-batch: "activated", "skipped",
+             operation's own keys (init: "quality_gate", "brief_file", null
+             without --brief-out; apply-batch: "activated", "skipped",
              "completed", "failed"; set-campaign: "recorded", "not_recorded")
   recover:  {"op", "state_file", "backup_file", "recovered", "last_updated",
              "current_stage"}
@@ -142,8 +160,9 @@ Exit codes (each is the campaign's HALT code for the same class):
   0  written, recovered, archived, logged or computed
   2  invalid input: a missing or unreadable input file, an unknown skill,
      output from another script that holds an error, a gate the gate script
-     rejects, a state that init would overwrite, or an archive folder that
-     exists
+     rejects, a state that init would overwrite, a brief template that is
+     no YAML mapping, export flags that do not go together, or an archive
+     folder that exists
   3  invalid state: the state is missing, malformed or fails the schema, or
      the change would make it fail (nothing written)
   4  apply-plan: a plan the stages cannot follow (circular-deps)
@@ -175,10 +194,12 @@ HERE = Path(__file__).resolve().parent
 VALIDATE_SCRIPT = HERE / "campaign-validate-state.py"
 DEPS_SCRIPT = HERE / "campaign-deps.py"
 GATE_SCRIPT = HERE / "campaign-quality-gate.py"
+BRIEF_TEMPLATE = HERE.parent / "templates" / "campaign-brief-template.yaml"
 STATUSES = ("pending", "active", "completed", "failed", "skipped")
 SETTLED = ("completed", "failed", "skipped")
 OPEN = ("pending", "active")
 LOG_TYPES = ("decision", "auto", "event")
+EXPORT_STATUSES = ("exported", "failed")
 FINAL_STAGE = 10
 # Stage N runs step-(N+1); SKILL.md's Stages table.
 STEP_FILES = {
@@ -430,6 +451,33 @@ def _known(state: dict, names: list[str]) -> dict[str, dict]:
 # --------------------------------------------------------------------------
 
 
+def _brief_template(source: str) -> tuple[str, dict]:
+    """The template's leading comment block and its mapping (empty for an empty template)."""
+    text = read_text(source, "Brief template")
+    try:
+        mapping = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise StateError(EXIT_INPUT, "brief-template-invalid", f"Brief template is not YAML: {exc}") from exc
+    if mapping is None:
+        mapping = {}
+    if not isinstance(mapping, dict):
+        raise StateError(EXIT_INPUT, "brief-template-invalid", "Brief template is not a YAML mapping")
+    header = []
+    for line in text.splitlines():
+        if not line.startswith("#"):
+            break
+        header.append(line)
+    return "".join(f"{line}\n" for line in header), mapping
+
+
+def render_brief(template: tuple[str, dict], fields: dict) -> bytes:
+    """campaign-brief.yaml: the template's header, then its mapping with `fields` laid over it."""
+    header, mapping = template
+    brief = {**copy.deepcopy(mapping), **fields}
+    body = yaml.safe_dump(brief, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    return ((header + "\n" if header else "") + body).encode("utf-8")
+
+
 def op_init(args: argparse.Namespace) -> dict:
     path = Path(args.state_file)
     bak = backup_path(path)
@@ -437,6 +485,8 @@ def op_init(args: argparse.Namespace) -> dict:
         if existing.exists():
             raise StateError(EXIT_INPUT, "state-exists",
                              f"`{existing.as_posix()}` already exists: archive the campaign before starting a new one.")
+    if not args.brief_out and (args.brief_template or args.notes is not None):
+        raise StateError(EXIT_INPUT, "input-invalid", "--brief-template and --notes go with --brief-out")
     parsed = read_json(args.targets_file, "Targets")
     if parsed.get("errors"):
         raise StateError(EXIT_INPUT, "targets-invalid", "The targets hold errors: fix them and parse again.",
@@ -452,6 +502,7 @@ def op_init(args: argparse.Namespace) -> dict:
     except gate_module.GateError as exc:
         raise StateError(EXIT_INPUT, exc.code, str(exc), list(exc.extra.get("errors", []))) from exc
 
+    template = _brief_template(args.brief_template or str(BRIEF_TEMPLATE)) if args.brief_out else None
     stamp = now()
     campaign: dict[str, Any] = {
         "name": args.name,
@@ -492,7 +543,23 @@ def op_init(args: argparse.Namespace) -> dict:
     if errors:
         raise StateError(EXIT_STATE, "state-change-invalid",
                          "The new state would be invalid: nothing was written.", errors)
+    brief_data = None
+    if template is not None:
+        notes = args.notes if args.notes is not None else (brief or {}).get("notes")
+        brief_data = render_brief(template, {
+            "campaign_name": args.name,
+            "created_at": stamp,
+            "targets": copy.deepcopy(targets),
+            "quality_gate": dict(campaign["quality_gate"]),
+            "architecture_doc_path": args.architecture_doc_path or "",
+            "notes": notes if isinstance(notes, str) else "",
+        })
     write_atomic(path, dump_state(state))
+    changed = [f"skills={len(skills)}", "campaign.quality_gate"]
+    brief_file = Path(args.brief_out) if brief_data is not None else None
+    if brief_file is not None:
+        write_atomic(brief_file, brief_data)
+        changed.append("brief")
     return {
         "op": "init",
         "state_file": path.as_posix(),
@@ -500,8 +567,9 @@ def op_init(args: argparse.Namespace) -> dict:
         "backup_rotated": False,
         "last_updated": stamp,
         "current_stage": 0,
-        "changed": [f"skills={len(skills)}", "campaign.quality_gate"],
+        "changed": changed,
         "quality_gate": campaign["quality_gate"],
+        "brief_file": brief_file.as_posix() if brief_file else None,
     }
 
 
@@ -509,7 +577,24 @@ def op_set_stage(args: argparse.Namespace) -> dict:
     return mutate(args.state_file, "set-stage", lambda state, stamp, changed: None, args.stage)
 
 
+def _export_outcome(args: argparse.Namespace) -> dict | None:
+    """The `export` record --export gives, or None without it."""
+    detail = args.export_halt_reason is not None or args.export_exit_code is not None
+    if args.export is None:
+        if detail:
+            raise StateError(EXIT_INPUT, "input-invalid", "--export-halt-reason and --export-exit-code go with --export")
+        return None
+    if args.export == "exported":
+        if detail:
+            raise StateError(EXIT_INPUT, "input-invalid",
+                             "--export-halt-reason and --export-exit-code go with --export failed")
+        return {"status": "exported", "halt_reason": None, "exit_code": 0}
+    return {"status": "failed", "halt_reason": args.export_halt_reason or None, "exit_code": args.export_exit_code}
+
+
 def op_set_skill(args: argparse.Namespace) -> dict:
+    outcome = _export_outcome(args)
+
     def change(state: dict, stamp: str, changed: list[str]) -> None:
         skills = _known(state, args.skill)
         for name in args.skill:
@@ -526,11 +611,15 @@ def op_set_skill(args: argparse.Namespace) -> dict:
                 elif args.status == "pending":
                     skill["started_at"] = None
                     skill["completed_at"] = None
+                    skill.pop("export", None)
             for field in ("quality_score", "skill_path", "brief_path"):
                 value = getattr(args, field)
                 if value is not None:
                     skill[field] = value
                     changed.append(f"{name}.{field}")
+            if outcome is not None:
+                skill["export"] = dict(outcome)
+                changed.append(f"{name}.export={outcome['status']}")
 
     return mutate(args.state_file, "set-skill", change, args.stage)
 
@@ -924,6 +1013,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--brief-file", help="campaign brief whose quality_gate wins over the values above")
     p.add_argument("--directive-path", help="campaign directive file")
     p.add_argument("--architecture-doc-path", help="architecture document for verify and refine")
+    p.add_argument("--brief-out", help="also write campaign-brief.yaml here, from the same targets")
+    p.add_argument("--brief-template", help="the brief template (default: templates/campaign-brief-template.yaml)")
+    p.add_argument("--notes", help="the brief's notes (default: the --brief-file's notes, else empty)")
 
     command("set-stage", "write campaign.current_stage", stage="required")
 
@@ -933,6 +1025,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--quality-score", type=_score)
     p.add_argument("--skill-path")
     p.add_argument("--brief-path")
+    p.add_argument("--export", choices=EXPORT_STATUSES, help="the skill's skf-export-skill outcome (step-10)")
+    p.add_argument("--export-halt-reason", help="with --export failed: the export envelope's halt_reason")
+    p.add_argument("--export-exit-code", type=int, help="with --export failed: skf-export-skill's exit code")
 
     command("apply-plan", "write the execution order campaign-deps.py computes (step-02)")
 

@@ -1,0 +1,4 @@
+type: changed
+scope: skf-campaign
+summary: |
+  Campaign Setup now writes `campaign-brief.yaml` with `campaign-state.py init --brief-out` (and the new `--brief-template` and `--notes`), in the same call that writes `_campaign-state.yaml` and from the same checked targets, instead of having the model fill in the brief template by hand. The brief keeps the template's keys in their order and its leading comment block, which now reads `Written by campaign-state.py init from the parsed targets`, but no longer carries the template's comment on each key. Values are quoted the way YAML needs, so a pin such as `1.10` is always quoted and stays a string, and an empty value reads `''`.

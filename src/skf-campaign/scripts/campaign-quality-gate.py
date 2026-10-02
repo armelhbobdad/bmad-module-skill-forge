@@ -43,7 +43,12 @@ Subcommands:
             `fallback` (at or above soft_fallback) or `fail` (below it, or
             no score at all). Only pass and fallback skills export. A Tier A
             score is test-skill's; a Tier B score is the skill-check score
-            quick-skill records, not a test-skill score.
+            quick-skill records, not a test-skill score. Each row's
+            `export_name` is the skill folder skf-export-skill resolves: the
+            last part of the `skill_path` the build recorded
+            (`{skills_output_folder}/{skill-name}/{version}/{skill-name}`),
+            which quick-skill names after the library for a Tier B skill,
+            else the campaign name.
 
 Directive format (a section runs to the next heading of level 1 or 2; each
 entry is one list item, backticks around a name are dropped):
@@ -77,8 +82,8 @@ Output (one JSON object on stdout):
   record:   {"skill", "status": "completed|failed", "verdict",
              "quality_score", "threshold", "threshold_fallback", "reason"}
   classify: {"gate": {...}, "skills": [{"name", "tier", "skill_path",
-             "quality_score", "soft_target", "soft_fallback", "verdict",
-             "reason"}],
+             "export_name", "quality_score", "soft_target", "soft_fallback",
+             "verdict", "reason"}],
              "export": [...], "excluded": [{"name", "tier", "quality_score",
              "verdict", "reason"}], "counts": {"pass", "fallback", "fail"},
              "unparsed": [...], "warnings": [...]}
@@ -100,7 +105,7 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -451,6 +456,15 @@ def record(skill: str, text: str) -> dict[str, Any]:
     return out
 
 
+def export_name(skill: dict[str, Any]) -> Any:
+    """The skill folder skf-export-skill resolves for a completed skill: the
+    last part of the package path its build recorded, else its campaign name."""
+    path = skill.get("skill_path")
+    if isinstance(path, str) and path.strip():
+        return PurePosixPath(path.strip().replace("\\", "/")).name or skill.get("name")
+    return skill.get("name")
+
+
 def classify(state: dict[str, Any], directive: dict[str, Any]) -> dict[str, Any]:
     base = state["campaign"]["quality_gate"]
     names = {s.get("name") for s in state["skills"] if isinstance(s, dict)}
@@ -473,6 +487,7 @@ def classify(state: dict[str, Any], directive: dict[str, Any]) -> dict[str, Any]
             "name": name,
             "tier": skill.get("tier"),
             "skill_path": skill.get("skill_path"),
+            "export_name": export_name(skill),
             "quality_score": _plain(score) if _is_number(score) else None,
             "soft_target": gate["soft_target"],
             "soft_fallback": gate["soft_fallback"],

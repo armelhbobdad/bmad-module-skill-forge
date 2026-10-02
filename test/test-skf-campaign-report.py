@@ -351,7 +351,10 @@ class TestExportGate:
         assert result["export_verdicts"] == {"skill-alpha": "pass", "skill-beta": "fail"}
         assert result["skills_excluded"] == ["skill-beta"]
         report = output_file.read_text(encoding="utf-8")
-        assert "| skill-alpha | 92 | pass |" in report
+        # No export outcome is recorded: the pass skill reads N/A, the fail one was never exported.
+        assert "| Skill | Quality Score | Gate | Export |" in report
+        assert "| skill-alpha | 92 | pass | N/A |" in report
+        assert "| skill-beta | 70 | fail | not exported |" in report
         assert "**Not exported (below the quality gate):** skill-beta (70: below soft_fallback 80)" in report
 
     def test_directive_overrides_apply(self, tmp_path: Path, capsys):
@@ -419,7 +422,7 @@ class TestContextFile:
         assert envelope["campaign_report_path"] == output_file.as_posix() == result["report_path"]
         assert envelope["decision_log"] == "ws/_campaign-decision-log.md"
         for key in ("skills_completed", "skills_failed", "quality_scores", "export_verdicts", "skills_excluded",
-                    "duration"):
+                    "skills_exported", "export_failures", "duration"):
             assert envelope[key] == result[key], key
 
     def test_a_failed_report_writes_the_degraded_payload(self, tmp_path: Path, capsys):
@@ -471,3 +474,78 @@ class TestContextFile:
                      str(tmp_path / "r.md"))
         assert rc == 0
         assert sorted(p.name for p in tmp_path.iterdir()) == ["_campaign-state.yaml", "r.md", "template.md"]
+
+
+def _exported_state(stage: int = 9) -> dict[str, Any]:
+    """skill-alpha exported, skill-beta's export failed, as step-10 records them."""
+    state = _minimal_state()
+    state["campaign"]["current_stage"] = stage
+    state["skills"][0]["export"] = {"status": "exported", "halt_reason": None, "exit_code": 0}
+    state["skills"][1]["export"] = {"status": "failed", "halt_reason": "resolution-failure", "exit_code": 3}
+    return state
+
+
+class TestExportOutcomes:
+    """What Export did reaches the report, the result JSON and the envelope, from state."""
+
+    def test_outcomes_in_the_result_and_the_report(self, tmp_path: Path, capsys):
+        output_file = tmp_path / "report.md"
+        rc = mod.run(str(_write_state(tmp_path, _exported_state())), str(_write_template(tmp_path)),
+                     str(output_file))
+        assert rc == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["skills_exported"] == ["skill-alpha"]
+        assert result["export_failures"] == [
+            {"skill": "skill-beta", "halt_reason": "resolution-failure", "exit_code": 3}]
+        # The gate passed both; the Export column says what the export did.
+        assert result["export_verdicts"] == {"skill-alpha": "pass", "skill-beta": "fallback"}
+        report = output_file.read_text(encoding="utf-8")
+        assert "| skill-alpha | 92 | pass | exported |" in report
+        assert "| skill-beta | 88 | fallback | failed (resolution-failure) |" in report
+
+    def test_a_failure_without_an_envelope_shows_its_exit_code(self):
+        state = _exported_state()
+        state["skills"][1]["export"] = {"status": "failed", "halt_reason": None, "exit_code": 1}
+        section = mod._compute_aggregates(state)["export_gate_section"]
+        assert "| skill-beta | 88 | fallback | failed (exit 1) |" in section
+
+    @pytest.mark.parametrize("stage", [6, 8], ids=["stage-6", "stage-8"])
+    def test_null_before_the_export_stage_ran(self, tmp_path: Path, capsys, stage):
+        rc = mod.run(str(_write_state(tmp_path, _exported_state(stage))), str(_write_template(tmp_path)),
+                     str(tmp_path / "r.md"))
+        assert rc == 0
+        result = json.loads(capsys.readouterr().out)
+        assert (result["skills_exported"], result["export_failures"]) == (None, None)
+
+    def test_export_stage_with_nothing_exported_gives_empty_lists(self, tmp_path: Path, capsys):
+        rc = mod.run(str(_write_state(tmp_path, _minimal_state())), str(_write_template(tmp_path)),
+                     str(tmp_path / "r.md"))
+        assert rc == 0
+        result = json.loads(capsys.readouterr().out)
+        assert (result["skills_exported"], result["export_failures"]) == ([], [])
+
+    def test_the_envelope_carries_them_and_validates(self, tmp_path: Path, capsys):
+        context = tmp_path / "_result-context.json"
+        rc = mod.run(str(_write_state(tmp_path, _exported_state())), str(_write_template(tmp_path)),
+                     str(tmp_path / "campaign-report.md"), str(context), "ws/log.md")
+        assert rc == 0
+        envelope = _envelope(context)
+        # A failed export does not fail the campaign: a CI job gates on export_failures.
+        assert (envelope["status"], envelope["exit_code"]) == ("success", 0)
+        assert envelope["skills_exported"] == ["skill-alpha"]
+        assert envelope["export_failures"] == [
+            {"skill": "skill-beta", "halt_reason": "resolution-failure", "exit_code": 3}]
+
+    def test_the_degraded_payload_carries_them_too(self, tmp_path: Path, capsys):
+        context = tmp_path / "_result-context.json"
+        rc = mod.run(str(_write_state(tmp_path, _exported_state())), str(tmp_path / "missing-template.md"),
+                     str(tmp_path / "r.md"), str(context))
+        assert rc == 2
+        envelope = _envelope(context)
+        assert envelope["halt_reason"] == "report-failure"
+        assert envelope["skills_exported"] == ["skill-alpha"]
+
+    def test_the_schema_keeps_them_optional(self):
+        schema = json.loads(ENVELOPE_SCHEMA.read_text(encoding="utf-8"))
+        assert {"skills_exported", "export_failures"} <= set(schema["properties"])
+        assert not {"skills_exported", "export_failures"} & set(schema["required"])

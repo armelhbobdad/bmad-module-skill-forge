@@ -37,7 +37,7 @@ Classify the completed skills (Tier A from step-05, Tier B from step-06) against
 uv run {gateScript} classify --state-file {stateFile} [--directive-file <campaign.directive_path>]
 ```
 
-The capstone composes the skills in its `export[]` (the `pass` and `fallback` verdicts), so it never describes a skill the gate keeps from export: log each `excluded[]` skill as "capstone: {name} left out, below the quality gate ({reason})". Name each composed skill by its row in `skills[]`: its `skill_path` when the row has one (the package its build wrote, which for a Tier B skill quick-skill names after the library, not the campaign target), else its `name`. On exit 2 (an override that breaks the gate, or a directive that cannot be read), HALT (exit code 2, `invalid-input`) with its `error`.
+The capstone composes the skills in its `export[]` (the `pass` and `fallback` verdicts), so it never describes a skill the gate keeps from export: log each `excluded[]` skill as "capstone: {name} left out, below the quality gate ({reason})". Name each composed skill by the `export_name` of its row in `skills[]` (the skill folder its build wrote), as Export does. On exit 2 (an override that breaks the gate, or a directive that cannot be read), HALT (exit code 2, `invalid-input`) with its `error`.
 
 If `export[]` is empty (no completed skill, or none clears the gate), do NOT HALT: a campaign where everything failed is exactly when the operator most needs the downstream diagnostic report. Warn ("No skill clears the quality gate: skipping capstone composition; verification and the campaign report will still run so failures are explained"), log the skip (type `event`), and go to §4 with no capstone, so the chain continues to verify, refine, export and the report. step-10 (export) and step-11 (report) already handle the zero-completed case.
 
@@ -46,7 +46,7 @@ If `export[]` is empty (no completed skill, or none clears the gate), do NOT HAL
 Invoke `skf-create-stack-skill` with `--headless` and these inputs, so it asks nothing and prints its result envelope:
 
 - `mode`: `compose`
-- `skills`: the §2 paths and names, comma-separated (compose mode takes them as its constituent skills)
+- `skills`: the §2 `export_name` values, comma-separated (compose mode takes them as its constituent skill folders)
 - `stack_name`: the `stack_name` that `uv run {manifestScript} --stack-name {stateFile}` prints, the campaign name as a skill name cut to leave room for the `-stack` SS appends; when it prints null, leave the input out and SS names the stack `{project_name}-stack`
 - `architecture_doc_path`: `campaign.architecture_doc_path`, only when state sets it
 

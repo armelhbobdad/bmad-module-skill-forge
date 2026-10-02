@@ -12,7 +12,9 @@ CLI:
 Output (JSON on stdout):
   {"status":"success","report_path":"...","skills_completed":N,"skills_failed":N,
    "quality_scores":{"skill":score,...},"duration":"...",
-   "export_verdicts":{"skill":"pass|fallback|fail",...},"skills_excluded":["skill",...]}
+   "export_verdicts":{"skill":"pass|fallback|fail",...},"skills_excluded":["skill",...],
+   "skills_exported":["skill",...],
+   "export_failures":[{"skill","halt_reason","exit_code"},...]}
 
 `export_verdicts` holds each completed skill's quality-gate verdict at Export
 and `skills_excluded` the completed skills the gate kept from export, both
@@ -20,6 +22,13 @@ from campaign-quality-gate.py classify (the rule step-10 applies, the state's
 directive included), so a headless caller sees which completed skills were
 not exported. Both are null when the gate cannot be applied (an invalid gate
 or an unreadable directive), and the report says so.
+
+`skills_exported` and `export_failures` are what Export did: the `export`
+outcome campaign-state.py recorded for each skill after its skf-export-skill
+call, an exported skill by name and a failed one with that call's
+halt_reason and exit code. Both are null when the Export stage did not run
+(`campaign.current_stage` below 9). The report's Export Gate table shows the
+same outcome per skill in its Export column.
 
 --context-file also writes the payload skf-emit-result-envelope.py turns into
 the campaign's SKF_CAMPAIGN_RESULT_JSON line (schemas/
@@ -101,16 +110,56 @@ def _export_classification(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _export_gate_section(classification: Optional[Dict[str, Any]]) -> str:
+def _export_record(skill: Any) -> Optional[Dict[str, Any]]:
+    """The `export` outcome campaign-state.py recorded for a skill, or None."""
+    record = skill.get("export") if isinstance(skill, dict) else None
+    return record if isinstance(record, dict) and record.get("status") in ("exported", "failed") else None
+
+
+def _export_cell(record: Optional[Dict[str, Any]], verdict: str) -> str:
+    if record is None:
+        return "not exported" if verdict == "fail" else "N/A"
+    if record["status"] == "exported":
+        return "exported"
+    why = record.get("halt_reason") or (
+        f"exit {record['exit_code']}" if record.get("exit_code") is not None else "no exit code")
+    return f"failed ({why})"
+
+
+def _export_outcomes(state: Any) -> Dict[str, Any]:
+    """What Export did, from each skill's recorded `export`; both null before stage 9 ran."""
+    campaign = state.get("campaign") if isinstance(state, dict) else None
+    stage = campaign.get("current_stage") if isinstance(campaign, dict) else None
+    if not isinstance(stage, int) or isinstance(stage, bool) or stage < 9:
+        return {"skills_exported": None, "export_failures": None}
+    skills = state.get("skills")
+    exported, failures = [], []
+    for skill in skills if isinstance(skills, list) else []:
+        record = _export_record(skill)
+        if record is None or not skill.get("name"):
+            continue
+        if record["status"] == "exported":
+            exported.append(skill["name"])
+        else:
+            failures.append({"skill": skill["name"], "halt_reason": record.get("halt_reason"),
+                             "exit_code": record.get("exit_code")})
+    return {"skills_exported": exported, "export_failures": failures}
+
+
+def _export_gate_section(
+    classification: Optional[Dict[str, Any]], state: Optional[Dict[str, Any]] = None
+) -> str:
     if classification is None:
         return "The quality gate could not be applied to the completed skills (see the decision log)."
     rows = classification["skills"]
     if not rows:
         return "No completed skills."
-    lines = ["| Skill | Quality Score | Gate |", "|-------|---------------|------|"]
+    records = {s.get("name"): _export_record(s) for s in (state or {}).get("skills") or [] if isinstance(s, dict)}
+    lines = ["| Skill | Quality Score | Gate | Export |", "|-------|---------------|------|--------|"]
     for row in rows:
         score = row["quality_score"] if row["quality_score"] is not None else "N/A"
-        lines.append(f"| {row['name']} | {score} | {row['verdict']} |")
+        export = _export_cell(records.get(row["name"]), row["verdict"])
+        lines.append(f"| {row['name']} | {score} | {row['verdict']} | {export} |")
     excluded = classification["excluded"]
     if excluded:
         listed = ", ".join(
@@ -223,7 +272,7 @@ def _compute_aggregates(
         "workarounds_list": "\n".join(workarounds_list_items),
         "duration_table": "\n".join(duration_table_rows),
         "failed_skipped_section": "\n".join(failed_skipped_lines),
-        "export_gate_section": _export_gate_section(classification),
+        "export_gate_section": _export_gate_section(classification, state),
     }
 
 
@@ -274,6 +323,7 @@ def run(
             "status": "error",
             "halt_reason": "report-failure",
             **_counts(state),
+            **_export_outcomes(state),
             "campaign_report_path": None,
             "decision_log": decision_log,
         })
@@ -326,6 +376,7 @@ def run(
         "skills_excluded": (
             None if classification is None else [e["name"] for e in classification["excluded"]]
         ),
+        **_export_outcomes(state),
     }
     _write_context(context_file, {
         "status": "success",
@@ -334,6 +385,8 @@ def run(
         "quality_scores": result["quality_scores"],
         "export_verdicts": result["export_verdicts"],
         "skills_excluded": result["skills_excluded"],
+        "skills_exported": result["skills_exported"],
+        "export_failures": result["export_failures"],
         "campaign_report_path": result["report_path"],
         "decision_log": decision_log,
         "duration": result["duration"],

@@ -19,7 +19,7 @@ Collect campaign inputs from the operator, create the initial `_campaign-state.y
 
 ## RULES
 
-- This is the only step that creates the state file, with the helper's `init` operation (`{stateScript}`); every later write goes through `{stateScript}` too (State Contract in `references/campaign-contracts.md`), so no target, timestamp or gate value is ever typed into the state by hand.
+- This is the only step that creates the state file, with the helper's `init` operation (`{stateScript}`); every later write goes through `{stateScript}` too (State Contract in `references/campaign-contracts.md`), so no target, timestamp or gate value is ever typed into the state or the brief by hand.
 - If `{headless_mode}` is true, draw inputs from `--brief`/`--manifest` (On Activation step 4) and auto-proceed through confirmation gates with the default action, logging each auto-decision with `uv run {stateScript} log --log-file {decisionLogFile} --type auto --text '<entry>'`; emit this stage's progress events, and at any HARD HALT the error envelope, per `references/campaign-contracts.md`.
 
 ## TASKS
@@ -62,25 +62,16 @@ If no targets can be collected (an empty answer, or an empty `--brief` or `--man
 Settle the campaign name (the brief's `campaign_name`, else the operator's, else `{project_name}`), then create the state in one call. Pipe in the parse of the settled targets: the last §1 parse run again (the manifest file, `--brief <brief-file>`, or the corrected manifest lines on stdin), so the state takes its targets from the script's `targets[]`, never from the raw source:
 
 ```
-uv run {manifestScript} <the settled source> | uv run {stateScript} init --state-file {stateFile} --targets-file - --name "<campaign_name>" --hard "{qualityGateHard}" --soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>] [--directive-path <directive_path>] [--architecture-doc-path <architecture_doc_path>]
+uv run {manifestScript} <the settled source> | uv run {stateScript} init --state-file {stateFile} --targets-file - --name "<campaign_name>" --hard "{qualityGateHard}" --soft-target {qualityGateSoftTarget} --soft-fallback {qualityGateSoftFallback} [--brief-file <brief-file>] [--directive-path <directive_path>] [--architecture-doc-path <architecture_doc_path>] --brief-out {briefFile} --brief-template {templateFile} [--notes '<operator notes>']
 ```
 
-Pass `--brief-file` when the targets came from a campaign brief: each value its `quality_gate` gives wins over the customize.toml one. The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here. The helper settles and checks the gate with `campaign-quality-gate.py check`, creates `{campaignWorkspacePath}/`, writes every target as a `pending` skill (`repo_url` stays in the brief: the state schema has no place for it), stamps `started_at` and `last_updated` from the clock, and validates the state before it writes it. There is no earlier state, so no `.bak` is written.
+Pass `--brief-file` when the targets came from a campaign brief: each value its `quality_gate` gives wins over the customize.toml one. The directive's `## Quality Overrides` apply later, while the campaign runs, and are never written here. The helper settles and checks the gate with `campaign-quality-gate.py check`, creates `{campaignWorkspacePath}/`, writes every target as a `pending` skill, stamps `started_at` and `last_updated` from the clock, and validates the state before it writes it. There is no earlier state, so no `.bak` is written. It then writes `{briefFile}` from `{templateFile}`: the campaign name, `created_at` (the state's `started_at`), the same `targets[]`, one entry per target with `name`, `repo_url`, `tier`, `pin` and `depends_on`, plus every other field its source gave it (a language or scope hint, for example), the settled `quality_gate`, `architecture_doc_path` and `notes`. `repo_url` lives only in the brief: the state schema has no place for it. Pass `--notes` only with notes the operator gave, single-quoted as a decision-log entry is (`references/campaign-contracts.md`); without it a brief's own `notes` carry over.
 
-On exit 2, HALT (exit code 2, `invalid-input`) with its `error` and `errors[]`; nothing is written: a gate the gate script rejects (a hard gate other than `zero-critical-high`, a soft value outside 0 to 100, a fallback above the target, or a brief it cannot read), targets that hold errors, or a state file or backup that already exists. On exit 3, HALT (exit code 3, `invalid-state`) with its `errors[]`.
+On exit 2, HALT (exit code 2, `invalid-input`) with its `error` and `errors[]`; nothing is written: a gate the gate script rejects (a hard gate other than `zero-critical-high`, a soft value outside 0 to 100, a fallback above the target, or a brief it cannot read), targets that hold errors, a brief template that is no YAML mapping, or a state file or backup that already exists. On exit 3, HALT (exit code 3, `invalid-state`) with its `errors[]`.
 
-### §3: Generate Brief
+### §3: The Brief
 
-Populate `{templateFile}` with collected inputs and write to `{briefFile}`. Fill in:
-
-- `campaign_name`: the name §2 settled
-- `created_at`: the `last_updated` of the §2 output
-- `targets`: one entry per target with `name`, `repo_url`, `tier`, `pin` and `depends_on`, plus every other field its source gave it (a language or scope hint, for example)
-- `quality_gate`: the `quality_gate` of the §2 output
-- `architecture_doc_path`: from collected input, or empty string if not provided
-- `notes`: operator-provided context, or empty string
-
-The brief is a machine-readable snapshot enabling fresh-context resume.
+`init` (§2) wrote `{briefFile}` from the same `targets[]`, so write nothing by hand: it is the machine-readable snapshot a fresh session resumes from.
 
 ## OUTPUT
 
