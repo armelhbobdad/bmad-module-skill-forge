@@ -184,8 +184,8 @@ WRITERS = (
 UPDATE_WRITE = "src/skf-update-skill/references/write.md"
 UPDATE_WRITE_SECTIONS = ("### 2. Write Updated metadata.json", "### 4. Write Updated evidence-report.md")
 # Names in those sections of update-skill's write step that are not keys it
-# writes: a value step 1 records, and a field of a test report's gap.
-UPDATE_WRITE_NOT_KEYS = {"source_version_detected", "source_citation"}
+# writes: a value step 1 records.
+UPDATE_WRITE_NOT_KEYS = {"source_version_detected"}
 # The writers' other source_* keys: an authority enum, and a place inside the
 # source rather than the source itself.
 NOT_SOURCE_NAMES = {"source_authority", "source_file", "source_line"}
@@ -232,8 +232,7 @@ class TestSourceFacts:
 
     def test_update_skills_write_step_is_read(self):
         """write.md names its keys in backticks; the pin reads them, so a new one there fails too."""
-        assert _writer_keys(UPDATE_WRITE) == {"source_commit", "source_ref", "source_root", "source_file",
-                                              "source_line"}
+        assert _writer_keys(UPDATE_WRITE) == {"source_commit", "source_ref", "source_root", "source_file"}
 
     @pytest.mark.parametrize("nested", [False, True], ids=["top-level", "nested"])
     @pytest.mark.parametrize("key", SOURCE_FACTS)

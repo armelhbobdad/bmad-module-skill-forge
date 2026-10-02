@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Tests for skf-build-change-manifest.py.
 
-Covers two subcommands:
-  - build: aggregate category A/B/C/D into unified manifest
+Covers its subcommands:
+  - build: aggregate category A/B/C/D into unified manifest, Category D
+    typed from the compare and new-file helpers' files (a document-only
+    change included)
   - deletion-ratio: §2.2 trigger computation
-and the helper files both take in place of typed slices: the classify
-output (Category A and its same-content moves), the structural diff mapped
-onto Category B, and Category C's renames taken out of both.
+  - rename-candidates and apply: Category C by rule, the provenance map an
+    update writes
+  - records: step 3's re-extraction records, seeded from the runner's and
+    step 2's files, with the workers' patches merged in
+and the helper files build and deletion-ratio take in place of typed
+slices: the classify output (Category A and its same-content moves), the
+structural diff mapped onto Category B, and Category C's renames taken out
+of both.
 """
 
 from __future__ import annotations
@@ -190,6 +197,96 @@ class TestBuildManifestEdgeCases:
         result = mod.build_manifest({"category_a": {"modified": ["x.py"]}})
         assert result["counts"]["exports_modified"] == 0
         assert result["counts"]["files_added"] == 0
+
+
+# --------------------------------------------------------------------------
+# Category D from the compare and new-file helpers' files (step 5b determinism-2)
+# --------------------------------------------------------------------------
+
+
+def _d_map() -> dict:
+    return {"entries": [], "file_entries": [
+        {"file_name": "scripts/run.sh", "file_type": "script", "source_file": "tools/run.sh", "content_hash": "sha256:a"},
+        {"file_name": "assets/schema.json", "file_type": "asset", "source_file": "data/schema.json",
+         "content_hash": "sha256:b"},
+        {"file_name": "docs/authoritative/AGENTS.md", "file_type": "doc", "source_file": "AGENTS.md",
+         "content_hash": "sha256:c"},
+        {"file_name": "docs/authoritative/llms.txt", "source_file": "llms.txt", "content_hash": "sha256:d"},
+        {"file_name": "assets/old.yaml", "file_type": "asset", "source_file": "data/old.yaml",
+         "content_hash": "sha256:e"}]}
+
+
+def _compare(*rows: tuple) -> dict:
+    return {"comparisons": [{"source_file": path, "classification": kind, "stored_hash": "sha256:x",
+                             "current_hash": None if kind == "DELETED_FILE" else "sha256:y"} for path, kind in rows]}
+
+
+class TestCategoryDFromFiles:
+    def test_each_row_takes_its_file_type(self) -> None:
+        lists = mod.category_d_from_files(
+            _compare(("tools/run.sh", "MODIFIED_FILE"), ("./data/schema.json", "UNCHANGED"),
+                     ("AGENTS.md", "MODIFIED_FILE"), ("llms.txt", "DELETED_FILE"), ("data/old.yaml", "DELETED_FILE")),
+            {"new_files": [{"source_file": "tools/new.py", "kind": "script"},
+                           {"source_file": "data/new.json", "kind": "asset"}]},
+            _d_map())
+        assert lists == {"scripts_modified": ["tools/run.sh"], "scripts_added": ["tools/new.py"],
+                         "scripts_deleted": [], "assets_modified": [], "assets_added": ["data/new.json"],
+                         "assets_deleted": ["data/old.yaml"], "docs_modified": ["AGENTS.md"],
+                         # a row with no file_type takes the type its file_name's folder names
+                         "docs_deleted": ["llms.txt"]}
+
+    def test_a_document_only_change_is_a_change(self, tmp_path: Path) -> None:
+        """The only change is an authoritative document the skill tracks: the run goes on and records its hash."""
+        (tmp_path / "provenance-map.json").write_bytes(json.dumps(_d_map()).encode("utf-8"))
+        (tmp_path / "category-d-compare.json").write_bytes(
+            json.dumps(_compare(("AGENTS.md", "MODIFIED_FILE"), ("tools/run.sh", "UNCHANGED"))).encode("utf-8"))
+        (tmp_path / "new-files.json").write_bytes(json.dumps({"new_files": []}).encode("utf-8"))
+        (tmp_path / "categories.json").write_bytes(
+            json.dumps({"degraded_mode": False, "update_mode": "normal"}).encode("utf-8"))
+        result = _run_cli("build", "--input", str(tmp_path / "categories.json"),
+                          "--file-compare", str(tmp_path / "category-d-compare.json"),
+                          "--new-files", str(tmp_path / "new-files.json"),
+                          "--provenance-map", str(tmp_path / "provenance-map.json"))
+        assert result.returncode == 0, result.stderr
+        manifest = json.loads(result.stdout)
+        assert manifest["no_changes"] is False
+        assert (manifest["counts"]["docs_modified"], manifest["counts"]["docs_deleted"]) == (1, 0)
+        assert manifest["category_d"]["docs_modified"] == ["AGENTS.md"]
+        assert manifest["total_export_changes"] == 0 and manifest["per_file"] == []
+        # with nothing changed, the same call reports no change
+        (tmp_path / "category-d-compare.json").write_bytes(json.dumps(_compare(("AGENTS.md", "UNCHANGED"))).encode())
+        result = _run_cli("build", "--input", str(tmp_path / "categories.json"),
+                          "--file-compare", str(tmp_path / "category-d-compare.json"),
+                          "--new-files", str(tmp_path / "new-files.json"),
+                          "--provenance-map", str(tmp_path / "provenance-map.json"))
+        assert json.loads(result.stdout)["no_changes"] is True
+
+    def test_the_files_replace_the_inputs_own_category_d(self, tmp_path: Path) -> None:
+        (tmp_path / "new-files.json").write_bytes(
+            json.dumps({"new_files": [{"source_file": "tools/x.sh", "kind": "script"}]}).encode("utf-8"))
+        result = _run_cli("build", "--new-files", str(tmp_path / "new-files.json"),
+                          stdin=json.dumps({"category_d": {"assets_deleted": ["typed/by/hand.yaml"]}}))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["category_d"]["assets_deleted"] == []
+        assert json.loads(result.stdout)["counts"]["scripts_added"] == 1
+
+    @pytest.mark.parametrize("args, message", [
+        (("--file-compare", "compare.json"), "--file-compare needs --provenance-map"),
+        (("--provenance-map", "map.json"), "--provenance-map goes with --file-compare"),
+    ], ids=["compare-without-map", "map-without-compare"])
+    def test_the_compare_and_the_map_go_together(self, tmp_path: Path, args: tuple, message: str) -> None:
+        for name in ("compare.json", "map.json"):
+            (tmp_path / name).write_bytes(b'{"comparisons": [], "file_entries": []}')
+        argv = [a if not a.endswith(".json") else str(tmp_path / a) for a in args]
+        result = _run_cli("build", *argv, stdin="{}")
+        assert result.returncode == 1 and message in result.stderr
+
+    def test_doc_hashes_refuses_the_category_d_files(self, tmp_path: Path) -> None:
+        (tmp_path / "doc-hashes.json").write_bytes(b'{"changed": []}')
+        (tmp_path / "new-files.json").write_bytes(b'{"new_files": []}')
+        result = _run_cli("build", "--doc-hashes", str(tmp_path / "doc-hashes.json"),
+                          "--new-files", str(tmp_path / "new-files.json"))
+        assert result.returncode == 1 and "--doc-hashes takes no other input" in result.stderr
 
 
 # --------------------------------------------------------------------------
@@ -1103,3 +1200,141 @@ class TestDocsOnlyManifest:
         assert result.returncode == 1 and "takes no other input" in result.stderr
         path.write_bytes(b'{"stats": {}}')
         assert _run_cli("build", "--doc-hashes", str(path)).returncode == 1  # not compare-hashes output
+
+
+# --------------------------------------------------------------------------
+# records: step 3's re-extraction records, seeded by script (step 5b determinism-3)
+# --------------------------------------------------------------------------
+
+
+INVENTORY_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-extraction-inventory.py"
+_inventory_spec = importlib.util.spec_from_file_location("skf_extraction_inventory_records", INVENTORY_PATH)
+inventory = importlib.util.module_from_spec(_inventory_spec)
+_inventory_spec.loader.exec_module(inventory)
+
+
+def _runner(name: str, path: str, line: int, *, params=None, return_type=None, language="python",
+            export_type="function", node="function_definition") -> dict:
+    """One export as the recipe runner records it."""
+    return {"export_name": name, "source_file": path, "source_line": line, "signature": f"def {name}():",
+            "params": params, "return_type": return_type, "ast_recipe": f"{language}-def", "ast_node_type": node,
+            "export_type": export_type, "language": language, "confidence": "T1", "extraction_method": "ast-grep"}
+
+
+RUNNER_PARAMS = [{"name": "q", "type": "str", "default": None, "optional": False},
+                 {"name": "limit", "type": "int", "default": "10", "optional": True},
+                 {"name": "*rest", "type": None, "default": None, "optional": True}]
+
+
+class TestRecords:
+    def _inputs(self) -> tuple[dict, dict]:
+        extraction = {"exports": [
+            _runner("search", "pkg/api.py", 5, params=RUNNER_PARAMS, return_type="list"),
+            _runner("Client", "pkg/api.py", 20, export_type="class", node="class_definition"),
+            _runner("fetch", "src/a.ts", 3, language="typescript", node="function_declaration",
+                    params=[{"name": "url", "type": "string", "default": None, "optional": True}])]}
+        details = {"exports": [
+            {"export_name": "fetch", "source_file": "src/a.ts", "return_type": "Promise<Response>"},
+            {"export_name": "by_eye", "export_type": "constant", "source_file": "pkg/api.py", "source_line": 40,
+             "params": None, "return_type": None, "confidence": "T1-low", "extraction_method": "source-read"}]}
+        return extraction, details
+
+    def test_the_runner_and_step_2_seed_every_record(self) -> None:
+        extraction, details = self._inputs()
+        records, summary = mod.build_records(extraction, details, ["pkg/api.py", "src/a.ts", "pkg/empty.py"], [])
+        assert records["mode"] == "normal"
+        assert [b["file_path"] for b in records["files"]] == ["pkg/api.py", "src/a.ts", "pkg/empty.py"]
+        by_key = {(r["name"], b["file_path"]): r for b in records["files"] for r in b["exports"]}
+        search = by_key[("search", "pkg/api.py")]
+        # every runner-owned field, the params in the map's typed form, as create-skill writes them
+        assert search == {"name": "search", "type": "function", "signature": "def search():",
+                          "location": "pkg/api.py:5", "params": ["q: str", "limit: int = 10", "*rest"],
+                          "return_type": "list", "confidence": "T1", "extraction_method": "ast-grep",
+                          "ast_node_type": "function_definition", "ast_recipe": "python-def"}
+        assert search["params"] == [inventory.typed_param(p, "python") for p in RUNNER_PARAMS]
+        # a JS/TS optional parameter keeps its `?`, and step 2 fills what the runner left null
+        assert (by_key[("fetch", "src/a.ts")]["params"], by_key[("fetch", "src/a.ts")]["return_type"]) == \
+            (["url?: string"], "Promise<Response>")
+        # an export only step 2 read is T1-low, source-read, with no node kind or recipe
+        by_eye = by_key[("by_eye", "pkg/api.py")]
+        assert (by_eye["confidence"], by_eye["extraction_method"], by_eye["ast_node_type"], by_eye["ast_recipe"],
+                by_eye["location"]) == ("T1-low", "source-read", None, None, "pkg/api.py:40")
+        assert summary == {"files_extracted": 3, "exports_extracted": 4,
+                           "confidence_breakdown": {"T1": 3, "T1-low": 1, "T2": 0}, "warnings": []}
+
+    def test_patches_add_only_what_no_tool_recorded(self) -> None:
+        extraction, details = self._inputs()
+        patches = [
+            {"file_path": "pkg/api.py", "exports": [
+                {"name": "search", "docstring": "Search.", "params": ["typed: by-hand"], "return_type": "str"},
+                {"name": "Client", "signature": "class Client(Base):", "members": ["get()"],
+                 "params": ["x"], "return_type": None},
+                {"name": "ghost", "docstring": "invented"}]},
+            {"file_path": "./src/a.ts", "exports": [{"name": "fetch", "qmd_evidence": "used widely"}]}]
+        records, summary = mod.build_records(extraction, details, None, patches)
+        by_key = {(r["name"], b["file_path"]): r for b in records["files"] for r in b["exports"]}
+        search = by_key[("search", "pkg/api.py")]
+        # the runner's params and return type stand; the docstring is the worker's
+        assert (search["params"], search["return_type"], search["docstring"]) == \
+            (["q: str", "limit: int = 10", "*rest"], "list", "Search.")
+        client = by_key[("Client", "pkg/api.py")]
+        assert (client["signature"], client["members"], client["params"]) == ("class Client(Base):", ["get()"], ["x"])
+        assert by_key[("fetch", "src/a.ts")]["qmd_evidence"] == "used widely"
+        assert ("ghost", "pkg/api.py") not in by_key
+        assert summary["warnings"] == ["re-extract: a patch names ghost in pkg/api.py, which neither the runner nor "
+                                       "step 2 recorded; not added"]
+        assert summary["confidence_breakdown"]["T2"] == 1
+
+    def test_apply_writes_the_records_into_the_map(self) -> None:
+        """The records reach the map through apply, with the labels the stats helper accepts."""
+        extraction, details = self._inputs()
+        records, _ = mod.build_records(extraction, details, ["pkg/api.py"], [])
+        manifest = {"total_export_changes": 1, "per_file": [
+            {"file_path": "pkg/api.py", "status": "ADDED", "exports_affected": []}]}
+        doc, _ = mod.apply_update(update_type="incremental", provenance={"entries": []}, skill_name="lib",
+                                  manifest=manifest, records=records, test_report_run_id=None, **BLOCK)
+        entries = {e["export_name"]: e for e in doc["entries"]}
+        assert entries["search"]["params"] == ["q: str", "limit: int = 10", "*rest"]
+        assert (entries["by_eye"]["signature_source"], entries["search"]["signature_source"]) == ("T1-low", "T1")
+        assert stats.check_label_agreement(doc) == []
+
+    def test_the_cli_writes_the_records_and_prints_the_counts(self, tmp_path: Path) -> None:
+        extraction, details = self._inputs()
+        (tmp_path / "extraction.json").write_bytes(json.dumps(extraction).encode("utf-8"))
+        (tmp_path / "export-details.json").write_bytes(json.dumps(details).encode("utf-8"))
+        (tmp_path / "extract-files.json").write_bytes(json.dumps(["pkg/api.py", "src/a.ts"]).encode("utf-8"))
+        patches = tmp_path / "reextract-patches"
+        patches.mkdir()
+        (patches / "b.json").write_bytes(json.dumps(
+            [{"file_path": "src/a.ts", "exports": [{"name": "fetch", "docstring": "Fetch."}]}]).encode("utf-8"))
+        (patches / "a.json").write_bytes(json.dumps(
+            {"file_path": "pkg/api.py", "exports": [{"name": "search", "docstring": "Search."}]}).encode("utf-8"))
+        out = tmp_path / "reextract-records.json"
+        result = _run_cli("records", "--extraction", str(tmp_path / "extraction.json"),
+                          "--export-details", str(tmp_path / "export-details.json"),
+                          "--files-from", str(tmp_path / "extract-files.json"), "--patches", str(patches),
+                          "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        assert (summary["status"], summary["files_extracted"], summary["exports_extracted"]) == ("written", 2, 4)
+        assert summary["confidence_breakdown"] == {"T1": 3, "T1-low": 1, "T2": 0}
+        docstrings = {r["name"]: r.get("docstring") for b in json.loads(out.read_bytes())["files"] for r in b["exports"]}
+        assert (docstrings["search"], docstrings["fetch"]) == ("Search.", "Fetch.")
+
+    @pytest.mark.parametrize("name, content", [
+        ("extraction.json", b'{"no": "exports"}'),
+        ("extract-files.json", b'{"not": "a list"}'),
+        ("patch", b'{"exports": []}'),
+    ], ids=["extraction-not-runner-output", "files-not-a-list", "patch-without-file-path"])
+    def test_an_input_that_is_not_what_it_names_exits_1(self, tmp_path: Path, name: str, content: bytes) -> None:
+        (tmp_path / "extraction.json").write_bytes(b'{"exports": []}')
+        (tmp_path / "extract-files.json").write_bytes(b"[]")
+        patches = tmp_path / "patches"
+        patches.mkdir()
+        target = patches / "p.json" if name == "patch" else tmp_path / name
+        target.write_bytes(content)
+        result = _run_cli("records", "--extraction", str(tmp_path / "extraction.json"),
+                          "--files-from", str(tmp_path / "extract-files.json"), "--patches", str(patches),
+                          "-o", str(tmp_path / "out.json"))
+        assert result.returncode == 1 and result.stderr.startswith("error: ")
+        assert not (tmp_path / "out.json").exists()

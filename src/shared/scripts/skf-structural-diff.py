@@ -110,7 +110,10 @@ Canonicalization (applied symmetrically to BOTH sides before matching):
   `skf-load-provenance.py normalize`.
 
   params (each parameter) and return_type are canonicalized the same way as
-  a signature.
+  a signature. A parameter the recipe runner records as {name, type,
+  default, optional} is first written in the provenance map's form
+  (skf-extraction-inventory.py typed_param: `name: type`, `name?: type`,
+  ` = default`), so a runner's export compares with the map's entry.
 
 Change detection:
   The diffed fields are type, signature, params, return_type and line. A
@@ -213,10 +216,30 @@ from __future__ import annotations
 
 import argparse
 import collections
+import importlib.util
 import json
 import re
 import sys
 from pathlib import Path
+
+_INVENTORY = None
+
+
+def _typed_params(params: object, language: object) -> object:
+    """A recipe runner's {name, type, default, optional} parameters in the provenance map's typed form, through
+    skf-extraction-inventory.py's typed_param (loaded once from this folder); any other value as it is."""
+    global _INVENTORY
+    if not isinstance(params, list) or not any(isinstance(p, dict) for p in params):
+        return params
+    if _INVENTORY is None:
+        path = Path(__file__).resolve().parent / "skf-extraction-inventory.py"
+        spec = importlib.util.spec_from_file_location("skf_extraction_inventory", path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {path}")
+        _INVENTORY = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_INVENTORY)
+    lang = language if isinstance(language, str) else None
+    return [s for s in (_INVENTORY.typed_param(p, lang) for p in params) if s is not None]
 
 
 # Fields compared for change detection (in order).
@@ -531,7 +554,7 @@ def _normalize_entries(
             "name": name,
             "type": _first(entry, "type", "export_type"),
             "signature": _canon_value(entry.get("signature"), transform_counts),
-            "params": _canon_value(entry.get("params"), transform_counts),
+            "params": _canon_value(_typed_params(entry.get("params"), entry.get("language")), transform_counts),
             "return_type": _canon_value(entry.get("return_type"), transform_counts),
             "file": _first(entry, "file", "source_file"),
             "line": _first(entry, "line", "source_line"),

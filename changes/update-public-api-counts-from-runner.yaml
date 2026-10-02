@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  After an update, `stats.exports_public_api` and `stats.exports_internal` in metadata.json come from the recipe runner create-skill uses, run over the skill's whole scope with no head cap, where before the update counted them by hand. They match a fresh create of the same source whenever create's runner did not stop at its head cap.

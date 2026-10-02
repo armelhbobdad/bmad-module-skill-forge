@@ -81,7 +81,7 @@ Provide either:
 - A full path to the skill folder
 - A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
 - `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the gap-driven.md §3 guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Under it update-skill takes nothing from HEAD: it moves or pins no provenance line read there, reads no signature, parameter list, return type or node kind there and counts no public API there, and gap-driven.md §3 halts `halted-for-workspace-drift` before merge on any gap that needs one, which every new or modified export does, and on every rescope; step 5 will NOT automatically re-pin
-- `--allow-degraded` (headless mode only) to pre-authorize the lossy degraded full re-extraction if §4 finds no provenance map — without it, a headless run halts `blocked` there rather than silently rebuilding
+- `--allow-degraded` (headless mode only) to pre-authorize the lossy degraded full re-extraction if §4 finds no provenance map (not with `--from-test-report`, which needs the map): without it, a headless run halts `blocked` there rather than silently rebuilding
 - `--target-ref <tag|branch|HEAD|commit>` (normal mode, a skill forged from a remote repository) to read that ref's current commit instead of the skill's recorded `source_ref` (for example the `upstream_ref` an audit reports). When the update writes, step 5 records the ref as the new `source_ref` together with the commit it read. `HEAD` follows the remote's default branch; a full 40-character commit pins that commit
 - `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
 - `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact, and a gap-driven.md halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it
@@ -117,7 +117,7 @@ Pass `--version` only when steps 1-3 above bound `{active_version}` (the flat fa
 
 **If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by gap-driven.md §3's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
 
-**If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by §4 below when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown) or when a provenance map is present.
+**If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by §4 below when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown), when a provenance map is present, or in gap-driven mode, where §4 halts `blocked` instead.
 
 **If `--target-ref` was provided:** set `{target_ref_override}` to its value in workflow context; §6b passes it to `{sourceTreeHelper}`. Decide this after the test-report lookup above: when `update_mode` is `gap-driven` it has no effect, since gap-driven mode repairs the skill at its pinned commit, so warn the user once at flag-parse time ("`--target-ref` has no effect with `--from-test-report`: gap-driven mode repairs the skill at its pinned commit") and leave `{target_ref_override}` unset. When `--from-test-report` found no report, the run continues in normal mode and keeps `{target_ref_override}`; when §4b switches a run to gap-driven mode, it unsets it with the same warning.
 
@@ -210,9 +210,13 @@ After loading metadata.json, check `skill_type`:
 
 ### 4. Load Provenance Map
 
-**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path found. Do not load the map into context: the steps that need it read the file themselves (step 2's helpers, gap-driven.md §1 and §4 in a repair, and step 5's `apply`). Read from it only what §7 shows: the number of `entries[]` (`{export_count}`) and the provenance age, the days since its `last_update`, else its `generated_at`.
+**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to the path found. Do not load the map into context: the steps that need it read the file through their helpers (step 2's, gap-driven.md §1's in a repair, and step 5's `apply`). Read from it only what §7 shows: the number of `entries[]` (`{export_count}`) and the provenance age, the days since its `last_update`, else its `generated_at`.
 
 **If provenance map missing at both paths:**
+
+**When `update_mode` is `gap-driven`, offer no [D]**, interactive or headless, `--allow-degraded` included: a repair spot-checks the report's gaps against this map. HALT (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "gap-driven-needs-provenance-map: run a normal update first, which offers the degraded rebuild and writes a map, then re-run test-skill"`) and display "**A repair from a test report needs a provenance map, and `{skill_name}` has none.** Run a normal update first, which offers the degraded rebuild and writes a map, then re-run test-skill."
+
+Otherwise:
 
 "**WARNING:** No provenance map found at `{forge_version}/provenance-map.json` or flat fallback.
 
@@ -236,7 +240,7 @@ uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_d
 SKF_JSON
 ```
 
-Continue to step 2.
+Continue to §4b, which skips itself in degraded mode.
 
 ### 4b. Offer an Unconsumed Test Report
 

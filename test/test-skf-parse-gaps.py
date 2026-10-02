@@ -18,6 +18,9 @@ helper:
     rejection, not-found and no-match, dedupe
   - --provenance-map: the extensions of the map's source files join the
     list; `paths`: the same root check on paths a step names itself
+  - --provenance-map: each gap's `map_match`, gap-driven.md's lookup of its
+    export (no citation, several same-name entries, a `./` or backslash
+    path); `match`: the same lookup for a name a step takes elsewhere
 """
 
 from __future__ import annotations
@@ -665,7 +668,7 @@ def test_provenance_map_adds_its_source_extensions(tmp_path: Path):
     assert code == 0, out
     assert out["gaps"][0]["remediation_paths"] == ["web/App.vue"]
     assert out["resolved_files"] == ["web/App.vue"]
-    assert mod.map_extensions(prov) == ["vue"]  # file_entries (docs, scripts) add no extension
+    assert mod.map_extensions(mod.map_entries_of(prov)) == ["vue"]  # file_entries (docs, scripts) add no extension
 
 
 @pytest.mark.parametrize("content", [b"{nope", b"[1]"], ids=["invalid-json", "not-an-object"])
@@ -705,6 +708,84 @@ def test_paths_needs_a_folder_root(tmp_path: Path):
     proc = run(SCRIPT, "paths", "--source-root", str(tmp_path / "nope"), "a.ts")
     assert proc.returncode == 1 and json.loads(proc.stdout)["code"] == "INVALID_INPUT"
 
+
+
+# --------------------------------------------------------------------------
+# map_match: the provenance-map lookup of a gap's export (step 5b determinism-4)
+# --------------------------------------------------------------------------
+
+
+def _entry(name: str, path: str, line: int, export_type: str = "function") -> dict:
+    return {"export_name": name, "source_file": path, "source_line": line, "export_type": export_type}
+
+
+MAP_ENTRIES = [
+    _entry("search", "pkg/api.py", 5),
+    _entry("parse", "pkg/a.py", 10),
+    _entry("parse", "pkg/b.py", 3),
+    _entry("dup", "pkg/c.py", 1),
+    _entry("dup", "pkg/c.py", 9, "class"),
+]
+
+
+def _view(entry: dict) -> dict:
+    return {key: entry[key] for key in ("source_file", "source_line", "export_type")}
+
+
+@pytest.mark.parametrize("name, citation, status, entry", [
+    ("search", None, "found", MAP_ENTRIES[0]),
+    ("parse", None, "ambiguous", None),
+    ("missing", None, "not-found", None),
+    ("parse", {"file": "pkg/b.py", "line": 99}, "found", MAP_ENTRIES[2]),
+    ("parse", {"file": "pkg/other.py", "line": 3}, "not-found", None),
+    ("dup", {"file": "pkg/c.py", "line": 9}, "found", MAP_ENTRIES[4]),
+    ("dup", {"file": "pkg/c.py", "line": 4}, "ambiguous", None),
+    ("search", {"file": "./pkg/api.py", "line": 5}, "found", MAP_ENTRIES[0]),
+    ("parse", {"file": "pkg\\a.py", "line": 10}, "found", MAP_ENTRIES[1]),
+], ids=["no-citation-one", "no-citation-several", "no-citation-none", "citation-picks-the-file",
+        "citation-names-another-file", "citation-line-breaks-the-tie", "citation-line-matches-none",
+        "dot-slash-path", "backslash-path"])
+def test_map_match(name, citation, status, entry):
+    match = mod.map_match(MAP_ENTRIES, name, citation)
+    assert match["status"] == status
+    assert match["entry"] == (_view(entry) if entry else None)
+    assert match["candidates"] == [_view(e) for e in MAP_ENTRIES if e["export_name"] == name]
+
+
+def test_parse_adds_each_gap_its_map_match(tmp_path: Path):
+    ledger = write_ledger(tmp_path / "findings.json", "coverage-check", LEDGER_RECORDS)
+    prov = tmp_path / "provenance-map.json"
+    prov.write_bytes(json.dumps({"entries": [_entry("formatDate", "src/dates/format.ts", 42),
+                                             _entry("parseDate", "src/dates/parse.ts", 12),
+                                             _entry("parseDate", "src/legacy/parse.ts", 4)]}).encode("utf-8"))
+    code, out = parse("--ledger", str(ledger), "--provenance-map", str(prov))
+    assert code == 0, out
+    by_id = {gap["title"]: gap for gap in out["gaps"]}
+    # a cited export is keyed on its citation
+    assert by_id["formatDate signature"]["map_match"] == {
+        "status": "found", "entry": _view(_entry("formatDate", "src/dates/format.ts", 42)),
+        "candidates": [_view(_entry("formatDate", "src/dates/format.ts", 42))]}
+    # an uncited one that two entries share is left for a person
+    assert by_id["parseDate undocumented"]["map_match"]["status"] == "ambiguous"
+    # a gap with no export has no lookup
+    assert by_id["Link to a missing reference file"]["map_match"] is None
+    # without the map, no gap carries the key
+    code, out = parse("--ledger", str(ledger))
+    assert all("map_match" not in gap for gap in out["gaps"])
+
+
+def test_match_looks_a_name_up_with_its_citation(tmp_path: Path):
+    prov = tmp_path / "provenance-map.json"
+    prov.write_bytes(json.dumps({"entries": MAP_ENTRIES}).encode("utf-8"))
+    proc = run(SCRIPT, "match", "--provenance-map", str(prov), "--name", "parse", "--citation", "pkg/b.py:3")
+    assert proc.returncode == 0, proc.stdout
+    out = json.loads(proc.stdout)
+    assert (out["status"], out["citation"], out["map_match"]["status"]) == ("ok", {"file": "pkg/b.py", "line": 3},
+                                                                           "found")
+    proc = run(SCRIPT, "match", "--provenance-map", str(prov), "--name", "parse")
+    assert json.loads(proc.stdout)["map_match"]["status"] == "ambiguous"
+    proc = run(SCRIPT, "match", "--provenance-map", str(prov), "--name", "parse", "--citation", "a region of pkg")
+    assert proc.returncode == 1 and json.loads(proc.stdout)["code"] == "INVALID_INPUT"
 
 
 def test_usage_error_exits_2():

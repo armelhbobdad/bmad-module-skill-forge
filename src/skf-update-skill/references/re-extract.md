@@ -3,6 +3,10 @@ nextStepFile: 'merge.md'
 extractionPatternsData: 'skf-create-skill/references/extraction-patterns.md'
 extractionPatternsTracingData: 'skf-create-skill/references/extraction-patterns-tracing.md'
 tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md'
+# `{buildChangeManifestHelper}`: §4's `records`. HALT if neither exists.
+buildChangeManifestProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-build-change-manifest.py'
+  - '{project-root}/src/shared/scripts/skf-build-change-manifest.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -17,7 +21,7 @@ Perform tier-aware extraction on only the changed files identified in step 2, pr
 
 - Focus only on extracting changed exports — do not merge or modify existing skill
 - Only extract files in the change manifest: do not touch unchanged files
-- For each changed file, launch a subprocess (Pattern 2) that reads its exports at the lines step 2's recipe runner found (§1b); if unavailable, extract sequentially
+- For each changed file, launch a subprocess (Pattern 2) that reads its exports at the lines step 2 recorded (§1b); if unavailable, extract sequentially
 
 ## Steps
 
@@ -53,16 +57,14 @@ The halt leaves `{run_dir}` in place.
 
 **Source access (every tier):** read every changed file from `{source_root}`. When `{source_tree_status}` is `ready` or `offline`, that is the tree init.md §6b prepared at `{target_commit}`, the commit step 2 compared, so detection, extraction, merge and write read one tree; otherwise it is the local source init.md §6 validated. Do not fetch changed files through the gh contents API, zread or deepwiki: the gh contents API serves the default branch unless given a ref, and the zread and deepwiki indexes may sit at another commit, so a citation read there would not point into the commit this update records. If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists, HALT with status `blocked` per SKILL.md's source-tree rule (halt procedure: `phase: "re-extract:source-tree-missing"`, `path: "{source_root}"`, `reason: "source tree {source_root} disappeared mid-run"`). If one changed file cannot be read, limit its analysis to the provenance-map baseline (State 2: each baseline entry keeps its own confidence label from compilation-time data) and warn: "Could not read {path} from {source_root}. Its analysis is limited to the provenance-map baseline."
 
-**Quick tier (text pattern matching):**
-- Extract function/class/type names via regex patterns
-- Extract export statements via text matching
-- Label every export T1-low (pattern-matched, not AST-verified) with `extraction_method: source-read` and `ast_node_type: null`
+**What the workers read (every tier):** at each export's line the workers (§2) read what no tool records: its full signature (a function's, a type definition, a constant's value), a class's members and its JSDoc or docstring, and its parameter types and return type only where neither the runner nor `{run_dir}/export-details.json` records them.
+
+**Quick tier (text pattern matching):** step 2 read every listed file by text pattern into `{run_dir}/export-details.json` (T1-low, with `extraction_method: source-read` and `ast_node_type: null`), and §4's helper seeds each record from it.
 
 **Forge tier (AST structural extraction):**
 
-- Step 2's Category B ran the recipe runner (`{extractPublicApiHelper}` `--mode full`, the recipes of the AST Extraction Protocol in `{extractionPatternsData}`) over every file to extract, `{run_dir}/extract-files.json`, and wrote `{run_dir}/extraction.json`: never run it again here. The per-file workers (§2) take their file's exports from its `exports[]`, each at the line of its name, never a decorator or `export` line above it: T1 (AST-verified structural truth) with `extraction_method: ast-grep`, and `ast_node_type` and `ast_recipe` copied, never inferred.
-- Read by eye only what the recipes leave out: an export a file defines in a form Known Limitation #11 in `{extractionPatternsData}` lists, a file `file_issues[]` names (not UTF-8, or code the parser could not read, where a recipe can miss an export), a name `entry_point_diff.extraction_gaps[]` lists, and each file step 2 told the user it read by eye. Step 2 already read those of the modified and added files into `{run_dir}/export-details.json` (its entries with an `export_type`): take them from there. An export read by eye is T1-low with `extraction_method: source-read` and `ast_node_type: null`.
-- At each export's line the workers read what the recipes do not record: its signature (a function's, a type definition, a class's members, a constant's value) and JSDoc or docstring, and its parameter types and return type unless `{run_dir}/export-details.json` holds them.
+- Step 2's Category B ran the recipe runner (`{extractPublicApiHelper}` `--mode full`, the recipes of the AST Extraction Protocol in `{extractionPatternsData}`) over every file to extract, `{run_dir}/extract-files.json`, and wrote `{run_dir}/extraction.json`: never run it again here. §4's helper takes each file's exports from its `exports[]`, each at the line of its name, never a decorator or `export` line above it: T1 (AST-verified structural truth) with `extraction_method: ast-grep` and the recipe's labels.
+- Read by eye only what the recipes leave out: an export a file defines in a form Known Limitation #11 in `{extractionPatternsData}` lists, a file `file_issues[]` names (not UTF-8, or code the parser could not read, where a recipe can miss an export), a name `entry_point_diff.extraction_gaps[]` lists, and each file step 2 told the user it read by eye. Step 2 already read those of the modified and added files into `{run_dir}/export-details.json` (its entries with an `export_type`), and §4's helper takes them from there. An export read by eye is T1-low with `extraction_method: source-read` and `ast_node_type: null`.
 
 **Tier degradation handling (Forge/Forge+/Deep):** If step 2's runner could run no ast-grep, or left files unread (step 2 told the user which), follow `{tierDegradationRulesData}` for fallback strategy and user notification requirements. Silent degradation is forbidden: the user must always know which files were read by eye instead of matched, and why.
 
@@ -81,25 +83,15 @@ Step 2's Category A left every promoted or tracked document out of the files to 
 For each file `{run_dir}/extract-files.json` lists (step 2 wrote it: the MODIFIED and ADDED files and each MOVED file's new path), launch a subprocess that:
 
 1. Loads the source file
-2. At Forge tier and above, takes this file's exports from step 2's `{run_dir}/extraction.json` and `export-details.json` (§1b); at Quick tier, matches the file's text as §1b says
-3. Extract each export into the per-file return contract shown in bullet 4.
-4. **Return contract.** Each extraction worker returns ONLY this per-file block: no prose, no commentary, no markdown fences (the parent strips wrapping fences before parsing). The shape is exactly the per-file record §4 aggregates (each entry of the `files` array §4 writes), so the parent appends it verbatim rather than re-parsing free text:
+2. Takes this file's exports from step 2's `{run_dir}/extraction.json` and `export-details.json` (§1b)
+3. Reads at each export's line what §1b says no tool records
+4. **Return contract.** Each worker returns ONLY this per-file patch, with no prose, no commentary and no markdown fences (the parent strips wrapping fences before parsing), and leaves out a field it has nothing for. Write each patch, as returned, to a file of its own in `{run_dir}/reextract-patches/`, which §4's helper merges into the records it seeds from step 2's files:
 
    ```json
-   {
-     "file_path": "...",
-     "exports": [
-       {"name": "...", "type": "function|class|type|constant",
-        "signature": "...", "location": "{file}:{start_line}-{end_line}",
-        "confidence": "T1|T1-low|T2",
-        "extraction_method": "ast-grep|source-read",
-        "ast_node_type": "<the kind the matching ast-grep recipe declares, or null>",
-        "ast_recipe": "<id of the recipe that matched, or the find_code pattern, or null>",
-        "parameters": [{"name": "...", "type": "..."}],
-        "return_type": "...", "docstring": "...",
-        "qmd_evidence": "<if Deep tier, else omit>"}
-     ]
-   }
+   {"file_path": "...", "exports": [
+     {"name": "...", "signature": "<the full signature>", "members": ["<a class's member>"], "docstring": "...",
+      "params": ["<name: type>"], "return_type": "..."}
+   ]}
    ```
 
 **For DELETED files:** No extraction needed — deletions handled in merge step.
@@ -120,7 +112,7 @@ Find the collection entry matching the current skill: look for an entry where `s
 Launch a subprocess that loads qmd_bridge and for each changed export:
 1. Queries the `{skill_name}-extraction` collection for semantic context related to the export
 2. Searches for usage patterns, documentation references, temporal history
-3. Returns T2 evidence per export (usage frequency, context snippets, related concepts)
+3. Returns T2 evidence per export (usage frequency, context snippets, related concepts), as patches §4 merges: write one `{"file_path", "exports": [{"name", "qmd_evidence"}]}` block per file to its own file in `{run_dir}/reextract-patches/`
 
 **If no matching collection found in registry:**
 Log: "No QMD extraction collection found for {skill_name}. T2 enrichment skipped. Re-run [CS] Create Skill to generate the collection."
@@ -130,15 +122,18 @@ Continue without T2 enrichment: extraction still produces its structural results
 
 ### 4. Compile Extraction Results
 
-Write every worker's per-file block, exactly as §2's return contract shapes it (`qmd_evidence` added at Deep tier), to `{run_dir}/reextract-records.json`, where merge and step 5's `apply` read them:
+Resolve `{buildChangeManifestHelper}` ← first existing path in `{buildChangeManifestProbeOrder}` and, from `{project-root}`, run:
 
 ```bash
-cat > "{run_dir}/reextract-records.json" <<'SKF_JSON'
-{"mode": "normal", "files": [<each per-file block: {"file_path", "exports": [...]}>]}
-SKF_JSON
+uv run {buildChangeManifestHelper} records \
+    [--extraction "{run_dir}/extraction.json"] \
+    [--export-details "{run_dir}/export-details.json"] \
+    --files-from "{run_dir}/extract-files.json" \
+    [--patches "{run_dir}/reextract-patches"] \
+    -o "{run_dir}/reextract-records.json"
 ```
 
-Count from that file, never from memory: `files_extracted` (its `files`), `exports_extracted` (their `exports`), and the confidence breakdown, each export by its `confidence` (T1, T1-low, T2).
+Pass `--extraction` and `--export-details` when step 2 wrote them, and `--patches` when §2 or §3 wrote a patch. It seeds each export's record from step 2's files (name, type, signature, location, labels, return type and `params` in the provenance map's typed form), merges the patches, writes `{run_dir}/reextract-records.json`, where merge and step 5's `apply` read it, and prints `files_extracted`, `exports_extracted` and `confidence_breakdown` (T1, T1-low, T2): never type a record or count one by hand. Add each of its `warnings[]` to `warnings[]`. On exit 1 whose error names a patch file, rewrite that file once in the shape of §2's return contract and run `records` again. On a second exit 1, any other exit 1, no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "re-extract:records"`, its stderr as `reason`).
 
 ### 5. Display Extraction Summary and Auto-Proceed
 

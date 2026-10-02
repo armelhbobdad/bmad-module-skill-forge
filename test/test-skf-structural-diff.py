@@ -742,6 +742,20 @@ class TestParamsAndReturnType:
         r = diff_inventories([_prov_entry(export_name="old", params=["x"], return_type="int")], [])
         assert (r["removed"][0]["params"], r["removed"][0]["return_type"]) == (["x"], "int")
 
+    def test_runner_parameter_records_compare_in_the_map_form(self):
+        """A recipe runner's {name, type, default, optional} parameters are written in the map's typed form
+        first, so an unchanged function is not read as modified (step 5b determinism-3)."""
+        base = [_prov_entry(params=["query: str", "limit: int = 10", "opts?: Options"])]
+        runner = [{"name": "query", "type": "str", "default": None, "optional": False},
+                   {"name": "limit", "type": "int", "default": "10", "optional": True},
+                   {"name": "opts", "type": "Options", "default": None, "optional": True}]
+        r = diff_inventories(base, [_snap_export(params=runner, language="typescript")])
+        assert r["changed"] == []
+        dropped = [dict(p) for p in runner[:2]]
+        r = diff_inventories(base, [_snap_export(params=dropped, language="typescript")])
+        assert [(c["field"], c["current_value"]) for c in r["changed"]] == [
+            ("params", ["query: str", "limit: int = 10"])]
+
 
 class TestSignatureUnverified:
     """A provenance map holds a signature as params and return_type, an
