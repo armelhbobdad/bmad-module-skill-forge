@@ -40,6 +40,12 @@ describes, so a change on one side that the other does not follow fails:
   and hints, the brief lookup and batch, the stack inputs, the audit's
   upstream and baseline rules, the test exit code, the rename lock, the
   export snippet root, and only settings a customize.toml holds.
+- the same pages say that every workflow and Ferris run the customization
+  resolver through uv and warn when it cannot run, that a `!` entry drops
+  the persistent_facts default, how each workflow calls on_complete, and
+  that a chain asks for its first workflow's input or halts headless; and
+  workflows.md says what a required-tier miss skips, when an audit stops at
+  its baseline, and which warnings a drop can carry.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -1777,3 +1783,169 @@ def test_settings_list_names_only_settings_that_take_effect():
     rules = _headings(RA_REFS / "refinement-rules.md")
     for table in RA_RULES_TABLES:
         assert table in rules and table in settings, table
+
+
+# --------------------------------------------------------------------------
+# Customizing a workflow and chaining codes: the resolver warning, the `!`
+# facts drop, the on_complete call forms and the chain's first input
+# --------------------------------------------------------------------------
+
+DEFAULT_FACT = "file:{project-root}/**/project-context.md"
+RESOLVER_WARNING = "`[activation/warn] customization_resolver_unavailable: <reason>`"
+# The workflows whose on_complete is not called with --result-path, and what their customize.toml says instead.
+HOOK_FORMS = {
+    "skf-campaign": "<on_complete> --report-path=",
+    "skf-create-stack-skill": "Command invoked once a run finishes",
+    "skf-setup": "An instruction the agent carries out",
+    "skf-verify-stack": "Instruction executed when the workflow reaches its terminal stage",
+}
+CHAIN_HALT = "`<CODE> needs <input> before the pipeline can start: give it as <CODE>[<input>]`"
+CHAIN_HALT_EXAMPLE = "`QS needs a target before the pipeline can start: give it as QS[<target>]`"
+
+
+def _workflow_skills() -> list[str]:
+    """Every workflow skill folder under src/, Ferris (an agent) left out."""
+    return sorted(p.parent.name for p in SRC.glob("skf-*/SKILL.md") if p.parent.name != "skf-forger")
+
+
+def _comment_above(text: str, key: str) -> str:
+    """The `#` comment block above `key = ` in a TOML file, as one line of words."""
+    lines = text.splitlines()
+    [i] = [n for n, line in enumerate(lines) if line.startswith(f"{key} = ")]
+    j = i - 1
+    while j >= 0 and not lines[j].strip():
+        j -= 1
+    words = []
+    while j >= 0 and lines[j].startswith("#"):
+        words.append(lines[j].lstrip("#").strip())
+        j -= 1
+    return " ".join(word for word in reversed(words) if word)
+
+
+def test_customizing_section_and_chain_docs_follow_the_activation():
+    """#595, #596, #594: the resolver warning, the `!` facts drop, the hook call and a chain's first input.
+
+    The resolver blocks and the customize.toml facts are pinned where they live; this checks the docs, the two
+    exceptions they name (Campaign's decision log, interactive Export) and that each on_complete comment names
+    the call the docs give. Ferris's chain ask is documented with the example and halt reason its stage-6c
+    package fixes.
+    """
+    assert "in the decision log" in _read(SRC / "skf-campaign" / "SKILL.md")
+    assert "an interactive run only prints it" in _read(SRC / "skf-export-skill" / "SKILL.md")
+    doc = _read(WORKFLOWS)
+    customizing = _slice(doc, "## Customizing a Workflow", "Settings every workflow has:")
+    resolver = _paragraph(customizing, "These overrides are read by BMAD Method's customization script")
+    for token in ("Every workflow, and Ferris, runs that script through `uv` when it starts", RESOLVER_WARNING,
+                  "uses the bundled defaults, ignoring `_bmad/custom/`",
+                  "adds a warning naming `customization_resolver_unavailable` and its reason to the run's warnings",
+                  "Campaign logs it in its decision log", "an interactive Export Skill run only prints it",
+                  "In a project with SKF alone, that script is missing",
+                  "`customization_resolver_unavailable: not found`"):
+        assert token in resolver, token
+    architecture = _read(ARCHITECTURE)
+    [row] = [line for line in architecture.splitlines() if line.startswith("| `customize.toml`")]
+    [loads] = [line for line in architecture.splitlines() if line.startswith("3. **Workflow loads**")]
+    for text in (row, loads):
+        for token in ("through `uv`", "`customization_resolver_unavailable`", "bundled settings",
+                      "an interactive Export Skill run only prints it"):
+            assert token in text, token
+    assert "as Ferris does for his own settings when he starts" in loads
+
+    settings = _slice(doc, "Settings every workflow has:", "Useful settings in specific workflows:")
+    [facts] = [line for line in settings.splitlines() if line.startswith("- `persistent_facts`:")]
+    assert _settings("skf-setup")["persistent_facts"] == []
+    for token in ("Every workflow except Setup Forge loads any `project-context.md`",
+                  "an entry that starts with `!` drops each earlier entry it names and loads nothing itself",
+                  f'add `persistent_facts = ["!{DEFAULT_FACT}"]` to `_bmad/custom/<skill-name>.toml`',
+                  "Every workflow that loads the default honours such an entry", "Campaign's kickoff loader"):
+        assert token in facts, token
+    assert "Brief, Create, Update and Rename Skill" not in facts
+
+    skills = _workflow_skills()
+    assert len(skills) == 15, skills
+    for skill in skills:
+        hook = _comment_above(_read(SRC / skill / "customize.toml"), "on_complete")
+        assert hook, skill
+        if skill in HOOK_FORMS:
+            assert HOOK_FORMS[skill] in hook and "--result-path=" not in hook, skill
+        else:
+            assert "--result-path=" in hook, skill
+    quick = _comment_above(_read(QUICK / "customize.toml"), "on_complete")
+    assert "<on_complete> --result-path=<skill package>/quick-skill-result-latest.json" in quick
+    assert "skipped when the emitter wrote no result file, or not that -latest copy" in quick
+    assert "skipped when the emitter wrote no result file" in _comment_above(
+        _read(SRC / "skf-rename-skill" / "customize.toml"), "on_complete")
+    [on_complete] = [line for line in settings.splitlines() if line.startswith("- `on_complete`:")]
+    for token in ("Every workflow except Campaign, Stack Skill, Verify Stack and Setup Forge (Quick Skill included)",
+                  "`--result-path=<result file>`", "the hook is skipped when the emitter wrote no result file",
+                  "`--result-path=<skill package>/quick-skill-result-latest.json`",
+                  "the skill package is that file's folder", "or did not write that `-latest` copy",
+                  "Campaign passes `--report-path=<report>`", "Stack Skill runs the command with no argument",
+                  "Setup Forge and Verify Stack carry it out as an instruction",
+                  "A failing command never fails the workflow"):
+        assert token in on_complete, token
+
+    aliases = _paragraph(_read(AGENTS), "Ferris can run several workflows in one command.")
+    for token in ("such as `QS[cocoindex] TS EX`", "every step runs in headless mode",
+                  "When the first code has no target and its input is not among the arguments",
+                  "runs the chain as `QS[<input>] TS EX`", "stops before any workflow runs", CHAIN_HALT,
+                  CHAIN_HALT_EXAMPLE, "SF and SS take no input"):
+        assert token in aliases, token
+    assert "such as `QS TS EX`" not in aliases
+    chain = _paragraph(_slice(doc, "### Pipeline Aliases", "### How It Works"), "An alias given without its argument")
+    for token in ("A chain of codes does the same", "runs the chain as `QS[<input>] TS EX`", CHAIN_HALT,
+                  CHAIN_HALT_EXAMPLE, "SF and SS take no input"):
+        assert token in chain, token
+    syntax = _slice(doc, "### Syntax", "### Pipeline Aliases")
+    codes = re.findall(r"^\| `@Ferris ([A-Z]{2})(\[[^\]]+\])?", syntax, re.M)
+    assert codes and all(bracket for _, bracket in codes), codes
+    [arrows] = [line for line in _slice(doc, "### How It Works", "### Examples").splitlines()
+                if line.startswith("- Codes can be separated by spaces or by arrows")]
+    assert "`AN[https://github.com/honojs/hono] -> CS -> TS -> EX`" in arrows
+    chained = _paragraph(architecture, "**Chained runs**")
+    for token in ("(for example `QS[cocoindex] TS EX`)", "Ferris asks for it before the chain starts",
+                  "a headless run halts before any workflow runs"):
+        assert token in chained, token
+    assert "`BS CS TS EX`" not in chained and "Only the first workflow's input" not in chained
+
+
+def test_docs_follow_the_tier_miss_the_audit_baseline_stop_and_the_drop_warnings():
+    """#594, #599: a required-tier miss fails fast, an audit stops at its baseline only on doubt, a drop warns.
+
+    Each docs line is checked against the contract it describes: setup's invocation contract, audit's init.md
+    section 7 and exit-code table, and drop's `warnings` field rule.
+    """
+    contract = _read(SRC / "skf-setup" / "references" / "invocation-contract.md")
+    for token in ("builds no ccc index that is due", "runs no registry hygiene, so it removes no QMD collection, "
+                  "even under `--orphan-action=remove`"):
+        assert token in contract, token
+    doc = _read(WORKFLOWS)
+    require = next(line for line in _section("Setup Forge (SF)").splitlines() if line.startswith("- `--require-tier="))
+    for token in ("On a miss the workflow halts without running the health check. A miss also skips a due ccc index "
+                  "build", "and the registry cleanup", "removes no QMD collection, even under `--orphan-action=remove`",
+                  "Pipelines branch on the envelope's `status` field"):
+        assert token in require, token
+
+    init = _read(SRC / "skf-audit-skill" / "references" / "init.md")
+    for token in ("When neither doubt below holds, go straight on", "`{provenance_age_days}` (§4) is above 90",
+                  "**[X]** HALTs with **exit 6**, `halt_reason: \"user-cancelled\"`", "holds the baseline only",
+                  "If `{headless_mode}`, continue with [C]"):
+        assert token in init, token
+    [six] = [row for row in _read(SRC / "skf-audit-skill" / "references" / "headless-contract.md").splitlines()
+             if row.startswith("| 6 ")]
+    assert "baseline confirm gate `[X]`" in six
+    baseline = _paragraph(_section("Audit Skill (AS)"), "**Baseline:**")
+    for token in ("An interactive audit shows its baseline summary and analysis plan and goes straight on",
+                  "below the tier the skill was compiled at", "the provenance map is more than 90 days old",
+                  "`[C]` continues", "`[X]` stops the run with exit `6` (`user-cancelled`)",
+                  "which then holds the baseline only", "A headless run continues"):
+        assert token in baseline, token
+
+    rule = _read(SRC / "skf-drop-skill" / "references" / "invocation-contract.md")
+    [warnings] = [line for line in rule.splitlines() if line.startswith("- `warnings`:")]
+    [line] = [line for line in doc.splitlines() if line.startswith("- **`/skf-drop-skill` (DS)**")]
+    for name in ("context_rebuild_failed", "active_link_dangling", "delete_failed", "verification_failed",
+                 "customization_resolver_unavailable"):
+        assert f"`{name}: " in warnings and f"`{name}`" in line, name
+    assert "A `success` drop can still carry `warnings` that name what needs a manual fix" in line
+    assert line.index("`warnings`") < line.index("Exit codes in")
