@@ -11,7 +11,8 @@
  * - SKILL-04: name format (lowercase, hyphens, no forbidden substrings)
  * - SKILL-05: name matches directory basename
  * - SKILL-06: description at most 1024 characters, with a "Use when" or
- *   "Use if" clause anywhere in it (any letter case)
+ *   "Use if" clause anywhere in it (any letter case) whose quoted triggers
+ *   each name their object (no bare verb such as "drop" or "set up")
  * - SKILL-07: SKILL.md has body content after frontmatter
  * - WF-01: non-SKILL.md file frontmatter has no name
  * - WF-02: non-SKILL.md file frontmatter has no description
@@ -48,6 +49,14 @@ const STEP_FILENAME_REGEX = /^step-\d{2}[a-z]?-[a-z0-9-]+\.md$/;
 const TIME_ESTIMATE_PATTERNS = [/takes?\s+\d+\s*min/i, /~\s*\d+\s*min/i, /estimated\s+time/i, /\bETA\b/];
 
 const SEVERITY_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+
+// Words that leave a verb without an object: a "set up" trigger is as bare as "drop".
+const TRIGGER_PARTICLES = new Set(['up', 'down', 'out', 'in', 'on', 'off', 'over', 'back', 'away', 'through', 'around']);
+
+// A quoted phrase, in double or single quotes, straight or curly. A straight
+// quote opens after a non-word character and closes before one, so an
+// apostrophe (user's) or an inch mark (12") is not read as a quote.
+const QUOTED_PHRASE = /(?<!\w)"([^"]+)"(?!\w)|“([^”]+)”|(?<!\w)'([^']+)'(?!\w)|‘([^’]+)’/g;
 
 // --- Output Escaping ---
 
@@ -181,6 +190,34 @@ function safeReadFile(filePath, findings, relFile) {
     });
     return null;
   }
+}
+
+// --- Trigger Phrases ---
+
+/**
+ * The quoted trigger phrases of a description's "Use when" or "Use if" clause
+ * (double- or single-quoted) that name no object: one word, or a verb
+ * followed only by particles ("set up"). Quotes ahead of the clause are not
+ * triggers. Such a trigger fires the skill on unrelated requests ("drop the
+ * table", "set up a linter"), so each one must name its object, as "drop a
+ * skill" and "set up the forge" do.
+ */
+function bareVerbTriggers(description) {
+  const clause = /\buse\s+(?:when|if)\b/i.exec(description);
+  if (!clause) return [];
+  const bare = [];
+  for (const match of description.slice(clause.index).matchAll(QUOTED_PHRASE)) {
+    const phrase = match.slice(1).find((group) => group !== undefined);
+    const words = phrase
+      .trim()
+      .replace(/[.,;:!?]+$/, '')
+      .split(/\s+/)
+      .filter(Boolean);
+    if (words.length > 0 && words.slice(1).every((word) => TRIGGER_PARTICLES.has(word.toLowerCase()))) {
+      bare.push(phrase);
+    }
+  }
+  return bare;
 }
 
 // --- Code Block Stripping ---
@@ -345,8 +382,10 @@ function validateSkill(skillDir) {
   // --- SKILL-06: description quality ---
   // docs/_internal/STABILITY.md (Skill Manifest & Frontmatter Contract) states
   // the SKILL.md description rule as this check: at most 1024 characters, and
-  // a "Use when" or "Use if" clause anywhere in the text, in any letter case.
-  // Change the two together.
+  // a "Use when" or "Use if" clause anywhere in the text, in any letter case,
+  // whose quoted triggers each name their object. Change the two together.
+  // The trigger half is HIGH, so `validate:skills --strict` fails on it; the
+  // length half stays MEDIUM.
   if (description) {
     if (description.length > 1024) {
       findings.push({
@@ -363,10 +402,21 @@ function validateSkill(skillDir) {
       findings.push({
         rule: 'SKILL-06',
         title: 'description Quality',
-        severity: 'MEDIUM',
+        severity: 'HIGH',
         file: 'SKILL.md',
         detail: 'description has no "Use when" or "Use if" trigger clause (looked for anywhere in it, in any letter case).',
         fix: 'Add a "Use when ..." or "Use if ..." clause that says when to invoke this skill; it can sit anywhere in the description.',
+      });
+    }
+
+    for (const trigger of bareVerbTriggers(description)) {
+      findings.push({
+        rule: 'SKILL-06',
+        title: 'description Quality',
+        severity: 'HIGH',
+        file: 'SKILL.md',
+        detail: `description quotes "${trigger}", a one-word or verb-plus-particle trigger that names no object.`,
+        fix: `Name what the verb acts on, as "drop a skill" or "set up the forge" do, so the skill does not fire on unrelated requests.`,
       });
     }
   }
@@ -740,4 +790,4 @@ if (require.main === module) {
 }
 
 // --- Exports (for testing) ---
-module.exports = { parseFrontmatter, parseFrontmatterMultiline, validateSkill, discoverSkillDirs };
+module.exports = { parseFrontmatter, parseFrontmatterMultiline, validateSkill, discoverSkillDirs, bareVerbTriggers };

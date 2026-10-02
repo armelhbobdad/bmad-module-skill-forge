@@ -72,7 +72,7 @@ Choose [E] or [C]:"
 
 **HALT and wait for operator input.**
 
-**Headless mode:** auto-proceed with `[E]` (the RULES log line). `[E]` exports only the `export[]` skills; the excluded ones are logged at §3.
+**GATE [default: E]**: in headless mode, auto-proceed with `[E]` (the RULES log line). `[E]` exports only the `export[]` skills; the excluded ones are logged at §3.
 
 #### On `[C]ancel`:
 

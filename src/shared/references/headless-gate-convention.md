@@ -9,9 +9,11 @@ Gates are user interaction points where a workflow pauses for confirmation or in
 Every gate in a step file follows this pattern:
 
 ```
-**GATE: [default action]** — Present [options] to user.
-If `{headless_mode}`: auto-proceed with [default action], log: "headless: auto-[action]".
+**GATE [default: <option>]**: present [options] to the user.
+If `{headless_mode}`: auto-proceed with <option>, log: "headless: auto-<option>".
 ```
+
+A gate with no safe default names its HALT instead: `**GATE [default: HALT]**`, with the HALT's exit code and `halt_reason` where it fires.
 
 The gate always:
 1. Prepares the same output (summary, preview, menu) regardless of mode
@@ -26,6 +28,17 @@ The gate always:
 3. **Default:** `false`
 
 Each workflow's On Activation section resolves this variable alongside other config. The forger passes it through when dispatching to workflows.
+
+## Binding Inputs at Activation
+
+Each workflow's On Activation, or its first stage, binds and checks what the run needs, so that a headless run never waits for a reply, makes up a value or widens what it acts on, and an interactive run never asks for what the invocation already said:
+
+1. **Parse every input once.** Bind each input and flag of the workflow's Invocation Contract to a variable, in every mode. An argument the invocation supplies answers its question in an interactive run too. List every input and flag activation parses in the contract, and parse every one the contract lists.
+2. **Validate fail-closed.** Bind a flag's raw value whenever the flag is present (null only when it is absent), and let the script that owns the check reject a wrong value. Halt on a value outside the documented set, with the exit code and the `halt_reason` the workflow's schema gives an invalid input, such as `input-invalid` (Campaign: `invalid-input`; update-skill and setup halt `blocked` at a named phase), and never fall back to a default. Audit-skill's `tier_override` is the one exception: an invalid value falls through to the preferences tier, then the detected one.
+3. **Resolve the emitter before the first prompt.** Resolve the result envelope's emitter, and create the run folder where the workflow keeps one, at activation or at the start of the first stage, so every HARD HALT can emit its envelope. A helper that only a later stage runs may be resolved in that stage; when it is missing, the stage halts with the workflow's `helper-missing` or `resolution-failure` reason (brief-skill's helper halts name no `halt_reason` and emit nothing, as its SKILL.md Halt Contract says).
+4. **Give every gate a default or a coded HALT.** Name each gate's headless default in its `**GATE [default: <option>]**` annotation, and record the decision it takes in the run sink, unless the workflow's contract names where that decision goes instead: Campaign's decision log, brief-skill's log lines (its envelope has no `headless_decisions`), or a field or warning the run already writes, such as Analyze's `coexistence`. A gate with no safe default, such as an input gate whose required input is missing, halts with its exit code and the `halt_reason` the workflow's schema gives a missing input, such as `input-missing` (update-skill and setup halt `blocked` at a named phase).
+
+The workflow's Stages table and its contract's Gates row follow the `GATE` annotations: a stage that holds a gate does not read as auto-proceeding, a stage that waits holds one, and the Gates row names the steps that hold one.
 
 ## Gate Types
 
@@ -73,7 +86,7 @@ uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "<warning>"
 
 With `--workflow`, a decision the workflow's envelope schema rejects fails here, at the gate; without it, the emitter leaves the decision out when the run ends and adds a `headless_decision_invalid` warning. Because the sink is on disk, the trail survives context compaction, and a HARD HALT reports every decision taken before it.
 
-When the On Activation customization resolver is missing or fails, the run applies only the skill's own `customize.toml`. Record `customization_resolver_unavailable: <reason>` as a warning, or pass the reason in the envelope payload as `customization_resolver_unavailable`, so a pipeline sees that the team and user overrides under `_bmad/custom/` were not applied.
+When the On Activation customization resolver is missing or fails, the run applies only the skill's own `customize.toml`. Record `customization_resolver_unavailable: <reason>` as a warning, or pass the reason in the envelope payload as `customization_resolver_unavailable`, so a pipeline sees that the team and user overrides under `_bmad/custom/` were not applied. Campaign's run spans several sessions, so it logs `customization_resolver_unavailable: <reason>` as an `event` in its decision log instead, and its result envelope's `decision_log` names that file.
 
 ## Emitting the Result Envelope
 
@@ -98,4 +111,4 @@ A workflow adopts the emitter by adding its schema under `src/shared/scripts/sch
 - Progress output (summaries, status updates still display)
 - Quality thresholds (if a step produces output below spec, it still reports the issue)
 
-Exception: skf-setup makes its result envelope the final message of a standalone headless run, so the envelope line is all `claude -p` prints. Under `--headless` (or `--quiet`, its alias) it skips its progress output, resolves its gates without displaying them, and the health check it chains to adds nothing of its own before that envelope. Inside a forger pipeline it displays the same line and returns control to the forger. skf-setup's `references/invocation-contract.md` states this.
+Exception: skf-setup makes its result envelope the final message of a standalone headless run, so the envelope line is all `claude -p` prints. Under `--headless`, its alias `--quiet`, or `headless_mode: true` in `{sidecar_path}/preferences.yaml`, it skips its progress output, resolves its gates without displaying them, and the health check it chains to adds nothing of its own before that envelope. Inside a forger pipeline it displays the same line and returns control to the forger. skf-setup's `references/invocation-contract.md` states this.

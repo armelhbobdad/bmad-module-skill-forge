@@ -64,7 +64,7 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 - `scope.include`: confirmed doc URLs
 - `scope.notes: "Generated from external documentation. All content is T3 confidence."`
 
-**Headless:** no prompt: include every collected doc URL and skip to section 5 with the fields above. Take `scope.rationale` from `uv run {recommendScopeTypeHelper} --json '{"source_type": "docs-only", "mode": "headless"}'` (the helper resolved from `{recommendScopeTypeProbeOrder}` as §2c says), which short-circuits to `docs-only` with no tree or signals, by the §2c capture rules.
+**GATE [default: every collected doc URL]**: headless, no prompt: include every collected doc URL and skip to section 5 with the fields above. Take `scope.rationale` from `uv run {recommendScopeTypeHelper} --json '{"source_type": "docs-only", "mode": "headless"}'` (the helper resolved from `{recommendScopeTypeProbeOrder}` as §2c says), which short-circuits to `docs-only` with no tree or signals, by the §2c capture rules.
 
 **If `source_type: "source"` (default):** Continue to scope templates below.
 
@@ -78,7 +78,7 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 These will be included as T3 external references in the skill brief.
 Add, remove, or confirm these URLs."
 
-Wait for confirmation. Record any changes to `doc_urls`. **Headless:** keep them as given; step 1's input gate has HEAD-checked them, so skip the check below.
+Wait for confirmation. Record any changes to `doc_urls`. **GATE [default: keep them]**: headless keeps them as given; step 1's input gate has HEAD-checked them, so skip the check below.
 
 HEAD-check the URLs in parallel — issue all N `curl -sI --max-time 5 {url}` calls in a **single message with N parallel Bash calls**, then process the responses together. On a 4xx/5xx, DNS failure, or timeout per URL, warn `"Could not reach {url} — {status or error}."` and offer the same correct/keep choice as step 1 §3. The check is best-effort — never HALT on a failed HEAD — but the failure must surface here so it is not discovered downstream during compilation.
 
@@ -235,7 +235,7 @@ The analysis detected **{language}** with low confidence. Is this correct, or sh
 
 Wait for confirmation or override.
 
-**Headless:** `language_hint`, when supplied, already set the language at step 02 §3; otherwise accept the detected language and continue.
+**GATE [default: the detected language]**: headless, `language_hint`, when supplied, already set the language at step 02 §3; otherwise accept the detected language and continue.
 
 ### 5. Summarize Scope Decisions
 
@@ -272,7 +272,7 @@ Asked in the §5 message. **Only ask when `scope.type` is `full-library`, `speci
 - **[N] None expected** — skip script/asset detection
 - Or describe what you expect (free text)
 
-Record the response as `scripts_intent` and `assets_intent` in the brief. Default to `detect` if user does not respond or skips. **Headless:** the `scripts_intent` and `assets_intent` arguments, `detect` for either one absent.
+Record the response as `scripts_intent` and `assets_intent` in the brief. Default to `detect` if user does not respond or skips. **GATE [default: D]**: headless takes the `scripts_intent` and `assets_intent` arguments, `detect` for either one absent.
 
 ### 5c. Draft Checkpoint (interactive only)
 

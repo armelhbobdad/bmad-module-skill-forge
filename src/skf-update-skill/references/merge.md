@@ -162,7 +162,7 @@ Scan all merge operations for flagged conflicts.
 
 **If ZERO conflicts:** report a clean merge.
 
-**If conflicts detected, headless (`{headless_mode}` true):** conflicts require human judgment, and nothing is written yet. HALT with status `halted-for-manual-mismatch` (halt procedure: `phase: "merge:conflict-resolution"`, `reason: "{N} [MANUAL] conflict(s) need a person: {each conflict_type and section}"`). No `headless_decisions[]` entry is added.
+**GATE [default: HALT]**: **if conflicts are detected, headless (`{headless_mode}` true):** conflicts require human judgment, and nothing is written yet. HALT with status `halted-for-manual-mismatch` (halt procedure: `phase: "merge:conflict-resolution"`, `reason: "{N} [MANUAL] conflict(s) need a person: {each conflict_type and section}"`). No `headless_decisions[]` entry is added.
 
 **If conflicts detected, interactive:** present each conflict to user:
 
@@ -328,7 +328,7 @@ Display one line from §6's counts: "**Merged:** {exports_updated} updated, {exp
 
 **Conflicts were resolved (user interaction occurred):** present "**Merge complete with conflict resolution. Select:** [C] Continue to Write" and wait for the user to confirm before loading {nextStepFile}.
 
-**Headless (`{headless_mode}` true):** a headless run reaches this gate only with a clean merge (§4 halts on a conflict before anything is written). Auto-continue and record the decision, from `{project-root}`:
+**GATE [default: C]** (`{headless_mode}` true): a headless run reaches this gate only with a clean merge (§4 halts on a conflict before anything is written). Auto-continue and record the decision, from `{project-root}`:
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'

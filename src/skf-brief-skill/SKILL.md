@@ -87,10 +87,10 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 | 1r | Ratify an Existing Brief (ratify only) | references/gather-intent-ratify.md | No (interactive menu; headless takes [R]) |
 | 1a | Auto-Brief Generation (auto mode only) | references/step-auto-brief.md | Yes |
 | 1b | Auto-Brief Validation (auto mode only) | references/step-auto-validate.md | Yes |
-| 2 | Analyze Target | references/analyze-target.md | Yes |
+| 2 | Analyze Target | references/analyze-target.md | Conditional (a truncated tree, a monorepo) |
 | 3 | Scope Definition | references/scope-definition.md | No (interactive) |
 | 4 | Confirm Brief | references/confirm-brief.md | No (confirm) |
-| 5 | Write Brief | references/write-brief.md | Yes |
+| 5 | Write Brief | references/write-brief.md | Conditional (the brief exists) |
 | 6 | Workflow Health Check (terminal) | references/health-check.md | Yes |
 
 Every run starts in gather-intent.md, whose §1 (run folder, forge tier) serves every mode; its §1b routes by mode. `[auto]` (a pipeline's `BS[auto]`): step-auto-brief.md → step-auto-validate.md → health-check.md, in place of stages 2-5. Headless: headless-args.md validates the arguments before any stage uses them, then continues at stage 2. Interactive: the rest of gather-intent.md. A brief to ratify (a brief path at the first prompt, or a headless `from_brief`) goes through gather-intent-ratify.md straight to stage 4, skipping stages 2 and 3.

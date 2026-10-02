@@ -226,7 +226,7 @@ Select: [D] Degraded / [X] Abort"
 - If D: set `degraded_mode = true`, proceed with full extraction scope
 - If X: HALT (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "no provenance map; the user chose to run create-skill first"`)
 
-**In `{headless_mode}` without `--allow-degraded` (default):** do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction: choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. HALT instead (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"`).
+**GATE [default: HALT unless `--allow-degraded`]**: in `{headless_mode}` without `--allow-degraded` (default), do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction: choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. HALT instead (halt procedure: `status: "blocked"`, `phase: "init:load-provenance-map"`, `path: "{forge_version}/provenance-map.json"`, `reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"`).
 
 **In `{headless_mode}` with `--allow-degraded` (`allow_degraded: true`):** the operator pre-authorized the lossy rebuild for this run, so treat it as an auto-resolved [D] rather than a halt. Set `degraded_mode = true`, proceed with full extraction scope, and record the decision in the run's decision log, from `{project-root}`:
 
@@ -262,7 +262,7 @@ The report is **unconsumed** when `status` is `found`, `report_exists` is true, 
 
   - **[G]:** set `test_report_path` ← `{unconsumed_test_report}`, `{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`, then unbind `{unconsumed_test_report}`. When `{target_ref_override}` is set, give §1's `--target-ref` warning and unset it.
   - **[S]:** keep normal mode and add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`.
-- **Headless (`{headless_mode}` true):** keep normal mode, the mode the caller asked for, and add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`. It is a notice, not a gate the run resolves: no `headless_decisions[]` entry.
+- **GATE [default: S]**: headless (`{headless_mode}` true), keep normal mode, the mode the caller asked for, and add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`. The warning is the notice, so the gate adds no `headless_decisions[]` entry.
 
 While `{unconsumed_test_report}` stays bound, step 6's no-change report points to it instead of saying no action is required.
 
@@ -388,7 +388,7 @@ Steps 5 and 6 reuse `{source_display}` and `{source_commit_line}`.
 
 Present "**Select:** [C] Continue to Change Detection" ("**Select:** [C] Continue to Gap-Driven Repair" when `update_mode` is `gap-driven`) and wait for the user to confirm; on [C], load, read the full file, then execute `{gapDrivenStepFile}` when `update_mode` is `gap-driven`, else `{nextStepFile}`.
 
-**Headless (`{headless_mode}` true):** auto-continue and record the decision in the run's decision log, from `{project-root}` (the emitter checks it against `shared/scripts/schemas/skf-update-result-envelope.v1.json`, and step 6's line carries it):
+**GATE [default: C]**: headless (`{headless_mode}` true), auto-continue and record the decision in the run's decision log, from `{project-root}` (the emitter checks it against `shared/scripts/schemas/skf-update-result-envelope.v1.json`, and step 6's line carries it):
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-update-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'

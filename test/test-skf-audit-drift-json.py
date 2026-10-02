@@ -976,10 +976,11 @@ def test_the_baseline_stops_only_on_doubt():
     assert ("`{original_tier}`, the tier the skill was compiled at: `forge_tier` when it holds Quick, Forge, "
             "Forge+ or Deep (a stack records it there), else `confidence_tier` when it does (a single skill "
             "records it there), else null") in artifacts
-    gate = _slice(init, "**GATE", "\n")
+    gate = _slice(init, "**GATE [default: C]**", "\n")
     assert gate.startswith("**GATE [default: C]**: Baseline Confirm Gate [C/X], reached only on a doubt above.")
     assert 'log: "headless: auto-continue past baseline confirmation ({each doubt that holds})"' in gate
-    assert init.count("**GATE") == 1
+    # The other GATE line is §1's Manifest-vs-Symlink Gate, the Gates row's [N/M/X].
+    assert init.count("**GATE") == 2 and "**GATE [default: N]**: headless mode auto-selects **[N]**" in init
 
 
 BASELINE_RECORD = ('uv run {emitEnvelopeHelper} record --workflow skf-audit-skill --run-dir "{run_dir}" --decision '
@@ -993,7 +994,7 @@ def test_the_headless_baseline_confirm_records_its_decision(tmp_path, original_t
     gates do, so the envelope's headless_decisions carries the doubt. The
     schema lists the gate, so the emitter's --workflow check takes the record,
     and the evidence holds a null compile tier as JSON null."""
-    gate = _slice(_read(INIT), "**GATE", "\n")
+    gate = _slice(_read(INIT), "**GATE [default: C]**", "\n")
     assert BASELINE_RECORD in gate
     # Only the headless auto-decision is recorded: an interactive [C] adds no `headless:` entry.
     assert ('({each doubt that holds})". In headless mode, after that log line, record the decision in the run '

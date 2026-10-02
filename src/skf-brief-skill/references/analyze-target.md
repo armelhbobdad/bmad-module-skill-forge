@@ -93,7 +93,7 @@ uv run {githubProbeHelper} tree --repo "{owner}/{repo}" --ref "{analysis_ref}" -
   ```
 
   Leave `--branch` out when `{analysis_ref}` is `HEAD`. A commit SHA is no `--branch` value: clone it with `git clone --filter=blob:none --no-checkout "https://github.com/{owner}/{repo}.git" "{run_dir}/clone"`, then `git -C "{run_dir}/clone" checkout --quiet "{analysis_ref}"`. Set `{source_path}` ← `{run_dir}/clone` and restart this section for that local path: its listing replaces `{run_dir}/tree.json`, and every later `{source_path}`, in this step and in step 3, is the clone. Before any later HALT, remove the clone (`rm -rf "{run_dir}/clone"`): a halt keeps the files the run staged, never a copy of the repository. If a clone or checkout command fails, remove what it left (`rm -rf "{run_dir}/clone"`), warn `"Could not clone {owner}/{repo} at {analysis_ref} ({the first line of its stderr}); proceeding with the partial tree."`, add the warning to `workflow_warnings[]` and continue as `[P]`.
-  On `[P]` (or under headless): record `tree_truncated: true` in the analysis summary and continue without HALT.
+  **GATE [default: P]**: on `[P]`, and under headless: record `tree_truncated: true` in the analysis summary and continue without HALT.
 
 **For local paths:** `{source_path}` is the path.
 - If the directory does not exist (`test -d "{source_path}"` fails): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "target-inaccessible"` (the failure class of a GitHub target the CLI cannot read), then HALT (exit code 3): "**Error:** Directory not found at {path}. Verify the path is correct."
@@ -137,7 +137,7 @@ Which one should the skill cover? Pick a number, or type 'all' to scope at the r
 
 Interactive: wait for the user choice. On a numbered choice, store `monorepo_workspace: {path}` and rebase §2-§4b against that path. On `'all'`, leave `monorepo_workspace` unset and proceed at the repo root with a note in the analysis summary that scope is unfiltered.
 
-Headless: if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root and log `"warn: monorepo detected ({manifest_kind}) but no workspace pre-selected — analyzing at repo root"`.
+**GATE [default: the workspace an `include` glob names, else the repo root]**: headless, if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root and log `"warn: monorepo detected ({manifest_kind}) but no workspace pre-selected; analyzing at repo root"`.
 
 Log each non-empty `warnings[]` entry from the script and add it to `workflow_warnings[]`, so a malformed or unfetched root manifest is debuggable; the workflow does not HALT, because falling back to repo-root analysis is always safe.
 

@@ -179,7 +179,7 @@ Display: "**Select:** [C] Continue — write changes to all targets | [X] Cancel
 - **[X]** / `cancel` / `exit` / `:q`: delete the `{export_stage_dir}` folder, display "Cancelled: no context files were written." and HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `update-context §8`).
 - **Any other input** — help the user respond, then redisplay this gate.
 - **Dry-run**: auto-proceed without writing.
-- **Headless** [default C]: record the decision in the run sink with the command below, log "headless: auto-approve context file update", then auto-approve with [C]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
+- **GATE [default: C]**: headless, record the decision in the run sink with the command below, log "headless: auto-approve context file update", then auto-approve with [C]. If `record` exits non-zero, display its error line and go on: a failed `record` never stops the run.
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow skf-export-skill --run-dir "{run_dir}" --decision <<'SKF_JSON'

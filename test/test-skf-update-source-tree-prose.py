@@ -2559,7 +2559,7 @@ def test_a_normal_run_offers_an_unconsumed_failing_report(tmp_path, result, gene
                   "set `test_report_path` ← `{unconsumed_test_report}`, `{test_report_run_id}` ← `run_id` and "
                   "`update_mode: gap-driven`",
                   "add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`",
-                  "It is a notice, not a gate the run resolves: no `headless_decisions[]` entry"):
+                  "The warning is the notice, so the gate adds no `headless_decisions[]` entry"):
         assert token in four_b, token
     gates = _slice(_read(CONTRACT), "| **Gates** |", "\n")
     assert "init.md §4b's [G]/[S] test-report offer, interactive only (headless warns `unconsumed-test-report`)" \
@@ -3065,13 +3065,13 @@ def test_headless_skips_are_deferred_for_a_person(tmp_path):
     run_dir = tmp_path / "run"
     # §1b states the decision protocol once; §1c follows it with its own gate and fields (#600 leanness-7)
     one_b = _slice(detect, "### 1b.", "**Record for evidence report:**")
-    headless = _slice(one_b, "**Headless mode (`{headless_mode}` is true):**", "\n5. ")
+    headless = _slice(one_b, "**GATE [default: defer]**: in headless mode (`{headless_mode}` is true)", "\n5. ")
     assert 'action: "deferred-headless"' in headless and 'action: "skipped"' not in headless
     assert "never records a skip no person chose" in headless
     assert "except for a candidate whose `prior_action` is `deferred-headless`" in headless
     assert "Steps 4 and 5 are the decision protocol for a scope candidate, which §1c follows too" in one_b
     one_c = _slice(detect, "### 1c.", "**Record for evidence report:**")
-    c_headless = _slice(one_c, "4. **Headless mode (`{headless_mode}` is true):**", "\n5. ")
+    c_headless = _slice(one_c, "4. **GATE [default: defer]**: in headless mode (`{headless_mode}` is true)", "\n5. ")
     for token in ("defer each candidate as §1b step 4 does", "the gate `detect-changes.scope-expansion`",
                   "must never silently expand scope"):
         assert token in c_headless, token

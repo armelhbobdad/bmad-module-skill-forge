@@ -55,7 +55,7 @@ The sink, `{run_dir}/warnings.jsonl`, is the list: step 7 §8b lists it in `evid
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Initialize & Mode Detection | references/init.md | Conditional |
-| 2 | Detect Manifests | references/detect-manifests.md | Yes |
+| 2 | Detect Manifests | references/detect-manifests.md | Conditional (no manifest found) |
 | 3 | Rank & Confirm Libraries | references/rank-and-confirm.md | No (confirm) |
 | 4 | Parallel Extract | references/parallel-extract.md | Yes |
 | 5 | Detect Integrations | references/detect-integrations.md | Yes |

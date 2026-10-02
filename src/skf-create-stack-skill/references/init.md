@@ -148,7 +148,7 @@ A `mode` other than `code` or `compose`, a `scope_overrides` value other than `i
 
    When its `kept[]` is not empty, suggest compose mode, naming its `{N}` skills, and ask for an optional architecture document path (ask again for a path that is not a readable file). If the user accepts, set `compose_mode: true` and store `architecture_doc_path` (`null` when the user gives none); if the user declines, code mode stays. In every other case the run uses code mode: step 2 ranks `explicit_deps` when given.
 
-   **Headless default (B8):** do NOT prompt: accept the suggestion (`compose_mode: true`, `architecture_doc_path: null`). With no manifests, code mode would only halt at step 2 (`no-manifests`) or rank `explicit_deps` in a tree that declares none of them, while `kept[]` holds SKF skills (those `explicit_deps` names, when given): compose is the path that produces the stack. Record the auto-decision: stage `{"gate": "init.compose-suggestion", "default_action": "accept", "taken_action": "accept", "reason": "headless: no manifests and {N} SKF skills, so compose mode", "evidence": {"discoverable_skills": {N}}}` as `{run_dir}/decision.json` and run:
+   **GATE [default: accept]**, headless default (B8): do NOT prompt: accept the suggestion (`compose_mode: true`, `architecture_doc_path: null`). With no manifests, code mode would only halt at step 2 (`no-manifests`) or rank `explicit_deps` in a tree that declares none of them, while `kept[]` holds SKF skills (those `explicit_deps` names, when given): compose is the path that produces the stack. Record the auto-decision: stage `{"gate": "init.compose-suggestion", "default_action": "accept", "taken_action": "accept", "reason": "headless: no manifests and {N} SKF skills, so compose mode", "evidence": {"discoverable_skills": {N}}}` as `{run_dir}/decision.json` and run:
 
    ```bash
    uv run {emitEnvelopeHelper} record --workflow skf-create-stack-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
@@ -158,7 +158,7 @@ A `mode` other than `code` or `compose`, a `scope_overrides` value other than `i
 
 "**This project holds several packages.** Type **A** to build the stack for the whole project (the default), or the folder of one package: {each `folders[]` entry's `path`, with its `names`}."
 
-A folder answer resolves from `project_root`. When it is no folder, ask again; otherwise set `{scan_root}` to it and run the scan call again, replacing `{manifest_scan}`. **Headless:** do not ask; keep the project root, record the auto-decision as B8 does, with `{"gate": "init.scan-root", "default_action": "A", "taken_action": "A", "reason": "headless: manifests in {N} folders, so the whole project; pass project_path to scan one package", "evidence": {"folders": {N}}}`, `{N}` being the `folders[]` count: its `reason` tells the user to pass `project_path`.
+A folder answer resolves from `project_root`. When it is no folder, ask again; otherwise set `{scan_root}` to it and run the scan call again, replacing `{manifest_scan}`. **GATE [default: A]**: headless, do not ask; keep the project root, record the auto-decision as B8 does, with `{"gate": "init.scan-root", "default_action": "A", "taken_action": "A", "reason": "headless: manifests in {N} folders, so the whole project; pass project_path to scan one package", "evidence": {"folders": {N}}}`, `{N}` being the `folders[]` count: its `reason` tells the user to pass `project_path`.
 
 Skills use version-nested directories: see `knowledge/version-paths.md` for the path templates.
 

@@ -36,11 +36,11 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Resolve Target | references/resolve-target.md | Yes |
-| 2 | Ecosystem Check | references/ecosystem-check.md | Yes |
-| 3 | Quick Extract | references/quick-extract.md | Yes |
+| 1 | Resolve Target | references/resolve-target.md | Conditional (no target, or an ambiguous one) |
+| 2 | Ecosystem Check | references/ecosystem-check.md | Conditional (an official skill matches) |
+| 3 | Quick Extract | references/quick-extract.md | Conditional (an unusual repo shape, zero exports) |
 | 4 | Compile | references/compile.md | No (review) |
-| 5 | Write & Validate | references/write-and-validate.md | Yes |
+| 5 | Write & Validate | references/write-and-validate.md | Conditional (the skill folder exists) |
 | 6 | Finalize | references/finalize.md | Yes |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 

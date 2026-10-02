@@ -64,12 +64,14 @@ For each skill in `dependency_graph.execution_order`, before processing:
    - `[F]orce`: re-run with `--force`, proceed to §5 despite unmet deps.
    - `[H]alt`: stop the campaign with exit code 13 (`dependency-blocked`); state is intact and resumable.
 
-   **Headless:** take `default_action`. `skip` (every unmet dependency failed or was skipped, so none can complete in this run) runs `[S]kip` and logs "headless: skipped {skill_name}: {dependency} is {status}" for each unmet dependency, so the independent skills after it still run. `halt` (a dependency is still pending or active, an order the loop cannot follow) runs `[H]alt`. In execution order every dependency comes first, so `halt` is defensive: only a `--from` resume or a hand-edited state leaves a dependency pending.
+   **GATE [default: `default_action`]**: headless, take `default_action`. `skip` (every unmet dependency failed or was skipped, so none can complete in this run) runs `[S]kip` and logs "headless: skipped {skill_name}: {dependency} is {status}" for each unmet dependency, so the independent skills after it still run. `halt` (a dependency is still pending or active, an order the loop cannot follow) runs `[H]alt`. In execution order every dependency comes first, so `halt` is defensive: only a `--from` resume or a hand-edited state leaves a dependency pending.
 7. **Deadlock detection** (defensive: Strategy rejects every order the loop cannot follow and §4.6 settles each blocked skill as the loop reaches it, so only a hand-edited state gets here): after iterating through all remaining skills and finding none ready, present the same recovery menu as §4.6, scoped to the mutually-blocked set (this is the strictly harder situation, so it must not get worse UX than a single blocked skill):
    - List the blocked skills and their unmet dependencies.
    - `[F]orce one`: choose a skill to re-run with `--force` and resume the loop from it.
    - `[S]kip one`: choose a skill to mark skipped (`set-skill --status skipped`), then re-evaluate readiness.
-   - `[H]alt`: stop the campaign loop with exit code 7 (`dependency-deadlock`). **Default in headless mode** (headless never forces a dependency). Log the chosen action to the decision log.
+   - `[H]alt`: stop the campaign loop with exit code 7 (`dependency-deadlock`).
+
+   **GATE [default: HALT]**: headless takes `[H]alt` (exit code 7, `dependency-deadlock`) and never forces a dependency. Log the chosen action to the decision log.
 
 ### §5: Per-Skill Processing
 
