@@ -381,9 +381,9 @@ def test_conventions_state_the_module_level_exception(skill):
 
 
 @pytest.mark.parametrize("skill", WORKFLOWS)
-def test_conventions_state_the_sibling_rule_where_a_sibling_path_appears(skill):
-    """The rule is there exactly when the skill's files name another skill's folder."""
-    assert (SIBLING_RULE in _conventions(skill)) == bool(_sibling_paths(skill)), (skill, _sibling_paths(skill))
+def test_conventions_state_the_sibling_rule(skill):
+    """Every workflow's Conventions state the sibling-skill rule once (#601), as the module-level exception."""
+    assert _conventions(skill).count(SIBLING_RULE) == 1, (skill, _sibling_paths(skill))
 
 
 def test_create_skill_declares_its_sub_step_folder():
