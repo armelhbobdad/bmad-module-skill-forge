@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """release.yaml: the retry-safe check wait, the cleanup after a failed run,
 the version, dist-tag and commit steps, the resume path, the required
-checks compared with the ruleset before the bump, and the npm version floor.
+checks compared with the ruleset before the bump, and the npm version floor;
+and the action pins of every workflow, with their check and Dependabot.
 
-Issues #563, #564, #565, #566 and #570. The main-dispatch path of
+Issues #563, #564, #565, #566, #570 and #571. The main-dispatch path of
 .github/workflows/release.yaml only runs for real on a `--ref main` dispatch,
 which is also a real npm publish, so these tests run the steps' own `run:`
 scripts instead. Each script is read from the workflow with PyYAML and run
@@ -78,6 +79,18 @@ Covers:
     end to end, with gh answering for the ruleset, a ruleset that disagrees
     with quality.yaml stops it, naming the missing and the extra checks,
     before anything is committed
+  - Action pins (issue #571): every `uses:` of every workflow names a
+    40-character commit SHA and its exact version (`# vX.Y.Z`), the lines
+    read as text are exactly the uses: YAML runs, each action has one pin,
+    install-smoke.yaml pins its three actions, and actions/checkout stays on
+    v5 with the reason on the line above each pin. The pin check, a Linux
+    step of quality.yaml's validate job, passes on this repository naming
+    every workflow it read, and on fixture workflows names each uses: it
+    refuses and fails when it finds none. .github/dependabot.yaml has one
+    monthly github-actions entry whose group lists every action the
+    workflows use and that ignores only the major updates of
+    actions/checkout. The comment on the docs link guard step names the
+    required-checks tool its script also runs
   - Verify npm version floor for OIDC trusted publishing (issue #565): it
     runs on every dispatch right after Setup Node.js (which reads .nvmrc),
     prints Node and its bundled npm, passes from 11.5.1 up (a two-digit
@@ -1831,3 +1844,230 @@ def test_no_comment_describes_node_22_or_its_npm():
     assert "22.22.2" not in text
     assert "10.9.7" not in text
     assert "side-prefix" not in text.lower()
+
+
+# --------------------------------------------------------------------------
+# Action pins and Dependabot (issue #571)
+# --------------------------------------------------------------------------
+
+WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+QUALITY = WORKFLOWS / "quality.yaml"
+DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yaml"
+PIN_CHECK = "Check that every action is pinned to a commit SHA"
+# A `uses:` key opens its line, after the indent and an optional list dash,
+# as the pin check reads it.
+USES_LINE = re.compile(r"^\s*(?:-\s+)?uses:(.*)$")
+PIN = re.compile(r"^(?P<action>[^\s@]+)@(?P<sha>[0-9a-f]{40}) # (?P<version>v\d+\.\d+\.\d+)$")
+CHECKOUT_HOLD = "# Held on v5: v6 changes how it stores the git credentials, and release.yaml pushes with them."
+
+
+def workflow_files() -> list[Path]:
+    return sorted([*WORKFLOWS.glob("*.yaml"), *WORKFLOWS.glob("*.yml")])
+
+
+def uses_lines(path: Path) -> list[tuple[int, str]]:
+    """(line number, value with its comment) of every `uses:` key of a workflow, read as text."""
+    found = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        match = USES_LINE.match(line)
+        if match:
+            found.append((number, match.group(1).strip()))
+    return found
+
+
+def parsed_uses(path: Path) -> list[str]:
+    """Every `uses:` value YAML reads in a workflow: its steps' and its reusable-workflow jobs'."""
+    values = []
+    for job in yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"].values():
+        if "uses" in job:
+            values.append(job["uses"])
+        values.extend(s["uses"] for s in job.get("steps", []) if "uses" in s)
+    return values
+
+
+def pins() -> list[tuple[str, int, re.Match]]:
+    """(workflow name, line number, PIN match) of every `uses:` that names an action."""
+    found = []
+    for path in workflow_files():
+        for number, value in uses_lines(path):
+            if not value.startswith("./"):
+                found.append((path.name, number, PIN.match(value)))
+    return found
+
+
+def test_every_action_is_pinned_to_a_commit_sha_with_its_exact_version():
+    names = [path.name for path in workflow_files()]
+    for name in ("quality.yaml", "release.yaml", "docs.yaml", "install-smoke.yaml", "health-check-dedup.yaml"):
+        assert name in names
+    for path in workflow_files():
+        # The text the pin check reads holds exactly the uses: YAML runs.
+        assert [value.split(" #")[0] for _, value in uses_lines(path)] == parsed_uses(path), path.name
+        # The acceptance grep of issue #571: no uses: names a version tag.
+        assert not re.search(r"uses: [^ ]+@v[0-9]", path.read_text(encoding="utf-8")), path.name
+    unpinned = [f"{name}:{number}" for name, number, match in pins() if match is None]
+    assert unpinned == []
+
+
+def test_each_action_has_one_pin_across_the_workflows():
+    # A partial update would run two commits of one action.
+    seen: dict[str, set[tuple[str, str]]] = {}
+    for _, _, match in pins():
+        if match:
+            seen.setdefault(match["action"], set()).add((match["sha"], match["version"]))
+    assert {action: len(shas) for action, shas in seen.items() if len(shas) != 1} == {}
+
+
+def test_install_smoke_pins_its_three_actions():
+    pinned = {match["action"] for name, _, match in pins() if name == "install-smoke.yaml" and match}
+    assert {"actions/setup-node", "actions/upload-artifact", "actions/download-artifact"} <= pinned
+
+
+def test_checkout_stays_on_v5_with_the_reason_beside_each_pin():
+    checkouts = []
+    for path in workflow_files():
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for number, value in uses_lines(path):
+            if not value.startswith("actions/checkout@"):
+                continue
+            checkouts.append(path.name)
+            match = PIN.match(value)
+            assert match and match["version"].startswith("v5."), f"{path.name}:{number}"
+            assert lines[number - 2].strip() == CHECKOUT_HOLD, f"{path.name}:{number}"
+    # release.yaml pushes with the credentials of its own checkout.
+    assert "release.yaml" in checkouts
+
+
+def pin_check_step() -> dict:
+    found = [
+        (job_id, s)
+        for job_id, job in yaml.safe_load(QUALITY.read_text(encoding="utf-8"))["jobs"].items()
+        for s in job.get("steps", [])
+        if s.get("name") == PIN_CHECK
+    ]
+    assert [job_id for job_id, _ in found] == ["validate"]
+    return found[0][1]
+
+
+def test_the_pin_check_is_a_step_of_the_validate_job_on_linux():
+    # A step of a required job, not a new required job.
+    s = pin_check_step()
+    assert s["if"] == "runner.os == 'Linux'"
+    assert "shell" not in s
+    validate = yaml.safe_load(QUALITY.read_text(encoding="utf-8"))["jobs"]["validate"]
+    assert "ubuntu-latest" in validate["strategy"]["matrix"]["os"]
+
+
+def run_pin_check(tmp_path: Path, cwd: Path) -> subprocess.CompletedProcess:
+    script = tmp_path / "pin-check.sh"
+    script.write_text(pin_check_step()["run"], encoding="utf-8")
+    return subprocess.run(["bash", "-e", str(script)], cwd=cwd, capture_output=True, text=True, timeout=60)
+
+
+@needs_shell
+def test_the_pin_check_passes_on_this_repository_and_reads_every_workflow(tmp_path):
+    proc = run_pin_check(tmp_path, REPO_ROOT)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    total = 0
+    for path in workflow_files():
+        count = len(uses_lines(path))
+        assert f"Checked {count} uses: in .github/workflows/{path.name}\n" in proc.stdout
+        total += count
+    assert "Checked 3 uses: in .github/workflows/install-smoke.yaml\n" in proc.stdout
+    assert f"All {total} uses: in .github/workflows/ name a commit SHA and its version." in proc.stdout
+
+
+SAMPLE_SHA = "1234567890abcdef1234567890abcdef12345678"
+PINNED = f"actions/checkout@{SAMPLE_SHA} # v5.1.0"
+# Line by line: the ones the check refuses are marked.
+PIN_FIXTURE = [
+    ("jobs:", False),
+    ("  a:", False),
+    ("    steps:", False),
+    ("      - uses: actions/checkout@v5", True),
+    ("      - uses: actions/checkout@main", True),
+    ("      - uses: actions/checkout@fbc6f39 # v5.1.0", True),
+    (f"      - uses: actions/checkout@{SAMPLE_SHA}", True),
+    (f"      - uses: actions/checkout@{SAMPLE_SHA} # v5", True),
+    (f"      - uses: actions/checkout@{SAMPLE_SHA.upper()} # v5.1.0", True),
+    (f'      - uses: "{PINNED}"', True),
+    (f"      - uses: {PINNED}", False),
+    ("      - name: Local", False),
+    ("        uses: ./.github/actions/local", False),
+    ("      # uses: actions/checkout@v5", False),
+    ("      - run: |", False),
+    ('          echo "the publish below uses: it"', False),
+    ("  b:", False),
+    ("    uses: owner/repo/.github/workflows/build.yaml@v1", True),
+]
+
+
+@needs_shell
+def test_the_pin_check_names_each_uses_that_is_not_pinned(tmp_path):
+    workflows = tmp_path / "repo" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "a.yaml").write_text("\n".join(line for line, _ in PIN_FIXTURE) + "\n", encoding="utf-8")
+    # A .yml workflow is read as well.
+    (workflows / "b.yml").write_text("jobs:\n  c:\n    steps:\n      - uses: actions/setup-node@v6\n", encoding="utf-8")
+    proc = run_pin_check(tmp_path, tmp_path / "repo")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    refused = [n for n, (_, bad) in enumerate(PIN_FIXTURE, start=1) if bad]
+    reported = [int(m) for m in re.findall(r"::error file=\.github/workflows/a\.yaml,line=(\d+)::", proc.stdout)]
+    assert reported == refused
+    assert "::error file=.github/workflows/b.yml,line=4::Not pinned to a commit SHA with its version: " in proc.stdout
+    assert "uses: actions/setup-node@v6\n" in proc.stdout
+    uses = sum(1 for line, _ in PIN_FIXTURE if USES_LINE.match(line)) + 1
+    assert f"::error::{len(refused) + 1} of the {uses} uses: in .github/workflows/ are not pinned." in proc.stdout
+    assert "gh api repos/<owner>/<repo>/commits/<tag> --jq .sha" in proc.stdout
+
+
+@needs_shell
+def test_the_pin_check_fails_when_it_finds_nothing_to_check(tmp_path):
+    (tmp_path / "repo" / ".github" / "workflows").mkdir(parents=True)
+    proc = run_pin_check(tmp_path, tmp_path / "repo")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "::error::No uses: found in .github/workflows/, so nothing was checked." in proc.stdout
+
+
+def dependabot_actions() -> dict:
+    config = yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8"))
+    assert config["version"] == 2
+    entries = [u for u in config["updates"] if u["package-ecosystem"] == "github-actions"]
+    assert len(entries) == 1
+    return entries[0]
+
+
+def test_dependabot_proposes_every_pinned_action_monthly_in_one_group():
+    entry = dependabot_actions()
+    assert entry["directory"] == "/"
+    assert entry["schedule"]["interval"] == "monthly"
+    groups = entry["groups"]
+    assert len(groups) == 1
+    group = next(iter(groups.values()))
+    used = {match["action"] for _, _, match in pins() if match}
+    assert {"actions/upload-artifact", "actions/download-artifact"} <= used
+    # A new action goes on the list, so its updates join the group.
+    assert sorted(group["patterns"]) == sorted(used)
+    assert sorted(group["update-types"]) == ["minor", "patch"]
+    # One file: GitHub reads dependabot.yml or dependabot.yaml, not both.
+    assert not (REPO_ROOT / ".github" / "dependabot.yml").exists()
+
+
+def test_dependabot_never_proposes_a_checkout_major():
+    ignored = [i for i in dependabot_actions()["ignore"] if i["dependency-name"] == "actions/checkout"]
+    # Only the major is ignored: checkout still gets its v5 minor and patch updates.
+    assert ignored == [{"dependency-name": "actions/checkout", "update-types": ["version-update:semver-major"]}]
+
+
+def test_the_docs_link_guard_step_also_checks_the_required_checks_list():
+    # The step keeps its name (a required check is a job name), and its
+    # comment names what test:docs-links-tool runs besides the link guard.
+    text = QUALITY.read_text(encoding="utf-8")
+    comment = text[: text.index("      - name: Test the docs link guard\n")].rsplit("\n\n", 1)[1]
+    script = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]["test:docs-links-tool"]
+    for part in ("test/test-check-required-checks.js", "tools/check-required-checks.js --releasing"):
+        assert part in script
+        assert part in " ".join(line.strip().lstrip("# ") for line in comment.splitlines())
+    validate = yaml.safe_load(text)["jobs"]["validate"]["steps"]
+    assert [s["run"] for s in validate if s.get("name") == "Test the docs link guard"] == [
+        "npm run test:docs-links-tool"
+    ]

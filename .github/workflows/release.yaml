@@ -107,13 +107,14 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        # Held on v5: v6 changes how it stores the git credentials, and release.yaml pushes with them.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: ".nvmrc"
           cache: npm
@@ -141,7 +142,7 @@ jobs:
       # The Python tests need uv; version_bump=resume runs no tests.
       - name: Install uv
         if: github.event.inputs.version_bump != 'resume'
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: "3.12"
           # The uv cache key hashes the files this glob matches. The default
@@ -1122,7 +1123,7 @@ jobs:
 
       - name: Create GitHub Release
         if: github.event.inputs.version_bump != 'resume' || steps.resume.outputs.create_release == 'true'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: v${{ steps.version.outputs.new_version }}
           name: "Skill Forge (SKF) v${{ steps.version.outputs.new_version }}"
