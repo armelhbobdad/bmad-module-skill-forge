@@ -881,7 +881,9 @@ def test_docs_say_labels_follow_the_tool_and_t1_counts_drop():
     assert "The label follows the tool that produced the claim, not the forge tier" in _read(
         SRC / "knowledge" / "confidence-tiers.md")
     audit = SRC / "skf-audit-skill" / "references"
-    assert LABEL_TABLE in _read(audit / "structural-diff.md")
+    # Step 3 writes the table, by hand or through its renderer script once one ships.
+    renderer = SRC / "skf-audit-skill" / "scripts" / "render-drift-tables.py"
+    assert LABEL_TABLE in _read(audit / "structural-diff.md") + (_read(renderer) if renderer.exists() else "")
     assert f"**{LABEL_TABLE}** table) is never a finding" in _read(audit / "severity-classify.md")
     concepts = _paragraph(_read(CONCEPTS), "**The label follows the tool, not the tier.**")
     model = _paragraph(_read(SKILL_MODEL), "**Labels follow the tool that read each export, not the forge tier.**")
