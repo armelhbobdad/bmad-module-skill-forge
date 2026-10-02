@@ -26,7 +26,7 @@ spec.loader.exec_module(cmc)
 
 
 def test_cluster_a_intra_divergence_fires():
-    # 55 vs 48 → 12.7% → rounds to 13% > 10 → Medium (matches §4b example)
+    # 55 vs 48 → 12.7% → rounds to 13% > 10 → Medium
     r = cmc.check({"clusterA": {"exports_public_api": 55, "exports_length": 48}})
     titles = [f["title"] for f in r["findings"]]
     assert "metadata drift — barrel export counts diverge" in titles

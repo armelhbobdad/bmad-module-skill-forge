@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for verify-declared-numerator.py (skf-test-skill coverage-check.md §4b).
+"""Tests for verify-declared-numerator.py (skf-test-skill coverage-check.md §2b, recorded in §4b).
 
 Covers the numerator ground-truth lookup: which declared export names are
 present in / absent from the documentation surface (as whole names, the
