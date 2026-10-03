@@ -2,3 +2,4 @@ type: fixed
 scope: skf-audit-skill
 summary: |
   A Deep-tier audit's semantic drift step now checks what the skill documents about each export, retrieved from the skill's QMD collection, against the current source, and each Semantic Drift row cites the source file and line that no longer supports the claim. Before, the step compared the skill's QMD collection, which indexes the skill's own files, with itself, so it had no current state to find drift in, although the audit plan and the docs promise a semantic comparison with the current source. A claim with no source line is not recorded, and the Dependency Shifts table gains an Evidence column.
+prs: [655]
