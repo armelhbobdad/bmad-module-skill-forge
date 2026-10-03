@@ -2,3 +2,4 @@ type: changed
 scope: skf-create-stack-skill
 summary: |
   In compose mode, a library pair that the architecture document names together in only one passage, in a lone diagram, or under an Overview or Introduction heading now becomes a candidate that Stack Skill judges from its excerpt, like every other candidate. Before, a pair needed two paragraphs outside those headings, so a terse architecture document (two short sections, an Integration Points list or a single Mermaid diagram) gave no integration at all. An excerpt from an introductory section that only names both libraries still confirms nothing. The pairs a document only lists together (a Tech Stack table, say) are still dropped, with one `comention-list-only` warning that gives their count. A document that names no two confirmed libraries in one passage now records a `comention-no-candidates` warning, which the evidence report lists.
+prs: [657]

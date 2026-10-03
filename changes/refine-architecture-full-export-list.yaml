@@ -2,3 +2,4 @@ type: fixed
 scope: skf-refine-architecture
 summary: |
   Refine Architecture now checks the architecture's API claims against each skill's full export list, not only the exports its `SKILL.md` shows. The readers it sends to each skill get the export names from the skill inventory and read the skill's `references/` files for the signatures `SKILL.md` leaves out, and a claim fails on existence only when the name is missing from that list. Skills whose full API lives in `references/` no longer get false API Mismatch warnings in the refined document.
+prs: [657]
