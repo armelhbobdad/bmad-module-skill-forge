@@ -13,7 +13,7 @@ For the detected source language, attempt the lookups in order. Stop at the firs
 - **Rust:** `Cargo.toml` `[package] version` (static). If `version = { workspace = true }`, resolve from workspace root `Cargo.toml` → `git describe --tags --abbrev=0`.
 - **Go:** version tag from `go.mod`, or `git describe --tags --abbrev=0`.
 
-For remote GitHub sources, read version-bearing files from `{run_dir}/files/`, where step 2 stages the files it fetches; fetch one that is not there yet the same way, raw and by path: `gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/{file}?ref={analysis_ref}" > "{run_dir}/files/{file}"` (create its folder first). `{analysis_ref}` is the ref resolved in step 02 §1, defaulting to `HEAD` when no `target_ref`/`target_version` was pinned; reading at the pinned ref keeps the "Detected version" consistent with the version being skilled. For local sources, read the file directly.
+For remote GitHub sources, read version-bearing files from `{run_dir}/files/`, where step 2 stages the files it fetches; fetch one that is not there yet with step 2's fetch helper, naming it: `uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" --tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" "{file}"`. `{analysis_ref}` is the ref resolved in step 02 §1, defaulting to `HEAD` when no `target_ref`/`target_version` was pinned; reading at the pinned ref keeps the "Detected version" consistent with the version being skilled. For local sources, read the file directly.
 
 If every step fails or returns a non-semver value, the detected version is `null` — the resolver below falls back to `"1.0.0"`.
 

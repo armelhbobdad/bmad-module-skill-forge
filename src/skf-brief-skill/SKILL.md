@@ -11,7 +11,7 @@ Helps the user define what to skill — target repo, scope, language, inclusion/
 
 A good skill brief sets a tight, cohesive boundary: one capability with 3-8 primary functions, an unambiguous public API surface, and a description short enough to fit in a registry row. Briefs that try to cover several unrelated concerns (e.g. authentication *and* data visualization) compile into skills that no agent can route to confidently — a brief covering too much is a worse failure mode than a brief covering too little, and this workflow steers toward the smaller, sharper version when scope is unclear. Scope on cheap signals — manifests, top-level exports, intent — not full AST extraction.
 
-**Ratify path.** A pre-authored `skill-brief.yaml` (typically from `skf-analyze-source`'s `generate-briefs` step) can be *ratified* — reviewed and rewritten in place — instead of re-derived from scratch. Interactively, pass its path at the first prompt; headlessly, pass `from_brief <path>`. See the `from_brief` Inputs cell in `references/invocation-contract.md` for the full ratify contract.
+**Ratify path.** A pre-authored `skill-brief.yaml` (typically from `skf-analyze-source`) can be *ratified*: reviewed and written to `{forge_data_folder}/{name}/skill-brief.yaml` (in place when it already lives there) instead of derived again. Interactively, pass its path at the first prompt; headlessly, pass `from_brief <path>`. `references/invocation-contract.md` states the full ratify contract.
 
 ## Conventions
 

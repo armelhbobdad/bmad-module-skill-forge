@@ -294,9 +294,9 @@ def test_every_halt_site_emits_its_envelope_before_it_stops():
             # The envelope first, then the halt.
             assert re.search(re.escape(HALT_CALL) + r".*\bthen (?:HARD )?HALT\b", line), where
             assert int(match.group("code")) == SETTINGS["exit_codes"][match.group("reason")], where
-    # gather-intent 3, gather-intent-ratify 2, analyze-target 5, scope-definition 1, step-auto-brief 4,
+    # gather-intent 3, gather-intent-ratify 2, analyze-target 4, scope-definition 1, step-auto-brief 4,
     # step-auto-validate 2, write-brief 3 (headless-args.md's one halt names the validator's halt_reason)
-    assert sites == 20, sites
+    assert sites == 19, sites
 
 
 def test_write_brief_points_step_one_halts_at_the_halt_contract():

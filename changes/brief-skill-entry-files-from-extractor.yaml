@@ -1,0 +1,4 @@
+type: changed
+scope: skf-brief-skill
+summary: |
+  Brief Skill's target analysis now finds a package's entry files with the rules the extractor follows (the `package.json` `exports` map, with a build output read from its source, the package a Python manifest names, a crate's `[lib] path`) and follows `export *` and star-import re-exports to the modules that define the names, so the analysis lists more of a package's exports. The scope-type recommendation counts those exports from the extractor's result instead of a number typed into its request. A language the analysis reads without the extractor (Ruby, C# or Swift, say), or a run whose extraction failed, no longer gets a `public-api` recommendation from a count of the entry points read by hand: pick `[P]`, or pass `scope_type=public-api` in a headless run.

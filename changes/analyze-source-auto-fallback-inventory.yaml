@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-analyze-source
+summary: |
+  An `AN[auto]` run that cannot classify the repository and goes on as a step-by-step analysis now flags the units that already have a compiled skill as already skilled (and recommends Update Skill for them) and marks the units with an earlier brief as briefed, as an interactive analysis does. Before, the auto report started with no inventory of skills and briefs, so the fallback briefed those units again and, in a headless run, replaced the brief behind an existing skill.

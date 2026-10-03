@@ -24,6 +24,9 @@ Covers:
     piped in as it is
   - --relative-to: the files of one package written relative to the project
     that holds it
+  - summary: a saved units envelope and its manifest scan read back as the
+    unit graph without the file lists, and inputs that are not those
+    envelopes refused
 """
 
 from __future__ import annotations
@@ -1213,3 +1216,97 @@ class TestRelativeTo:
         assert result["edge_files"] == [
             {"from": "ui", "to": "core", "files": [{"path": "apps/web/ui/y.ts", "line": 1}]}]
         assert [_paths(u) for u in result["units"]] == [["apps/web/ui/y.ts"], []]
+
+
+# --------------------------------------------------------------------------
+# summary: the unit graph without the file lists (skf-analyze-source)
+# --------------------------------------------------------------------------
+
+
+class TestSummary:
+    def _saved(self, tmp_path: Path) -> tuple[Path, Path]:
+        """A `count --units` envelope and the manifest scan it read, saved as the analysis saves them."""
+        envelope = {"manifests": [
+            {"path": "package.json", "ecosystem": "npm", "name": "acme", "private": True, "deps": [],
+             "internal_deps": ["@acme/core", "@acme/client"], "version": "1.0.0"},
+            {"path": "packages/core/package.json", "ecosystem": "npm", "name": "@acme/core", "private": False,
+             "deps": [{"name": "zod", "version": "3"}], "internal_deps": []},
+            {"path": "packages/client/package.json", "ecosystem": "npm", "name": "@acme/client",
+             "private": False, "deps": [{"name": "zod", "version": "3"}], "internal_deps": ["@acme/core"]},
+        ], "umbrella_candidates": [{"path": ".", "name": "acme", "ecosystem": "npm", "internal_dep_count": 2,
+                                    "member_count": 2}]}
+        for i in range(8):
+            _write(tmp_path / "packages" / "client" / "src" / f"f{i}.ts",
+                   "import { z } from 'zod';\nimport { core } from '@acme/core';\n")
+        _write(tmp_path / "packages" / "core" / "src" / "index.ts", "import { z } from 'zod';\n")
+        units = [{"name": "core", "path": "packages/core", "manifest_name": "@acme/core", "ecosystem": "npm"},
+                 {"name": "client", "path": "packages/client", "manifest_name": "@acme/client", "ecosystem": "npm"}]
+        manifests = _write(tmp_path / "run" / "manifests-1.json", json.dumps(envelope))
+        units_file = _write(tmp_path / "run" / "units-1.json", json.dumps({"units": units}))
+        proc = _run_cli("count", str(tmp_path), "--units", str(units_file), "--deps", str(manifests))
+        assert proc.returncode == 0, proc.stderr
+        return _write(tmp_path / "run" / "imports-1.json", proc.stdout), manifests
+
+    def test_the_summary_keeps_the_graph_and_drops_the_file_lists(self, tmp_path: Path) -> None:
+        imports, manifests = self._saved(tmp_path)
+        proc = _run_cli("summary", str(imports), "--manifests", str(manifests))
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert list(out) == ["units", "edge_files", "umbrella_candidates", "manifests"]
+        by_name = {u["name"]: u for u in out["units"]}
+        assert by_name["core"] == {"name": "core", "imports_from": [], "imported_by": ["client"], "file_count": 8,
+                                   "external_dep_count": 1}
+        assert by_name["client"]["imports_from"] == ["core"] and by_name["client"]["external_dep_count"] == 1
+        [edge] = out["edge_files"]
+        assert (edge["from"], edge["to"], edge["file_count"]) == ("client", "core", 8)
+        assert edge["files"] == [{"path": f"packages/client/src/f{i}.ts", "line": 2} for i in range(5)]
+        assert out["umbrella_candidates"][0]["name"] == "acme"
+        assert out["manifests"][2] == {"path": "packages/client/package.json", "name": "@acme/client",
+                                       "private": False, "internal_deps": ["@acme/core"]}
+        # the summary is a fraction of the envelope, and find-cycles still reads the envelope itself
+        assert len(proc.stdout) * 3 < len(imports.read_text(encoding="utf-8"))
+        cycles = _run_helper("skf-find-cycles.py", "find", "--edges", str(imports), stdin="")
+        assert cycles.returncode == 0 and json.loads(cycles.stdout)["cycles"] == []
+
+    def test_max_files_and_no_manifests(self, tmp_path: Path) -> None:
+        imports, _ = self._saved(tmp_path)
+        out = json.loads(_run_cli("summary", "-", "--max-files", "0", stdin=imports.read_text(encoding="utf-8")).stdout)
+        assert list(out) == ["units", "edge_files"]
+        assert out["edge_files"][0]["files"] == [] and out["edge_files"][0]["file_count"] == 8
+
+    def test_the_envelope_warnings_carry_over(self) -> None:
+        result = {"units": [], "edge_files": [], "warnings": ["could not read x.ts"]}
+        assert mod.summarize(result)["warnings"] == ["could not read x.ts"]
+
+    @pytest.mark.parametrize(
+        ("imports", "manifests", "message"),
+        [
+            pytest.param({"dependencies": []}, None, "holds no `units` list", id="a-deps-only-envelope"),
+            pytest.param({"units": [{"name": "a"}], "edge_files": []}, None, "malformed units or edge_files entry",
+                         id="a-unit-without-its-fields"),
+            pytest.param({"units": [], "edge_files": []}, {"candidates": []}, "holds no `manifests` list",
+                         id="not-a-manifest-scan"),
+        ],
+    )
+    def test_inputs_that_are_not_the_envelopes_exit_1(self, tmp_path: Path, imports: dict,
+                                                      manifests: dict | None, message: str) -> None:
+        args = ["summary", str(_write(tmp_path / "imports.json", json.dumps(imports)))]
+        if manifests is not None:
+            args += ["--manifests", str(_write(tmp_path / "manifests.json", json.dumps(manifests)))]
+        proc = _run_cli(*args)
+        assert proc.returncode == 1
+        assert message in proc.stderr
+
+    @pytest.mark.parametrize(
+        ("args", "message"),
+        [
+            pytest.param(["-", "--manifests", "-"], "only one of the imports file and --manifests",
+                         id="both-on-stdin"),
+            pytest.param(["-", "--max-files", "-1"], "--max-files must be >= 0", id="negative-max-files"),
+            pytest.param(["missing.json"], "file not found", id="missing-file"),
+        ],
+    )
+    def test_user_errors_exit_1(self, args: list[str], message: str) -> None:
+        proc = _run_cli("summary", *args, stdin='{"units": [], "edge_files": []}')
+        assert proc.returncode == 1
+        assert message in proc.stderr

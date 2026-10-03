@@ -165,7 +165,7 @@ Skip §3.3 and continue at "Confirm the target" below.
 - Set `source_type: "source"` (default)
 - **Pre-validate the target before continuing.** An access problem caught at URL entry spares the user 5+ minutes of intent investment. Never HALT here: the canonical HALT stays in step 2 §1.
   - **GitHub URL:** resolve `{githubProbeHelper}` from `{githubProbeProbeOrder}` (first existing path wins) and run `uv run {githubProbeHelper} repo --repo "{url}" --timeout 20`. It prints one JSON line, and tells a missing or logged-out `gh`, a repository that does not exist and one the account cannot read apart:
-    - `status: "ok"`: accept silently, a private repository that `gh` can read included. When `gh` is `"missing"` or `"unauthenticated"` (the repository was read without it), warn `"The GitHub CLI (gh) is not installed or not logged in: step 2 reads the repository through gh and will HALT until you install it or run 'gh auth login'. Fix it now, or supply a local clone path instead."` and continue.
+    - `status: "ok"`: accept silently, a private repository that `gh` can read and a public one read without `gh` included.
     - `status: "unavailable"`: warn with its `message`, which names the cause (`cause`) and the fix, and offer `[K] Keep anyway` or a corrected URL, which is probed the same way. On `[K]`, keep the URL: step 2 §1 reports the cause again if it still holds.
     - No JSON (the helper is missing, or exits 1 or 2): continue silently; step 2 §1 checks the repository.
   - **Local path:** verify the directory exists (`test -d {path}`). If not, warn `"Local path {path} does not exist."` and re-prompt.

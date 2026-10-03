@@ -32,7 +32,7 @@ The ladder (first match wins):
   5. full-library       no rule matched
 
 CLI:
-  uv run skf-recommend-scope-type.py --tree-file <file> [--entry-dir <dir>] < payload.json
+  uv run skf-recommend-scope-type.py --tree-file <file> [--entry-dir <dir>] [--extract-file <file>] < payload.json
   uv run skf-recommend-scope-type.py --tree-file <file> --json '{...}'
   <listing> | uv run skf-recommend-scope-type.py --tree-file - --json '{...}'
   uv run skf-recommend-scope-type.py --tree-file <file> --registry-files
@@ -58,6 +58,11 @@ as the payload's `entry_files`: a local checkout, or the folder the caller
 fetched the --registry-files paths into. A registry file missing there is
 one whose contents were not given. Passing `entry_files` too is an error.
 
+--extract-file reads the extractor's output (skf-extract-public-api.py
+--mode quick, or any JSON object with an `exports` list) and sets
+`export_count` to the number of distinct export names it lists, so no
+caller counts the exports by hand. Passing `export_count` too is an error.
+
 Input (JSON object on stdin or via --json):
   signals       object, required unless source_type is docs-only. Exactly
                 these keys, classified by the caller from the user's intent
@@ -70,7 +75,8 @@ Input (JSON object on stdin or via --json):
                   wants_narrow_api      true | false: the user wants only the
                                         public API, SDK or client surface
   module_count  integer >= 0 (top-level modules from step 2), default 0
-  export_count  integer >= 0 (named exports from step 2), default 0
+  export_count  integer >= 0 (named exports from step 2), default 0 (or
+                --extract-file)
   tree          list of repo-relative file paths, default [] (or --tree-file)
   entry_files   optional [{path, content}]: the registry files' contents
                 (or --entry-dir)
@@ -92,8 +98,9 @@ Output (JSON on stdout):
 Exit codes:
   0  recommendation produced (or, with --registry-files, the list printed)
   2  bad input: invalid JSON, an unknown or mistyped key, no signals object,
-     the tree or the registry contents passed twice, or a tree listing that
-     cannot be read, is empty or reports a failure
+     the tree, the registry contents or the export count passed twice, a
+     tree listing that cannot be read, is empty or reports a failure, or an
+     --extract-file that cannot be read or holds no `exports` list
 """
 
 from __future__ import annotations
@@ -430,6 +437,21 @@ def _read_entry_dir(folder: str, tree: object) -> list[dict]:
     return files
 
 
+def _read_export_count(value: str) -> int:
+    """The number of distinct export names an extractor result lists."""
+    try:
+        with open(value, encoding="utf-8-sig") as fh:
+            data = json.load(fh)
+    except (OSError, UnicodeDecodeError) as e:
+        _die(f"cannot read --extract-file {value}: {getattr(e, 'strerror', None) or e}")
+    except json.JSONDecodeError as e:
+        _die(f"--extract-file {value} is not valid JSON: {e}")
+    exports = data.get("exports") if isinstance(data, dict) else None
+    if not isinstance(exports, list):
+        _die(f"--extract-file {value} holds no `exports` list (skf-extract-public-api.py output)")
+    return len({e["name"] for e in exports if isinstance(e, dict) and isinstance(e.get("name"), str) and e["name"]})
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Recommend a scope type: the documented ladder over facts and classified intent signals.",
@@ -447,6 +469,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="a folder laid out like the repository that holds the registry files the tree lists (read as entry_files)",
     )
     parser.add_argument(
+        "--extract-file",
+        help="the extractor's output (skf-extract-public-api.py): its distinct export names are counted as export_count",
+    )
+    parser.add_argument(
         "--registry-files",
         action="store_true",
         help="print the registry files the --tree-file listing holds, one path per line, and exit",
@@ -455,7 +481,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     if args.registry_files:
         if args.tree_file is None:
             _die("--registry-files lists the registry files of --tree-file, so pass it")
-        if args.json is not None or args.entry_dir is not None:
+        if args.json is not None or args.entry_dir is not None or args.extract_file is not None:
             _die("--registry-files reads only --tree-file")
     elif args.tree_file == "-" and args.json is None:
         _die("--tree-file - reads the tree from stdin, so pass the payload with --json")
@@ -483,6 +509,10 @@ def _read_payload(args: argparse.Namespace) -> dict:
         if "entry_files" in payload:
             _die("pass the registry contents once: as entry_files in the payload or with --entry-dir, not both")
         payload["entry_files"] = _read_entry_dir(args.entry_dir, payload.get("tree"))
+    if args.extract_file is not None:
+        if "export_count" in payload:
+            _die("pass the export count once: as export_count in the payload or with --extract-file, not both")
+        payload["export_count"] = _read_export_count(args.extract_file)
     return payload
 
 

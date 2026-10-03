@@ -447,17 +447,28 @@ def test_the_documented_detection_reads_step_twos_github_listing(tmp_path):
                "tree": ["src/registry/registry.ts", "src/button.tsx", "src/stories/button.stories.tsx",
                         "examples/basic.tsx"]}
     (run_dir / "tree.json").write_bytes((json.dumps(listing) + "\n").encode("utf-8"))
+    # skf-github-fetch.py itself, its raw read served from the fixture and no gh, as on a machine without it
+    shim = tmp_path / "fetch-shim.py"
+    shim.write_bytes((
+        "import importlib.util, sys\nfrom pathlib import Path\n"
+        f"spec = importlib.util.spec_from_file_location('fetch', {str(SCRIPTS / 'skf-github-fetch.py')!r})\n"
+        "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
+        f"mod._raw = lambda o, r, ref, path: (Path({str(registry / 'registry.ts')!r}).read_bytes(), '')\n"
+        "mod._gh_raw = lambda *a: (None, 'gh is not installed')\n"
+        "raise SystemExit(mod.main(sys.argv[1:]))\n").encode("utf-8"))
     block = (_detection_block().replace("uv run {detectRegistryHelper}", f'"{sys.executable}" "{DETECT_REGISTRY}"')
+             .replace("uv run {githubFetchHelper}", f'"{sys.executable}" "{shim.as_posix()}"')
              .replace("<source folder>", "{run_dir}/files").replace("{run_dir}", run_dir.as_posix())
              .replace("{owner}/{repo}", "o/r").replace("{analysis_ref}", "main"))
     assert not re.findall(r"\{[A-Za-z_]+\}", block), "every placeholder of the block is filled"
-    fake_gh = f'gh() {{ cat "{(registry / "registry.ts").as_posix()}"; }}\n'
-    proc = subprocess.run([BASH, "-c", fake_gh + block], capture_output=True, text=True, encoding="utf-8",
+    proc = subprocess.run([BASH, "-c", block], capture_output=True, text=True, encoding="utf-8",
                           timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     decoder = json.JSONDecoder()
     demo, end = decoder.raw_decode(proc.stdout)
+    fetched, end = decoder.raw_decode(proc.stdout, end + len(proc.stdout[end:]) - len(proc.stdout[end:].lstrip()))
     found, _ = decoder.raw_decode(proc.stdout[end:].lstrip())
+    assert (fetched["status"], fetched["fetched"]) == ("ok", ["src/registry/registry.ts"])
     assert {p["pattern"] for p in demo["patterns"]} == {"**/stories/**", "**/examples/**", "**/*.stories.*"}
     assert found["selected"] == "src/registry/registry.ts" and found["headless_accept"] is True
     assert (run_dir / "files" / "src" / "registry" / "registry.ts").is_file()

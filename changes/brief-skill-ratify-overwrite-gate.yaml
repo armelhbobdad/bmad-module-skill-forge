@@ -1,0 +1,6 @@
+type: breaking
+scope: skf-brief-skill
+summary: |
+  A ratified brief is written to `forge-data/<name>/skill-brief.yaml`, and the overwrite question is now skipped only when that is the file the run ratified. When the brief came from another path (such as `briefs/skill-brief.yaml`) or was renamed at the confirmation step, and another brief already sits at that path, an interactive run now asks before replacing it, and a headless `from_brief` run stops with exit code `5` (`overwrite-cancelled`) unless `force` is passed, as the invocation contract's rule that existing briefs are kept unless `force` says. Before, the existing brief was replaced without a question, while the docs promised that the ratified file was rewritten in place.
+migration: |
+  To let a headless `from_brief` run replace a brief that already sits at `forge-data/<name>/skill-brief.yaml`, pass `force`; to keep that brief, ratify it from its own path or give the ratified brief another name at the confirmation step.

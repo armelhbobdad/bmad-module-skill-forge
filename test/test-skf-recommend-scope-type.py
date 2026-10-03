@@ -7,9 +7,10 @@ recommendation. It reads no free text. Tests build payloads inline and
 call recommend() directly, plus subprocess cases for the CLI and its
 --tree-file, --registry-files and --entry-dir inputs, and checks that the
 call scope-definition.md documents works: its payload is one the script
-accepts, and its bash block, run with a fake gh on the file list step 2
-staged in the run folder, reads the registry file and exits with the
-script's status.
+accepts, and its bash block, run on the file list step 2 staged in the run
+folder with skf-github-fetch.py reading from a local folder, fetches and
+reads the registry file, counts step 2's exports from its --extract-file
+and exits with the script's status.
 """
 
 from __future__ import annotations
@@ -631,6 +632,7 @@ def test_registry_files_refuses_a_failed_listing(tmp_path):
         pytest.param([], id="no-tree-file"),
         pytest.param(["--json", "{}"], id="with-payload"),
         pytest.param(["--entry-dir", "."], id="with-entry-dir"),
+        pytest.param(["--extract-file", "extract.json"], id="with-extract-file"),
     ],
 )
 def test_registry_files_reads_only_the_tree_file(tmp_path, extra):
@@ -685,6 +687,70 @@ def test_registry_contents_given_twice_dies(tmp_path):
     proc = run_cli("--tree-file", str(_tree_file(tmp_path, LISTING)), "--entry-dir", str(tmp_path), stdin=body)
     assert proc.returncode == 2
     assert "pass the registry contents once" in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# --extract-file: the export count read from the extractor's output (gate run 2
+# determinism-1), so no caller counts the exports by hand
+# --------------------------------------------------------------------------
+
+
+def _extract_file(tmp_path: Path, data: object) -> Path:
+    path = tmp_path / "extract.json"
+    path.write_bytes(json.dumps(data).encode("utf-8"))
+    return path
+
+
+def _exports(*names: str) -> dict:
+    return {"package_name": "demo", "exports": [{"name": n, "type": "function", "source_file": "src/a.ts"}
+                                                for n in names]}
+
+
+def test_extract_file_counts_the_distinct_export_names(tmp_path):
+    data = _exports("a", "b", "a", "")
+    data["exports"].append("not-an-object")
+    body = json.dumps({"signals": signals(wants_narrow_api=True), "module_count": 1, "mode": "interactive"})
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, "src/a.ts\n")),
+                   "--extract-file", str(_extract_file(tmp_path, data)), stdin=body)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["scope_type"], out["signals"]) == ("public-api", {"wants_narrow_api": True, "export_count": 2})
+
+
+def test_extract_file_with_a_large_surface_gives_no_narrow_recommendation(tmp_path):
+    body = json.dumps({"signals": signals(wants_narrow_api=True), "mode": "headless"})
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, "src/a.ts\n")),
+                   "--extract-file", str(_extract_file(tmp_path, _exports(*[f"e{i}" for i in range(9)]))), stdin=body)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["scope_type"], out["signals"]["export_count"]) == ("full-library", 9)
+
+
+def test_export_count_given_twice_dies(tmp_path):
+    body = json.dumps({"signals": NO_SIGNALS, "export_count": 3})
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, "src/a.ts\n")),
+                   "--extract-file", str(_extract_file(tmp_path, _exports("a"))), stdin=body)
+    assert proc.returncode == 2
+    assert "pass the export count once" in proc.stderr
+
+
+@pytest.mark.parametrize(
+    "content,message",
+    [
+        pytest.param(None, "cannot read --extract-file", id="missing"),
+        pytest.param(b"{not json", "is not valid JSON", id="invalid-json"),
+        pytest.param(b'{"package_name": "demo"}', "holds no `exports` list", id="no-exports"),
+        pytest.param(b"[]", "holds no `exports` list", id="a-list"),
+    ],
+)
+def test_unusable_extract_file_dies(tmp_path, content, message):
+    extract = tmp_path / "extract.json"
+    if content is not None:
+        extract.write_bytes(content)
+    proc = run_cli("--tree-file", str(_tree_file(tmp_path, "src/a.ts\n")), "--extract-file", str(extract),
+                   stdin=json.dumps({"signals": NO_SIGNALS}))
+    assert proc.returncode == 2
+    assert message in proc.stderr
 
 
 # --------------------------------------------------------------------------
@@ -783,30 +849,54 @@ def test_documented_calls_pass_the_tree_and_registry_files_by_file_and_no_free_t
         assert mod.recommend(body)["scope_type"] == "docs-only"
 
 
+def _fetch_shim(tmp_path: Path, served: Path) -> str:
+    """The command that stands in for `uv run {githubFetchHelper}`: skf-github-fetch.py itself, its raw read
+    served from `served` (o/r at main, laid out like the repository) and no gh."""
+    shim = tmp_path / "fetch-shim.py"
+    fetch = REPO / "src" / "shared" / "scripts" / "skf-github-fetch.py"
+    shim.write_bytes((
+        "import importlib.util, sys\nfrom pathlib import Path\n"
+        f"spec = importlib.util.spec_from_file_location('fetch', {str(fetch)!r})\n"
+        "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
+        f"served = Path({str(served)!r})\n"
+        "def _raw(owner, repo, ref, path):\n"
+        "    file = served.joinpath(*path.split('/'))\n"
+        "    if (owner, repo, ref) == ('o', 'r', 'main') and file.is_file():\n"
+        "        return file.read_bytes(), ''\n"
+        "    return None, 'HTTP 404'\n"
+        "mod._raw = _raw\nmod._gh_raw = lambda *a: (None, 'gh is not installed')\n"
+        "raise SystemExit(mod.main(sys.argv[1:]))\n").encode("utf-8"))
+    return f'"{sys.executable}" "{shim.as_posix()}"'
+
+
 def _run_documented_block(tmp_path: Path, listing: str) -> subprocess.CompletedProcess:
-    """Run the GitHub block on step 2's staged listing, with a fake gh that serves a registry."""
+    """Run the GitHub block on step 2's staged listing and exports, the fetch serving a registry file."""
     block = _documented_block()
     heredoc = HEREDOC_RE.search(block)
     block = block[:heredoc.start("body")] + _fill(heredoc.group("body")) + block[heredoc.end("body"):]
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "tree.json").write_bytes(listing.encode("utf-8"))
+    (run_dir / "extract.json").write_bytes(json.dumps(
+        {"exports": [{"name": n, "type": "function", "source_file": "src/index.ts"} for n in "abc"]}).encode("utf-8"))
+    served = _entry_dir(tmp_path, {REGISTRY: "export const registry: Component[] = [];\n"})
     block = block.replace("uv run {recommendScopeTypeHelper}", f'"{sys.executable}" "{SCRIPT_PATH}"')
+    block = block.replace("uv run {githubFetchHelper}", _fetch_shim(tmp_path, served))
     block = block.replace("{run_dir}", run_dir.as_posix())
     block = block.replace("{owner}/{repo}", "o/r").replace("{analysis_ref}", "main")
     assert "{recommendScopeTypeHelper}" not in block and "{githubProbeHelper}" not in block
     assert not re.findall(r"\{[A-Za-z_]+\}", block), "every placeholder of the block is filled"
-    fake_gh = "gh() { printf '%s\\n' 'export const registry: Component[] = [];'; }\n"
-    return subprocess.run([BASH, "-c", fake_gh + block], capture_output=True, text=True, encoding="utf-8",
+    return subprocess.run([BASH, "-c", block], capture_output=True, text=True, encoding="utf-8",
                           timeout=60, check=False)
 
 
 def test_documented_block_reads_the_staged_listing_and_lists_nothing_itself():
     """Step 2 staged the file list in the run folder: the block reads it there and never lists the repository again."""
     block = _documented_block()
-    assert "{githubProbeHelper}" not in block and "mktemp" not in block
-    assert block.count('--tree-file "{run_dir}/tree.json"') == 2
-    assert '--entry-dir "{run_dir}/files"' in block
+    assert "{githubProbeHelper}" not in block and "mktemp" not in block and "gh api" not in block
+    assert block.count('--tree-file "{run_dir}/tree.json"') == 3
+    assert '--entry-dir "{run_dir}/files" --extract-file "{run_dir}/extract.json"' in block, "step 2 always wrote it"
+    assert '"export_count"' not in block, "step 3 never types the export count"
     text = SCOPE_DEFINITION.read_text(encoding="utf-8")
     assert "githubProbeProbeOrder" not in text
     [local] = [line for line in text.splitlines() if line.startswith("- **A local source, or step 2's clone.**")]
@@ -818,7 +908,8 @@ def test_documented_block_reads_the_fetched_registry_file(tmp_path):
     listing = json.dumps({"status": "ok", "repo": "o/r", "ref": "main", "tree": ["README.md", REGISTRY]})
     proc = _run_documented_block(tmp_path, listing)
     assert proc.returncode == 0, proc.stderr
-    out = json.loads(proc.stdout)
+    fetched, out = (json.loads(line) for line in proc.stdout.strip().splitlines())
+    assert (fetched["status"], fetched["fetched"]) == ("ok", [REGISTRY])
     assert out["scope_type"] == "component-library"
     assert out["signals"]["registry_path"] == REGISTRY
     assert out["signals"]["contents_inspected"] is True

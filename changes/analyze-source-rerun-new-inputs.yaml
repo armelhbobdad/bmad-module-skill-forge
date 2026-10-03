@@ -1,0 +1,4 @@
+type: changed
+scope: skf-analyze-source
+summary: |
+  Running Analyze Source again on the same target with a different `--target-ref`, `--target-refs`, `--scope-hint` or `--intent-hint` now archives the unfinished report in `forge_data_folder` and starts a fresh analysis with the new values, and a headless run names the archived report in its envelope's `warnings`. Before, the run resumed the unfinished report with its old values, so a mistyped ref halted every re-run until the report was renamed by hand. A re-run that passes none of these flags, or the same values, still resumes.

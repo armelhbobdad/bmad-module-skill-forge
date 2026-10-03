@@ -24,6 +24,10 @@ fixtures:
   continue.md keeps no unreachable "already complete" branch, the fallback
   to the interactive chain resets `mode`, the per-boundary brief rules are
   stated once, and every warning a step raises goes to the run sink.
+- Step 5b gate run 2: an unfinished report resumes only when the re-run's
+  ref and hint flags match it, an [auto] report carries the skill and brief
+  inventory its fallback reads, and map-and-detect and [D] read the import
+  graph through skf-count-imports.py summary, never the whole envelope.
 """
 
 from __future__ import annotations
@@ -751,12 +755,127 @@ def test_only_compiled_skills_count_as_already_skilled():
     assert "status `briefed`" in _read(IDENTIFY)
 
 
+def test_the_auto_report_carries_the_inventory_its_fallback_reads():
+    """An [auto] run whose shape detection exits 1 goes on as a step-by-step analysis, which drops the
+    already-skilled units and marks the briefed ones from these two keys (gate run 2 architecture-1)."""
+    text = _read(INIT)
+    auto = _section(text, "### 2b. Auto Mode Check", "### 3. Opening Question")
+    fresh = _section(text, "### 6. Create Analysis Report", "### 7.")
+    assert "existing_skills: []" not in auto
+    assert "First build `existing_skills` and `existing_briefs` as section 5 does" in auto
+    for key in ("existing_skills:", "existing_briefs:"):
+        [line] = [line.strip() for line in auto.splitlines() if line.strip().startswith(key)]
+        assert f"\n{line}\n" in "\n".join(row.strip() for row in fresh.splitlines()) + "\n", key
+    for reader in (IDENTIFY, DISCOVER):
+        assert "`existing_skills`" in _read(reader) and "`existing_briefs`" in _read(reader), reader.name
+
+
+def test_an_unfinished_report_resumes_only_when_the_inputs_match(tmp_path):
+    """A re-run with another ref or hint archives the unfinished report instead of resuming its old values
+    (gate run 2 enhancement-1), and a headless run records why in its envelope's warnings."""
+    section = _section(_read(INIT), "### 1. Check for Existing Report", "### 2. Verify Prerequisites")
+    same = _section(section, "   - **Same target:**", "   - **Different target (stale collision):**")
+    for flag in ("`--target-ref`", "`--target-refs`", "`--scope-hint`", "`--intent-hint`"):
+        assert flag in same, flag
+    assert "A flag the invocation does not pass changes nothing." in same
+    assert same.index("**The inputs match:**") < same.index("{continueFile}") < same.index("**An input differs:**")
+    assert '"**The inputs changed: archived as <name>; starting a fresh analysis.**"' in same
+    assert "changed inputs" in section[section.index("**To archive a report**"):]
+    [record] = re.findall(r"`(uv run \{emitEnvelopeHelper\} record [^`]*)`", same)
+    run_dir = _run_dir(tmp_path)
+    name = "/fd/analyze-source-report-p-20261003-101500.md"
+    values = {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)}
+    proc = _run(record.replace("<name>", name), values)
+    assert proc.returncode == 0, proc.stderr
+    (run_dir / "halt.json").write_bytes(json.dumps(
+        {"phase": "scan-project:2", "reason": "x", "halt_reason": "resolution-failure"}).encode("utf-8"))
+    envelope = _envelope(_run(HALT_COMMAND, values).stderr)
+    assert envelope["warnings"] == [f"inputs changed: the unfinished report was archived as {name}"]
+
+
 def test_the_per_boundary_brief_rules_are_stated_once():
     text = _read(AUTO) + _read(SPLIT)
     assert text.count("Decomposed from {project_name}") == 1
     assert "This is the one statement of what each boundary's brief holds" in _read(SPLIT)
     assert "**When decomposition is active (N > 1 units):**" not in text
     assert "share the same `version`, `source_repo`, `language`" not in text
+
+
+# --------------------------------------------------------------------------
+# The import graph reaches the step as a summary (gate run 2 determinism-1)
+# --------------------------------------------------------------------------
+
+GRAPH_STEPS = (
+    pytest.param(MAP, "{source_root}", "<one entry per qualifying unit under {source_root}>", "imports-1.json",
+                 id="map-and-detect"),
+    pytest.param(DISCOVER, "{scan_root}", "<one entry per new unit that is not deferred>", "discover-1-imports.json",
+                 id="discover-additional-source"),
+)
+
+
+def _graph_block(path: Path) -> str:
+    [block] = [b for b in _fenced(_read(path), "bash") if "{countImportsHelper} summary" in b]
+    return block
+
+
+@pytest.mark.parametrize("path, root, units, imports", GRAPH_STEPS)
+def test_the_import_graph_is_read_through_the_summary(path, root, units, imports):
+    """The import envelope is kept in the run folder, never printed whole: the step reads the summary line."""
+    block = _graph_block(path)
+    for gone in ("mktemp", "trap ", "$work", "cat \""):
+        assert gone not in block, gone
+    [summary] = [line for line in block.split("\n") if "{countImportsHelper} summary" in line]
+    assert summary == (f'uv run {{countImportsHelper}} summary "{{run_dir}}/{imports.replace("1", "{i}", 1)}" '
+                       '--manifests "{run_dir}/manifests-{i}.json"')
+    for line in block.strip().split("\n"):
+        if line.startswith("uv run {countImportsHelper} count"):
+            assert f'count "{root}"' in line and " > " in line, line
+    text = _read(path)
+    assert "`external_dep_count`" in text and "`external_deps`" not in text
+    assert "`umbrella_candidates[]`" in text
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+@pytest.mark.parametrize("path, root, units, imports", GRAPH_STEPS)
+def test_the_documented_graph_block_prints_only_the_summary(tmp_path, path, root, units, imports):
+    """The block, run as documented on two packages that import each other: the summary line, the cycle and
+    the pairs reach the step, and the import envelope stays in its file."""
+    source = tmp_path / "mono"
+    files = {
+        "package.json": b'{"name": "acme", "private": true, "workspaces": ["packages/*"]}\n',
+        "packages/a/package.json": b'{"name": "@acme/a", "dependencies": {"@acme/b": "*", "zod": "3"}}\n',
+        "packages/b/package.json": b'{"name": "@acme/b", "dependencies": {"@acme/a": "*"}}\n',
+        "packages/a/src/index.ts": b"import { b } from '@acme/b';\nimport { z } from 'zod';\n",
+        "packages/b/src/index.ts": b"import { a } from '@acme/a';\n",
+    }
+    for rel, data in files.items():
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_bytes(data)
+    run_dir = _run_dir(tmp_path)
+    scan = subprocess.run([sys.executable, str(SCRIPTS / "skf-scan-manifests.py"), "scan", str(source)],
+                          capture_output=True, timeout=60)
+    assert scan.returncode == 0, scan.stderr
+    (run_dir / "manifests-1.json").write_bytes(scan.stdout)
+    entries = [{"name": name, "path": f"packages/{name}", "manifest_name": f"@acme/{name}", "ecosystem": "npm"}
+               for name in ("a", "b")]
+    script = _graph_block(path).replace(f"[{units}]", json.dumps(entries)).replace(root, source.as_posix())
+    helpers = {"countImportsHelper": "skf-count-imports.py", "findCyclesHelper": "skf-find-cycles.py",
+               "pairIntersectHelper": "skf-pair-intersect.py"}
+    for placeholder, name in helpers.items():
+        script = script.replace(f"uv run {{{placeholder}}}", f'"{sys.executable}" "{SCRIPTS / name}"')
+    script = script.replace("{run_dir}", run_dir.as_posix()).replace("{i}", "1")
+    assert not re.findall(r"\{[A-Za-z_]+\}", script), script
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout.decode("utf-8")
+    [line] = [row for row in out.splitlines() if row.startswith('{"units"')]
+    summary = json.loads(line)
+    assert [(u["name"], u["imports_from"], u["external_dep_count"]) for u in summary["units"]] == \
+        [("a", ["b"], 1), ("b", ["a"], 0)]
+    assert {m["name"]: m["internal_deps"] for m in summary["manifests"]}["@acme/a"] == ["@acme/b"]
+    assert '"dependencies"' not in out and '"import_names"' not in out, "the envelope stays in its file"
+    assert '"cycles"' in out and '"pairs"' in out
+    assert "dependencies" in json.loads((run_dir / imports).read_text(encoding="utf-8"))
 
 
 # --------------------------------------------------------------------------

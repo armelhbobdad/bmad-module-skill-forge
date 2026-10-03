@@ -9,6 +9,9 @@ extractPublicApiProbeOrder:
 detectRegistryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'
   - '{project-root}/src/shared/scripts/skf-detect-registry.py'
+githubFetchProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-github-fetch.py'
+  - '{project-root}/src/shared/scripts/skf-github-fetch.py'
 analyzeStepFile: 'analyze-target.md'
 draftCheckpointFile: 'references/draft-checkpoint.md'
 ---
@@ -23,7 +26,7 @@ draftCheckpointFile: 'references/draft-checkpoint.md'
 - Produce: scope type, include patterns, exclude patterns
 - **Headless (`{headless_mode}` is true):** no section prompts. Each section's **Headless** line says what it takes instead, from the arguments step 1's input gate validated, so a headless run never waits here.
 - **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state; the three component-library fields are dropped only when this pass changes `scope.type` away from `component-library`. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules: revise in place, do not append.
-- **Staged inputs.** Step 2 staged the repository in the run folder: its file list at `{run_dir}/tree.json` and the files it fetched under `{run_dir}/files/`. §2c and §3c read them there.
+- **Staged inputs.** Step 2 staged the repository in the run folder: its file list at `{run_dir}/tree.json`, the files it fetched under `{run_dir}/files/` and its exports in `{run_dir}/extract.json`. §2c and §3c read them there, and a GitHub file not fetched yet is fetched beside them with `{githubFetchHelper}`, resolved from `{githubFetchProbeOrder}` (first existing path wins; HALT if no candidate exists), as step 2 §1 describes.
 - **Resumed draft:** a run that resumed a draft at step 4 (draft-checkpoint.md Half 1) and came here through step 4's `[R]` has not run step 2 in this session. When `source_type` is `source` and `{run_dir}/tree.json` does not exist, load, read entire file, then execute {analyzeStepFile} first: it stages the analysis again at `{analysis_ref}` and chains back here.
 - **Ratify run (`ratify_mode: true`):** the hydrated brief's selections are the prior selections of the re-entry rule above, and the intent that §1 shows and §2c classifies is the change the user asked for when choosing [R], read with the hydrated `description`. For a source brief, step 2 has analyzed the brief's repository and §2c runs the recommender on that analysis: its `scope_type` and `matched_heuristic` replace the hydrated `recommended` and `heuristic`, and the §2c capture rules set the rest of `scope.rationale` from this pass (a brief without one gets one).
 
@@ -110,14 +113,12 @@ Load `{scopeTemplatesPath}` for the scope type options ([F], [M], [P], [C], [R])
 
 Judge the meaning, never a word: a negated or contrasted mention sets nothing ("the whole library, not just the parser" names no module; "the client library, not a demo app or starter template" wants no wiring pattern), and a word inside another word is not that word ("Kickstarter-style" says nothing about a starter). A signal the intent does not state stays `false` (or `[]`).
 
-**Run the recommender in one Bash call**; it reads step 2's file list through `--tree-file` and the registry files (`registry.ts`, `components.ts` and their `.tsx` forms) through `--entry-dir`, never a list or a file typed into the payload. For a GitHub source, the loop fetches the registry files the listing holds into `{run_dir}/files` at `{analysis_ref}`:
+**Run the recommender in one Bash call**; it reads step 2's file list through `--tree-file`, the registry files (`registry.ts`, `components.ts` and their `.tsx` forms) through `--entry-dir` and step 2's exports through `--extract-file`, never a list, a count or a file typed into the payload. For a GitHub source, the first two lines fetch the registry files the listing holds into `{run_dir}/files`:
 
 ```bash
-uv run {recommendScopeTypeHelper} --tree-file "{run_dir}/tree.json" --registry-files | while IFS= read -r rel; do
-  mkdir -p "{run_dir}/files/$(dirname "$rel")"
-  gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$rel?ref={analysis_ref}" > "{run_dir}/files/$rel" || rm -f "{run_dir}/files/$rel"
-done
-uv run {recommendScopeTypeHelper} --tree-file "{run_dir}/tree.json" --entry-dir "{run_dir}/files" <<'SKF_SCOPE_PAYLOAD'
+uv run {recommendScopeTypeHelper} --tree-file "{run_dir}/tree.json" --registry-files > "{run_dir}/registry-files.txt"
+uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" --tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" --patterns-file "{run_dir}/registry-files.txt"
+uv run {recommendScopeTypeHelper} --tree-file "{run_dir}/tree.json" --entry-dir "{run_dir}/files" --extract-file "{run_dir}/extract.json" <<'SKF_SCOPE_PAYLOAD'
 {
   "signals": {
     "wants_wiring_pattern": <true|false>,
@@ -125,14 +126,14 @@ uv run {recommendScopeTypeHelper} --tree-file "{run_dir}/tree.json" --entry-dir 
     "wants_narrow_api": <true|false>
   },
   "module_count": <module_count from step 2 §4.3>,
-  "export_count": <the number of exports step 2 §4.3 lists>,
   "source_type": "source",
   "mode": "interactive"
 }
 SKF_SCOPE_PAYLOAD
 ```
 
-- **A local source, or step 2's clone.** For a local path, or `{run_dir}/clone` when step 2 cloned the repository on `[L]`, drop the fetch loop and pass the folder itself, `--entry-dir "{source_path}"`: its registry files are read in place.
+- **A local source, or step 2's clone.** For a local path, or `{run_dir}/clone` when step 2 cloned the repository on `[L]`, drop the first two lines and pass the folder itself, `--entry-dir "{source_path}"`: its registry files are read in place.
+- **`--extract-file`.** The script counts the distinct export names step 2 §4 wrote there: none after §4.2, where the public-api rule does not fire.
 - **`mode`.** `"interactive"` lets a registry file's contents decide the component-registry rule (10+ entries or a `Component[]` annotation), so a file whose contents could not be read does not count; a headless run passes `"headless"` (the §2c GATE), which counts such a file by its presence.
 - **A failed call.** The call prints one JSON object, or exits 2 and names the problem on stderr. For a payload key or signal the script does not accept, fix the payload and run the call again. For a file list it cannot read (the stderr line names the listing's problem), run the call again with `--tree-file "{run_dir}/tree-empty.json"` after `printf '[]' > "{run_dir}/tree-empty.json"`, and log `"warn: scope-type recommendation ran without the file list ({message}); the component-registry check did not run"`, adding it to `workflow_warnings[]`. Interactively, show that warning with the recommendation, so the user can still pick [C].
 
@@ -179,14 +180,12 @@ Using the boundary definitions from `{scopeTemplatesPath}`, present the appropri
   ```
 
   At Quick tier, when the runner exits 1 to 3 or the clone fails, or when it prints no file, take the `full-library` default instead and give the reason in the warn line: `warn: headless boundary default public-api: full-library boundaries ({the reason})`.
-- **Component library detection** (scope type `component-library`, interactive or headless). Resolve `{detectRegistryHelper}` from `{detectRegistryProbeOrder}` (first existing path wins) and, from `{project-root}`, list the demo files and score the registry candidates of step 2's file list. For a GitHub source, the loop fetches the candidates into `{run_dir}/files` at `{analysis_ref}` and `<source folder>` is `{run_dir}/files`; for a local source or step 2's clone, drop the loop and pass `{source_path}`:
+- **Component library detection** (scope type `component-library`, interactive or headless). Resolve `{detectRegistryHelper}` from `{detectRegistryProbeOrder}` (first existing path wins) and, from `{project-root}`, list the demo files and score the registry candidates of step 2's file list. For a GitHub source, the second and third lines fetch the candidates into `{run_dir}/files` and `<source folder>` is `{run_dir}/files`; for a local source or step 2's clone, drop those two lines and pass `{source_path}`:
 
   ```bash
   uv run {detectRegistryHelper} demo --files-from "{run_dir}/tree.json"
-  uv run {detectRegistryHelper} registry --files-from "{run_dir}/tree.json" --candidates-only | while IFS= read -r rel; do
-    mkdir -p "{run_dir}/files/$(dirname "$rel")"
-    gh api -H "Accept: application/vnd.github.raw" "repos/{owner}/{repo}/contents/$rel?ref={analysis_ref}" > "{run_dir}/files/$rel" || rm -f "{run_dir}/files/$rel"
-  done
+  uv run {detectRegistryHelper} registry --files-from "{run_dir}/tree.json" --candidates-only > "{run_dir}/registry-candidates.txt"
+  uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" --tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" --patterns-file "{run_dir}/registry-candidates.txt"
   uv run {detectRegistryHelper} registry --files-from "{run_dir}/tree.json" --source-root "<source folder>"
   ```
 

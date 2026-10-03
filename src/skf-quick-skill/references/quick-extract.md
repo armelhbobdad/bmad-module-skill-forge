@@ -127,10 +127,10 @@ uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-fil
 Run the shared extractor on the files §2 staged. The helper does manifest parse + export scan in one invocation, reads each file from `{run_dir}/src/` by its repo-relative path, and writes a structured envelope ready to feed §4's inventory. No manifest or entry-point file is parsed in the prompt.
 
 ```bash
-uv run {publicApiExtractor} --mode quick --language <lang> --source-root "{run_dir}/src" --tree-file "{run_dir}/tree.json" --manifest-file <manifest path> --entry-file <entry path> [--entry-file <entry path>]... [--follow-file <module path>]... --fetch-list "{run_dir}/follow.txt" > "{run_dir}/extract.json"
+uv run {publicApiExtractor} --mode quick --language <lang> --source-root "{run_dir}/src" --tree-file "{run_dir}/tree.json" --manifest-file <manifest path> --entry-file <entry path> [--entry-file <entry path>]... --follow --repo {owner}/{repo} --ref {source_ref or HEAD} > "{run_dir}/extract.json"
 ```
 
-Where `<lang>` is one of `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`. Pass `{run_dir}/entries.json`'s `manifest` and each of its `entry_files` that §2's fetch `fetched`, by its path in the repository: one `--entry-file` per entry point, and no `--manifest-file` when §2 fetched no manifest. The helper aggregates exports across every entry.
+Where `<lang>` is one of `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`. Pass `{run_dir}/entries.json`'s `manifest` and each of its `entry_files` that §2's fetch `fetched`, by its path in the repository: one `--entry-file` per entry point, and no `--manifest-file` when §2 fetched no manifest. The helper aggregates exports across every entry. `--follow` reads each module an `unlisted[]` record names, fetched into `{run_dir}/src` first, round after round, so an `export *` chain is followed to its end.
 
 **When §2 fetched neither a manifest nor an entry point** (the listing holds no candidate, the language has no row in §2's table, or the fetch read none of them), do not run the extractor: it needs at least one file. Stage the empty envelope instead, so §4 builds an inventory with no exports and §4.5 decides what follows:
 
@@ -151,10 +151,11 @@ The helper writes JSON to `{run_dir}/extract.json` with:
 - `extra`: language-specific extras (e.g. `group_id` for Maven)
 - `warnings[]`: manifest parse failures and scanner errors (advisory only; the envelope is still valid), and each statement whose names the entry file alone cannot give: `export * from`, a star import from the package, an `__all__` built from another module, `pub use x::*`, `module.exports = require(...)`, or an anonymous or conditional export. Each names its file, line and statement.
 - `unlisted[]`: one record per statement that passes on another module's names, `{file, line, statement, specifier, module_file}`: `module_file` is the listed file the statement's module is, null when the listing holds none. A statement whose module the extractor already reads is not listed.
+- `followed[]`: the modules `--follow` read, in the order it read them.
 
 Read `{run_dir}/extract.json` into the extraction context. The shape of the envelope is the same for every language; §4 builds the inventory from it without per-language branching.
 
-**Follow the statements `unlisted[]` names** before §4. The extractor wrote each `module_file` still to read to `{run_dir}/follow.txt`. While that file names a file the fetch has not tried, at most 5 rounds: fetch them with §2's fetch call, `--patterns-file "{run_dir}/follow.txt"` in place of `entries.txt`, and run the extractor again with each file it `fetched` as one more `--follow-file`, writing over `{run_dir}/extract.json` and `{run_dir}/follow.txt`. Each round reads the modules the last one named, so an `export *` chain is followed to its end. Read by eye only the `unlisted[]` records left whose `module_file` is null or could not be fetched: list the names each adds, from the README's API section or the module's documentation, and stage them through a quoted heredoc as `{run_dir}/extract-added.json`, `{"exports": [{"name": "<name>", "type": "re-export", "source_file": "<the record's file>"}]}`, which step 4 §4 passes with the other extraction files. Leave the other warnings for §5.
+**Read the statements `unlisted[]` still names** before §4. `--follow` read every module it could, so read by eye only the `unlisted[]` records left, whose `module_file` is null or could not be read (a warning says why): list the names each adds, from the README's API section or the module's documentation, and stage them through a quoted heredoc as `{run_dir}/extract-added.json`, `{"exports": [{"name": "<name>", "type": "re-export", "source_file": "<the record's file>"}]}`, which step 4 §4 passes with the other extraction files. Leave the other warnings for §5.
 
 **Multi-module loop:** when `modules[]` is non-empty, fetch every sub-module's manifest in one §2 call, each under its `module_folders[]` entry. Then, per module, run §2's entries call with `--scope "<its module_folders[] entry>"`, its list and output written to `{run_dir}/entries-module-<n>.txt` and `{run_dir}/entries-module-<n>.json`, fetch the files it lists, and run the helper (§3) on them, writing each to `{run_dir}/extract-module-<n>.json`, `<n>` counting from 1 in `modules[]` order (a module is a path such as `modules/core` or a Gradle name such as `core:api`, so it never names the file). Step 4 §4 passes `{run_dir}/extract.json` (the parent manifest, which names the `package_name`) first and then each module's file in that order, and the renderer aggregates `exports[]` and `dependencies[]` across them.
 
@@ -224,7 +225,7 @@ Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) ·
 {If `repo_shape` was recorded, add:} - **Repo shape:** {repo_shape} (for `skills-module`: {skill count} skills and {menu code count} menu codes in `{skills_root}`)
 - **Exports found:** {count}
 - **Confidence:** {confidence}
-- **Source files read:** {count} (the files §1 to §3 fetched; name each one the fetch could not read)
+- **Source files read:** {count} (the files §1 and §2 fetched and the extraction's `followed`; name each one that could not be read)
 {If the fetch output's `truncated` was true, add:} - **Listing:** truncated by GitHub (a very large tree), so a file a glob names may have been missed
 {If `{run_dir}/entries.json` lists `unresolved` entries, add:} - **Entry points not found:** {each one's `package` and `subpath`, with the `targets` tried}
 

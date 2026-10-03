@@ -9,7 +9,7 @@ validateBriefSchemaProbeOrder:
 
 # Step 1: Ratify an Existing Brief
 
-A pre-authored `skill-brief.yaml` (typically from `skf-analyze-source`) is reviewed and rewritten in place instead of derived again. Step 1 loads this file with the brief's path in two ways: interactively, when the §3.1 target is a brief or a folder holding one (§3.1a), and headlessly, when the input gate in `references/headless-args.md` finds a `from_brief` argument. Steps 2 and 3 do not run: they would derive again what the brief already holds. The run goes on at step 4, which reviews the brief, and step 5 writes it in place. `references/invocation-contract.md` states the ratify contract.
+A pre-authored `skill-brief.yaml` (typically from `skf-analyze-source`) is reviewed and written to `{forge_data_folder}/{brief.name}/skill-brief.yaml` (in place when it already lives there) instead of derived again. Step 1 loads this file with the brief's path in two ways: interactively, when the §3.1 target is a brief or a folder holding one (§3.1a), and headlessly, when the input gate in `references/headless-args.md` finds a `from_brief` argument. Steps 2 and 3 do not run: they would derive again what the brief already holds. The run goes on at step 4, which reviews the brief, and step 5 writes it there. `references/invocation-contract.md` states the ratify contract.
 
 ## 1. Validate the Brief
 
@@ -40,7 +40,7 @@ It returns `{valid, errors[], warnings[], halt_reason, brief}`:
 - **Scope:** {brief.scope.type}
 
 Pick one:
-  [R] Ratify: review in step 4 and write (overwriting this file once approved)
+  [R] Ratify: review in step 4 and write it to {forge_data_folder}/{brief.name}/skill-brief.yaml once approved
   [F] Start fresh: discard this brief and re-prompt for a target
   [X] Cancel and exit
 ```
@@ -65,4 +65,4 @@ Store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in wor
 - `scope.registry_path` / `scope.ui_variants` / `scope.demo_patterns` ← `brief.scope.*` (a component library's registry file, design system variants and demo globs; skf-create-skill writes the registry file and the demo globs back once the user confirms them: preserve all three verbatim)
 - `scripts_intent` ← `brief.scripts_intent`; `assets_intent` ← `brief.assets_intent`
 
-Then load, read entirely, and execute `{ratifyTargetFile}` (step 4). Under headless it confirms with `[C]`, and step 5 overwrites the brief in place with no `force` needed.
+Then load, read entirely, and execute `{ratifyTargetFile}` (step 4). Under headless it confirms with `[C]`, and step 5 writes the brief: no `force` needed when it already lives at that path; otherwise `force` applies as on the derive route (step 5 §2b).
