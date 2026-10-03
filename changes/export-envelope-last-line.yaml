@@ -2,3 +2,4 @@ type: changed
 scope: skf-export-skill
 summary: |
   A headless Export Skill run, a `--dry-run` included, now ends on its `SKF_EXPORT_RESULT_JSON` line: the run hands the line to the shared health check, which displays it after everything else, so `claude -p` prints the envelope as the final message instead of the health check's closing `Workflow complete.` line. Interactive runs are unchanged, and a halt still ends on its own line.
+prs: [662]
