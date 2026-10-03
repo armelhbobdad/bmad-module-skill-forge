@@ -37,7 +37,7 @@ These rules apply to every step in this workflow:
 |---|------|------|--------------|-----------|
 | 1 | Initialize | references/init.md | Yes | Always |
 | 1a | Auto-Scope | references/step-auto-scope.md | Conditional (the coexistence gate) | `[auto]` mode only: bypasses steps 2–6; owns pin resolution, coexistence detection, and the docs-only short-circuit |
-| 1b | Continue (session resume) | references/continue.md | Yes | An unfinished report of the same target (init section 1) |
+| 1b | Continue (session resume) | references/continue.md | Yes | An unfinished report of the same target and inputs (init section 1) |
 | 2 | Scan Project | references/scan-project.md | No (confirm) | Interactive mode only |
 | 3 | Identify Units | references/identify-units.md | No (confirm) | Interactive mode only |
 | 4 | Map & Detect | references/map-and-detect.md | No (confirm) | Interactive mode only |

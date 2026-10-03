@@ -12,9 +12,11 @@ Three modes:
                  declared dependencies and (for Maven/Gradle) sub-modules.
                  The files come as a JSON payload on stdin, or by path with
                  --manifest-file and --entry-file, which the script reads
-                 from disk (the caller stages them first: gh api raw fetches
-                 into a folder, or a local checkout), so a file's text never
-                 passes through the model or a shell string. Multi-module
+                 from disk (the caller stages them first: skf-github-fetch.py
+                 raw fetches into a folder, or a local checkout), so a file's
+                 text never passes through the model or a shell string.
+                 --follow also reads the modules an `export *` chain passes
+                 names on from, fetching them first with --repo. Multi-module
                  monorepos are caller-orchestrated: invoke once per module,
                  aggregate.
   --mode full    The ast-grep recipe runner (skf-create-skill and the
@@ -44,11 +46,12 @@ is preferred):
   swift                             Package.swift    Sources/<target>/*.swift
 
 Top-level exports only, read from the entry files. Quick mode reads no other
-file, so a name an entry file passes on from another module without naming
-it is not an export here: a warning names each such statement, and an
-`unlisted[]` record gives its file, line, statement, specifier and
-`module_file`, so the caller can pass that module as a --follow-file (a
-module_file) or read it by eye (none). A warning also names
+file (--follow aside, below), so a name an entry file passes on from another
+module without naming it is not an export here: a warning names each such
+statement, and an `unlisted[]` record gives its file, line, statement,
+specifier and `module_file`, so the caller can pass that module as a
+--follow-file, or have --follow read it (a module_file), or read it by eye
+(none). A warning also names
 each statement below whose names the file holds in a form quick mode does
 not read (an anonymous default export, a destructuring declaration, an
 assignment inside a block).
@@ -117,10 +120,23 @@ or the files, read from disk (stdin is then never read):
   --mode quick --language <language> [--source-root <dir>]
       [--manifest-file <path>] [--entry-file <path>]...
       [--follow-file <path>]... [--tree-file <listing>] [--fetch-list <file>]
+      [--follow [--repo <owner/repo> [--ref <ref>]]]
 
 An entry with `followed` true (a --follow-file) is a module an `unlisted[]`
 record named, read as an entry is, less a JS/TS `export default`, which
 `export *` does not pass on.
+
+--follow (with --tree-file and --source-root) reads those modules itself,
+so no caller loops over the files: while `unlisted[]` names a module_file
+not tried yet, at most 5 rounds, each one is read as one more --follow-file
+and the files are parsed again, so an `export *` chain is read to its end.
+With --repo, each is first fetched into --source-root at --ref (HEAD by
+default) by skf-github-fetch.py, which reads it from
+raw.githubusercontent.com and through gh only for a private repository;
+without it, each is read where --source-root holds it (a local checkout).
+A module that cannot be fetched or read stays in `unlisted[]`, and a
+warning names it and why. The output then also lists `followed`, the
+modules read this way, in the order they were read.
 
 Each path is relative to --source-root, the folder the files were staged in
 laid out like the repository (or a local checkout), else to the current
@@ -149,7 +165,8 @@ Output JSON shape (stdout):
     "extra":        {"group_id": "com.example"}, (Maven only)
     "warnings":     ["..."],                       (parse failures, fallbacks)
     "unlisted":     [{"file", "line", "statement", "specifier",
-                      "module_file"}, ...]
+                      "module_file"}, ...],
+    "followed":     ["src/core.ts", ...]               (--follow only)
   }
 
 `unlisted` holds one record per statement whose names come from a module
@@ -164,9 +181,9 @@ listing does not hold. A statement whose module_file is already an entry
 file is left out, with its warning: its names are read. --fetch-list
 writes each module_file still to read, one per line, so a caller fetches
 them, passes them as more --follow-file and runs again until the list is
-empty. `module_folders` gives each of `modules` as a folder of the
-repository: the manifest's folder joined with the module (a Gradle
-`core:api` read as `core/api`).
+empty, which --follow does itself. `module_folders` gives each of
+`modules` as a folder of the repository: the manifest's folder joined with
+the module (a Gradle `core:api` read as `core/api`).
 
 Exit codes (quick):
 
@@ -175,8 +192,11 @@ Exit codes (quick):
   2    input error: stdin, argparse or JSON-decode error, --language missing
        or given twice with the file inputs, a --manifest-file, --entry-file
        or --follow-file that cannot be read or leads outside --source-root,
-       or a --tree-file that cannot be read or a --fetch-list that cannot be
-       written
+       a --tree-file that cannot be read or a --fetch-list that cannot be
+       written, --follow without --tree-file and --source-root, --repo or
+       --ref without --follow (--ref without --repo), or a --repo or --ref
+       skf-github-fetch.py does not accept. A module --follow could not
+       read changes no exit code.
 
 Entries mode
 ------------
@@ -4274,6 +4294,15 @@ def _build_parser() -> argparse.ArgumentParser:
     quick.add_argument("--follow-file", action="append", metavar="PATH",
                        help="a module an unlisted[] record named (a --fetch-list path), read as an entry less "
                             "its JS/TS default export, which `export *` does not pass on; repeatable")
+    quick.add_argument("--follow", action="store_true",
+                       help=f"read each module an unlisted[] record names as one more --follow-file, round "
+                            f"after round (at most {FOLLOW_ROUNDS}), until none is left; needs --tree-file and "
+                            f"--source-root")
+    quick.add_argument("--repo", metavar="OWNER/REPO",
+                       help="with --follow: fetch each module from this GitHub repository into --source-root "
+                            "first (skf-github-fetch.py)")
+    quick.add_argument("--ref", metavar="REF",
+                       help="with --repo: the branch, tag or commit to fetch at (default: the default branch)")
     listing = parser.add_argument_group("entries mode, and the listing quick mode follows chains in")
     listing.add_argument("--tree-file", metavar="PATH",
                          help="the repository's file listing (skf-github-probe.py tree output, JSON, or one "
@@ -4319,6 +4348,9 @@ FULL_MODE_FLAGS = ("source_root", "brief", "include", "exclude", "tier_a_include
 QUICK_FILE_FLAGS = ("source_root", "language")
 # The flags of entries mode; quick mode takes --tree-file and --fetch-list with its file inputs.
 LISTING_FLAGS = ("tree_file", "scope", "fetch_list")
+# Quick mode's own flags with its file inputs: the chains it follows itself.
+FOLLOW_FLAGS = ("follow", "repo", "ref")
+FOLLOW_ROUNDS = 5
 
 
 class QuickInputError(Exception):
@@ -4387,6 +4419,66 @@ def _quick_files_payload(args: argparse.Namespace) -> dict:
     return payload
 
 
+def _follow_reader(args: argparse.Namespace):
+    """--follow's reader: paths -> (those now under --source-root, {path:
+    why not} for the rest), each fetched there first with --repo. Raises
+    QuickInputError."""
+    root = Path(args.source_root)
+    if args.repo is None:
+        def read_local(paths: list[str]) -> tuple[list[str], dict[str, str]]:
+            got = [p for p in paths if (root / p).is_file() and (root / p).resolve().is_relative_to(root.resolve())]
+            return got, {p: "it is not under --source-root" for p in paths if p not in got}
+        return read_local
+    try:
+        fetch = _sibling("skf-github-fetch.py")
+    except RunnerError as exc:
+        raise QuickInputError(str(exc)) from exc
+    try:
+        # No pattern: the call checks --repo, --ref and the listing, and fetches nothing.
+        checked = fetch.run(args.repo, args.ref, args.tree_file, str(root), [])
+    except fetch.UsageError as exc:
+        raise QuickInputError(str(exc)) from exc
+    owner, repo = checked["repo"].split("/", 1)
+    fetch._start_clock(fetch.DEFAULT_TIMEOUT_SEC)
+
+    def read_remote(paths: list[str]) -> tuple[list[str], dict[str, str]]:
+        out = fetch.fetch(owner, repo, checked["ref"], paths, root.absolute())
+        return out["fetched"], {f["path"]: f["detail"] for f in out["failed"]}
+    return read_remote
+
+
+def _follow(args: argparse.Namespace, result: dict) -> dict:
+    """--follow: read each module_file `unlisted[]` names as one more
+    --follow-file and parse the files again, round after round, until no
+    module is left untried or FOLLOW_ROUNDS have run. Raises
+    QuickInputError."""
+    read = _follow_reader(args)
+    tried = set(args.follow_file or [])
+    followed: list[str] = []
+    missed: dict[str, str] = {}
+    for _ in range(FOLLOW_ROUNDS):
+        named = [path for path in dict.fromkeys(item["module_file"] for item in result["unlisted"])
+                 if path and path not in tried]
+        if not named:
+            break
+        tried.update(named)
+        got, failed = read(named)
+        missed.update(failed)
+        if got:
+            followed += got
+            files = argparse.Namespace(**{**vars(args), "follow_file": [*(args.follow_file or []), *followed]})
+            result = extract(_quick_files_payload(files))
+    left = [path for path in dict.fromkeys(item["module_file"] for item in result["unlisted"])
+            if path and path not in tried]
+    result["warnings"] += [f"--follow could not read {path} ({why}), so the names it passes on are missing"
+                           for path, why in missed.items()]
+    if left:
+        result["warnings"].append(f"--follow stopped after {FOLLOW_ROUNDS} rounds with modules left to read: "
+                                  f"{', '.join(left)}")
+    result["followed"] = followed
+    return result
+
+
 def _main_entries(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     """`--mode entries`: the entry files of one package, as JSON on stdout."""
     if args.manifest_file is not None or args.entry_file or args.follow_file:
@@ -4425,6 +4517,9 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     files = args.manifest_file is not None or bool(args.entry_file) or bool(args.follow_file)
     listing = [f"--{flag.replace('_', '-')}" for flag in LISTING_FLAGS if getattr(args, flag) is not None]
+    following = [f"--{flag}" for flag in FOLLOW_FLAGS if getattr(args, flag) not in (None, False)]
+    if following and (args.mode != "quick" or not files):
+        parser.error(f"{', '.join(following)}: quick mode only, with --manifest-file or --entry-file")
     if args.mode == "full":
         if files:
             parser.error("--manifest-file, --entry-file, --follow-file: quick mode only (--mode quick)")
@@ -4448,9 +4543,17 @@ def main(argv: list[str]) -> int:
     if files:
         if not args.language or len(args.language) != 1:
             parser.error("--manifest-file and --entry-file take one --language")
+        if (args.repo is not None or args.ref is not None) and not args.follow:
+            parser.error("--repo and --ref fetch the modules --follow reads, so pass --follow")
+        if args.ref is not None and args.repo is None:
+            parser.error("--ref is the ref of --repo, so pass --repo")
+        if args.follow and (args.tree_file is None or args.source_root is None):
+            parser.error("--follow finds each module in --tree-file and reads it under --source-root: pass both")
         try:
             payload = _quick_files_payload(args)
             result = extract(payload)
+            if args.follow and "_error" not in result:
+                result = _follow(args, result)
             if args.fetch_list is not None and "_error" not in result:
                 follow = [item["module_file"] for item in result["unlisted"] if item["module_file"]]
                 _write_fetch_list(args.fetch_list, list(dict.fromkeys(follow)))

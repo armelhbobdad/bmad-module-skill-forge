@@ -109,16 +109,17 @@ cat > "{run_dir}/discover-{i}-units.json" <<'SKF_UNITS'
 {"units": [<one entry per new unit that is not deferred>]}
 SKF_UNITS
 uv run {countImportsHelper} count "{scan_root}" --units "{run_dir}/discover-{i}-units.json" --deps "{run_dir}/manifests-{i}.json" > "{run_dir}/discover-{i}-imports.json"
+uv run {countImportsHelper} summary "{run_dir}/discover-{i}-imports.json" --manifests "{run_dir}/manifests-{i}.json"
 uv run {findCyclesHelper} find --edges "{run_dir}/discover-{i}-imports.json"
 uv run {countImportsHelper} count "{scan_root}" --units "{run_dir}/discover-{i}-units.json" --format libraries > "{run_dir}/discover-{i}-importers.json"
 uv run {pairIntersectHelper} intersect --libraries "{run_dir}/discover-{i}-importers.json"
 ```
 
-Read each `units[]` entry's `imports_from`, `imported_by`, `file_count` and `external_deps` from the imports file, each `cycles[]` entry (units that import each other) and each `pairs[]` entry (units imported together in `intersection_count` files; when `truncated` is true, run the last call again with `--top-k` set to its `total_pairs`). A helper that exits non-zero names the problem on stderr: fix the units JSON and run the block again.
+Read each `units[]` entry's `imports_from`, `imported_by`, `file_count` and `external_dep_count` and each `edge_files[]` entry from the summary line (the full file lists stay in the imports file, for an edge that needs them), each `cycles[]` entry (units that import each other) and each `pairs[]` entry (units imported together in `intersection_count` files; when `truncated` is true, run the last call again with `--top-k` set to its `total_pairs`). A helper that exits non-zero names the problem on stderr: fix the units JSON and run the block again.
 
 ### 5. Propose Composites and Stack Skill Candidates
 
-Judge the new units as one pass, so a group is never both a composite and a stack skill candidate. Apply the Composite Boundary triggers and the Cohesion Triggers of {heuristicsFile}: a mutual hard dependency from `cycles[]`, a shared integration surface from the imports, and the cohesion triggers from the manifests file's `umbrella_candidates[]` and each member's `name`, `private` and `internal_deps`. Name every proposal in one call (`target` is the new project path, `manifest_name` the facade's manifest name when an umbrella facade triggered it, else null, and `members` the constituents' manifest names):
+Judge the new units as one pass, so a group is never both a composite and a stack skill candidate. Apply the Composite Boundary triggers and the Cohesion Triggers of {heuristicsFile}: a mutual hard dependency from `cycles[]`, a shared integration surface from the summary's `edge_files[]`, and the cohesion triggers from its `umbrella_candidates[]` and each manifest's `name`, `private` and `internal_deps`. Name every proposal in one call (`target` is the new project path, `manifest_name` the facade's manifest name when an umbrella facade triggered it, else null, and `members` the constituents' manifest names):
 
 ```bash
 uv run {skillInventoryHelper} derive-name --from - <<'SKF_COMPOSITE_NAMES'

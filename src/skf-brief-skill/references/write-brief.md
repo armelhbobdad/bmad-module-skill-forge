@@ -43,11 +43,19 @@ The script's atomic-write helper creates parent directories as needed (`mkdir -p
 
 Before writing, check whether the resolved target path already exists.
 
-**Ratify path (`ratify_mode: true` in workflow context):**
+**Ratify path (`ratify_mode: true` in workflow context):** step 1 (`references/gather-intent-ratify.md`) authorized overwriting only the brief it read, `ratify_source_path`: interactively by `[R] Ratify`, then reviewed and approved at step 4, or headlessly by a `from_brief` argument. Check whether the target is that file (the same file through any path or link), each path written as it is on its line between the markers:
 
-The overwrite was already authorized when ratify mode was entered in step 1 (`references/gather-intent-ratify.md`): interactively by `[R] Ratify` against the same file, then reviewed and approved at step 4, or headlessly by a `from_brief` argument (the operator pointed the run at a brief to ratify). Either way, skip the interactive prompt below; log a single-line `brief-skill: ratify-mode auto-overwriting existing brief at {path}` and proceed to §3. **This ratify branch takes precedence over both the interactive and headless branches below:** when `ratify_mode` is set, neither of those runs. In particular, a headless ratify (`from_brief`) auto-overwrites the brief in place without requiring `force`; `force` governs only the derive route, where overwriting a pre-existing brief is a genuine clobber the operator must opt into.
+```bash
+uv run python -c 'import os, sys; a, b = sys.stdin.read().splitlines()[:2]; print("same" if os.path.exists(a) and os.path.exists(b) and os.path.samefile(a, b) else "different")' <<'SKF_PATHS'
+{resolved-target-path}
+{ratify_source_path}
+SKF_PATHS
+```
 
-**Interactive (`{headless_mode}` is false, `ratify_mode` not set):**
+- **`same`:** skip both gates below, with no `force` needed: log a single-line `brief-skill: ratify-mode auto-overwriting existing brief at {path}` and proceed to §3.
+- **`different`** (the brief lives outside `{forge_data_folder}/<name>/`, or step 4 renamed it): an existing file at the target is another brief, so the gates below apply as on the derive route.
+
+**Interactive (`{headless_mode}` is false), unless the ratify check printed `same`:**
 
 If the file exists, present:
 
@@ -57,7 +65,7 @@ Overwrite it with the brief you just approved? [Y/N]"
 - **[Y]** Overwrite — proceed to §3.
 - **[N]** Cancel — emit a single-line stderr log `brief-skill: overwrite-cancelled at {path}` and HALT with exit code 5 (do not chain to step 6; the run produced no new artifact).
 
-**GATE [default: HALT unless `force` was supplied]**: headless (`{headless_mode}` is true):
+**GATE [default: HALT unless `force` was supplied]**: headless (`{headless_mode}` is true), unless the ratify check printed `same`:
 
 If the file exists:
 

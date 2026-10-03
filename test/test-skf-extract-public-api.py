@@ -4,7 +4,9 @@
 Quick mode does no I/O: it parses content passed in via JSON. Tests
 build payloads inline, call extract() directly, and assert on the
 shape of the returned envelope. Per-language manifest parsers and
-export scanners are also exercised individually.
+export scanners are also exercised individually. --follow, which reads
+the modules a chain names (fetched first with --repo), runs on staged
+folders with the fetch helper's raw read stubbed.
 
 Full mode runs the ast-grep recipes over a source tree (#584). Its file
 selection, glob rules, recipe file checks, merge, entry-point readers and
@@ -2644,3 +2646,102 @@ class TestUnlisted:
                            "--entry-file", "src/index.ts", "--entry-file", "src/core.ts",
                            "--entry-file", "src/util/index.ts", "--fetch-list", str(follow))
         assert (code, out["unlisted"], follow.read_bytes()) == (0, [], b"")
+
+
+# --------------------------------------------------------------------------
+# --follow: quick mode reads the chains itself (step 5b gate run 2, brief-skill
+# and quick-skill determinism-1: no caller loops over the modules)
+# --------------------------------------------------------------------------
+
+
+class TestFollow:
+    def _follow(self, capsys, root: Path, listing: Path, *extra: str) -> tuple[int, dict | None]:
+        return _quick(capsys, "--language", "ts", "--source-root", str(root), "--tree-file", str(listing),
+                      "--manifest-file", "package.json", "--entry-file", "src/index.ts", "--follow", *extra)
+
+    def test_a_local_chain_is_read_to_its_end(self, tmp_path, capsys):
+        root = _stage(tmp_path / "src", NODENEXT)
+        code, out = self._follow(capsys, root, _listing(tmp_path, list(NODENEXT)))
+        assert code == 0 and out["followed"] == ["src/core.ts", "src/util/index.ts"]
+        assert {e["name"] for e in out["exports"]} >= {"Core", "helper", "VERSION", "h"}
+        assert out["unlisted"] == [] and not any("passes on names" in w for w in out["warnings"])
+
+    def test_a_module_it_cannot_read_stays_unlisted_and_the_rest_is_kept(self, tmp_path, capsys):
+        """A module the listing names but the folder lacks is a warning, never an exit: the names of
+        the modules read before it, and after it, stay in the output."""
+        files = {**NODENEXT, "src/core.ts": "export class Core {}\nexport * from './gone.js';\n"
+                                            "export * from './util/index.js';\n"}
+        root = _stage(tmp_path / "src", files)
+        follow = tmp_path / "follow.txt"
+        code, out = self._follow(capsys, root, _listing(tmp_path, [*files, "src/gone.ts"]),
+                                 "--fetch-list", str(follow))
+        assert code == 0 and out["followed"] == ["src/core.ts", "src/util/index.ts"]
+        assert {e["name"] for e in out["exports"]} >= {"Core", "helper", "VERSION"}
+        assert [r["module_file"] for r in out["unlisted"]] == ["src/gone.ts"]
+        assert ("--follow could not read src/gone.ts (it is not under --source-root), so the names it passes on "
+                "are missing") in out["warnings"]
+        assert follow.read_bytes() == b"src/gone.ts\n", "the fetch list names what is left to read"
+
+    def test_it_stops_after_the_last_round_and_says_what_is_left(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setattr(mod, "FOLLOW_ROUNDS", 1)
+        root = _stage(tmp_path / "src", NODENEXT)
+        code, out = self._follow(capsys, root, _listing(tmp_path, list(NODENEXT)))
+        assert code == 0 and out["followed"] == ["src/core.ts"]
+        assert "--follow stopped after 1 rounds with modules left to read: src/util/index.ts" in out["warnings"]
+
+    def test_a_github_source_is_fetched_round_by_round(self, tmp_path, capsys, monkeypatch):
+        """With --repo each module is fetched into --source-root first, raw and without gh; a module the
+        fetch cannot read is a warning naming why."""
+        files = {**NODENEXT, "src/core.ts": "export class Core {}\nexport * from './util/index.js';\n"
+                                            "export * from './private.js';\n"}
+        served = {path: text.encode("utf-8") for path, text in files.items()}
+        asked: list[tuple[str, str, str, str]] = []
+
+        def raw(owner, repo, ref, path):
+            asked.append((owner, repo, ref, path))
+            return (served[path], "") if path in served else (None, "HTTP 404")
+
+        fetch = mod._sibling("skf-github-fetch.py")
+        monkeypatch.setattr(fetch, "_raw", raw)
+        monkeypatch.setattr(fetch, "_gh_raw", lambda *a: (None, "gh is not installed"))
+        root = _stage(tmp_path / "files", {path: files[path] for path in ("package.json", "src/index.ts")})
+        listing = _listing(tmp_path, [*files, "src/private.ts"])
+        code, out = self._follow(capsys, root, listing, "--repo", "https://github.com/acme/lib", "--ref", "v1.0.0")
+        assert code == 0 and out["followed"] == ["src/core.ts", "src/util/index.ts"]
+        assert asked == [("acme", "lib", "v1.0.0", "src/core.ts"), ("acme", "lib", "v1.0.0", "src/util/index.ts"),
+                         ("acme", "lib", "v1.0.0", "src/private.ts")]
+        assert (root / "src" / "util" / "index.ts").read_bytes() == served["src/util/index.ts"]
+        assert {e["name"] for e in out["exports"]} >= {"Core", "helper", "VERSION"}
+        [warning] = [w for w in out["warnings"] if w.startswith("--follow could not read src/private.ts")]
+        assert "HTTP 404" in warning and "gh is not installed" in warning
+
+    @pytest.mark.parametrize(("extra", "message"), [
+        (["--repo", "acme/lib"], "--repo and --ref fetch the modules --follow reads, so pass --follow"),
+        (["--follow", "--ref", "main"], "--ref is the ref of --repo, so pass --repo"),
+    ], ids=["repo-without-follow", "ref-without-repo"])
+    def test_a_flag_that_needs_another(self, tmp_path, capsys, extra, message):
+        root = _stage(tmp_path / "src", NODENEXT)
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "quick", "--language", "ts", "--source-root", str(root), "--tree-file",
+                      str(_listing(tmp_path, list(NODENEXT))), "--entry-file", "src/index.ts", *extra])
+        assert exc.value.code == 2 and message in capsys.readouterr().err
+
+    def test_follow_needs_the_listing_and_quick_mode_files(self, tmp_path, capsys):
+        root = _stage(tmp_path / "src", NODENEXT)
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "quick", "--language", "ts", "--source-root", str(root),
+                      "--entry-file", "src/index.ts", "--follow"])
+        assert exc.value.code == 2 and "pass both" in capsys.readouterr().err
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "entries", "--language", "ts", "--source-root", str(root), "--tree-file",
+                      str(_listing(tmp_path, list(NODENEXT))), "--follow"])
+        assert exc.value.code == 2 and "--follow: quick mode only" in capsys.readouterr().err
+
+    def test_a_repository_the_fetch_does_not_accept_is_an_input_error(self, tmp_path, capsys):
+        root = _stage(tmp_path / "src", NODENEXT)
+        code = mod.main(["--mode", "quick", "--language", "ts", "--source-root", str(root), "--tree-file",
+                         str(_listing(tmp_path, list(NODENEXT))), "--entry-file", "src/index.ts", "--follow",
+                         "--repo", "not a repo"])
+        captured = capsys.readouterr()
+        assert (code, captured.out) == (2, "")
+        assert "not a repo is not a github.com repository" in captured.err

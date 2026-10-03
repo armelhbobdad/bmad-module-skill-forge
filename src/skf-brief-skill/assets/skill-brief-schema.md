@@ -46,7 +46,7 @@ During brief creation, attempt to auto-detect the source version before defaulti
 - **Rust:** `Cargo.toml` `[package] version` (static) → if `version = { workspace = true }`, resolve from workspace root `Cargo.toml` → `git describe --tags --abbrev=0`
 - **Go:** version tag from `go.mod` or `git describe --tags --abbrev=0`
 
-If the source is a remote GitHub repo, use `gh api repos/{owner}/{repo}/contents/{file}` to read the version file. If the source is local, read the file directly.
+If the source is a remote GitHub repo, read the version file step 2 fetched into the run folder with `skf-github-fetch.py`, which needs `gh` only for a private repository. If the source is local, read the file directly.
 
 If detection succeeds, use the detected version. If it fails or returns a non-semver value, fall back to `"1.0.0"`.
 
@@ -225,7 +225,7 @@ The runtime template lives in `references/confirm-brief.md` §2 — that is the 
 ## Validation Rules
 
 1. `name` must be unique within {forge_data_folder}
-2. `source_repo` must be accessible (gh api for GitHub, path exists for local)
+2. `source_repo` must be accessible (listed by skf-github-probe.py for a GitHub URL, which needs gh only for a private repository; path exists for local)
 3. `language` must be a recognized programming language
 4. `scope.type` must be one of the six defined types
 5. `scope.include` must have at least one pattern (exception: `docs-only` scope, where include patterns are optional since no source code is available)

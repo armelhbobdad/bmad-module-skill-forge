@@ -11,7 +11,8 @@ Two workflows need the same fact, which has one right answer per tree:
      each library's file list to `skf-pair-intersect.py`.
   2. **skf-analyze-source** maps which units import which (Imports From and
      Imported By), gives co-imported units to `skf-pair-intersect.py` and
-     the unit-to-unit edges to `skf-find-cycles.py`.
+     the unit-to-unit edges to `skf-find-cycles.py`, and reads the graph
+     through `summary`, which leaves out the file lists it does not need.
 
 A grep with no module boundary counts `react-dom` and `react-router` as
 `react`, and a Python distribution is often imported under another name
@@ -20,7 +21,7 @@ run. This helper reads each source file once, parses its import statements
 per language, matches them on module boundaries and maps distribution names
 to import names.
 
-Subcommand:
+Subcommands:
   count <root> [--deps <json-file-or-'-'>] [--units <json-file-or-'-'>]
                [--threshold N] [--exclude GLOB]... [--format full|libraries]
                [--relative-to DIR]
@@ -122,6 +123,41 @@ Subcommand:
       (`unsupported-ecosystem`). `edges` is the `skf-find-cycles.py find
       --edges` input as it is (that helper reads only the `edges` key).
 
+  summary <imports-file-or-'-'> [--manifests <json-file-or-'-'>]
+          [--max-files N]
+
+      Print the unit graph of a saved `count --units` envelope without the
+      file lists a reader of the graph does not need (on a large monorepo
+      the envelope runs to hundreds of KB, the summary to a few):
+        {
+          "units": [
+            {"name": "...", "imports_from": [...], "imported_by": [...],
+             "file_count": N, "external_dep_count": N},
+            ...
+          ],
+          "edge_files": [
+            {"from": "...", "to": "...", "file_count": N,
+             "files": [{"path": "...", "line": N}, ...]},
+            ...
+          ],
+          "umbrella_candidates": [...],
+          "manifests": [
+            {"path": "...", "name": "...", "private": true | false | null,
+             "internal_deps": [...]},
+            ...
+          ],
+          "warnings": ["..."]
+        }
+      A unit keeps its `file_count` (the files outside it that import it)
+      and the number of its `external_deps`; an `edge_files` entry keeps
+      its file count and its first --max-files files (default 5), so the
+      full list stays in the envelope for the edge that needs it.
+      `umbrella_candidates` and `manifests` come from --manifests, the
+      `skf-scan-manifests.py scan` envelope (present only with it), each
+      manifest with the fields the cohesion triggers read. `warnings` is
+      the envelope's, present only when it has some. Only one of the two
+      inputs may read stdin.
+
 Resolution of a dependency's import names (`resolution`):
   exact     the ecosystem's own rule: an npm package is imported by its name,
             a Rust crate by its name with `-` as `_`, a Go module by its path;
@@ -184,12 +220,16 @@ CLI examples:
     | uv run skf-pair-intersect.py intersect --libraries -
   uv run skf-count-imports.py count . --units units.json \\
     | uv run skf-find-cycles.py find --edges -
+  uv run skf-count-imports.py count . --units units.json --deps manifests.json > imports.json
+  uv run skf-count-imports.py summary imports.json --manifests manifests.json
 
 Exit codes:
   0  success (including: no dependency imported, no source file found)
   1  user error (root not a directory, unreadable or malformed JSON input,
      a bad dependency or unit entry, both inputs on stdin, bad --threshold,
-     a --relative-to that is not a folder holding <root>)
+     a --relative-to that is not a folder holding <root>, a summary input
+     that is not a `count --units` envelope or a manifest scan, bad
+     --max-files)
 """
 
 from __future__ import annotations
@@ -1617,6 +1657,53 @@ def as_libraries(result: dict) -> list[dict]:
     return rows
 
 
+SUMMARY_MAX_FILES = 5
+SUMMARY_IMPORTS = "the imports input (a `count --units` envelope)"
+SUMMARY_MANIFESTS = "the --manifests input (a skf-scan-manifests.py scan)"
+
+
+def _object_rows(data: object, key: str, what: str) -> list[dict]:
+    """`data[key]` when it is a list of objects, else an InputError naming the input."""
+    rows = data.get(key) if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise InputError(f"{what} holds no `{key}` list of objects")
+    return rows
+
+
+def summarize(result: object, manifests: object | None = None, max_files: int = SUMMARY_MAX_FILES) -> dict:
+    """The unit graph of a `count --units` envelope without its file lists, and
+    the fields of a manifest scan the cohesion triggers read (see `summary`)."""
+    units = _object_rows(result, "units", SUMMARY_IMPORTS)
+    edge_files = _object_rows(result, "edge_files", SUMMARY_IMPORTS)
+    try:
+        out: dict = {
+            "units": [
+                {"name": u["name"], "imports_from": u["imports_from"], "imported_by": u["imported_by"],
+                 "file_count": u["file_count"], "external_dep_count": len(u["external_deps"])}
+                for u in units
+            ],
+            "edge_files": [
+                {"from": e["from"], "to": e["to"], "file_count": len(e["files"]), "files": e["files"][:max_files]}
+                for e in edge_files
+            ],
+        }
+    except (KeyError, TypeError) as exc:
+        raise InputError(f"{SUMMARY_IMPORTS} has a malformed units or edge_files entry "
+                         f"({type(exc).__name__}: {exc})") from None
+    if manifests is not None:
+        rows = _object_rows(manifests, "manifests", SUMMARY_MANIFESTS)
+        umbrellas = manifests.get("umbrella_candidates")
+        out["umbrella_candidates"] = umbrellas if isinstance(umbrellas, list) else []
+        out["manifests"] = [
+            {"path": m.get("path"), "name": m.get("name"), "private": m.get("private"),
+             "internal_deps": m.get("internal_deps") or []}
+            for m in rows
+        ]
+    if result.get("warnings"):
+        out["warnings"] = result["warnings"]
+    return out
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -1661,6 +1748,25 @@ def _cmd_count(args: argparse.Namespace) -> int:
     result = prefix_paths(result, prefix)
     output = as_libraries(result) if args.format == "libraries" else result
     json.dump(output, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+def _cmd_summary(args: argparse.Namespace) -> int:
+    if args.imports == "-" and args.manifests == "-":
+        print("error: only one of the imports file and --manifests may read stdin", file=sys.stderr)
+        return 1
+    if args.max_files < 0:
+        print(f"error: --max-files must be >= 0; got {args.max_files}", file=sys.stderr)
+        return 1
+    try:
+        result = _read_json_source(args.imports, "imports")
+        manifests = None if args.manifests is None else _read_json_source(args.manifests, "--manifests")
+        output = summarize(result, manifests, args.max_files)
+    except InputError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    json.dump(output, sys.stdout)
     sys.stdout.write("\n")
     return 0
 
@@ -1726,6 +1832,27 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_count.set_defaults(func=_cmd_count)
+
+    p_summary = sub.add_parser(
+        "summary", help="print the unit graph of a saved count --units envelope without its file lists"
+    )
+    p_summary.add_argument("imports", help="the count --units envelope, a JSON file or '-' for stdin")
+    p_summary.add_argument(
+        "--manifests",
+        default=None,
+        help=(
+            "the skf-scan-manifests.py scan envelope, a JSON file or '-' for stdin: adds "
+            "umbrella_candidates and each manifest's path, name, private and internal_deps"
+        ),
+    )
+    p_summary.add_argument(
+        "--max-files",
+        type=int,
+        default=SUMMARY_MAX_FILES,
+        metavar="N",
+        help=f"files listed per edge_files entry (default {SUMMARY_MAX_FILES})",
+    )
+    p_summary.set_defaults(func=_cmd_summary)
 
     return parser
 

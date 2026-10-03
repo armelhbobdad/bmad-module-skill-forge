@@ -41,10 +41,12 @@ Look for {outputFile}.
 1. **Finished:** `stepsCompleted` holds `generate-briefs` or `auto-scope`: that analysis already ended (with its briefs, or with none). Archive it (below), announce "**The previous analysis of this workspace is finished: archived as <name>; starting a fresh analysis.**", and continue to section 2. A finished report is never resumed, in headless mode either.
 2. **Auto invocation:** this invocation carries the `[auto]` flag (e.g. `AN[auto]`). Auto mode is one pass that never resumes, so archive the unfinished report the same way, announce it, and continue to section 2.
 3. **Unfinished:** establish the requested target and compare it to the report's. Take `project_paths[]` from the invocation as section 3 says (`--project-path`, comma-split, or a path the message names); when it gives none, ask section 3's opening question now (a headless run halts there instead), once: section 3 then asks nothing more. Read the report's frontmatter `project_paths`.
-   - **Same target:** "**Found an unfinished analysis report. Resuming the previous session...**" Load, read entirely, then execute {continueFile}. **STOP HERE**: do not continue this sequence. Headless runs resume it too. ({continueFile} is mode-aware: a report written by an interrupted auto run resumes through the auto path, not the interactive chain.)
+   - **Same target:** compare the ref and hint flags this invocation passes with the report's frontmatter: `--target-ref` or `--target-refs`, resolved to each project path's ref as section 4 does, against `refs`, and `--scope-hint` and `--intent-hint` against `scope_hint` and `intent_hint`. A flag the invocation does not pass changes nothing.
+     - **The inputs match:** "**Found an unfinished analysis report. Resuming the previous session...**" Load, read entirely, then execute {continueFile}. **STOP HERE**: do not continue this sequence. Headless runs resume it too. ({continueFile} is mode-aware: a report written by an interrupted auto run resumes through the auto path, not the interactive chain.)
+     - **An input differs:** the later steps would read the report's old values, so archive it and announce "**The inputs changed: archived as <name>; starting a fresh analysis.**" In headless mode, also run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'inputs changed: the unfinished report was archived as <name>'`, a single quote in it written as a backtick (if it fails, go on). Then continue to section 2: section 3 keeps the path already set, and section 4 resolves the refs again.
    - **Different target (stale collision):** archive it, announce "**Existing report belongs to a different target: archived as <name>; starting a fresh analysis.**", then continue to section 2 (section 3 keeps the path already set).
 
-**To archive a report** (rules 1 and 2 and a different target; a report that resumes stays where it is), rename it, never overwrite it:
+**To archive a report** (rules 1 and 2, changed inputs and a different target; a report that resumes stays where it is), rename it, never overwrite it:
 
 ```bash
 archive="{forge_data_folder}/analyze-source-report-{project_name}-$(date -u +%Y%m%d-%H%M%S).md" && mv -n "{outputFile}" "$archive" && printf '%s\n' "$archive"
@@ -75,7 +77,7 @@ and use the path it prints as `<name>`. If the rename fails, HARD HALT (exit cod
 1. **Resolve project path:** If `project_paths[]` is already populated (from §1 continuation detection or `--project-path` arg), use it. Otherwise, if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple). If neither is available, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:2b`): "**Auto mode requires `--project-path`: no project path available.**"
 2. **Validate the path(s):** For each provided path/URL, check that it exists (local) or is accessible (remote). If any invalid: HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `init:2b`, path `{path}`): "**Path `{path}` doesn't appear to be valid.**"
 3. **Take the hints:** `intent_hint` ← the `--intent-hint` value and `scope_hint` ← the `--scope-hint` value (empty when the flag is absent). Step 1a reads both, and so does the interactive chain it may fall back to.
-4. **Create the analysis report** from {templateFile}. Populate frontmatter:
+4. **Create the analysis report** from {templateFile}. First build `existing_skills` and `existing_briefs` as section 5 does, without its messages: the step-by-step analysis an unclassified repository falls back to reads them. Populate frontmatter:
    ```yaml
    stepsCompleted: ['init']
    lastStep: 'init'
@@ -85,7 +87,8 @@ and use the path it prints as `<name>`. If the rename fails, HARD HALT (exit cod
    project_name: '{project_name}'
    project_paths: ['{provided_project_path}']
    forge_tier: '{detected_tier}'
-   existing_skills: []
+   existing_skills: [{list of existing skill names}]
+   existing_briefs: [{name and path of each existing brief, as {name: '...', path: '...'}}]
    intent_hint: '{intent_hint}'
    scope_hint: '{scope_hint}'
    confirmed_units: []

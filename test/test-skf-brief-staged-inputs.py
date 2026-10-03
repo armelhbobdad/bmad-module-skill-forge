@@ -21,9 +21,17 @@ step 4. #584 (brief part): step 3's tier-A list comes from the recipe
 runner's re-export targets. #603: a docs-only target skips step 2's
 repository analysis and reaches step 5 with the language `documentation`.
 
+Step 5b gate run 2: step 2 and step 3 read a GitHub repository through
+skf-github-fetch.py, which needs gh only for a private repository, so a
+public one is briefed without gh (enhancement-1); step 2 finds the entry
+files with the extractor's entries mode and follows the modules an
+`export *` names, and step 3 counts the exports from the result
+(determinism-1); and a ratify run skips the overwrite gate only when it
+writes back to the brief it read (architecture-1).
+
 No test runs the step prose, so these checks pin it, and they run the
-commands it documents against the helpers, with a fake gh where a command
-reads GitHub.
+commands it documents against the helpers, with the fetch helper reading
+from a local folder where a command reads GitHub.
 """
 
 from __future__ import annotations
@@ -43,7 +51,9 @@ REPO = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO / "src" / "skf-brief-skill"
 REFERENCES = SKILL_DIR / "references"
 SCRIPTS = REPO / "src" / "shared" / "scripts"
+SKILL_MD = SKILL_DIR / "SKILL.md"
 GATHER_INTENT = REFERENCES / "gather-intent.md"
+INVOCATION_CONTRACT = REFERENCES / "invocation-contract.md"
 HEADLESS_ARGS = REFERENCES / "headless-args.md"
 RATIFY = REFERENCES / "gather-intent-ratify.md"
 ANALYZE_TARGET = REFERENCES / "analyze-target.md"
@@ -121,15 +131,58 @@ def _probe_listing(paths: list[str], truncated: bool = False) -> str:
                        "ref": "main", "tree": paths, "count": len(paths), "truncated": truncated})
 
 
-def _fake_gh(repo: Path) -> str:
-    """A bash function that serves `gh api -H ... repos/o/r/contents/<rel>?ref=main` from `repo`."""
-    return ('gh() { local url="${!#}"; local rel="${url#repos/o/r/contents/}"; rel="${rel%%\\?ref=*}"; '
-            f'cat "{repo.as_posix()}/$rel"; }}\n')
+def _fetch_shim(tmp_path: Path, served: Path) -> str:
+    """The command that stands in for `uv run {githubFetchHelper}`: skf-github-fetch.py itself, its raw read
+    served from `served` (o/r at main, laid out like the repository) and no gh, as on a machine without it."""
+    shim = tmp_path / "fetch-shim.py"
+    shim.write_bytes((
+        "import importlib.util, sys\nfrom pathlib import Path\n"
+        f"spec = importlib.util.spec_from_file_location('fetch', {str(SCRIPTS / 'skf-github-fetch.py')!r})\n"
+        "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
+        f"served = Path({str(served)!r})\n"
+        "def _raw(owner, repo, ref, path):\n"
+        "    file = served.joinpath(*path.split('/'))\n"
+        "    if (owner, repo, ref) == ('o', 'r', 'main') and file.is_file():\n"
+        "        return file.read_bytes(), ''\n"
+        "    return None, 'HTTP 404'\n"
+        "mod._raw = _raw\nmod._gh_raw = lambda *a: (None, 'gh is not installed')\n"
+        "raise SystemExit(mod.main(sys.argv[1:]))\n").encode("utf-8"))
+    return f'"{sys.executable}" "{shim.as_posix()}"'
 
 
-def _fill_github(block: str, run_dir: Path) -> str:
+def _extract_shim(tmp_path: Path, served: Path) -> str:
+    """The command that stands in for `uv run {extractPublicApiHelper}`: skf-extract-public-api.py itself, the
+    fetch helper its --follow loads beside it reading from `served` as _fetch_shim's does."""
+    shim = tmp_path / "extract-shim.py"
+    shim.write_bytes((
+        "import importlib.util, sys\nfrom pathlib import Path\n"
+        f"spec = importlib.util.spec_from_file_location('extract', {str(SCRIPTS / 'skf-extract-public-api.py')!r})\n"
+        "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
+        "fetch = mod._sibling('skf-github-fetch.py')\n"
+        f"served = Path({str(served)!r})\n"
+        "def _raw(owner, repo, ref, path):\n"
+        "    file = served.joinpath(*path.split('/'))\n"
+        "    if (owner, repo, ref) == ('o', 'r', 'main') and file.is_file():\n"
+        "        return file.read_bytes(), ''\n"
+        "    return None, 'HTTP 404'\n"
+        "fetch._raw = _raw\nfetch._gh_raw = lambda *a: (None, 'gh is not installed')\n"
+        "raise SystemExit(mod.main(sys.argv[1:]))\n").encode("utf-8"))
+    return f'"{sys.executable}" "{shim.as_posix()}"'
+
+
+def _fill_github(block: str, run_dir: Path, fetch: str) -> str:
     return (block.replace("{run_dir}", run_dir.as_posix()).replace("{owner}/{repo}", "o/r")
-            .replace("{analysis_ref}", "main"))
+            .replace("{analysis_ref}", "main").replace("uv run {githubFetchHelper}", fetch))
+
+
+def _json_objects(text: str) -> list:
+    """Every JSON value a block printed, in order (a helper line or an indented object each)."""
+    decoder, values, at = json.JSONDecoder(), [], 0
+    while text[at:].strip():
+        value, end = decoder.raw_decode(text, at + len(text[at:]) - len(text[at:].lstrip()))
+        values.append(value)
+        at = end
+    return values
 
 
 # --------------------------------------------------------------------------
@@ -357,10 +410,12 @@ def test_a_rush_tree_reaches_the_workspace_menu(tmp_path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "tree.json").write_bytes(_probe_listing(sorted(files)).encode("utf-8"))
-    block = _fill_github(block, run_dir).replace("uv run {detectWorkspacesHelper}", _script("skf-detect-workspaces.py"))
-    proc = _bash(_fake_gh(repo) + block)
+    block = (_fill_github(block, run_dir, _fetch_shim(tmp_path, repo))
+             .replace("uv run {detectWorkspacesHelper}", _script("skf-detect-workspaces.py")))
+    proc = _bash(block)
     assert proc.returncode == 0, proc.stderr
-    out = json.loads(proc.stdout)
+    fetched, out = _json_objects(proc.stdout)
+    assert fetched["status"] == "ok" and fetched["via"] == "raw" and "rush.json" in fetched["fetched"], fetched
     assert out["is_monorepo"] is True and out["manifest_kind"] == "rush", out
     assert [w["name"] for w in out["workspaces"]] == ["@acme/web", "@acme/core"]
     assert (run_dir / "files" / "rush.json").read_bytes() == files["rush.json"].encode("utf-8")
@@ -401,36 +456,106 @@ def test_a_tree_of_more_than_10000_files_reaches_the_language_detector_whole(tmp
 
 
 @needs_bash
-def test_entry_files_reach_the_parser_by_path_with_their_apostrophes(tmp_path):
-    """§4.1 fetches the manifest and entry points raw into the run folder and the parser reads them there."""
+def test_step_two_finds_the_entry_files_and_follows_their_re_exports(tmp_path):
+    """§4.1 on a public repository read without gh: the extractor picks the entry file from package.json (a build
+    output mapped back to its source), the fetch stages it raw, the extractor's --follow fetches and reads the
+    module an `export *` names, and step 3 counts the exports from the result, apostrophes and all. A module the
+    fetch cannot read stays a warning: the exports read before it are kept (no round is run by hand)."""
     section = _section(_read(ANALYZE_TARGET), "#### 4.1 Procedure")
-    [fetch] = _blocks(section, "for rel in")
-    [extract] = _blocks(section, "{extractPublicApiHelper}")
+    [find] = _blocks(section, "--mode entries")
+    [parse] = _blocks(section, "--mode quick")
+    assert "never pick an entry file yourself" in section
+    assert "follow.txt" not in section and "--follow-file" not in section and "rounds" not in section
     files = {
-        "package.json": '{"name": "demo", "version": "2.1.0", "dependencies": {"zod": "^3"}}\n',
-        "src/index.ts": ("// it's the entry point; don't break on the quote\n"
-                         "export const greeting = \"it's here\";\n"
-                         "export function hello(name: string): string { return `hi ${name}'s`; }\n"),
+        "package.json": '{"name": "demo", "version": "2.1.0", "main": "dist/index.js", "dependencies": {"zod": "3"}}\n',
+        "src/index.ts": ("// it's the entry point; don't break on the quote\nexport * from './greet';\n"
+                         "export * from './private';\nexport const greeting = \"it's here\";\n"),
+        "src/greet.ts": "export function hello(name: string): string { return `hi ${name}'s`; }\n",
+        "README.md": "# demo\n",
     }
     repo = _write_tree(tmp_path / "repo", files)
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    # index.ts is a candidate the repository lacks: its fetch fails and leaves nothing behind
-    fetch = _fill_github(fetch, run_dir).replace('"<manifest path>" "<entry path>"',
-                                                 '"package.json" "index.ts" "src/index.ts"')
-    proc = _bash(_fake_gh(repo) + fetch)
-    assert proc.returncode == 0, proc.stderr
-    staged = run_dir / "files"
+    # src/private.ts is listed, but the raw read answers 404 for it and there is no gh
+    (run_dir / "tree.json").write_bytes(_probe_listing(sorted([*files, "src/private.ts"])).encode("utf-8"))
+    fetch, extract, staged = _fetch_shim(tmp_path, repo), _extract_shim(tmp_path, repo), run_dir / "files"
+
+    def run(block: str) -> None:
+        block = (_fill_github(re.sub(r' \[--scope "\{monorepo_workspace\}"\]', "", block), run_dir, fetch)
+                 .replace("uv run {extractPublicApiHelper}", extract)
+                 .replace("<language>", "typescript").replace("<source root>", staged.as_posix()))
+        block = re.sub(r" \[(--repo [^\]]*)\]", r" \1", block)  # a GitHub source passes --repo and --ref
+        assert not re.findall(r"\{[A-Za-z_]+\}|<[a-z ]+>|\[--", block), block
+        proc = _bash(block)
+        assert proc.returncode == 0, proc.stderr
+
+    run(find)
+    entries = json.loads((run_dir / "entries.json").read_text(encoding="utf-8"))
+    assert (entries["manifest"], entries["entry_files"]) == ("package.json", ["src/index.ts"])
     assert sorted(p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()) == \
         ["package.json", "src/index.ts"]
-    extract = (extract.replace("uv run {extractPublicApiHelper}", _script("skf-extract-public-api.py"))
-               .replace("<language>", "typescript").replace("<source root>", staged.as_posix())
-               .replace("<manifest path>", "package.json").replace("<entry path>", "src/index.ts"))
-    proc = _bash(extract)
-    assert proc.returncode == 0, proc.stderr
-    out = json.loads(proc.stdout)
-    assert out["package_name"] == "demo" and out["version"] == "2.1.0"
+    run(parse.replace("<manifest path>", "package.json").replace("<entry path>", "src/index.ts"))
+    out = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+    assert (out["package_name"], out["version"]) == ("demo", "2.1.0")
     assert sorted(e["name"] for e in out["exports"]) == ["greeting", "hello"]
+    assert out["followed"] == ["src/greet.ts"] and (staged / "src" / "greet.ts").is_file()
+    assert [r["module_file"] for r in out["unlisted"]] == ["src/private.ts"]
+    assert any(w.startswith("--follow could not read src/private.ts") and "gh is not installed" in w
+               for w in out["warnings"])
+    # step 3 takes the count from the file, never from a number typed into its payload
+    body = {"signals": {"wants_wiring_pattern": False, "named_module_subset": [], "wants_narrow_api": True},
+            "module_count": 1, "mode": "interactive"}
+    proc = _run("skf-recommend-scope-type.py", "--tree-file", str(run_dir / "tree.json"),
+                "--extract-file", str(run_dir / "extract.json"), stdin=json.dumps(body))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["signals"] == {"wants_narrow_api": True, "export_count": 2}
+
+
+@needs_bash
+def test_the_fallback_path_stages_an_extraction_with_no_export(tmp_path):
+    """§4.2 writes over extract.json (a failed extractor run may have left it empty), so step 3 always passes
+    --extract-file, and an entries call that found nothing to parse goes there instead of an extractor call
+    with no file."""
+    text = _read(ANALYZE_TARGET)
+    fallback = _section(text, "#### 4.2 Procedure")
+    [stage] = re.findall(r"`(printf [^`]*extract\.json\")`", fallback)
+    assert ("When the entries call exits non-zero, or it names neither a manifest nor an entry file, there is "
+            "nothing to parse: skip the rest of §4.1 and take §4.2.") in _section(text, "#### 4.1 Procedure")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "extract.json").write_bytes(b"")
+    proc = _bash(stage.replace("{run_dir}", run_dir.as_posix()))
+    assert proc.returncode == 0, proc.stderr
+    (run_dir / "tree.json").write_bytes(_probe_listing(["Gemfile", "lib/demo.rb"]).encode("utf-8"))
+    body = {"signals": {"wants_wiring_pattern": False, "named_module_subset": [], "wants_narrow_api": True},
+            "module_count": 1, "mode": "interactive"}
+    proc = _run("skf-recommend-scope-type.py", "--tree-file", str(run_dir / "tree.json"),
+                "--extract-file", str(run_dir / "extract.json"), stdin=json.dumps(body))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["scope_type"] != "public-api", "no count, so the public-api rule does not fire"
+
+
+def test_a_public_repository_is_read_without_gh():
+    """Every file steps 2 and 3 read from GitHub comes through skf-github-fetch.py, which needs gh only for a
+    private repository, so a public repository the probe listed without gh goes on (no halt, no warning)."""
+    for path in sorted(REFERENCES.glob("*.md")):
+        text = _read(path)
+        assert "gh api -H" not in text and "/contents/" not in text, path.name
+    prefix = ('uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" '
+              '--tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" ')
+    calls = []
+    for path in (ANALYZE_TARGET, SCOPE_DEFINITION):
+        text = _read(path)
+        assert "githubFetchProbeOrder:" in text.split("\n---\n", 1)[0], path.name
+        calls += [line.strip() for block in _blocks(text, "{githubFetchHelper}") for line in block.splitlines()
+                  if "{githubFetchHelper}" in line]
+    assert len(calls) == 5 and all(call.startswith(prefix) for call in calls), calls
+    assert f'`{prefix}"{{file}}"`' in _read(VERSION_RESOLUTION)
+    listing = _section(_read(ANALYZE_TARGET), "### 1. Resolve Target Location")
+    assert '`status: "ok"` with `gh`' not in listing and "**Fetching files.**" in listing
+    assert "which needs no `gh`, and through `gh` only when that fails (a private repository)" in listing
+    probe = _section(_read(GATHER_INTENT), "#### 3.3 Branch")
+    assert "will HALT" not in probe and "a public one read without `gh` included" in probe
 
 
 def test_modules_and_structure_come_from_the_snapshot():
@@ -533,6 +658,50 @@ def test_the_step_five_payload_reaches_the_writer_with_its_apostrophes(tmp_path)
     brief = json.loads(_run("skf-validate-brief-schema.py", str(target)).stdout)["brief"]
     assert brief["description"] == context["description"] and brief["scope"]["notes"] == context["scope_notes"]
     assert brief["version"] == "1.4.0"
+
+
+@needs_bash
+def test_a_ratify_run_skips_the_overwrite_gate_only_for_the_brief_it_read(tmp_path):
+    """Step 5 writes a ratified brief to the forge path: with no gate only when that is the file step 1 read
+    (through any path or link); a brief read elsewhere, or renamed at step 4, meets the derive route's gates.
+    Both paths reach the check through a quoted heredoc, so a `$`, a quote or a backtick in one is read as is."""
+    section = _section(_read(WRITE_BRIEF), "### 2b. Existing Brief")
+    [check] = _blocks(section, "<<'SKF_PATHS'")
+    odd = "brie$fs `x` \"it's\""
+    _write_tree(tmp_path, {"forge/demo/skill-brief.yaml": "name: demo\n", "briefs/skill-brief.yaml": "name: demo\n",
+                           f"{odd}/skill-brief.yaml": "name: demo\n"})
+    target, elsewhere = tmp_path / "forge" / "demo" / "skill-brief.yaml", tmp_path / "briefs" / "skill-brief.yaml"
+    (tmp_path / "link").symlink_to(target.parent, target_is_directory=True)
+    (tmp_path / odd / "same.yaml").symlink_to(target)
+    check = check.replace("uv run python", f'"{sys.executable}"')
+
+    def same(source: str, dest: Path = target) -> str:
+        proc = _bash(check.replace("{resolved-target-path}", dest.as_posix()).replace("{ratify_source_path}", source),
+                     cwd=tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        return proc.stdout.strip()
+
+    assert same(target.as_posix()) == "same"
+    assert same("forge/demo/skill-brief.yaml") == "same", "a path relative to the working folder"
+    assert same((tmp_path / "link" / "skill-brief.yaml").as_posix()) == "same", "a path through a link"
+    assert same((tmp_path / odd / "same.yaml").as_posix()) == "same", "a path holding $, quotes and backticks"
+    assert same((tmp_path / odd / "skill-brief.yaml").as_posix()) == "different"
+    assert same((tmp_path / "missing.yaml").as_posix()) == "different", "a source that no longer exists"
+    assert same(elsewhere.as_posix()) == "different"
+    assert same(target.as_posix(), tmp_path / "forge" / "renamed" / "skill-brief.yaml") == "different"
+    for gate in ("**Interactive (`{headless_mode}` is false), unless the ratify check printed `same`:**",
+                 "headless (`{headless_mode}` is true), unless the ratify check printed `same`:"):
+        assert gate in section, gate
+    assert "takes precedence over both" not in section and "auto-overwrites the brief in place" not in section
+    # the promise names the forge path, and force for another brief already there
+    for path in (SKILL_MD, RATIFY, INVOCATION_CONTRACT, HEADLESS_ARGS):
+        text = _read(path)
+        for stale in ("rewritten in place", "writer in place", "write in place", "overwriting this file"):
+            assert stale not in text, (path.name, stale)
+    for path in (SKILL_MD, RATIFY):
+        assert "(in place when it already lives there)" in _read(path), path.name
+    for path in (RATIFY, INVOCATION_CONTRACT, HEADLESS_ARGS):
+        assert "otherwise `force` applies as on the derive route" in _read(path), path.name
 
 
 def _upstream_brief(tmp_path: Path) -> dict:

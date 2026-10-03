@@ -90,44 +90,41 @@ Which unit imports which, how many files import each unit, which units are impor
 
 **Units JSON.** One entry per qualifying unit, from its Identified Units row: `{"name": "<unit name>", "path": "<its path, relative to the source root>", "manifest_name": "<its own manifest's name>", "ecosystem": "<its own manifest's ecosystem>"}`, with `manifest_name` and `ecosystem` left out for a unit without a manifest. The import helper works out the names other code imports each unit by from what the unit declares. Add `"modules"` only for a folder without a manifest that code imports by name: a Python package folder (`["acme"]`) or a Go package inside a module (`["example.com/svc/internal/auth"]`).
 
-Run this once per project path, with `{source_root}` its scan root, over the units under it:
+Run this once per project path, the `{i}`-th entry of `project_paths[]`, with `{source_root}` its scan root, over the units under it. `{run_dir}/manifests-{i}.json` is the manifest scan scan-project wrote; when it is missing, as in a session that resumed the report, run `uv run {scanManifestsHelper} scan "{source_root}" > "{run_dir}/manifests-{i}.json"` first.
 
 ```bash
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-cat > "$work/units.json" <<'SKF_UNITS'
+cat > "{run_dir}/units-{i}.json" <<'SKF_UNITS'
 {"units": [<one entry per qualifying unit under {source_root}>]}
 SKF_UNITS
-uv run {scanManifestsHelper} scan "{source_root}" > "$work/manifests.json"
-uv run {countImportsHelper} count "{source_root}" --units "$work/units.json" --deps "$work/manifests.json" > "$work/imports.json"
-cat "$work/imports.json" "$work/manifests.json"
-uv run {findCyclesHelper} find --edges "$work/imports.json"
-uv run {countImportsHelper} count "{source_root}" --units "$work/units.json" --format libraries > "$work/importers.json"
-uv run {pairIntersectHelper} intersect --libraries "$work/importers.json"
+uv run {countImportsHelper} count "{source_root}" --units "{run_dir}/units-{i}.json" --deps "{run_dir}/manifests-{i}.json" > "{run_dir}/imports-{i}.json"
+uv run {countImportsHelper} summary "{run_dir}/imports-{i}.json" --manifests "{run_dir}/manifests-{i}.json"
+uv run {findCyclesHelper} find --edges "{run_dir}/imports-{i}.json"
+uv run {countImportsHelper} count "{source_root}" --units "{run_dir}/units-{i}.json" --format libraries > "{run_dir}/importers-{i}.json"
+uv run {pairIntersectHelper} intersect --libraries "{run_dir}/importers-{i}.json"
 ```
 
 A helper that exits non-zero names the problem on stderr (a unit name or path given twice, a malformed entry): fix the units JSON and run the block again.
 
-Read the output:
+Read the output. The `summary` line prints the graph without the file lists, which stay in `{run_dir}/imports-{i}.json`:
 
-- **Imports From / Imported By:** each `units[]` entry's `imports_from` and `imported_by`. Its `file_count` is the number of import sites (files outside the unit that import it), and `files` lists them with the line of their first import.
-- **External Deps:** each `units[]` entry's `external_deps`, the manifest dependencies its files import.
+- **Imports From / Imported By:** each summary `units[]` entry's `imports_from` and `imported_by`. Its `file_count` is the number of import sites (files outside the unit that import it).
+- **External Deps:** each summary `units[]` entry's `external_dep_count`, the number of manifest dependencies its files import.
 - **Mutual dependencies:** each `cycles[]` entry (`["a", "b", "a"]` is two units that import each other).
 - **Co-imported units:** each `pairs[]` entry: `intersection_count` files import both units, listed in `files`. When `truncated` is true, run that last call again with `--top-k` set to its `total_pairs`, so no pair is left out.
-- Keep the scan output (`manifests.json`) for §5, whose cohesion triggers read its `umbrella_candidates[]` and each member's `name`, `private` and `internal_deps`.
+- **Cohesion evidence:** the summary's `umbrella_candidates[]` and `manifests[]` (each manifest's `name`, `private` and `internal_deps`), which §5 reads.
 
 **Build cross-reference matrix:**
 
 | Unit | Imports From | Imported By | Import Sites | External Deps |
 |------|-------------|-------------|--------------|---------------|
-| {name} | {imports_from} | {imported_by} | {file_count} | {external_deps count, or --} |
+| {name} | {imports_from} | {imported_by} | {file_count} | {external_dep_count, or --} |
 
 ### 4. Detect Integration Points
 
 Identify cross-unit integration patterns:
 
 **Direct integrations:**
-- Each §3 `edge_files[]` entry (unit `from` imports from unit `to`, through the `files` it lists with the line of their first import) → document the interface boundary
+- Each §3 summary `edge_files[]` entry (unit `from` imports from unit `to` in `file_count` files, the first of them listed in `files` with the line of their first import) → document the interface boundary. When the boundary needs every file, read that entry in `{run_dir}/imports-{i}.json`
 - Shared type definitions across units
 - Cross-unit function calls
 
@@ -143,7 +140,7 @@ Decide both here, in one pass over §3's graph and §4's integration map, so eac
 
 **Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:5`): "`skf-skill-inventory.py` is missing. Re-install SKF."
 
-1. **Composite merge proposals.** Apply the Composite Boundary triggers in {heuristicsFile} (mutual hard dependency, shared integration surface, and the Cohesion Triggers: umbrella facade, shared runtime contract, internal building blocks) to the qualifying units. The evidence comes from the helpers: `cycles[]` for a mutual dependency, `edges[]` and §4's shared types for a shared integration surface, and the §3 scan's `umbrella_candidates[]` and each member's `internal_deps` and `private` for the cohesion triggers. For each group that meets a trigger, propose one composite:
+1. **Composite merge proposals.** Apply the Composite Boundary triggers in {heuristicsFile} (mutual hard dependency, shared integration surface, and the Cohesion Triggers: umbrella facade, shared runtime contract, internal building blocks) to the qualifying units. The evidence comes from the helpers: `cycles[]` for a mutual dependency, `edge_files[]` and §4's shared types for a shared integration surface, and the §3 summary's `umbrella_candidates[]` and each manifest's `internal_deps` and `private` for the cohesion triggers. For each group that meets a trigger, propose one composite:
    - **Constituents:** the unit names and paths merged
    - **Heuristic and evidence:** the trigger and what showed it (the cycle, the umbrella candidate and the members its `internal_deps` cover, the `private` flags, the shared types and their files)
    - **Name:** name every proposal in one call to the helper that names every unit and brief ({heuristicsFile}'s Unit Names), one entry each: `target` is its constituents' project path, `manifest_name` the facade's manifest name when an umbrella facade triggered the merge (else null), and `members` the constituents' manifest names:

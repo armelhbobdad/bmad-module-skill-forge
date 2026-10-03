@@ -224,17 +224,14 @@ def _entries_step(extract: str, run_dir: Path, language: str) -> dict:
     return json.loads((run_dir / "entries.json").read_text(encoding="utf-8"))
 
 
-def _extract_step(extract: str, run_dir: Path, language: str, manifest: str | None, entry_files: list[str],
-                  followed: list[str] = ()) -> dict:
-    """§3's extractor call, filled in as the step says: the entries' manifest, each entry file and
-    each module the follow loop fetched."""
+def _extract_step(extract: str, run_dir: Path, language: str, manifest: str | None, entry_files: list[str]) -> dict:
+    """§3's extractor call, filled in as the step says: the entries' manifest and each entry file."""
     call = _bash_block(_section(extract, "### 3. Parse Manifest and Scan Exports", "**Multi-module loop:**"),
                        "--manifest-file")
     call = call.replace("<lang>", language)
     call = call.replace("--manifest-file <manifest path>", f"--manifest-file {manifest}" if manifest else "")
     call = call.replace("--entry-file <entry path> [--entry-file <entry path>]...",
                         " ".join(f"--entry-file {path}" for path in entry_files))
-    call = call.replace("[--follow-file <module path>]...", " ".join(f"--follow-file {path}" for path in followed))
     _run(call, run_dir)
     return json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
 
@@ -258,7 +255,7 @@ def test_the_library_chain_hands_the_files_to_the_extractor_by_path(tmp_path, ra
     assert (entries["manifest"], entries["entry_files"]) == ("pyproject.toml", [init])
     envelope = _extract_step(extract, run_dir, "python", entries["manifest"], entries["entry_files"])
     assert [e["name"] for e in envelope["exports"]] == ["greet"]
-    assert (envelope["unlisted"], (run_dir / "follow.txt").read_bytes()) == ([], b"")
+    assert (envelope["unlisted"], envelope["followed"]) == ([], [])
     assert (run_dir / "src" / "src" / folder / "__init__.py").read_bytes() == INIT_PY
     metadata = _render(run_dir, tmp_path)
     assert (metadata["exports"], metadata["version"], metadata["source_package"]) == (["greet"], "0.4.0", name)
@@ -275,27 +272,19 @@ NODENEXT_FILES = {
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
 def test_the_follow_loop_reads_an_export_star_chain_to_its_end(tmp_path, raw_github):
     """step 5b determinism-2: a NodeNext `export * from './core.js'` chain is followed round by
-    round, as §3 says, until no module is left to read: no export comes from the README."""
+    round until no module is left to read, by the extractor's --follow in §3's one call (step 5b
+    gate run 2 determinism-1): no export comes from the README, and no round is run by hand."""
     run_dir = _run_folder(tmp_path, [*NODENEXT_FILES, "README.md"])
     raw_github.update({**NODENEXT_FILES, "README.md": b"# acme\n"})
     extract = _read(QUICK_EXTRACT)
     _run(_bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff "), run_dir)
     entries = _entries_step(extract, run_dir, "ts")
     assert (entries["manifest"], entries["entry_files"]) == ("package.json", ["src/index.ts"])
-    files = list(entries["entry_files"])
-    followed: list[str] = []
-    follow = _section(extract, "**Follow the statements `unlisted[]` names**", "**Multi-module loop:**")
-    assert "at most 5 rounds" in follow and '`--patterns-file "{run_dir}/follow.txt"` in place of `entries.txt`' in follow
-    fetch = _bash_block(_section(extract, "### 2. Fetch Source Files", "### 3. "), "--mode entries").splitlines()[1]
-    envelope = _extract_step(extract, run_dir, "ts", entries["manifest"], files)
-    for _ in range(5):
-        named = (run_dir / "follow.txt").read_text(encoding="utf-8").split()
-        if not named:
-            break
-        _run(fetch.replace("entries.txt", "follow.txt") + "\n", run_dir)
-        followed += named
-        envelope = _extract_step(extract, run_dir, "ts", entries["manifest"], files, followed)
-    assert files + followed == ["src/index.ts", "src/core.ts", "src/util/index.ts"]
+    parse = _section(extract, "### 3. Parse Manifest and Scan Exports", "### 4. ")
+    assert "follow.txt" not in parse and "at most 5 rounds" not in parse and "--follow-file" not in parse
+    envelope = _extract_step(extract, run_dir, "ts", entries["manifest"], entries["entry_files"])
+    assert envelope["followed"] == ["src/core.ts", "src/util/index.ts"]
+    assert (run_dir / "src" / "src" / "util" / "index.ts").read_bytes() == NODENEXT_FILES["src/util/index.ts"]
     assert {e["name"] for e in envelope["exports"]} == {"Core", "helper", "VERSION"}
     assert envelope["unlisted"] == [] and not any("passes on names" in w for w in envelope["warnings"])
 
@@ -480,6 +469,14 @@ def _run_folder(tmp_path: Path, paths: list[str]) -> Path:
         "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
         "mod.RAW_ROOT = os.environ['SKF_TEST_RAW_ROOT']\nmod._gh_raw = lambda *a: (None, 'no gh in this test')\n"
         "raise SystemExit(mod.main(sys.argv[1:]))\n", encoding="utf-8")
+    # The extractor's --follow fetches through the same helper, loaded beside it.
+    (tmp_path / "extract-shim.py").write_text(
+        "import importlib.util, os, sys\n"
+        f"spec = importlib.util.spec_from_file_location('extract', {str(EXTRACTOR)!r})\n"
+        "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
+        "fetch = mod._sibling('skf-github-fetch.py')\nfetch.RAW_ROOT = os.environ.get('SKF_TEST_RAW_ROOT', '')\n"
+        "fetch._gh_raw = lambda *a: (None, 'no gh in this test')\n"
+        "raise SystemExit(mod.main(sys.argv[1:]))\n", encoding="utf-8")
     return run_dir
 
 
@@ -489,7 +486,7 @@ def _run(block: str, run_dir: Path) -> None:
     python = f'"{sys.executable}"'
     script = (block.replace("uv run {githubFetch}", f'{python} "{run_dir.parent / "fetch-shim.py"}"')
               .replace("uv run {skillsModuleHelper}", f'{python} "{SKILLS_MODULE}"')
-              .replace("uv run {publicApiExtractor}", f'{python} "{EXTRACTOR}"')
+              .replace("uv run {publicApiExtractor}", f'{python} "{run_dir.parent / "extract-shim.py"}"')
               .replace("uv run {quickMetadataRenderer}", f'{python} "{RENDERER}"')
               .replace("{owner}/{repo}", "acme/lib").replace("{source_ref or HEAD}", "HEAD")
               .replace("{run_dir}", run_dir.as_posix()).replace("{repo_name}", "acme-module"))
@@ -596,9 +593,9 @@ def test_extractor_warnings_send_section_3_after_the_module_they_name():
         assert form in warnings, form
     [unlisted] = [line for line in parse.splitlines() if line.startswith("- `unlisted[]`")]
     assert "`{file, line, statement, specifier, module_file}`" in unlisted
-    act = _section(parse, "**Follow the statements `unlisted[]` names**", "\n\n")
-    for needle in ("run the extractor again with each file it `fetched` as one more `--follow-file`",
-                   "Read by eye only the `unlisted[]` records left whose `module_file` is null",
+    act = _section(parse, "**Read the statements `unlisted[]` still names**", "\n\n")
+    for needle in ("`--follow` read every module it could",
+                   "read by eye only the `unlisted[]` records left, whose `module_file` is null",
                    "`{run_dir}/extract-added.json`"):
         assert needle in act, needle
     assert "resolve the relative specifier the way the language does" not in parse

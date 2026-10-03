@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  Brief Skill now reads a public GitHub repository without the GitHub CLI (`gh`), as the Quick, Forge and Forge+ tiers promise: every file it reads is fetched raw through `skf-github-fetch.py`, which falls back to `gh` only for a private repository. Before, a run without `gh`, or with `gh` logged out, halted with `gh-auth-failed` at the target analysis (the `forge <url> <name>` pipeline included), and the first prompt warned that it would. A private repository still needs a logged-in `gh`.
+prs: [659]
