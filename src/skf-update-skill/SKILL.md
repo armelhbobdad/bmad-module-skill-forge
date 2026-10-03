@@ -35,7 +35,7 @@ These rules apply to every step in this workflow:
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
 - Every HALT, ABORT or other exit before step 7 runs the **Halt procedure** of the step file it fires in: one `{runStateHelper}` `halt` call that undoes this run's writes, removes the private source tree, releases the run lock and, headless, prints the halt's line. A halt never falls through to step 6.
 - While `{source_tree}` is bound, a step that finds `{source_root}` missing HALTs with status `blocked` (`error.phase` `<step>:source-tree-missing`) instead of reading its files as deleted.
-- **Run log.** Warnings and gate decisions live in the run folder, never only in context: record a warning at once with `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "<text>"` from `{project-root}`, and each gate's decision with `record --decision`.
+- **Run log.** Warnings and gate decisions live in the run folder, never only in context: a step records each warning the moment it raises it, and each gate its decision, with the `record` call that step names.
 
 ## Stages
 

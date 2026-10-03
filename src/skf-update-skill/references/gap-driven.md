@@ -61,6 +61,8 @@ Pass `--lock` and `--owner` when init.md §1b bound `{lock_owner}` (the read-onl
 
 The halt leaves `{run_dir}` in place.
 
+**Warnings go to the run log.** Record each warning this step adds to `warnings[]` the moment it is raised: write its text to `{run_dir}/warning.txt` with a file write (a warning can hold quotes, `$` or backticks), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`. The halt line and the result line read warnings only from `{run_dir}/warnings.jsonl`.
+
 ### 1. Translate the Test Report's Gaps
 
 Read the gaps of the test report at `{test_report_path}` and translate them into the change manifest (the source has not changed, so no file is compared):

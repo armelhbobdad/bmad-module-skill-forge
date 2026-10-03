@@ -40,6 +40,8 @@ Pass `--tree` when init.md §6b bound `{source_tree}`, `--lock` and `--owner` wh
 
 The halt leaves `{run_dir}` in place.
 
+**Warnings go to the run log.** Record each warning this step adds to `warnings[]` the moment it is raised: write its text to `{run_dir}/warning.txt` with a file write (a warning can hold quotes, `$` or backticks), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`. The halt line and the result line read warnings only from `{run_dir}/warnings.jsonl`.
+
 ### 1. Check for Docs-Only Mode
 
 **If `source_type: "docs-only"` in the original brief or metadata:**
