@@ -20,6 +20,8 @@ fixtures:
   the forge folder; the interactive path's context does the same.
 - The auto path lists the target's files once into a run file, and shape
   and language detection read it: no grep pre-filter and no echo'd tree.
+  A brief's include and exclude patterns come from that list too, never
+  from a remote target's manifests-only checkout (gate run 6 determinism-2).
 - The prose pins: a finished report is archived and the run starts fresh,
   continue.md keeps no unreachable "already complete" branch, the fallback
   to the interactive chain resets `mode`, the per-boundary brief rules are
@@ -617,7 +619,7 @@ def test_the_auto_path_has_no_grep_pre_filter_and_no_echoed_tree():
     for gone in ("grep -Ei", "grammar_matches", "--grammar-files", "--tree-paths", 'echo \'{"tree"', '"$tmp"'):
         assert gone not in text, gone
     assert '--tree-file "{run_dir}/tree.txt"' in _one_command(text, "uv run {shapeDetectHelper}")
-    language = _one_command(_section(text, "### 5. Generate", "### 6. Build"), "uv run {detectLanguageHelper}")
+    language = _one_command(_section(text, "### 5. Generate", "### 6. Build"), "uv run {detectLanguageHelper} --tree-file")
     assert language == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree.txt" [--workspace-signal {workspace_kind}]'
     assert "detectWorkspacesProbeOrder:" in text.split("\n---\n", 1)[0]
     assert "{detectLanguageHelper}" not in _read(CORPORA), "6b reuses the language §5 detected"
@@ -674,10 +676,100 @@ def test_the_documented_listing_feeds_shape_and_language_detection(tmp_path):
     shape = _run(_one_command(text, "uv run {shapeDetectHelper}"), values)
     assert shape.returncode == 0, shape.stderr
     assert any(s.startswith("grammar_file:") for s in json.loads(shape.stdout)["signals"])
-    language = _run(_one_command(_section(text, "### 5. Generate", "### 6. Build"), "uv run {detectLanguageHelper}"),
-                    values)
+    language = _run(_one_command(_section(text, "### 5. Generate", "### 6. Build"),
+                                 "uv run {detectLanguageHelper} --tree-file"), values)
     out = json.loads(language.stdout)
     assert (out["language"], out["confidence"], out["detected_languages"]) == ("python", "high", ["python", "typescript"])
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_a_remote_target_takes_its_patterns_from_the_listing(tmp_path):
+    """Step 5b gate run 6 determinism-2: §2 fetches a remote target as a manifests-only
+    sparse checkout, where an Express-style lib/ does not exist on disk. §5 takes the
+    patterns from the listing, so they root at lib/ and never fall back to src/."""
+    origin = tmp_path / "express"
+    for rel, data in {"package.json": b'{"name": "express", "version": "5.0.0", "main": "index.js"}\n',
+                      "index.js": b"module.exports = require('./lib/express');\n",
+                      "lib/express.js": b"exports.app = 1;\n", "lib/router/index.js": b"exports.route = 1;\n",
+                      "test/app.js": b"require('..');\n", "examples/auth/index.js": b"require('../..');\n"}.items():
+        (origin / rel).parent.mkdir(parents=True, exist_ok=True)
+        (origin / rel).write_bytes(data)
+    _git("init", "-q", cwd=origin)
+    _git("add", "-A", cwd=origin)
+    _git("-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false",
+         "commit", "-q", "-m", "init", cwd=origin)
+    _git("config", "uploadpack.allowFilter", "true", cwd=origin)
+    text = _read(AUTO)
+    run_dir = _run_dir(tmp_path)
+    [fetch] = _fenced(_section(text, "- **`kind` is `remote`:**", "Each `{run_dir}/manifests-{i}.json`"), "bash")
+    values = {"clone_url": origin.as_uri(), "run_dir": run_dir.as_posix(), "i": "1", "pinned_branch_flag": ""}
+    for line in [line for line in fetch.strip().split("\n") if line.startswith("git ")]:
+        argv = shlex.split(re.sub(r"\{(\w+)\}", lambda m: values[m.group(1)], line))
+        subprocess.run(argv, check=True, capture_output=True, timeout=60)
+    scan_root = run_dir / "clone-1"
+    assert (scan_root / "package.json").is_file() and not (scan_root / "lib").exists(), "a manifests-only checkout"
+    [listing] = [line for line in _fenced(_section(text, "**List the target's files once.**", "### 3."), "bash")[0]
+                 .split("\n") if "ls-tree" in line]
+    command, _, out = listing.partition(" > ")
+    tree = subprocess.run(shlex.split(command.replace("{scan_root}", scan_root.as_posix())), capture_output=True,
+                          check=True, timeout=60).stdout
+    Path(out.strip('"').replace("{run_dir}", str(run_dir))).write_bytes(tree)
+    section = _section(text, "### 5. Generate", "### 6. Build")
+    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE)}
+    language = _run(_one_command(section, "uv run {detectLanguageHelper} --tree-file"), values)
+    values["detected_language"] = json.loads(language.stdout)["language"]
+    patterns = _run(_one_command(section, "uv run {detectLanguageHelper} scope-patterns"), values)
+    assert patterns.returncode == 0, patterns.stderr
+    out = json.loads(patterns.stdout)
+    assert (out["language"], out["source_folders"], out["include"]) == ("javascript", ["lib"], ["lib/**/*.js"])
+    for gone in ("Check for the existence", "| Language | Default include |", "**Adjust for actual layout:**"):
+        assert gone not in text, gone
+
+
+def test_a_merged_monorepo_takes_patterns_over_every_member(tmp_path):
+    """Section 3b prefers merge, and its facet guard never drops a member silently: the
+    documented section 5 commands on an aws-sdk-js-v3-shaped listing, whose root lib/
+    is one package beside clients/ and packages/, give patterns over every member."""
+    run_dir = _run_dir(tmp_path)
+    tree = ["package.json", "tsconfig.json", "lib/lib-storage/package.json", "lib/lib-storage/src/Upload.ts",
+            "clients/client-s3/package.json", "clients/client-s3/src/S3Client.ts", "packages/core/package.json",
+            "packages/core/src/index.ts", "scripts/build.ts"]
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    section = _section(_read(AUTO), "### 5. Generate", "### 6. Build")
+    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE)}
+    language = _run(_one_command(section, "uv run {detectLanguageHelper} --tree-file"), values)
+    values["detected_language"] = json.loads(language.stdout)["language"]
+    patterns = _run(_one_command(section, "uv run {detectLanguageHelper} scope-patterns"), values)
+    assert patterns.returncode == 0, patterns.stderr
+    out = json.loads(patterns.stdout)
+    assert (out["language"], out["include"], out["exclude"][-1]) == ("typescript", ["**/*.ts"], "scripts/**")
+
+
+def test_each_boundary_takes_its_patterns_from_its_own_listing(tmp_path):
+    """Split §5a lists a boundary's files, detects its language from them and prints the
+    patterns rooted at its source folder; §6a reuses that language."""
+    split = _read(SPLIT)
+    [block] = _fenced(_section(split, "### 5a.", "### 6a."), "bash")
+    awk, detect, patterns = block.strip().split("\n")
+    assert detect == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{i}.txt"', "no --workspace-signal"
+    assert "{detectLanguageHelper}" not in _section(split, "### 6a.", "### 7."), "6a reuses the language 5a detected"
+    assert "default pattern table" not in split
+    run_dir = _run_dir(tmp_path)
+    tree = ["package.json", "packages/auth/package.json", "packages/auth/tsconfig.json", "packages/auth/lib/index.ts",
+            "packages/auth/test/index.test.ts", "packages/auth-ui/package.json", "packages/auth-ui/src/a.ts"]
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    awk = awk.replace("<boundary path>", "packages/auth").replace("{run_dir}", run_dir.as_posix())
+    command, _, out = awk.partition(" > ")
+    if shutil.which("awk"):
+        listed = subprocess.run(shlex.split(command), capture_output=True, check=True, timeout=60).stdout
+    else:  # the paths awk keeps: those that start with "<boundary path>/"
+        listed = "".join(f"{p}\n" for p in tree if p.startswith("packages/auth/")).encode("utf-8")
+    Path(out.strip('"').replace("{i}", "1")).write_bytes(listed)
+    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE), "i": "1"}
+    language = json.loads(_run(detect, values).stdout)["language"]
+    printed = _run(patterns.replace("<its language>", language), values)
+    assert printed.returncode == 0, printed.stderr
+    assert (language, json.loads(printed.stdout)["include"]) == ("typescript", ["packages/auth/lib/**/*.ts"])
 
 
 # --------------------------------------------------------------------------

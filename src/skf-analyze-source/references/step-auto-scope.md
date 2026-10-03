@@ -216,7 +216,7 @@ Apply the **Decomposition Thresholds** ladder from `step-shape-detect.md` (loade
 
 **Decision:**
 
-- **Threshold not met** (`package_count ≤ 3`) → Continue to §4 (single-scope flow, entirely unchanged).
+- **Threshold not met** (`package_count ≤ 3`) → Continue to §4 (single-scope flow).
 - **Threshold met** (`package_count > 3`) → this repo is a **decomposition candidate**. A threshold firing means the repo *could* decompose, not that it *should* — continue to §3b to decide merge-vs-split. Log: "Auto-decomposition candidate: package_threshold ({value} packages exceeds 3)".
 
 ### 3b. Cohesion Check — Merge to One Skill vs Split into N
@@ -244,7 +244,7 @@ If the command fails, go on: only that entry is lost.
 
 ### 4. Map Shape to Scope
 
-Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1), the single source of truth for this ladder.
+Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1).
 
 **An app or a library on a framework.** When §3's `signals` hold `app_or_library:framework_dep`, take that table's row for it and judge which of its two cases the repository is from the scan-root manifest's `description` (its `manifests[]` entry in `{run_dir}/manifests-1.json`), or, when that does not settle it, the README's opening paragraph (a remote fetch checked out only the manifests: `git -C "{scan_root}" sparse-checkout add '/README*'` brings the README in). From here on `{shape}` is the shape you chose. Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.shape", "default_action": "reference-app", "taken_action": "<reference-app or library-API>", "reason": "<the sentence of the description or README that decided>", "evidence": {"signals": [<the §3 signals>]}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
 
@@ -252,9 +252,7 @@ Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-dete
 
 ### 5. Generate Include/Exclude Patterns
 
-Generate `scope.include` and `scope.exclude` arrays from the detected language and project structure.
-
-**Detect the primary language once, deterministically**, from the §2 file list, via the shared helper: the single source of truth for the manifest→language rule table. **Resolve `{detectWorkspacesHelper}`** from `{detectWorkspacesProbeOrder}` and **`{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:5`): "`{the missing script}` is missing. Re-install SKF." First find the workspace layout, which reads the root manifests from the scan root (§2):
+**Detect the primary language once**, from the §2 file list, with the shared helper. **Resolve `{detectWorkspacesHelper}`** from `{detectWorkspacesProbeOrder}` and **`{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:5`): "`{the missing script}` is missing. Re-install SKF." First find the workspace layout, which reads the root manifests from the scan root (§2):
 
 ```bash
 uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.txt" --manifest-dir "{scan_root}"
@@ -271,21 +269,13 @@ The helper owns the `tsconfig.json` JS-vs-TS and `build.gradle` Java-vs-Kotlin d
 - **`detected_languages` has one entry or none, or `.confidence` is `high` and the §2 scan-root manifests (the `manifests[]` entries whose `path` has no folder) are all of one ecosystem:** `{detected_language}` ← `.language`. A manifest at the root decided, so the choice below would give the same answer.
 - **Otherwise** (several languages, and no single-ecosystem root manifest decided): `.language` is the helper's first guess, not the answer. Choose the language the skill documents: among `detected_languages`, the language of the scan-root manifest (the §2 `manifests[]` entry whose `path` has no folder; with several, the one whose `name` is the package this repository publishes), or, when there is none, `.source_language`, the language most of the files are written in (CPython's listing holds only manifests below its root, so `.confidence` is `medium` and its sources say `python`). Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.language", "default_action": "<detected_languages[0]>", "taken_action": "<the language you chose>", "reason": "<the manifest or the source files that decided>", "evidence": {"detected_languages": [<detected_languages>], "source_language": "<source_language>"}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
 
-**Default patterns (adjust based on actual project structure):**
+**Take the patterns from the §2 listing**, never from the folders on disk (a remote scan root holds only the manifests): `scope.include` and `scope.exclude` are what this prints:
 
-| Language | Default include | Default exclude |
-|----------|-----------------|-----------------|
-| TypeScript/JavaScript | `['src/**/*.ts', 'src/**/*.tsx']` | `['**/*.test.ts', '**/*.spec.ts', '**/node_modules/**']` |
-| Python | `['src/**/*.py']` or `['{package_name}/**/*.py']` | `['**/*_test.py', '**/test_*.py', '**/tests/**']` |
-| Rust | `['src/**/*.rs']` | `['**/tests/**', '**/benches/**']` |
-| Go | `['**/*.go']` | `['**/*_test.go', '**/vendor/**']` |
-| Java | `['src/main/java/**/*.java']` | `['**/src/test/**']` |
-| Kotlin | `['src/main/kotlin/**/*.kt']` | `['**/src/test/**']` |
-| Swift | `['Sources/**/*.swift']` | `['**/Tests/**']` |
+```bash
+uv run {detectLanguageHelper} scope-patterns --tree-file "{run_dir}/tree.txt" --language {detected_language}
+```
 
-**Adjust for actual layout:** If the project uses a non-standard layout (e.g., `lib/` instead of `src/`, or a named package directory for Python), detect and use the actual paths. Check for the existence of common source directories (`src/`, `lib/`, `pkg/`, the package name directory) and prefer the one that exists.
-
-**Apply `scope_hint`** when it is not empty: root the include patterns at the folders or packages it focuses on (`packages/auth/src/**/*.ts`), and add `<folder>/**` to the exclude patterns for each folder it skips. Name the hint in `scope.notes`.
+**Apply `scope_hint`** when it is not empty: root the include patterns at the folders or packages it focuses on (`packages/auth/**/*.ts`), and add `<folder>/**` to the exclude patterns for each folder it skips. Name the hint in `scope.notes`.
 
 ### 6. Build Scope and Determine Skill Name
 
@@ -341,11 +331,11 @@ decomposition:
 
 Each `confirmed_units` entry includes `boundary_path` — the relative path to the boundary's root (e.g., `packages/core`). Omit the `decomposition` key entirely when single-scope (N = 1).
 
-**When single-scope (N = 1):** No `decomposition` key. `confirmed_units` contains a single entry (existing behavior).
+**When single-scope (N = 1):** No `decomposition` key. `confirmed_units` contains a single entry.
 
 **Append body section:**
 
-For single-scope (unchanged):
+For single-scope:
 ```markdown
 ## Auto-Scope Analysis
 
