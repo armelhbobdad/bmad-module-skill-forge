@@ -2,3 +2,4 @@ type: changed
 scope: skf-update-skill
 summary: |
   In headless mode the `SKF_UPDATE_RESULT_JSON` line is now the run's last line, shown after the health check, so `claude -p` prints it as its final message, for `--detect-only` and `--dry-run` too.
+prs: [654]

@@ -2,3 +2,4 @@ type: changed
 scope: skf-quick-skill
 summary: |
   A headless single-target Quick Skill run now ends on its `SKF_QUICK_SKILL_RESULT_JSON` line: the run hands the line to the shared health check, which displays it after everything else, so `claude -p` prints the envelope as the final message instead of the health check's closing line. Interactive runs and `--batch` targets still show the line where the result contract is written.
+prs: [654]

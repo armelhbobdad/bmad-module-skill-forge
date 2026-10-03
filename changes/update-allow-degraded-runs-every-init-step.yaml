@@ -2,3 +2,4 @@ type: fixed
 scope: skf-update-skill
 summary: |
   A headless run with `--allow-degraded` on a skill that has no provenance map now does what an interactive degraded rebuild does: it captures the [MANUAL] inventory, reads the source from its own tree and records `source_commit`. It used to skip straight to change detection.
+prs: [654]

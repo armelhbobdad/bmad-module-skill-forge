@@ -2,3 +2,4 @@ type: fixed
 scope: skf-update-skill
 summary: |
   `--from-test-report` on a skill with no `provenance-map.json`, such as Quick Skill output, now stops `blocked` before any gate and tells you to run a normal update first. It used to fail with `halted-for-write-failure` after every gate was answered.
+prs: [654]
