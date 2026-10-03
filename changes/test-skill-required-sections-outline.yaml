@@ -2,3 +2,4 @@ type: fixed
 scope: skf-test-skill
 summary: |
   The naive coherence check no longer blocks a component-library skill with a High missing-section gap: its `## Component Catalog` heading now satisfies the API section check. A `# Usage` or `# API` comment inside a code block no longer counts as that section. When no known heading matches, the check reads the outline of the skill's headings, so a usage or API section under another heading, such as `## Usage Examples`, is judged as that section instead of blocking the run, and the Coherence Analysis names the heading it accepted.
+prs: [656]
