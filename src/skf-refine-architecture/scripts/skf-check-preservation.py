@@ -112,9 +112,10 @@ Subcommands:
       already holds. The VS Report Integration table has one row per
       verdict token (Verified, Plausible, Risky, Blocked, case-sensitive),
       and each row's Raises cell names one tier of Issue Severity, as a
-      whole word, ignoring case (the tiers in bold when it bolds any, as
-      the bundled rows do: `A **Major** issue`, else the tiers its text
-      names: `Major`), or names none and says No issue or None.
+      whole word, ignoring case, or says No issue or None, never both:
+      what it bolds when it bolds a tier or No issue or None
+      (`A **Major** issue`, as the bundled rows do, or `**No issue**`),
+      else what its text names (`Major`, `No issue`).
       JSON: {status: "ok" | "violations", rules, missing_tables[], tiers:
       {issue[], improvement[]}, vs_raises: {<token>: <tier> | null},
       violations[]}. A violation is {table, line, rule, detail}, line null
@@ -1094,14 +1095,18 @@ def _named_tiers(text: str, severities: dict[str, str]) -> list[str]:
 def vs_raised(cell: str, severities: dict[str, str]) -> tuple[list[str], bool]:
     """The tiers a VS Report Integration Raises cell names, and whether it says no issue.
 
-    The tiers named in bold count when there are any (`A **Major** issue`); otherwise the
-    tiers its text names as whole words (`Major`, `A Critical issue`). A cell that names no
-    tier raises no issue when it says No issue or None, ignoring case.
+    What the cell bolds counts when it bolds a tier or No issue or None (`A **Major** issue`,
+    `**No issue**, whatever the rationale says`): the prose around it is not read. Otherwise
+    the tiers its text names as whole words count (`Major`, `A Critical issue`), and it says
+    no issue when its text says No issue or None, ignoring case. A cell that names a tier and
+    also says no issue, both in bold or both in its text, raises neither: check_rules reports it.
     """
     bold = [(m.group(1) or m.group(2)).strip() for m in BOLD_RE.finditer(cell)]
     named = [severities[_placeholder(b)] for b in bold if TIER_NAME_RE.fullmatch(b) and _placeholder(b) in severities]
-    named = list(dict.fromkeys(named)) or _named_tiers(cell, severities)
-    return named, not named and bool(NO_ISSUE_RE.search(cell))
+    no_issue = any(NO_ISSUE_RE.fullmatch(b) for b in bold)
+    if named or no_issue:
+        return list(dict.fromkeys(named)), no_issue
+    return _named_tiers(cell, severities), bool(NO_ISSUE_RE.search(cell))
 
 
 def check_rules(path: str) -> dict:
@@ -1154,7 +1159,11 @@ def check_rules(path: str) -> dict:
                 continue
             rowed.add(token)
             named, no_issue = vs_raised(cells[1] if len(cells) > 1 else "", severities)
-            if len(named) == 1 or no_issue:
+            if named and no_issue:
+                violations.append(_violation(VS_TABLE, line, "vs-raises", f"VS row `{token}` (line {line}) names "
+                                             f"{', '.join(named)} and also says No issue or None: bold the one "
+                                             "it raises"))
+            elif len(named) == 1 or no_issue:
                 vs_raises[token] = named[0] if named else None
             elif named:
                 violations.append(_violation(VS_TABLE, line, "vs-raises", f"VS row `{token}` (line {line}) names "

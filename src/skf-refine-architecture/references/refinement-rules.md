@@ -49,7 +49,7 @@ Each issue takes one severity tier. The tiers are listed most severe first: Step
 
 ## VS Report Integration
 
-When the run uses a [VS] feasibility report, each in-scope pair verdict raises the issue this table maps its token to, citing the verdict and its rationale as additional evidence. The tokens are the feasibility-report schema's and are case-sensitive, and each rule keys on the token alone, never on phrases in the rationale text. A copy maps all four tokens, each to a severity tier of the table above or to no issue.
+When the run uses a [VS] feasibility report, each in-scope pair verdict raises the issue this table maps its token to, citing the verdict and its rationale as additional evidence. The tokens are the feasibility-report schema's and are case-sensitive, and each rule keys on the token alone, never on phrases in the rationale text. A copy maps all four tokens, each to a severity tier of the table above or to no issue. A Raises cell raises what it bolds (a tier, or No issue or None), else what its text names; when that is more than one tier, or a tier and also No issue or None, Step 01 halts: bold only the one it raises.
 
 | Verdict     | Raises                                                                                                     |
 |-------------|------------------------------------------------------------------------------------------------------------|
