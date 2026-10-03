@@ -2,3 +2,4 @@ type: fixed
 scope: skf-update-skill
 summary: |
   An update of a skill built without a skill brief, such as a Quick Skill, no longer halts `blocked` at `detect-changes:scope-reconciliation`: it skips scope reconciliation, with the line "Scope reconciliation: skipped (no skill brief).", as it already skips the authoritative-files mirror.
+prs: [660]
