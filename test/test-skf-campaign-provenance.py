@@ -253,3 +253,35 @@ class TestRun:
         assert rc == 2
         err = json.loads(capsys.readouterr().err.strip())
         assert err["code"] == "BRIEF_NOT_FOUND"
+
+
+class TestMalformedBrief:
+    """A brief target with no name or no repo_url is invalid input, not an inaccessible repository."""
+
+    @pytest.mark.parametrize(
+        ("targets", "error"),
+        [
+            ([{"repo_url": "https://github.com/o/a"}], "Brief target 1 has no name"),
+            ([{"name": "a"}], "Brief target 1 (a) has no repo_url"),
+            ([{"name": "a", "repo_url": None}], "Brief target 1 (a) has no repo_url"),
+            ([{"name": "a", "repo_url": "https://github.com/o/a"}, {"name": " "}],
+             "Brief target 2 has no name and no repo_url"),
+            ([None], "Brief target 1 is not a mapping"),
+        ],
+        ids=["no-name", "no-repo-url", "null-repo-url", "second-target-blank", "not-a-mapping"],
+    )
+    def test_target_without_name_or_repo_url_exit_2(self, tmp_path, capsys, targets, error):
+        sf, bf = _write(tmp_path, skills=[{"name": "a", "status": "pending", "tier": "A", "pin": None}],
+                        targets=targets)
+        rc = mod.run(str(sf), str(bf), runner=_ok_runner)
+        assert rc == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert json.loads(captured.err.strip()) == {"error": error, "code": "INVALID_BRIEF"}
+
+    def test_brief_that_is_no_mapping_exit_2(self, tmp_path, capsys):
+        sf, bf = _write(tmp_path, skills=[], targets=[])
+        bf.write_bytes(b"")
+        rc = mod.run(str(sf), str(bf), runner=_ok_runner)
+        assert rc == 2
+        assert json.loads(capsys.readouterr().err.strip())["code"] == "INVALID_BRIEF"

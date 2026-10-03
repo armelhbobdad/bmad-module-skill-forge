@@ -128,6 +128,25 @@
       "default": null,
       "description": "The completed skills the gate kept from export (verdict fail), so a completed skill is not taken for an exported one. Null when the gate could not be applied, and on a HARD HALT."
     },
+    "skills_exported": {
+      "type": ["array", "null"],
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional. The skills the Export stage exported (skf-export-skill exited 0), by campaign skill name, from the outcome campaign-state.py recorded for each one. Null when the Export stage did not run; absent on a HARD HALT."
+    },
+    "export_failures": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["skill", "halt_reason", "exit_code"],
+        "properties": {
+          "skill": { "type": "string", "minLength": 1 },
+          "halt_reason": { "type": ["string", "null"] },
+          "exit_code": { "type": ["integer", "null"] }
+        }
+      },
+      "description": "Optional. Each skill whose skf-export-skill call failed, with that call's halt_reason and exit code (null when it gave none). The campaign still ends with status success, so a CI job gates on this list. Null when the Export stage did not run; absent on a HARD HALT."
+    },
     "campaign_report_path": {
       "type": ["string", "null"],
       "minLength": 1,

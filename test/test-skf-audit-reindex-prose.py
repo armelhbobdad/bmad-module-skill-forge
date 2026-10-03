@@ -16,6 +16,9 @@ tests keep re-index.md on that contract:
 - its sections run 1 to 5 with no gap, and the Forge+ pointer names the ccc
   rename section, which runs in structural-diff.md over the removed exports
   of the saved diff (#589), not over a set difference re-index made by hand.
+semantic-diff.md compares what QMD retrieves of the skill with the current
+source under {source_root}, so the step has a current side (step 5b
+architecture-1).
 
 The AST Extraction Protocol in create-skill's extraction-patterns.md runs the
 ast-grep recipes through the recipe runner, with `find_code` only as its
@@ -165,6 +168,13 @@ def test_deep_tier_extracts_as_forge_and_semantic_diff_queries_qmd() -> None:
     semantic = _read(SEMANTIC_DIFF)
     assert "`qmd_collections` registry" in semantic
     assert 'see step 2 §1 "Deep tier"' in semantic
+
+
+def test_semantic_diff_compares_the_skill_with_the_current_source() -> None:
+    # Step 5b architecture-1: QMD only retrieves what the skill documents, so
+    # §3's current side is the source under {source_root}, never QMD again.
+    compare = _slice(_read(SEMANTIC_DIFF), "### 3. Compare Knowledge Context", "### 4.")
+    assert "against the current source under `{source_root}` (item 3)" in compare
 
 
 def test_nothing_is_added_to_the_snapshot_after_it_is_written() -> None:

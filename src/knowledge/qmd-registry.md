@@ -135,7 +135,7 @@ Then append/replace the registry entry in forge-tier.yaml. Failures never block 
 
 ### Example 2: Consumer Discovery (audit-skill)
 
-**Context:** Audit-skill needs temporal context for drift detection.
+**Context:** Audit-skill's Deep-tier semantic diff retrieves what the skill documents about each export, then checks each claim against the current source.
 
 **Implementation:** Read `qmd_collections` from forge-tier.yaml. Find entry where `skill_name` matches AND `type` is `"extraction"`. If found, query via qmd_bridge. If not found, log and continue without T2 enrichment — not an error.
 

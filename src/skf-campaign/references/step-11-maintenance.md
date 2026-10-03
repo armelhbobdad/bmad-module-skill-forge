@@ -44,7 +44,7 @@ uv run {reportScript} \
     --decision-log {decisionLogFile}
 ```
 
-Its JSON result on stdout carries `skills_completed`, `skills_failed`, `quality_scores`, `export_verdicts` (each completed skill's quality-gate verdict at Export), `skills_excluded` (the completed skills the gate kept from export) and `duration`, already computed: §6 displays them, and §5 builds the envelope from `{resultContextFile}`, the payload the script also writes, on success and on failure alike.
+Its JSON result on stdout carries `skills_completed`, `skills_failed`, `quality_scores`, `export_verdicts` (each completed skill's quality-gate verdict at Export), `skills_excluded` (the completed skills the gate kept from export), `skills_exported` and `export_failures` (what step-10 recorded: the skills `skf-export-skill` exported, and each skill whose export failed, with its `halt_reason` and `exit_code`; both null when Export did not run) and `duration`, already computed: §6 displays them, and §5 builds the envelope from `{resultContextFile}`, the payload the script also writes, on success and on failure alike.
 
 **On success** (exit code 0): log the report path and the summary stats from the result JSON (type `event`).
 

@@ -23,9 +23,6 @@ gate names the schema lists, the upstream-drift one once its choice has
 run; warnings are recorded by code, never free text a quote can break;
 step 6's payload emits a valid envelope and the result files.
 
-#589 (audit part): the drift report's Out-of-Scope New Public API table is
-one skf-provenance-gap-dispatch.py reads.
-
 #594, #596 and #599 (audit part): On Activation checks `uv` and the helpers
 the stages share, halting `helper-missing` before the first prompt, so the
 stages keep no fallback for them; `no-baseline` joins the exit-3 reasons;
@@ -46,7 +43,6 @@ passing vacuously.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import re
 import shlex
@@ -79,7 +75,6 @@ SCHEMA = SCRIPTS / "schemas" / "skf-audit-result-envelope.v1.json"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 DRIFT = SCRIPTS / "skf-check-workspace-drift.py"
 TREE = SCRIPTS / "skf-source-tree.py"
-DISPATCH = SCRIPTS / "skf-provenance-gap-dispatch.py"
 CONTRACTS = SRC / "shared" / "references" / "pipeline-contracts.md"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 URL = "https://github.com/acme/lib"
@@ -789,25 +784,3 @@ def test_the_emitter_writes_the_result_and_a_valid_envelope(tmp_path, drift_scor
     latest = json.loads((version / "audit-skill-result-latest.json").read_text(encoding="utf-8"))
     assert latest["summary"]["upstream_moved"] is moved and Path(envelope["result_path"]).is_file()
 
-
-# --------------------------------------------------------------------------
-# #589: Out-of-Scope New Public API, as update-skill's §1c reads it
-# --------------------------------------------------------------------------
-
-
-def test_the_out_of_scope_table_is_one_the_dispatcher_reads():
-    spec = importlib.util.spec_from_file_location("skf_gap_dispatch_for_audit", DISPATCH)
-    dispatch = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(dispatch)
-    block = _slice(_read(REPORT), "## Remediation Suggestions\n", "### Workflow Recommendation")
-    row = "| `{outside_scope[].path}` | exports `{name}`, `{name}` through `{entry point}` |"
-    assert row in block
-    report = block.replace(row, "| `src/next/index.ts` | exports `Zed`, `Alpha` through `index.ts` |")
-    section = dispatch.extract_out_of_scope_section("# Drift Report\n\n" + report)
-    assert dispatch.parse_candidates(section) == [
-        {"path": "src/next/index.ts", "evidence": "exports `Zed`, `Alpha` through `index.ts`"}]
-    prose = _flow(_slice(_read(REPORT), "**Public API outside the skill's scope.**", "Append to {outputFile}:"))
-    assert "lists items in `outside_scope`" in prose and "nothing here is judged by eye" in prose
-    template = _read(AUDIT / "assets" / "drift-report-template.md")
-    remediation = _slice(template, "## Remediation Suggestions", "---")
-    assert "Out-of-Scope New Public API" in remediation

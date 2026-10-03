@@ -37,7 +37,8 @@ Output (JSON on stdout):
 Exit codes:
   0  all valid/resolved
   1  one or more invalid pins
-  2  error (missing files, bad YAML, gh unavailable)
+  2  error (missing files, bad YAML, gh unavailable), or INVALID_BRIEF: a
+     brief that is no mapping, or a target with no name or no repo_url
 """
 
 from __future__ import annotations
@@ -47,7 +48,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -70,6 +71,25 @@ def _emit_error(message: str, code: str) -> None:
 def _load_yaml(path: Path) -> Any:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def _malformed_target(targets: List[Any]) -> Optional[str]:
+    """Why the first brief target with no name or no repo_url is unusable, or None.
+
+    Names the target by its 1-based number, and by its name when it has one,
+    and says which key it lacks.
+    """
+    for number, target in enumerate(targets, start=1):
+        if not isinstance(target, dict):
+            return f"Brief target {number} is not a mapping"
+        missing = [
+            key for key in ("name", "repo_url")
+            if not (isinstance(target.get(key), str) and target[key].strip())
+        ]
+        if missing:
+            named = "" if "name" in missing else f" ({target['name']})"
+            return f"Brief target {number}{named} has no {' and no '.join(missing)}"
+    return None
 
 
 def run(state_file: str, brief_file: str) -> int:
@@ -101,9 +121,16 @@ def run(state_file: str, brief_file: str) -> int:
         _emit_error("State file 'skills' is not an array", "INVALID_STATE")
         return 2
 
+    if not isinstance(brief, dict):
+        _emit_error("Brief file is not a YAML mapping", "INVALID_BRIEF")
+        return 2
     targets = brief.get("targets", [])
     if not isinstance(targets, list):
         _emit_error("Brief file 'targets' is not an array", "INVALID_BRIEF")
+        return 2
+    malformed = _malformed_target(targets)
+    if malformed is not None:
+        _emit_error(malformed, "INVALID_BRIEF")
         return 2
 
     name_to_repo: Dict[str, str] = {}

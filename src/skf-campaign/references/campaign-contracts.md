@@ -42,11 +42,11 @@ Every write to `_campaign-state.yaml` goes through `scripts/campaign-state.py`. 
 
 | Operation | Step | What it writes |
 | --- | --- | --- |
-| `init` | step-01 | the state, from `campaign-parse-manifest.py`'s targets and the gate `campaign-quality-gate.py check` settles; refuses a state or backup that exists |
+| `init` | step-01 | the state, from `campaign-parse-manifest.py`'s targets and the gate `campaign-quality-gate.py check` settles, then `campaign-brief.yaml` from the same targets (`--brief-out`); refuses a state or backup that exists |
 | `apply-plan` | step-02 | `dependency_graph` from `campaign-deps.py --compute` |
 | `apply-pins` | step-03 | each resolved pin, from `campaign-validate-pins.py`'s output |
 | `apply-provenance` | step-04 | each `commit_sha`, from `campaign-provenance.py`'s output |
-| `set-skill` | step-05, step-resume | a skill's `status`, `quality_score`, `skill_path` or `brief_path`; `active` stamps `started_at` once, `completed` stamps `completed_at`, `pending` clears both |
+| `set-skill` | step-05, step-10, step-resume | a skill's `status`, `quality_score`, `skill_path`, `brief_path` or `export` outcome (`--export`); `active` stamps `started_at` once, `completed` stamps `completed_at`, `pending` clears both and the `export` outcome |
 | `append-workarounds` | step-05 | entries of a skill's `workarounds_applied`, each once |
 | `apply-batch` | step-06 | the Tier B batch from its line-to-skill map: `--start`, `--results-file` or `--no-results` |
 | `set-campaign` | steps 07 to 09 | `architecture_doc_path`, and the capstone, verification or refinement summary read from the sub-skill's envelope line (`capstone.verified` with the verification) |

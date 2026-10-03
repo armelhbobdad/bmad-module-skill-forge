@@ -40,16 +40,16 @@ Classify every completed skill against its quality gate, passing `--directive-fi
 uv run {gateScript} classify --state-file {stateFile} [--directive-file <campaign.directive_path>]
 ```
 
-Each completed skill gets a `verdict`: `pass` (score at or above its `soft_target`), `fallback` (at or above its `soft_fallback`) or `fail` (below the fallback, or no score). Only `pass` and `fallback` skills are export candidates (`export[]`); `excluded[]` lists the others with their `reason`, and they stay on disk and in the report. A Tier B score is the skill-check score QS records, not a test-skill score. Log each `excluded[]` skill and each `unparsed` or `warnings` entry to the decision log. On exit 2 (an override that breaks the gate, or a directive that cannot be read), HALT (exit code 2, `invalid-input`) with its `error`.
+Each completed skill gets a `verdict`: `pass` (score at or above its `soft_target`), `fallback` (at or above its `soft_fallback`) or `fail` (below the fallback, or no score). Only `pass` and `fallback` skills are export candidates (`export[]`); `excluded[]` lists the others with their `reason`, and they stay on disk and in the report. Each row's `export_name` is the skill folder its build wrote, the name `skf-export-skill` resolves: for a Tier B skill quick-skill names it after the library, not the campaign target. A Tier B score is the skill-check score QS records, not a test-skill score. Log each `excluded[]` skill and each `unparsed` or `warnings` entry to the decision log. On exit 2 (an override that breaks the gate, or a directive that cannot be read), HALT (exit code 2, `invalid-input`) with its `error`.
 
 If `export[]` is empty (no completed skill, or none clears the gate), display a warning naming any `excluded[]` skills and proceed directly to §6 (stage completion): there is nothing to export.
 
 Present the verdicts, one row per entry of its `skills[]`:
 
-| # | Name | Tier | Quality Score | Gate | Skill Path |
-|---|------|------|---------------|------|------------|
-| 1 | {name} | {tier} | {quality_score} | {verdict} | {skill_path} |
-| ... | ... | ... | ... | ... | ... |
+| # | Name | Tier | Quality Score | Gate | Export Name | Skill Path |
+|---|------|------|---------------|------|-------------|------------|
+| 1 | {name} | {tier} | {quality_score} | {verdict} | {export_name} | {skill_path} |
+| ... | ... | ... | ... | ... | ... | ... |
 
 When `excluded[]` is not empty, list it under the table: "**Not exported (below the quality gate):** {name} ({quality_score}: {reason}), ..."
 
@@ -86,17 +86,16 @@ Log the export decision (type `decision`), then proceed to §5.
 
 ### §5: Invoke EX
 
-For each skill in `export[]` (from §3), invoke `skf-export-skill` in headless mode:
+For each `skills[]` row of §3 whose `name` is in `export[]`, invoke `skf-export-skill` in headless mode under the row's `export_name`:
 
 ```
-skf-export-skill {skill_name} --headless
+skf-export-skill {export_name} --headless
 ```
 
-Capture the result envelope `SKF_EXPORT_RESULT_JSON` per skill.
+Capture its result envelope `SKF_EXPORT_RESULT_JSON`, then record the outcome under the campaign `name`, so step-11's report and result envelope read it from state:
 
-**On per-skill EX success** (exit code 0): log the result and continue.
-
-**On per-skill EX failure** (non-zero exit): log the error (exit code, envelope if available, or stderr). Continue with remaining skills — per-skill failure does not block remaining exports.
+- **Exit code 0:** `uv run {stateScript} set-skill --state-file {stateFile} --skill {name} --export exported`, and log the result (type `event`).
+- **Non-zero exit:** `uv run {stateScript} set-skill --state-file {stateFile} --skill {name} --export failed --export-exit-code <exit_code> [--export-halt-reason <halt_reason>]`, with the envelope's `halt_reason` when it printed one, and log the error (type `event`: exit code, envelope or stderr). Continue with the remaining skills: one failure does not block the other exports.
 
 After all exports complete, display a summary:
 

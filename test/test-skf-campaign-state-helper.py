@@ -318,6 +318,125 @@ class TestInit:
             ("core", "A", "1.0.0", []), ("web", "A", None, ["core"]), ("util", "B", None, [])]
 
 
+BRIEF_TEMPLATE = REPO_ROOT / "src" / "skf-campaign" / "templates" / "campaign-brief-template.yaml"
+
+
+class TestInitBrief:
+    """init writes campaign-brief.yaml from the targets it puts in state, so Setup types no YAML."""
+
+    def _manifest_targets(self, capsys, monkeypatch, tmp_path, lines: str) -> pathlib.Path:
+        manifest = _load("campaign-parse-manifest")
+        _stdin(monkeypatch, lines)
+        assert manifest.main(["-"]) == 0
+        targets = tmp_path / "targets.json"
+        targets.write_text(capsys.readouterr().out, encoding="utf-8")
+        return targets
+
+    def test_written_brief_parses_back_to_the_same_targets(self, tmp_path, capsys, monkeypatch):
+        # A Tier B pin "1.10" stays a string: YAML would read it back as the number 1.1.
+        targets = self._manifest_targets(
+            capsys, monkeypatch, tmp_path,
+            "core,https://github.com/acme/core,A,1.2.0\nutil,git@github.com:acme/util.git,B,1.10;core\n")
+        parsed = json.loads(targets.read_text(encoding="utf-8"))
+        path = tmp_path / "ws" / "_campaign-state.yaml"
+        brief = tmp_path / "ws" / "campaign-brief.yaml"
+        rc, out = _init(capsys, path, targets, "--brief-out", str(brief), "--brief-template", str(BRIEF_TEMPLATE))
+        assert rc == 0
+        assert out["brief_file"] == brief.as_posix()
+        assert "brief" in out["changed"]
+        manifest = _load("campaign-parse-manifest")
+        assert manifest.main(["--brief", str(brief)]) == 0
+        reparsed = json.loads(capsys.readouterr().out)
+        assert reparsed["targets"] == parsed["targets"]
+        assert reparsed["errors"] == []
+        assert reparsed["targets"][1]["pin"] == "1.10"
+        assert "pin: '1.10'" in brief.read_text(encoding="utf-8")
+
+    def test_brief_fields_follow_the_template(self, tmp_path, capsys):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        brief = tmp_path / "campaign-brief.yaml"
+        rc, _ = _init(capsys, tmp_path / "_campaign-state.yaml", targets, "--brief-out", str(brief),
+                      "--brief-template", str(BRIEF_TEMPLATE), "--architecture-doc-path", "docs/arch.md",
+                      "--notes", "ship it, don't wait")
+        assert rc == 0
+        written = brief.read_text(encoding="utf-8")
+        template = BRIEF_TEMPLATE.read_text(encoding="utf-8")
+        header = [line for line in template.splitlines()[:2] if line.startswith("#")]
+        assert header and written.splitlines()[:len(header) + 1] == [*header, ""]
+        data = yaml.safe_load(written)
+        assert list(data) == list(yaml.safe_load(template))
+        assert data["campaign_name"] == "demo"
+        assert data["created_at"] == STAMP == _read(tmp_path / "_campaign-state.yaml")["campaign"]["started_at"]
+        # Every field a target's source gave it is kept, hints and repo_url included.
+        assert data["targets"] == TARGETS["targets"]
+        assert data["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}
+        assert (data["architecture_doc_path"], data["notes"]) == ("docs/arch.md", "ship it, don't wait")
+
+    def test_brief_takes_the_settled_gate_and_the_seed_briefs_notes(self, tmp_path, capsys):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        seed = tmp_path / "seed-brief.yaml"
+        seed.write_text("quality_gate:\n  soft_target: 85\nnotes: from the seed\n", encoding="utf-8")
+        brief = tmp_path / "ws" / "campaign-brief.yaml"
+        rc, _ = _init(capsys, tmp_path / "ws" / "_campaign-state.yaml", targets, "--brief-file", str(seed),
+                      "--brief-out", str(brief))
+        assert rc == 0
+        data = yaml.safe_load(brief.read_text(encoding="utf-8"))
+        assert data["quality_gate"] == {"hard": "zero-critical-high", "soft_target": 85, "soft_fallback": 80}
+        assert (data["notes"], data["architecture_doc_path"]) == ("from the seed", "")
+
+    def test_without_brief_out_no_brief_is_written(self, tmp_path, capsys):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        rc, out = _init(capsys, tmp_path / "_campaign-state.yaml", targets)
+        assert rc == 0
+        assert out["brief_file"] is None
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["_campaign-state.yaml", "targets.json"]
+
+    @pytest.mark.parametrize("extra", [["--notes", "x"], ["--brief-template", "t.yaml"]], ids=["notes", "template"])
+    def test_brief_options_need_brief_out(self, tmp_path, capsys, extra):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        rc, err = _init(capsys, tmp_path / "_campaign-state.yaml", targets, *extra)
+        assert (rc, err["code"]) == (2, "input-invalid")
+        assert not (tmp_path / "_campaign-state.yaml").exists()
+
+    @pytest.mark.parametrize("content", [b"- a list\n", b"key: [unclosed\n"], ids=["not-a-mapping", "bad-yaml"])
+    def test_a_template_it_cannot_use_writes_nothing(self, tmp_path, capsys, content):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        template = tmp_path / "template.yaml"
+        template.write_bytes(content)
+        path = tmp_path / "ws" / "_campaign-state.yaml"
+        rc, err = _init(capsys, path, targets, "--brief-out", str(tmp_path / "ws" / "campaign-brief.yaml"),
+                        "--brief-template", str(template))
+        assert (rc, err["code"]) == (2, "brief-template-invalid")
+        assert not (tmp_path / "ws").exists()
+
+    def test_a_missing_template_writes_nothing(self, tmp_path, capsys):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        path = tmp_path / "_campaign-state.yaml"
+        rc, err = _init(capsys, path, targets, "--brief-out", str(tmp_path / "campaign-brief.yaml"),
+                        "--brief-template", str(tmp_path / "missing.yaml"))
+        assert (rc, err["code"]) == (2, "input-unreadable")
+        assert not path.exists()
+
+    def test_a_custom_template_keeps_its_keys_and_header(self, tmp_path, capsys):
+        targets = tmp_path / "targets.json"
+        targets.write_text(json.dumps(TARGETS), encoding="utf-8")
+        template = tmp_path / "template.yaml"
+        template.write_bytes(b"# Team brief\n# keep me\nowner: platform\ntargets: []\n")
+        brief = tmp_path / "campaign-brief.yaml"
+        assert _init(capsys, tmp_path / "_campaign-state.yaml", targets, "--brief-out", str(brief),
+                     "--brief-template", str(template))[0] == 0
+        written = brief.read_text(encoding="utf-8")
+        assert written.startswith("# Team brief\n# keep me\n\nowner: platform\ntargets:\n")
+        assert list(yaml.safe_load(written)) == ["owner", "targets", "campaign_name", "created_at", "quality_gate",
+                                                 "architecture_doc_path", "notes"]
+
+
 # --------------------------------------------------------------------------
 # Operations
 # --------------------------------------------------------------------------
@@ -376,6 +495,76 @@ class TestSetSkill:
         rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "ghost", "--status", "active")
         assert (rc, err["code"]) == (2, "unknown-skill")
         assert path.read_bytes() == before and not _bak(path).exists()
+
+
+class TestSetSkillExport:
+    """step-10 records each skf-export-skill outcome, so the report and the envelope read it from state."""
+
+    def _done(self, tmp_path):
+        skills = [_skill("core", status="completed", started_at=STAMP, completed_at=STAMP, quality_score=95),
+                  _skill("util", tier="B", status="completed", started_at=STAMP, completed_at=STAMP)]
+        return _write(tmp_path, _state(stage=8, skills=skills))
+
+    def test_exported(self, tmp_path, capsys):
+        path = self._done(tmp_path)
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--export", "exported")
+        assert rc == 0
+        assert out["changed"] == ["core.export=exported"]
+        state = _read(path)
+        assert state["skills"][0]["export"] == {"status": "exported", "halt_reason": None, "exit_code": 0}
+        assert state["skills"][0]["status"] == "completed"
+        assert "export" not in state["skills"][1]
+        assert mod.validation_errors(state) == []
+
+    def test_failed_keeps_the_halt_reason_and_exit_code(self, tmp_path, capsys):
+        path = self._done(tmp_path)
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "util", "--export", "failed",
+                    "--export-halt-reason", "resolution-failure", "--export-exit-code", "3")[0] == 0
+        assert _read(path)["skills"][1]["export"] == {
+            "status": "failed", "halt_reason": "resolution-failure", "exit_code": 3}
+
+    def test_failed_without_an_envelope_keeps_the_exit_code(self, tmp_path, capsys):
+        path = self._done(tmp_path)
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "util", "--export", "failed",
+                    "--export-exit-code", "1")[0] == 0
+        assert _read(path)["skills"][1]["export"] == {"status": "failed", "halt_reason": None, "exit_code": 1}
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            ["--export-halt-reason", "write-failed"],
+            ["--export-exit-code", "4"],
+            ["--export", "exported", "--export-exit-code", "0"],
+            ["--export", "exported", "--export-halt-reason", "write-failed"],
+        ],
+        ids=["reason-alone", "code-alone", "exported-with-code", "exported-with-reason"],
+    )
+    def test_export_details_go_with_a_failed_export(self, tmp_path, capsys, extra):
+        path = self._done(tmp_path)
+        before = path.read_bytes()
+        rc, err = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", *extra)
+        assert (rc, err["code"]) == (2, "input-invalid")
+        assert path.read_bytes() == before and not _bak(path).exists()
+
+    def test_export_status_is_closed(self, tmp_path):
+        path = self._done(tmp_path)
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["set-skill", "--state-file", str(path), "--skill", "core", "--export", "skipped"])
+        assert exc.value.code == 2
+
+    def test_a_reset_for_a_rerun_clears_the_export(self, tmp_path, capsys):
+        path = self._done(tmp_path)
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--export", "exported")[0] == 0
+        assert _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--status", "pending")[0] == 0
+        assert "export" not in _read(path)["skills"][0]
+
+    def test_schema_refuses_a_malformed_record(self):
+        state = _state(skills=[_skill("core", status="completed", export={"status": "done"})])
+        assert [e["field"] for e in mod.validation_errors(state)] == ["skills[0].export.status"]
+        state["skills"][0]["export"] = {"status": "failed", "halt_reason": None, "exit_code": 3, "extra": 1}
+        assert mod.validation_errors(state)
+        state["skills"][0]["export"] = None
+        assert mod.validation_errors(state) == []
 
 
 class TestApplyPlan:

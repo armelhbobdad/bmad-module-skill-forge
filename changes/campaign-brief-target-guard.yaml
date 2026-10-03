@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-campaign
+summary: |
+  A `campaign-brief.yaml` that is not a mapping, or that holds a target with no `name` or no `repo_url`, now stops the pin and provenance stages with exit code `2` (`invalid-input`) and the error code `INVALID_BRIEF`, naming the target by its number (and its name when it has one) and the key it lacks. Before, `campaign-validate-pins.py` and `campaign-provenance.py` crashed with a traceback and exit code `1`, which the pin stage reads as invalid pins (exit `5`) and the provenance stage as inaccessible repositories (exit `6`).
+prs: [655]

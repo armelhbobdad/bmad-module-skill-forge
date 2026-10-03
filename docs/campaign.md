@@ -95,7 +95,7 @@ Verification and Refinement use the architecture document path you gave at Setup
 
 ### campaign-brief.yaml
 
-A machine-readable summary of the campaign, written during Setup from what you enter (or from `--brief` or `--manifest`). It holds the campaign name; each library's repository URL, tier, version pin and dependencies, and any language or scope hint its source gave; the quality gate; the architecture document path; and your notes. Later stages read the repository URLs from it, and a fresh session uses it to pick the campaign back up.
+A machine-readable summary of the campaign, written during Setup by the same helper call that writes `_campaign-state.yaml`, from the targets Setup checked (what you enter, or `--brief` or `--manifest`). It holds the campaign name; each library's repository URL, tier, version pin and dependencies, and any language or scope hint its source gave; the quality gate; the architecture document path; and your notes. Later stages read the repository URLs from it, and a fresh session uses it to pick the campaign back up.
 
 ### _campaign-state.yaml
 
@@ -184,11 +184,11 @@ A finished campaign leaves:
 - **Individual skills**: one for each library that completed. The Export stage exports the ones that clear the quality gate; the others stay on disk and in the report.
 - **One capstone stack skill**: composed from the completed skills that clear the quality gate. The Export stage exports only the individual skills, so run `skf-export-skill` on the stack skill yourself when you want it packaged.
 - **Verification report and refined architecture**: from Verification and Refinement, when an architecture document was found.
-- **Campaign report** (`campaign-report.md`): the quality gate; a table of every skill with its tier, status, score, pin and workarounds; an Export Gate section with each completed skill's verdict and the skills it kept from export; the lowest, highest and average scores; time per skill; and a section on failed or skipped skills.
+- **Campaign report** (`campaign-report.md`): the quality gate; a table of every skill with its tier, status, score, pin and workarounds; an Export Gate section with each completed skill's verdict, whether Export exported it or why its export failed, and the skills the gate kept from export; the lowest, highest and average scores; time per skill; and a section on failed or skipped skills.
 - **Decision log** (`_campaign-decision-log.md`): every decision made during the campaign.
-- **Headless result line** (`SKF_CAMPAIGN_RESULT_JSON`): printed in headless mode for scripts to read, as the run's last line. Besides the counts and the score of each skill, it carries `export_verdicts` (each completed skill's verdict at Export) and `skills_excluded` (the completed skills the gate kept from export).
+- **Headless result line** (`SKF_CAMPAIGN_RESULT_JSON`): printed in headless mode for scripts to read, as the run's last line. Besides the counts and the score of each skill, it carries `export_verdicts` (each completed skill's verdict at Export), `skills_excluded` (the completed skills the gate kept from export), `skills_exported` (the skills Export exported) and `export_failures` (each skill whose export failed, with its `halt_reason` and `exit_code`). The last two are null when the Export stage did not run. A failed export does not fail the campaign, which still ends with `status` `success`, so a CI job that needs every skill exported checks `export_failures`.
 
-The Export stage (stage 9) asks before it writes anything. It lists each completed skill with its verdict, names the skills it leaves out because they fall below the soft fallback or have no score, and waits for `[E]xport all` or `[C]ancel`. `[E]xport all` exports only the `pass` and `fallback` skills. In headless mode it exports them without asking.
+The Export stage (stage 9) asks before it writes anything. It lists each completed skill with its verdict, names the skills it leaves out because they fall below the soft fallback or have no score, and waits for `[E]xport all` or `[C]ancel`. `[E]xport all` exports only the `pass` and `fallback` skills, each under the skill folder its build wrote: a Tier B skill under the name Quick Skill gave it, the library's name, even when you named the target differently. In headless mode it exports them without asking.
 
 ---
 

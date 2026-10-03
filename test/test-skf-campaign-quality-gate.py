@@ -507,11 +507,26 @@ class TestClassify:
         assert verdicts == {"core": "pass", "web": "pass", "cli": "fallback", "nos": "fail"}
         assert r["gate"] == {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 60}
 
+    def test_export_name_is_the_folder_the_build_wrote(self):
+        # quick-skill names a Tier B package after the library, not the campaign target:
+        # skf-export-skill resolves that folder, so a target `api` exports as `mono-api`.
+        state = _state([
+            _skill("api", tier="B", score=95, skill_path="/skills/mono-api/1.0.0/mono-api"),
+            _skill("core", score=95),
+            _skill("blank", score=95, skill_path="  "),
+            _skill("win", tier="B", score=95, skill_path="C:\\skills\\win-lib\\2.0.0\\win-lib\\"),
+        ])
+        r = mod.classify(state, mod.parse_directive(""))
+        assert {row["name"]: row["export_name"] for row in r["skills"]} == {
+            "api": "mono-api", "core": "core", "blank": "blank", "win": "win-lib"}
+        assert r["export"] == ["api", "core", "blank", "win"]
+
     def test_cli(self, tmp_path, capsys):
         state = _write_state(tmp_path, self.STATE)
         rc, out, _ = _run(["classify", "--state-file", str(state)], capsys)
         assert rc == 0
         assert out["export"] == ["core", "web"]
+        assert [row["export_name"] for row in out["skills"]] == ["core", "web", "cli", "nos"]
 
     def test_cli_bad_state_gate(self, tmp_path, capsys):
         state = _write_state(tmp_path, _state([_skill("a", score=90)], gate={"hard": "x", "soft_target": 90, "soft_fallback": 80}))
@@ -618,7 +633,10 @@ def test_capstone_composes_only_skills_that_clear_the_gate():
     text = _text("step-07-capstone.md")
     assert "uv run {gateScript} classify --state-file {stateFile}" in text
     assert "The capstone composes the skills in its `export[]`" in text
-    assert "its `skill_path` when the row has one" in text
+    # The script names each skill (classify's export_name); the step no longer derives it.
+    assert "Name each composed skill by the `export_name` of its row in `skills[]`" in text
+    assert "- `skills`: the §2 `export_name` values" in text
+    assert "its `skill_path` when the row has one" not in text
     assert "uv run {manifestScript} --stack-name {stateFile}" in text
     assert "lower-cased" not in text
 
@@ -626,9 +644,18 @@ def test_capstone_composes_only_skills_that_clear_the_gate():
 def test_export_takes_only_the_classified_candidates():
     text = _text("step-10-export.md")
     assert "uv run {gateScript} classify --state-file {stateFile}" in text
-    assert "For each skill in `export[]` (from §3)" in text
-    assert "| Gate |" in text
+    assert "For each `skills[]` row of §3 whose `name` is in `export[]`" in text
+    assert "| Gate | Export Name |" in text
     assert "For each completed skill (from §3)" not in text
+
+
+def test_export_runs_under_the_export_name_and_records_each_outcome():
+    text = _text("step-10-export.md")
+    assert "skf-export-skill {export_name} --headless" in text
+    assert "skf-export-skill {skill_name}" not in text
+    assert "--skill {name} --export exported" in text
+    assert "--skill {name} --export failed --export-exit-code <exit_code> [--export-halt-reason <halt_reason>]" in text
+    assert _frontmatter("step-10-export.md")["stateScript"] == "scripts/campaign-state.py"
 
 
 def test_exit_13_is_a_contract_code():

@@ -212,12 +212,18 @@ class TestSetupOpening:
 
 
 def test_brief_keeps_every_field_of_a_target() -> None:
-    # A seeded brief's language or scope hint reaches the kickoff and the Tier B batch.
-    body = _section(_step("step-01-setup.md"), 3)
+    # A seeded brief's language or scope hint reaches the kickoff and the Tier B batch:
+    # init writes the brief from the parsed targets, so Setup types no YAML.
+    setup = _step("step-01-setup.md")
+    state = _section(setup, 2)
+    assert "--brief-out {briefFile} --brief-template {templateFile}" in state
     assert (
-        "`targets`: one entry per target with `name`, `repo_url`, `tier`, `pin` and `depends_on`, "
+        "the same `targets[]`, one entry per target with `name`, `repo_url`, `tier`, `pin` and `depends_on`, "
         "plus every other field its source gave it"
-    ) in body
+    ) in state
+    body = _section(setup, 3)
+    assert "write nothing by hand" in body
+    assert "Populate `{templateFile}`" not in setup
 
 
 class TestHealthCheckChain:
