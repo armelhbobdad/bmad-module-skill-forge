@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-audit-skill
+summary: |
+  When the recipe runner cannot run (no ast-grep it can use, or no result after the call), Audit Skill no longer reports exports dropped by a match cap as removed CRITICAL drift. The recipes it then runs one at a time keep every match over the files the snapshot left to read, as the runner itself does with `--head-cap 0`, so an audit of a large skill reports the `drift_score` and `next_workflow` its source supports.
+prs: [660]

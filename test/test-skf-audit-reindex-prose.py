@@ -28,7 +28,9 @@ fallback. These tests keep audit and the knowledge base on it:
   extract over the bounded scan list with no head cap, after removing the
   JSON an earlier run left, acts on the JSON's `status`, reads by eye only
   what the runner leaves, uses `find_code` only as Known Limitation #4's
-  fallback, and every protocol anchor it cites exists;
+  fallback, and every protocol anchor it cites exists; when the runner
+  cannot run, the recipes it runs one at a time keep every match too, over
+  the files the snapshot left to read (step 5b gate run 2 architecture-2);
 - skf-extraction-snapshot.py writes the scan list and builds the snapshot
   (a status per file, the libraries of a stack, the counts §4 shows), and
   the step acts on the line it prints (the files to read, the extraction
@@ -449,6 +451,33 @@ def test_the_runner_call_starts_from_a_removed_json() -> None:
     for status in ("**`runner_status` is `incomplete`**", "**`runner_status` is `no-ast-grep`, or null at Forge "
                    "tier and above** (no JSON at `-o` after the call"):
         assert status in build, status
+
+
+def test_the_fallback_keeps_every_match() -> None:
+    """When the runner cannot run, re-index borrows create-skill's by-hand protocol with the audit's own inputs: the
+    files `to_read` lists size the Decision Tree, and neither the MCP tool's `max_results` nor the CLI template's
+    `| head` caps a recipe, in a directory batch or a Known Limitation #4 retry either, since a match past a cap
+    would read as a removed export in step 3."""
+    build = _flow(_slice(_read(RE_INDEX), "**2. Build the snapshot.**", "**3. What the runner leaves.**"))
+    fallback = _slice(build, "**`runner_status` is `no-ast-grep`", "- **`to_read`")
+    for token in ("Follow **When the Runner Cannot Run** in `{extractionPatternsData}` over the files in `to_read`, "
+                  "with this audit's parameters in place of create-skill's",
+                  "the files in scope are those `to_read` lists, and their count is the Decision Tree's input (not "
+                  "create-skill's step 3 count)",
+                  "Keep every match, in every directory batch and every retry:",
+                  "pass `find_code_by_rule` a `max_results` that no recipe can reach (100000), and a Known "
+                  "Limitation #4 `find_code` retry the same",
+                  "drop the `| head -{HEAD_CAP}` from the CLI streaming template, in each batch,",
+                  "a match past a cap reads as a removed export in step 3",
+                  "Record each export as item 3 does, T1 with `ast-grep` for one the recipes match."):
+        assert token in fallback, token
+    # the parameters it overrides are the ones the protocol sets
+    patterns = _read(PATTERNS)
+    assert "### Decision Tree" in patterns and "max_results=150" in patterns
+    assert "cap per-batch output" in patterns and "with the same head cap" in patterns
+    assert "max_results=100," in _read(PATTERNS.with_name("extraction-patterns-by-hand.md"))  # Known Limitation #4
+    assert CLI_TEMPLATE_RE.search(patterns), "the CLI streaming template no longer ends in | head -{HEAD_CAP}"
+    assert "use the filtered count from step 3 section 2" in patterns
 
 
 def test_the_scan_list_and_the_snapshot_come_from_the_helper() -> None:

@@ -21,6 +21,13 @@ helper:
   - --provenance-map: each gap's `map_match`, gap-driven.md's lookup of its
     export (no citation, several same-name entries, a `./` or backslash
     path); `match`: the same lookup for a name a step takes elsewhere
+  - `translate`: gap-driven.md §1's change manifest, every routed ledger
+    category through the table, an unrouted one warned, a citation inside
+    the skill package dropped, the answers it asks for (category, name,
+    rescope, source file) with the gap's text to judge from and how it reads
+    them, rescope asked of every remediation a person wrote and never of the
+    ledger's own text, a rescope's amendment and exclude path, a rule R3
+    gap's root check, and its CLI
 """
 
 from __future__ import annotations
@@ -793,3 +800,284 @@ def test_usage_error_exits_2():
     assert proc.returncode == 2
     assert proc.stdout == ""
     assert "--no-such-flag" in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# translate: update-skill gap-driven.md §1's change manifest
+# --------------------------------------------------------------------------
+
+_LEDGER = None
+
+
+def _ledger():
+    """gap-ledger.py, the script that writes the gaps translate reads."""
+    global _LEDGER
+    if _LEDGER is None:
+        spec = importlib.util.spec_from_file_location("skf_gap_ledger_translate", LEDGER_SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        _LEDGER = module
+    return _LEDGER
+
+
+def _ledger_categories() -> set[str]:
+    return set(_ledger().CATEGORIES)
+
+
+def _gap(gid: str, category: str | None, *, export: str | None = "thing", severity: str = "High",
+         citation: dict | None = None, remediation: str | None = None, title: str = "a gap", **extra) -> dict:
+    """One gap as parse prints it. A missing export or type takes the remediation the ledger writes for it."""
+    if remediation is None:
+        remediation = _ledger()._missing_export(export or "thing", "pkg/api.py:5", "metadata.json",
+                                                "type" if category == "missing-type" else "export")["remediation"] \
+            if category in mod.RESCOPE_CATEGORIES else "Fix it."
+    return {"id": gid, "title": title, "severity": severity, "category": category, "category_group": None,
+            "source": None, "source_citation": citation, "export": export, "issue": None,
+            "remediation": remediation, "remediation_paths": extra.pop("remediation_paths", []),
+            "resolved_paths": extra.pop("resolved_paths", []), "rejected_paths": extra.pop("rejected_paths", []),
+            **extra}
+
+
+def _parsed(*gaps: dict, source_root: str | None = None, warnings: list | None = None) -> dict:
+    return {"status": "ok", "read_from": "ledger", "source_root": source_root, "gap_count": len(gaps),
+            "gaps": list(gaps), "warnings": warnings or []}
+
+
+def _translate(*gaps: dict, judgments: dict | None = None, entries: list | None = None, **kw) -> tuple:
+    return mod.translate_gaps(_parsed(*gaps, **{k: kw.pop(k) for k in ("source_root", "warnings") if k in kw}),
+                              entries if entries is not None else MAP_ENTRIES, judgments or {},
+                              today="2026-10-03", **kw)
+
+
+def test_translate_routes_every_routed_ledger_category_by_the_table():
+    assert set(mod.CHANGE_CATEGORIES) <= _ledger_categories()
+    gaps = [_gap(f"GAP-{i:03d}", category) for i, category in enumerate(sorted(mod.CHANGE_CATEGORIES), start=1)]
+    manifest, summary = _translate(*gaps)
+    assert summary["status"] == "written" and summary["gap_count"] == len(gaps), summary
+    assert {e["category"]: e["change_category"] for e in manifest["entries"]} == mod.CHANGE_CATEGORIES
+    assert manifest["mode"] == "gap-driven" and summary["not_routed"] == []
+
+
+def test_translate_leaves_any_other_category_unrouted():
+    manifest, summary = _translate(_gap("GAP-001", "observation", title="style"),
+                                   _gap("GAP-002", "missing-export", export="search"))
+    assert [e["gap_id"] for e in manifest["entries"]] == ["GAP-002"]
+    assert summary["not_routed"] == [{"id": "GAP-001", "title": "style", "category": "observation"}]
+    assert "test-report: not routed: GAP-001 (observation)" in summary["warnings"]
+
+
+def test_translate_writes_each_entry_in_the_documented_shape():
+    gap = _gap("GAP-001", "signature-mismatch", export="search", citation={"file": "pkg/api.py", "line": 5},
+               remediation="Update to match `pkg/api.py:5`.", remediation_paths=["pkg/api.py"],
+               resolved_paths=["pkg/api.py"])
+    manifest, _ = _translate(gap)
+    [entry] = manifest["entries"]
+    assert list(entry) == ["name", "gap_id", "category", "severity", "source_citation", "remediation_paths",
+                           "resolved_paths", "rejected_paths", "change_category", "remediation", "map_match"]
+    assert entry["remediation"] == "Update to match `pkg/api.py:5`."
+    assert entry["map_match"] == mod.map_match(MAP_ENTRIES, "search", {"file": "pkg/api.py", "line": 5})
+
+
+@pytest.mark.parametrize("path, inside", [
+    ("SKILL.md", True), ("references/api.md", True), ("{skill_package}/references/api.md", True),
+    ("skills/lib/1.0.0/lib/SKILL.md", True), (".\\references\\api.md", True), ("src/api.ts", False),
+    ("docs/guide.md", False), ("references/nested/api.md", False),
+], ids=["skill-md", "reference", "through-skill-package", "package-path", "backslashes", "source", "other-md",
+        "nested-reference"])
+def test_in_skill_package(path, inside):
+    assert mod.in_skill_package({"file": path, "line": 4}) is inside
+
+
+def test_translate_drops_a_citation_inside_the_skill_package():
+    gap = _gap("GAP-001", "split-body-mismatch", export="parse", citation={"file": "references/api.md", "line": 4})
+    manifest, _ = _translate(gap)
+    [entry] = manifest["entries"]
+    assert "source_citation" not in entry and entry["change_category"] == "STRUCTURAL_FIX"
+    # the lookup keys on the name alone: two map entries share it
+    assert entry["map_match"]["status"] == "ambiguous"
+
+
+def test_translate_asks_what_it_cannot_decide():
+    gaps = [
+        _gap("GAP-001", None, export=None, title="Missing export: fetchAll"),
+        _gap("GAP-002", "signature-mismatch", export=None, title="fetchAll signature"),
+        _gap("GAP-003", "missing-export", export="internalThing", severity="Medium",
+             remediation="internalThing is out of scope: rescope it."),
+        _gap("GAP-004", "missing-export", export="fresh", severity="Medium", remediation="Document `fresh`."),
+        _gap("GAP-005", "broken-reference", export=None),
+    ]
+    manifest, summary = _translate(*gaps)
+    assert manifest is None and summary["status"] == "needs-judgment"
+    assert [(n["gap_id"], n["needs"]) for n in summary["needs_judgment"]] == [
+        ("GAP-001", ["category", "name"]), ("GAP-002", ["name"]), ("GAP-003", ["rescope"]), ("GAP-004", ["rescope"])]
+    # each item carries the gap's own text, to judge from without reopening gaps.json
+    assert summary["needs_judgment"][2] == {
+        "gap_id": "GAP-003", "title": "a gap", "category": "missing-export", "issue": None,
+        "remediation": "internalThing is out of scope: rescope it.", "needs": ["rescope"]}
+    answers = {"GAP-001": {"category": "missing-export", "name": "fetchAll"}, "GAP-002": {"name": "fetchAll"},
+               "GAP-003": {"rescope": False}, "GAP-004": {"rescope": False}}
+    # an older report's gap answered a missing export is asked rule R1 next: a person wrote its remediation
+    _, summary = _translate(*gaps, judgments=answers)
+    assert [(n["gap_id"], n["needs"]) for n in summary["needs_judgment"]] == [("GAP-001", ["rescope"])]
+    answers["GAP-001"]["rescope"] = False
+    manifest, summary = _translate(*gaps, judgments=answers)
+    assert summary["status"] == "written", summary
+    routed = {e["gap_id"]: (e["name"], e["category"], e["change_category"]) for e in manifest["entries"]}
+    assert routed == {"GAP-001": ("fetchAll", "missing-export", "NEW_EXPORT"),
+                      "GAP-002": ("fetchAll", "signature-mismatch", "MODIFIED_EXPORT"),
+                      "GAP-003": ("internalThing", "missing-export", "NEW_EXPORT"),
+                      "GAP-004": ("fresh", "missing-export", "NEW_EXPORT"),
+                      "GAP-005": (None, "broken-reference", "STRUCTURAL_FIX")}
+
+
+@pytest.mark.parametrize("answers", [
+    {"category": None}, {"category": "observation"}, {"category": "missing-export", "name": None},
+], ids=["no-row", "a-row-update-skill-does-not-route", "no-export-name"])
+def test_translate_leaves_a_gap_the_answers_do_not_route(answers):
+    manifest, summary = _translate(_gap("GAP-001", None, export=None), judgments={"GAP-001": answers})
+    assert summary["status"] == "written" and manifest["entries"] == []
+    assert summary["not_routed"][0]["id"] == "GAP-001"
+
+
+@pytest.mark.parametrize("remediation", [
+    "Rescope `x`: it is internal.", "Remove `x` from the public surface.", "`x` is out of scope.",
+    "`x` is out-of-scope", "Upstream marks it #[doc(hidden)].",
+    "x is an internal helper (pub(crate)); drop it from the documented surface.",
+    "Internal only: exclude x from the brief.", "This export is internal; do not document it.",
+    "Recommend removal from the public surface.", "Document `x` with its signature.",
+    "Document `x` in SKILL.md: read its definition at `pkg/api.py` and add its signature. It is internal.",
+], ids=["rescope", "remove-from-surface", "out-of-scope", "hyphenated", "doc-hidden", "drop-internal",
+        "exclude-internal", "internal", "removal", "no-signal", "ledger-text-a-person-extended"])
+@pytest.mark.parametrize("category", ["missing-export", "missing-type"])
+def test_translate_asks_rescope_of_a_remediation_a_person_wrote(remediation, category):
+    """Whether a remediation names removal is rule R1's judgment: translate asks it of any text but the ledger's own."""
+    _, summary = _translate(_gap("GAP-001", category, export="x", remediation=remediation))
+    [item] = summary["needs_judgment"]
+    assert (item["needs"], item["remediation"]) == (["rescope"], remediation)
+
+
+@pytest.mark.parametrize("where", ["src/api.ts:12", "src/api.ts", None], ids=["file-line", "file", "no-file"])
+@pytest.mark.parametrize("kind", ["export", "type"])
+def test_translate_never_asks_rescope_of_the_ledgers_own_text(where, kind):
+    """gap-ledger.py's text for a missing export or type names no removal, so a ledger's coverage gaps route
+    straight to NEW_EXPORT; the one count gap asks only the name its title leaves out."""
+    record = _ledger()._missing_export("x", where, "metadata.json", kind)
+    gap = _gap("GAP-001", record["category"], export="x", remediation=record["remediation"])
+    manifest, summary = _translate(gap)
+    assert summary["status"] == "written" and manifest["entries"][0]["change_category"] == "NEW_EXPORT", summary
+    [count] = _ledger().from_coverage({"branch": "scalar", "missingCount": 3, "denominator": 10, "documented": 7})
+    gap = _gap("GAP-002", count["category"], export=None, remediation=count["remediation"])
+    _, summary = _translate(gap)
+    assert summary["needs_judgment"][0]["needs"] == ["name"]
+    manifest, summary = _translate(gap, judgments={"GAP-002": {"name": "parse"}})
+    assert summary["status"] == "written" and manifest["entries"][0]["change_category"] == "NEW_EXPORT", summary
+
+
+def test_translate_writes_a_rescope_with_its_amendment():
+    gap = _gap("GAP-001", "missing-export", export="search", severity="Medium",
+               remediation="Remove `search` from the public surface.")
+    manifest, summary = _translate(gap, judgments={"GAP-001": {"rescope": True}}, read_only="dry-run")
+    [entry] = manifest["entries"]
+    assert entry["change_category"] == "DELETED_EXPORT"
+    # the exclude path is the file of the export's map entry
+    assert entry["rescope"] == {
+        "amendment": {"path": "pkg/api.py", "action": "excluded", "category": "scope-expansion",
+                      "reason": "Remove `search` from the public surface.", "date": "2026-10-03",
+                      "workflow": "skf-update-skill"},
+        "exclude": "pkg/api.py"}
+    assert summary["warnings"] == ["proposed-amendment: excluded pkg/api.py (scope-expansion); not written: --dry-run"]
+    # a write run proposes nothing
+    _, summary = _translate(gap, judgments={"GAP-001": {"rescope": True}})
+    assert summary["warnings"] == []
+
+
+def test_translate_asks_a_rescope_path_it_cannot_find():
+    gap = _gap("GAP-001", "missing-export", export="fresh", remediation="Rescope `fresh`.")
+    _, summary = _translate(gap, judgments={"GAP-001": {"rescope": True}})
+    assert summary["needs_judgment"][0]["needs"] == ["source_file"]
+    manifest, _ = _translate(gap, judgments={"GAP-001": {"rescope": True, "source_file": ".\\pkg\\new.py"}})
+    assert manifest["entries"][0]["rescope"]["exclude"] == "pkg/new.py"
+    # with no file to exclude, the export is documented instead
+    manifest, summary = _translate(gap, judgments={"GAP-001": {"rescope": True, "source_file": None}})
+    assert manifest["entries"][0]["change_category"] == "NEW_EXPORT" and "rescope" not in manifest["entries"][0]
+    assert summary["warnings"] == ["test-report: GAP-001: no source file to exclude, so it is documented, not "
+                                   "rescoped"]
+
+
+def test_translate_resolves_a_rule_r3_gap_from_its_cited_file(tmp_path: Path):
+    root = tmp_path / "src tree"
+    _write_files(root, "pkg/api.py")
+    gap = _gap("GAP-001", "provenance-completeness", export="search", severity="Low",
+               citation={"file": "pkg/api.py", "line": 5})
+    manifest, _ = _translate(gap, source_root=str(root))
+    [entry] = manifest["entries"]
+    assert (entry["resolved_paths"], entry["rejected_paths"], entry["provenance_completeness"]) == \
+        (["pkg/api.py"], [], True)
+    # its remediation's own paths win: no root check of the citation then
+    manifest, _ = _translate({**gap, "resolved_paths": ["pkg/other.py"]}, source_root=str(root))
+    assert manifest["entries"][0]["resolved_paths"] == ["pkg/other.py"]
+    # a remediation whose every path was refused keeps those refusals beside the citation check's
+    refused = [{"path": "pkg/gone.py", "reason": "not-found"}]
+    manifest, _ = _translate({**gap, "source_citation": {"file": "pkg/none.py", "line": 2}, "rejected_paths": refused},
+                             source_root=str(root))
+    assert (manifest["entries"][0]["resolved_paths"], manifest["entries"][0]["rejected_paths"]) == \
+        ([], [*refused, {"path": "pkg/none.py", "reason": "not-found"}])
+
+
+def test_translate_passes_parse_warnings_on():
+    _, summary = _translate(_gap("GAP-001", "structural", export=None), warnings=["GAP-009 has no readable severity"])
+    assert summary["warnings"] == ["test-report: GAP-009 has no readable severity"]
+
+
+def _translate_cli(tmp_path: Path, parsed: dict, *args: str) -> tuple[int, dict, Path]:
+    gaps = tmp_path / "gaps.json"
+    gaps.write_bytes(json.dumps(parsed).encode("utf-8"))
+    prov = tmp_path / "provenance-map.json"
+    if not prov.exists():
+        prov.write_bytes(json.dumps({"entries": MAP_ENTRIES}).encode("utf-8"))
+    out = tmp_path / "change-manifest.json"
+    proc = run(SCRIPT, "translate", "--gaps", str(gaps), "--provenance-map", str(prov), "-o", str(out), *args)
+    return proc.returncode, json.loads(proc.stdout), out
+
+
+def test_translate_cli_writes_the_manifest_or_asks(tmp_path: Path):
+    parsed = _parsed(_gap("GAP-001", None, export="search"))
+    code, out, path = _translate_cli(tmp_path, parsed)
+    assert code == 0 and out["status"] == "needs-judgment" and not path.exists(), out
+    answers = tmp_path / "gap-judgments.json"
+    answers.write_bytes(json.dumps({"GAP-001": {"category": "signature-mismatch", "declaring_line": 4}}).encode())
+    code, out, path = _translate_cli(tmp_path, parsed, "--judgments", str(answers), "--date", "2026-10-03")
+    assert code == 0 and out["status"] == "written" and out["output"] == str(path), out
+    assert json.loads(path.read_bytes())["entries"][0]["change_category"] == "MODIFIED_EXPORT"
+
+
+@pytest.mark.parametrize("parsed, args, message", [
+    ({"status": "error", "code": "REPORT_MISSING", "error": "no test report"}, (), "not the output of a parse"),
+    (_parsed(), ("--date", "3 October"), "--date takes YYYY-MM-DD"),
+    (_parsed(_gap("GAP-001", None)), ("--judgments", "BAD"), "has the wrong type"),
+], ids=["a-failed-parse", "a-bad-date", "an-answer-of-the-wrong-type"])
+def test_translate_cli_refuses_unusable_input(tmp_path: Path, parsed, args, message):
+    if "BAD" in args:
+        bad = tmp_path / "gap-judgments.json"
+        bad.write_bytes(json.dumps({"GAP-001": {"rescope": "yes"}}).encode("utf-8"))
+        args = ("--judgments", str(bad))
+    code, out, path = _translate_cli(tmp_path, parsed, *args)
+    assert code == 1 and out["code"] == "INVALID_INPUT" and message in out["error"], out
+    assert not path.exists()
+
+
+def test_translate_cli_reads_the_parse_output_it_follows(tmp_path: Path):
+    """The two documented calls chained: parse's stdout in a file, translate's manifest from it."""
+    ledger = write_ledger(tmp_path / "findings.json", "coverage-check", LEDGER_RECORDS)
+    proc = run(SCRIPT, "parse", "--ledger", str(ledger))
+    assert proc.returncode == 0
+    code, out, path = _translate_cli(tmp_path, json.loads(proc.stdout))
+    # the ledger's missing export carries a remediation a person wrote: rule R1 asks about it
+    assert code == 0 and [n["needs"] for n in out["needs_judgment"]] == [["rescope"]], out
+    answers = tmp_path / "gap-judgments.json"
+    answers.write_bytes(json.dumps({out["needs_judgment"][0]["gap_id"]: {"rescope": False}}).encode("utf-8"))
+    code, out, path = _translate_cli(tmp_path, json.loads(proc.stdout), "--judgments", str(answers))
+    assert code == 0 and out["gap_count"] == 3, out
+    assert [e["change_category"] for e in json.loads(path.read_bytes())["entries"]] == [
+        "MODIFIED_EXPORT", "STRUCTURAL_FIX", "NEW_EXPORT"]

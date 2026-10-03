@@ -39,6 +39,10 @@ Subcommands:
   match --provenance-map <provenance-map.json> --name <export>
         [--citation <file:line>]
 
+  translate --gaps <parse's output> --provenance-map <provenance-map.json>
+            [--judgments <answers.json>] [--read-only dry-run|detect-only]
+            [--date YYYY-MM-DD] -o <change-manifest.json>
+
   `parse`: at least one of --report and --ledger. --ext (repeatable, `kt`
   or `.vue`) adds a source file extension to the list below, and
   --provenance-map adds the extension of each file its entries[]
@@ -134,13 +138,81 @@ union over all gaps, each file once.
 rather than a remediation text: {"status": "ok", "source_root",
 "resolved_paths", "rejected_paths"}.
 
+Translate (update-skill gap-driven.md §1): `translate` turns the gaps
+`parse` wrote (--gaps) into the change manifest, written to -o as
+{"mode": "gap-driven", "entries": [...]}. Each gap is routed by its
+`category` through CHANGE_CATEGORIES (gap-driven.md §1's table), never by
+its severity; a category the table does not hold is not routed. Each
+entry, in this key order:
+
+  name                      the gap's `export`, else the answered `name`
+  gap_id, category          the gap's `id`, its `category` (else the
+                            answered one), `severity`
+  severity
+  source_citation           the gap's, left out when it is null or names a
+                            line inside the skill package (`SKILL.md` or a
+                            `references/*.md` file, under any folder)
+  remediation_paths, resolved_paths, rejected_paths
+                            the gap's ([] when parse had no --source-root);
+                            a `provenance-completeness` gap with no
+                            resolved path takes its resolved_paths from the
+                            root check of the source file it cites (its
+                            out-of-package citation, else the answered
+                            `source_file`) under parse's source root, and
+                            adds that check's refusals to its own
+                            rejected_paths
+  change_category           the table's, or DELETED_EXPORT for a rescope
+  remediation               the gap's text, verbatim
+  provenance_completeness   true, for a `provenance-completeness` gap only
+  rescope                   for a rescope only: {"amendment": {path,
+                            action: "excluded", category:
+                            "scope-expansion", reason (the remediation),
+                            date, workflow: "skf-update-skill"},
+                            "exclude": path}
+  map_match                 the `match` lookup of `name` with the kept
+                            citation (null without a name)
+
+A rescope (rule R1) is a `missing-export` or `missing-type` gap answered
+`rescope: true`. Its path is the answered `source_file`, else the file of
+its map entry when `map_match` is `found`, else its citation's file.
+
+What it cannot decide it asks for. While any gap needs an answer it writes
+nothing and prints {"status": "needs-judgment", "needs_judgment":
+[{"gap_id", "title", "category", "issue", "remediation", "needs": [...]}]},
+the gap's own text to judge from, each need one of:
+
+  category     a gap with none (a report older than the ledger)
+  name         an export-bearing gap with no `export` (with `category`:
+               any gap with neither)
+  rescope      a `missing-export` or `missing-type` gap whose remediation
+               a person or a model wrote: any text but the one gap-ledger.py
+               generates for a missing export or type (`Document ... in
+               SKILL.md: ...`, `Find the N exports ...`), which names no
+               removal; whether it does is rule R1's judgment
+  source_file  a rescope whose path is unknown, or a
+               `provenance-completeness` gap with no path to scan
+
+--judgments answers them: a JSON object keyed by gap id, each value an
+object of `category` (a slug, or null: not routed), `name` (a string, or
+null: not routed), `rescope` (true or false; given for any `missing-export`
+or `missing-type` gap, it is honoured) and `source_file` (a path relative
+to the source root, or null). Other keys are left for gap-records. With
+every need answered it writes the manifest and prints {"status":
+"written", "output", "gap_count", "not_routed": [{"id", "title",
+"category"}], "warnings": [...]}. `warnings` holds parse's warnings as
+`test-report: <warning>`, `test-report: not routed: <id> (<category>)` for
+each gap not routed, and, with --read-only, `proposed-amendment: excluded
+<path> (scope-expansion); not written: --<mode>` for each rescope.
+
 Exit codes:
-  0  the gaps (possibly none), the paths or the match were printed
+  0  the gaps (possibly none), the paths or the match were printed; the
+     manifest was written, or the answers it needs were printed
   1  the report or ledger is missing or unreadable, or an option value is
      unusable (no --report or --ledger, a --source-root that is not a
      folder, an --ext that is not a file extension, a --provenance-map
      that cannot be read as a JSON object, a --citation that is no
-     `file:line`)
+     `file:line`, a --gaps file that is not parse's output, a --judgments
+     answer of the wrong type, an -o that cannot be written)
   2  usage error (argparse: a missing or unknown argument, usage on stderr,
      no JSON)
 
@@ -155,6 +227,8 @@ import json
 import os
 import re
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 SEVERITIES = ("Critical", "High", "Medium", "Low", "Info")
@@ -874,6 +948,230 @@ def parse_gaps(
 
 
 # --------------------------------------------------------------------------
+# Translate (update-skill gap-driven.md §1)
+# --------------------------------------------------------------------------
+
+# gap-driven.md §1's table: each ledger category the repair routes, and the
+# change category it takes. Any other category is not routed.
+CHANGE_CATEGORIES = {
+    "missing-export": "NEW_EXPORT",
+    "missing-type": "NEW_EXPORT",
+    "provenance-completeness": "NEW_EXPORT",
+    "signature-mismatch": "MODIFIED_EXPORT",
+    "fabricated-signature": "MODIFIED_EXPORT",
+    "stale-documentation": "MODIFIED_EXPORT",
+    "provenance-line": "MOVED_EXPORT",
+    "split-body-mismatch": "STRUCTURAL_FIX",
+    "structural": "STRUCTURAL_FIX",
+    "broken-reference": "STRUCTURAL_FIX",
+    "inaccurate-reference": "STRUCTURAL_FIX",
+    "reference-escape": "STRUCTURAL_FIX",
+    "integration-pattern": "STRUCTURAL_FIX",
+    "migration-section": "STRUCTURAL_FIX",
+    "scripts-assets": "STRUCTURAL_FIX",
+    "metadata-drift": "metadata update",
+    "metadata": "metadata update",
+}
+EXPORT_CATEGORIES = ("NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT")
+RESCOPE_CATEGORIES = ("missing-export", "missing-type")  # rule R1
+COMPLETENESS = "provenance-completeness"  # rule R3
+READ_ONLY_MODES = ("dry-run", "detect-only")
+# The remediation gap-ledger.py generates for a missing export or type (_missing_export, and the count gap of
+# the scalar and stack branches). No person wrote it, so it names no removal (rule R1); any other text may.
+_LEDGER_REMEDIATION = re.compile(
+    r"Document (?:the type )?`[^`\n]+` in SKILL\.md: (?:read its definition at `[^`\n]+`"
+    r"|find its definition in the source \(`[^`\n]+` lists it\)) and "
+    r"(?:add its signature, its purpose and a usage example|list its fields or members)\."
+    r"|Find the \d+ exports the denominator counts that SKILL\.md and references/ do not name "
+    r"\(`[^`\n]+` lists the exports\) and document each with its signature\."
+)
+# A citation of generated markdown: the skill's SKILL.md or a references/*.md file.
+_PACKAGE_FILE = re.compile(r"(?:^|/)(?:SKILL\.md|references/[^/]+\.md)$")
+# The answers translate reads, with the JSON types each takes.
+_ANSWER_TYPES = {"category": (str, type(None)), "name": (str, type(None)), "rescope": (bool,),
+                 "source_file": (str, type(None))}
+_IS_WINDOWS = os.name == "nt"
+_REPLACE_WAIT_SECONDS = 5.0
+
+
+def in_skill_package(citation: dict | None) -> bool:
+    """True when a citation names a line of generated markdown, not source.
+
+    >>> [in_skill_package({"file": f, "line": 1}) for f in ("SKILL.md", "{skill_package}/references/api.md", "src/a.ts")]
+    [True, True, False]
+    """
+    path = _norm_file(citation.get("file")) if isinstance(citation, dict) else None
+    return bool(path and _PACKAGE_FILE.search(path))
+
+
+def written_remediation(text: object) -> bool:
+    """True when a remediation is text a person or a model wrote, not the text gap-ledger.py generates for a
+    missing export or type: only such text can name the removal rule R1 asks about.
+
+    >>> [written_remediation(t) for t in ("Document `x` in SKILL.md: read its definition at `src/a.ts` and add "
+    ...     "its signature, its purpose and a usage example.", "x is internal: drop it from the surface.", None)]
+    [False, True, False]
+    """
+    return isinstance(text, str) and bool(text.strip()) and not _LEDGER_REMEDIATION.fullmatch(text.strip())
+
+
+def load_judgments(path: Path) -> dict:
+    """The answers of a --judgments file, keyed by gap id. Raises ParseError (INVALID_INPUT)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ParseError("INVALID_INPUT", f"cannot read --judgments {path}: {exc}") from exc
+    if not isinstance(data, dict) or not all(isinstance(v, dict) for v in data.values()):
+        raise ParseError("INVALID_INPUT", f"--judgments {path} must map each gap id to an object of answers")
+    for gid, answers in data.items():
+        for key, types in _ANSWER_TYPES.items():
+            if key in answers and not isinstance(answers[key], types):
+                raise ParseError("INVALID_INPUT", f"--judgments {path}: {gid}'s `{key}` has the wrong type")
+    return data
+
+
+def _answer_text(value: object) -> str | None:
+    return value.strip() or None if isinstance(value, str) else None
+
+
+def _answer_path(value: object) -> str | None:
+    text = _norm_file(value)
+    return text.rstrip("/") or None if text else None
+
+
+def translate_gaps(parsed: dict, map_entries: list, judgments: dict, *, read_only: str | None = None,
+                   today: str = "") -> tuple[dict | None, dict]:
+    """(the change manifest, or None while a gap needs an answer; the summary). See "Translate" in the module
+    docstring."""
+    root_text = parsed.get("source_root")
+    root = Path(root_text) if isinstance(root_text, str) and Path(root_text).is_dir() else None
+    suffixes = _SOURCE_SUFFIXES | {f".{ext}" for ext in map_extensions(map_entries)}
+    warnings = [f"test-report: {w}" for w in parsed.get("warnings") or [] if isinstance(w, str)]
+    needs: list[dict] = []
+    entries: list[dict] = []
+    not_routed: list[dict] = []
+
+    def skip(gap: dict, category: str | None) -> None:
+        not_routed.append({"id": gap["id"], "title": gap.get("title"), "category": category})
+        warnings.append(f"test-report: not routed: {gap['id']} ({category or 'no category'})")
+
+    def ask(gap: dict, category: str | None, want: list[str]) -> None:
+        needs.append({"gap_id": gap["id"], "title": gap.get("title"), "category": category,
+                      "issue": gap.get("issue"), "remediation": gap.get("remediation"), "needs": want})
+
+    for gap in parsed["gaps"]:
+        answers = judgments.get(gap["id"]) or {}
+        want: list[str] = []
+        export = _answer_text(gap.get("export"))
+        category = gap.get("category") or None
+        if category is None and "category" in answers:
+            category = _answer_text(answers["category"])
+        elif category is None:
+            want.append("category")
+            if export is None and "name" not in answers:
+                want.append("name")
+            ask(gap, None, want)
+            continue
+        change = CHANGE_CATEGORIES.get(category or "")
+        if change is None:
+            skip(gap, category)
+            continue
+        name = export or _answer_text(answers.get("name"))
+        if change in EXPORT_CATEGORIES and name is None:
+            if "name" in answers:  # answered null: no export to repair
+                skip(gap, category)
+            else:
+                ask(gap, category, ["name"])
+            continue
+        citation = gap.get("source_citation")
+        if in_skill_package(citation):
+            citation = None
+        match = map_match(map_entries, name, citation) if name else None
+        rescope = False
+        if category in RESCOPE_CATEGORIES:
+            if "rescope" in answers:
+                rescope = answers["rescope"]
+            elif written_remediation(gap.get("remediation")):
+                want.append("rescope")
+        exclude = None
+        if rescope:
+            exclude = _answer_path(answers.get("source_file"))
+            if exclude is None and match and match["status"] == "found":
+                exclude = _answer_path(match["entry"]["source_file"])
+            if exclude is None and citation:
+                exclude = _answer_path(citation["file"])
+            if exclude is None and "source_file" not in answers:
+                want.append("source_file")
+            elif exclude is None:
+                warnings.append(f"test-report: {gap['id']}: no source file to exclude, so it is documented, not "
+                                f"rescoped")
+                rescope = False
+        resolved = list(gap.get("resolved_paths") or [])
+        rejected = list(gap.get("rejected_paths") or [])
+        if category == COMPLETENESS and not resolved and root is not None:
+            cited = _answer_path(citation["file"]) if citation else None
+            if cited is None and "source_file" in answers:
+                cited = _answer_path(answers["source_file"])
+            elif cited is None:
+                want.append("source_file")
+            if cited is not None:
+                resolved, refused = resolve_paths([_LINE_SUFFIX.sub("", cited)], root, suffixes)
+                rejected += refused
+        if want:
+            ask(gap, category, want)
+            continue
+        entry = {"name": name, "gap_id": gap["id"], "category": category, "severity": gap.get("severity")}
+        if citation:
+            entry["source_citation"] = citation
+        entry["remediation_paths"] = list(gap.get("remediation_paths") or [])
+        entry["resolved_paths"] = resolved
+        entry["rejected_paths"] = rejected
+        entry["change_category"] = "DELETED_EXPORT" if rescope else change
+        entry["remediation"] = gap.get("remediation")
+        if category == COMPLETENESS:
+            entry["provenance_completeness"] = True
+        if rescope:
+            entry["rescope"] = {
+                "amendment": {"path": exclude, "action": "excluded", "category": "scope-expansion",
+                              "reason": gap.get("remediation") or gap.get("title") or "", "date": today,
+                              "workflow": "skf-update-skill"},
+                "exclude": exclude,
+            }
+            if read_only:
+                warnings.append(f"proposed-amendment: excluded {exclude} (scope-expansion); not written: "
+                                f"--{read_only}")
+        entry["map_match"] = match
+        entries.append(entry)
+    if needs:
+        return None, {"status": "needs-judgment", "needs_judgment": needs}
+    return {"mode": "gap-driven", "entries": entries}, {
+        "status": "written", "gap_count": len(entries), "not_routed": not_routed, "warnings": warnings}
+
+
+def write_json_atomic(path: Path, value) -> None:
+    """Write `value` as indented JSON through a temporary file beside `path` and one rename (retried on Windows,
+    where a scanner may hold the target open for a moment)."""
+    tmp = path.with_name(f".{path.name}.skf-{os.getpid()}-tmp")
+    try:
+        tmp.write_bytes((json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+        deadline = time.monotonic() + _REPLACE_WAIT_SECONDS
+        while True:
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if not _IS_WINDOWS or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -980,6 +1278,42 @@ def _cmd_match(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parsed_gaps(path: Path) -> dict:
+    """parse's output in a --gaps file. Raises ParseError (INVALID_INPUT)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ParseError("INVALID_INPUT", f"cannot read --gaps {path}: {exc}") from exc
+    if not isinstance(data, dict) or data.get("status") != "ok" or not isinstance(data.get("gaps"), list) \
+            or not all(isinstance(g, dict) and isinstance(g.get("id"), str) for g in data["gaps"]):
+        raise ParseError("INVALID_INPUT", f"--gaps {path} is not the output of a parse that succeeded")
+    return data
+
+
+def _cmd_translate(args: argparse.Namespace) -> int:
+    try:
+        if args.date is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date):
+            raise ParseError("INVALID_INPUT", f"--date takes YYYY-MM-DD, got {args.date!r}")
+        parsed = _parsed_gaps(Path(args.gaps))
+        entries = map_entries_of(Path(args.provenance_map))
+        judgments = load_judgments(Path(args.judgments)) if args.judgments else {}
+        manifest, summary = translate_gaps(
+            parsed, entries, judgments, read_only=args.read_only,
+            today=args.date or datetime.now(timezone.utc).date().isoformat())
+        if manifest is not None:
+            try:
+                write_json_atomic(Path(args.output), manifest)
+            except OSError as exc:
+                raise ParseError("INVALID_INPUT", f"cannot write {args.output}: {exc}") from exc
+            summary = {"status": summary["status"], "output": args.output,
+                       **{k: v for k, v in summary.items() if k != "status"}}
+    except ParseError as exc:
+        _emit({"status": "error", "code": exc.code, "error": str(exc)})
+        return 1
+    _emit(summary)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-parse-gaps",
@@ -1003,6 +1337,16 @@ def _build_parser() -> argparse.ArgumentParser:
     m.add_argument("--name", required=True, help="the export's name")
     m.add_argument("--citation", help="the export's source citation, file:line")
     m.set_defaults(func=_cmd_match)
+
+    t = sub.add_parser("translate", help="write update-skill's gap-driven change manifest from parse's gaps")
+    t.add_argument("--gaps", required=True, help="the output of parse")
+    t.add_argument("--provenance-map", required=True, help="the provenance map each entry's map_match reads")
+    t.add_argument("--judgments", help="the answers to its needs_judgment[], keyed by gap id")
+    t.add_argument("--read-only", choices=READ_ONLY_MODES,
+                   help="the read-only flag of the run: each rescope is a proposed amendment")
+    t.add_argument("--date", help="the date of a rescope's amendment, YYYY-MM-DD (default: today, UTC)")
+    t.add_argument("-o", "--output", required=True, help="where to write the change manifest")
+    t.set_defaults(func=_cmd_translate)
 
     for parser_ in (p, q):
         parser_.add_argument(
