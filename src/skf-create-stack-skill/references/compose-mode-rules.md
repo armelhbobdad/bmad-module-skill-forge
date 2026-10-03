@@ -17,7 +17,7 @@ Prose co-mention detection is heuristic: it can only provide `Plausible`-class e
 3. **`excluded_section`.** True on an evidence entry whose paragraph sits under an introductory H1/H2 header (Overview, Introduction, Glossary and the like; `skf-comention-pairs.py`'s docstring lists the set): such sections often enumerate every library without describing an integration.
 4. **`paragraph_count`.** The number of body paragraphs that name both libraries. One is enough to make a candidate: whether that passage describes an integration is a judgment on its excerpt.
 
-**Known limitations:** even with the guards, a co-mention only witnesses that two libraries are discussed together; it does not prove an integration exists, so every pair the matcher reports is a candidate step 5 §2 judges. Downstream consumers should prefer stack manifests (`skf-create-stack-skill` output) to prose-derived evidence when both are available.
+**Known limitations:** even with the guards, a co-mention only witnesses that two libraries are discussed together; it does not prove an integration exists, so every pair the matcher reports is a candidate step 5 §2 judges.
 
 ## Architecture Integration Mapping
 
