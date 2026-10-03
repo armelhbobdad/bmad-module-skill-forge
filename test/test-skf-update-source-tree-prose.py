@@ -738,7 +738,7 @@ def test_report_surfaces_source_commit():
 def test_clone_not_updated_names_commands_that_work():
     """test-skill's suggested checkout of source_ref never reaches a new branch or HEAD commit."""
     five = _slice(_read(REPORT), "### 5. Workflow Chaining Recommendations", "### 5b.")
-    note = _slice(five, "When `warnings[]` holds `workspace-clone-not-updated`", "\n")
+    note = _slice(five, "When `{run_dir}/warnings.jsonl` holds a `workspace-clone-not-updated:` line", "\n")
     assert '`git -C "{workspace_clone}" fetch --depth 1 origin {target_commit}`' in note
     assert '`git -C "{workspace_clone}" checkout --detach {target_commit}`' in note
     assert "`not-a-clone` or `clone-failed`" in note
@@ -4248,23 +4248,88 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     assert "`headless_mode: true` in `{sidecar_path}/preferences.yaml`" in two
 
 
+WARNING_RULE = "**Warnings go to the run log.**"
+STAGE_RECORD = 'uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"'
+WARNING_RULE_LINE = (WARNING_RULE + " Record each warning this step adds to `warnings[]` the moment it is raised: "
+                     "write its text to `{run_dir}/warning.txt` with a file write (a warning can hold quotes, `$` or "
+                     "backticks), then, from `{project-root}`, run `" + STAGE_RECORD + "`. The halt line and the "
+                     "result line read warnings only from `{run_dir}/warnings.jsonl`.")
+# A step raises a warning where it says to add one to `warnings[]`.
+RAISES_WARNING = re.compile(r"\b[Aa]dd\b[^\n]*?to `warnings\[\]`")
+
+
+def _stage_warning_rules() -> dict[str, str]:
+    """The run-log rule each references/*.md file that raises a warning outside that rule states, by file name:
+    its lines that carry the rule, less a list bullet, joined ('' when it states none)."""
+    rules = {}
+    for path in sorted(REFS.glob("*.md")):
+        lines = _read(path).splitlines()
+        if any(RAISES_WARNING.search(line) for line in lines if WARNING_RULE not in line):
+            rules[path.name] = "\n".join(line.removeprefix("- ") for line in lines if WARNING_RULE in line)
+    return rules
+
+
+def test_every_stage_records_the_warnings_it_raises():
+    """Step 5b gate run 4 architecture-1: a step that adds a warning to `warnings[]` records it in the run log as
+    it raises it, as each gate records its decision, so the halt line and the result line, which read warnings
+    only from `{run_dir}/warnings.jsonl`, carry it after a long run's context is compacted."""
+    rules = _stage_warning_rules()
+    assert set(rules) >= {"init.md", "detect-changes.md", "gap-driven.md", "re-extract.md", "write.md", "report.md"}
+    # each states the one rule once, word for word: a copy that drifts from the others fails here
+    assert set(rules.values()) == {WARNING_RULE_LINE}, rules
+    # after its halt procedure and before its first section; report.md, which has no halt procedure, as one of its
+    # Rules
+    for name in rules:
+        text = _read(REFS / name)
+        if name == REPORT.name:
+            assert f"- {WARNING_RULE}" in _slice(text, "## Rules", "## Steps")
+        else:
+            steps = _slice(text, "## Steps", "\n### ")
+            assert HALT_PROCEDURE in steps and steps.index(HALT_PROCEDURE) < steps.index(WARNING_RULE), name
+    # merge.md raises no warning, so it carries no copy of the rule, and no file carries one it does not need
+    assert "merge.md" not in rules and "to `warnings[]`" not in _read(MERGE)
+    assert {path.name for path in REFS.glob("*.md") if WARNING_RULE in _read(path)} == set(rules)
+    # SKILL.md's Run log rule leaves the call to the step that names it: its old inline form, `--warning "<text>"`,
+    # breaks on the quotes, `$` and backticks a warning can hold
+    run_log = _slice(_read(SKILL), "- **Run log.**", "\n")
+    assert "with the `record` call that step names" in run_log
+    assert "--warning" not in run_log and '--warning "<text>"' not in _read(SKILL)
+    # write.md §6 records its own provenance WARNs; §3 already recorded the spot-check warnings, so §6 adds none again
+    six = _slice(_read(WRITE), "### 6.", "### 7.")
+    assert "§3 recorded `{provenance_spot_check_warnings}` already." in six
+    assert "each entry of `{provenance_spot_check_warnings}`" not in six and "the envelope's `warnings[]`" not in six
+    # report.md §5's workspace-clone note reads the run log, never an in-context list
+    five = _slice(_read(REPORT), "### 5. Workflow Chaining Recommendations", "### 5b.")
+    assert "When `{run_dir}/warnings.jsonl` holds a `workspace-clone-not-updated:` line, add:" in five
+    assert "When `warnings[]` holds" not in _read(REPORT)
+
+
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
 def test_the_recorded_resolver_warning_keeps_its_quotes(tmp_path):
-    """The documented record call, run by bash: the reason reaches the run's
-    warnings sink whole, quotes, `$` and backticks included."""
+    """The documented record calls, run by bash: On Activation's resolver reason and a stage's warning reach the
+    run's warnings sink whole, quotes, `$` and backticks included."""
     flow = " ".join(_slice(_read(SKILL), "4. **Resolve workflow customization.**", "5. Load").split())
     record = re.search(r"run `(uv run \{emitEnvelopeHelper\} record [^`]+)`", flow).group(1)
+    [rule] = set(_stage_warning_rules().values())
+    stage = re.search(r"run `(uv run \{emitEnvelopeHelper\} record [^`]+)`", rule).group(1)
     run_dir = tmp_path / "skf-update-skill-abcd1234"
     run_dir.mkdir()
+
+    def run(call: str) -> None:
+        command = (call.replace("uv run {emitEnvelopeHelper}",
+                                f"{shlex.quote(sys.executable)} {shlex.quote(EMITTER.as_posix())}")
+                   .replace("{run_dir}", run_dir.as_posix()))
+        done = subprocess.run(["bash", "-c", command], capture_output=True, timeout=30)
+        assert done.returncode == 0, done.stderr
+
     reason = "exit 3: No module named 'tomllib' in \"$HOME\" `x`"
     (run_dir / "resolver-warning.txt").write_bytes(f"customization_resolver_unavailable: {reason}".encode("utf-8"))
-    command = (record.replace("uv run {emitEnvelopeHelper}",
-                              f"{shlex.quote(sys.executable)} {shlex.quote(EMITTER.as_posix())}")
-               .replace("{run_dir}", run_dir.as_posix()))
-    done = subprocess.run(["bash", "-c", command], capture_output=True, timeout=30)
-    assert done.returncode == 0, done.stderr
+    run(record)
+    warning = "source-not-fetched: fatal: unable to access 'https://h/r.git/' as \"$USER\" `id` $(id)"
+    (run_dir / "warning.txt").write_bytes(warning.encode("utf-8"))
+    run(stage)
     sink = (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()
-    assert [json.loads(line) for line in sink] == [f"customization_resolver_unavailable: {reason}"]
+    assert [json.loads(line) for line in sink] == [f"customization_resolver_unavailable: {reason}", warning]
 
 
 def test_skill_md_routes_the_gap_driven_branch_and_names_its_files():

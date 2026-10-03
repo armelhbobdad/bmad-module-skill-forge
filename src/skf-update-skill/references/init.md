@@ -66,6 +66,8 @@ Pass `--tree` once ยง6b has bound `{source_tree}`, `--lock` and `--owner` once ย
 
 The halt leaves `{run_dir}` in place. No HALT in this step adds a `headless_decisions[]` entry: a halt is not an auto-resolved gate.
 
+**Warnings go to the run log.** Record each warning this step adds to `warnings[]` the moment it is raised: write its text to `{run_dir}/warning.txt` with a file write (a warning can hold quotes, `$` or backticks), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`. The halt line and the result line read warnings only from `{run_dir}/warnings.jsonl`.
+
 ### 1. Request Skill Path
 
 **The invocation's skill.** When `{requested_skill}` is set (SKILL.md On Activation), it answers the question below in either mode, and the prompt is not shown.
