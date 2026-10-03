@@ -136,7 +136,7 @@ If step 6 extracted the catalog, copy `{draftFolder}/stack-catalog.md` to `{skil
 
 ### 4. Stage Integration Pair Reference Files
 
-For each entry of `{bundleFile}`'s `integrations[]`, write `{skill_staging}/references/integrations/{a}-{b}.md` in the integrations structure of `{stackSkillTemplatePath}` from the entry (`type`, its pair's `intersection_count` in `{pairsFile}` as the co-import file count, 0 in compose mode, `description` with its `key_files` citations, `tier`).
+For each entry of `{bundleFile}`'s `integrations[]`, write `{skill_staging}/references/integrations/{a}-{b}.md` in the integrations structure of `{stackSkillTemplatePath}` from the entry (`type`, its pair's `intersection_count` in `{pairsFile}` as the co-import file count, 0 in compose mode, `description` with its `key_files` citations, `tier`). In compose mode its Integration Pattern section carries the entry's `evidence` and `reference` lines in place of `key_files` citations, and, when its `vs` is set, the VS lines and annotation of its SKILL.md entry.
 
 ### 5. Stage context-snippet.md
 

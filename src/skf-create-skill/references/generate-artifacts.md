@@ -92,7 +92,7 @@ uv run {skillInventoryHelper} {skills_output_folder} --skill {name} --write-chec
 
 `--forge-data-folder` only tells the helper whether both settings name one folder, so the brief and forge files there count as SKF output.
 
-Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`. Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
+Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder`, `{write_detail}` ← `write_check.detail` and `{existing_generator}` ← `write_check.version_generated_by` (the build §3 replaces, for step 8; null when none). Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
 
 - `{write_verdict}` is `"flat-layout"` → `halt_reason: "flat-layout"`: "**`{name}` still uses the flat layout — nothing was written.** A version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
 - `{write_verdict}` is `"not-skf-output"` → `halt_reason: "not-skf-output"`: "**`{name}` is not SKF output — nothing was written.** `{write_folder}` {write_detail}, so SKF will not write a version there. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{name}` yourself, and set a different `name` in the brief to create this skill beside it. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder with no `metadata.json` can also be one that an interrupted create-skill run left behind; delete it yourself in that case."
@@ -109,7 +109,7 @@ The folders this step writes:
 {forge_version}                        # {forge_data_folder}/{name}/{version}/
 ```
 
-The promotion (§3) creates them. An existing `{skill_package}` is replaced whole: the ownership check accepted it, and a package left half from an earlier compile of this version would mix two runs.
+The promotion (§3) creates them. An existing `{skill_package}` is replaced whole: the ownership check accepted it, and a package left half from an earlier compile of this version would mix two runs. Only its hand-written `[MANUAL]` content carries forward: its blocks are in the staged SKILL.md (step 5), and §3 carries its files.
 
 ### 2. Generate extraction-rules.yaml
 
@@ -126,19 +126,19 @@ When it exits non-zero, **HARD HALT** (exit code 4, `write-failed`, phase `gener
 Resolve `{promoteStagedHelper}` ← first existing path in `{promoteStagedProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot promote the staged skill: skf-promote-staged.py is missing. Re-install SKF, then re-run create-skill." From `{project-root}`, run:
 
 ```bash
-uv run {promoteStagedHelper} promote --stage "<staging-skill-dir>" --package "{skill_package}" --forge-version "{forge_version}" [--inventory "{extraction_inventory}" --source-root "{source_root}"]
+uv run {promoteStagedHelper} promote --stage "<staging-skill-dir>" --package "{skill_package}" --forge-version "{forge_version}" [--inventory "{extraction_inventory}" --source-root "{source_root}"] [--carry-manual "{skill_package}"]
 ```
 
-Pass `--inventory` and `--source-root` when the inventory's `scripts_inventory` or `assets_inventory` is not empty. The helper copies the staged bytes, never a copy from context:
+Pass `--inventory` and `--source-root` when the inventory's `scripts_inventory` or `assets_inventory` is not empty, and `--carry-manual "{skill_package}"` when `{skill_package}` already exists. The helper copies the staged bytes, never a copy from context:
 
-- **To `{skill_package}`:** `SKILL.md`, `context-snippet.md`, `metadata.json` (with the `doc_sources` step 5a wrote into it) and every file under the staged `references/` (the `references/full-*.md` files step 5b extracted included), plus `scripts/{name}` and `assets/{name}` for each inventory script and asset, copied from `{source_root}`. The package is built beside its target and swapped in, so a reader never sees half of it.
-- **To `{forge_version}`:** `{forge_version}/provenance-map.json`, `{forge_version}/evidence-report.md` and `{forge_version}/extraction-rules.yaml`, one atomic write each.
+- **To `{skill_package}`:** `SKILL.md`, `context-snippet.md`, `metadata.json` (with the `doc_sources` step 5a wrote into it) and every file under the staged `references/` (the `references/full-*.md` files step 5b extracted included), plus `scripts/{name}` and `assets/{name}` for each inventory script and asset, copied from `{source_root}`, and, with `--carry-manual`, the earlier build's `scripts/[MANUAL]/` and `assets/[MANUAL]/` files. The package is built beside its target and swapped in, so a reader never sees half of it.
+- **To `{forge_version}`:** `{forge_version}/provenance-map.json`, `{forge_version}/evidence-report.md` and `{forge_version}/extraction-rules.yaml`, one atomic write each, and, with a warning, `{forge_version}/manual-backup/SKILL-<UTC time>.md` (the earlier SKILL.md, a new file each run) when the staged one lacks a hand-written `[MANUAL]` block of it.
 - **Not copied:** a promoted authoritative doc (`file_entries[]` with `file_type: "doc"`, from step 3 §2a) stays at its source path; the provenance map tracks it for drift detection.
 
-Bind `{promotion}` ← its JSON: `files[]` (each promoted file's `path`, `kind`, `bytes` and `sha256`, read back and checked against the staged bytes), `counts`, `ignored` (staged files it did not promote) and `warnings`; display each warning. Act on its exit code:
+Bind `{promotion}` ← its JSON: `files[]` (each promoted file's `path`, `kind`, `bytes` and `sha256`, read back and checked against the staged bytes), `counts`, `ignored` (staged files it did not promote), `manual` (what `--carry-manual` kept: `blocks`, `missing_blocks`, `files`, `backup`) and `warnings`; display each warning. Act on its exit code:
 
 - **0:** continue to §4.
-- **1** (a staged file it needs is missing, or the inventory names a script or asset it cannot copy; nothing was written): **HARD HALT** (exit code 4, `staging-unreadable`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --result-dir "{forge_version}" --target stderr < "{run_dir}/halt.json"`), with the message the helper printed on stderr.
+- **1** (a staged file it needs is missing, the inventory names a script or asset it cannot copy, or the earlier package cannot be read; nothing was written): **HARD HALT** (exit code 4, `staging-unreadable`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --result-dir "{forge_version}" --target stderr < "{run_dir}/halt.json"`), with the message the helper printed on stderr.
 - **2** (a write failed; the earlier package stays in place when the swap itself failed): **HARD HALT** (exit code 4, `write-failed`, phase `generate-artifacts`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --result-dir "{forge_version}" --target stderr < "{run_dir}/halt.json"`): "Artifact generation failed: {the message the helper printed on stderr}. Check permissions and disk space." Once the swap succeeded, stage `"skill_package"` and `"outputs"` as the Workflow Rules say.
 
 ### 4. Create Active Symlink (atomic flip)

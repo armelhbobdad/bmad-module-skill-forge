@@ -361,21 +361,25 @@ def test_the_mentions_helper_decides_what_a_skill_covers():
     assert "§2's matching rule" not in rule and "once case, spaces, hyphens" not in rule
     assert "no step compares a technology with a skill by hand" in rule
     assert '--technologies "{run_dir}/technologies.json"' in _gap_claims()
-    # The examples the prose gave hold for the helper, one way only.
+    # The examples the prose gave hold for the helper, one way only: a term covers by squashed
+    # equality, and a skill name only inside a longer name is left for the step to judge.
     helper = _comention_helper()
     skills = helper.parse_skills(json.dumps(["next", "react-router", "tailwindcss", "storybook-react-vite"]))
-    covered = {t["name"]: [c["skill"] for c in t["covered_by"]]
-               for t in helper.mentions("", skills, ["Next.js", "React Router", "Tailwind CSS", "React"])["technologies"]}
-    assert covered == {"Next.js": ["next"], "React Router": ["react-router"], "Tailwind CSS": ["tailwindcss"],
-                       "React": []}
+    out = helper.mentions("", skills, ["Next.js", "React Router", "Tailwind CSS", "React"])
+    covered = {t["name"]: [(c["skill"], c["kind"]) for c in t["covered_by"]] for t in out["technologies"]}
+    assert covered == {"Next.js": [("next", "name-contained")], "React Router": [("react-router", "name")],
+                       "Tailwind CSS": [("tailwindcss", "name")], "React": []}
+    assert out["unverified_technologies"] == ["Next.js", "React"]
 
 
 def test_an_alias_inside_a_longer_name_covers_nothing():
-    # Step 5b RA determinism-1: an `alias-contained` entry leaves the technology unverified, as the
-    # derived scope judges common-word aliases, unless the document shows the alias is that technology.
+    # Step 5b RA determinism-1: an `alias-contained` or `name-contained` entry leaves the technology
+    # unverified, as the derived scope judges common-word aliases, unless the document shows the term
+    # is that technology (run 2: React Native is not the `react` skill's).
     rule = _unverified_rule()
-    for needle in ("`covered_by` entry of kind `alias-contained`", "does not cover the technology",
-                   "stays in `{unverified_technologies}`", "the derived scope above judges common-word aliases"):
+    for needle in ("`covered_by` entry of kind `alias-contained` or `name-contained`", "does not cover the technology",
+                   "stays in `{unverified_technologies}`", "the derived scope above judges common-word aliases",
+                   "React Native and React Query are not `react`"):
         assert needle in rule, needle
     helper = _comention_helper()
     skills = helper.parse_skills(json.dumps([{"name": "oms-ai", "aliases": ["ai"]}]))

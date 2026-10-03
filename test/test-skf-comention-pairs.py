@@ -21,10 +21,12 @@ Covers:
     blocks skipped and listed with their info strings, headings, per-skill
     paragraphs, candidates, each occurrence naming the longest term, the
     terms that named each skill (name or alias, with their counts), and
-    the --technologies check of which skills cover each name (the skill
-    name inside the name, or a term equal to it with case and separators
-    dropped, one way only; an alias only inside a longer name is
-    `alias-contained` and covers nothing)
+    the --technologies check of which skills cover each name (a term, the
+    skill name or an alias, equal to it with case and separators dropped,
+    one way only; a skill name or an alias only inside a longer name is
+    `name-contained` or `alias-contained` and covers nothing: React stays
+    the `react` skill's, React Native, React Query and Next.js stay
+    unverified)
   - infer (#582 no-document path): docs mentions with self-masking, shared
     keywords, a language (or a stack's list of them) never pairing on its
     own, the Top-K cap
@@ -1060,24 +1062,25 @@ class TestTechnologyCoverage:
         return [(c["skill"], c["term"]) for c in entry["covered_by"]]
 
     @pytest.mark.parametrize(("name", "covered"), [
-        ("Next.js", [("next", "next")]),
         ("React Router", [("react-router", "react-router")]),
         ("Tailwind CSS", [("tailwindcss", "tailwindcss")]),
         ("Cognee", [("oms-cognee", "cognee")]),
         ("tailwind_css", [("tailwindcss", "tailwindcss")]),
-    ], ids=["term-inside-the-name", "separators-dropped", "space-dropped", "alias", "underscore-dropped"])
-    def test_a_skill_covers_a_name_by_either_rule(self, name, covered) -> None:
+    ], ids=["separators-dropped", "space-dropped", "alias", "underscore-dropped"])
+    def test_a_skill_covers_a_name_by_squashed_equality(self, name, covered) -> None:
         assert self._covered(name) == covered
+        assert self._run([name])["unverified_technologies"] == []
 
     def test_the_match_runs_one_way(self) -> None:
-        # A term inside the name covers it; the name inside a term does not.
+        # A term inside the name is listed; the name inside a term is not.
+        assert self._covered("Next.js") == [("next", "next")]
         assert self._covered("React") == []
         assert self._covered("Storybook") == []
 
     def test_unverified_keeps_the_given_order_and_drops_repeats(self) -> None:
-        result = self._run(["Redis", "Next.js", "Kafka", "redis", "  Kafka "])
+        result = self._run(["Redis", "Next.js", "Kafka", "redis", "  Kafka ", "next.js"])
         assert [t["name"] for t in result["technologies"]] == ["Redis", "Next.js", "Kafka"]
-        assert result["unverified_technologies"] == ["Redis", "Kafka"]
+        assert result["unverified_technologies"] == ["Redis", "Next.js", "Kafka"]
 
     def test_a_term_two_skills_share_names_both(self) -> None:
         skills = _skills({"name": "vue-runtime", "aliases": ["vue"]}, {"name": "vue-router", "aliases": ["vue"]})
@@ -1110,17 +1113,36 @@ class TestTechnologyCoverage:
         }
         assert result["unverified_technologies"] == ["Azure AI Search", "ASP.NET Core", "Node.js", "Redis"]
 
-    def test_a_name_inside_a_longer_name_still_covers_it(self) -> None:
+    def test_a_name_inside_a_longer_name_covers_nothing(self) -> None:
         result = mod.mentions("", _skills("node", {"name": "sentry", "aliases": ["node"]}), ["Node.js"])
         [entry] = result["technologies"]
         assert [(c["skill"], c["kind"]) for c in entry["covered_by"]] == [
-            ("node", "name"), ("sentry", "alias-contained")]
-        assert result["unverified_technologies"] == []
+            ("node", "name-contained"), ("sentry", "alias-contained")]
+        assert result["unverified_technologies"] == ["Node.js"]
+
+    # The step 5b reproduction: a skill named after the bare package beside
+    # its longer sibling technologies. Only the equal name is covered; the
+    # caller judges whether `next` is Next.js and that React Native is not
+    # `react`.
+    def test_a_bare_package_skill_covers_only_its_own_name(self) -> None:
+        result = mod.mentions("", _skills("react", "next"),
+                              ["React", "React Native", "React Query", "Next.js"])
+        covered = {t["name"]: [(c["skill"], c["term"], c["kind"]) for c in t["covered_by"]]
+                   for t in result["technologies"]}
+        assert covered == {
+            "React": [("react", "react", "name")],
+            "React Native": [("react", "react", "name-contained")],
+            "React Query": [("react", "react", "name-contained")],
+            "Next.js": [("next", "next", "name-contained")],
+        }
+        assert result["unverified_technologies"] == ["React Native", "React Query", "Next.js"]
 
     def test_each_covering_entry_names_its_kind(self) -> None:
         [entry] = self._run(["Cognee"])["technologies"]
         assert entry["covered_by"] == [{"skill": "oms-cognee", "term": "cognee", "kind": "alias"}]
         [entry] = self._run(["Next.js"])["technologies"]
+        assert entry["covered_by"] == [{"skill": "next", "term": "next", "kind": "name-contained"}]
+        [entry] = self._run(["next"])["technologies"]
         assert entry["covered_by"] == [{"skill": "next", "term": "next", "kind": "name"}]
 
     def test_no_technologies_adds_no_keys(self) -> None:
@@ -1843,19 +1865,21 @@ class TestMentionsTechnologiesCli:
         )
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert payload["unverified_technologies"] == ["Redis"]
+        assert payload["unverified_technologies"] == ["Next.js", "Redis"]
+        assert payload["technologies"][0]["covered_by"] == [
+            {"skill": "next", "term": "next", "kind": "name-contained"}]
         assert payload["mentioned"] == ["next"]
-        assert result.stderr.strip().endswith("; 2 technologies, 1 not covered")
+        assert result.stderr.strip().endswith("; 2 technologies, 2 not covered")
 
     def test_technologies_from_stdin(self, tmp_path: Path) -> None:
         doc = _write(tmp_path, "arch.md", "x\n")
         skills = _write(tmp_path, "skills.json", json.dumps(["next"]))
         result = _run_cli(
             "mentions", "--doc", doc, "--skills", skills, "--technologies", "-",
-            stdin_text='["Next.js"]',
+            stdin_text='["Next", "Next.js"]',
         )
         assert result.returncode == 0, result.stderr
-        assert json.loads(result.stdout)["unverified_technologies"] == []
+        assert json.loads(result.stdout)["unverified_technologies"] == ["Next.js"]
 
     def test_two_inputs_on_stdin_exit_1(self, tmp_path: Path) -> None:
         doc = _write(tmp_path, "arch.md", "x\n")

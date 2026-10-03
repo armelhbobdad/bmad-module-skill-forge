@@ -58,7 +58,10 @@ compose branch of the sections they govern.
   a shared language) and judges those too, writes each pair in an evidence
   format whose label the structure pass reads, and locates the [VS] report
   with --locate, an unknown verdict token staying a hard error (#582,
-  #590).
+  #590). The pair's bundle entry keeps that evidence and its VS verdicts
+  (`evidence`, `reference`, `vs`), and steps 6 and 7 render a compose pair
+  from them in the evidence format, a `[VS: Blocked]` pair still carrying
+  the label the structure pass reads (step 5b run 2 architecture-1).
 - Step 7 §1 takes the stack version from skf-skill-inventory.py `version`
   (#597), and §5 measures the snippet with skf-count-tokens.py, the count
   the validator takes (#591).
@@ -966,7 +969,11 @@ def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
         "failed": [],
         "integrations": [{"a": "react", "b": "express", "type": "data-flow", "tier": "T1",
                           "qualifier": "architecture-co-mention", "detection_method": "architecture_co_mention",
-                          "key_files": [], "description": "react calls express"}],
+                          "key_files": [], "description": "react calls express",
+                          # The compose evidence step 5 keeps for steps 6 and 7 (architecture-1).
+                          "evidence": ["[from skill: react] render(el)", "[from skill: express] listen(port)"],
+                          "reference": '**Architecture reference:** "react calls express" (architecture doc line 3)',
+                          "vs": {"pair": "Risky", "overall": "CONDITIONALLY_FEASIBLE"}}],
         "hubs": [], "cross_cutting": []}), encoding="utf-8")
     entries = run_dir / "compose-entries.json"
     # The model writes only the cited fields; the helper adds the constituent's tier.
@@ -991,6 +998,8 @@ def test_step_7_writes_the_compose_mode_map_with_the_helper(tmp_path):
     assert written["entries"] == [{"export_name": "render", "source_library": "react", "confidence": "T1",
                                    "extraction_method": "compose-from-skill", "signature_source": "T1"}]
     assert written["integrations"][0]["co_import_files"] == []
+    assert set(written["integrations"][0]) == {"libraries", "pattern_type", "detection_method", "co_import_files",
+                                               "confidence"}, "the compose evidence leaked into the map"
     # The audit's constituent check, run as Audit Skill runs it, finds both constituents fresh.
     audit = subprocess.run([sys.executable, str(HASH_CONTENT), "compare-constituent-hashes", str(provenance),
                             "--skills-root", str(project)], capture_output=True, text=True)
@@ -1460,6 +1469,66 @@ def test_the_evidence_format_writes_the_label_the_validator_reads():
     after = section.split("```")[-1]
     assert '`**Contract reference:** "{excerpt}" ({doc} line {line})`' in after
     assert "`**Shared domain:** {keywords}`" in after
+
+
+def _fill_evidence(vs_pair: str | None) -> str:
+    """The evidence format filled for an architecture pair, with the VS lines and annotation that
+    compose-mode-rules' Feasibility Report Integration adds when the pair's `vs` is set."""
+    block = _first_fence(_h2_section(_read(COMPOSE_RULES), "## Integration Evidence Format"))
+    filled = (block.replace("{Skill A name}", "liba").replace("{Skill B name}", "libb")
+              .replace("{exported_function_signature}", "connect(url: str) -> Client")
+              .replace("{unit_excerpt}", "liba feeds libb").replace("{unit_line}", "12")
+              .replace("{pattern type from integration-patterns.md}", "data-flow")
+              .replace("{pair tier}", "T1-low").replace("{qualifier}", "architecture-co-mention"))
+    if vs_pair is None:
+        return filled
+    lines = filled.splitlines()
+    at = next(i for i, line in enumerate(lines) if line.startswith("**Architecture reference:**")) + 1
+    lines[at:at] = ["VS overall: CONDITIONALLY_FEASIBLE", f"VS pair: {vs_pair}"]
+    return "\n".join(f"{line} [VS: {vs_pair}]" if line.startswith("**Confidence:**") else line
+                     for line in lines) + "\n"
+
+
+def test_a_vs_rated_pair_keeps_the_label_the_validator_reads():
+    """Step 5b run 2 architecture-1: a pair VS rated Blocked carries its verdict lines and annotation
+    where the rules put them, and the structure pass still reads its tier label."""
+    rules = _h2_section(_read(COMPOSE_RULES), "## Feasibility Report Integration")
+    for needle in ("its bundle entry's `vs`", "`VS overall: {overallVerdict}` and `VS pair: {verdict}` lines after "
+                   "its Architecture reference", "its Confidence line ends with a `[VS: Risky]` or `[VS: Blocked]`"):
+        assert needle in rules, needle
+    validator = _load(VALIDATOR, "skf_validate_output_vs_evidence")
+    blocked = _fill_evidence("Blocked")
+    assert validator._TIER_LABEL_RE.search(blocked), blocked
+    assert "[VS: Blocked]" in blocked and "VS pair: Blocked" in blocked
+    assert "[from skill: liba] connect(url: str) -> Client" in blocked
+    assert "[composed]" in blocked, "the annotation must not hide the compose-mode marker test-skill reads"
+    assert "[VS:" not in _fill_evidence(None)
+
+
+def test_the_compose_evidence_reaches_the_package():
+    """Step 5b run 2 architecture-1: step 5 keeps each compose pair's evidence and VS verdicts in its bundle
+    entry, step 6 renders the pair from them in the fixed-path evidence format, and step 7 carries them into
+    the pair file, so neither a [VS: Blocked] flag nor the [from skill: ...] lines dead-end at step 5."""
+    detect = _read(DETECT)
+    assert "§4 keeps them in the pair's bundle entry" in _sections(_body(detect))["2"]
+    four = _sections(_body(detect))["4"]
+    compose = four[four.index("In compose mode each entry also holds"):]
+    for field in ('`"evidence": ["[from skill: <A>] <signature>", "[from skill: <B>] <signature>"]`',
+                  '`"reference": "<its Architecture reference, Contract reference or Shared domain line>"`',
+                  '`"vs": {"pair": "<verdict>", "overall": "<overallVerdict>"}`',
+                  "`null` when no usable [VS] report rated the pair", "code mode leaves the three out"):
+        assert field in compose, field
+    compile_ = _read(COMPILE)
+    assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(compile_)
+    three = _sections(_body(compile_))["3"]
+    (branch,) = [line for line in three.splitlines() if line.startswith("- **In compose mode**")]
+    for needle in ("evidence format of `{composeModeRulesPath}`", "`evidence`, `reference`, `tier` and `qualifier`",
+                   "the entry's `vs` is set", "a compose pair has no key files"):
+        assert needle in branch, needle
+    pair_file = _sections(_body(_read(GENERATE)))["4"]
+    for needle in ("In compose mode its Integration Pattern section carries the entry's `evidence` and `reference` "
+                   "lines", "when its `vs` is set"):
+        assert needle in pair_file, needle
 
 
 # --- #590: the [VS] report is located and read through the helper -----------------
@@ -2489,8 +2558,9 @@ def test_contract_settings_are_off_the_override_surface():
                       "manifest_patterns_path", "compose_mode_rules_path", "provenance_map_schema_path"):
             assert stale not in _read(path), (path.name, stale)
         if "{composeModeRulesPath}" in _read(path):
-            # Step 5 keeps the name, bound to the fixed file in its own frontmatter: no override reaches it.
-            assert path == DETECT, path.name
+            # Steps 5 and 6 keep the name, each bound to the fixed file in its own frontmatter: no
+            # override reaches it, so a team's stack_skill_template_path never drops the compose evidence.
+            assert path in (DETECT, COMPILE), path.name
             assert "composeModeRulesPath: 'references/compose-mode-rules.md'" in _frontmatter(_read(path))
     assert "## metadata.json Structure" not in _read(TEMPLATE), "the template override still swaps the contract"
     six = _sections(_body(_read(GENERATE)))["6"]

@@ -239,12 +239,12 @@
           "step": {
             "type": "string",
             "minLength": 1,
-            "description": "The step whose gate decided: load-brief, extract or component-extraction."
+            "description": "The step whose gate decided: load-brief, extract, component-extraction or compile."
           },
           "gate": {
             "type": "string",
             "minLength": 1,
-            "description": "The gate: tier-override, tag-choice, review-gate, zero-exports, demo-exclusion, registry-confirm, provide-or-skip-registry, or authoritative-file:<path> (one decision per authoritative file a headless run deferred)."
+            "description": "The gate: tier-override, tag-choice, review-gate, zero-exports, demo-exclusion, registry-confirm, provide-or-skip-registry, manual-carry-forward (compile kept an earlier build's hand-written [MANUAL] content), or authoritative-file:<path> (one decision per authoritative file a headless run deferred)."
           },
           "decision": {
             "type": "string",

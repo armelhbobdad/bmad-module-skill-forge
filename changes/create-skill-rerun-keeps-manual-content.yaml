@@ -1,0 +1,4 @@
+type: added
+scope: skf-create-skill
+summary: |
+  Running Create Skill again for a version it already built now keeps what you wrote by hand in that build: each `[MANUAL]` section of its SKILL.md goes into the new SKILL.md before validation, and the files in its `scripts/[MANUAL]/` and `assets/[MANUAL]/` folders go into the new package. Before, the re-run replaced the package whole and deleted them without notice. The run records a `manual-carry-forward` decision, and its final report lists the sections and files it kept under Warnings. If a section does not reach the new SKILL.md, the earlier SKILL.md is kept in `manual-backup/` in the version's forge data folder, as `SKILL-<UTC time>.md` so a later run never replaces it, with a warning that names the section. The promotion helper, `skf-promote-staged.py`, gains a `--carry-manual` option for this.

@@ -102,6 +102,7 @@ The inner `{skill-name}/` directory IS the agentskills.io-compliant skill packag
       test-findings-{run_id}.json
       drift-report-{timestamp}.md
       .skf-audit/{timestamp}/
+      manual-backup/SKILL-{timestamp}.md
       {workflow}-result-{timestamp}.json
       {workflow}-result-latest.json
   _campaign/
@@ -110,7 +111,7 @@ The inner `{skill-name}/` directory IS the agentskills.io-compliant skill packag
 
 `skill-brief.yaml` stays at `{forge_group}` level — the brief is a workflow input that defines extraction scope, not a versioned output.
 
-`test-findings-{run_id}.json` is test-skill's gap ledger, beside the test report of the same run. test-skill writes that report as `.skf-test-report-{skill-name}-{run_id}.md` while it runs and renames it to `test-report-{skill-name}-{run_id}.md` once its checks pass, so a halted run leaves only the hidden name, which no consumer reads. `.skf-audit/{timestamp}/` holds audit-skill's stage data for the drift report of the same timestamp: the scan list, the recipe runner's extraction and the exports read by eye (`scan-files.json`, `extraction.json`, one `export-details-{n}.json` per worker), `structural-diff.json`, the relocation check's candidates and finds (`relocation-candidates.json`, `relocations.json`), `file-drift.json`, `semantic-findings.json` or, for a compose-mode stack, `constituent-freshness.json`, then `findings.json` and `severity.json`.
+`test-findings-{run_id}.json` is test-skill's gap ledger, beside the test report of the same run. test-skill writes that report as `.skf-test-report-{skill-name}-{run_id}.md` while it runs and renames it to `test-report-{skill-name}-{run_id}.md` once its checks pass, so a halted run leaves only the hidden name, which no consumer reads. `.skf-audit/{timestamp}/` holds audit-skill's stage data for the drift report of the same timestamp: the scan list, the recipe runner's extraction and the exports read by eye (`scan-files.json`, `extraction.json`, one `export-details-{n}.json` per worker), `structural-diff.json`, the relocation check's candidates and finds (`relocation-candidates.json`, `relocations.json`), `file-drift.json`, `semantic-findings.json` or, for a compose-mode stack, `constituent-freshness.json`, then `findings.json` and `severity.json`. `manual-backup/` holds an earlier `SKILL.md` that create-skill's promotion kept (`skf-promote-staged.py --carry-manual`) because a re-run of the version lacked one of its hand-written `[MANUAL]` blocks, one file per run that needed it.
 
 The brief's `.bak` copy and `.brief-draft.json` sit beside it, and a stack group also holds `create-stack-skill-result-latest.json`. Names holding `.skf-` (locks such as `.skf-update.lock`, update-skill's `.skf-update-manual-inventory.json` beside it, and staging) and a stack's `*-tmp` staging folders are SKF's too; while a rename runs, its lock is `{forge_data_folder}/.skf-rename-{skill-name}.lock`. `_campaign/` and `improvement-queue/` are SKF's own folders, never a skill's. Older skills may still hold the provenance map, evidence report, extraction rules and test reports directly in `{skill-name}/` (the flat layout — see Migration), and a `.manual-inventory.json` in a version folder, where update-skill once kept the [MANUAL] inventory it now keeps beside its lock.
 
