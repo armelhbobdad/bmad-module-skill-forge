@@ -13,7 +13,7 @@ skillInventoryProbeOrder:
 
 # Step 1a §0a: Docs-Only Short-Circuit
 
-Reached from `step-auto-scope.md` §0c when the target is a documentation URL (not a GitHub repo or local path). It validates the URL, writes a minimal brief and analysis report, emits the result envelope, and chains directly to health-check: the standard auto-scope body (§1 through §9 in `step-auto-scope.md`) never runs for a docs-only target. `{coexistence_suffix}`, `{forge_tier}`, `{user_name}`, `{current_date}`, and the classification set upstream in §0/§0c carry into this file.
+Reached from `step-auto-scope.md` §0c when the target is a documentation URL (not a repository URL or local path). It validates the URL, writes a minimal brief and analysis report, emits the result envelope, and chains directly to health-check: the standard auto-scope body (§1 through §9 in `step-auto-scope.md`) never runs for a docs-only target. `{coexistence_suffix}`, `{forge_tier}`, `{user_name}`, `{current_date}`, and the classification set upstream in §0/§0c carry into this file.
 
 ## MANDATORY SEQUENCE — §0a
 
