@@ -2,6 +2,9 @@
 """Tests for skf-build-change-manifest.py.
 
 Covers its subcommands:
+  - gap-records: a gap-driven repair's drift gate, spot-checks, routing to
+    targeted re-extraction, record match and copy, reachability answers and
+    records, and its CLI
   - build: aggregate category A/B/C/D into unified manifest, Category D
     typed from the compare and new-file helpers' files (a document-only
     change included)
@@ -1338,3 +1341,324 @@ class TestRecords:
                           "-o", str(tmp_path / "out.json"))
         assert result.returncode == 1 and result.stderr.startswith("error: ")
         assert not (tmp_path / "out.json").exists()
+
+
+# --------------------------------------------------------------------------
+# gap-records: update-skill gap-driven.md §3, §4 and §4a
+# --------------------------------------------------------------------------
+
+API_SOURCE = b"import os\n\n\n@decorate\ndef search(q):\n    return q\n"
+
+
+def _found(path: str, line: int, export_type: str = "function") -> dict:
+    view = {"source_file": path, "source_line": line, "export_type": export_type}
+    return {"status": "found", "entry": view, "candidates": [view]}
+
+
+NOT_FOUND = {"status": "not-found", "entry": None, "candidates": []}
+
+
+def _gap_entry(gid: str, name: str | None, change: str, *, category: str = "signature-mismatch",
+               severity: str | None = "High", match: dict | None = None, citation: dict | None = None,
+               resolved: list | None = None, **extra) -> dict:
+    """One change-manifest entry as skf-parse-gaps.py translate writes it."""
+    entry = {"name": name, "gap_id": gid, "category": category, "severity": severity}
+    if citation:
+        entry["source_citation"] = citation
+    entry.update({"remediation_paths": list(resolved or []), "resolved_paths": list(resolved or []),
+                  "rejected_paths": [], "change_category": change, "remediation": extra.pop("remediation", "Fix."),
+                  **extra, "map_match": match or NOT_FOUND})
+    return entry
+
+
+def _tree(tmp_path: Path) -> Path:
+    root = tmp_path / "src tree"
+    (root / "pkg").mkdir(parents=True, exist_ok=True)
+    (root / "pkg" / "api.py").write_bytes(API_SOURCE)
+    (root / "lib.rs").write_bytes(b"pub fn add() {}\n")
+    return root
+
+
+def _remediation(*blocks: tuple) -> dict:
+    """`records` output: one block per (file, [(name, line, method)])."""
+    return {"mode": "normal", "files": [
+        {"file_path": path, "exports": [
+            {"name": name, "type": "function", "signature": f"def {name}()", "location": f"{path}:{line}",
+             "params": [], "return_type": None, "confidence": "T1" if method == "ast-grep" else "T1-low",
+             "extraction_method": method, "ast_node_type": "function_definition" if method == "ast-grep" else None,
+             "ast_recipe": "py-def" if method == "ast-grep" else None} for name, line, method in exports]}
+        for path, exports in blocks]}
+
+
+def _records(entries: list, tmp_path: Path | None = None, **kw) -> tuple:
+    root = kw.pop("source_root", _tree(tmp_path) if tmp_path is not None else None)
+    return mod.gap_records({"mode": "gap-driven", "entries": entries}, kw.pop("provenance", {"entries": []}),
+                           source_root=root, **kw)
+
+
+class TestGapRecords:
+    def test_the_drift_gate_lists_every_entry_that_needs_the_tree(self, tmp_path: Path) -> None:
+        rescope = {"amendment": {"path": "pkg/x.py"}, "exclude": "pkg/x.py"}
+        entries = [
+            _gap_entry("GAP-001", "cut", "DELETED_EXPORT", category="missing-export", rescope=rescope),
+            _gap_entry("GAP-002", "doc", "NEW_EXPORT", category="provenance-completeness",
+                       provenance_completeness=True, match=_found("pkg/api.py", 5)),
+            _gap_entry("GAP-003", "fresh", "NEW_EXPORT", category="missing-export", severity="Low"),
+            _gap_entry("GAP-004", "search", "MODIFIED_EXPORT", match={**NOT_FOUND, "status": "ambiguous"}),
+            _gap_entry("GAP-005", "search", "MOVED_EXPORT", category="provenance-line", match=_found("pkg/api.py", 4)),
+            _gap_entry("GAP-006", None, "STRUCTURAL_FIX", category="structural"),
+            _gap_entry("GAP-007", None, "metadata update", category="metadata-drift"),
+        ]
+        records, summary = _records(entries, tmp_path, drift_status="overridden", plan=True)
+        assert records is None and summary["status"] == "drift-blocked"
+        assert [(b["gap_id"], b["reason"]) for b in summary["drift_blocked"]] == [
+            ("GAP-001", mod.DRIFT_RESCOPE), ("GAP-002", mod.DRIFT_COMPLETENESS), ("GAP-003", mod.DRIFT_NOT_IN_MAP),
+            ("GAP-004", mod.DRIFT_IN_MAP)]
+        # without the new, modified and rescoped entries, the gate passes and the R5 line is checked
+        records, summary = _records(entries[4:], tmp_path, drift_status="overridden")
+        assert summary["status"] == "written"
+        [moved] = records["verification"]
+        assert (moved["verification"], moved["unknown_reason"], moved["new_location"]) == \
+            ("unknown", "drift-override", None)
+
+    def test_a_rescope_without_its_amendment_is_blocked(self, tmp_path: Path) -> None:
+        for rescope in (None, {"exclude": "pkg/x.py"}, {"amendment": {"path": "pkg/x.py"}}):
+            entry = _gap_entry("GAP-001", "cut", "DELETED_EXPORT", category="missing-export")
+            if rescope is not None:
+                entry["rescope"] = rescope
+            _, summary = _records([entry], tmp_path)
+            assert summary == {"status": "blocked", "rescope_without_amendment": ["cut"]}, rescope
+
+    def test_each_spot_check_maps_to_its_outcome(self, tmp_path: Path) -> None:
+        entries = [
+            _gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5)),
+            _gap_entry("GAP-002", "search", "MODIFIED_EXPORT", match=_found("pkg\\api.py", 4)),
+            _gap_entry("GAP-003", "gone", "MODIFIED_EXPORT", match=_found("pkg/gone.py", 5)),
+            _gap_entry("GAP-004", "pkg", "MODIFIED_EXPORT", match=_found("pkg/api.py", 1, "module")),
+            _gap_entry("GAP-005", "nothing", "MODIFIED_EXPORT", match=_found("pkg/api.py", 1)),
+            _gap_entry("GAP-006", "search", "MODIFIED_EXPORT", match={**NOT_FOUND, "status": "ambiguous"}),
+        ]
+        records, summary = _records(entries, tmp_path)
+        assert summary["status"] == "written", summary
+        assert [(r["verification"], r["new_location"], r["provenance_citation"]) for r in records["verification"]] \
+            == [("verified", None, "pkg/api.py:5"), ("moved", "pkg/api.py:5", "pkg/api.py:4"),
+                ("missing", None, "pkg/gone.py:5"), ("verified", None, "pkg/api.py:1"),
+                ("unknown", None, "unknown"), ("unknown", None, "unknown")]
+        assert summary["counts"] == {"verified": 2, "moved": 1, "missing": 1, "re-extracted": 0, "rescoped": 0,
+                                     "unknown": 2, "reclassified": 0}
+
+    def test_a_file_no_rule_covers_waits_on_its_declaring_line(self, tmp_path: Path) -> None:
+        entry = _gap_entry("GAP-001", "add", "MODIFIED_EXPORT", match=_found("lib.rs", 1))
+        records, summary = _records([entry], tmp_path, plan=True)
+        assert records is None and summary["needs_judgment"] == [
+            {"gap_id": "GAP-001", "name": "add", "needs": ["declaring_line"], "file": "lib.rs", "line": 1}]
+        for answer, outcome in ((1, ("verified", None)), (3, ("moved", "lib.rs:3")), (None, ("unknown", None))):
+            records, _ = _records([entry], tmp_path, judgments={"GAP-001": {"declaring_line": answer}})
+            [record] = records["verification"]
+            assert (record["verification"], record["new_location"]) == outcome, answer
+
+    def test_without_the_verifier_every_check_is_unknown(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(mod, "_VERIFIER", False)
+        records, summary = _records([_gap_entry("GAP-001", "search", "MODIFIED_EXPORT",
+                                                match=_found("pkg/api.py", 5))], tmp_path)
+        assert records["verification"][0]["verification"] == "unknown"
+        assert summary["warnings"] == [mod.VERIFIER_MISSING]
+
+    def test_a_failed_check_is_unknown_for_that_entry_only(self, tmp_path: Path, monkeypatch) -> None:
+        """Any verifier error is that entry's `unknown`, with a warning, as a failed definition-lines call was."""
+        verifier = mod._verifier()
+        real = verifier.definition_lines_report
+
+        def report(path, name, *args):
+            if name == "broken":
+                raise RuntimeError("cannot parse")
+            return real(path, name, *args)
+
+        monkeypatch.setattr(verifier, "definition_lines_report", report)
+        records, summary = _records([
+            _gap_entry("GAP-001", "broken", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5)),
+            _gap_entry("GAP-002", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5)),
+        ], tmp_path)
+        assert summary["status"] == "written", summary
+        assert [r["verification"] for r in records["verification"]] == ["unknown", "verified"]
+        assert summary["warnings"] == ["provenance: spot-check failed for broken: RuntimeError: cannot parse"]
+
+    def test_the_plan_routes_each_uncited_export_by_its_rules(self, tmp_path: Path) -> None:
+        entries = [
+            # a citation that pins a line never reaches targeted re-extraction
+            _gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                       citation={"file": "pkg/api.py", "line": 5}),
+            # one that pins none goes on as if it had none: blocking, so re-extracted whatever its paths
+            _gap_entry("GAP-002", "absent", "MODIFIED_EXPORT", citation={"file": "pkg/api.py", "line": 2}),
+            # rule R3, whatever its severity
+            _gap_entry("GAP-003", "doc", "NEW_EXPORT", category="provenance-completeness", severity="Info",
+                       provenance_completeness=True, resolved=["pkg/api.py"]),
+            # a Medium missing export with a path to scan, and one with none
+            _gap_entry("GAP-004", "fresh", "NEW_EXPORT", category="missing-export", severity="Medium",
+                       resolved=["pkg/new.py", "pkg/api.py"]),
+            _gap_entry("GAP-005", "later", "NEW_EXPORT", category="missing-export", severity="Medium"),
+            # any other Medium gap the map lacks
+            _gap_entry("GAP-006", "other", "MODIFIED_EXPORT", severity="medium", resolved=["pkg/api.py"]),
+        ]
+        _, summary = _records(entries, tmp_path, plan=True)
+        assert summary["status"] == "planned", summary
+        assert [e["gap_id"] for e in summary["reextract"]["entries"]] == ["GAP-002", "GAP-003", "GAP-004"]
+        assert summary["reextract"]["files"] == ["pkg/api.py", "pkg/new.py"]
+        # with no source root a rule R3 gap is not scanned: nothing proves its line
+        _, summary = _records(entries[2:3], source_root=None, plan=True)
+        assert summary["reextract"]["entries"] == []
+
+    def test_targeted_reextraction_copies_the_matched_record(self, tmp_path: Path) -> None:
+        entries = [
+            _gap_entry("GAP-001", "fetch", "NEW_EXPORT", category="missing-export", resolved=["pkg/a.py", "pkg/b.py"]),
+            _gap_entry("GAP-002", "store", "MODIFIED_EXPORT", resolved=["pkg/b.py"]),
+            _gap_entry("GAP-003", "absent", "NEW_EXPORT", category="missing-export", severity="Low",
+                       resolved=["pkg/b.py"]),
+        ]
+        remediation = _remediation(("pkg/a.py", [("other", 1, "ast-grep")]),
+                                   ("pkg/b.py", [("fetch", 4, "ast-grep"), ("store", 9, "source-read")]))
+        records, summary = _records(entries, tmp_path, remediation=remediation)
+        assert summary["status"] == "needs-judgment"
+        assert [(n["gap_id"], n["needs"], n["file"], n["line"]) for n in summary["needs_judgment"]] == [
+            ("GAP-001", ["reachability", "docstring"], "pkg/b.py", 4), ("GAP-002", ["docstring"], "pkg/b.py", 9)]
+        judgments = {"GAP-001": {"reachability": "public", "docstring": "Fetch."}, "GAP-002": {"docstring": None}}
+        records, summary = _records(entries, tmp_path, remediation=remediation, judgments=judgments, tier="Forge")
+        assert summary["status"] == "written", summary
+        fetch, store, absent = records["verification"]
+        assert (fetch["verification"], fetch["new_location"], fetch["resolution_source"], fetch["reachability"]) == \
+            ("re-extracted", "pkg/b.py:4", "remediation-paths", "public")
+        assert (store["verification"], store["reachability"]) == ("re-extracted", None)
+        # a Low missing export found nowhere is unknown, never a halt
+        assert absent["verification"] == "unknown"
+        [block] = records["files"]
+        source = remediation["files"][1]["exports"]
+        assert block == {"file_path": "pkg/b.py", "exports": [{**source[0], "docstring": "Fetch."}, source[1]]}
+        assert records["files_extracted"] == 2 and records["exports_extracted"] == 3
+        assert records["confidence_breakdown"] == {"T1": 1, "T1-low": 1, "unlabeled": 1, "T2": 0}
+        assert summary["targeted_reextraction"] == {"resolved_count": 2, "files_scanned": 2, "exports_matched": 2,
+                                                    "tier": "Forge"}
+
+    def test_an_unmatched_blocking_entry_is_unresolved(self, tmp_path: Path) -> None:
+        entries = [_gap_entry("GAP-001", "absent", "NEW_EXPORT", category="missing-export", resolved=["pkg/b.py"]),
+                   _gap_entry("GAP-002", "nothing", "MODIFIED_EXPORT", severity=None)]
+        remediation = _remediation(("pkg/b.py", [("fetch", 4, "ast-grep")]))
+        records, summary = _records(entries, tmp_path, remediation=remediation)
+        assert records is None and summary["status"] == "unresolved"
+        assert [(u["gap_id"], u["files_scanned"], u["exports_found_in_scan"]) for u in summary["unresolved"]] == [
+            ("GAP-001", 1, 1), ("GAP-002", 0, 0)]
+
+    def test_files_to_match_need_the_remediation_records(self, tmp_path: Path) -> None:
+        entry = _gap_entry("GAP-001", "fetch", "NEW_EXPORT", category="missing-export", resolved=["pkg/a.py"])
+        with pytest.raises(ValueError, match="--remediation-records"):
+            _records([entry], tmp_path)
+
+    def test_an_unreachable_export_is_reclassified(self, tmp_path: Path) -> None:
+        entries = [
+            _gap_entry("GAP-001", "fetch", "NEW_EXPORT", category="missing-export", resolved=["pkg/b.py"]),
+            _gap_entry("GAP-002", "search", "NEW_EXPORT", category="missing-export",
+                       citation={"file": "pkg/api.py", "line": 5}),
+        ]
+        remediation = _remediation(("pkg/b.py", [("fetch", 4, "ast-grep")]))
+        judgments = {"GAP-001": {"reachability": "internal-unreachable", "docstring": None},
+                     "GAP-002": {"reachability": "public"}}
+        records, summary = _records(entries, tmp_path, remediation=remediation, judgments=judgments)
+        assert summary["reclassified"] == ["fetch"] and records["files"] == []
+        fetch, search = records["verification"]
+        assert (fetch["verification"], fetch["reachability"]) == ("re-extracted", "internal-unreachable")
+        # §5's summary counts it as reclassified, never as a re-extracted export
+        assert (summary["counts"]["re-extracted"], summary["counts"]["verified"], summary["counts"]["reclassified"]) \
+            == (0, 1, 1)
+        # a pinned cited export the map lacks and the gate passed is T1-low; the reclassified one is unlabeled
+        assert (search["verification"], search["provenance_citation"]) == ("verified", "pkg/api.py:5")
+        assert records["confidence_breakdown"] == {"T1": 0, "T1-low": 1, "unlabeled": 1, "T2": 0}
+        # apply writes the public one and nothing for the internal one
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                  records=records, test_report_run_id="r", **BLOCK)
+        assert [(e["export_name"], e["source_line"]) for e in doc["entries"]] == [("search", 5)]
+
+    def test_the_records_carry_every_documented_field(self, tmp_path: Path) -> None:
+        remediation = ("Set the provenance `source_line` of `search` in `pkg/api.py` to its definition line (5) "
+                       "and move its citations to that line.")
+        entries = [_gap_entry("GAP-001", "search", "MOVED_EXPORT", category="provenance-line", severity="Low",
+                              match=_found("pkg/api.py", 4), citation={"file": "pkg/api.py", "line": 4},
+                              remediation=remediation),
+                   _gap_entry("GAP-002", None, "STRUCTURAL_FIX", category="structural")]
+        records, summary = _records(entries, tmp_path)
+        assert list(records) == ["mode", "files_extracted", "exports_extracted", "confidence_breakdown",
+                                 "verification", "files"]
+        [record] = records["verification"]
+        assert list(record) == ["export_name", "gap_category", "severity", "verification", "in_map", "map_entry",
+                                "provenance_citation", "source_citation", "new_location", "unknown_reason",
+                                "pinned_definition_lines", "resolution_source", "reachability", "export_type"]
+        assert (record["in_map"], record["map_entry"], record["pinned_definition_lines"]) == \
+            (True, {"source_file": "pkg/api.py", "source_line": 4}, [5])
+        assert summary["forwarded"] == [{"gap_id": "GAP-002", "change_category": "STRUCTURAL_FIX"}]
+        assert summary["targeted_reextraction"] is None and summary["gap_count"] == 2
+
+    @pytest.mark.parametrize("remediation, lines", [
+        ("... to its definition line (5) and ...", [5]), ("... to its definition lines (5, 12) ...", [5, 12]),
+        ("Fix the line by hand.", None),
+    ], ids=["one-line", "several-lines", "none-listed"])
+    def test_pinned_definition_lines(self, remediation, lines) -> None:
+        assert mod._pinned_lines(remediation) == lines
+
+
+class TestGapRecordsCli:
+    def _files(self, tmp_path: Path, entries: list) -> dict:
+        run_dir = tmp_path / "run"
+        run_dir.mkdir(exist_ok=True)
+        (run_dir / "change-manifest.json").write_bytes(
+            json.dumps({"mode": "gap-driven", "entries": entries}).encode("utf-8"))
+        (tmp_path / "provenance-map.json").write_bytes(b'{"entries": []}')
+        return {"run": run_dir, "manifest": str(run_dir / "change-manifest.json"),
+                "map": str(tmp_path / "provenance-map.json"), "root": str(_tree(tmp_path))}
+
+    def test_plan_then_record(self, tmp_path: Path) -> None:
+        paths = self._files(tmp_path, [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                                                  resolved=["pkg/api.py"])])
+        files_out = paths["run"] / "remediation-files.json"
+        base = ("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"],
+                "--source-root", paths["root"])
+        result = _run_cli(*base, "--plan", "--files-out", str(files_out))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["status"] == "planned"
+        assert json.loads(files_out.read_bytes()) == ["pkg/api.py"]
+        (paths["run"] / "remediation-records.json").write_bytes(
+            json.dumps(_remediation(("pkg/api.py", [("search", 5, "ast-grep")]))).encode("utf-8"))
+        (paths["run"] / "gap-judgments.json").write_bytes(
+            json.dumps({"GAP-001": {"reachability": "public", "docstring": None}}).encode("utf-8"))
+        evidence = paths["run"] / "evidence-records.jsonl"
+        out = paths["run"] / "reextract-records.json"
+        result = _run_cli(*base, "--judgments", str(paths["run"] / "gap-judgments.json"),
+                          "--remediation-records", str(paths["run"] / "remediation-records.json"),
+                          "--evidence", str(evidence), "--tier", "Forge+", "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        assert summary["status"] == "written" and summary["output"] == str(out)
+        assert json.loads(out.read_bytes())["verification"][0]["verification"] == "re-extracted"
+        assert json.loads(evidence.read_bytes()) == {"targeted_reextraction": {
+            "resolved_count": 1, "files_scanned": 1, "exports_matched": 1, "tier": "Forge+"}}
+
+    @pytest.mark.parametrize("args, message", [
+        (("--plan", "-o", "x.json"), "drop -o"),
+        ((), "-o is required without --plan"),
+        (("--files-out", "f.json", "-o", "x.json"), "--files-out goes with --plan"),
+        (("--plan", "--evidence", "e.jsonl"), "--evidence and --tier go together"),
+        (("--plan", "--judgments", "BAD"), "`reachability` must be one of"),
+    ], ids=["plan-with-output", "no-output", "files-out-without-plan", "evidence-without-tier", "bad-answer"])
+    def test_an_unusable_call_exits_1(self, tmp_path: Path, args, message) -> None:
+        paths = self._files(tmp_path, [])
+        if "BAD" in args:
+            bad = tmp_path / "gap-judgments.json"
+            bad.write_bytes(json.dumps({"GAP-001": {"reachability": "maybe"}}).encode("utf-8"))
+            args = tuple(str(bad) if a == "BAD" else a for a in args)
+        result = _run_cli("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"], *args)
+        assert result.returncode == 1 and message in result.stderr, result.stderr
+
+    def test_a_status_that_writes_nothing_exits_0(self, tmp_path: Path) -> None:
+        paths = self._files(tmp_path, [_gap_entry("GAP-001", "x", "NEW_EXPORT", category="missing-export")])
+        out = paths["run"] / "reextract-records.json"
+        result = _run_cli("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"],
+                          "--drift-status", "overridden", "-o", str(out))
+        assert result.returncode == 0 and json.loads(result.stdout)["status"] == "drift-blocked"
+        assert not out.exists()

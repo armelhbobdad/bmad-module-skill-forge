@@ -66,6 +66,15 @@ Subcommands:
       "output", "files_extracted", "exports_extracted",
       "confidence_breakdown": {"T1", "T1-low", "T2"}, "warnings"}.
 
+  gap-records --manifest <file> --provenance-map <file> [--source-root <dir>]
+              [--drift-status ok|skipped|overridden] [--judgments <file>]
+              [--remediation-records <file>] [--evidence <file> --tier <tier>]
+              (--plan [--files-out <file>] | -o <file>)
+      A gap-driven repair's spot-checks, routing and verification records
+      (see "Gap records" below): --plan prints what to answer and which
+      files targeted re-extraction scans; without it, the records are
+      written to -o through a temporary file and a rename.
+
 Helper files in place of typed slices (update-skill detect-changes §2.1):
 
   --category-a <file>       the output of skf-classify-changed-files.py
@@ -247,7 +256,8 @@ Apply (update-skill write.md §3):
   unknown_reason, pinned_definition_lines and reachability:
     verified (map_entry)    unchanged
     moved (map_entry)       source_line (and source_file) from new_location
-    re-extracted            the entry from its `files` record (gap-driven.md §4a)
+    re-extracted            the entry from its `files` record (gap-driven.md §4a);
+                            none when its reachability is internal-unreachable
     verified/moved, not in_map, a NEW_EXPORT or MODIFIED_EXPORT whose
     reachability is not internal-unreachable
                             one source-read entry at the citation's line
@@ -314,10 +324,108 @@ it scans):
   no seed holds is not added, with a warning. confidence_breakdown counts
   the exports by confidence, and T2 the exports with a qmd_evidence.
 
+Gap records (update-skill gap-driven.md §3, §4 and §4a):
+
+  Reads the change manifest skf-parse-gaps.py translate wrote. Its
+  STRUCTURAL_FIX and metadata update entries are forwarded to merge as
+  they are (`forwarded`); every other entry is export-bearing. A severity
+  is blocking unless it is Medium, Low or Info (NON_BLOCKING), compared
+  case-insensitively, so a missing one is blocking. In order:
+
+  1. Drift gate (--drift-status overridden): each export-bearing entry
+     but a MOVED_EXPORT needs the tree, with the first reason that fits:
+     a DELETED_EXPORT "a public API recount from the tree (rule R1)", a
+     provenance_completeness entry "a line from the tree (rule R3)", one
+     whose map_match is not-found "a line and a signature from the tree",
+     any other "a signature from the tree". Any such entry: {"status":
+     "drift-blocked", "drift_blocked": [{gap_id, name, change_category,
+     severity, reason}]}, and no spot-check runs.
+  2. A DELETED_EXPORT without a `rescope` that holds its `amendment` and
+     `exclude`: {"status": "blocked", "rescope_without_amendment": [names]}.
+  3. Spot-checks, by skf-verify-provenance-completeness.py's definition-
+     lines rules, loaded from this folder, under --source-root:
+       DELETED_EXPORT         rescoped, no check
+       MOVED_EXPORT           checked at its map entry when map_match is
+                              found (unknown otherwise); under the
+                              override a `moved` becomes unknown with
+                              unknown_reason drift-override; its
+                              pinned_definition_lines are the numbers of
+                              its remediation's "definition line(s) (...)"
+       NEW_EXPORT, MODIFIED_EXPORT
+         map_match found      checked at the map entry (its export_type)
+         ambiguous            unknown
+         not-found            checked at its source_citation (no export
+                              type) when it has one; when that pins no
+                              line (unknown or missing), or with no
+                              citation: targeted re-extraction (§4a) for a
+                              provenance_completeness entry with a source
+                              root, for a blocking one whatever its
+                              resolved_paths, and for a missing-export or
+                              missing-type one with resolved_paths; else
+                              unknown
+     A check gives `verified` (the line is a definition line, or a module
+     or package entry whose file exists), `moved` (one definition line,
+     not the recorded one: new_location), `missing` (no such file) or
+     `unknown` (several definition lines, none the recorded one, or
+     none). A file the rules cover no language of
+     takes the answered `declaring_line`: the recorded line is verified,
+     another is moved, null is unknown. With no verifier every check is
+     unknown, with a `provenance: spot-checks not run` warning; a check
+     the verifier fails on (a file it cannot read, or any error) is
+     unknown, with a `provenance: spot-check failed for {name}: {error}`
+     warning.
+  --plan stops here: {"status": "planned", "reextract": {"entries":
+  [{gap_id, name, severity, resolved_paths}], "files": [the union of
+  their resolved_paths]}, "warnings"}, the files also written to
+  --files-out as a JSON array.
+  4. Targeted re-extraction (--remediation-records, `records`' output
+     over those files): each routed entry with resolved_paths takes the
+     first export of its name in the blocks of those files, in their
+     order: `re-extracted`, new_location its record's location,
+     resolution_source remediation-paths, and the record copied into
+     `files` as `records` wrote it, with the answered `docstring` added.
+     An entry with no match, or no path to scan, is unresolved, except a
+     missing-export or missing-type one that is not blocking, which is
+     unknown. Any unresolved entry: {"status": "unresolved",
+     "unresolved": [{gap_id, name, severity, remediation_paths,
+     rejected_paths, files_scanned, exports_found_in_scan}]}.
+  5. The public-reachability gate: every NEW_EXPORT that is verified,
+     moved or re-extracted takes the answered `reachability`, `public` or
+     `internal-unreachable`. An internal one keeps its outcome in its
+     verification record, its record is not in `files`, `counts` tallies
+     it under `reclassified` instead of its outcome, and it is listed in
+     `reclassified` (merge queues it as a metadata update; apply writes no
+     entry for it).
+
+  Any answer missing in step 3 or 5 (a `docstring` too, for each
+  re-extracted entry): {"status": "needs-judgment", "needs_judgment":
+  [{gap_id, name, needs: [...], file?, line?}]}. --judgments gives them,
+  keyed by gap id (the answers file translate reads; its keys are left).
+  Then it writes {"mode": "gap-driven", "files_extracted" (the blocks of
+  --remediation-records, 0 when it scanned none), "exports_extracted" (the
+  manifest's entries), "confidence_breakdown": {"T1", "T1-low",
+  "unlabeled", "T2": 0} (each manifest entry by the extraction_method of
+  its re-extracted record or, in the map, of its map entry; a pinned cited
+  export the map lacks and the gate passed is T1-low), "verification":
+  [one record per export-bearing entry: export_name, gap_category,
+  severity, verification, in_map, map_entry, provenance_citation,
+  source_citation, new_location, unknown_reason, pinned_definition_lines,
+  resolution_source, reachability, export_type (always null: for a cited
+  export the map lacks, apply takes it from merge.md's
+  merge-records.json)], "files": [...]}, and prints {"status": "written",
+  "output", "gap_count", "files_extracted", "exports_extracted",
+  "confidence_breakdown", "counts" (per verification outcome, and
+  `reclassified`), "reclassified", "forwarded", "targeted_reextraction",
+  "warnings"}. When targeted re-extraction ran, `targeted_reextraction`
+  is {resolved_count, files_scanned, exports_matched, tier}, also appended
+  to --evidence as one JSON line keyed `targeted_reextraction`.
+
 Exit codes:
-  0  operation succeeded
+  0  operation succeeded (for gap-records, whatever its `status`)
   1  user error (malformed JSON, bad path, malformed provenance file, a
-     helper file that is not the output it names)
+     helper file that is not the output it names, a gap-records answer of
+     the wrong type, or targeted re-extraction to match with no
+     --remediation-records)
   3  apply refused: a blocking gap reached the provenance write with no
      source line (nothing written)
 """
@@ -330,8 +438,10 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -1036,6 +1146,7 @@ def rename_candidates(category_a_doc: dict, diff: dict | None, provenance: dict,
 UPDATE_TYPES = ("incremental", "gap-driven", "full")
 NON_BLOCKING = ("medium", "low", "info")
 EXIT_REFUSED = 3
+REPLACE_WAIT_SECONDS = 5.0  # how long a Windows rename onto a file held open is retried
 # The update block apply sets at the top level of the map, in this order.
 UPDATE_BLOCK_KEYS = ("last_update", "update_type", "test_report_run_id", "files_changed", "exports_affected",
                      "confidence_tier", "manual_sections_preserved")
@@ -1370,6 +1481,8 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
             if path and line is not None:
                 pmap.update(index, {"source_file": path, "source_line": line})
         elif outcome == "re-extracted":
+            if r.get("reachability") == "internal-unreachable":
+                continue  # not public API: merge queued it as a metadata update
             path, line = _location(r.get("new_location"))
             record = reextracted.record(name, path) if path else None
             if record is None:
@@ -1537,11 +1650,20 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
 
 
 def _write_json_atomic(path: Path, value) -> None:
-    """Write `value` as indented JSON through a temporary file beside `path` and one rename."""
+    """Write `value` as indented JSON through a temporary file beside `path` and one rename, retried on Windows,
+    where a scanner may hold the target open for a moment."""
     tmp = path.with_name(f".{path.name}.skf-{os.getpid()}-tmp")
     try:
         tmp.write_bytes((json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
-        os.replace(tmp, path)
+        deadline = time.monotonic() + REPLACE_WAIT_SECONDS
+        while True:
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if os.name != "nt" or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
     except OSError:
         try:
             tmp.unlink()
@@ -1678,6 +1800,397 @@ def build_records(extraction: dict | None, details: dict | None, files: list | N
         "warnings": warnings,
     }
     return {"mode": "normal", "files": blocks}, summary
+
+
+# --------------------------------------------------------------------------
+# Gap records (update-skill gap-driven.md §3, §4 and §4a)
+# --------------------------------------------------------------------------
+
+
+EXPORT_CATEGORIES = ("NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT")
+DOCUMENT_CATEGORIES = ("missing-export", "missing-type")  # routed to §4a by category, never halting
+DRIFT_STATUSES = ("ok", "skipped", "overridden")
+# The drift gate's reasons, gap-driven.md §3: the first that fits.
+DRIFT_RESCOPE = "a public API recount from the tree (rule R1)"
+DRIFT_COMPLETENESS = "a line from the tree (rule R3)"
+DRIFT_NOT_IN_MAP = "a line and a signature from the tree"
+DRIFT_IN_MAP = "a signature from the tree"
+REACHABILITY = ("public", "internal-unreachable")
+VERIFIER_MISSING = "provenance: spot-checks not run: skf-verify-provenance-completeness.py is missing; re-install SKF"
+OUTCOMES = ("verified", "moved", "missing", "re-extracted", "rescoped", "unknown")
+_DEFINITION_LINES = re.compile(r"definition lines?\s*\(([\d,\s]+)\)", re.IGNORECASE)
+_VERIFIER = None
+
+
+def _verifier():
+    """skf-verify-provenance-completeness.py, loaded once from this folder for its definition-lines rules, or None
+    when it cannot be loaded."""
+    global _VERIFIER
+    if _VERIFIER is None:
+        path = Path(__file__).resolve().parent / "skf-verify-provenance-completeness.py"
+        try:
+            spec = importlib.util.spec_from_file_location("skf_verify_provenance_completeness", path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"cannot load {path}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except (OSError, ImportError, SyntaxError):
+            _VERIFIER = False
+        else:
+            _VERIFIER = module
+    return _VERIFIER or None
+
+
+def _blocking(severity: object) -> bool:
+    return str(severity or "").strip().lower() not in NON_BLOCKING
+
+
+def _gap_judgments(doc) -> dict:
+    """The answers gap-records reads from a --judgments file, checked. Raises ValueError."""
+    if not isinstance(doc, dict) or not all(isinstance(v, dict) for v in doc.values()):
+        raise ValueError("--judgments must map each gap id to an object of answers")
+    for gid, answers in doc.items():
+        line = answers.get("declaring_line")
+        if "declaring_line" in answers and line is not None and (isinstance(line, bool) or not isinstance(line, int)):
+            raise ValueError(f"--judgments: {gid}'s `declaring_line` must be a line number or null")
+        if "reachability" in answers and answers["reachability"] not in REACHABILITY:
+            raise ValueError(f"--judgments: {gid}'s `reachability` must be one of {', '.join(REACHABILITY)}")
+        if "docstring" in answers and not isinstance(answers["docstring"], (str, type(None))):
+            raise ValueError(f"--judgments: {gid}'s `docstring` must be a string or null")
+    return doc
+
+
+def _drift_reason(entry: dict) -> str | None:
+    """The drift gate's reason an export-bearing entry needs the tree, or None for one that passes."""
+    category = entry.get("change_category")
+    if category == "DELETED_EXPORT":
+        return DRIFT_RESCOPE
+    if category not in ("NEW_EXPORT", "MODIFIED_EXPORT"):
+        return None
+    if entry.get("provenance_completeness"):
+        return DRIFT_COMPLETENESS
+    status = (entry.get("map_match") or {}).get("status")
+    return DRIFT_IN_MAP if status in ("found", "ambiguous") else DRIFT_NOT_IN_MAP
+
+
+def _spot_check(root: Path | None, path: str | None, name: str, line: int | None, export_type: object,
+                answers: dict) -> tuple[str, int | None, bool, str | None]:
+    """(outcome, the line a `moved` export moves to, whether it waits on a `declaring_line` answer, why the
+    check failed)."""
+    verifier = _verifier()
+    if verifier is None or root is None or not path or line is None:
+        return "unknown", None, False, None
+    try:
+        report = verifier.definition_lines_report(path, name, root, line,
+                                                  export_type if isinstance(export_type, str) else None)
+    except Exception as exc:  # noqa: BLE001 - a file it cannot read, or any verifier failure: this entry only
+        return "unknown", None, False, f"{type(exc).__name__}: {exc}"
+    check = report.get("line_check")
+    if check == "file-missing":
+        return "missing", None, False, None
+    if check == "skipped-export-type":
+        return "verified", None, False, None
+    if check == "skipped-language":
+        if "declaring_line" not in answers:
+            return "unknown", None, True, None
+        declared = answers["declaring_line"]
+        if declared is None:
+            return "unknown", None, False, None
+        return ("verified", None, False, None) if declared == line else ("moved", declared, False, None)
+    if report.get("line_is_definition"):
+        return "verified", None, False, None
+    defs = report.get("definition_lines") or []
+    if len(defs) == 1 and defs[0] != line:
+        return "moved", defs[0], False, None
+    return "unknown", None, False, None
+
+
+def _pinned_lines(remediation: object) -> list[int] | None:
+    """The definition lines a provenance-line gap's remediation lists, `... definition line (5, 7) ...`."""
+    m = _DEFINITION_LINES.search(remediation) if isinstance(remediation, str) else None
+    lines = [int(n) for n in re.findall(r"\d+", m.group(1))] if m else []
+    return lines or None
+
+
+def _where(path: object, line: object) -> str | None:
+    file, number = _norm_path(path), _line_of(line)
+    return f"{file}:{number}" if file and number is not None else None
+
+
+class _GapEntry:
+    """One export-bearing manifest entry as gap-records routes it."""
+
+    def __init__(self, entry: dict, answers: dict):
+        self.entry = entry
+        self.answers = answers
+        self.name = _name_of(entry) or ""
+        self.category = entry.get("change_category")
+        match = entry.get("map_match") if isinstance(entry.get("map_match"), dict) else {}
+        self.match_status = match.get("status") or "not-found"
+        found = match.get("entry") if self.match_status == "found" and isinstance(match.get("entry"), dict) else None
+        self.map_entry = {"source_file": found.get("source_file"), "source_line": found.get("source_line")} \
+            if found else None
+        self.map_export_type = found.get("export_type") if found else None
+        self.in_map = bool(match.get("candidates"))
+        citation = entry.get("source_citation")
+        self.citation = citation if isinstance(citation, dict) else None
+        self.recorded: tuple[str | None, int | None] = (None, None)  # the file and line a check read
+        self.outcome: str | None = None
+        self.new_line: int | None = None
+        self.unknown_reason: str | None = None
+        self.reextract = False
+        self.record: dict | None = None  # the §4a record it matched
+        self.record_path: str | None = None
+        self.waits = False  # on a declaring_line answer
+        self.failure: str | None = None  # why its spot-check failed
+
+    @property
+    def blocking(self) -> bool:
+        return _blocking(self.entry.get("severity"))
+
+    @property
+    def paths(self) -> list[str]:
+        return [p for p in (_norm_path(p) for p in self.entry.get("resolved_paths") or []) if p]
+
+    def check(self, root: Path | None, path: object, line: object, export_type: object) -> None:
+        self.recorded = (_norm_path(path), _line_of(line))
+        self.outcome, self.new_line, self.waits, self.failure = _spot_check(
+            root, self.recorded[0], self.name, self.recorded[1], export_type, self.answers)
+
+    def route(self, root: Path | None, drift: bool) -> None:
+        """Spot-check the entry, or send it to targeted re-extraction (see "Gap records" in the module docstring)."""
+        if self.category == "DELETED_EXPORT":
+            self.outcome = "rescoped"
+            if self.map_entry:
+                self.recorded = (_norm_path(self.map_entry["source_file"]), _line_of(self.map_entry["source_line"]))
+            return
+        if self.category == "MOVED_EXPORT":
+            if self.map_entry is None:
+                self.outcome = "unknown"
+                return
+            self.check(root, self.map_entry["source_file"], self.map_entry["source_line"], self.map_export_type)
+            if drift and self.outcome == "moved":
+                self.outcome, self.new_line, self.unknown_reason = "unknown", None, "drift-override"
+            return
+        if self.match_status == "found":
+            self.check(root, self.map_entry["source_file"], self.map_entry["source_line"], self.map_export_type)
+            return
+        if self.match_status == "ambiguous":
+            self.outcome = "unknown"
+            return
+        if self.citation:
+            self.check(root, self.citation.get("file"), self.citation.get("line"), None)
+            if self.waits or self.outcome in ("verified", "moved"):
+                return
+        if self.entry.get("provenance_completeness") and root is not None:
+            self.reextract = True
+        elif self.blocking:
+            self.reextract = True
+        elif self.entry.get("category") in DOCUMENT_CATEGORIES and self.paths:
+            self.reextract = True
+        else:
+            self.outcome = "unknown"
+
+    def match(self, blocks: dict[str, list[dict]]) -> tuple[int, int]:
+        """Take the first export of the entry's name in the blocks of its resolved files; (files scanned, exports
+        found in them)."""
+        exports = 0
+        for path in self.paths:
+            for record in blocks.get(path, []):
+                exports += 1
+                if self.record is None and _name_of(record) == self.name:
+                    self.record, self.record_path = record, path
+        if self.record is not None:
+            self.outcome = "re-extracted"
+        return len(self.paths), exports
+
+    @property
+    def located(self) -> bool:
+        return self.outcome in ("verified", "moved", "re-extracted")
+
+    @property
+    def internal(self) -> bool:
+        return self.category == "NEW_EXPORT" and self.answers.get("reachability") == "internal-unreachable"
+
+    def needs(self) -> list[str]:
+        """The answers the entry still waits on once routed."""
+        want = []
+        if self.category == "NEW_EXPORT" and self.located and "reachability" not in self.answers:
+            want.append("reachability")
+        if self.outcome == "re-extracted" and "docstring" not in self.answers:
+            want.append("docstring")
+        return want
+
+    def new_location(self) -> str | None:
+        if self.outcome == "moved":
+            return _where(self.recorded[0], self.new_line)
+        if self.outcome == "re-extracted":
+            return (self.record or {}).get("location")
+        return None
+
+    def verification(self) -> dict:
+        recorded = _where(*self.recorded)
+        if self.outcome == "re-extracted":
+            citation = self.new_location()
+        elif self.outcome in ("verified", "moved", "missing", "rescoped") and recorded:
+            citation = recorded
+        else:
+            citation = "unknown"
+        return {
+            "export_name": self.name,
+            "gap_category": self.category,
+            "severity": self.entry.get("severity"),
+            "verification": self.outcome,
+            "in_map": self.in_map,
+            "map_entry": self.map_entry,
+            "provenance_citation": citation,
+            "source_citation": self.citation,
+            "new_location": self.new_location(),
+            "unknown_reason": self.unknown_reason,
+            "pinned_definition_lines": _pinned_lines(self.entry.get("remediation"))
+            if self.category == "MOVED_EXPORT" else None,
+            "resolution_source": "remediation-paths" if self.outcome == "re-extracted" else None,
+            "reachability": self.answers.get("reachability") if self.category == "NEW_EXPORT" and self.located
+            else None,
+            "export_type": None,
+        }
+
+    def label(self, provenance: list[dict]) -> str:
+        """T1, T1-low or unlabeled: the confidence_breakdown bin of the entry."""
+        if self.internal:
+            return "unlabeled"
+        method = None
+        if self.outcome == "re-extracted":
+            method = (self.record or {}).get("extraction_method")
+        elif self.map_entry is not None:
+            file, line = _norm_path(self.map_entry["source_file"]), _line_of(self.map_entry["source_line"])
+            for entry in provenance:
+                if (_name_of(entry) == self.name and _file_of(entry) == file
+                        and _line_of(entry.get("source_line")) == line):
+                    method = entry.get("extraction_method")
+                    break
+        elif self.located and self.category in ("NEW_EXPORT", "MODIFIED_EXPORT"):
+            method = "source-read"  # a pinned cited export the map lacks: write.md §3 writes it source-read
+        if method in ("ast-grep", "ast_bridge"):
+            return "T1"
+        if method in ("source-read", "source_reading"):
+            return "T1-low"
+        return "unlabeled"
+
+
+def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | None, drift_status: str = "ok",
+                judgments: dict | None = None, remediation: dict | None = None, plan: bool = False,
+                tier: str | None = None) -> tuple[dict | None, dict]:
+    """(reextract-records.json or None, the summary): see "Gap records" in the module docstring."""
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("entries"), list):
+        raise ValueError("the change manifest has no `entries` array: is it translate's output?")
+    entries = [e for e in manifest["entries"] if isinstance(e, dict)]
+    judgments = judgments or {}
+    root = source_root if source_root is not None and source_root.is_dir() else None
+    forwarded = [{"gap_id": e.get("gap_id"), "change_category": e.get("change_category")}
+                 for e in entries if e.get("change_category") not in EXPORT_CATEGORIES]
+    routed = [_GapEntry(e, judgments.get(e.get("gap_id")) or {}) for e in entries
+              if e.get("change_category") in EXPORT_CATEGORIES]
+    drift = drift_status == "overridden"
+    if drift:
+        blocked = [{"gap_id": g.entry.get("gap_id"), "name": g.name, "change_category": g.category,
+                    "severity": g.entry.get("severity"), "reason": _drift_reason(g.entry)}
+                   for g in routed if _drift_reason(g.entry)]
+        if blocked:
+            return None, {"status": "drift-blocked", "drift_blocked": blocked}
+    bare = [g.name for g in routed if g.category == "DELETED_EXPORT" and not (
+        isinstance(g.entry.get("rescope"), dict) and g.entry["rescope"].get("amendment")
+        and g.entry["rescope"].get("exclude"))]
+    if bare:
+        return None, {"status": "blocked", "rescope_without_amendment": bare}
+    warnings = []
+    if root is not None and _verifier() is None:
+        warnings.append(VERIFIER_MISSING)
+    for g in routed:
+        g.route(root, drift)
+    warnings += [f"provenance: spot-check failed for {g.name}: {g.failure}" for g in routed if g.failure]
+    waiting = [{"gap_id": g.entry.get("gap_id"), "name": g.name, "needs": ["declaring_line"],
+                "file": g.recorded[0], "line": g.recorded[1]} for g in routed if g.waits]
+    if waiting:
+        return None, {"status": "needs-judgment", "needs_judgment": waiting, "warnings": warnings}
+    to_scan = [g for g in routed if g.reextract]
+    files = list(dict.fromkeys(p for g in to_scan for p in g.paths))
+    if plan:
+        return None, {"status": "planned", "reextract": {
+            "entries": [{"gap_id": g.entry.get("gap_id"), "name": g.name, "severity": g.entry.get("severity"),
+                         "resolved_paths": g.paths} for g in to_scan], "files": files}, "warnings": warnings}
+    blocks: dict[str, list[dict]] = {}
+    scanned = 0
+    if files:
+        if remediation is None:
+            raise ValueError("targeted re-extraction has files to match: pass --remediation-records, the output "
+                             "of `records` over them")
+        if not isinstance(remediation, dict) or not isinstance(remediation.get("files"), list):
+            raise ValueError("--remediation-records has no `files` array: is it the output of `records`?")
+        for block in remediation["files"]:
+            if isinstance(block, dict) and _norm_path(block.get("file_path")):
+                scanned += 1
+                blocks.setdefault(_norm_path(block["file_path"]), []).extend(
+                    r for r in block.get("exports") or [] if isinstance(r, dict))
+    unresolved = []
+    for g in to_scan:
+        files_scanned, found = g.match(blocks)
+        if g.record is not None:
+            continue
+        if not g.blocking and g.entry.get("category") in DOCUMENT_CATEGORIES:
+            g.outcome = "unknown"
+            continue
+        unresolved.append({"gap_id": g.entry.get("gap_id"), "name": g.name, "severity": g.entry.get("severity"),
+                           "remediation_paths": g.entry.get("remediation_paths") or [],
+                           "rejected_paths": g.entry.get("rejected_paths") or [],
+                           "files_scanned": files_scanned, "exports_found_in_scan": found})
+    if unresolved:
+        return None, {"status": "unresolved", "unresolved": unresolved, "warnings": warnings}
+    needs = [{"gap_id": g.entry.get("gap_id"), "name": g.name, "needs": g.needs(),
+              "file": _location(g.new_location())[0] if g.outcome != "verified" else g.recorded[0],
+              "line": _location(g.new_location())[1] if g.outcome != "verified" else g.recorded[1]}
+             for g in routed if g.needs()]
+    if needs:
+        return None, {"status": "needs-judgment", "needs_judgment": needs, "warnings": warnings}
+    kept: dict[str, list[dict]] = {}
+    for g in routed:
+        if g.record is not None and not g.internal:
+            record = dict(g.record)
+            if g.answers.get("docstring") is not None:
+                record["docstring"] = g.answers["docstring"]
+            if record not in kept.setdefault(g.record_path, []):
+                kept[g.record_path].append(record)
+    breakdown = {"T1": 0, "T1-low": 0, "unlabeled": 0, "T2": 0}
+    provenance_entries = _entries_of(provenance)
+    for g in routed:
+        breakdown[g.label(provenance_entries)] += 1
+    breakdown["unlabeled"] += len(forwarded)
+    records = {
+        "mode": "gap-driven",
+        "files_extracted": scanned,
+        "exports_extracted": len(entries),
+        "confidence_breakdown": breakdown,
+        "verification": [g.verification() for g in routed],
+        "files": [{"file_path": path, "exports": exports} for path, exports in kept.items()],
+    }
+    matched = [g for g in to_scan if g.record is not None]
+    targeted = {"resolved_count": len(matched), "files_scanned": scanned,
+                "exports_matched": len({(g.record_path, _name_of(g.record)) for g in matched}),
+                "tier": tier} if to_scan else None
+    summary = {
+        "status": "written",
+        "gap_count": len(entries),
+        "files_extracted": scanned,
+        "exports_extracted": len(entries),
+        "confidence_breakdown": breakdown,
+        "counts": {**{outcome: sum(1 for g in routed if g.outcome == outcome and not g.internal)
+                      for outcome in OUTCOMES}, "reclassified": sum(1 for g in routed if g.internal)},
+        "reclassified": [g.name for g in routed if g.internal],
+        "forwarded": forwarded,
+        "targeted_reextraction": targeted,
+        "warnings": warnings,
+    }
+    return records, summary
 
 
 # --------------------------------------------------------------------------
@@ -1910,6 +2423,47 @@ def _cmd_records(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_gap_records(args: argparse.Namespace) -> int:
+    try:
+        if args.plan and args.output:
+            raise ValueError("--plan writes no records: drop -o")
+        if not args.plan and not args.output:
+            raise ValueError("-o is required without --plan")
+        if args.files_out and not args.plan:
+            raise ValueError("--files-out goes with --plan")
+        if bool(args.evidence) != bool(args.tier):
+            raise ValueError("--evidence and --tier go together")
+        judgments = _gap_judgments(_load_json_file(Path(args.judgments), "--judgments file")) \
+            if args.judgments else {}
+        records, summary = gap_records(
+            _load_json_file(Path(args.manifest), "--manifest file"),
+            _load_json_file(Path(args.provenance_map), "--provenance-map file"),
+            source_root=Path(args.source_root) if args.source_root else None,
+            drift_status=args.drift_status,
+            judgments=judgments,
+            remediation=_optional_json(args.remediation_records, "--remediation-records file"),
+            plan=args.plan,
+            tier=args.tier,
+        )
+        if summary["status"] == "planned" and args.files_out:
+            _write_json_atomic(Path(args.files_out), summary["reextract"]["files"])
+        if records is not None:
+            _write_json_atomic(Path(args.output), records)
+            summary = {"status": summary["status"], "output": args.output,
+                       **{k: v for k, v in summary.items() if k != "status"}}
+            if args.evidence and summary["targeted_reextraction"] is not None:
+                with open(args.evidence, "a", encoding="utf-8", newline="\n") as fh:
+                    fh.write(json.dumps({"targeted_reextraction": summary["targeted_reextraction"]}) + "\n")
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"error: cannot write: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-build-change-manifest",
@@ -1996,6 +2550,24 @@ def _build_parser() -> argparse.ArgumentParser:
     p_records.add_argument("--patches", metavar="DIR", help="the folder of the workers' per-file patches")
     p_records.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the records")
     p_records.set_defaults(func=_cmd_records)
+
+    p_gap = sub.add_parser("gap-records", help="spot-check, route and record a gap-driven repair's manifest entries")
+    p_gap.add_argument("--manifest", required=True, metavar="FILE", help="skf-parse-gaps.py translate's manifest")
+    p_gap.add_argument("--provenance-map", required=True, metavar="FILE", help="the map the repair starts from")
+    p_gap.add_argument("--source-root", metavar="DIR", help="the source tree the spot-checks read")
+    p_gap.add_argument("--drift-status", choices=DRIFT_STATUSES, default="ok",
+                       help="the workspace drift check's status; overridden runs the drift gate")
+    p_gap.add_argument("--judgments", metavar="FILE", help="the answers to its needs_judgment[], keyed by gap id")
+    p_gap.add_argument("--remediation-records", metavar="FILE",
+                       help="`records` output over the files targeted re-extraction scanned")
+    p_gap.add_argument("--plan", action="store_true",
+                       help="print the answers it needs and the files targeted re-extraction scans; write no records")
+    p_gap.add_argument("--files-out", metavar="FILE", help="with --plan: write those files here, a JSON array")
+    p_gap.add_argument("--evidence", metavar="FILE",
+                       help="append the targeted_reextraction record to this JSON-lines file when it ran")
+    p_gap.add_argument("--tier", help="with --evidence: the forge tier the record names")
+    p_gap.add_argument("-o", "--output", metavar="FILE", help="where to write the records (without --plan)")
+    p_gap.set_defaults(func=_cmd_gap_records)
 
     for p in (p_build, p_ratio):
         p.add_argument(

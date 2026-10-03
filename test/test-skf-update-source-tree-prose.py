@@ -49,8 +49,9 @@ And they pin the helpers update-skill hands its deterministic work to:
   or `rm -f` lock, and the documented calls run against the helper;
 - skf-skill-inventory.py `version` compares the source's version in init.md
   and gives merge.md the next patch version;
-- the verifier's `definition-lines` finds the spot-check's definition lines,
-  its `kind-at` looks up node kinds in write.md §2 and §6, its `fix`
+- the verifier's definition-line rules find the spot-check's definition
+  lines inside gap-records, its `kind-at` looks up node kinds in write.md
+  §2 and §6, its `fix`
   applies §6's citation and line fixes, and §6 skips the export set diff
   for a reference app, both through the helper and in the by-hand fallback;
 - every path a documented helper call passes sits in double quotes;
@@ -101,6 +102,12 @@ any gate and a headless degraded run goes through all of init.md; write.md
 recipe runner; `build` types Category D's rows itself (a tracked document
 included), `records` builds step 3's records, parse-gaps' `map_match` does
 the spot-check's map lookup, and a headless run's result line is its last.
+
+And the step 5b round 2 fixes: parse-gaps' `translate` writes gap-driven.md
+§1's change manifest and asks only what it cannot decide; build-change-
+manifest's `gap-records` runs §4's spot-checks, the drift gate and the
+routing to §4a, matches §4a's records and writes the verification records;
+and detect-changes §1c skips a skill built without a brief.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -1169,55 +1176,127 @@ def test_versions_come_from_the_inventory_helper(capsys):
 API_PY = b"import os\n\n\n@decorate\ndef search(q):\n    return q\n"
 
 
+def _gap_entry(name: str, category: str, change: str, *, severity: str = "High", match: dict | None = None,
+               citation: dict | None = None, resolved: list | None = None, **extra) -> dict:
+    """One change-manifest entry as skf-parse-gaps.py translate writes it."""
+    entry = {"name": name, "gap_id": extra.pop("gap_id", f"GAP-{name}"), "category": category, "severity": severity}
+    if citation:
+        entry["source_citation"] = citation
+    entry.update({"remediation_paths": list(resolved or []), "resolved_paths": list(resolved or []),
+                  "rejected_paths": [], "change_category": change, "remediation": extra.pop("remediation", "Fix it."),
+                  **extra, "map_match": match or {"status": "not-found", "entry": None, "candidates": []}})
+    return entry
+
+
+def _found(path: str, line: int, export_type: str = "function") -> dict:
+    view = {"source_file": path, "source_line": line, "export_type": export_type}
+    return {"status": "found", "entry": view, "candidates": [view]}
+
+
+def _gap_calls() -> tuple[str, str]:
+    """gap-driven.md §4's plan call and its record call, as documented."""
+    four = _slice(_read(GAP), "### 4. Spot-Check Each Gap's Export", "### 4a.")
+    return (_fence(four, "uv run {buildChangeManifestHelper} gap-records --plan"),
+            _fence(_slice(four, "2. **Write the gap-driven records**", "   - **`unresolved`:**"),
+                   "uv run {buildChangeManifestHelper} gap-records"))
+
+
+def _docstring(path: Path, start: str, end: str) -> str:
+    """One section of a helper's docstring, its whitespace runs read as one space: where gap-driven.md points for
+    a rule it states once (step 5b round 2: translate's entry fields, gap-records' routing and outcomes)."""
+    text = " ".join(_module(path, f"skf_docstring_{path.stem.replace('-', '_')}").__doc__.split())
+    return _slice(text, start, end)
+
+
+def _gap_records_doc() -> str:
+    return _docstring(BUILD_MANIFEST, "Gap records (update-skill gap-driven.md", "Exit codes:")
+
+
+def _translate_doc() -> str:
+    return _docstring(PARSE_GAPS, "Translate (update-skill gap-driven.md §1)", "Exit codes:")
+
+
+def _run_gap_records(call: str, values: dict, capsys, keep: tuple = ()) -> tuple[int, dict]:
+    """Run a documented gap-records call through the helper's main, with the `[--flag ...]` groups `keep` names."""
+    manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_gap_records_prose")
+    code = manifest.main(_argv_with(call, "buildChangeManifestHelper", values, keep))
+    return code, json.loads(capsys.readouterr().out)
+
+
 def test_spot_check_reads_definition_lines_from_the_verifier(tmp_path, capsys):
-    """gap-driven.md §4's spot-check asks definition-lines, the rules write §6's verify applies (#584)."""
+    """gap-driven.md §4's spot-checks run inside gap-records, with the definition-line rules write §6's verify
+    applies (#584; step 5b gate run 2 determinism-4: no spot-check output is mapped to an outcome by hand)."""
     text = _read(GAP)
-    assert yaml.safe_load(_frontmatter(text))["verifyProvenanceCompletenessProbeOrder"] == VERIFIER_PATHS
+    # the helper loads the verifier from its own folder: the stage file resolves no verifier of its own
+    assert "verifyProvenanceCompletenessProbeOrder" not in _frontmatter(text)
+    assert "{verifyProvenanceCompletenessHelper}" not in text
     assert "verifyProvenanceCompletenessProbeOrder" not in _frontmatter(_read(RE_EXTRACT))  # moved with §0 (#600)
-    # one missing-helper policy for the verifier in every stage file: advisory, and never a line found by eye
-    comment = _comment_before(_frontmatter(text), "verifyProvenanceCompletenessProbeOrder")
-    assert "when §4 bullet 2 first needs it" in comment and "records `unknown`" in comment
-    assert "Advisory" in comment and "HALT" not in comment
     assert "Advisory" in _comment_before(_frontmatter(_read(WRITE)), "verifyProvenanceCompletenessProbeOrder")
-    found = _slice(text, "   - **If export found:**", "   - Record verification outcome:")
-    call = _fence(found, "uv run {verifyProvenanceCompletenessHelper} definition-lines")
-    for token in ("Take the definition lines from its output, never by eye", "`file-missing`",
-                  "`skipped-export-type`",
-                  "`skipped-language` means the rules cover no such file: read the file and take the line that "
-                  "declares the export itself, never a decorator or comment above it",
-                  "Record `unknown` for an entry whose call exits 2 or prints no JSON.",
-                  "When no candidate resolves, record `unknown` for every entry and add `provenance: spot-checks not "
-                  "run: skf-verify-provenance-completeness.py is missing; re-install SKF` to `warnings[]`"):
-        assert token in found, token
+    four = _slice(text, "### 4. Spot-Check Each Gap's Export", "### 4a.")
+    assert "it runs each spot-check with the definition-line rules write.md §6's verifier applies" in four
+    plan = _slice(four, "   - **`needs-judgment`:** each item is a spot-check", "\n")
+    for token in ("the definition-line rules cover no language of", "`declaring_line`",
+                  "the line that declares the export itself, never a decorator or comment above it"):
+        assert token in plan, token
+    assert ("`provenance: spot-checks not run: skf-verify-provenance-completeness.py is missing; re-install SKF`"
+            in _slice(four, "   - **`written`:** keep its `counts`", "\n"))
+    # the plan prints the same warnings the record call prints again: they are added once (step 5b round 2)
+    assert "Add none of its `warnings[]`: bullet 2's call prints them again." in _slice(four, "   - **`planned`:**", "\n")
     for gone in ("PEP 695", "**TS/JS:**", "**Python:**", "**Indentation:**", "read the whole source file",
-                 "they cover Python and TS/JS", "a definition one line away", "re-extract:spot-check"):
+                 "they cover Python and TS/JS", "a definition one line away", "re-extract:spot-check",
+                 "Take the definition lines from its output", "Record verification outcome:",
+                 'cat > "{run_dir}/reextract-records.json"'):
         assert gone not in text, gone
-    outcome = _slice(text, "   - Record verification outcome:", "\n")
-    for token in ("`line_is_definition` true", "`definition_lines` holds that one line",
-                  "`line_check` is `file-missing`", "(an empty `definition_lines`)"):
+    # each outcome is the docstring's, stated once; the prose keeps what step 5 does with an unknown (step 5b round 2)
+    assert "A record's `verification` is" not in four
+    assert "is the one statement of that routing and of each record's `verification` outcome" in four
+    outcome = _gap_records_doc()
+    for token in ("`verified` (the line is a definition line", "`moved` (one definition line, not the recorded one: "
+                  "new_location)", "`missing` (no such file)", "`unknown` (several definition lines, none the recorded "
+                  "one, or none)", "a check the verifier fails on (a file it cannot read, or any error) is unknown"):
         assert token in outcome, token
+    assert "never call it gone" in four
     assert "found that line by the verifier's text rules" in _slice(_read(MERGE), "**Priority 5", "**Priority 6")
-    verifier = _module(VERIFIER, "skf_verify_provenance_spot_check_prose")
+    # run the documented calls: verified, moved off a decorator, missing, a module, and a file no rule covers
     src = tmp_path / "src tree"
     (src / "pkg").mkdir(parents=True)
     (src / "pkg" / "api.py").write_bytes(API_PY)
     (src / "lib.rs").write_bytes(b"pub fn add() {}\n")
-
-    def run(values: dict, optional: bool = False) -> dict:
-        argv = _argv(call, "verifyProvenanceCompletenessHelper", {"source_root": str(src), **values}, optional)
-        assert verifier.main(argv) == 0
-        return json.loads(capsys.readouterr().out)
-
-    entry = {"source_file": "pkg/api.py", "export_name": "search", "export_type": "function"}
-    out = run({**entry, "source_line": "5"})
-    assert (out["line_check"], out["line_is_definition"], out["definition_lines"]) == ("checked", True, [5])
-    out = run({**entry, "source_line": "4"}, optional=True)  # the decorator line: `moved` to 5
-    assert (out["line_is_definition"], out["definition_lines"]) == (False, [5])
-    assert run({**entry, "source_file": "pkg/gone.py", "source_line": "5"})["line_check"] == "file-missing"
-    assert run({**entry, "source_line": "1", "export_type": "module"}, optional=True)["line_check"] == \
-        "skipped-export-type"
-    rust = run({"source_file": "lib.rs", "export_name": "add", "source_line": "1"})
-    assert rust["line_check"] == "skipped-language"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    entries = [
+        _gap_entry("search", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-001", match=_found("pkg/api.py", 5)),
+        _gap_entry("search", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-002", match=_found("pkg/api.py", 4)),
+        _gap_entry("gone", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-003", match=_found("pkg/gone.py", 5)),
+        _gap_entry("pkg", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-004",
+                   match=_found("pkg/api.py", 1, "module")),
+        _gap_entry("add", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-005", match=_found("lib.rs", 1)),
+    ]
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": entries}).encode())
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"entries": [
+        {"export_name": "search", "source_file": "pkg/api.py", "source_line": 5, "extraction_method": "ast-grep"},
+        {"export_name": "add", "source_file": "lib.rs", "source_line": 1, "extraction_method": "source-read"},
+    ]}).encode("utf-8"))
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "source_root": str(src),
+              "workspace_drift_status": "ok"}
+    plan, record = _gap_calls()
+    code, out = _run_gap_records(plan, values, capsys, keep=("--source-root",))
+    assert code == 0 and out["status"] == "needs-judgment", out
+    assert out["needs_judgment"] == [{"gap_id": "GAP-005", "name": "add", "needs": ["declaring_line"],
+                                      "file": "lib.rs", "line": 1}]
+    (run_dir / "gap-judgments.json").write_bytes(json.dumps({"GAP-005": {"declaring_line": 1}}).encode("utf-8"))
+    code, out = _run_gap_records(plan, values, capsys, keep=("--source-root", "--judgments"))
+    assert code == 0 and out["status"] == "planned" and out["reextract"]["entries"] == [], out
+    code, out = _run_gap_records(record, values, capsys, keep=("--source-root", "--judgments"))
+    assert code == 0 and out["status"] == "written", out
+    records = json.loads((run_dir / "reextract-records.json").read_bytes())
+    outcomes = [(r["verification"], r["new_location"]) for r in records["verification"]]
+    assert outcomes == [("verified", None), ("moved", "pkg/api.py:5"), ("missing", None), ("verified", None),
+                        ("verified", None)]
+    assert out["counts"]["verified"] == 3 and out["counts"]["moved"] == 1 and out["counts"]["missing"] == 1
+    # each entry is binned by its map entry's extraction_method; one the map lacks at that line is unlabeled
+    assert records["confidence_breakdown"] == {"T1": 1, "T1-low": 1, "unlabeled": 3, "T2": 0}
 
 
 def test_6_fixes_through_the_verifier_and_skips_the_set_diff_for_a_reference_app(tmp_path, capsys):
@@ -1295,7 +1374,7 @@ def test_6_fixes_through_the_verifier_and_skips_the_set_diff_for_a_reference_app
     assert (group["ownership"], group["foreign_entries"]) == ("skf", []), group
 
 
-UNQUOTED_OK = {"{source_line}"}  # a line number, never a path
+UNQUOTED_OK = {"{source_line}", "{dry-run|detect-only}"}  # a line number and a flag's choices, never a path
 
 
 def _unquoted_placeholders(call: str, helper: str) -> list[str]:
@@ -1318,15 +1397,14 @@ def test_documented_helper_calls_quote_every_path():
     assert next_patch, "merge §6b runs no next-patch"
     calls.append((next_patch.group(1), "skillInventoryHelper"))
     verifier = "verifyProvenanceCompletenessHelper"
-    found = _slice(_read(GAP), "   - **If export found:**", "   - Record verification outcome:")
-    calls.append((_fence(found, "uv run {" + verifier + "} definition-lines"), verifier))
+    calls += [(call, "buildChangeManifestHelper") for call in _gap_calls()]  # its spot-checks run in the helper
     six_a = _slice(_read(WRITE), "### 6. Provenance Completeness", "### 7.")
     for sub in ("verify", "fix"):
         calls.append((_fence(six_a, "uv run {" + verifier + "} " + sub), verifier))
     kind_at = re.findall(r"`(uv run \{" + verifier + r"\} kind-at [^`]*)`", _read(WRITE))
     assert len(kind_at) == 1, kind_at
     calls += [(call, verifier) for call in kind_at]
-    assert len(calls) == 16
+    assert len(calls) == 17
     for call, helper in calls:
         assert _unquoted_placeholders(call, helper) == [], call
 
@@ -1399,7 +1477,7 @@ def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
     # write §2's counts paragraph above is the one statement of the kept counts: §3 no longer catalogues what the
     # override makes other stages do (#600 w3 leanness-3)
     assert "keeps the public API counts" not in zero_a and "no spot-check in §4 moves a line" not in zero_a
-    deleted = _slice(_read(GAP), "   - **If the entry is `DELETED_EXPORT` (rescope, rule R1):**", "\n")
+    deleted = _slice(_read(GAP), "   - **`blocked`** (`rescope_without_amendment[]`)", "\n")
     assert "drift gate halted" not in deleted and "reaches this branch" not in deleted  # no unreachable route (#600)
     init = _slice(_read(INIT), "- `--allow-workspace-drift` (gap-driven mode only)", "\n")
     assert "counts no public API there" in init
@@ -1576,16 +1654,19 @@ def test_gap_driven_reextracted_records_are_built_by_script(tmp_path, capsys):
                   '--files-from "{run_dir}/remediation-files.json"', '-o "{run_dir}/remediation-records.json"'):
         assert token in call, token
     assert "never type a record" in zero_a and 'phase: "re-extract:records"' in zero_a
-    item_4 = _slice(zero_a, "4. **Match by name**", "\n   Then apply")
-    assert "its record, copied as `records` wrote it" in item_4 and "never retyped" in item_4
-    # the hand-typed record shape and labels are gone from §4 bullet 3 and §4a item 4
+    # §4 bullet 2's gap-records matches §4a's records by name and copies them; §4a ends at its own extraction
+    # (step 5b round 2: no numbered step in §4a describes the helper's work)
+    assert "4. **Match by name:**" not in zero_a and "6. **Success summary:**" not in zero_a
+    four = _slice(text, "2. **Write the gap-driven records**", "Act on its `status`")
+    assert ("in `files` each record of `{run_dir}/remediation-records.json` it matched by name to an entry §4a "
+            "scanned for, within that entry's own `resolved_paths[]`, copied as `records` wrote it") in four
+    # the hand-typed record shape and labels are gone from §4 and §4a, and the hand match with
+    # them (step 5b gate run 2 determinism-4)
     for gone in ('"ast_recipe": "<id of the recipe that matched', "`provenance_citation: {file}:{start_line}` from the "
-                 "AST result", "`ast_node_type` set to the `kind` the matching recipe declares"):
+                 "AST result", "`ast_node_type` set to the `kind` the matching recipe declares", '"verification": [',
+                 "Record the first hit as:", "Write the file set as a JSON array"):
         assert gone not in text, gone
-    records_fence = _fence(text, '"verification": [')
-    assert '"files": [<each block of {run_dir}/remediation-records.json, with only the exports §4a matched' \
-        in records_fence
-    # run the documented call, then step 5's apply on the record §4a item 4 takes
+    # run the documented records call, gap-records on its output, then step 5's apply on the record it copied
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "remediation-files.json").write_bytes(json.dumps(["internal/impl.ts"]).encode("utf-8"))
@@ -1605,13 +1686,31 @@ def test_gap_driven_reextracted_records_are_built_by_script(tmp_path, capsys):
     [block] = json.loads((run_dir / "remediation-records.json").read_bytes())["files"]
     record = next(r for r in block["exports"] if r["name"] == "fetchAll")
     assert record["location"] == "internal/impl.ts:4"
-    files = [{"file_path": block["file_path"], "exports": [record]}]
-    verification = [{"export_name": "fetchAll", "gap_category": "NEW_EXPORT", "severity": "High",
-                     "verification": "re-extracted", "in_map": False, "map_entry": None,
-                     "new_location": record["location"], "resolution_source": "remediation-paths"}]
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": [
+        _gap_entry("fetchAll", "missing-export", "NEW_EXPORT", resolved=["internal/impl.ts"], gap_id="GAP-001")]})
+        .encode("utf-8"))
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    (run_dir / "gap-judgments.json").write_bytes(json.dumps(
+        {"GAP-001": {"reachability": "public", "docstring": "Fetch every item."}}).encode("utf-8"))
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "source_root": str(tmp_path),
+              "workspace_drift_status": "ok", "forge_tier": "Forge"}
+    code, out = _run_gap_records(_gap_calls()[1], values, capsys,
+                                 keep=("--source-root", "--judgments", "--remediation-records", "--evidence"))
+    assert code == 0 and out["status"] == "written", out
+    assert out["targeted_reextraction"] == {"resolved_count": 1, "files_scanned": 1, "exports_matched": 1,
+                                            "tier": "Forge"}
+    records = json.loads((run_dir / "reextract-records.json").read_bytes())
+    [copied] = records["files"]
+    # the record as `records` wrote it, byte for byte, with the docstring read at its line added
+    assert copied["exports"] == [{**record, "docstring": "Fetch every item."}]
+    [verification] = records["verification"]
+    assert (verification["verification"], verification["new_location"], verification["resolution_source"]) == \
+        ("re-extracted", "internal/impl.ts:4", "remediation-paths")
+    evidence = (run_dir / "evidence-records.jsonl").read_bytes().decode("utf-8").splitlines()
+    assert [json.loads(line) for line in evidence] == [{"targeted_reextraction": out["targeted_reextraction"]}]
     new_map, summary = manifest.apply_update(
-        update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
-        records={"mode": "gap-driven", "verification": verification, "files": files},
+        update_type="gap-driven", provenance={"entries": []}, skill_name="lib", records=records,
         generation_date="2026-10-03T00:00:00Z", test_report_run_id="r1", confidence_tier="Forge",
         manual_sections_preserved=0)
     assert summary["status"] == "written", summary
@@ -1824,12 +1923,15 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
     headless = _slice(gate, "The halt procedure takes", "\n")
     assert '`reason: "drift-override: {N} gap(s) need the pinned tree: {name} ({reason}), ..."`' in headless
     # the gate runs before any spot-check; it says §4a never runs, which §4a, reached by no entry then, does not
-    # repeat (#600 leanness-6)
-    assert text.index("**Drift gate") < text.index("1. Read the gap-derived manifest") < text.index("### 4a.")
+    # repeat (#600 leanness-6); gap-records' plan checks it first (step 5b gate run 2 determinism-4)
+    assert text.index("**Drift gate") < text.index("1. **Spot-check and route.**") < text.index("### 4a.")
+    assert ("Run §4 bullet 1 now: with `--drift-status overridden` its plan checks this gate before any spot-check, "
+            "and lists in `drift_blocked[]`") in gate
     zero_a = _slice(text, "### 4a. Targeted Re-Extraction Branch", "### 5.")
     assert "Never under the drift override" not in zero_a and "drift override" not in zero_a
-    four = _slice(text, "4. Set `no_reextraction: true`", "\n")
-    assert "a cited `NEW_EXPORT` whose spot-check pinned a line gets a new `source-read` entry at that line" in four
+    four = _slice(text, "3. Set `no_reextraction: true`", "\n")
+    assert ("a cited `NEW_EXPORT` whose spot-check pinned a line gets a new `source-read` (`T1-low`) entry at that "
+            "line") in four
     # the MOVED_EXPORT bullet states the one override rule a spot-check acts on (#600 leanness-6)
     assert "drift override" not in four and "so §4a never runs" not in four
     zero_a = _zero_a()
@@ -1845,12 +1947,17 @@ def test_drift_gate_halts_before_merge_on_every_new_or_modified_export():
     assert "the tree read is not the recorded commit, so run no `kind-at`" in _slice(write, "2. **Node kinds.**", "\n")
 
 
-def test_every_change_category_halts_or_passes_the_drift_gate():
-    """Each category gap-driven.md §1 can emit is named once by the gate: as one that halts or one that passes (#557)."""
-    bullet = _slice(_read(GAP), "   - **`change_category`**", "\n")
-    categories = re.findall(r"`([A-Z_]+|metadata update)`", bullet)
-    assert categories == ["NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT", "STRUCTURAL_FIX",
-                          "metadata update"]
+def test_every_change_category_halts_or_passes_the_drift_gate(tmp_path, capsys):
+    """Each category gap-driven.md §1 can emit is named once by the gate: as one that halts or one that passes (#557).
+    gap-records' plan applies the gate with the reasons the prose lists (step 5b gate run 2 determinism-4)."""
+    # the categories are translate's table and its rescope, which its docstring lists once (step 5b round 2)
+    three = _slice(_zero(), "3. **Build the change manifest through `{parseGapsHelper}`**", "   - **`needs-judgment`**")
+    assert 'each entry with the fields the "Translate" section of its docstring lists' in three
+    assert "change_category the table's, or DELETED_EXPORT for a rescope" in _translate_doc()
+    translate = _module(PARSE_GAPS, "skf_parse_gaps_categories_prose")
+    categories = [*dict.fromkeys(translate.CHANGE_CATEGORIES.values()), "DELETED_EXPORT"]
+    assert sorted(categories) == sorted(["NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT",
+                                         "STRUCTURAL_FIX", "metadata update"])
     gate = _drift_gate()
     halts = _slice(gate, "Every `NEW_EXPORT`", " needs it,") + _slice(gate, "Every `DELETED_EXPORT`", " needs the tree")
     passes = _slice(gate, "A rule R5 `MOVED_EXPORT`", " need nothing from the tree and pass.")
@@ -1858,6 +1965,29 @@ def test_every_change_category_halts_or_passes_the_drift_gate():
         token = f"`{category}`"
         assert (token in halts) != (token in passes), category
     assert "`NEW_EXPORT`" in halts and "`MODIFIED_EXPORT`" in halts and "`DELETED_EXPORT`" in halts
+    # run the plan under the override: every category that halts is listed with its reason, the others pass
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    rescope = {"amendment": {"path": "pkg/x.py", "action": "excluded"}, "exclude": "pkg/x.py"}
+    entries = [
+        _gap_entry("cut", "missing-export", "DELETED_EXPORT", gap_id="GAP-001", rescope=rescope),
+        _gap_entry("doc", "provenance-completeness", "NEW_EXPORT", gap_id="GAP-002", provenance_completeness=True),
+        _gap_entry("fresh", "missing-export", "NEW_EXPORT", gap_id="GAP-003", severity="Medium"),
+        _gap_entry("search", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-004", match=_found("pkg/a.py", 5)),
+        _gap_entry("moved", "provenance-line", "MOVED_EXPORT", gap_id="GAP-005", match=_found("pkg/a.py", 9)),
+        _gap_entry(None, "structural", "STRUCTURAL_FIX", gap_id="GAP-006"),
+        _gap_entry(None, "metadata-drift", "metadata update", gap_id="GAP-007"),
+    ]
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": entries}).encode())
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "workspace_drift_status": "overridden"}
+    code, out = _run_gap_records(_gap_calls()[0], values, capsys)
+    assert code == 0 and out["status"] == "drift-blocked", out
+    assert [(item["gap_id"], item["reason"]) for item in out["drift_blocked"]] == [
+        ("GAP-001", GATE_REASONS[0]), ("GAP-002", GATE_REASONS[1]), ("GAP-003", GATE_REASONS[2]),
+        ("GAP-004", GATE_REASONS[3])]
+    assert not (run_dir / "remediation-files.json").exists()  # the gate stops the run before any spot-check
 
 
 def test_merge_states_no_unreachable_override_route():
@@ -1890,89 +2020,66 @@ def test_relabel_runs_no_recipe_under_the_override():
 def test_name_lookup_filters_by_the_citation_file(tmp_path):
     """Same-name entries: the citation's normalized file, then its line, pick one; none left is not found (#530).
 
-    Step 5b determinism-4: skf-parse-gaps.py does the lookup (each gap's `map_match`, or its `match` for a name §1
-    takes elsewhere); §4, its R5 bullet and the drift gate read it, and no step reads the map by eye.
+    Step 5b determinism-4: skf-parse-gaps.py does the lookup (each manifest entry's `map_match`, which translate
+    takes for a name the gap's title gives too); §4, its R5 rule and the drift gate read it, and no step reads the
+    map by eye (step 5b gate run 2 determinism-3: no `match` call by hand either).
     """
     text = _read(GAP)
-    lookup = _slice(text, "   - Read the entry's `map_match`:", "\n")
-    for token in ("`found` is the export found, at its `entry`'s `source_file` and `source_line`",
-                  "`ambiguous` records `unknown` and leaves the entries as they are (a spot-check of the wrong one "
-                  "would move another export's line)", "`not-found` takes the \"not found\" branch below"):
-        assert token in lookup, token
+    # an ambiguous lookup is unknown: gap-records routes it, and parse-gaps' docstring says why (step 5b round 2)
+    assert re.search(r"ambiguous\s+unknown", _gap_records_doc())
+    assert "several are `ambiguous` (a spot-check of the wrong one would move another export's line)" in \
+        " ".join(_module(PARSE_GAPS, "skf_parse_gaps_ambiguous_prose").__doc__.split())
     for gone in ("take the entries whose `export_name` equals the name", "Look each export up in the provenance map",
                  "look exports up in the provenance map", "Look it up by its `source_citation`, not by name alone",
-                 "normalized as write.md §6 normalizes a path"):
+                 "normalized as write.md §6 normalizes a path", "uv run {parseGapsHelper} match",
+                 "Read the entry's `map_match`"):
         assert gone not in text, gone
-    assert "each entry carries its `map_match`" in _slice(text, "1. Read the gap-derived manifest", "\n")
-    moved_export = _slice(text, "   - **If the entry is `MOVED_EXPORT`", "\n")
-    assert "Its `map_match` keys on its `source_citation`" in moved_export
-    assert "When its `map_match` is not `found`, record `unknown`" in moved_export
+    assert "(each entry with its `map_match`), never from memory" in _slice(text, "### 4. Spot-Check", "1. **")
     gate = _drift_gate()
-    assert "Read each entry's `map_match` (§1)" in gate
+    assert "read from the entry's `map_match` (§1)" in gate
     assert "- `a line and a signature from the tree`: an export whose `map_match` is `not-found`;" in gate
     assert "- `a signature from the tree`: an export the map holds (`found` or `ambiguous`)." in gate
-    record = _fence(text, '"verification": [')
-    assert '"in_map": <true when its map_match.candidates is not empty>' in record
-    assert "of its map_match.entry when found, else null>" in record
-    fields = _slice(_zero(), "3. Build the change manifest from the translated gaps", "4. Set `gap_count`")
-    field = _slice(fields, "   - **`map_match`**:", "\n")
-    match = re.search(r"`(uv run \{parseGapsHelper\} match [^`]*)`", field)
-    assert match and ("For an entry that takes its name from the title, or whose gap cites a line inside the skill "
-                      "package (bullet 3's `source_citation`)") in field
-    # run the documented match call: the citation's file and line tell two same-name entries apart
-    provenance = tmp_path / "provenance-map.json"
-    provenance.write_bytes(json.dumps({"entries": [
-        {"export_name": "parse", "source_file": "pkg/a.py", "source_line": 3, "export_type": "function"},
-        {"export_name": "parse", "source_file": "pkg/b.py", "source_line": 7, "export_type": "function"}]}).encode())
-    argv = _call_args(match.group(1), "parseGapsHelper", {"provenance_map_path": str(provenance)},
-                      {"<name>": "parse", "<file>": ".\\pkg\\b.py", "<line>": "7"})
-    code, out = _run_script(PARSE_GAPS, argv)
-    assert code == 0, out
-    assert out["map_match"]["status"] == "found" and out["map_match"]["entry"]["source_file"] == "pkg/b.py"
+    assert "map_match the `match` lookup of `name` with the kept citation" in _translate_doc()
+    # translate's lookup: the citation's file and line tell two same-name entries apart, a name the title gives
+    # (answered `name`) is looked up too, and a citation inside the skill package keys nothing
+    translate = _module(PARSE_GAPS, "skf_parse_gaps_lookup_prose")
+    entries = [{"export_name": "parse", "source_file": "pkg/a.py", "source_line": 3, "export_type": "function"},
+               {"export_name": "parse", "source_file": "pkg/b.py", "source_line": 7, "export_type": "function"}]
+    gaps = [{"id": "GAP-001", "title": "parse", "severity": "High", "category": "signature-mismatch",
+             "source_citation": {"file": ".\\pkg\\b.py", "line": 7}, "export": "parse", "remediation": "Fix."},
+            {"id": "GAP-002", "title": "Split-body mismatch: parse", "severity": "High",
+             "category": "split-body-mismatch", "source_citation": {"file": "references/api.md", "line": 4},
+             "export": None, "remediation": "Fix."}]
+    manifest, summary = translate.translate_gaps({"status": "ok", "gaps": gaps}, entries,
+                                                 {"GAP-002": {"name": "parse"}}, today="2026-10-03")
+    assert summary["status"] == "written", summary
+    first, second = manifest["entries"]
+    assert first["map_match"]["status"] == "found" and first["map_match"]["entry"]["source_file"] == "pkg/b.py"
+    assert "source_citation" not in second and second["map_match"]["status"] == "ambiguous"
 
 
-def test_spot_checks_move_and_pin_no_line_under_the_override():
+def test_spot_checks_move_and_pin_no_line_under_the_override(tmp_path, capsys):
     """A drifted HEAD moves no line and pins none, and each drift `unknown` says why (#530).
 
     Only a rule R5 `MOVED_EXPORT` reaches a spot-check under the override (the drift gate halts every new, modified
-    or rescoped export), so its bullet states the rule once and the outcome bullet repeats none of it; apply names
-    the drift in its WARN for a `verified` R5 line itself (#600 leanness-6).
+    or rescoped export), so the outcome paragraph states the rule once; apply names the drift in its WARN for a
+    `verified` R5 line itself (#600 leanness-6). gap-records records it (step 5b gate run 2 determinism-4).
     """
     text = _read(GAP)
-    outcome = _slice(text, "   - Record verification outcome:", "\n")
-    moved = _slice(outcome, "`moved` (the file defines", "`missing` (")
-    assert "record it as `new_location`" in moved
-    assert "drift" not in outcome and "write.md §3 lists a drift WARN" not in outcome
-    assert "a cited `NEW_EXPORT` it kept from being spot-checked" not in outcome  # the gate halts those now (#557)
-    moved_export = _slice(text, "   - **If the entry is `MOVED_EXPORT`", "\n")
-    assert ("it records `unknown` with `unknown_reason: drift-override` where it would record `moved`, and sets no "
-            "`new_location`") in moved_export
-    assert "Record in `pinned_definition_lines` the definition lines its `remediation` lists" in moved_export
-    assert text.count("`unknown_reason: drift-override`") == 1, "the R5 drift rule is stated once"
+    outcome = _gap_records_doc()
+    assert "`moved` (one definition line, not the recorded one: new_location)" in outcome
+    assert "under the override a `moved` becomes unknown with unknown_reason drift-override" in outcome
+    assert "its pinned_definition_lines are the numbers of its remediation's \"definition line(s) (...)\"" in outcome
+    assert "unknown_reason" not in text, "the R5 drift rule is stated once, in gap-records' docstring"
     assert "unknown_reason" not in _read(RE_EXTRACT)
-    cited = _slice(text, "     - **If the manifest entry has a `source_citation`", "\n")
-    # the drift gate halts before this branch: it states only what it does (#600 leanness)
-    assert "reaches this branch" not in cited and "drift gate halted" not in cited
-    assert "and is not a `MOVED_EXPORT`:** run the \"export found\" branch's `definition-lines` call" in cited
-    assert "unknown_reason: drift-override" not in cited  # no cited export is kept from its spot-check any more
-    assert "so step 6 writes" not in cited and "write.md §3 adds a full entry" in cited
+    assert "a cited `NEW_EXPORT` it kept from being spot-checked" not in text  # the gate halts those now (#557)
     # the reachability gate reads barrels; the drift gate halts every new export first (#557), unnarrated (#600)
-    gate = _slice(text, "   - **Public-reachability gate (`NEW_EXPORT` only):**", "\n")
+    gate = _slice(text, "     - **Public-reachability gate (`NEW_EXPORT` only):**", "\n")
     assert "**Under the drift override**" not in gate and "reaches this gate" not in gate
     assert "reachability: not-checked" not in text and "`not-checked`" not in _write_3()
-    record = _fence(text, '"verification": [')
-    for field in ('"unknown_reason": "<drift-override', '"pinned_definition_lines":', '"in_map":', '"map_entry":',
-                  '"severity":', '"reachability":'):
-        assert field in record, field
-    breakdown = _slice(record, '"confidence_breakdown": {', '"T2": 0')
-    assert ("each cited export not in the map that the spot-check pinned and the public-reachability gate passed"
-            in _slice(breakdown, '"T1-low":', "\n"))
-    assert ("other than a pinned cited export that passed the reachability gate (counted under T1-low)"
-            in _slice(breakdown, '"unlabeled":', "\n"))
     # the records reach step 6 through the run folder, before §5 sends the run on (#587, W3 handoff)
-    three = _slice(text, "3. Write the gap-driven records to `{run_dir}/reextract-records.json`", "\n")
+    three = _slice(text, "2. **Write the gap-driven records** to `{run_dir}/reextract-records.json`", "\n")
     assert "before §5 sends the run on" in three
-    assert 'cat > "{run_dir}/reextract-records.json"' in record
     summary = _slice(text, '"**Gap-driven re-extraction.**', "\n")
     assert summary.endswith("or a line the drift override kept from being moved): {unknown_count}.\"")
     qualifier = _slice(text, "When `{workspace_drift_status}` is `overridden`, add: \"Every check read HEAD", "\n")
@@ -1988,6 +2095,27 @@ def test_spot_checks_move_and_pin_no_line_under_the_override():
     priority2 = _slice(_read(MERGE), "**Priority 2", "**Priority 3")
     assert "move citations only for an export whose gap-driven.md §4 spot-check recorded `moved`" in priority2
     assert "`MOVED_EXPORT` that recorded `unknown` (the drift override among the causes), `verified` or `missing` moves none" in priority2
+    # run the documented calls under the override: the R5 line that would move records `unknown`, no new location
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    remediation = ("Set the provenance `source_line` of `search` in `pkg/api.py` to its definition line (5) and move "
+                   "its citations to that line.")
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": [
+        _gap_entry("search", "provenance-line", "MOVED_EXPORT", severity="Low", match=_found("pkg/api.py", 4),
+                   citation={"file": "pkg/api.py", "line": 4}, remediation=remediation)]}).encode("utf-8"))
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "source_root": str(src)}
+    for status, expected in (("ok", ("moved", "pkg/api.py:5", None)), ("overridden", ("unknown", None, "drift-override"))):
+        code, out = _run_gap_records(_gap_calls()[1], {**values, "workspace_drift_status": status}, capsys,
+                                     keep=("--source-root",))
+        assert code == 0 and out["status"] == "written", out
+        [record] = json.loads((run_dir / "reextract-records.json").read_bytes())["verification"]
+        assert (record["verification"], record["new_location"], record["unknown_reason"]) == expected, status
+        assert record["pinned_definition_lines"] == [5] and record["reachability"] is None
 
 
 def _apply_call() -> str:
@@ -2176,28 +2304,25 @@ BLOCKING_RULE = ("blocking unless it is `Medium`, `Low` or `Info`, compared case
                  "unrecognized one is blocking, like `Critical` and `High`")
 
 
-def _not_found() -> str:
-    return _slice(_read(GAP), "   - **If export not found in provenance map:**", "   - **If export found:**")
-
-
-def test_one_severity_rule_in_gap_driven_and_write():
-    """A missing or unrecognized severity is blocking wherever a gap is routed by severity (#558 item 5)."""
-    severity = _slice(_read(GAP), "   - **`severity`**", "\n")
-    assert "A severity is " + BLOCKING_RULE in severity
-    assert "only a `Medium`, `Low` or `Info` gap may degrade to `unknown`" in severity
-    # §4 and §4a cite §1 bullet 3's rule instead of restating it (#600 w3 leanness-5)
-    assert "and a blocking `severity` (§1 bullet 3), and the rule R3 branch above did not take it" in _not_found()
-    assert BLOCKING_RULE not in _not_found()
-    assert _read(GAP).count(BLOCKING_RULE) == 1
+def test_one_severity_rule_in_gap_driven_and_write(tmp_path, capsys):
+    """A missing or unrecognized severity is blocking wherever a gap is routed by severity (#558 item 5): gap-driven.md
+    states the rule once, where its routing runs, and gap-records applies it with apply's NON_BLOCKING."""
     text = _read(GAP)
+    two = _slice(text, "1. **Spot-check and route.**", "2. **Write the gap-driven records**")
+    assert "A severity is " + BLOCKING_RULE in two
+    assert "only a `Medium`, `Low` or `Info` gap may degrade to `unknown`" in two
+    assert text.count(BLOCKING_RULE) == 1
     assert "`severity` is `Critical` or `High`" not in text  # the test a missing severity slipped through
-    used_by = _slice(text, "**Used by:** §4 bullet 2", "**Purpose:**")
-    assert "a blocking `severity` (§1 bullet 3), that the rule R3 case below does not take" in used_by
+    # §4a restates no routing: §4 bullet 1's plan lists its entries (#600 w3 leanness-5; step 5b round 2)
+    used_by = _slice(text, "**Used by:** §4 bullet 1's plan", "**Purpose:**")
+    assert "for the entries it lists in `reextract.entries`" in used_by
+    for gone in (BLOCKING_RULE, "blocking severity", "`Medium`", "provenance-completeness"):
+        assert gone not in used_by, gone
     # the prose around §4a states the same rule, an unrecognized severity included
     for gone in ("citation-less Critical/High", "the Critical/High HALT",
                  "Critical and High gaps, and gaps with no severity"):
         assert gone not in text, gone
-    assert "for a gap with a blocking `severity` (§1 bullet 3) and no citation that pins a line" in \
+    assert "for a gap with a blocking `severity` (§4 bullet 1) and no citation that pins a line" in \
         _slice(text, "**Purpose:**", "\n")
     # re-extract.md keeps no gap-driven exception in its Rules: a repair never loads it (#600 architecture-4)
     assert "**Exception (gap-driven mode):**" not in _read(RE_EXTRACT)
@@ -2209,64 +2334,86 @@ def test_one_severity_rule_in_gap_driven_and_write():
     assert "Critical or High gap by definition" not in why
     refused = _slice(_write_3(), "- **3** (`status` `refused`):", "\n")
     assert "with a severity other than `Medium`, `Low` or `Info`, a missing one included" in refused
-    # the helper applies the same rule, case-insensitively
-    assert _module(BUILD_MANIFEST, "skf_build_change_manifest_severity").NON_BLOCKING == ("medium", "low", "info")
+    # the helper applies the same rule, case-insensitively: each blocking gap with nothing to scan is unresolved,
+    # and a Medium one degrades to `unknown`
+    manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_severity")
+    assert manifest.NON_BLOCKING == ("medium", "low", "info")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    entries = [_gap_entry(f"e{i}", "signature-mismatch", "MODIFIED_EXPORT", severity=severity, gap_id=f"GAP-00{i}")
+               for i, severity in enumerate(("high", None, "Unknown", "MEDIUM"), start=1)]
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": entries}).encode())
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "workspace_drift_status": "ok"}
+    code, out = _run_gap_records(_gap_calls()[1], values, capsys)
+    assert code == 0 and out["status"] == "unresolved", out
+    assert [item["gap_id"] for item in out["unresolved"]] == ["GAP-001", "GAP-002", "GAP-003"]
+    assert {item["files_scanned"] for item in out["unresolved"]} == {0}
 
 
-def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge():
-    """No citation that pins a line and no path in the Remediation: §4a lists it with files_scanned 0 (#558)."""
+def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge(tmp_path, capsys):
+    """No citation that pins a line and no path in the Remediation: gap-records lists it with files_scanned 0 (#558),
+    and §4 bullet 2's `unresolved` handler halts with `halted-for-remediation-path` before merge."""
     text = _read(GAP)
-    not_found = _not_found()
-    cited = _slice(not_found, "     - **If the manifest entry has a `source_citation`", "\n")
-    blocking = _slice(not_found, "     - **If the manifest entry has no `source_citation` (or one whose spot-check "
-                      "above pinned no line) and a blocking `severity`", "\n")
-    unknown = _slice(not_found, "     - **If the manifest entry has no `source_citation` (or one whose spot-check "
-                     "above pinned no line), is not a provenance-completeness gap, and its `severity` is `Medium`, "
-                     "`Low` or `Info`:**", "\n")
-    # a citation that pins no line goes on to the two branches, in this order
-    assert "go on to the branches below as if the entry had no `source_citation`" in cited
-    assert not_found.index(cited) < not_found.index(blocking) < not_found.index(unknown)
-    for token in ("the rule R3 branch above did not take it",
-                  "route this entry to §4a (Targeted Re-Extraction Branch), whatever its `resolved_paths[]`",
-                  "With an empty list it has nothing to scan and lists the entry in `unresolved[]` with "
-                  "`files_scanned: 0`",
-                  "halts the workflow with `halted-for-remediation-path` before merge, `--dry-run` included"):
-        assert token in blocking, token
-    assert "a blocking gap never gets here, whatever its `resolved_paths[]`" in unknown
-    assert "`remediation_paths[]` is empty OR" not in text  # the empty-paths way into `unknown` is gone
     zero_a = _slice(text, "### 4a. Targeted Re-Extraction Branch", "### 5.")
-    used_by = _slice(zero_a, "**Used by:** §4 bullet 2", "**Purpose:**")
-    # §4a's own procedure steps are items: step 4 is merge.md
-    assert ("an empty one leaves nothing to scan, so item 4 puts the entry straight into `unresolved[]` with "
-            "`files_scanned: 0`") in used_by
-    assert "that the rule R3 case below does not take" in used_by
-    assert "A run in which §4 bullet 2 routes no entry here skips this section entirely" in zero_a
-    match = _slice(zero_a, "4. **Match by name**", "\n")
-    assert "An entry with no path set to scan (an empty `resolved_paths[]`) is not matched" in match
-    assert "search the blocks of `{run_dir}/remediation-records.json` for the files of its own `resolved_paths[]`" \
-        in match
-    # a rule R3 gap scans the source file its documentation cites, which §1 resolved through the helper
-    r3 = _slice(used_by, "- a provenance-completeness gap (rule R3", "\n")
-    assert ("Its `resolved_paths[]` is the path set to scan: §1 filled them from the source file its "
-            "documentation cites when its remediation named none") in r3
-    failures = _slice(zero_a, "5. **Track failures across all qualifying entries.**", "\n")
-    assert "every entry item 4 had nothing to scan for (`files_scanned: 0`)" in failures
-    assert "(item 5): the symbol was found, just not public, so it does not trigger item 5's HALT" in zero_a
-    template = _fence(zero_a, "Targeted re-extraction failed for {N} gap(s).")
+    used_by = _slice(zero_a, "**Used by:** §4 bullet 1's plan", "**Purpose:**")
+    assert "an entry with none has nothing to scan" in used_by
+    assert "A run in which §4 bullet 1 routes no entry here skips this section entirely" in zero_a
+    # the routing and the match are gap-records', stated once in its docstring (step 5b round 2)
+    doc = _gap_records_doc()
+    for token in ("or with no citation: targeted re-extraction (§4a) for a provenance_completeness entry with a source "
+                  "root, for a blocking one whatever its resolved_paths",
+                  "each routed entry with resolved_paths takes the first export of its name in the blocks of those "
+                  "files", "An entry with no match, or no path to scan, is unresolved"):
+        assert token in doc, token
+    # the halt is where the status that triggers it is read: §4 bullet 2's `unresolved` handler
+    unresolved = _slice(text, "   - **`unresolved`:**", "   - **`needs-judgment`:** for each item")
+    assert "or had no path to scan (`files_scanned: 0`)" in unresolved
+    assert "A found export the public-reachability gate below finds internal is a resolution, not a failure." in \
+        unresolved
+    for gone in ("4. **Match by name:**", "5. **Track failures across all qualifying entries.**", "§4a item 5"):
+        assert gone not in text, gone
+    assert "`remediation_paths[]` is empty OR" not in text  # the empty-paths way into `unknown` is gone
+    template = _fence(unresolved, "Targeted re-extraction failed for {N} gap(s).")
     for token in ('- {name} ({severity or "no severity"})', 'remediation_paths: {paths, or "none named"}',
                   'rejected_paths:    {each refused path (its reason), or "none"}',
                   "files_scanned:     {count}", "a) Add a `file:line` citation", "b) Edit the Remediation text",
                   "c) Downgrade the gap(s) to Medium/Low/Info"):
         assert token in template, token
-    exit_ = _slice(zero_a, "   Exit with status `halted-for-remediation-path`", "\n")
-    for token in ("under `--dry-run` too", "Step 4 (merge) has not run; no partial writes",
-                  'phase: "re-extract:targeted-reextraction"'):
-        assert token in exit_, token
-    # §1 lists the fields the route reads; §4 states the route once, where it acts
-    paths = _slice(_read(GAP), "   - **`remediation_paths`**, **`resolved_paths`** and **`rejected_paths`**", "\n")
-    assert "§4a scans only `resolved_paths`" in paths
-    for gone in ("depending on severity", "halts the run with `halted-for-remediation-path`", "records `unknown`"):
-        assert gone not in paths, gone
+    for token in ("HALT with status `halted-for-remediation-path`, under `--dry-run` too",
+                  "Step 4 (merge) has not run; no partial writes", 'phase: "re-extract:targeted-reextraction"'):
+        assert token in unresolved, token
+    # run it: a citation that pins no line goes on to the routing as if it had none, so a blocking one with no
+    # path is unresolved, while a citation that pins a line is verified and never reaches §4a
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    entries = [
+        _gap_entry("search", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-001",
+                   citation={"file": "pkg/api.py", "line": 5}),
+        _gap_entry("absent", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-002",
+                   citation={"file": "pkg/api.py", "line": 2}, remediation="Look `pkg/nowhere.py` up."),
+    ]
+    entries[1]["rejected_paths"] = [{"path": "pkg/nowhere.py", "reason": "not-found"}]
+    entries[1]["resolved_paths"] = []
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": entries}).encode())
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "source_root": str(src),
+              "workspace_drift_status": "ok"}
+    plan, record = _gap_calls()
+    code, out = _run_gap_records(plan, values, capsys, keep=("--source-root",))
+    assert code == 0 and [e["gap_id"] for e in out["reextract"]["entries"]] == ["GAP-002"], out
+    assert out["reextract"]["files"] == []
+    code, out = _run_gap_records(record, values, capsys, keep=("--source-root",))
+    assert code == 0 and out["status"] == "unresolved", out
+    assert out["unresolved"] == [{"gap_id": "GAP-002", "name": "absent", "severity": "High",
+                                  "remediation_paths": [], "files_scanned": 0, "exports_found_in_scan": 0,
+                                  "rejected_paths": [{"path": "pkg/nowhere.py", "reason": "not-found"}]}]
+    assert not (run_dir / "reextract-records.json").exists()  # the halt comes before any record
 
 
 def test_gap_driven_dry_run_stops_before_merge():
@@ -2274,7 +2421,7 @@ def test_gap_driven_dry_run_stops_before_merge():
     text = _read(GAP)
     five = _slice(text, "### 5. Display the Repair Summary and Route", "\n- **Otherwise**")
     for token in ("load `{reportFile}` (report.md, NOT `{nextStepFile}`)", "so a gap-driven `--dry-run` writes nothing",
-                  "A halt in §3 or §4a (the drift gate, the targeted re-extraction) stops a `--dry-run`"):
+                  "A halt in §3 or §4 (the drift gate, the targeted re-extraction) stops a `--dry-run`"):
         assert token in five, token
     assert yaml.safe_load(_frontmatter(text))["reportFile"] == "report.md"
     assert "Skip all remaining sections of step 3" not in text and "Skip sections 1" not in text
@@ -2322,7 +2469,7 @@ def test_write_keeps_a_documented_defensive_halt(tmp_path):
     assert "blocked" in status and "halted-for-remediation-path" in status
 
 
-def test_split_body_findings_route_to_a_structural_fix():
+def test_split_body_findings_route_to_a_structural_fix(tmp_path, capsys):
     """A Source inside the skill package marks a split-body finding: STRUCTURAL_FIX, never MODIFIED_EXPORT (#547)."""
     zero = _zero()
     rows = [line for line in zero.splitlines() if line.startswith("| ")]
@@ -2348,12 +2495,31 @@ def test_split_body_findings_route_to_a_structural_fix():
                   "it never adds, modifies, or removes a provenance `entries[]` row"):
         assert token in r2, token
     assert "\u2014" not in r2
-    cite = _slice(zero, "   - **`source_citation: {file, line}`**", "\n")
-    assert "or names a line inside the skill package (a split-body finding's `SKILL.md:42`, rule R2)" in cite
+    assert ("source_citation the gap's, left out when it is null or names a line inside the skill package "
+            "(`SKILL.md` or a `references/*.md` file, under any folder)") in _translate_doc()
     # a STRUCTURAL_FIX needs nothing from the tree: forwarded as is, and the drift gate lets it through
-    forward = _slice(_read(GAP), "   - **`STRUCTURAL_FIX`** (rule R2)", "\n")
-    assert "No spot-check, no provenance lookup, no `entries[]` change." in forward
+    written = _slice(_read(GAP), "   - **`written`:** keep its `counts` for §5", "\n")
+    assert "with no spot-check, no provenance lookup and no `entries[]` change" in written
     assert "a `STRUCTURAL_FIX` (a split-body consistency finding among them)" in _drift_gate()
+    # run it: translate drops the in-package citation and routes the finding, gap-records forwards it as it is
+    translate = _module(PARSE_GAPS, "skf_parse_gaps_split_body_prose")
+    gap = {"id": "GAP-001", "title": "Split-body mismatch: search", "severity": "High",
+           "category": "split-body-mismatch", "source_citation": {"file": "{skill_package}/references/api.md",
+                                                                   "line": 12},
+           "export": "search", "remediation": "Edit references/api.md to match the body."}
+    manifest, _ = translate.translate_gaps({"status": "ok", "gaps": [gap]}, [], {}, today="2026-10-03")
+    [entry] = manifest["entries"]
+    assert entry["change_category"] == "STRUCTURAL_FIX" and "source_citation" not in entry
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "change-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "workspace_drift_status": "overridden"}
+    code, out = _run_gap_records(_gap_calls()[1], values, capsys)
+    assert code == 0 and out["status"] == "written", out
+    assert out["forwarded"] == [{"gap_id": "GAP-001", "change_category": "STRUCTURAL_FIX"}]
+    assert json.loads((run_dir / "reextract-records.json").read_bytes())["verification"] == []
 
 
 def test_merge_edits_the_reference_file_of_a_split_body_finding():
@@ -2570,34 +2736,23 @@ def test_gap_routing_keys_on_the_ledger_category():
     assert routes["split-body-mismatch"] == routes["broken-reference"] == "STRUCTURAL_FIX"
     assert routes["provenance-line"] == "MOVED_EXPORT" and routes["metadata-drift"] == "metadata update"
     translate = _slice(_zero(), "2. **Translate each gap by its `category`**", "\n")
-    assert "never by its severity" in translate
+    assert "never by its severity: bullet 3's helper routes each one through the table below" in translate
+    # the table the prose shows is the one the helper applies (step 5b gate run 2 determinism-3)
+    assert _module(PARSE_GAPS, "skf_parse_gaps_table_prose").CHANGE_CATEGORIES == routes
     # the old severity column is gone: a Medium missing export no longer falls to `unknown` by its severity
     assert "| Gap Severity |" not in _zero() and "| Critical | Missing export documentation |" not in _zero()
-    # §4 routes a missing export or type to targeted re-extraction whatever its severity, and never halts on one
-    route = _slice(_not_found(), "     - **If the manifest entry has no `source_citation` (or one whose spot-check "
-                   "above pinned no line), the branches above did not take it, and it asks to document a missing "
-                   "export or type**", "\n")
-    for token in ("its `category` is `missing-export` or `missing-type`", "route it to §4a when its "
-                  "`resolved_paths[]` is not empty, whatever its severity", "The route follows the gap's category, "
-                  "not its severity", "record it `unknown` as the bullet below does", "so it does not halt"):
-        assert token in route, token
-    # §4 routes on the category alone: §1 chose it, for an older report too
-    assert "title names a missing export or type" not in route
-    category = _slice(_zero(), "   - **`gap_id`** and **`category`**", "\n")
-    for token in ("For a report older than the ledger, `category` is the slug of the row bullet 2 chose",
-                  "so §4 routes on `category` alone"):
-        assert token in category, token
-    # the route is stated where it acts: §4 bullet 2, §4a's Used by and its no-halt exception, nowhere else
+    # §4 routes on the category alone: §1 chose it, for an older report too, by the answer translate asks for
+    needs = _slice(_zero(), "     - `category` (a report older than the ledger):", "\n")
+    assert "the slug of the row bullet 2 says the gap's title and issue describe" in needs
+    # the route is stated where it acts, once: the helper's docstring, its route and its no-halt exception
+    doc = _gap_records_doc()
+    assert "and for a missing-export or missing-type one with resolved_paths" in doc
+    assert "except a missing-export or missing-type one that is not blocking, which is unknown" in doc
     zero_a = _slice(_read(GAP), "### 4a. Targeted Re-Extraction Branch", "### 5.")
-    used_by = _slice(zero_a, "**Used by:** §4 bullet 2", "**Purpose:**")
-    assert "that §4 bullet 2 routes here by its `category` (a missing export or type)" in used_by
-    failures = _slice(zero_a, "5. **Track failures across all qualifying entries.**", "\n")
-    assert "except a `Medium`, `Low` or `Info` missing export or type" in failures
-    assert "missing export or type" not in _slice(zero_a, "**Purpose:**", "\n")
+    assert "missing export or type" not in zero_a
     # a gap no row routes is reported, headless included
-    four = _slice(_zero(), "4. Set `gap_count`", "\n")
-    assert "Add each gap the table does not route to `warnings[]` as `test-report: not routed: {id} ({category})`" \
-        in four
+    written = _slice(_zero(), "   - **`written`:** set `gap_count`", "\n")
+    assert "`test-report: not routed: {id} ({category})` for each gap not routed" in written
     assert "`test-report: not routed: {id} ({category})`" in _slice(_read(REPORT), "### 5b.", "### 6.")
     assert "**Not repaired by this run:**" in _slice(_read(REPORT), "### 2. Present Change Summary", "### 3.")
     warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
@@ -2676,11 +2831,31 @@ def test_a_hard_gate_blocked_report_is_read_through_its_ledger(tmp_path):
     assert missing["map_match"]["status"] == "not-found" and gaps["broken-reference"]["map_match"] is None
     routes = _routing_table()
     assert [routes[gap["category"]] for gap in out["gaps"]] == ["MODIFIED_EXPORT", "STRUCTURAL_FIX", "NEW_EXPORT"]
-    fields = _slice(zero, "3. Build the change manifest from the translated gaps", "4. Set `gap_count`")
-    for token in ("**`name`**: the gap's `export`, else the export its `title` names",
-                  "**`remediation_paths`**, **`resolved_paths`** and **`rejected_paths`**",
-                  "(`outside-root`, `symlink-outside-root`, `not-found`, `no-match`)", "never from the report by eye"):
-        assert token in fields, token
+    three = _slice(zero, "3. **Build the change manifest through `{parseGapsHelper}`**", "   - **`needs-judgment`**")
+    assert "never by hand" in three
+    for gone in ('cat > "{run_dir}/change-manifest.json"', "**`name`**: the gap's `export`", "4. Set `gap_count`"):
+        assert gone not in zero, gone
+    # run the documented parse and translate calls through the gaps file: the manifest, no entry typed by hand
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "gaps.json").write_bytes(json.dumps(out).encode("utf-8"))
+    translate = _call_args(_fence(three, "uv run {parseGapsHelper} translate"), "parseGapsHelper",
+                           {"run_dir": str(run_dir), "provenance_map_path": str(provenance)}, optional=False)
+    code, summary = _run_script(PARSE_GAPS, translate)
+    # the missing export's remediation is a person's text: rule R1 is asked, with the text to judge from
+    assert code == 0 and summary["status"] == "needs-judgment", summary
+    [item] = summary["needs_judgment"]
+    assert (item["gap_id"], item["needs"], item["remediation"]) == \
+        ("GAP-003", ["rescope"], "Document `fresh` from `pkg/new.py`; see also ../outside/secret.py.")
+    (run_dir / "gap-judgments.json").write_bytes(json.dumps({"GAP-003": {"rescope": False}}).encode("utf-8"))
+    translate = _argv_with(_fence(three, "uv run {parseGapsHelper} translate"), "parseGapsHelper",
+                           {"run_dir": str(run_dir), "provenance_map_path": str(provenance)}, keep=("--judgments",))
+    code, summary = _run_script(PARSE_GAPS, translate)
+    assert code == 0 and summary["status"] == "written" and summary["gap_count"] == 3, summary
+    manifest = json.loads((run_dir / "change-manifest.json").read_bytes())
+    assert [(e["gap_id"], e["change_category"]) for e in manifest["entries"]] == [
+        ("GAP-001", "MODIFIED_EXPORT"), ("GAP-002", "STRUCTURAL_FIX"), ("GAP-003", "NEW_EXPORT")]
+    assert manifest["entries"][2]["resolved_paths"] == ["pkg/new.py"]
 
 
 def test_zero_a_scans_the_resolved_paths_never_a_hand_expansion(tmp_path):
@@ -2688,7 +2863,8 @@ def test_zero_a_scans_the_resolved_paths_never_a_hand_expansion(tmp_path):
     source file included (#583)."""
     zero_a = _slice(_read(GAP), "### 4a. Targeted Re-Extraction Branch", "### 5.")
     files = _slice(zero_a, "2. **The file set**", "\n")
-    for token in ("is the `resolved_paths[]` of every entry routed here, as they are",
+    for token in ("is `{run_dir}/remediation-files.json`, which §4 bullet 1's plan wrote: the `resolved_paths[]` of "
+                  "every entry routed here, as they are",
                   "§1's `{parseGapsHelper}` resolved them under `{source_root}`",
                   "never scan a refused path, and never expand or check a path by hand",
                   "`outside-root`", "`symlink-outside-root`", "`not-found`", "`no-match`"):
@@ -2696,19 +2872,32 @@ def test_zero_a_scans_the_resolved_paths_never_a_hand_expansion(tmp_path):
     for gone in ("**Expand `remediation_paths[]`**", "using the provenance map's file patterns",
                  "Deduplicate the resolved file set", "no `..` part", "each file once"):
         assert gone not in zero_a, gone
-    paths = _slice(_zero(), "   - **`remediation_paths`**, **`resolved_paths`** and **`rejected_paths`**", "\n")
-    call = re.search(r"`(uv run \{parseGapsHelper\} paths [^`]*)`", paths)
-    assert call, "gap-driven.md §1 runs no root check for a rule R3 gap's cited file"
+    assert ("a `provenance-completeness` gap with no resolved path takes its resolved_paths from the root check of "
+            "the source file it cites") in _translate_doc()
+    assert "uv run {parseGapsHelper} paths" not in _read(GAP)  # translate runs that root check itself
     src = tmp_path / "src tree"
     (src / "pkg").mkdir(parents=True)
     (src / "pkg" / "api.py").write_bytes(API_PY)
     (tmp_path / "outside.py").write_bytes(b"def x():\n    pass\n")
-    for cited, resolved, rejected in (("pkg/api.py", ["pkg/api.py"], []),
-                                      ("../outside.py", [], [{"path": "../outside.py", "reason": "outside-root"}])):
-        argv = _call_args(call.group(1), "parseGapsHelper", {"source_root": str(src)},
-                          {"<the cited source file>": cited})
-        code, out = _run_script(PARSE_GAPS, argv)
-        assert code == 0 and (out["resolved_paths"], out["rejected_paths"]) == (resolved, rejected), out
+    translate = _module(PARSE_GAPS, "skf_parse_gaps_r3_prose")
+    for cited, answers, resolved, rejected in (
+            ({"file": "pkg/api.py", "line": 5}, {}, ["pkg/api.py"], []),
+            ({"file": "../outside.py", "line": 1}, {}, [], [{"path": "../outside.py", "reason": "outside-root"}]),
+            (None, {"GAP-001": {"source_file": "pkg/api.py"}}, ["pkg/api.py"], [])):
+        gap = {"id": "GAP-001", "title": "search documented", "severity": "Medium",
+               "category": "provenance-completeness", "source_citation": cited, "export": "search",
+               "remediation": "Add it to the provenance map.", "remediation_paths": [], "resolved_paths": [],
+               "rejected_paths": []}
+        manifest, summary = translate.translate_gaps({"status": "ok", "source_root": str(src), "gaps": [gap]}, [],
+                                                     answers, today="2026-10-03")
+        assert summary["status"] == "written", summary
+        [entry] = manifest["entries"]
+        assert (entry["resolved_paths"], entry["rejected_paths"]) == (resolved, rejected), entry
+        assert entry["provenance_completeness"] is True
+    # with no citation and no answer, translate asks for the file
+    _, summary = translate.translate_gaps({"status": "ok", "source_root": str(src), "gaps": [{**gap, "source_citation":
+                                                                                         None}]}, [], {})
+    assert summary["needs_judgment"][0]["needs"] == ["source_file"]
 
 
 def _report_fixture(folder: Path, run_id: str, result: str, test_date: str) -> Path:
@@ -3065,7 +3254,7 @@ def test_the_new_helper_calls_quote_every_path():
     detect, init, gap = _read(DETECT), _read(INIT), _read(GAP)
     calls = [
         (_fence(gap, "uv run {parseGapsHelper} parse"), "parseGapsHelper"),
-        (re.search(r"`(uv run \{parseGapsHelper\} paths [^`]*)`", gap).group(1), "parseGapsHelper"),
+        (_fence(gap, "uv run {parseGapsHelper} translate"), "parseGapsHelper"),
         (_fence(detect, "uv run {resolveAuthoritativeFilesHelper} resolve"), "resolveAuthoritativeFilesHelper"),
         (_fence(detect, "uv run {classifyChangedFilesHelper} classify"), "classifyChangedFilesHelper"),
         (_fence(_slice(detect, "**Category B", "**Category C"), "uv run {extractPublicApiHelper}"),
@@ -3395,6 +3584,35 @@ def test_headless_skips_are_deferred_for_a_person(tmp_path):
                                               "forge_data_folder": str(forge), "brief_path": str(brief)}))
     assert code == 0 and {(c["status"], c["prior_action"]) for c in out["classified"]} == {
         ("unresolved", "deferred-headless")}
+
+
+def test_scope_reconciliation_skips_a_skill_with_no_brief(tmp_path):
+    """A skill built without a brief (a quick skill) skips §1c as it skips §1b's mirror: the dispatch helper exits 1
+    on a missing brief, which §1c halts on only for a brief that exists but cannot be read (step 5b gate run 2
+    architecture-1)."""
+    detect = _read(DETECT)
+    skips = {}
+    for section, end in (("### 1b.", "### 1c."), ("### 1c.", "### 2. Compare")):
+        skips[section] = _slice(_slice(detect, section, end), "**Skip this section entirely if:**", "**Procedure")
+    for section, label in (("### 1b.", "Authoritative files mirror"), ("### 1c.", "Scope reconciliation")):
+        assert ("`{brief_path}` does not exist (a skill built without a brief, such as a quick skill)"
+                in skips[section]), section
+        assert f'Display `"{label}: skipped (no skill brief)."`' in skips[section], section
+    one_c = _slice(detect, "### 1c.", "### 2. Compare")
+    halt = _slice(one_c, "   On exit 1 (", "\n")
+    assert "a forge folder it cannot read, or a brief that exists but cannot be read" in halt
+    assert "If §1c was skipped entirely (a docs-only skill, no skill brief or no drift report): omit this line" \
+        in one_c
+    # the helper still refuses a missing brief, so the skip is what keeps a brief-less skill out of that halt
+    forge = tmp_path / "forge"
+    (forge / "lib").mkdir(parents=True)
+    call = _fence(one_c, "uv run {provenanceGapDispatchHelper} dispatch")
+    proc = subprocess.run([sys.executable, str(SRC / "shared" / "scripts" / "skf-provenance-gap-dispatch.py"),
+                           *_cmd_args(call, "provenanceGapDispatchHelper", {
+                               "skill_name": "lib", "baseline_version": "1.0.0", "forge_data_folder": str(forge),
+                               "brief_path": str(forge / "lib" / "skill-brief.yaml")})],
+                          capture_output=True, encoding="utf-8")
+    assert proc.returncode == 1 and "brief not found" in proc.stderr
 
 
 def test_a_headless_run_needs_the_skill_name(tmp_path):
@@ -3840,8 +4058,9 @@ def test_every_cited_step_section_exists():
             assert match.group(3) in anchors[target], (rel, match.group(0))
             cited += 1
     assert cited > 100, cited
-    # the unknown NEW_EXPORT bullet names the provenance write it means
-    assert "write.md §3 (step 5) accepts null `source_file` / `source_line` only for these" in _read(GAP)
+    # the unknown outcome names the provenance write it means
+    assert ("write.md §3 (step 5) accepts null `source_file` / `source_line` only for an `unknown` `Medium`, `Low` or "
+            "`Info` gap the map does not hold") in _read(GAP)
     # the sections the carve renumbered: no stage file cites gap-driven mode's old homes (#600 architecture-4)
     for rel, text in _update_markdown().items():
         for gone in ("§0.a", "§0a", "step 3 §0", "step 2 §0", "detect-changes §0", "re-extract §0",
@@ -3887,9 +4106,9 @@ def test_the_evidence_records_live_in_the_run_folder():
         body = _slice(detect, section, end)
         assert f"to {sink} as one JSON line keyed `{key}`" in body, key
     assert f"to {sink} the same way, and proceed to §3" in _slice(detect, "- **[C] Continue:**", "\n")
-    zero_a = _slice(_read(GAP), "### 4a. Targeted Re-Extraction Branch", "### 5.")
-    assert f"to {sink} as one JSON line keyed `targeted_reextraction`" in zero_a
-    assert "in workflow context" not in _slice(zero_a, "6. **Success summary:**", "\n")
+    appends = _slice(_read(GAP), "With `--evidence` it appends", "Act on its `status`")
+    assert f"to {sink} as one JSON line keyed `targeted_reextraction`" in appends
+    assert "in workflow context" not in appends
     population = _slice(_read(WRITE), "**Scope and Targeted Re-Extraction population:**", "\n")
     assert f"read {sink}" in population and "`none` for a key no line holds" in population
     assert "kept for the evidence report" not in population

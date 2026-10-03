@@ -180,6 +180,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 **Skip this section entirely if:**
 
 - `metadata.json.source_type == "docs-only"` (no source tree to scope), OR
+- `{brief_path}` does not exist (a skill built without a brief, such as a quick skill): there is no scope to expand and no brief to amend. Display `"Scope reconciliation: skipped (no skill brief)."`, OR
 - No audit drift report is available at the path computed in step 1 below.
 
 **Procedure:**
@@ -194,7 +195,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
        --brief "{brief_path}"
    ```
 
-   On exit 1 (a forge folder or brief it cannot read), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:scope-reconciliation"`, `path: "{brief_path}"`, `reason: "<its stderr>"`).
+   On exit 1 (a forge folder it cannot read, or a brief that exists but cannot be read), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:scope-reconciliation"`, `path: "{brief_path}"`, `reason: "<its stderr>"`).
 
    Output envelope:
 
@@ -258,7 +259,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 
    - `"Scope reconciliation: {N} candidates, {P} promoted, {S} skipped, {D} deferred to an interactive run, {A} pre-decided from amendments."`
    - If N = 0 (section absent or empty): `"Scope reconciliation: no out-of-scope observations in drift report."`
-   - If §1c was skipped entirely (no drift report): omit this line; §2.2 will still run.
+   - If §1c was skipped entirely (a docs-only skill, no skill brief or no drift report): omit this line; §2.2 will still run.
 
 **Record for evidence report:** append the record `scope_reconciliation_pre: {drift_report: path, candidates: N, promoted: P, skipped: S, deferred: D, pre_decided: A, decisions: [{path, action, evidence}]}` to `{run_dir}/evidence-records.jsonl` as one JSON line keyed `scope_reconciliation_pre` (none when §1c was skipped).
 
