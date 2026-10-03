@@ -189,25 +189,26 @@ Subcommands:
         "technologies": [{"name": "<as given>",
                           "covered_by": [{"skill": "<skill>",
                                           "term": "<the skill's term>",
-                                          "kind": "name|alias|alias-contained"},
+                                          "kind": "name|alias|name-contained|alias-contained"},
                                          ...]}, ...],
         "unverified_technologies": ["<name>", ...]
       in the order given, a repeat (ignoring case and runs of whitespace)
-      dropped. A skill covers a technology when the matching above finds
-      its name inside the technology name, each occurrence read as its
-      longest term (a `next` skill covers `Next.js`), or when one of its
-      terms, an alias included, equals the name once case, whitespace,
-      hyphens, dots and underscores are dropped (a `react-router` skill
-      covers `React Router`, a `tailwindcss` skill `Tailwind CSS`, a skill
-      with the alias `cognee` `Cognee`). An alias found only inside a
-      longer name covers nothing: aliases are repository and folder names,
-      often common words, so `ai` inside `Azure AI Search` or `core` inside
-      `ASP.NET Core` is listed with kind `alias-contained` and the name
-      stays unverified, for the caller to judge. The match runs one way: a
-      `storybook-react-vite` skill does not cover `React`. `covered_by` is
-      sorted by skill, each with the first of its terms that covers the
-      name (or, for an `alias-contained` entry, the alias found) and its
-      kind, and `unverified_technologies` lists the names no skill covers.
+      dropped. A term covers only by squashed equality: a skill covers a
+      technology when one of its terms, its name or an alias, equals the
+      name once case, whitespace, hyphens, dots and underscores are
+      dropped (a `react-router` skill covers `React Router`, a
+      `tailwindcss` skill `Tailwind CSS`, a skill with the alias `cognee`
+      `Cognee`). A name or alias found only inside a longer name, by the
+      matching above with each occurrence read as its longest term, is
+      listed as name-contained or alias-contained and covers nothing:
+      whether `next` is `Next.js`, `react` is `React Native`, or the
+      common-word alias `ai` is `Azure AI Search`, is a question of meaning,
+      so the name stays unverified for the caller to judge. The match runs
+      one way: a `storybook-react-vite` skill does not cover `React`.
+      `covered_by` is sorted by skill, each with the first of its terms
+      that covers the name (or, for a contained entry, the term found) and
+      its kind, and `unverified_technologies` lists the names no skill
+      covers.
 
   infer --skills <json-file-or-'-'> [--top-k N]
       A pair is a candidate on either kind of evidence:
@@ -341,7 +342,9 @@ LEAD_IN = "lead-in"
 LIST_ONLY = "list-only"
 DOCS_MENTION = "docs-mention"
 SHARED_KEYWORDS = "shared-keywords"
-# The covered_by kind of an alias found only inside a longer technology name.
+# The covered_by kinds of a skill name or an alias found only inside a longer
+# technology name: listed, but they cover nothing.
+NAME_CONTAINED = "name-contained"
 ALIAS_CONTAINED = "alias-contained"
 
 
@@ -1051,9 +1054,9 @@ def coverage(
 ) -> tuple[list[dict], list[str]]:
     """Which skills cover each technology name, and the names none covers.
     Names are trimmed, and a repeat (ignoring case and runs of whitespace)
-    is dropped. A skill's name covers a technology from inside it, an
-    alias only by squashed equality: an alias found only inside the name
-    is listed as `alias-contained` and covers nothing."""
+    is dropped. A term covers only by squashed equality: a name or an
+    alias found only inside the name is listed as `name-contained` or
+    `alias-contained` and covers nothing."""
     technologies = list(_dedupe(tuple(t.strip() for t in technologies), key=_norm))
     squashed = [
         (n, t, "name" if i == 0 else "alias", _squash(t))
@@ -1064,15 +1067,14 @@ def coverage(
     for tech in technologies:
         # skill -> (term, kind): the skills that cover the name.
         found: dict[str, tuple[str, str]] = {}
-        # skill -> alias: the skills one of whose aliases sits inside the name.
-        contained: dict[str, str] = {}
+        # skill -> (term, kind): the skills one of whose terms sits inside
+        # the name.
+        contained: dict[str, tuple[str, str]] = {}
         for occurrence in matcher.find(tech):
             for n in sorted(occurrence.names):
                 term, kind = _spelling(specs[n], occurrence.term)
-                if kind == "alias":
-                    contained.setdefault(n, term)
-                else:
-                    found.setdefault(n, (term, kind))
+                kind = NAME_CONTAINED if kind == "name" else ALIAS_CONTAINED
+                contained.setdefault(n, (term, kind))
         target = _squash(tech)
         for n, term, kind, flat in squashed:
             if flat and flat == target:
@@ -1081,10 +1083,8 @@ def coverage(
             n: {"skill": n, "term": term, "kind": kind}
             for n, (term, kind) in found.items()
         }
-        for n, term in contained.items():
-            covered_by.setdefault(
-                n, {"skill": n, "term": term, "kind": ALIAS_CONTAINED}
-            )
+        for n, (term, kind) in contained.items():
+            covered_by.setdefault(n, {"skill": n, "term": term, "kind": kind})
         entries.append({
             "name": tech,
             "covered_by": [covered_by[n] for n in sorted(covered_by)],

@@ -1,0 +1,5 @@
+type: changed
+scope: skf-create-stack-skill
+summary: |
+  In compose mode, Stack Skill now writes each integration's evidence into the stack it builds. Every Library Pair Integrations entry of SKILL.md and every `references/integrations/<a>-<b>.md` file cites both constituent skills on `[from skill: <name>] <signature>` lines, with the architecture excerpt, documented contract or shared domain that confirmed the pair, which is the evidence Test Skill's integration check reads. When a Verify Stack report rated the pair, the entry also shows `VS overall` and `VS pair` lines, and its Confidence line ends with `[VS: Risky]` or `[VS: Blocked]`. Before, Stack Skill found this evidence and the verdicts but left them out of the compiled stack, so a pair Verify Stack judged infeasible carried no flag and Test Skill scored compose integrations as incomplete.
+prs: [661]

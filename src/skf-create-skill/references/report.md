@@ -71,6 +71,8 @@ If there were warnings from extraction, validation, or enrichment, display them:
 - {warning_2}
 - ..."
 
+When step 7's `{promotion}` carried hand-written content (its `manual.blocks` or `manual.files` is not empty), list it first: "Replaced the earlier {existing_generator, or SKF} build of v{version}; kept its [MANUAL] blocks {`manual.blocks`, or none} and files {`manual.files`, or none}." When `manual.missing_blocks` is not empty, add: "[MANUAL] blocks {`manual.missing_blocks`} are not in the new SKILL.md: restore them from `{manual.backup}`." These lines are warnings: show the section when either applies, even with no other warning.
+
 If no warnings, omit this section entirely.
 
 ### 4. Suggest Next Steps

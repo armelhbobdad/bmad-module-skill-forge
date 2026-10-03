@@ -335,9 +335,12 @@ FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", 
 # that inventory beside its lock. A test-skill run writes its report as
 # .skf-test-report-{name}-{run_id}.md beside .test-skill.lock until the
 # report's checks pass: like every `.skf-` name it is SKF's, never foreign.
+# manual-backup/ holds the earlier SKILL.md that skf-promote-staged.py
+# --carry-manual keeps when a re-run's SKILL.md lacks one of its [MANUAL]
+# blocks; it is no `.skf-` name, which would read as an interrupted run's.
 FORGE_VERSION_FILES = FORGE_VERSION_ANCHORS | frozenset({
     "evidence-report-fallback.md", "extraction-snapshot.json", ".manual-inventory.json",
-    ".test-skill.lock"})
+    ".test-skill.lock", "manual-backup"})
 FORGE_REPORT_RE = re.compile(r"^(test-report|drift-report)(-.+)?\.md$")
 # test-skill's gap ledger, one per run (skf-test-skill scripts/gap-ledger.py).
 TEST_FINDINGS_RE = re.compile(r"^test-findings-.+\.json$")

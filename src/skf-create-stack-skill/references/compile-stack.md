@@ -9,6 +9,8 @@ emitEnvelopeProbeOrder:
 bundleFile: '{run_dir}/extraction-bundle.json'
 exportRecordsFile: '{run_dir}/export-records.json'
 draftFolder: '{run_dir}/draft'
+# A fixed path: the compose rules are not a customization surface.
+composeModeRulesPath: 'references/compose-mode-rules.md'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -67,6 +69,7 @@ Compile in order:
   - Pattern description with file:line citations
   - Key files demonstrating the integration
   - Confidence tier label
+- **In compose mode**, render each pair in the evidence format of `{composeModeRulesPath}` instead, from its entry's `evidence`, `reference`, `tier` and `qualifier`, adding the VS lines and annotation that file's Feasibility Report Integration gives when the entry's `vs` is set; a compose pair has no key files.
 
 **Hub library connections:**
 - For each hub library (3+ connections):

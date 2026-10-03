@@ -47,7 +47,7 @@ A pair found with no architecture document cites its own evidence in place of th
 
 ## Feasibility Report Integration
 
-Step 5 §2 reads the [VS] report (`shared/references/feasibility-report-schema.md`) through `skf-validate-feasibility-report.py --locate`. An architecture pair it rates adds `VS overall: {overallVerdict}` and `VS pair: {verdict}` to its evidence, and a `[VS: Risky]` or `[VS: Blocked]` annotation for those verdicts. Pairs found without an architecture document carry no verdict: the report covers architecture-described interactions only.
+Step 5 §2 reads the [VS] report (`shared/references/feasibility-report-schema.md`) through `skf-validate-feasibility-report.py --locate`. An architecture pair it rates (its bundle entry's `vs`) adds `VS overall: {overallVerdict}` and `VS pair: {verdict}` lines after its Architecture reference, and its Confidence line ends with a `[VS: Risky]` or `[VS: Blocked]` annotation for those verdicts. Pairs found without an architecture document carry no verdict: the report covers architecture-described interactions only.
 
 ## Inferred Integrations (No Architecture Document)
 
