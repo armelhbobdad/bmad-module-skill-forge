@@ -1430,6 +1430,33 @@ class TestWriteCheck:
         assert mod.write_check(skills, "su", None, None)["marked_active_version"] is None
         assert mod.write_check(skills, "real", None, None)["marked_active_version"] == "active"
 
+    def test_the_version_it_would_replace_names_its_generator(self, skills):
+        """step 5b enhancement-2: quick-skill names the build at the version before it overwrites it."""
+        pkg = _make_version(skills, "cognee", "1.0.0", {"generated_by": "create-skill", "confidence_tier": "Forge",
+                                                         "skill_type": "single"})
+        _write(pkg / "references" / "api.md")
+        _write(pkg / "extraction-rules.yaml")
+        _make_version(skills, "quick", "2.0.0", {"generated_by": "quick-skill", "confidence_tier": "Quick"})
+        _make_version(skills, "marked", "1.0.0", {"tool_versions": {"skf": "3.0.0"}, "generated_by": 7})
+        out = mod.write_check(skills, "cognee", "1.0.0", None)
+        assert (out["verdict"], out["version_generated_by"], out["version_confidence_tier"]) == (
+            "ok", "create-skill", "Forge")
+        assert (mod.write_check(skills, "quick", "2.0.0", None)["version_generated_by"],
+                mod.write_check(skills, "quick", "2.0.0", None)["version_confidence_tier"]) == ("quick-skill", "Quick")
+        # A marker without a generator name, a new version, no version and a new skill name nothing.
+        for name, version in (("marked", "1.0.0"), ("cognee", "2.0.0"), ("cognee", None), ("fresh", "1.0.0")):
+            out = mod.write_check(skills, name, version, None)
+            assert (out["verdict"], out["version_generated_by"], out["version_confidence_tier"]) == (
+                "ok", None, None), (name, version)
+
+    def test_the_cli_write_check_names_the_generator(self, skills):
+        _make_version(skills, "cognee", "1.0.0", {"generated_by": "create-skill", "confidence_tier": "Forge"})
+        code, out, _ = _run_inventory(str(skills), "--skill", "cognee", "--write-check", "--write-version", "1.0.0")
+        assert code == 0
+        check = out["write_check"]
+        assert (check["verdict"], check["version_generated_by"], check["version_confidence_tier"]) == (
+            "ok", "create-skill", "Forge")
+
     def test_same_folder_write_check(self, tmp_path):
         out = tmp_path / "out"
         _write(out / "cg" / "skill-brief.yaml")
@@ -2589,14 +2616,15 @@ ANALYZE_REFS = REPO / "src" / "skf-analyze-source" / "references"
 
 def test_cli_derive_name(tmp_path):
     code, out, _ = _run_inventory("derive-name", "--target", "https://github.com/vercel/next.js")
-    assert (code, out) == (0, {"status": "ok", "command": "derive-name", "name": "next-js", "basis": "target"})
+    assert (code, out) == (0, {"status": "ok", "command": "derive-name", "name": "next-js", "basis": "target",
+                               "kind": "remote", "clone_url": "https://github.com/vercel/next.js"})
     code, out, _ = _run_inventory("derive-name", "--target", "https://github.com/vercel/next.js",
                                   "--manifest-name", "next")
     assert (code, out["name"], out["basis"]) == (0, "next", "manifest")
     code, out, _ = _run_inventory("derive-name", "--target", "libs/x", "--manifest-name", "")
     assert (code, out["name"], out["basis"]) == (0, "x", "target")
     code, out, _ = _run_inventory("derive-name", "--manifest-name", "@trpc/server")
-    assert (code, out["name"]) == (0, "trpc-server")
+    assert (code, out["name"], out["kind"], out["clone_url"]) == (0, "trpc-server", None, None)
     names = tmp_path / "names.json"
     names.write_bytes(json.dumps([
         {"target": "packages/server", "manifest_name": "@trpc/server"},
@@ -2609,6 +2637,40 @@ def test_cli_derive_name(tmp_path):
         ("trpc-server", "manifest"), ("util", "target"), ("docs-example-com", "docs-host")]
     assert out["names"][1] == {"target": "libs/util", "manifest_name": None, "name": "util", "basis": "target"}
     assert (out["unnamed"], out["duplicates"]) == ([], [])
+
+
+@pytest.mark.parametrize(
+    ("target", "kind", "url"),
+    [pytest.param("/srv/code/mono", "local", None, id="absolute"),
+     pytest.param("./mono", "local", None, id="dot-relative"),
+     pytest.param("../mono", "local", None, id="parent-relative"),
+     pytest.param("~/code/mono", "local", None, id="home"),
+     pytest.param(".", "local", None, id="dot"),
+     pytest.param("C:\\code\\mono", "local", None, id="windows-drive"),
+     pytest.param("https://docs.example.com/guide", "docs", None, id="docs-url"),
+     pytest.param("https://github.com/acme/mono", "remote", "https://github.com/acme/mono", id="https"),
+     pytest.param("git@github.com:acme/mono.git", "remote", "git@github.com:acme/mono.git", id="ssh"),
+     pytest.param("ssh://git@host.example/acme/mono", "remote", "ssh://git@host.example/acme/mono", id="ssh-url"),
+     pytest.param("github.com/acme/mono", "remote", "https://github.com/acme/mono", id="host-path"),
+     pytest.param("gitlab.com/group/repo/", "remote", "https://gitlab.com/group/repo", id="gitlab-host-path"),
+     pytest.param("acme/mono", "remote", "https://github.com/acme/mono", id="shorthand")],
+)
+def test_derive_name_classifies_the_target_and_gives_the_clone_url(target, kind, url):
+    """step 5b determinism-4: one {kind, clone_url} per target, which the [auto] path and
+    scan-root.md both read, so a host path or a shorthand is never cloned as a local folder."""
+    assert (mod.target_kind(target), mod.clone_url(target)) == (kind, url)
+    code, out, _ = _run_inventory("derive-name", "--target", target)
+    assert (code, out["kind"], out["clone_url"]) == (0, kind, url)
+
+
+def test_derive_name_reads_an_existing_folder_as_local(tmp_path, monkeypatch):
+    """A relative path with no ./ prefix is local when it names a folder, else a shorthand."""
+    (tmp_path / "acme" / "mono").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    assert (mod.target_kind("acme/mono"), mod.clone_url("acme/mono")) == ("local", None)
+    assert (mod.target_kind("acme/other"), mod.clone_url("acme/other")) == (
+        "remote", "https://github.com/acme/other")
+    assert (mod.target_kind(""), mod.clone_url("")) == (None, None)
 
 
 def test_cli_derive_name_batch_private_and_members(tmp_path):
@@ -2751,6 +2813,7 @@ def test_prose_derive_name_calls_fit_the_cli(capsys):
     calls = _derive_name_calls()
     assert {rel for rel, _ in calls} >= {
         "src/skf-analyze-source/references/step-auto-scope.md",
+        "src/skf-analyze-source/references/scan-root.md",
         "src/skf-analyze-source/references/auto-docs-only.md",
         "src/skf-analyze-source/references/identify-units.md",
         "src/skf-analyze-source/references/map-and-detect.md",
@@ -2769,8 +2832,8 @@ def test_analyze_source_names_through_the_helper():
     assert "replace `.` with `-`" not in docs, "the host rule lives in derive_name"
     # The name the brief gets is the name the coexistence check looks up.
     assert '--skills-folder "{skills_output_folder}"' in auto
-    # One classification of the target, in the script: section 0 routes on its basis.
-    assert "`basis` is `docs-host`" in auto
+    # One classification of the target, in the script: section 0 routes on its kind.
+    assert "| `docs` | Documentation URL |" in auto and "`basis` is `docs-host`" not in auto
     for row in ("| GitHub repo |", "| Git hosting |", "Any other `https://` or `http://` URL"):
         assert row not in auto, row
 

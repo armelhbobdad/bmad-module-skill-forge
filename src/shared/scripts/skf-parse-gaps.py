@@ -36,11 +36,15 @@ Subcommands:
   paths --source-root <dir> [--ext <extension> ...]
         [--provenance-map <provenance-map.json>] <path> [<path> ...]
 
+  match --provenance-map <provenance-map.json> --name <export>
+        [--citation <file:line>]
+
   `parse`: at least one of --report and --ledger. --ext (repeatable, `kt`
   or `.vue`) adds a source file extension to the list below, and
   --provenance-map adds the extension of each file its entries[]
   source_file values name, for a skill whose source holds files of another
-  language. Output (stdout):
+  language, and each gap's `map_match` (see "Map match" below). Output
+  (stdout):
 
   {
     "status": "ok",
@@ -64,7 +68,8 @@ Subcommands:
         "remediation": "..." | null,
         "remediation_paths": ["..."],         # path tokens as the remediation writes them
         "resolved_paths": ["..."],            # with --source-root only
-        "rejected_paths": [{"path", "reason"}] # with --source-root only
+        "rejected_paths": [{"path", "reason"}], # with --source-root only
+        "map_match": {...} | null             # with --provenance-map only
       }
     ],
     "resolved_files": ["..."],                 # with --source-root only
@@ -73,6 +78,24 @@ Subcommands:
 
 `source_citation` is set only when the whole Source is a `file:line` pair
 (`file:line-line`, `file:line:col` and `file#Lline` read the same).
+
+Map match (update-skill gap-driven.md §4's lookup of a gap's export in the
+provenance map): for a gap with an `export` (null for one with none),
+
+  {"status": "found" | "ambiguous" | "not-found",
+   "entry": {"source_file", "source_line", "export_type"} | null,
+   "candidates": [{"source_file", "source_line", "export_type"}, ...]}
+
+`candidates` holds every entries[] row whose export_name is the export, in
+the map's order. With a `source_citation`, only the rows whose source_file
+is the citation's file count (both compared stripped, with backslashes read
+as `/` and no leading `./`), and of several such rows the one whose
+source_line is the citation's line. Without one, every candidate counts.
+One row left is `found` (its `entry`), several are `ambiguous` (a spot-check
+of the wrong one would move another export's line) and none is `not-found`.
+`match` prints {"status": "ok", "name", "citation", "map_match"} for a name
+a step takes from somewhere other than a gap's `export`, its citation given
+as `file:line`.
 
 `remediation_paths` holds, in order and once each, every token of the
 Remediation text that names a source file (`.ts`, `.tsx`, `.js`, `.jsx`,
@@ -112,11 +135,12 @@ rather than a remediation text: {"status": "ok", "source_root",
 "resolved_paths", "rejected_paths"}.
 
 Exit codes:
-  0  the gaps were printed (possibly none)
+  0  the gaps (possibly none), the paths or the match were printed
   1  the report or ledger is missing or unreadable, or an option value is
      unusable (no --report or --ledger, a --source-root that is not a
      folder, an --ext that is not a file extension, a --provenance-map
-     that cannot be read as a JSON object)
+     that cannot be read as a JSON object, a --citation that is no
+     `file:line`)
   2  usage error (argparse: a missing or unknown argument, usage on stderr,
      no JSON)
 
@@ -744,15 +768,57 @@ def sibling_ledger(report: Path, text: str) -> Path | None:
     return report.parent / f"test-findings-{run_id}.json"
 
 
+def _norm_file(path: object) -> str | None:
+    """A file as the lookup compares it: stripped, backslashes read as `/`, no leading `./`."""
+    if not isinstance(path, str) or not path.strip():
+        return None
+    text = path.strip().replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+def _line_number(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def map_match(entries: list, name: str, citation: dict | None) -> dict:
+    """The provenance map entry an export names, keyed on its citation (see "Map match" in the module docstring)."""
+    def view(entry: dict) -> dict:
+        return {key: entry.get(key) for key in ("source_file", "source_line", "export_type")}
+
+    named = [e for e in entries if isinstance(e, dict) and isinstance(e.get("export_name"), str)
+             and e["export_name"].strip() == name.strip()]
+    left = named
+    if citation:
+        cited = _norm_file(citation.get("file"))
+        left = [e for e in named if _norm_file(e.get("source_file")) == cited]
+        line = _line_number(citation.get("line"))
+        if len(left) > 1 and line is not None:
+            left = [e for e in left if _line_number(e.get("source_line")) == line] or left
+    status = "found" if len(left) == 1 else "ambiguous" if left else "not-found"
+    return {"status": status, "entry": view(left[0]) if status == "found" else None,
+            "candidates": [view(e) for e in named]}
+
+
 def parse_gaps(
     report: Path | None,
     ledger: Path | None,
     source_root: Path | None,
     extensions: tuple[str, ...] | list[str] = (),
+    map_entries: list | None = None,
 ) -> dict:
     """Read the gaps and build the output object. Raises ParseError.
 
-    `extensions` (without the dot) add to SOURCE_EXTENSIONS.
+    `extensions` (without the dot) add to SOURCE_EXTENSIONS. With
+    `map_entries` (a provenance map's entries[]), each gap gets its
+    `map_match`, null for a gap with no `export`.
     """
     suffixes = _SOURCE_SUFFIXES | {f".{ext}" for ext in extensions}
     warnings: list[str] = []
@@ -780,6 +846,9 @@ def parse_gaps(
         gap["remediation_paths"] = remediation_paths(gap["remediation"], suffixes)
         if gap["severity"] in counts:
             counts[gap["severity"]] += 1
+        if map_entries is not None:
+            gap["map_match"] = map_match(map_entries, gap["export"], gap["source_citation"]) \
+                if gap["export"] and gap["export"].strip() else None
     out = {
         "status": "ok",
         "read_from": read_from,
@@ -813,16 +882,20 @@ def _emit(payload: dict) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
-def map_extensions(path: Path) -> list[str]:
-    """The extension (no dot) of each file a provenance map's entries[]
-    source_file values name. Raises ParseError (INVALID_INPUT)."""
+def map_entries_of(path: Path) -> list:
+    """A provenance map's entries[] ([] when it has none). Raises ParseError (INVALID_INPUT)."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ParseError("INVALID_INPUT", f"cannot read --provenance-map {path}: {exc}") from exc
     if not isinstance(data, dict):
         raise ParseError("INVALID_INPUT", f"--provenance-map {path} is not a JSON object")
-    entries = data.get("entries") if isinstance(data.get("entries"), list) else []
+    return data.get("entries") if isinstance(data.get("entries"), list) else []
+
+
+def map_extensions(entries: list) -> list[str]:
+    """The extension (no dot) of each file a provenance map's entries[]
+    source_file values name."""
     found: list[str] = []
     for entry in entries:
         if isinstance(entry, dict) and isinstance(entry.get("source_file"), str):
@@ -832,9 +905,9 @@ def map_extensions(path: Path) -> list[str]:
     return found
 
 
-def _options(args: argparse.Namespace) -> tuple[Path | None, list[str]]:
-    """(--source-root, the extensions --ext and --provenance-map add). Raises
-    ParseError (INVALID_INPUT)."""
+def _options(args: argparse.Namespace) -> tuple[Path | None, list[str], list | None]:
+    """(--source-root, the extensions --ext and --provenance-map add, the
+    map's entries or None). Raises ParseError (INVALID_INPUT)."""
     root = None
     if args.source_root is not None:
         root = Path(args.source_root)
@@ -846,14 +919,16 @@ def _options(args: argparse.Namespace) -> tuple[Path | None, list[str]]:
         if not m:
             raise ParseError("INVALID_INPUT", f"--ext takes a file extension such as kt or .vue, got {value!r}")
         extensions.append(m.group(1))
+    entries = None
     if args.provenance_map is not None:
-        extensions += map_extensions(Path(args.provenance_map))
-    return root, extensions
+        entries = map_entries_of(Path(args.provenance_map))
+        extensions += map_extensions(entries)
+    return root, extensions, entries
 
 
 def _cmd_paths(args: argparse.Namespace) -> int:
     try:
-        root, extensions = _options(args)
+        root, extensions, _ = _options(args)
     except ParseError as exc:
         _emit({"status": "error", "code": exc.code, "error": str(exc)})
         return 1
@@ -870,7 +945,7 @@ def _cmd_parse(args: argparse.Namespace) -> int:
         _emit({"status": "error", "code": "INVALID_INPUT", "error": "give --report, --ledger or both"})
         return 1
     try:
-        root, extensions = _options(args)
+        root, extensions, entries = _options(args)
     except ParseError as exc:
         _emit({"status": "error", "code": exc.code, "error": str(exc)})
         return 1
@@ -880,11 +955,28 @@ def _cmd_parse(args: argparse.Namespace) -> int:
             Path(args.ledger) if args.ledger else None,
             root,
             extensions,
+            entries,
         )
     except ParseError as exc:
         _emit({"status": "error", "code": exc.code, "error": str(exc)})
         return 1
     _emit(out)
+    return 0
+
+
+def _cmd_match(args: argparse.Namespace) -> int:
+    citation = source_citation(args.citation) if args.citation is not None else None
+    try:
+        if args.citation is not None and citation is None:
+            raise ParseError("INVALID_INPUT", f"--citation takes a file:line pair, got {args.citation!r}")
+        if not args.name.strip():
+            raise ParseError("INVALID_INPUT", "--name is empty")
+        entries = map_entries_of(Path(args.provenance_map))
+    except ParseError as exc:
+        _emit({"status": "error", "code": exc.code, "error": str(exc)})
+        return 1
+    _emit({"status": "ok", "name": args.name, "citation": citation,
+           "map_match": map_match(entries, args.name, citation)})
     return 0
 
 
@@ -905,6 +997,12 @@ def _build_parser() -> argparse.ArgumentParser:
     q.add_argument("--source-root", required=True, help="resolve the paths under this folder")
     q.add_argument("path", nargs="+", help="a path relative to the source root (a :line suffix is dropped)")
     q.set_defaults(func=_cmd_paths)
+
+    m = sub.add_parser("match", help="find an export in the provenance map, as a gap's map_match does")
+    m.add_argument("--provenance-map", required=True, help="the provenance map to look the export up in")
+    m.add_argument("--name", required=True, help="the export's name")
+    m.add_argument("--citation", help="the export's source citation, file:line")
+    m.set_defaults(func=_cmd_match)
 
     for parser_ in (p, q):
         parser_.add_argument(

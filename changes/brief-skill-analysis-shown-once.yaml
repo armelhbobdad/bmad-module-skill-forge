@@ -1,0 +1,5 @@
+type: changed
+scope: skf-brief-skill
+summary: |
+  An interactive Brief Skill run on a repository now shows its target analysis once, in the "Analysis Complete" summary, with one progress line for each part while it works, instead of a block per part before the summary. The summary gains the package name with its dependency count, the extraction warnings and the target and detected versions side by side, and the scope question that follows in the same message no longer repeats the target, language and modules. No item is removed, and headless output is unchanged.
+prs: [654]

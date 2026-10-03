@@ -125,4 +125,4 @@ Leave `--doc-urls-file` out when §2 and §3 were skipped or found nothing.
 
 ### 5. Chain to Auto-Validate
 
-Load, read fully, then execute {nextStepFile}, which checks and summarizes the written brief, prints the envelope and runs the hook. Do this only after the enriched brief has been written and validated.
+Load, read fully, then execute {nextStepFile}, which checks and summarizes the written brief, builds the envelope and runs the hook. Do this only after the enriched brief has been written and validated.

@@ -182,7 +182,7 @@ def test_every_step_3_read_goes_through_the_fetch_helper():
         assert (f"{stem}ProbeOrder:\n  - '{{project-root}}/_bmad/skf/shared/scripts/{script}'\n"
                 f"  - '{{project-root}}/src/shared/scripts/{script}'\n") in frontmatter, stem
     calls = [line for block in _bash_blocks(text) for line in block.splitlines() if "{githubFetch}" in line]
-    assert len(calls) == 3, calls
+    assert len(calls) == 4, calls
     parser = _load(GITHUB_FETCH, "skf_github_fetch_for_quick_contract")._build_parser()
     for line in calls:
         line = re.sub(r"\[--limit <n>\] \[--exclude <glob>\]\.\.\. <path or glob>\.\.\.", "README.md", line)
@@ -204,7 +204,7 @@ def test_the_skills_module_chain_runs_from_the_listing_to_metadata(tmp_path, raw
     _run(_bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff "), run_dir)
     sniffed = json.loads((run_dir / "sniff.json").read_text(encoding="utf-8"))
     assert (sniffed["skills_root"], sniffed["readme"]) == ("skills", "README.md")
-    _run(_bash_block(_section(extract, "### 2. Fetch Source Files", "### 3. "), "--patterns-file"), run_dir)
+    _run(_bash_block(_section(extract, "### 2. Fetch Source Files", "### 3. "), "skills-fetch.txt"), run_dir)
     skills = _section(extract, "**Skills module** (`repo_shape: skills-module`): when §2", "### 4. ")
     _run(_bash_block(skills, " extract "), run_dir)
     envelope = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
@@ -217,27 +217,137 @@ def test_the_skills_module_chain_runs_from_the_listing_to_metadata(tmp_path, raw
     assert metadata["tool_versions"]["skf"] == "3.0.0"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
-def test_the_library_chain_hands_the_files_to_the_extractor_by_path(tmp_path, raw_github):
-    """A source file holding an apostrophe reaches the extractor as written (#592)."""
-    run_dir = _run_folder(tmp_path, ["README.md", "pyproject.toml", "src/acme/__init__.py", "tests/test_a.py"])
-    raw_github.update({"README.md": b"# acme\n", "pyproject.toml": PYPROJECT, "src/acme/__init__.py": INIT_PY})
-    extract = _read(QUICK_EXTRACT)
-    _run(_bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff "), run_dir)
-    assert json.loads((run_dir / "sniff.json").read_text(encoding="utf-8"))["skills_module"] is False
-    fetch = _bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff ")
-    fetch = fetch.splitlines()[0].replace(" package.json", " pyproject.toml 'src/{package}/__init__.py'")
-    _run(fetch.replace("{package}", "acme") + "\n", run_dir)
+def _entries_step(extract: str, run_dir: Path, language: str) -> dict:
+    """§2's entries call and fetch, as written: the extractor finds the entry files in the listing."""
+    _run(_bash_block(_section(extract, "### 2. Fetch Source Files", "### 3. "), "--mode entries")
+         .replace("<lang>", language), run_dir)
+    return json.loads((run_dir / "entries.json").read_text(encoding="utf-8"))
+
+
+def _extract_step(extract: str, run_dir: Path, language: str, manifest: str | None, entry_files: list[str],
+                  followed: list[str] = ()) -> dict:
+    """§3's extractor call, filled in as the step says: the entries' manifest, each entry file and
+    each module the follow loop fetched."""
     call = _bash_block(_section(extract, "### 3. Parse Manifest and Scan Exports", "**Multi-module loop:**"),
                        "--manifest-file")
-    call = call.replace("<lang>", "python").replace("<manifest path>", "pyproject.toml")
-    call = call.replace("--entry-file <entry path> [--entry-file <entry path>]...", "--entry-file src/acme/__init__.py")
+    call = call.replace("<lang>", language)
+    call = call.replace("--manifest-file <manifest path>", f"--manifest-file {manifest}" if manifest else "")
+    call = call.replace("--entry-file <entry path> [--entry-file <entry path>]...",
+                        " ".join(f"--entry-file {path}" for path in entry_files))
+    call = call.replace("[--follow-file <module path>]...", " ".join(f"--follow-file {path}" for path in followed))
     _run(call, run_dir)
-    envelope = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+    return json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+@pytest.mark.parametrize(("name", "folder"), [("acme", "acme"), ("Pillow", "PIL")], ids=["acme", "import-name"])
+def test_the_library_chain_hands_the_files_to_the_extractor_by_path(tmp_path, raw_github, name, folder):
+    """A source file holding an apostrophe reaches the extractor as written (#592), and its entry
+    file is the one the extractor finds in the listing, whatever the import name (step 5b
+    determinism-1: Pillow's package is PIL)."""
+    init = f"src/{folder}/__init__.py"
+    run_dir = _run_folder(tmp_path, ["README.md", "pyproject.toml", init, "tests/test_a.py", "docs/conf.py"])
+    pyproject = PYPROJECT.replace(b'name = "acme"', f'name = "{name}"'.encode("utf-8"))
+    raw_github.update({"README.md": b"# acme\n", "pyproject.toml": pyproject, init: INIT_PY})
+    extract = _read(QUICK_EXTRACT)
+    first = _section(extract, "### 1. Read the Listing and README", "### 1.5. ")
+    _run(_bash_block(first, " sniff "), run_dir)
+    assert json.loads((run_dir / "sniff.json").read_text(encoding="utf-8"))["skills_module"] is False
+    _run(_bash_block(first, " sniff ").splitlines()[0].replace(" package.json", " pyproject.toml") + "\n", run_dir)
+    entries = _entries_step(extract, run_dir, "python")
+    assert (entries["manifest"], entries["entry_files"]) == ("pyproject.toml", [init])
+    envelope = _extract_step(extract, run_dir, "python", entries["manifest"], entries["entry_files"])
     assert [e["name"] for e in envelope["exports"]] == ["greet"]
-    assert (run_dir / "src" / "src" / "acme" / "__init__.py").read_bytes() == INIT_PY
+    assert (envelope["unlisted"], (run_dir / "follow.txt").read_bytes()) == ([], b"")
+    assert (run_dir / "src" / "src" / folder / "__init__.py").read_bytes() == INIT_PY
     metadata = _render(run_dir, tmp_path)
-    assert (metadata["exports"], metadata["version"], metadata["source_package"]) == (["greet"], "0.4.0", "acme")
+    assert (metadata["exports"], metadata["version"], metadata["source_package"]) == (["greet"], "0.4.0", name)
+
+
+NODENEXT_FILES = {
+    "package.json": b'{"name": "acme", "type": "module", "main": "dist/index.js"}',
+    "src/index.ts": b"export * from './core.js';\n",
+    "src/core.ts": b"export class Core {}\nexport * from './util/index.js';\n",
+    "src/util/index.ts": b"export function helper() {}\nexport const VERSION = '1';\n",
+}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_the_follow_loop_reads_an_export_star_chain_to_its_end(tmp_path, raw_github):
+    """step 5b determinism-2: a NodeNext `export * from './core.js'` chain is followed round by
+    round, as §3 says, until no module is left to read: no export comes from the README."""
+    run_dir = _run_folder(tmp_path, [*NODENEXT_FILES, "README.md"])
+    raw_github.update({**NODENEXT_FILES, "README.md": b"# acme\n"})
+    extract = _read(QUICK_EXTRACT)
+    _run(_bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff "), run_dir)
+    entries = _entries_step(extract, run_dir, "ts")
+    assert (entries["manifest"], entries["entry_files"]) == ("package.json", ["src/index.ts"])
+    files = list(entries["entry_files"])
+    followed: list[str] = []
+    follow = _section(extract, "**Follow the statements `unlisted[]` names**", "**Multi-module loop:**")
+    assert "at most 5 rounds" in follow and '`--patterns-file "{run_dir}/follow.txt"` in place of `entries.txt`' in follow
+    fetch = _bash_block(_section(extract, "### 2. Fetch Source Files", "### 3. "), "--mode entries").splitlines()[1]
+    envelope = _extract_step(extract, run_dir, "ts", entries["manifest"], files)
+    for _ in range(5):
+        named = (run_dir / "follow.txt").read_text(encoding="utf-8").split()
+        if not named:
+            break
+        _run(fetch.replace("entries.txt", "follow.txt") + "\n", run_dir)
+        followed += named
+        envelope = _extract_step(extract, run_dir, "ts", entries["manifest"], files, followed)
+    assert files + followed == ["src/index.ts", "src/core.ts", "src/util/index.ts"]
+    assert {e["name"] for e in envelope["exports"]} == {"Core", "helper", "VERSION"}
+    assert envelope["unlisted"] == [] and not any("passes on names" in w for w in envelope["warnings"])
+
+
+def test_no_entry_file_is_derived_from_the_package_name():
+    """step 5b determinism-1: the table keeps the manifest column, and the entry files come from the listing."""
+    text = _read(QUICK_EXTRACT)
+    fetch = _section(text, "### 2. Fetch Source Files", "### 3. ")
+    assert "| Language | Manifest |\n| --- | --- |\n" in fetch and "Entry-point patterns" not in fetch
+    assert _bash_block(fetch, "--mode entries").splitlines() == [
+        'uv run {publicApiExtractor} --mode entries --language <lang> --tree-file "{run_dir}/tree.json" '
+        '--source-root "{run_dir}/src" [--scope "{scope_hint}"] --fetch-list "{run_dir}/entries.txt" '
+        '> "{run_dir}/entries.json"',
+        'uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-file "{run_dir}/tree.json" '
+        '--dest "{run_dir}/src" --patterns-file "{run_dir}/entries.txt"']
+    assert "pass `--scope \"{scope_hint}\"` to the entries call" in fetch
+    assert "Never derive an entry file from the package name yourself" in fetch
+    for path in sorted((QS / "references").glob("*.md")):
+        assert "{package}" not in _read(path), path.name
+    loop = _section(text, "**Multi-module loop:**", "\n\n")
+    assert '--scope "<its module_folders[] entry>"' in loop and "`core:api` read as `core/api`" not in loop
+    assert "with the rules full mode follows" not in fetch, "the extractor's docstring owns the entry rules"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_a_language_with_no_entries_rule_takes_no_entry_file(tmp_path):
+    """A language outside the extractor's list exits 1 and writes no fetch list: the step skips the
+    fetch, and §3 stages the empty envelope with that call's error line."""
+    fetch = _section(_read(QUICK_EXTRACT), "### 2. Fetch Source Files", "### 3. ")
+    for needle in ("For a language outside §3's list, or when the entries call exits non-zero",
+                   "take no entry file and skip the fetch",
+                   "stages its empty envelope with that error line in place of `no source file was fetched`"):
+        assert needle in fetch, needle
+    run_dir = _run_folder(tmp_path, ["Gemfile", "lib/acme.rb"])
+    call = _bash_block(fetch, "--mode entries").splitlines()[0].replace("<lang>", "ruby")
+    script = (call.replace("uv run {publicApiExtractor}", f'"{sys.executable}" "{EXTRACTOR}"')
+              .replace("{run_dir}", run_dir.as_posix()))
+    script = re.sub(r' \[--scope "\{scope_hint\}"\]', "", script)
+    result = subprocess.run([_tool("bash"), "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode == 1 and "unknown language" in (run_dir / "entries.json").read_text(encoding="utf-8")
+    assert not (run_dir / "entries.txt").exists()
+    # Nothing fetched yet, so the fetch folder does not exist: a known language still reads the listing.
+    script = script.replace("--language ruby", "--language python")
+    result = subprocess.run([_tool("bash"), "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert (run_dir / "entries.txt").read_bytes() == b""
+
+
+def test_the_summary_names_the_entry_points_not_found():
+    summary = _section(_read(QUICK_EXTRACT), "### 5. Report Extraction Summary", "### 6. ")
+    assert ("{If `{run_dir}/entries.json` lists `unresolved` entries, add:} - **Entry points not found:**"
+            in summary)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
@@ -384,6 +494,7 @@ def _run(block: str, run_dir: Path) -> None:
               .replace("{owner}/{repo}", "acme/lib").replace("{source_ref or HEAD}", "HEAD")
               .replace("{run_dir}", run_dir.as_posix()).replace("{repo_name}", "acme-module"))
     script = re.sub(r' \[--scope-hint "\{scope_hint\}"\]', "", script)
+    script = re.sub(r' \[--scope "\{scope_hint\}"\]', "", script)
     script = re.sub(r' \[--package "[^"]*"\]', "", script)
     result = subprocess.run([bash, "-c", script], capture_output=True, text=True, check=False)
     assert result.returncode in (0, 3), result.stderr
@@ -483,10 +594,14 @@ def test_extractor_warnings_send_section_3_after_the_module_they_name():
     for form in ("`export * from`", "a star import from the package", "an `__all__` built from another module",
                  "`pub use x::*`", "`module.exports = require(...)`", "an anonymous or conditional export"):
         assert form in warnings, form
-    act = _section(parse, "**Act on the statements a warning names**", "\n\n")
-    for needle in ("fetch it with §2's call and run the extractor again with it as one more `--entry-file`",
-                   "Otherwise read the statement by eye", "`{run_dir}/extract-added.json`"):
+    [unlisted] = [line for line in parse.splitlines() if line.startswith("- `unlisted[]`")]
+    assert "`{file, line, statement, specifier, module_file}`" in unlisted
+    act = _section(parse, "**Follow the statements `unlisted[]` names**", "\n\n")
+    for needle in ("run the extractor again with each file it `fetched` as one more `--follow-file`",
+                   "Read by eye only the `unlisted[]` records left whose `module_file` is null",
+                   "`{run_dir}/extract-added.json`"):
         assert needle in act, needle
+    assert "resolve the relative specifier the way the language does" not in parse
     assert "`{run_dir}/extract-added.json` when §3 staged it" in _read(COMPILE)
 
 
@@ -1102,7 +1217,7 @@ def test_the_helper_halts_follow_the_runtime_halt_in_the_contract():
     raised_by = row3.split("|")[3].strip()
     assert raised_by.startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing); a shipped helper missing, "
                                 "named in the message and in `details.cause` (step 3: `skf-github-fetch.py`, "
-                                "`skf-skills-module.py` §1, `skf-extract-public-api.py` §3; step 5: "
+                                "`skf-skills-module.py` §1, `skf-extract-public-api.py` §2; step 5: "
                                 "`skf-atomic-write.py` §2, `skf-validate-frontmatter.py` §4 when skill-check is "
                                 "unavailable, `skf-validate-output.py` §5)")
 
@@ -1185,8 +1300,11 @@ def test_every_headless_gate_records_its_decision():
             assert 'record --workflow skf-quick-skill --run-dir "{run_dir}" --decision' in line, path.name
             assert decision["default_action"] == decision["taken_action"] == m.group(1), path.name
             assert emitter._validate_against_schema(decision, item) == [], decision
-            recorded.append(decision["gate"])
-    assert sorted(recorded) == sorted(item["properties"]["gate"]["enum"])
+            recorded.append((decision["gate"], m.group(1)))
+    # The overwrite gate has two defaults: Y over a quick skill, N over another generator's build.
+    assert sorted({gate for gate, _ in recorded}) == sorted(item["properties"]["gate"]["enum"])
+    assert sorted(default for gate, default in recorded if gate == "write-and-validate.overwrite") == ["N", "Y"]
+    assert len(recorded) == len(item["properties"]["gate"]["enum"]) + 1
     rules = _section(_read(SKILL), "## Workflow Rules", "## Stages")
     assert 'record --workflow skf-quick-skill --run-dir "{run_dir}" --decision' in rules
     assert "log each auto-decision" not in rules
@@ -1620,3 +1738,89 @@ def test_skill_md_keeps_one_home_per_rule():
     step5 = _section(text, "5. **If `--batch` is set**", "\n\n6. ")
     assert step5.strip() == "5. **If `--batch` is set**, load and read `references/batch-mode.md` in full before " \
                             "anything else and follow it."
+
+
+# --------------------------------------------------------------------------
+# step 5b enhancement-2: the overwrite gate names the build it replaces and
+# never replaces another generator's package unasked
+# --------------------------------------------------------------------------
+
+
+def _overwrite() -> str:
+    return _section(_read(WRITE_AND_VALIDATE), "If `{skill_package}/metadata.json` exists, confirm",
+                    "A `{skill_package}` without `metadata.json`")
+
+
+def test_the_overwrite_question_names_the_build_from_the_write_check():
+    text = _read(WRITE_AND_VALIDATE)
+    assert ("`{existing_generator}` ← `write_check.version_generated_by` and `{existing_tier}` ← "
+            "`write_check.version_confidence_tier`") in text
+    gate = _overwrite()
+    assert ("It holds a `{existing_generator}` build ({existing_tier}); overwriting replaces it whole with a "
+            "community quick skill") in gate
+    assert "Overwrite will replace the prior compiled output" not in gate
+    assert "**GATE [default: Y]** when `{existing_generator}` is `quick-skill` or null" in gate
+    [no] = [line for line in gate.splitlines() if line.startswith("**GATE [default: N]**")]
+    assert "for any other `{existing_generator}`" in no and "then halt as **If user selects N** does" in no
+    assert "a headless run never replaces another workflow's build" in no and "interactively and answer Y" in no
+    assert 'leave out " ({existing_tier})" when only `{existing_tier}` is null' in gate
+    halt = _staged(_section(gate, "- **If user selects N:**", "**GATE [default: Y]**"), "halt.json")
+    assert _filled(halt)["details"] == {"existing_generator": "{existing_generator}"}
+    [row5] = [line for line in _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result").splitlines()
+              if line.startswith("| 5 ")]
+    assert "a headless run reached a version another SKF workflow built" in row5
+    assert "`details.existing_generator`" in row5
+    summary = _section(_read(FINALIZE), "### 2. Display Completion Summary", "### 3. ")
+    assert "{If step 5 §1 set `{replaced_build}`, add:} **Replaced:** the `{replaced_build}` build" in summary
+    assert "`{forge_data_folder}/{repo_name}/{version}/`, is left in place" in summary
+    docs = _read(REPO / "docs" / "workflows.md")
+    safety = _section(docs, "### Quick Skill (QS)", "**Agent:**")
+    safety = next(line for line in safety.splitlines() if line.startswith("**Safety:** Writes a version only"))
+    assert "exit `5` (`overwrite-cancelled`)" in safety and "`error.details.existing_generator`" in safety
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's command through a POSIX shell")
+def test_a_yes_over_another_generator_replaces_the_package_whole(tmp_path):
+    """The guarded removal clears create-skill's leftovers and nothing outside the version package."""
+    block = _nested_bash_block(_overwrite(), "rm -rf")
+    assert block.startswith('case "{skill_package}" in */{repo_name}/{version}/{repo_name})')
+    skills = tmp_path / "skills"
+    package = skills / "cognee" / "1.0.0" / "cognee"
+    for rel in ("SKILL.md", "metadata.json", "extraction-rules.yaml", "references/api.md"):
+        (package / rel).parent.mkdir(parents=True, exist_ok=True)
+        (package / rel).write_bytes(b"x")
+    (skills / "cognee" / "0.9.0").mkdir(parents=True)
+    bash = _tool("bash")
+
+    def run(path: Path) -> None:
+        script = (block.replace("{skill_package}", path.as_posix()).replace("{repo_name}", "cognee")
+                  .replace("{version}", "1.0.0"))
+        subprocess.run([bash, "-c", script], check=True, capture_output=True, timeout=60)
+
+    run(package)
+    assert package.is_dir() and list(package.iterdir()) == []
+    assert (skills / "cognee" / "0.9.0").is_dir()
+    run(skills / "cognee")  # not a version package: the guard removes nothing
+    assert (skills / "cognee" / "0.9.0").is_dir()
+
+
+# --------------------------------------------------------------------------
+# step 5b enhancement-1: a headless single-target run ends on its envelope
+# --------------------------------------------------------------------------
+
+
+def test_a_headless_run_hands_its_envelope_line_to_the_health_check():
+    envelope = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    for needle in ("In a headless single-target run, bind `{result_envelope_line}` ← that line and do not "
+                   "display it here", "the shared health check displays it verbatim as the run's last line",
+                   "Otherwise (an interactive run, or a `--batch` target) display it verbatim as its own line",
+                   "leave `{result_envelope_line}` empty"):
+        assert needle in envelope, needle
+    relay = _read(HEALTH_CHECK)
+    assert "step 6 §3 bound `{result_envelope_line}` to the `SKF_QUICK_SKILL_RESULT_JSON` line" in relay
+    shared = _read(REPO / "src" / "shared" / "health-check.md")
+    assert "may bind `{result_envelope_line}`" in shared
+    docs = _read(REPO / "docs" / "workflows.md")
+    final = next(line for line in docs.splitlines()
+                 if line.startswith("Setup is not the only workflow whose result line is the run's final message"))
+    assert "Quick Skill (one target, not `--batch`)" in final and "`SKF_QUICK_SKILL_RESULT_JSON`" in final

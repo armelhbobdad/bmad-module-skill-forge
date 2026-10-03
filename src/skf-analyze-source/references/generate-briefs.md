@@ -7,6 +7,9 @@ writeSkillBriefProbeOrder:
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
+scanManifestsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
+  - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
 nextStepFile: 'health-check.md'
 ---
 
@@ -62,7 +65,7 @@ The brief writer renders, checks and writes each brief, and applies the version 
 | Field | Source |
 |-------|--------|
 | name | Confirmed name from step 05 recommendation card: the name identify-units Step C derived, unless step 5 renamed the unit |
-| version | Not set here: `detected_version` is the version the unit's own manifest declares, found by the Version Detection rules in {schemaFile}, when it is full `X.Y.Z` semver (an optional leading `v`, an optional pre-release such as `-rc.1`); else null (a two-part or PEP 440 version such as `0.1` or `2.0.0rc1` too), since the writer rejects any other value. The writer falls back to `1.0.0` for null |
+| version | Not set here: `detected_version` comes by {schemaFile}'s **Version Detection**, for the unit's own manifest in its project path's manifest scan, `{run_dir}/manifests-{i}.json` (scan-project and discover-additional-source write it). When that file is missing, as in a session that resumed the report, run `uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/manifests-{i}.json"` first, `{scanManifestsHelper}` the first existing path of `{scanManifestsProbeOrder}` |
 | source_repo | The unit's project path, the `project_paths[]` entry it was found under (a composite's constituents share one) |
 | target_ref | The unit's ref: its project path's entry in `refs`, else null. Never a version: `target_version` stays null |
 | language | Language the skill **documents** (primary language detected in step 03). For a language / spec reference this is the *documented* language, which may differ from the source language it is extracted from — e.g. a SurrealQL reference extracted from a Rust engine records `surrealql`, not `rust` (see {schemaFile} "Documented vs source language") |

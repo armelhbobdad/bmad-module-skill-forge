@@ -11,7 +11,7 @@ validateBriefSchemaProbeOrder:
 
 ## STEP GOAL:
 
-To check the auto-generated brief against the schema and show a concise summary of it, then print the result envelope, run the `on_complete` hook and chain to the health check. `[auto]` is a pipeline stage, which the forger always runs headless, so this step asks nothing.
+To check the auto-generated brief against the schema and show a concise summary of it, then build and bind the result envelope (the health check displays it as the run's last line), run the `on_complete` hook and chain to the health check. `[auto]` is a pipeline stage, which the forger always runs headless, so this step asks nothing.
 
 ## Rules
 
@@ -74,7 +74,7 @@ Where `{N}` is the count of `scope_include` patterns and `{M}` is the count of `
 
 ### 3. Envelope, Hook and Chain
 
-Print the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`, through the `{emitBriefEnvelopeHelper}` SKILL.md On Activation step 4 resolved (`references/invocation-contract.md` defines each field), and display the line it prints verbatim:
+Build the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`, through the `{emitBriefEnvelopeHelper}` SKILL.md On Activation step 4 resolved (`references/invocation-contract.md` defines each field). Bind `{result_envelope_line}` to the line it prints, and do not display it here: the shared health check displays it verbatim as the run's last line, the final message the pipeline reads:
 
 ```bash
 uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'
@@ -82,7 +82,7 @@ uv run {emitBriefEnvelopeHelper} emit <<'SKF_BRIEF_RESULT'
 SKF_BRIEF_RESULT
 ```
 
-Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, display its error: the brief is already written, so the run goes on.
+Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If `{emitBriefEnvelopeHelper}` has no path, or the helper exits non-zero or prints no line, leave `{result_envelope_line}` empty and display its error: the brief is already written, so the run goes on.
 
 **On-complete hook.** Right after the envelope, if `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), run it:
 
@@ -90,7 +90,7 @@ Where `{brief_path}` is `{forge_data_folder}/{skill_name}/skill-brief.yaml`. If 
 {onCompleteCommand} --result-path={brief_path}
 ```
 
-A hook error never fails the run: on a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. The envelope is already printed, so it does not carry this line. When `{onCompleteCommand}` is empty, skip the hook.
+A hook error never fails the run: on a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. The envelope is already bound, so it does not carry this line. When `{onCompleteCommand}` is empty, skip the hook.
 
 **Remove the run folder.** The brief is written, so the folder step 1 §1 created has done its job; remove it (the guard keeps the command to that folder):
 

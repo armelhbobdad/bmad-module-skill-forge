@@ -71,6 +71,8 @@ SHAPE_REF = REFS / "step-shape-detect.md"
 IDENTIFY = REFS / "identify-units.md"
 MAP = REFS / "map-and-detect.md"
 GENERATE = REFS / "generate-briefs.md"
+DISCOVER = REFS / "discover-additional-source.md"
+BRIEF_SCHEMA_DOC = AN / "assets" / "skill-brief-schema.md"
 STEP_FILES = sorted(p for p in REFS.glob("*.md") if p.name != "headless-contract.md")
 
 # A HALT site: "HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `x`)".
@@ -378,17 +380,22 @@ def test_the_hook_reads_the_latest_record_only_when_one_was_written():
 
 
 @pytest.mark.parametrize("gate, marker", [("auto-scope.cohesion", "**Record the decision**"),
+                                          ("auto-scope.shape", "**An app or a library on a framework.**"),
                                           ("auto-scope.language", "**Otherwise** (several languages")],
-                         ids=["cohesion", "language"])
+                         ids=["cohesion", "shape", "language"])
 def test_the_auto_decisions_reach_the_envelope(tmp_path, gate, marker):
-    """#593: the merge-or-split decision (and the language choice) land in the sink and the line."""
-    text = _section(_read(AUTO), marker, "### 6. Build Scope" if gate == "auto-scope.language" else "### 4.")
+    """#593: the merge-or-split decision (and the app-or-library and language choices) land in the
+    sink and the line."""
+    end = {"auto-scope.language": "### 6. Build Scope", "auto-scope.shape": "### 5."}.get(gate, "### 4.")
+    text = _section(_read(AUTO), marker, end)
     m = re.search(r'write `\{run_dir\}/decision\.json` as `(\{"gate": "' + re.escape(gate) + r'".*?\})` and run', text)
     assert m, gate
     values = {"merge or split": "merge", "the cohesion trigger that held, or why the members split": "umbrella facade",
               "package_count": 5, "the §2 member names": "a", "detected_languages[0]": "csharp",
               "the language you chose": "python", "the manifest or the source files that decided": "sources",
-              "detected_languages": "csharp", "source_language": "python"}
+              "detected_languages": "csharp", "source_language": "python", "reference-app or library-API": "library-API",
+              "the sentence of the description or README that decided": "Extra utilities for axum",
+              "the §3 signals": "app_or_library:framework_dep"}
     decision = _fill(m.group(1), values)
     run_dir = _run_dir(tmp_path)
     (run_dir / "decision.json").write_bytes(json.dumps(decision).encode("utf-8"))
@@ -475,9 +482,7 @@ def test_the_auto_brief_with_the_language_caveat_is_written_valid(tmp_path, seed
     ({"scope_include": []}, "validator"),
     ({"name": "Rust_Lang"}, "writer"),
     ({"target_version": "main"}, "writer"),
-    ({"detected_version": "0.1"}, "writer"),
-    ({"detected_version": "2.0.0rc1"}, "writer"),
-], ids=["empty-include", "not-kebab", "branch-as-version", "two-part-version", "pep440-version"])
+], ids=["empty-include", "not-kebab", "branch-as-version"])
 def test_a_rejected_brief_never_reaches_the_forge_folder(tmp_path, over, rejected_by):
     context = _auto_context("Auto-scoped from shape detection (shape: library-API, confidence: 0.8).", **over)
     staged, verdict, written, target = _gate_and_write(tmp_path, AUTO, context, "rust-lang")
@@ -534,14 +539,53 @@ def test_every_brief_context_is_a_file_never_an_echo():
 
 
 @pytest.mark.parametrize("path", [AUTO, GENERATE], ids=["auto", "interactive"])
-def test_only_a_full_semver_manifest_version_reaches_the_writer(path):
-    """The writer refuses a detected_version that is not full X.Y.Z semver
-    (a two-part or PEP 440 version halts the run, as the cases above show), so
-    the step passes such a version as null and the brief gets 1.0.0."""
+def test_the_manifest_version_reaches_the_writer_as_found(path):
+    """step 5b determinism-2: the writer, not the prompt, decides whether a
+    detected version is semver, so the step passes the manifest's version as
+    found and never checks its shape by eye. The rule is stated once, in the
+    schema's Version Detection, which both brief paths point at."""
     text = _read(path)
     rule = next(line for line in text.splitlines() if "`detected_version`" in line and "Version Detection" in line)
-    assert "when it is full `X.Y.Z` semver" in rule and "else null" in rule, rule
-    assert "warns about a value that is not semver" not in text
+    assert "**Version Detection**" in rule and "manifests-" in rule, rule
+    for gone in ("when it is full `X.Y.Z` semver (an optional", "since the writer rejects any other value",
+                 "warns about a value that is not semver", "falls back to `1.0.0` otherwise"):
+        assert gone not in text, gone
+
+
+def test_the_version_detection_rule_starts_from_the_scan():
+    """One statement of the version rule: the scan's `version` as found; the ladder
+    only for a version computed at build time or a private workspace root."""
+    rule = _section(_read(BRIEF_SCHEMA_DOC), "## Version Detection", "## Scope Object")
+    assert "the `version` that `skf-scan-manifests.py` gives the unit's own manifest" in rule
+    assert "passed to the brief writer as found, null when there is none" in rule
+    assert 'falls back to `"1.0.0"` otherwise, with a warning' in rule
+    assert "**A `version_dynamic` manifest**" in rule and "**A private workspace root that gives none**" in rule
+    for gone in ("releases/latest", "If it fails or returns a non-semver value", "**Rust:**", "**Go:**"):
+        assert gone not in rule, gone
+
+
+def test_every_project_path_scan_is_one_file_the_brief_step_reads():
+    """step 5b: a path [D] adds writes its scan where generate-briefs reads every
+    project path's, and a resumed session writes it again before reading it."""
+    discover = _read(DISCOVER)
+    assert 'uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/manifests-{i}.json"' in discover
+    assert '--deps "{run_dir}/manifests-{i}.json"' in discover
+    assert "discover-{i}-manifests" not in discover
+    row = next(line for line in _read(GENERATE).splitlines() if line.startswith("| version |"))
+    assert "`{run_dir}/manifests-{i}.json`" in row and "When that file is missing" in row, row
+    assert 'run `uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/manifests-{i}.json"` first' in row
+
+
+@pytest.mark.parametrize("detected", ["0.1", "2.0.0rc1"], ids=["two-part-version", "pep440-version"])
+def test_a_detected_version_that_is_not_semver_writes_the_default(tmp_path, detected):
+    """A two-part or PEP 440 version no longer halts the run: the brief gets 1.0.0."""
+    context = _auto_context("Auto-scoped from shape detection (shape: library-API, confidence: 0.8).",
+                            detected_version=detected)
+    staged, verdict, written, target = _gate_and_write(tmp_path, AUTO, context, "rust-lang")
+    assert staged.returncode == 0, staged.stderr
+    assert any("falling through to default 1.0.0" in w for w in json.loads(staged.stdout)["warnings"])
+    assert written is not None and written.returncode == 0, written.stderr if written else verdict.stdout
+    assert yaml.safe_load(target.read_text(encoding="utf-8"))["version"] == "1.0.0"
 
 
 # --------------------------------------------------------------------------

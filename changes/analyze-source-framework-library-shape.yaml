@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-analyze-source
+summary: |
+  `AN[auto]` and `forge-auto` no longer scope a library that extends a web framework (FastAPI on Starlette, sqladmin, a Flask or Django extension, axum-extra) as `reference-app`. Shape detection now adds the signal `app_or_library:framework_dep` when a framework dependency is the only app signal of a package that names itself a library, and the auto-scope judges from the manifest description or the README whether it is an application built on the framework, which stays `reference-app`, or a library, which gets a `full-library` or `public-api` brief; the choice is recorded in the result envelope's `headless_decisions` under the new gate `auto-scope.shape`.
+prs: [654]

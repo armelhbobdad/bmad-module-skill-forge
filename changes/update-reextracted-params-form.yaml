@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  An update now writes a re-extracted function's parameters to `provenance-map.json` in the form create-skill writes them, read from the recipe runner: `name: type`, `name?: type` for an optional JavaScript or TypeScript parameter, and ` = default` after a default. It no longer counts a function of a changed file as modified when its parameters did not change.
+prs: [654]

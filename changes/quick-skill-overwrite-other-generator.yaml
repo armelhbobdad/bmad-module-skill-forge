@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-quick-skill
+summary: |
+  When the version Quick Skill writes already holds a build another SKF workflow made (a Create Skill or Stack Skill build), the overwrite question now names that build and its confidence tier, and a yes replaces the whole package, so none of the old build's files (such as `references/` or `extraction-rules.yaml`) stays beside the quick skill; the completion summary names the build's forge data folder, which is left in place. A headless run, or a `--batch` target, over such a version no longer overwrites it: it stops with exit code `5` (`overwrite-cancelled`), with `error.details.existing_generator` naming the generator, and records the `write-and-validate.overwrite` decision with the default `N`. A quick skill over a quick skill is still overwritten without asking in headless mode.
+migration: |
+  To replace another workflow's build with a quick skill, run Quick Skill interactively and answer `Y` at the overwrite question, or remove that version folder yourself first; to keep the build, give the quick skill another version (`@Ferris QS <package>@<version>`) or leave the target out of the batch.
+prs: [654]

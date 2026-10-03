@@ -150,6 +150,8 @@ In `{headless_mode}`, print the line as §5b says, with `status: "dry-run"` and 
 | Files moved/renamed | {count} |
 | **Total exports affected** | {count} |
 
+{when the change manifest's `category_d` lists a document: **Tracked documents changed upstream:** each `docs_modified` path (modified) and `docs_deleted` path (deleted)}
+
 {in gap-driven mode, when gap-driven.md §1 left gaps unrouted: **Not repaired by this run:** each `{id}: {title} ({category})`}
 
 ### Export Changes
@@ -262,7 +264,7 @@ It writes the per-run record `{forge_version}/update-skill-result-{YYYYMMDD-HHmm
 SKF_UPDATE_RESULT_JSON: {"skf_update": {"status": "success", "skill_name": ..., "version": ..., "previous_version": ..., "update_mode": ..., "files_written": [...], "headless_decisions": [...], "warnings": [...], "error": null}}
 ```
 
-In `{headless_mode}`, display that line verbatim. An interactive run runs the command for its result files and need not show the line. When the emitter exits non-zero and its `message` names the payload, fix the payload once and run it again; a write it could not make adds `result_file_write_failed` to the line's `warnings[]`.
+In `{headless_mode}`, bind `{result_envelope_line}` to that line and do not display it here: the shared health check displays it verbatim as the run's last line. An interactive run runs the command for its result files and need not show the line. When the emitter exits non-zero and its `message` names the payload, fix the payload once and run it again; a write it could not make adds `result_file_write_failed` to the line's `warnings[]`.
 
 - `status`: `"success"` here; §1 stages `"no-changes"`, §1a `"detect-only"` and §1b `"dry-run"`; a halt prints its own `halted-for-*` or `blocked` line through its step's halt procedure and never reaches this step. The full enum lives in the schema.
 - `headless_decisions[]`: every gate's record in the run's decision log (init.md §4 degraded-rebuild and §8 confirmation, detect-changes.md §1b / §1c / §2.2, merge.md §8). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gate auto-resolved.

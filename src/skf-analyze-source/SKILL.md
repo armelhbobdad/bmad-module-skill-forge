@@ -7,7 +7,7 @@ description: Discover what to skill in a large repo and produce recommended skil
 
 ## Overview
 
-Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives. Exports come from the ast-grep recipe runner at every forge tier (read by eye where ast-grep is missing or the language has no recipe); Forge+ adds CCC semantic pre-ranking and Deep adds QMD history.
+Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives. Exports come from the ast-grep recipe runner at every forge tier (read by eye where ast-grep is missing or the language has no recipe).
 
 ## Conventions
 

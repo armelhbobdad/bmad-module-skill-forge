@@ -68,13 +68,13 @@ Read the target URL or path from the pipeline context (`{project_path}` or the f
 uv run {skillInventoryHelper} derive-name --target "{project_path}"
 ```
 
-| Input | Classification | Route |
-|-------|----------------|-------|
-| `basis` is `docs-host` | Documentation URL | `references/auto-docs-only.md` (docs-only, via §0c) |
-| Starts with `/`, `./`, or `~` | Local filesystem path | §1 (standard auto-scope) |
-| Anything else (a git host URL, an SSH URL, `git://`, a bare hostname) | Repo URL | §1 (standard auto-scope) |
+| `kind` | Classification | Route |
+|--------|----------------|-------|
+| `docs` | Documentation URL | `references/auto-docs-only.md` (docs-only, via §0c) |
+| `local` | Local filesystem path | §1 (standard auto-scope) |
+| `remote` | Repo URL, cloned from `clone_url` | §1 (standard auto-scope) |
 
-Store the classification result (documentation URL vs. repo/local/other). For all input types, continue to §0b (Pin Resolution).
+Store `{kind}` and `{clone_url}` (null unless `kind` is `remote`). For all input types, continue to §0b (Pin Resolution).
 
 ### 0b. Pin Resolution
 
@@ -82,14 +82,14 @@ This section validates and resolves version pins. It runs for repo URLs and loca
 
 **For documentation URLs:** Skip this section entirely. Continue to §0c.
 
-**For local paths when `--pin` is provided:** Emit a warning: "**Local source may not match pinned version {pin_value}.** Ensure you've checked out the correct version locally, or use a remote GitHub URL so SKF can clone from the git tag automatically." Store `{pinned_ref}` = `{pin_value}`, `{pinned_ref_type}` = `"local"`, `{pinned_version}` = `{pin_value}`. Continue to §0c without running `skf-validate-pins.py`.
+**For a local path (`{kind}` is `local`) when `--pin` is provided:** Emit a warning: "**Local source may not match pinned version {pin_value}.** Ensure you've checked out the correct version locally, or use a remote GitHub URL so SKF can clone from the git tag automatically." Store `{pinned_ref}` = `{pin_value}`, `{pinned_ref_type}` = `"local"`, `{pinned_version}` = `{pin_value}`. Continue to §0c without running `skf-validate-pins.py`.
 
-**For repo URLs when `--pin` is provided:**
+**For a repo URL (`{kind}` is `remote`) when `--pin` is provided:**
 
 **Resolve `{validatePinsHelper}`** from `{validatePinsProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0b`): "`skf-validate-pins.py` is missing. Re-install SKF."
 
 ```bash
-uv run {validatePinsHelper} --repo-url {project_path} --pin {pin_value}
+uv run {validatePinsHelper} --repo-url "{clone_url}" --pin {pin_value}
 ```
 
 Handle exit codes:
@@ -103,7 +103,7 @@ Handle exit codes:
 Using the same `{validatePinsHelper}` resolved above:
 
 ```bash
-uv run {validatePinsHelper} --repo-url {project_path}
+uv run {validatePinsHelper} --repo-url "{clone_url}"
 ```
 
 Handle exit codes:
@@ -154,20 +154,20 @@ Load `references/step-shape-detect.md` as reference for shape detection invocati
 
 ### 2. Manifest Scan
 
-Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses): do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists; if none does, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`): "`skf-scan-manifests.py` is missing. Re-install SKF." The scanner reads a **local directory**, so how you point it at the target depends on the input form classified in §0:
+Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses): do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists; if none does, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`): "`skf-scan-manifests.py` is missing. Re-install SKF." The scanner reads a **local directory**, so how you point it at the target depends on its `kind`: §0 gave `{kind}` and `{clone_url}` for its target, and §0's `derive-name --target` call gives them for any other path.
 
 **For each path in `project_paths[]`:**
 
-- **Local filesystem path** (starts with `/`, `./`, or `~`, or is an existing directory): scan it directly. Its **scan root** is the path itself, with a leading `~` written as `$HOME`: the commands below quote every path, and a `~` inside double quotes does not expand.
+- **`kind` is `local`:** scan it directly. Its **scan root** is the path itself, with a leading `~` written as `$HOME`: the commands below quote every path, and a `~` inside double quotes does not expand.
 
   ```bash
   uv run {scanManifestsHelper} scan "<the path's scan root>" > "{run_dir}/manifests-{i}.json"
   ```
 
-- **Remote git URL** (e.g. `github.com/{owner}/{repo}`): auto-scope has no working tree yet and the scanner cannot read a URL. Fetch **just the manifests** into the run folder (blobless + sparse + depth-1: no source blobs, typically KB to MB even for large monorepos); `{run_dir}/clone-{i}`, for the `{i}`-th entry of `project_paths[]` (`clone-1` for §0's target), is the path's **scan root**:
+- **`kind` is `remote`:** auto-scope has no working tree yet and the scanner cannot read a URL. Fetch **just the manifests** into the run folder (blobless + sparse + depth-1: no source blobs, typically KB to MB even for large monorepos); `{run_dir}/clone-{i}`, for the `{i}`-th entry of `project_paths[]` (`clone-1` for §0's target), is the path's **scan root**:
 
   ```bash
-  git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} {path} "{run_dir}/clone-{i}"
+  git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} "{clone_url}" "{run_dir}/clone-{i}"
   git -C "{run_dir}/clone-{i}" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' '**/go.mod' '**/pom.xml' '**/build.gradle' '**/build.gradle.kts' '**/Package.swift' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml' 'lerna.json' 'rush.json' 'nx.json'
   git -C "{run_dir}/clone-{i}" checkout
   uv run {scanManifestsHelper} scan "{run_dir}/clone-{i}" > "{run_dir}/manifests-{i}.json"
@@ -245,6 +245,8 @@ If the command fails, go on: only that entry is lost.
 ### 4. Map Shape to Scope
 
 Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1) — the single source of truth for this ladder (the `export_count > 200 → public-api` split, the `language-reference` corpora caveat, and the `stack-compose` decomposition note).
+
+**An app or a library on a framework.** When §3's `signals` hold `app_or_library:framework_dep`, take that table's row for it and judge which of its two cases the repository is from the scan-root manifest's `description` (its `manifests[]` entry in `{run_dir}/manifests-1.json`), or, when that does not settle it, the README's opening paragraph (a remote fetch checked out only the manifests: `git -C "{scan_root}" sparse-checkout add '/README*'` brings the README in). From here on `{shape}` is the shape you chose. Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.shape", "default_action": "reference-app", "taken_action": "<reference-app or library-API>", "reason": "<the sentence of the description or README that decided>", "evidence": {"signals": [<the §3 signals>]}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
 
 ### 5. Generate Include/Exclude Patterns
 
@@ -400,7 +402,7 @@ Only `description` and `scope_notes` are in your words. Every other value comes 
 
 - `name`, `scope_type`, `scope_include`, `scope_exclude` and `scope_notes`: §6 for a single scope; the split branch's §6a for each boundary of a decomposition.
 - `language`: §5's `{detected_language}` for a single scope (detect once); the split branch's §6a for each boundary.
-- `detected_version`: the version the §2 scan-root manifest declares, found by the Version Detection rules in `assets/skill-brief-schema.md`, when it is full `X.Y.Z` semver (an optional leading `v`, an optional pre-release such as `-rc.1`); else null (a two-part or PEP 440 version such as `0.1` or `2.0.0rc1` too), since the writer rejects any other value. The writer falls back to `1.0.0` for null.
+- `detected_version`: by `assets/skill-brief-schema.md`'s **Version Detection**, for the §2 scan-root manifest (its `manifests[]` entry in `{run_dir}/manifests-1.json`).
 - `target_version` and `target_ref`, from the §0b pin, the same for every brief:
 
   | `{pinned_ref_type}` | `target_version` | `target_ref` |

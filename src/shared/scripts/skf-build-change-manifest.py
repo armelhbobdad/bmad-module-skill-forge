@@ -28,8 +28,9 @@ Subcommands:
 
   build [--input <file>] [--category-a <file>] [--category-b-diff <file>]
         [--category-c <file>] [--ccc-pairs <file>]
+        [--file-compare <file> --provenance-map <file>] [--new-files <file>]
       Reads category JSON from stdin or `--input <file>`, emits the
-      unified manifest envelope.
+      unified manifest envelope (see "Manifest" below).
 
   build --doc-hashes <file>
       A docs-only skill's manifest, from skf-detect-docs.py
@@ -57,6 +58,13 @@ Subcommands:
       The provenance map an update writes (see "Apply" below): the old
       map with this run's changes, written to -o through a temporary file
       and a rename. Prints a summary with the warnings for a person.
+
+  records [--extraction <file>] [--export-details <file>]
+          [--files-from <file>] [--patches <dir>] -o <file>
+      Step 3's re-extraction records (see "Records" below), written to -o
+      through a temporary file and a rename. Prints {"status": "written",
+      "output", "files_extracted", "exports_extracted",
+      "confidence_breakdown": {"T1", "T1-low", "T2"}, "warnings"}.
 
 Helper files in place of typed slices (update-skill detect-changes §2.1):
 
@@ -88,7 +96,21 @@ Helper files in place of typed slices (update-skill detect-changes §2.1):
                             rename-candidates left unpaired,
                             {"renamed_files": [...], "renamed_exports":
                             [...]}, appended to the Category C slice
-  A given file replaces the input's own slice. Either way, every category_c
+  --file-compare <file>     build only: the output of skf-hash-content.py
+                            compare, with --provenance-map (the map it
+                            compared): each MODIFIED_FILE and DELETED_FILE
+                            row goes to the {type}s_modified or
+                            {type}s_deleted list of category_d, by the
+                            file_type of the file_entries[] row of its
+                            source_file (script, asset or doc; a row with
+                            none takes the type its file_name's first
+                            folder names, scripts/, assets/ or docs/, else
+                            asset)
+  --new-files <file>        build only: the output of skf-new-file-diff.py:
+                            each new_files[] item goes to scripts_added or
+                            assets_added by its kind
+  Either Category D file makes the two files the category_d slice. A given
+  file replaces the input's own slice. Either way, every category_c
   rename then takes its pair out of the lists it was found in: a renamed
   file's old_path out of category_a.deleted and new_path out of
   category_a.added; a renamed export's old_name out of
@@ -116,11 +138,26 @@ Input JSON shape (object on stdin or in --input file):
     },
     "category_d": {
       "scripts_modified": ["path", ...], "scripts_added": [...], "scripts_deleted": [...],
-      "assets_modified": [...],          "assets_added": [...],  "assets_deleted":  [...]
+      "assets_modified": [...],          "assets_added": [...],  "assets_deleted":  [...],
+      "docs_modified": [...],            "docs_deleted": [...]
     },
     "degraded_mode": false,
     "update_mode": "normal" | "gap-driven"  // optional; influences deletion-ratio only
   }
+
+Manifest (build's output):
+
+  {"no_changes": <every count is 0>, "degraded_mode": <bool>,
+   "counts": {files_changed, files_added, files_deleted, files_moved,
+              exports_modified, exports_new, exports_deleted,
+              exports_renamed, exports_moved, and one count per
+              category_d list},
+   "total_export_changes": N, "per_file": [...],
+   "category_d": {the eight category_d lists, each path once}}
+
+  A tracked document (a doc row of file_entries[]) has no other detector:
+  update-skill's Category A never lists it, so a document-only change still
+  counts, and the update records its new hash.
 
 Every category and sub-key is optional — missing keys default to
 empty lists. This lets gap-driven runs (which produce no Category D
@@ -180,11 +217,12 @@ Apply (update-skill write.md §3):
   exports of --category-c and --ccc-pairs (or of --input, the category
   JSON's category_c) and the fresh
   records: --reextract-records ({"mode": "normal", "files": [{file_path,
-  exports: [the per-file worker records]}]}), --extraction (the recipe
-  runner's exports) and --export-details. A fresh record of an export
-  takes its line, export_type and ast labels from the runner, then the
-  details, then the worker record; its params and return_type from the
-  details, then the worker record. Per file of the manifest:
+  exports: [...]}]}, the records `records` wrote), --extraction (the
+  recipe runner's exports) and --export-details. A fresh record of an
+  export takes its line, export_type and ast labels from the runner, then
+  the details, then step 3's record; its params and return_type from the
+  details, then step 3's record (the runner's in the map's typed form).
+  Per file of the manifest:
     MODIFIED  NEW_EXPORT adds an entry, MODIFIED_EXPORT rewrites the
               export's fields from its fresh record, MOVED_EXPORT sets
               its line (and file), DELETED_EXPORT removes it
@@ -252,6 +290,30 @@ Apply (update-skill write.md §3):
   "removed"}, "warnings": [...]}, or {"status": "refused",
   "blocking_unresolved": [{export_name, severity}]} with exit 3.
 
+Records (update-skill re-extract.md §4, and gap-driven.md §4a for the files
+it scans):
+
+  Writes {"mode": "normal", "files": [{file_path, exports: [...]}]}, one
+  block per file --files-from names (and per other file an export names),
+  so the model never types a record a tool already wrote. Each export the
+  recipe runner found (--extraction) is seeded with its name, type,
+  signature, location (file:line), confidence T1, extraction_method
+  ast-grep, ast_node_type and ast_recipe, return_type and params, each
+  parameter in the provenance map's typed form (skf-extraction-
+  inventory.py typed_param: `name: type`, `name?: type`, ` = default`).
+  Where the runner left params or return_type null, --export-details
+  fills them. An export only --export-details holds (one read by eye,
+  with an export_type) is seeded from it as T1-low, source-read, with a
+  null ast_node_type and ast_recipe.
+
+  Then each worker patch in --patches (every *.json there, in name order:
+  one block {file_path, exports: [{name, ...}]} or a list of them) is
+  merged into the export of its name and file: signature, members,
+  docstring and qmd_evidence replace the seed's, and params and
+  return_type are set only where the seed has none. A patch for an export
+  no seed holds is not added, with a warning. confidence_breakdown counts
+  the exports by confidence, and T2 the exports with a qmd_evidence.
+
 Exit codes:
   0  operation succeeded
   1  user error (malformed JSON, bad path, malformed provenance file, a
@@ -265,6 +327,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -455,14 +518,8 @@ def build_manifest(payload: dict) -> dict:
     c_renamed_files = _get_list(cat_c, "renamed_files")
     c_renamed_exports = _get_list(cat_c, "renamed_exports")
 
-    d = {
-        "scripts_modified": len(_get_list(cat_d, "scripts_modified")),
-        "scripts_added": len(_get_list(cat_d, "scripts_added")),
-        "scripts_deleted": len(_get_list(cat_d, "scripts_deleted")),
-        "assets_modified": len(_get_list(cat_d, "assets_modified")),
-        "assets_added": len(_get_list(cat_d, "assets_added")),
-        "assets_deleted": len(_get_list(cat_d, "assets_deleted")),
-    }
+    d_lists = {key: list(dict.fromkeys(p for p in _get_list(cat_d, key) if isinstance(p, str))) for key in D_KEYS}
+    d = {key: len(paths) for key, paths in d_lists.items()}
 
     counts = {
         "files_changed": len(a_modified),
@@ -506,7 +563,49 @@ def build_manifest(payload: dict) -> dict:
         "counts": counts,
         "total_export_changes": total_export_changes,
         "per_file": per_file,
+        "category_d": d_lists,
     }
+
+
+# Category D's lists, in the order build counts them.
+D_KEYS = ("scripts_modified", "scripts_added", "scripts_deleted", "assets_modified", "assets_added",
+          "assets_deleted", "docs_modified", "docs_deleted")
+FILE_TYPES = ("script", "asset", "doc")
+_FILE_TYPE_OF_FOLDER = {"scripts": "script", "assets": "asset", "docs": "doc"}
+
+
+def _file_type(row: dict) -> str:
+    """A file_entries[] row's file_type, else the one its file_name's first folder names, else asset."""
+    kind = row.get("file_type")
+    if kind in FILE_TYPES:
+        return kind
+    name = row.get("file_name")
+    folder = name.strip().replace("\\", "/").split("/", 1)[0] if isinstance(name, str) else ""
+    return _FILE_TYPE_OF_FOLDER.get(folder, "asset")
+
+
+def category_d_from_files(compare: dict | None, new_files: dict | None, provenance: dict | None) -> dict:
+    """Category D's lists from skf-hash-content.py compare's rows, each typed by the file_entries[] row of its
+    source_file in `provenance`, and from skf-new-file-diff.py's new files, by kind. Raises ValueError."""
+    rows = (provenance or {}).get("file_entries") or []
+    if not isinstance(rows, list):
+        raise ValueError("provenance `file_entries` must be an array")
+    types: dict[str, str] = {}
+    for row in rows:
+        if isinstance(row, dict) and _norm_path(row.get("source_file")):
+            types.setdefault(_norm_path(row["source_file"]), _file_type(row))
+    lists: dict[str, list] = {key: [] for key in D_KEYS}
+    changes = {"MODIFIED_FILE": "modified", "DELETED_FILE": "deleted"}
+    for row in _get_list(compare or {}, "comparisons"):
+        if not isinstance(row, dict) or row.get("classification") not in changes:
+            continue
+        path = _norm_path(row.get("source_file"))
+        if path:
+            lists[f"{types.get(path, 'asset')}s_{changes[row['classification']]}"].append(path)
+    for item in _get_list(new_files or {}, "new_files"):
+        if isinstance(item, dict) and item.get("kind") in ("script", "asset") and _norm_path(item.get("source_file")):
+            lists[f"{item['kind']}s_added"].append(_norm_path(item["source_file"]))
+    return lists
 
 
 def _build_per_file(
@@ -1452,6 +1551,136 @@ def _write_json_atomic(path: Path, value) -> None:
 
 
 # --------------------------------------------------------------------------
+# Records (update-skill re-extract.md §4, gap-driven.md §4a)
+# --------------------------------------------------------------------------
+
+
+# The fields a worker's patch may set: the ones no tool records, and the two
+# a patch sets only where the seed has none.
+PATCH_FIELDS = ("signature", "members", "docstring", "qmd_evidence")
+PATCH_IF_NULL = ("params", "return_type")
+_INVENTORY = None
+
+
+def _typed_param(param, language: object) -> str | None:
+    """One parameter as the provenance map writes it: skf-extraction-inventory.py's typed_param, loaded once from
+    this folder, so create-skill and update-skill write one form."""
+    global _INVENTORY
+    if _INVENTORY is None:
+        path = Path(__file__).resolve().parent / "skf-extraction-inventory.py"
+        spec = importlib.util.spec_from_file_location("skf_extraction_inventory", path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _INVENTORY = module
+    return _INVENTORY.typed_param(param, language if isinstance(language, str) else None)
+
+
+def _typed_params(value, language: object) -> list | None:
+    if not isinstance(value, list):
+        return None
+    return [s for s in (_typed_param(p, language) for p in value) if s is not None]
+
+
+def _seed(record: dict, path: str, read_by_eye: bool) -> dict:
+    """The re-extraction record of one export from the runner's (or, read by eye, step 2's) record."""
+    line = _line_of(record.get("source_line"))
+    out = {
+        "name": _name_of(record),
+        "type": record.get("export_type", record.get("type")),
+        "signature": record.get("signature"),
+        "location": f"{path}:{line}" if line is not None else None,
+        "params": _typed_params(record.get("params", record.get("parameters")), record.get("language")),
+        "return_type": record.get("return_type"),
+    }
+    labels = _labels("source-read" if read_by_eye else record.get("extraction_method"), record.get("ast_node_type"))
+    out.update({key: labels[key] for key in ("confidence", "extraction_method", "ast_node_type")})
+    out["ast_recipe"] = None if read_by_eye else record.get("ast_recipe")
+    return out
+
+
+def _patch_blocks(folder: Path) -> list[dict]:
+    """Every per-file block of the patch files in `folder` (a file holds one block or a list of them), in file
+    name order. Raises ValueError."""
+    if not folder.is_dir():
+        raise ValueError(f"--patches {folder} is not a folder")
+    blocks = []
+    for path in sorted(folder.glob("*.json"), key=lambda p: p.name):
+        doc = _load_json_file(path, "patch file")
+        for block in doc if isinstance(doc, list) else [doc]:
+            if not isinstance(block, dict) or not _norm_path(block.get("file_path")) \
+                    or not isinstance(block.get("exports"), list):
+                raise ValueError(f"patch file {path} holds a block with no file_path or exports list")
+            blocks.append(block)
+    return blocks
+
+
+def build_records(extraction: dict | None, details: dict | None, files: list | None,
+                  patches: list[dict]) -> tuple[dict, dict]:
+    """(reextract-records.json, summary): each export's record seeded from the runner's and step 2's records, with
+    the workers' patches merged in (see "Records" in the module docstring)."""
+    runner, extra = {}, {}
+    for source, doc, what in ((runner, extraction, "--extraction file"), (extra, details, "--export-details file")):
+        for record in _exports_of(doc, what):
+            key = (_name_of(record), _file_of(record))
+            if all(key):
+                source.setdefault(key, record)
+    seeded: dict[tuple, dict] = {}
+    languages: dict[tuple, object] = {}
+    warnings = []
+
+    def fill_if_null(key: tuple, record: dict) -> None:
+        """Set params and return_type from `record` where the seed of `key` has none."""
+        for field in PATCH_IF_NULL:
+            value = record.get(field)
+            if field == "params" and value is None:
+                value = record.get("parameters")
+            if seeded[key][field] is None and value is not None:
+                seeded[key][field] = _typed_params(value, languages.get(key)) if field == "params" else value
+
+    for key, record in runner.items():
+        seeded[key], languages[key] = _seed(record, key[1], read_by_eye=False), record.get("language")
+        fill_if_null(key, extra.get(key, {}))
+    for key, record in extra.items():
+        if key in runner:
+            continue
+        if record.get("export_type", record.get("type")) is None:
+            warnings.append(f"re-extract: {key[0]} in {key[1]}: an export-details record with no export_type the "
+                            f"runner does not hold; not added")
+            continue
+        seeded[key], languages[key] = _seed(record, key[1], read_by_eye=True), record.get("language")
+    for block in patches:
+        path = _norm_path(block.get("file_path"))
+        for patch in block.get("exports") or []:
+            key = (_name_of(patch) if isinstance(patch, dict) else None, path)
+            if key not in seeded:
+                warnings.append(f"re-extract: a patch names {key[0] or 'no export'} in {path}, which neither the "
+                                f"runner nor step 2 recorded; not added")
+                continue
+            for field in PATCH_FIELDS:
+                if patch.get(field) is not None:
+                    seeded[key][field] = patch[field]
+            fill_if_null(key, patch)
+    paths = list(dict.fromkeys([p for p in (_norm_path(f) for f in files or []) if p]
+                               + sorted({key[1] for key in seeded})))
+    blocks = [{"file_path": path, "exports": [seeded[key] for key in sorted(seeded) if key[1] == path]}
+              for path in paths]
+    exports = [record for block in blocks for record in block["exports"]]
+    summary = {
+        "files_extracted": len(blocks),
+        "exports_extracted": len(exports),
+        "confidence_breakdown": {
+            "T1": sum(1 for r in exports if r["confidence"] == "T1"),
+            "T1-low": sum(1 for r in exports if r["confidence"] == "T1-low"),
+            "T2": sum(1 for r in exports if r.get("qmd_evidence") is not None),
+        },
+        "warnings": warnings,
+    }
+    return {"mode": "normal", "files": blocks}, summary
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -1501,15 +1730,37 @@ def docs_only_manifest(doc_hashes: dict) -> dict:
             "counts": {"docs_changed": len(changed), "docs_fetch_failed": len(failed)}}
 
 
+def _category_d(args: argparse.Namespace) -> dict | None:
+    """Category D from --file-compare (typed by --provenance-map) and --new-files, else None. Raises ValueError."""
+    if not args.file_compare and not args.new_files:
+        if args.provenance_map:
+            raise ValueError("--provenance-map goes with --file-compare")
+        return None
+    if args.file_compare and not args.provenance_map:
+        raise ValueError("--file-compare needs --provenance-map, which types each row by its file_entries[] row")
+    compare = _load_helper_file(Path(args.file_compare), "--file-compare file", "comparisons") \
+        if args.file_compare else None
+    new_files = _load_helper_file(Path(args.new_files), "--new-files file", "new_files") if args.new_files else None
+    provenance = _load_json_file(Path(args.provenance_map), "--provenance-map file") if args.provenance_map else None
+    if provenance is not None and not isinstance(provenance, dict):
+        raise ValueError(f"--provenance-map file {args.provenance_map} must hold a JSON object")
+    return category_d_from_files(compare, new_files, provenance)
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     try:
         if args.doc_hashes:
-            if args.input or args.category_a or args.category_b_diff or args.category_c or args.ccc_pairs:
+            if (args.input or args.category_a or args.category_b_diff or args.category_c or args.ccc_pairs
+                    or args.file_compare or args.new_files or args.provenance_map):
                 raise ValueError("--doc-hashes takes no other input")
             doc_hashes = _load_helper_file(Path(args.doc_hashes), "--doc-hashes file", "changed")
             manifest = docs_only_manifest(doc_hashes)
         else:
-            manifest = build_manifest(_payload(args))
+            payload = _payload(args)
+            cat_d = _category_d(args)
+            if cat_d is not None:
+                payload = {**payload, "category_d": cat_d}
+            manifest = build_manifest(payload)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -1637,6 +1888,28 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_records(args: argparse.Namespace) -> int:
+    try:
+        files = _optional_json(args.files_from, "--files-from file")
+        if files is not None and not (isinstance(files, list) and all(isinstance(f, str) for f in files)):
+            raise ValueError(f"--files-from file {args.files_from} must hold a JSON array of paths")
+        records, summary = build_records(
+            _optional_json(args.extraction, "--extraction file"),
+            _optional_json(args.export_details, "--export-details file"),
+            files,
+            _patch_blocks(Path(args.patches)) if args.patches else [],
+        )
+        _write_json_atomic(Path(args.output), records)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"error: cannot write {args.output}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"status": "written", "output": args.output, **summary}))
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-build-change-manifest",
@@ -1650,6 +1923,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_build = sub.add_parser("build", help="aggregate categories into manifest")
     p_build.add_argument("--doc-hashes", metavar="FILE",
                          help="a docs-only skill: skf-detect-docs.py compare-hashes output, the only input")
+    p_build.add_argument("--file-compare", metavar="FILE",
+                         help="skf-hash-content.py compare output: Category D's modified and deleted files")
+    p_build.add_argument("--new-files", metavar="FILE", help="skf-new-file-diff.py output: Category D's new files")
+    p_build.add_argument("--provenance-map", metavar="FILE",
+                         help="the map --file-compare compared: each row's file_type")
     p_build.set_defaults(func=_cmd_build)
 
     p_ratio = sub.add_parser(
@@ -1707,6 +1985,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument("--drift-pinned", default=None, help="under the drift override: the pinned short SHA")
     p_apply.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the new map")
     p_apply.set_defaults(func=_cmd_apply)
+
+    p_records = sub.add_parser("records", help="write step 3's re-extraction records from the runner's and the "
+                                               "workers' files")
+    p_records.add_argument("--extraction", metavar="FILE", help="the recipe runner's output")
+    p_records.add_argument("--export-details", metavar="FILE",
+                           help="step 2's export details: params and return types, and the exports read by eye")
+    p_records.add_argument("--files-from", metavar="FILE",
+                           help="the files step 3 extracts (a JSON array), each a block even with no export")
+    p_records.add_argument("--patches", metavar="DIR", help="the folder of the workers' per-file patches")
+    p_records.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the records")
+    p_records.set_defaults(func=_cmd_records)
 
     for p in (p_build, p_ratio):
         p.add_argument(

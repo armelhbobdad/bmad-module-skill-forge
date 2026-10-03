@@ -264,7 +264,7 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 
 ### 2. Compare Against Provenance Map
 
-**In degraded mode (no provenance map),** run Category A without `--provenance-map`: its `full` mode lists every in-scope file as MODIFIED (with no brief, `--language` scopes the walk), so step 3 re-extracts every export. Run Category B's step 1 only, and skip its steps 2 and 3, Category C, Category D and §2.2: there is no map to compare against.
+**In degraded mode (no provenance map),** run Category A without `--provenance-map`: its `full` mode lists every in-scope file as MODIFIED (with no brief, `--language` scopes the walk), so step 3 re-extracts every export. Run Category B's steps 1 and 2 only (re-extract.md §4's records come from them), and skip its step 3, Category C, Category D and §2.2: there is no map to compare against.
 
 #### 2.0 Change-Detection Excludes
 
@@ -308,7 +308,7 @@ Pass `--provenance-map` whenever init.md §4 found one; `--brief` (as §1c left 
 
    Pass `--language` and `--scope-type` when metadata.json records them. It takes no `--brief`: Category A applied the scope, and a tracked file the brief's scope leaves out (gap-driven.md §1's rule R1 excludes a rescoped export's file) keeps its exports. `--head-cap 0` keeps every match, since a dropped one would read as a deleted export. Step 3 reads this file and never runs the runner again. **Exit 1** (`incomplete`): run it once more; when still incomplete, step 2 below reads by eye each listed file with no export in `exports[]`. **Exit 2 or 3, no JSON, no candidate resolves, or Quick tier:** write `{"exports": []}` to `{run_dir}/extraction.json`; step 2 reads every listed file by eye (at Quick tier, by text pattern). Tell the user which files were read by eye.
 
-2. **What the recipes do not record.** Workers, in parallel batches (Pattern 4) when the list is long, read the modified and added files and each return ONLY `{"exports": [...]}`, with no prose and no fences. For each export the runner found: `export_name` and `source_file` as it wrote them, with `params` (each parameter as the source writes it, `name: type`, the form the provenance map's `params` hold) and `return_type` (null when there is none), read at its `source_line`. For each export it could not find (a name `entry_point_diff.extraction_gaps[]` lists, a form Known Limitation #11 in `{extractionPatternsData}` lists, an export of a file `file_issues[]` names or that was read by eye): the same, plus `export_type`, `source_line`, `confidence: T1-low` and `extraction_method: source-read`. Write the union of their `exports` arrays to `{run_dir}/export-details.json`.
+2. **What the recipes do not record.** Workers, in parallel batches (Pattern 4) when the list is long, read the modified and added files and each return ONLY `{"exports": [...]}`, with no prose and no fences. For each function export the runner found whose `params` it left null (it could not read the signature): `export_name` and `source_file` as it wrote them, with `params` (each parameter as the source writes it, `name: type`, the form the provenance map's `params` hold) and `return_type` (null when there is none), read at its `source_line`. For each export it could not find (a name `entry_point_diff.extraction_gaps[]` lists, a form Known Limitation #11 in `{extractionPatternsData}` lists, an export of a file `file_issues[]` names or that was read by eye): the same, plus `export_type`, `source_line`, `confidence: T1-low` and `extraction_method: source-read`. Write the union of their `exports` arrays to `{run_dir}/export-details.json`.
 
 3. **The diff.** Resolve `{structuralDiffHelper}` ← first existing path in `{structuralDiffProbeOrder}` and, from `{project-root}`, run:
 
@@ -340,7 +340,7 @@ Pass `--category-b-diff`, `--extraction` and `--export-details` when Category B 
 
 **CCC check (Forge+ and Deep, a local source only).** When `tools.ccc` is true and `{source_tree_status}` is neither `ready` nor `offline` (the tree init.md §6b prepared has no ccc index, and a search there could start indexing a folder step 7 deletes), you may pair what the rules left in `unpaired`: a deleted file with an added one that CCC ranks as the same code (`ccc_bridge.search` over the deleted file's export names; **Tool resolution:** `/ccc` skill search, ccc MCP or `ccc search`). This is the one judgment in Category C: add a pair only on CCC's evidence, name it in the report as a CCC pairing, and never undo a pair the rules made. Write only these pairs, with each path as `unpaired` gives it, to `{run_dir}/ccc-pairs.json` as `{"renamed_files": [{"old_path": "<deleted>", "new_path": "<added>"}]}`; the helpers below read `{run_dir}/category-c.json` themselves, so never copy its pairs.
 
-**Category D: script/asset file changes.**
+**Category D: script, asset and tracked-document file changes.**
 
 Run the bulk comparison once, keeping its output in the run folder (step 5's `apply` reads it):
 
@@ -365,11 +365,6 @@ The helper emits:
 }
 ```
 
-Translate the helper's output into the change manifest:
-- `MODIFIED_FILE` rows → add to manifest as MODIFIED_FILE
-- `DELETED_FILE` rows → add to manifest as DELETED_FILE
-- `UNCHANGED` rows → omit from the manifest (no action needed)
-
 The compare helper reports only tracked files; NEW_FILE detection (a file present in source but absent from the provenance map) is a set-difference, so it runs through a script rather than the prompt. Pipe the same deterministic detector create-skill step 3 §4c uses (resolved via `detectScriptsAssetsProbeOrder`) into `{newFileDiffHelper}`, which subtracts the provenance map's `file_entries[].source_file` and sets aside user-authored `[MANUAL]` paths:
 
 ```bash
@@ -378,13 +373,13 @@ uv run {detectScriptsAssetsHelper} detect "{source_root}" \
     > "{run_dir}/new-files.json"
 ```
 
-It writes `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "stats":{...}}`. Add each `new_files[]` entry to the manifest as NEW_FILE: `kind` (`script`/`asset`) selects the target array. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above.
+It writes `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "stats":{...}}`. §3's `build` reads both files, typing each compare row by its `file_entries[]` row's `file_type` and each new file by its `kind`: sort no row by hand. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above.
 
-**Write the category JSON** to `{run_dir}/categories.json`, where §2.2 and §3 read it beside the helper files: Category D's object (`category_d`, §3's shape) and the two flags, `degraded_mode` and `update_mode: "normal"`. Category C stays in the files its steps wrote, which §2.2, §3 and step 5's `apply` take as `--category-c` and `--ccc-pairs`:
+**Write the category JSON** to `{run_dir}/categories.json`, where §2.2 and §3 read it beside the helper files: the two flags, `degraded_mode` and `update_mode: "normal"`. Category C stays in the files its steps wrote, which §2.2, §3 and step 5's `apply` take as `--category-c` and `--ccc-pairs`:
 
 ```bash
 cat > "{run_dir}/categories.json" <<'SKF_JSON'
-{"category_d": {...}, "degraded_mode": <bool>, "update_mode": "normal"}
+{"degraded_mode": <bool>, "update_mode": "normal"}
 SKF_JSON
 ```
 
@@ -465,11 +460,13 @@ uv run {buildChangeManifestHelper} build \
     [--category-b-diff "{run_dir}/category-b-diff.json"] \
     [--category-c "{run_dir}/category-c.json"] \
     [--ccc-pairs "{run_dir}/ccc-pairs.json"] \
+    [--file-compare "{run_dir}/category-d-compare.json" --provenance-map "{provenance_map_path}"] \
+    [--new-files "{run_dir}/new-files.json"] \
     --input "{run_dir}/categories.json" \
     > "{run_dir}/change-manifest.json"
 ```
 
-Pass each helper file its category wrote. On exit 1 or no JSON: HALT with status `blocked` (halt procedure: `phase: "detect-changes:change-manifest"`, its stderr as `reason`). `category_d` in the category JSON has the shape `{"scripts_modified": [...], "scripts_added": [...], "scripts_deleted": [...], "assets_modified": [...], "assets_added": [...], "assets_deleted": [...]}`.
+Pass each helper file its category wrote. On exit 1 or no JSON: HALT with status `blocked` (halt procedure: `phase: "detect-changes:change-manifest"`, its stderr as `reason`).
 
 The helper emits the unified manifest envelope:
 
@@ -482,17 +479,19 @@ The helper emits the unified manifest envelope:
     "exports_modified": N, "exports_new": N, "exports_deleted": N,
     "exports_renamed": N, "exports_moved": N,
     "scripts_modified": N, "scripts_added": N, "scripts_deleted": N,
-    "assets_modified": N, "assets_added": N, "assets_deleted": N
+    "assets_modified": N, "assets_added": N, "assets_deleted": N,
+    "docs_modified": N, "docs_deleted": N
   },
   "total_export_changes": N,
   "per_file": [
     {"file_path": "...", "status": "MODIFIED|ADDED|DELETED|MOVED",
      "exports_affected": [{name, change_type, old_line, new_line}, ...]}
-  ]
+  ],
+  "category_d": {"scripts_modified": [...], ..., "docs_deleted": [...]}
 }
 ```
 
-`per_file` entries are sorted MODIFIED → ADDED → DELETED → MOVED, then alphabetically within each status group, so downstream stages can rely on stable ordering. MOVED entries include an extra `old_path` field. `{run_dir}/change-manifest.json` is the change manifest: step 3, step 6 and step 5's `apply` read it there, so it survives a compacted context.
+`per_file` entries are sorted MODIFIED → ADDED → DELETED → MOVED, then alphabetically within each status group, so downstream stages can rely on stable ordering. MOVED entries include an extra `old_path` field. `category_d` lists the paths behind the `scripts_*`, `assets_*` and `docs_*` counts: a `docs_*` path is a tracked document, which only Category D detects, so a change to one alone is a change. `{run_dir}/change-manifest.json` is the change manifest: step 3, step 6 and step 5's `apply` read it there, so it survives a compacted context.
 
 ### 4. Check for No-Change Shortcut
 

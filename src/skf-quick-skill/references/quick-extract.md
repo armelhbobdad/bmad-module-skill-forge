@@ -90,22 +90,33 @@ Select: [C] Continue anyway · [A] Abort"
 
 ### 2. Fetch Source Files
 
-Fetch the manifest file and the top-level entry-point file(s) for the detected language with the fetch call above: the manifest first (§1 already fetched a root `package.json`), then the entry points, whose candidates are patterns for the same call. Name every candidate the row lists; the listing decides which exist.
+**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot read the public API of `{repo_name}`.** SKF's public-API extractor (`skf-extract-public-api.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot read the public API of {repo_name}.", "skill_package": null, "details": {"cause": "public-api-extractor-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
 
-| Language | Manifest | Entry-point patterns (quick mode) |
-| --- | --- | --- |
-| JavaScript / TypeScript | `package.json` | `index.js` `index.ts` `src/index.ts` `src/index.js`, and the file the `main` field names |
-| Python | `pyproject.toml` or `setup.py` | `__init__.py` `{package}/__init__.py` `src/{package}/__init__.py` |
-| Rust | `Cargo.toml` | `src/lib.rs` |
-| Go | `go.mod` | `'*.go'` with `--limit 5 --exclude '*_test.go'` |
-| Java (Maven) | `pom.xml` | `'src/main/java/<groupId-as-path>/*.java'` with `--limit 5` |
-| Kotlin (Gradle) | `build.gradle.kts` or `build.gradle` | `'src/main/kotlin/**/*.kt'` with `--limit 5`; also fetch `settings.gradle` or `settings.gradle.kts` for `include(...)` entries when present |
+Fetch the manifest for the detected language with the fetch call above, naming every candidate its row lists (the listing decides which exist; §1 already fetched a root `package.json`):
 
-**If `scope_hint` provided:** put `{scope_hint}/` before each entry-point pattern, and fetch the manifest there too when the listing holds one, so extraction reads the scoped folder instead of the repo root.
+| Language | Manifest |
+| --- | --- |
+| JavaScript / TypeScript | `package.json` |
+| Python | `pyproject.toml`, `setup.py` or `setup.cfg` |
+| Rust | `Cargo.toml` |
+| Go | `go.mod` |
+| Java (Maven) | `pom.xml` |
+| Kotlin (Gradle) | `build.gradle.kts` or `build.gradle`; also fetch `settings.gradle` or `settings.gradle.kts` for `include(...)` entries when present |
+
+Then, for a language of §3's list, the extractor finds the entry files in the listing from the manifest it reads; fetch the files it lists:
+
+```bash
+uv run {publicApiExtractor} --mode entries --language <lang> --tree-file "{run_dir}/tree.json" --source-root "{run_dir}/src" [--scope "{scope_hint}"] --fetch-list "{run_dir}/entries.txt" > "{run_dir}/entries.json"
+uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-file "{run_dir}/tree.json" --dest "{run_dir}/src" --patterns-file "{run_dir}/entries.txt"
+```
+
+`<lang>` is §3's. `{run_dir}/entries.json` names the `manifest` the extractor read and its `entry_files`, §3's `--entry-file` list, and `unresolved` names what no listed file answered, which §5 reports. Never derive an entry file from the package name yourself. For a language outside §3's list, or when the entries call exits non-zero (1 for a language it does not know, 2 for an input error, its error line on stderr), take no entry file and skip the fetch: §3 reads the manifest alone, or, when §2 fetched none, stages its empty envelope with that error line in place of `no source file was fetched`.
+
+**If `scope_hint` provided:** fetch the manifest under `{scope_hint}/` when the listing holds one, and pass `--scope "{scope_hint}"` to the entries call, so extraction reads the scoped folder instead of the repo root.
 
 For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first: §3's multi-module loop fetches the modules.
 
-**Skills module** (`repo_shape: skills-module`): fetch no entry-point files. Fetch the manifest from the table when the root has one and §1 did not fetch it, and the files the sniff listed in `{run_dir}/skills-fetch.txt`, each skill folder's `SKILL.md` and then the `module-help.csv` directly in the skills root (`<skills root>/module-help.csv`) when the listing shows one:
+**Skills module** (`repo_shape: skills-module`): run no entries call and fetch no entry-point files. Fetch the manifest from the table when the root has one and §1 did not fetch it, and the files the sniff listed in `{run_dir}/skills-fetch.txt`, each skill folder's `SKILL.md` and then the `module-help.csv` directly in the skills root (`<skills root>/module-help.csv`) when the listing shows one:
 
 ```bash
 uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-file "{run_dir}/tree.json" --dest "{run_dir}/src" --patterns-file "{run_dir}/skills-fetch.txt"
@@ -113,15 +124,13 @@ uv run {githubFetch} --repo {owner}/{repo} --ref {source_ref or HEAD} --tree-fil
 
 ### 3. Parse Manifest and Scan Exports
 
-Run the shared extractor on the files §2 staged. The helper does manifest parse + export scan in one invocation, reads each file from `{run_dir}/src/` by its repo-relative path, and writes a structured envelope ready to feed §4's inventory.
-
-**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**Cannot read the public API of `{repo_name}`.** SKF's public-API extractor (`skf-extract-public-api.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF." Stage `{"phase": "quick-extract", "halt_reason": "resolution-failure", "reason": "Cannot read the public API of {repo_name}.", "skill_package": null, "details": {"cause": "public-api-extractor-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. No manifest or entry-point file is parsed in the prompt.
+Run the shared extractor on the files §2 staged. The helper does manifest parse + export scan in one invocation, reads each file from `{run_dir}/src/` by its repo-relative path, and writes a structured envelope ready to feed §4's inventory. No manifest or entry-point file is parsed in the prompt.
 
 ```bash
-uv run {publicApiExtractor} --mode quick --language <lang> --source-root "{run_dir}/src" --manifest-file <manifest path> --entry-file <entry path> [--entry-file <entry path>]... > "{run_dir}/extract.json"
+uv run {publicApiExtractor} --mode quick --language <lang> --source-root "{run_dir}/src" --tree-file "{run_dir}/tree.json" --manifest-file <manifest path> --entry-file <entry path> [--entry-file <entry path>]... [--follow-file <module path>]... --fetch-list "{run_dir}/follow.txt" > "{run_dir}/extract.json"
 ```
 
-Where `<lang>` is one of `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`. Pass the manifest and each entry point §2 `fetched`, by its path in the repository: one `--entry-file` per entry point, and no `--manifest-file` when §2 fetched no manifest. The helper aggregates exports across every entry.
+Where `<lang>` is one of `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`. Pass `{run_dir}/entries.json`'s `manifest` and each of its `entry_files` that §2's fetch `fetched`, by its path in the repository: one `--entry-file` per entry point, and no `--manifest-file` when §2 fetched no manifest. The helper aggregates exports across every entry.
 
 **When §2 fetched neither a manifest nor an entry point** (the listing holds no candidate, the language has no row in §2's table, or the fetch read none of them), do not run the extractor: it needs at least one file. Stage the empty envelope instead, so §4 builds an inventory with no exports and §4.5 decides what follows:
 
@@ -138,15 +147,16 @@ The helper writes JSON to `{run_dir}/extract.json` with:
 - `package_name`, `version`, `description`: parsed from the manifest
 - `exports[]`: `{name, type, source_file}` per discovered top-level public symbol
 - `dependencies[]`: declared direct dependencies
-- `modules[]`: for Maven `<modules>` and Gradle `include(...)`, the names of sub-modules to iterate
+- `modules[]` and `module_folders[]`: for Maven `<modules>` and Gradle `include(...)`, the names of sub-modules to iterate, and the folder of each in the repository
 - `extra`: language-specific extras (e.g. `group_id` for Maven)
 - `warnings[]`: manifest parse failures and scanner errors (advisory only; the envelope is still valid), and each statement whose names the entry file alone cannot give: `export * from`, a star import from the package, an `__all__` built from another module, `pub use x::*`, `module.exports = require(...)`, or an anonymous or conditional export. Each names its file, line and statement.
+- `unlisted[]`: one record per statement that passes on another module's names, `{file, line, statement, specifier, module_file}`: `module_file` is the listed file the statement's module is, null when the listing holds none. A statement whose module the extractor already reads is not listed.
 
 Read `{run_dir}/extract.json` into the extraction context. The shape of the envelope is the same for every language; §4 builds the inventory from it without per-language branching.
 
-**Act on the statements a warning names** before §4. When the module such a statement names is in the listing (resolve the relative specifier the way the language does: `./core` is `core.ts`, `core/index.ts` and the like beside the entry file, `.mod` is `mod.py` or `mod/__init__.py`), fetch it with §2's call and run the extractor again with it as one more `--entry-file`, writing over `{run_dir}/extract.json`. Otherwise read the statement by eye, from the README's API section or the module's documentation, and list the names it adds: stage them through a quoted heredoc as `{run_dir}/extract-added.json`, `{"exports": [{"name": "<name>", "type": "re-export", "source_file": "<the warning's file>"}]}`, which step 4 §4 passes with the other extraction files. Leave the other warnings for §5.
+**Follow the statements `unlisted[]` names** before §4. The extractor wrote each `module_file` still to read to `{run_dir}/follow.txt`. While that file names a file the fetch has not tried, at most 5 rounds: fetch them with §2's fetch call, `--patterns-file "{run_dir}/follow.txt"` in place of `entries.txt`, and run the extractor again with each file it `fetched` as one more `--follow-file`, writing over `{run_dir}/extract.json` and `{run_dir}/follow.txt`. Each round reads the modules the last one named, so an `export *` chain is followed to its end. Read by eye only the `unlisted[]` records left whose `module_file` is null or could not be fetched: list the names each adds, from the README's API section or the module's documentation, and stage them through a quoted heredoc as `{run_dir}/extract-added.json`, `{"exports": [{"name": "<name>", "type": "re-export", "source_file": "<the record's file>"}]}`, which step 4 §4 passes with the other extraction files. Leave the other warnings for §5.
 
-**Multi-module loop:** when `modules[]` is non-empty, fetch every sub-module's manifest and entry-point patterns in one §2 call (each module's patterns under its folder) and run the helper per module (§3), writing each to `{run_dir}/extract-module-<n>.json`, `<n>` counting from 1 in `modules[]` order (a module is a path such as `modules/core` or a Gradle name such as `core:api`, so it never names the file). Step 4 §4 passes `{run_dir}/extract.json` (the parent manifest, which names the `package_name`) first and then each module's file in that order, and the renderer aggregates `exports[]` and `dependencies[]` across them.
+**Multi-module loop:** when `modules[]` is non-empty, fetch every sub-module's manifest in one §2 call, each under its `module_folders[]` entry. Then, per module, run §2's entries call with `--scope "<its module_folders[] entry>"`, its list and output written to `{run_dir}/entries-module-<n>.txt` and `{run_dir}/entries-module-<n>.json`, fetch the files it lists, and run the helper (§3) on them, writing each to `{run_dir}/extract-module-<n>.json`, `<n>` counting from 1 in `modules[]` order (a module is a path such as `modules/core` or a Gradle name such as `core:api`, so it never names the file). Step 4 §4 passes `{run_dir}/extract.json` (the parent manifest, which names the `package_name`) first and then each module's file in that order, and the renderer aggregates `exports[]` and `dependencies[]` across them.
 
 **Skills module** (`repo_shape: skills-module`): when §2 fetched a manifest, run the helper as above with that `--manifest-file` and no `--entry-file`, writing `{run_dir}/extract-manifest.json`. It still reads `package_name`, `version`, `description` and `dependencies`, and returns no exports. Then build the module's envelope from the staged `SKILL.md` files and `module-help.csv`:
 
@@ -216,6 +226,7 @@ Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) ·
 - **Confidence:** {confidence}
 - **Source files read:** {count} (the files §1 to §3 fetched; name each one the fetch could not read)
 {If the fetch output's `truncated` was true, add:} - **Listing:** truncated by GitHub (a very large tree), so a file a glob names may have been missed
+{If `{run_dir}/entries.json` lists `unresolved` entries, add:} - **Entry points not found:** {each one's `package` and `subpath`, with the `targets` tried}
 
 **Proceeding to compilation...**"
 

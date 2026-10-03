@@ -1,0 +1,5 @@
+type: changed
+scope: skf-analyze-source
+summary: |
+  The interactive project scan now takes its candidate boundaries from the manifest scan instead of walking the tree by hand: `skf-scan-manifests.py` proposes each folder that holds a manifest or a Docker, compose or serverless file, leaves out a workspace root with no code of its own, and marks the workspace members `skf-detect-workspaces.py` resolves. Runs on the same tree always propose the same boundaries, found the same way as by the Discover Additional Source option. Workspace membership is now a reported signal, and the scan's catalogs list the manifests and service configurations; the entry points are reported per unit at unit identification.
+prs: [654]

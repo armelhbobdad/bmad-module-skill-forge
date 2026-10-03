@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  An update whose only change is to an authoritative document the skill tracks no longer reports `no-changes`: it records the document's new hash, and the report names the change.
+prs: [654]

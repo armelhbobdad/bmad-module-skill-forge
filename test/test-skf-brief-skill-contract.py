@@ -7,7 +7,7 @@ activation and states the one halt command, so a halt in step 1 or 2 no
 longer depends on write-brief.md, a step file the no-preload rule keeps
 unloaded, and each halt site these checks cover calls the emitter where it
 stops. The envelope carries the run's warnings (`workflow_warnings[]`),
-and write-brief.md prints it after the QMD registration, the last step
+and write-brief.md builds it after the QMD registration, the last step
 that can raise one. The emitter takes only strings, so a helper warning
 that is a {field, message} object goes in as one `field: message` line.
 
@@ -21,6 +21,11 @@ validation step asks nothing: its approve, edit and reject menu is gone.
 #594 and #600 (brief part): the headless input gate (headless-args.md) and
 the ratify route (gather-intent-ratify.md) left gather-intent.md, so their
 halts and the validators' warnings are pinned where they now live.
+
+Step 5b round 1 (enhancement-1): a headless or [auto] run binds the success
+line to `{result_envelope_line}` instead of displaying it, and the shared
+health check displays it as the run's last line, so a `claude -p` caller
+reads the envelope as the final message.
 
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
@@ -75,6 +80,13 @@ HALT_SITE_FILES = (GATHER_INTENT, HEADLESS_ARGS, RATIFY, ANALYZE_TARGET, SCOPE_D
 AUTO_SUCCESS = "### 3. Envelope, Hook and Chain"
 HALT_LINE_RE = re.compile(r'halt_reason: "(?P<reason>[a-z-]+)".*\bHALT\b.*?exit code (?P<code>\d+)')
 HOOK_CALL = "{onCompleteCommand} --result-path={brief_path}"
+SHARED_HEALTH_CHECK = REPO / "src" / "shared" / "health-check.md"
+# The two success sites, each with the section that builds the line.
+SUCCESS_SITES = ((WRITE_BRIEF, "### 4b. Result Envelope (Headless)"), (AUTO_VALIDATE, AUTO_SUCCESS))
+# Wording that has a success site print the envelope it now binds for the health check to display last.
+PRINTED_ENVELOPE = ("printed its envelope", "already printed", "envelope printed", "envelope is printed",
+                    "print the result envelope", "prints the envelope", "prints the result envelope",
+                    "printed before the hook")
 # A warning with a single quote, which would end an `echo '...'` payload.
 QUOTED_WARNING = "warn: skill name 'demo' collides with existing brief at /tmp/forge/demo/skill-brief.yaml"
 # The one line a helper warning that is a {field, message} object becomes.
@@ -366,7 +378,7 @@ def test_a_validator_warning_reaches_every_envelope_as_one_line(validator_warnin
         assert _envelope(proc.stdout.strip())["warnings"] == [line], path.name
 
 
-def test_write_brief_prints_the_envelope_after_the_qmd_registration():
+def test_write_brief_builds_the_envelope_after_the_qmd_registration():
     text = _read(WRITE_BRIEF)
     order = ["### 3. Write the Brief", "### 3b. QMD Collection Registration (Deep Tier Only)",
              "### 4b. Result Envelope (Headless)", "### 6. Display Success Summary",
@@ -388,6 +400,42 @@ def test_qmd_registration_never_halts_after_the_write():
     assert "HALT if no candidate exists" not in section
     assert "add `QMD registry not updated: skf-forge-tier-rw.py not found` to `workflow_warnings[]`" in section
     assert "skip the Registry Update" in _section(_read(QMD_REGISTRATION), "## Error Handling")
+
+
+# --------------------------------------------------------------------------
+# The success envelope is the run's last line (step 5b enhancement-1)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("path,heading", [pytest.param(*site, id=site[0].stem) for site in SUCCESS_SITES])
+def test_the_success_line_is_bound_for_the_health_check(path, heading):
+    section = " ".join(_section(_read(path), heading).split())
+    assert ("Bind `{result_envelope_line}` to the line it prints, and do not display it here: the shared health "
+            "check displays it verbatim as the run's last line") in section
+    assert "leave `{result_envelope_line}` empty and display its error" in section
+    assert "display the line it prints verbatim" not in section.lower()
+
+
+def test_the_health_check_displays_the_bound_line_last():
+    shared = " ".join(_read(SHARED_HEALTH_CHECK).split())
+    assert "may bind `{result_envelope_line}`" in shared and "as its very last line" in shared
+    relay = " ".join(_read(HEALTH_CHECK).split())
+    assert ("the shared health check displays the `{result_envelope_line}` that write-brief.md §4b or "
+            "step-auto-validate.md §3 bound as the run's last line") in relay
+    contract = " ".join(_section(_read(CONTRACT), "## Result Contract (Headless)").split())
+    assert ("It is the run's last line: the step binds `{result_envelope_line}` to it instead of displaying it"
+            in contract)
+    # A headless run ends on the envelope, not on the interactive success summary.
+    summary = _section(_read(WRITE_BRIEF), "### 6. Display Success Summary")
+    assert "When `{headless_mode}` is true, skip this section" in summary
+    # No line says the success envelope is printed where it is built: a step that read so would display it early.
+    for path in (*sorted(REFERENCES.glob("*.md")), SKILL_MD, CUSTOMIZE):
+        text = " ".join(_read(path).split())
+        for stale in PRINTED_ENVELOPE:
+            assert stale not in text, (path.name, stale)
+    final = next(line for line in _read(REPO / "docs" / "workflows.md").splitlines()
+                 if line.startswith("Setup is not the only workflow whose result line is the run's final message"))
+    assert "Brief Skill" in final and "`SKF_BRIEF_RESULT_JSON`" in final
 
 
 # --------------------------------------------------------------------------
@@ -427,7 +475,7 @@ def test_customize_toml_names_both_hook_sites():
     for needle in ("write-brief.md §6b", "step-auto-validate.md §3", "[auto]", "a shell command",
                    "on_complete hook failed",
                    # An interactive run outside [auto] prints no envelope.
-                   "once the brief is written (and, in a headless or [auto] run, the result envelope is printed)"):
+                   "once the brief is written (and, in a headless or [auto] run, the result envelope is built)"):
         assert needle in flat, needle
     assert "step 5)" not in comment and "workflow_warnings" not in comment
     [line] = [line for line in _read(SKILL_MD).splitlines() if "`{onCompleteCommand}` ←" in line]

@@ -86,6 +86,13 @@ class TestResolveVersion:
     def test_default_when_nothing_supplied(self):
         assert mod.resolve_version({}) == "1.0.0"
 
+    @pytest.mark.parametrize("detected", ["2.0.0rc1", "0.1", "", 2, ["1.0.0"]],
+                             ids=["pep440", "two-part", "empty", "number", "list"])
+    def test_a_detected_version_that_is_not_semver_falls_through(self, detected):
+        """Callers pass the manifest's version as found: the writer decides, as its warning says."""
+        assert mod.resolve_version({"detected_version": detected}) == "1.0.0"
+        assert mod.resolve_version({"target_version": "3.1.0", "detected_version": detected}) == "3.1.0"
+
 
 # --------------------------------------------------------------------------
 # validate_context() — happy + sad paths
@@ -589,6 +596,25 @@ class TestCLIWriteFlat:
         err = json.loads(stderr.strip())
         assert err["field"] == "target_version"
         assert "invariant" in err["message"]
+
+    @pytest.mark.parametrize("detected", ["2.0.0rc1", "0.1"], ids=["pep440", "two-part"])
+    def test_flat_write_falls_back_to_1_0_0_for_a_detected_version_that_is_not_semver(self, tmp_target, detected):
+        """step 5b determinism-2: the write succeeds with the default and the warning that names it."""
+        flat = _baseline_flat()
+        flat["detected_version"] = detected
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        assert response["version"] == "1.0.0"
+        assert any(f"detected_version {detected!r}" in w and "falling through to default 1.0.0" in w
+                   for w in response["warnings"]), response["warnings"]
+        assert yaml.safe_load(tmp_target.read_text(encoding="utf-8"))["version"] == "1.0.0"
+
+    def test_flat_write_keeps_a_semver_detected_version(self, tmp_target):
+        flat = _baseline_flat()
+        flat["detected_version"] = "v2.0.0-rc.1"
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        assert (response["version"], response["warnings"]) == ("v2.0.0-rc.1", [])
 
     def test_flat_write_handles_docs_only_with_doc_urls(self, tmp_target):
         flat = _baseline_flat()

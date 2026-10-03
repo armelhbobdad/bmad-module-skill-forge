@@ -213,6 +213,75 @@ class TestTargetVersion:
         assert out["valid"] is False
         assert any(e["field"] == "target_version" for e in out["errors"])
 
+    @pytest.mark.parametrize(
+        "v,kind",
+        [("18", "a major version"), ("v2", "a major version"), ("4.2", "a major and minor version"),
+         ("v1.2", "a major and minor version")],
+    )
+    def test_a_partial_pin_is_named_as_one(self, v, kind):
+        """parse-target hands back `react@18` as '18': the error says what the pin lacks."""
+        out = mod.validate({"target_repo": "/x", "skill_name": "foo", "target_version": v})
+        [error] = out["errors"]
+        assert error["message"] == f"target_version {v!r} is {kind} only: {mod.FULL_FORM}"
+        assert out["halt_reason"] == "input-invalid"
+
+    @pytest.mark.parametrize("v", ["latest", "1.2.x", "V1.2.3"])
+    def test_a_value_that_is_no_pin_says_so(self, v):
+        [error] = mod.validate({"target_repo": "/x", "skill_name": "foo", "target_version": v})["errors"]
+        assert error["message"] == f"target_version {v!r} does not look like semver: {mod.FULL_FORM}"
+
+
+# --------------------------------------------------------------------------
+# Field-only mode (--only): one value checked before the rest is known
+# --------------------------------------------------------------------------
+
+
+class TestFieldOnly:
+    def test_a_full_version_alone_is_valid(self):
+        out = mod.validate_fields({"target_version": "18.3.1"}, ["target_version"])
+        assert out == {"valid": True, "errors": [], "warnings": [],
+                       "normalized": {"target_version": "18.3.1"}, "halt_reason": None}
+
+    def test_a_partial_pin_alone_is_invalid_and_named(self):
+        out = mod.validate_fields({"target_version": "18"}, ["target_version"])
+        assert out["valid"] is False and out["halt_reason"] == "input-invalid"
+        assert [e["field"] for e in out["errors"]] == ["target_version"]
+        assert "'18' is a major version only" in out["errors"][0]["message"]
+
+    def test_the_required_arguments_are_not_checked(self):
+        """validate() on the same payload halts input-missing for target_repo and skill_name."""
+        payload = {"target_version": "1.2.3"}
+        assert mod.validate(payload)["halt_reason"] == "input-missing"
+        assert mod.validate_fields(payload, ["target_version"])["valid"] is True
+
+    def test_another_fields_finding_is_left_out(self):
+        payload = {"target_version": "1.2.3", "scope_type": "bogus", "extra": 1}
+        out = mod.validate_fields(payload, ["target_version"])
+        assert out["valid"] is True and out["warnings"] == []
+        assert out["normalized"] == {"target_version": "1.2.3"}
+
+    def test_an_absent_field_has_nothing_to_check(self):
+        out = mod.validate_fields({}, ["target_version"])
+        assert out["valid"] is True and out["normalized"] == {}
+
+    @pytest.mark.parametrize("field", ["target_repo", "skill_name"])
+    def test_a_named_required_field_is_still_required(self, field):
+        """Only the required checks of fields not named are skipped: naming one keeps validate()'s verdict on it."""
+        out = mod.validate_fields({}, [field])
+        assert out["valid"] is False and out["halt_reason"] == "input-missing"
+        assert [e["field"] for e in out["errors"]] == [field]
+
+    def test_several_fields_are_checked_together(self):
+        out = mod.validate_fields({"target_version": "1.2", "skill_name": "Foo"}, ["target_version", "skill_name"])
+        assert sorted(e["field"] for e in out["errors"]) == ["skill_name", "target_version"]
+
+    def test_the_check_is_the_one_a_headless_argument_gets(self):
+        """One rule for a typed, a pre-filled and a headless version: the field-only verdict is validate()'s."""
+        for v in ("1", "1.2", "v2", "latest", "1.2.3", "v1.2.3-rc.1", "2024.04.01", "1.2.3.dev1"):
+            full = mod.validate({"target_repo": "/x", "skill_name": "foo", "target_version": v})
+            only = mod.validate_fields({"target_version": v}, ["target_version"])
+            assert only["valid"] is full["valid"] and only["errors"] == full["errors"], v
+
 
 # --------------------------------------------------------------------------
 # reference-app conditional
@@ -535,6 +604,27 @@ class TestCLI:
         assert code == 1
         assert out["valid"] is False
         assert out["halt_reason"] == "input-missing"
+
+    @pytest.mark.parametrize("version,code", [("18", 1), ("4.2", 1), ("18.3.1", 0)])
+    def test_cli_only_checks_the_named_field(self, version, code):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--only", "target_version"],
+            input=json.dumps({"target_version": version}),
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == code, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["valid"] is (code == 0)
+        assert all(e["field"] == "target_version" for e in out["errors"])
+
+    def test_cli_only_refuses_a_field_it_does_not_know(self):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--only", "version", "--json", "{}"],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 2 and "invalid choice" in proc.stderr
 
     def test_cli_reads_non_ascii_stdin_as_utf8(self):
         """A Windows console leaves stdin as cp1252 (PYTHONIOENCODING stands

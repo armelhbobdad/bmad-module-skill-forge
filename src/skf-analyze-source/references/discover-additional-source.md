@@ -67,10 +67,10 @@ Take the path the user gave with [D], or ask for one: "**Which repository or fol
 Make its **scan root** by {scanRootFile}, with the ref §1 gave it. If a command there fails, show its first stderr line and ask for another path (§1). Then list its manifests:
 
 ```bash
-uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/discover-{i}-manifests.json"
+uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/manifests-{i}.json"
 ```
 
-The candidate boundaries are its `folders[]` entries (`.` is the root), plus any folder that holds a Docker or compose file of its own, judged as scan-project judges a boundary: leave out a folder whose manifest only gathers the member folders below it (a workspace root such as a private `package.json` that lists `workspaces`, or a Cargo virtual workspace) with no code of its own. `.` stays a candidate only when it holds code of its own outside the other candidates, or no other candidate is left. Name a candidate by its folder.
+Its candidate boundaries are that envelope's `candidates[]` ({heuristicsFile}'s **Candidate Boundaries**).
 
 ### 3. Classify and Name the New Units
 
@@ -108,7 +108,7 @@ Load, read the entire file, then execute {unitExportsFile} for the new units tha
 cat > "{run_dir}/discover-{i}-units.json" <<'SKF_UNITS'
 {"units": [<one entry per new unit that is not deferred>]}
 SKF_UNITS
-uv run {countImportsHelper} count "{scan_root}" --units "{run_dir}/discover-{i}-units.json" --deps "{run_dir}/discover-{i}-manifests.json" > "{run_dir}/discover-{i}-imports.json"
+uv run {countImportsHelper} count "{scan_root}" --units "{run_dir}/discover-{i}-units.json" --deps "{run_dir}/manifests-{i}.json" > "{run_dir}/discover-{i}-imports.json"
 uv run {findCyclesHelper} find --edges "{run_dir}/discover-{i}-imports.json"
 uv run {countImportsHelper} count "{scan_root}" --units "{run_dir}/discover-{i}-units.json" --format libraries > "{run_dir}/discover-{i}-importers.json"
 uv run {pairIntersectHelper} intersect --libraries "{run_dir}/discover-{i}-importers.json"

@@ -31,14 +31,7 @@ Otherwise read the JSON by the exit code:
 - **3** (no ast-grep the runner can run): the JSON still lists `entry_points.files`. Read the exports from those entry-point files by eye (from the unit's source files when it lists none), with `strategy_used: "source-read"` and `confidence: "T1-low"`.
 - **2:** an input error, named on stderr (a wrong path or flag): fix the call and run it again.
 
-**Tier-aware extras:**
-
-- **Forge+ tier:**
-  - If `tools.ccc` is true: run `ccc_bridge.search("{unit_name} exports public API", top_k=15)` to discover semantically relevant files beyond directory scan. Tool resolution: prefer the `/ccc` skill search (Claude Code) or ccc MCP server (Cursor); fall back to the `ccc search` CLI if neither is available; if no ccc tool resolves, skip CCC discovery and record `ccc: unavailable` in per-unit findings.
-  - Record CCC signals in per-unit findings: top 3 CCC-ranked file names (or "--" if no ccc results)
-- **Deep tier:**
-  - If QMD available: query for temporal evolution of identified exports (deprecation signals, recent additions, refactoring patterns)
-  - Record semantic relationships between exports (which exports reference/depend on each other)
+**Tier-aware extras:** when `tools.ccc` is true (Forge+, or Deep with ccc installed), search `"{unit_name} exports public API"` (top 15) with the ccc tool the runtime offers (the `/ccc` skill, a ccc MCP server or the `ccc search` CLI) and record the top 3 files in `ccc_signals.top_files`, with `available: true`; with no ccc tool, record `available: false`.
 
 **The subagent also records:**
 

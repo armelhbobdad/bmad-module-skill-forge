@@ -477,6 +477,8 @@ dependencies = ["requests>=2.0", "click==8.0"]
             "total_unique": 0,
             "monorepo": False,
             "folders": [],
+            "services": [],
+            "candidates": [],
             "umbrella_candidates": [],
             "searched_filenames": list(mod.MANIFEST_ECOSYSTEMS),
         }
@@ -572,6 +574,8 @@ class TestCli:
             "total_unique": 0,
             "monorepo": False,
             "folders": [],
+            "services": [],
+            "candidates": [],
             "umbrella_candidates": [],
             "searched_filenames": list(mod.MANIFEST_ECOSYSTEMS),
         }
@@ -689,8 +693,192 @@ class TestIdentity:
         _write(tmp_path / "package.json", json.dumps({"name": "root", "private": True}))
         result = mod.scan(tmp_path)
         manifest = result["manifests"][0]
-        assert list(manifest) == ["path", "ecosystem", "name", "private", "deps", "internal_deps"]
+        assert list(manifest) == ["path", "ecosystem", "name", "private", "version", "version_dynamic",
+                                  "description", "deps", "internal_deps"]
         assert (manifest["name"], manifest["private"]) == ("root", True)
+
+
+# --------------------------------------------------------------------------
+# services and candidates: the boundaries a project scan proposes, found by
+# the walk instead of a hand walk of the tree (step 5b analyze-source
+# determinism-3)
+# --------------------------------------------------------------------------
+
+
+class TestServices:
+    def test_the_walk_lists_each_service_definition(self, tmp_path: Path) -> None:
+        """step 5b analyze-source determinism-3: the folders that hold one are candidate boundaries."""
+        for rel in ("services/api/Dockerfile", "deploy/docker-compose.yaml", "web/Dockerfile.prod",
+                    "jobs/worker.dockerfile", "fn/serverless.yml", "node_modules/x/Dockerfile",
+                    ".github/compose.yml", "docs/dockerfiles.md", "package.json"):
+            _write(tmp_path / rel, "{}")
+        assert mod.scan(tmp_path)["services"] == ["deploy/docker-compose.yaml", "fn/serverless.yml",
+                                                  "jobs/worker.dockerfile", "services/api/Dockerfile",
+                                                  "web/Dockerfile.prod"]
+
+    def test_one_service_rule_for_the_scan_and_the_disqualify_signal(self) -> None:
+        disqualify = REPO_ROOT / "src" / "shared" / "scripts" / "skf-disqualify-candidates.py"
+        assert "SERVICE_DEFINITION_NAMES" not in disqualify.read_text(encoding="utf-8")
+        for name in sorted(mod.SERVICE_DEFINITION_NAMES) + ["Dockerfile.dev", "API.Dockerfile", "Containerfile"]:
+            assert mod.is_service_definition(name), name
+        assert not mod.is_service_definition("dockerfiles.md")
+
+
+def _candidates(root: Path, workspaces: set[str] | None = None) -> dict[str, dict]:
+    return {c["path"]: c for c in mod.scan(root, workspaces=workspaces)["candidates"]}
+
+
+class TestCandidates:
+    def test_a_workspace_root_with_no_code_of_its_own_is_left_out(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", json.dumps({"name": "root", "private": True,
+                                                       "workspaces": ["packages/*"]}))
+        _write(tmp_path / "tsconfig.json", "{}")
+        _write(tmp_path / "packages" / "a" / "package.json", json.dumps({"name": "a"}))
+        _write(tmp_path / "packages" / "a" / "src" / "index.ts", "export const a = 1\n")
+        _write(tmp_path / "packages" / "b" / "package.json", json.dumps({"name": "b"}))
+        _write(tmp_path / "packages" / "b" / "index.js", "module.exports = {}\n")
+        candidates = _candidates(tmp_path)
+        assert list(candidates) == ["packages/a", "packages/b"]
+        assert candidates["packages/a"] == {"path": "packages/a", "names": ["a"],
+                                            "manifests": ["packages/a/package.json"], "services": [],
+                                            "own_source_files": 1, "workspace_member": None}
+
+    def test_a_root_with_its_own_source_stays(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", json.dumps({"name": "root", "private": True,
+                                                       "workspaces": ["packages/*"]}))
+        _write(tmp_path / "src" / "cli.ts", "export {}\n")
+        _write(tmp_path / "packages" / "a" / "package.json", json.dumps({"name": "a"}))
+        _write(tmp_path / "packages" / "a" / "index.ts", "export {}\n")
+        candidates = _candidates(tmp_path)
+        assert list(candidates) == [".", "packages/a"]
+        assert candidates["."]["own_source_files"] == 1
+
+    def test_a_cargo_virtual_workspace_is_left_out(self, tmp_path: Path) -> None:
+        _write(tmp_path / "Cargo.toml", '[workspace]\nmembers = ["crates/*"]\n')
+        _write(tmp_path / "crates" / "core" / "Cargo.toml", '[package]\nname = "core"\nversion = "0.1.0"\n')
+        _write(tmp_path / "crates" / "core" / "src" / "lib.rs", "pub fn f() {}\n")
+        assert list(_candidates(tmp_path)) == ["crates/core"]
+
+    def test_a_lone_root_stays_without_code(self, tmp_path: Path) -> None:
+        """Nothing else is proposed, so `.` is the one candidate."""
+        _write(tmp_path / "package.json", json.dumps({"name": "solo"}))
+        assert list(_candidates(tmp_path)) == ["."]
+
+    def test_a_service_folder_is_a_candidate(self, tmp_path: Path) -> None:
+        _write(tmp_path / "go.mod", "module example.com/x\n")
+        _write(tmp_path / "main.go", "package main\n")
+        _write(tmp_path / "deploy" / "docker-compose.yml", "services: {}\n")
+        candidates = _candidates(tmp_path)
+        assert list(candidates) == [".", "deploy"]
+        assert candidates["deploy"]["services"] == ["deploy/docker-compose.yml"]
+        assert candidates["deploy"]["manifests"] == []
+
+    def test_workspace_membership_comes_from_the_workspaces_file(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", json.dumps({"name": "root", "private": True}))
+        _write(tmp_path / "packages" / "a" / "package.json", json.dumps({"name": "a"}))
+        _write(tmp_path / "packages" / "a" / "index.ts", "export {}\n")
+        _write(tmp_path / "tools" / "gen" / "package.json", json.dumps({"name": "gen"}))
+        _write(tmp_path / "tools" / "gen" / "index.ts", "export {}\n")
+        snapshot = _write(tmp_path / "snapshot.json", json.dumps(
+            {"file_count": 5, "workspaces": [{"name": "a", "path": "packages/a",
+                                              "manifest": "packages/a/package.json"}]}))
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "scan", str(tmp_path), "--workspaces-file", str(snapshot)],
+            capture_output=True, text=True, encoding="utf-8", check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        members = {c["path"]: c["workspace_member"] for c in json.loads(result.stdout)["candidates"]}
+        assert members == {"packages/a": True, "tools/gen": False}
+
+    def test_an_unreadable_workspaces_file_is_a_user_error(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", "{}")
+        bad = _write(tmp_path / "bad.json", "{not json")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "scan", str(tmp_path), "--workspaces-file", str(bad)],
+            capture_output=True, text=True, encoding="utf-8", check=False,
+        )
+        assert result.returncode == 1
+        assert "--workspaces-file" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# version: the version each manifest gives its own package, so the brief
+# writers read it from the scan instead of opening the manifests (step 5b
+# analyze-source determinism-2)
+# --------------------------------------------------------------------------
+
+
+class TestVersion:
+    @pytest.mark.parametrize(
+        ("filename", "content", "expected"),
+        [pytest.param("package.json", json.dumps({"name": "a", "version": "2.0.0rc1"}), ("2.0.0rc1", False),
+                      id="npm-as-written"),
+         pytest.param("pyproject.toml", '[project]\nname = "a"\nversion = "0.1"\n', ("0.1", False), id="pep621"),
+         pytest.param("pyproject.toml", '[project]\nname = "a"\ndynamic = ["version"]\n', (None, True),
+                      id="pep621-dynamic"),
+         pytest.param("pyproject.toml", '[tool.poetry]\nname = "a"\nversion = "1.2.3"\n', ("1.2.3", False),
+                      id="poetry"),
+         pytest.param("setup.py", 'setup(name="a", version="1.0.0.post1")\n', ("1.0.0.post1", False),
+                      id="setup-py"),
+         pytest.param("setup.py", "setup(name='a', version=get_version())\n", (None, True), id="setup-py-dynamic"),
+         pytest.param("setup.cfg", "[metadata]\nname = a\nversion = attr: a.__version__\n", (None, True),
+                      id="setup-cfg-attr"),
+         pytest.param("Cargo.toml", '[package]\nname = "a"\nversion = "0.7.1"\n', ("0.7.1", False), id="cargo"),
+         pytest.param("pom.xml", "<project><parent><version>3.1.0</version></parent><artifactId>a</artifactId>"
+                      "<dependencies><dependency><version>9</version></dependency></dependencies></project>",
+                      ("3.1.0", False), id="pom-parent"),
+         pytest.param("build.gradle.kts", 'group = "com.a"\nversion = "4.0.0"\n', ("4.0.0", False), id="gradle"),
+         pytest.param("go.mod", "module example.com/a\n", (None, False), id="go-none")],
+    )
+    def test_each_manifest_gives_its_own_version(self, tmp_path: Path, filename, content, expected) -> None:
+        _write(tmp_path / filename, content)
+        [manifest] = mod.scan(tmp_path)["manifests"]
+        assert (manifest["version"], manifest["version_dynamic"]) == expected
+
+    def test_a_cargo_member_inherits_the_workspace_version(self, tmp_path: Path) -> None:
+        _write(tmp_path / "Cargo.toml", '[workspace]\nmembers = ["crates/*"]\n\n[workspace.package]\nversion = "0.9.2"\n')
+        _write(tmp_path / "crates" / "core" / "Cargo.toml",
+               '[package]\nname = "core"\nversion.workspace = true\n')
+        _write(tmp_path / "crates" / "own" / "Cargo.toml", '[package]\nname = "own"\nversion = "1.0.0"\n')
+        by_path = {m["path"]: m for m in mod.scan(tmp_path)["manifests"]}
+        assert by_path["Cargo.toml"]["version"] is None
+        assert by_path["crates/core/Cargo.toml"]["version"] == "0.9.2"
+        assert by_path["crates/own/Cargo.toml"]["version"] == "1.0.0"
+
+    def test_an_unparseable_manifest_gives_no_version(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", "{not json")
+        [manifest] = mod.scan(tmp_path)["manifests"]
+        assert (manifest["version"], manifest["version_dynamic"]) == (None, False)
+
+
+class TestDescription:
+    """step 5b analyze-source: the auto-scope judges an app from a library on a
+    framework by the manifest description, read from the scan."""
+
+    @pytest.mark.parametrize(
+        ("filename", "content", "expected"),
+        [pytest.param("package.json", json.dumps({"name": "a", "description": "A router"}), "A router", id="npm"),
+         pytest.param("pyproject.toml", '[project]\nname = "a"\ndescription = "Admin for Starlette"\n',
+                      "Admin for Starlette", id="pep621"),
+         pytest.param("pyproject.toml", '[tool.poetry]\nname = "a"\ndescription = "Poetry pkg"\n', "Poetry pkg",
+                      id="poetry"),
+         pytest.param("setup.py", 'setup(name="a", long_description=x, description="Short")\n', "Short",
+                      id="setup-py"),
+         pytest.param("setup.cfg", "[metadata]\nname = a\ndescription = From cfg\n", "From cfg", id="setup-cfg"),
+         pytest.param("Cargo.toml", '[package]\nname = "a"\ndescription = "Extra utilities for axum"\n',
+                      "Extra utilities for axum", id="cargo"),
+         pytest.param("Cargo.toml", '[package]\nname = "a"\ndescription.workspace = true\n', None,
+                      id="cargo-inherited"),
+         pytest.param("pom.xml", "<project><parent><description>P</description></parent>"
+                      "<artifactId>a</artifactId><description>\n  Own\n  text\n</description></project>",
+                      "Own text", id="pom"),
+         pytest.param("build.gradle", "description = 'Gradle lib'\n", "Gradle lib", id="gradle"),
+         pytest.param("go.mod", "module example.com/a\n", None, id="go-none")],
+    )
+    def test_each_manifest_gives_its_own_description(self, tmp_path: Path, filename, content, expected) -> None:
+        _write(tmp_path / filename, content)
+        [manifest] = mod.scan(tmp_path)["manifests"]
+        assert manifest["description"] == expected
 
 
 # --------------------------------------------------------------------------

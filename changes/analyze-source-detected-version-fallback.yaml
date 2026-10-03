@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-analyze-source, skf-brief-skill
+summary: |
+  A detected source version that is not full `X.Y.Z` semver (`2.0.0rc1`, `0.1`) now falls back to `1.0.0` with a warning, as the brief schema documents. Before, the brief writer exited 1 on it, which `AN[auto]` turned into a `write-failed` halt. Analyze Source also reads the version from the manifest scan, which now gives each manifest's own `version` (a Cargo member's `version.workspace = true` resolved from its workspace) and flags a version computed at build time as `version_dynamic`, so only such a version is still looked up by hand.
+prs: [654]

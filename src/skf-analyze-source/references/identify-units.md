@@ -41,7 +41,7 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 ### 1. Load Context
 
 Read {outputFile} to obtain:
-- Project Scan results (detected boundaries, manifests, entry points), grouped by project path
+- Project Scan results (detected boundaries, manifests, service configurations), grouped by project path
 - `project_paths`, `scan_roots` (each project path's scan root: the folder every helper of this step reads), `refs`, `forge_tier`, `intent_hint`, `existing_skills` and `existing_briefs` from frontmatter
 
 **A scan root that is gone.** A session that resumed this report runs in a new run folder, and the folder of the session that made a copy may be gone. When a recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `identify-units:1`, path `{path}`): "{path} could not be fetched: {the first stderr line}."

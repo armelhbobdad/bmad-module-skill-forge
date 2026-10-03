@@ -12,6 +12,9 @@ githubProbeProbeOrder:
 resolvePackageProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-package.py'
   - '{project-root}/src/shared/scripts/skf-resolve-package.py'
+validateBriefInputsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-inputs.py'
+  - '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -120,8 +123,8 @@ SKF_TARGET
 
   Route on the `kind` it returns:
   - `local-path`: a `skill-brief.yaml` file, or a folder that holds one → §3.1a; any other path → §3.3.
-  - `github` → §3.3, with its `url` as the target. A pinned version (`target_version` not null, as in `owner/repo@1.2.0`) pre-fills `target_version`; a `/tree/<ref>/<folder>` URL pre-fills `target_ref` ← `ref` and adds `subdir` to the scope hints.
-  - `package` or `registry-page` (`lodash`, `@scope/name@2.1.0`, `requests==2.31.0`, an npmjs.com, pypi.org or crates.io page) → §3.1b, which finds its repository; its `target_version`, when not null, pre-fills `target_version`.
+  - `github` → §3.3, with its `url` as the target. A pinned version (`target_version` not null, as in `owner/repo@1.2.0`) pre-fills `target_version`, which §3b checks before it keeps it: a full X.Y.Z is acknowledged, and a partial pin (`owner/repo@1.2`) is only a hint that §3b names when it asks again; a `/tree/<ref>/<folder>` URL pre-fills `target_ref` ← `ref` and adds `subdir` to the scope hints.
+  - `package` or `registry-page` (`lodash`, `@scope/name@2.1.0`, `requests==2.31.0`, an npmjs.com, pypi.org or crates.io page) → §3.1b, which finds its repository; its `target_version`, when not null, pre-fills `target_version` the same way (`react@18` is a partial pin).
   - `other-host`: documentation pages (a docs site, an API reference) → §3.2; a repository on another git host (GitLab, Bitbucket, Codeberg, a self-hosted forge) → display "**Brief Skill reads GitHub repositories and local folders.** `{url}` is on `{host}`: clone it and give me the local path, or paste its GitHub URL if it has one." and re-display the prompt.
   - `unparsed`: several documentation URLs → §3.2; anything else → answer briefly and re-display the prompt.
 
@@ -198,18 +201,29 @@ Confirm the target.
 
 ### 3b. Gather Target Version
 
-This step only collects `target_version` and validates its shape with the regex below — auto-detection runs in step 2 and precedence/invariant resolution lands in step 5's writer script. The canonical precedence rules live in `references/version-resolution.md`; load it from step 2 / step 5 only when the relevant section needs it.
+This step only collects `target_version` and checks its shape: auto-detection runs in step 2 and precedence/invariant resolution lands in step 5's writer script. The canonical precedence rules live in `references/version-resolution.md`; load it from step 2 / step 5 only when the relevant section needs it.
+
+When §3.1 pre-filled no version, ask:
 
 "**Are you targeting a specific version of this library?**
 (Leave blank to auto-detect from source)"
 
 {If source_type is "docs-only":}
-"Since this is a docs-only skill with no source code, specifying the version is recommended — otherwise it defaults to 1.0.0."
+"Since this is a docs-only skill with no source code, specifying the version is recommended: otherwise it defaults to 1.0.0."
 
-Wait for user response.
+Wait for user response. **If blank:** proceed without `target_version`: version will be auto-detected in step 02.
 
-**If user provides a version:** Validate the shape against `^v?\d+\.\d+\.\d+([.\-+][0-9A-Za-z][0-9A-Za-z.\-+]*)?$` (full X.Y.Z form, with optional `v` prefix and pre-release / build suffix; CalVer like `2024.04.01` accepted; partial forms like `1`, `1.2`, `v2`, `latest` rejected). On a match, store as `target_version` and set `version` to this value. On a non-match, warn `"'{value}' doesn't look like semver — write the explicit triple (e.g. 1.0.0). Fix it now or skip auto-detection?"` and re-prompt for a corrected value or blank to fall through to step 2 auto-detection.
-**If blank:** Proceed without `target_version` — version will be auto-detected in step 02.
+**Check the version before you keep it.** For a version typed here, or one §3.1 pre-filled (from parse-target or from the free-form answer), resolve `{validateBriefInputsHelper}` from `{validateBriefInputsProbeOrder}` (first existing path wins; HALT if no candidate exists) and run its field-only check, with the version written as a JSON string:
+
+```bash
+uv run {validateBriefInputsHelper} --only target_version <<'SKF_JSON'
+{"target_version": "<the version>"}
+SKF_JSON
+```
+
+- **Exit 0** (`valid: true`): store it as `target_version` and set `version` to it. Acknowledge a pre-filled one ("I noted you're targeting v4.0.0") instead of asking.
+- **Exit 1** (`valid: false`): keep nothing. Ask again, naming the value with its first error's `message`: `"{message}, or leave blank to auto-detect."` (for `react@18`, `'18' is a major version only`). Check the answer the same way; blank proceeds without `target_version`.
+- **Exit 2** (the payload is not valid JSON, such as a quote left unescaped): write it again and re-run the check.
 
 {If target_version was set AND doc_urls are being collected (either docs-only primary or supplemental):}
 

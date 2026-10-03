@@ -36,7 +36,11 @@ Rules for identifying discrete skillable units within a project. A "skillable un
 | Comment boundaries | Code comments marking sections              | `// --- Auth Module ---`      |
 | Import clustering  | Files that import primarily from each other | Tight import graph cluster    |
 
-`skf-disqualify-candidates.py` reports the signals a boundary's file list shows, in each record's `signals` (identify-units §2): an independent manifest (`own_manifest`), a separate entry point (`entry_point`), a Docker/service definition (`service_definition`), README.md presence (`readme`), a separate test suite (`test_suite`), a CI/CD pipeline reference (`ci_reference`) and a large directory (`large_directory`). The other signals are judged: workspace membership from the workspace configuration files scan-project records (`pnpm-workspace.yaml`, a Cargo `[workspace]`, `go.work`), and the rest from the code.
+`skf-disqualify-candidates.py` reports the signals a boundary's file list shows, in each record's `signals` (identify-units §2): an independent manifest (`own_manifest`), a separate entry point (`entry_point`), a Docker/service definition (`service_definition`), README.md presence (`readme`), a separate test suite (`test_suite`), a CI/CD pipeline reference (`ci_reference`) and a large directory (`large_directory`). Workspace membership is reported too, as each candidate's `workspace_member` (**Candidate Boundaries**): scan-project passes the scan the workspaces `skf-detect-workspaces.py --snapshot` resolves from the workspace configuration, and a path discover-additional-source adds has none (null). The other signals are judged from the code.
+
+## Candidate Boundaries
+
+The boundaries scan-project and discover-additional-source propose for a project path, which identify-units then classifies, are the `candidates[]` of its `skf-scan-manifests.py` scan, which applies the rule itself: the folders that hold a manifest or a Docker, compose or serverless file, less a workspace root with no code of its own (`.` is the scan root). Name a candidate by its folder.
 
 ## Boundary Classification
 
@@ -157,11 +161,3 @@ Flag units as stack skill candidates when (map-and-detect §5, in the same pass 
 4. **Orchestration layer**: A unit coordinates calls across multiple other units
 
 Stack skill candidates are useful separately and also together; units that only deliver value together are a Composite Boundary instead, never both.
-
-## Tier-Aware Scanning Depth
-
-| Forge Tier | Scanning Approach |
-|------------|-------------------|
-| Quick, Forge | Export surfaces from `skf-extract-public-api.py` (its ast-grep recipes, read by eye where ast-grep is missing or the language has no recipe), import graphs from the import helpers, and the file structure: directory trees, manifests, entry points |
-| Forge+ | As Quick and Forge, plus CCC: semantic file pre-ranking before structural analysis, CCC signals for relevance scoring |
-| Deep | As Quick and Forge, plus QMD: temporal evolution, refactoring patterns, semantic relationships, architectural drift |

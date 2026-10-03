@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-quick-skill
+summary: |
+  Quick Skill now follows `export * from` and `module.exports = require(...)` chains, NodeNext `./core.js` specifiers that name `core.ts` included, and Python star imports such as `from .core import *` to the module that defines the names, reading each module in turn until the chain ends (less its default export, which `export *` does not pass on), instead of guessing the names from the README. Only a statement whose module is not in the repository (a package import, a spread, a Rust glob) is still read by eye.
+prs: [654]

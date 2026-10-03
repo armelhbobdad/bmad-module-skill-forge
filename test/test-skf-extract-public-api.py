@@ -2373,3 +2373,274 @@ class TestFullCli:
         assert Path(mod._native_ast_grep(str(bin_shim / "node_modules" / ".bin" / "ast-grep.CMD"))).as_posix() == (
             bin_shim / "node_modules" / "@ast-grep" / "cli-win32-x64-msvc" / "ast-grep.exe").as_posix()
         assert mod._native_ast_grep("/usr/bin/ast-grep") == "/usr/bin/ast-grep"
+
+
+# --------------------------------------------------------------------------
+# Entries mode: quick mode's entry files, found in the listing (step 5b
+# quick-skill determinism-1)
+# --------------------------------------------------------------------------
+
+
+def _listing(tmp_path: Path, paths: list[str]) -> Path:
+    """A skf-github-probe.py tree listing of `paths`."""
+    listing = tmp_path / "tree.json"
+    listing.write_bytes(json.dumps({"status": "ok", "tree": paths, "truncated": False}).encode("utf-8"))
+    return listing
+
+
+def _entries(capsys, tmp_path: Path, language: str, paths: list[str], staged: dict[str, str],
+             *extra: str) -> tuple[int, dict | None]:
+    root = _stage(tmp_path / "src", staged) if staged else (tmp_path / "src")
+    root.mkdir(parents=True, exist_ok=True)
+    listing = _listing(tmp_path, paths)
+    code = mod.main(["--mode", "entries", "--language", language, "--tree-file", str(listing),
+                     "--source-root", str(root), *extra])
+    out = capsys.readouterr().out
+    return code, json.loads(out) if out.strip() else None
+
+
+class TestEntries:
+    def test_a_python_import_name_that_is_not_the_distribution_name(self, tmp_path, capsys):
+        """Pillow's package is src/PIL/: no folder is named pillow, so the package top is kept."""
+        paths = ["pyproject.toml", "src/PIL/__init__.py", "src/PIL/Image.py", "Tests/test_image.py",
+                 "Tests/__init__.py", "docs/conf.py", "docs/__init__.py", "setup.py"]
+        code, out = _entries(capsys, tmp_path, "python", paths, {"pyproject.toml": '[project]\nname = "Pillow"\n'})
+        assert code == 0
+        assert (out["manifest"], out["entry_files"], out["unresolved"]) == ("pyproject.toml", ["src/PIL/__init__.py"], [])
+
+    def test_the_package_named_after_the_manifest_is_preferred(self, tmp_path, capsys):
+        paths = ["pyproject.toml", "acme_tools/__init__.py", "scripts/__init__.py", "examples/demo/__init__.py",
+                 "benchmarks/__init__.py", "testing/__init__.py"]
+        code, out = _entries(capsys, tmp_path, "python", paths, {"pyproject.toml": '[project]\nname = "acme-tools"\n'})
+        assert (code, out["entry_files"]) == (0, ["acme_tools/__init__.py"])
+
+    def test_a_single_module_package(self, tmp_path, capsys):
+        """six ships six.py and no package folder: setup.py names it."""
+        paths = ["setup.py", "six.py", "test_six.py", "documentation/index.rst", "README.rst"]
+        code, out = _entries(capsys, tmp_path, "python", paths, {"setup.py": 'setup(name="six", version="1.16.0")\n'})
+        assert (code, out["manifest"], out["entry_files"]) == (0, "setup.py", ["six.py"])
+
+    def test_the_name_comes_from_the_first_manifest_that_gives_one(self, tmp_path, capsys):
+        """A pyproject.toml with only [build-system] and [tool.*] names no package: setup.py does."""
+        paths = ["pyproject.toml", "setup.py", "six.py", "test_six.py"]
+        staged = {"pyproject.toml": '[build-system]\nrequires = ["setuptools"]\n\n[tool.black]\nline-length = 88\n',
+                  "setup.py": 'from setuptools import setup\nsetup(name="six")\n'}
+        code, out = _entries(capsys, tmp_path, "python", paths, staged)
+        assert (code, out["manifest"], out["entry_files"], out["unresolved"]) == (0, "setup.py", ["six.py"], [])
+
+    def test_a_setup_cfg_name_and_a_poetry_name(self, tmp_path, capsys):
+        paths = ["pyproject.toml", "setup.cfg", "setup.py", "attrs_lite.py"]
+        staged = {"pyproject.toml": '[build-system]\nrequires = ["setuptools"]\n',
+                  "setup.py": "from setuptools import setup\nsetup()\n",
+                  "setup.cfg": "[metadata]\nname = attrs-lite\nversion = 1.0\n\n[options]\ninstall_requires =\n    six>=1\n"}
+        code, out = _entries(capsys, tmp_path, "python", paths, staged)
+        assert (code, out["manifest"], out["entry_files"]) == (0, "setup.cfg", ["attrs_lite.py"])
+        code, out = _entries(capsys, tmp_path / "poetry", "python", ["pyproject.toml", "src/tiny.py"],
+                             {"pyproject.toml": '[tool.poetry]\nname = "tiny"\n'})
+        assert (code, out["manifest"], out["entry_files"]) == (0, "pyproject.toml", ["src/tiny.py"])
+
+    def test_a_source_root_not_made_yet_holds_no_manifest(self, tmp_path, capsys):
+        """Nothing was fetched yet, so the fetch folder does not exist: the listing still gives the entry."""
+        listing = _listing(tmp_path, ["six.py", "README.rst"])
+        code = mod.main(["--mode", "entries", "--language", "python", "--tree-file", str(listing),
+                         "--source-root", str(tmp_path / "not-made")])
+        out = json.loads(capsys.readouterr().out)
+        assert (code, out["manifest"], out["entry_files"]) == (0, None, [])
+        (tmp_path / "a-file").write_bytes(b"x")
+        code = mod.main(["--mode", "entries", "--language", "python", "--tree-file", str(listing),
+                         "--source-root", str(tmp_path / "a-file")])
+        assert code == 2 and "is not a folder" in capsys.readouterr().err
+
+    def test_a_python_package_with_nothing_to_read_names_what_it_tried(self, tmp_path, capsys):
+        code, out = _entries(capsys, tmp_path, "python", ["pyproject.toml", "README.md"],
+                             {"pyproject.toml": '[project]\nname = "ghost"\n'})
+        assert (code, out["entry_files"]) == (0, [])
+        assert out["unresolved"] == [{"package": ".", "subpath": None, "targets": ["ghost.py", "src/ghost.py"]}]
+
+    def test_a_main_that_names_the_build_output_maps_back_to_the_source(self, tmp_path, capsys):
+        paths = ["package.json", "src/index.ts", "src/core.ts", "README.md"]
+        code, out = _entries(capsys, tmp_path, "ts", paths,
+                             {"package.json": '{"name": "acme", "main": "dist/index.js", "types": "dist/index.d.ts"}'},
+                             "--fetch-list", str(tmp_path / "entries.txt"))
+        assert (code, out["manifest"], out["entry_files"], out["unresolved"]) == (
+            0, "package.json", ["src/index.ts"], [])
+        assert (tmp_path / "entries.txt").read_bytes() == b"src/index.ts\n"
+
+    def test_a_scoped_package_of_a_monorepo(self, tmp_path, capsys):
+        paths = ["package.json", "packages/core/package.json", "packages/core/lib/main.js", "packages/web/index.js"]
+        code, out = _entries(capsys, tmp_path, "js", paths,
+                             {"packages/core/package.json": '{"name": "@acme/core", "exports": {".": "./lib/main.js"}}'},
+                             "--scope", "./packages/core/")
+        assert (code, out["scope"], out["manifest"], out["entry_files"]) == (
+            0, "packages/core", "packages/core/package.json", ["packages/core/lib/main.js"])
+
+    def test_a_cargo_lib_path(self, tmp_path, capsys):
+        cargo = '[package]\nname = "demo"\n\n[lib]\npath = "src/demo.rs"\n'
+        paths = ["Cargo.toml", "src/demo.rs", "src/main.rs", "crates/x/Cargo.toml", "crates/x/src/lib.rs"]
+        code, out = _entries(capsys, tmp_path, "rust", paths, {"Cargo.toml": cargo})
+        assert (code, out["entry_files"]) == (0, ["src/demo.rs"])
+        code, out = _entries(capsys, tmp_path / "virtual", "rust", ["Cargo.toml", "crates/x/src/lib.rs",
+                                                                     "crates/x/Cargo.toml"],
+                             {"Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n'})
+        assert (code, out["entry_files"], out["unresolved"][0]["targets"]) == (0, [], ["src/lib.rs"])
+
+    def test_the_java_group_folder(self, tmp_path, capsys):
+        pom = ("<project><parent><groupId>com.acme</groupId></parent><artifactId>core</artifactId>"
+               "</project>")
+        paths = ["pom.xml", "src/main/java/com/acme/A.java", "src/main/java/com/acme/B.java",
+                 "src/main/java/com/acme/sub/C.java", "src/test/java/com/acme/ATest.java"]
+        code, out = _entries(capsys, tmp_path, "java", paths, {"pom.xml": pom})
+        assert (code, out["entry_files"]) == (0, ["src/main/java/com/acme/A.java", "src/main/java/com/acme/B.java"])
+
+    def test_the_go_and_kotlin_globs_read_five_files(self, tmp_path, capsys):
+        go = ["go.mod", *[f"f{i}.go" for i in range(7)], "a_test.go", "cmd/main.go"]
+        code, out = _entries(capsys, tmp_path, "go", go, {"go.mod": "module example.com/acme\n"})
+        assert (code, out["entry_files"]) == (0, [f"f{i}.go" for i in range(5)])
+        kt = ["build.gradle.kts", "src/main/kotlin/a/A.kt", "src/main/kotlin/B.kt", "src/test/kotlin/T.kt"]
+        code, out = _entries(capsys, tmp_path / "kt", "kotlin", kt, {})
+        assert (code, out["manifest"], out["entry_files"]) == (
+            0, "build.gradle.kts", ["src/main/kotlin/B.kt", "src/main/kotlin/a/A.kt"])
+        assert any("not under --source-root" in w for w in out["warnings"])
+
+    def test_a_language_with_no_rule_and_an_unknown_one(self, tmp_path, capsys):
+        code, out = _entries(capsys, tmp_path, "swift", ["Package.swift", "Sources/A/a.swift"], {})
+        assert (code, out["entry_files"]) == (0, []) and "no entry-point rule for swift" in out["warnings"][0]
+        code, out = _entries(capsys, tmp_path / "f", "fortran", ["main.f90"], {})
+        assert code == 1 and "unknown language" in out["_error"]
+
+    @pytest.mark.parametrize(
+        ("argv", "message"),
+        [pytest.param(["--language", "python", "--source-root", "."], "needs --tree-file", id="no-listing"),
+         pytest.param(["--language", "python", "--tree-file", "t.json"], "needs --tree-file and --source-root",
+                      id="no-root"),
+         pytest.param(["--tree-file", "t.json", "--source-root", "."], "takes one --language", id="no-language"),
+         pytest.param(["--language", "python", "--tree-file", "t", "--source-root", ".", "--entry-file", "a.py"],
+                      "quick mode only", id="quick-flag"),
+         pytest.param(["--language", "python", "--tree-file", "t", "--source-root", ".", "--tier", "Quick"],
+                      "full mode only", id="full-flag")],
+    )
+    def test_entries_mode_flags(self, argv, message, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "entries", *argv])
+        assert exc.value.code == 2 and message in capsys.readouterr().err
+
+    def test_a_listing_that_cannot_be_read_exits_2(self, tmp_path, capsys):
+        code = mod.main(["--mode", "entries", "--language", "python", "--tree-file", str(tmp_path / "absent.json"),
+                         "--source-root", str(tmp_path)])
+        captured = capsys.readouterr()
+        assert (code, captured.out) == (2, "") and "cannot read --tree-file" in captured.err
+
+    def test_the_listing_flags_belong_to_entries_and_quick_mode(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "full", "--source-root", ".", "--tree-file", "t.json"])
+        assert exc.value.code == 2 and "entries or quick mode only" in capsys.readouterr().err
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "quick", "--language", "js", "--entry-file", "a.js", "--scope", "x"])
+        assert exc.value.code == 2 and "entries mode only" in capsys.readouterr().err
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "quick", "--tree-file", "t.json"])
+        assert exc.value.code == 2 and "only with --manifest-file or --entry-file" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------
+# unlisted[]: the module each re-export statement names (step 5b quick-skill
+# determinism-2)
+# --------------------------------------------------------------------------
+
+
+NODENEXT = {
+    "package.json": '{"name": "acme", "type": "module"}',
+    "src/index.ts": "export * from './core.js';\nexport { helper as h } from './util/index.js';\n",
+    "src/core.ts": "export class Core {}\nexport * from './util/index.js';\n",
+    "src/util/index.ts": "export function helper() {}\nexport const VERSION = '1';\n",
+}
+
+
+class TestUnlisted:
+    def _extract(self, files: dict[str, str], entries: list[str], tree: list[str] | None, language: str = "ts"):
+        payload = {"language": language, "manifest": {"path": "", "content": ""},
+                   "entries": [{"path": p, "content": files[p]} for p in entries]}
+        if tree is not None:
+            payload["tree"] = tree
+        return mod.extract(payload)
+
+    def test_a_nodenext_specifier_names_its_typescript_source(self):
+        out = self._extract(NODENEXT, ["src/index.ts"], list(NODENEXT))
+        assert out["unlisted"] == [{"file": "src/index.ts", "line": 1, "statement": "export * from './core.js'",
+                                    "specifier": "./core.js", "module_file": "src/core.ts"}]
+        assert any("export * from './core.js'" in w for w in out["warnings"])
+
+    def test_a_chain_is_followed_round_by_round_and_converges(self):
+        """Each round passes the module files as entries: a statement whose module is
+        already an entry drops out with its warning, so nothing is named twice."""
+        entries = ["src/index.ts"]
+        for _ in range(5):
+            out = self._extract(NODENEXT, entries, list(NODENEXT))
+            new = [r["module_file"] for r in out["unlisted"] if r["module_file"]]
+            if not new:
+                break
+            entries += [f for f in new if f not in entries]
+        assert entries == ["src/index.ts", "src/core.ts", "src/util/index.ts"]
+        assert out["unlisted"] == [] and not any("passes on names" in w for w in out["warnings"])
+        assert {e["name"] for e in out["exports"]} >= {"Core", "helper", "VERSION", "h"}
+
+    def test_a_nested_index_barrel_and_a_folder_specifier(self):
+        files = {"index.js": "export * from './lib';\nmodule.exports = require('./cjs');\n",
+                 "lib/index.ts": "export const a = 1;\n", "cjs.js": "exports.b = 2;\n"}
+        out = self._extract(files, ["index.js"], list(files), language="js")
+        assert [(r["statement"], r["module_file"]) for r in out["unlisted"]] == [
+            ("export * from './lib'", "lib/index.ts"), ("module.exports = require('./cjs')", "cjs.js")]
+
+    def test_a_python_star_import_names_its_module(self):
+        files = {"pkg/__init__.py": "from .core import *\nfrom pkg.extra import *\nfrom os import *\n",
+                 "pkg/core.py": "def run(): pass\n", "pkg/extra/__init__.py": "X = 1\n"}
+        out = self._extract(files, ["pkg/__init__.py"], list(files), language="python")
+        assert [(r["specifier"], r["module_file"]) for r in out["unlisted"]] == [
+            (".core", "pkg/core.py"), ("pkg.extra", "pkg/extra/__init__.py")]
+
+    def test_a_rust_glob_and_a_package_import_have_no_module_file(self):
+        out = self._extract({"src/lib.rs": "pub use crate::parser::*;\n"}, ["src/lib.rs"], ["src/lib.rs"],
+                            language="rust")
+        assert [(r["statement"], r["module_file"]) for r in out["unlisted"]] == [("pub use crate::parser::*", None)]
+        out = self._extract({"index.js": "export * from 'lodash';\n"}, ["index.js"], ["index.js"], language="js")
+        assert [(r["specifier"], r["module_file"]) for r in out["unlisted"]] == [("lodash", None)]
+
+    def test_without_a_listing_only_the_entries_are_known(self):
+        out = self._extract(NODENEXT, ["src/index.ts"], None)
+        assert [r["module_file"] for r in out["unlisted"]] == [None]
+        both = self._extract(NODENEXT, ["src/index.ts", "src/core.ts"], None)
+        assert [r["file"] for r in both["unlisted"]] == ["src/core.ts"], "the read module drops out"
+        assert not any("src/index.ts line 1" in w for w in both["warnings"])
+
+    def test_a_followed_module_passes_on_no_default_export(self, tmp_path, capsys):
+        """`export *` re-exports no default: `import { Hidden } from 'acme'` cannot import it."""
+        files = {"package.json": '{"name": "acme"}', "src/index.ts": "export * from './core.js';\n",
+                 "src/core.ts": "export default class Hidden {}\nexport class Core {}\n"
+                                "export default function () {}\n"}
+        root = _stage(tmp_path / "src", files)
+        listing = _listing(tmp_path, list(files))
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--tree-file", str(listing),
+                           "--entry-file", "src/index.ts", "--follow-file", "src/core.ts")
+        assert code == 0 and [e["name"] for e in out["exports"]] == ["Core"]
+        assert out["unlisted"] == [] and not any("export default" in w for w in out["warnings"])
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--entry-file", "src/core.ts")
+        assert code == 0 and [e["name"] for e in out["exports"]] == ["Hidden", "Core"], "an entry keeps it"
+
+    def test_the_module_folders_of_a_multi_module_build(self, tmp_path, capsys):
+        pom = ("<project><groupId>com.acme</groupId><artifactId>parent</artifactId>"
+               "<modules><module>core</module><module>../shared/api</module></modules></project>")
+        out = mod.extract({"language": "java", "manifest": {"path": "lib/pom.xml", "content": pom}, "entries": []})
+        assert (out["modules"], out["module_folders"]) == (["core", "../shared/api"], ["lib/core", "shared/api"])
+        assert mod._module_folder("settings.gradle.kts", ":core:api") == "core/api"
+
+    def test_the_cli_writes_the_modules_still_to_read(self, tmp_path, capsys):
+        root = _stage(tmp_path / "src", NODENEXT)
+        listing = _listing(tmp_path, list(NODENEXT))
+        follow = tmp_path / "follow.txt"
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--tree-file", str(listing),
+                           "--entry-file", "src/index.ts", "--fetch-list", str(follow))
+        assert code == 0 and follow.read_bytes() == b"src/core.ts\n"
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--tree-file", str(listing),
+                           "--entry-file", "src/index.ts", "--entry-file", "src/core.ts",
+                           "--entry-file", "src/util/index.ts", "--fetch-list", str(follow))
+        assert (code, out["unlisted"], follow.read_bytes()) == (0, [], b"")
