@@ -29,6 +29,12 @@ files with the extractor's entries mode and follows the modules an
 (determinism-1); and a ratify run skips the overwrite gate only when it
 writes back to the brief it read (architecture-1).
 
+Step 5b gate run 3 (determinism-3): step 5 writes a ratified brief from the
+brief file with a staged patch of the fields steps 3 and 4 can change
+(--base-brief, --patch-file), so the fields no step changes, the
+amendments log among them, are never retyped; only a derive run stages the
+flat payload.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the helpers, with the fetch helper reading
 from a local folder where a command reads GitHub.
@@ -633,22 +639,30 @@ def test_headless_arguments_reach_the_validator_from_a_staged_file(tmp_path):
     assert out["valid"] is True and out["normalized"]["intent"] == args["intent"]
 
 
+def _flat_payload_keys(section: str) -> set[str]:
+    """The keys of the flat payload template step 5 §3 shows a derive run."""
+    start = section.index("```json\n") + len("```json\n")
+    return set(re.findall(r'^  "([a-z_]+)":', section[start:section.index("```", start)], re.M))
+
+
 @needs_bash
 def test_the_step_five_payload_reaches_the_writer_with_its_apostrophes(tmp_path):
     section = _section(_read(WRITE_BRIEF), "### 3. Write the Brief")
-    [block] = _blocks(section, "{writeSkillBriefHelper}")
-    assert "--from-flat" in block
+    # Step 5b gate run 3: a ratify run has a writer call of its own (--base-brief), so this is the derive block.
+    [block] = _blocks(section, "--from-flat")
+    assert "{writeSkillBriefHelper}" in block
     context = {
         "name": "demo", "target_version": None, "detected_version": "1.4.0", "source_type": "source",
         "source_repo": "https://github.com/o/r", "language": "typescript",
         "description": "The client's retry API. Use when an agent's call fails and it's worth retrying.",
         "forge_tier": "Forge", "created": "2026-10-01", "created_by": "demo", "scope_type": "public-api",
         "scope_include": ["src/**"], "scope_exclude": [], "scope_notes": "It's the `retry` module's surface.",
-        "scope_rationale": None, "scope_tier_a_include": None, "scope_amendments": None,
+        "scope_rationale": None, "scope_tier_a_include": None,
         "scope_registry_path": None, "scope_ui_variants": None, "scope_demo_patterns": None, "doc_urls": None,
         "scripts_intent": None, "assets_intent": None, "source_authority": None, "target_ref": None,
-        "source_ref": None,
     }
+    # The context holds every key the template names; a derive run sets no source_ref and no amendments log.
+    assert set(context) == _flat_payload_keys(section)
     target = tmp_path / "forge" / "demo" / "skill-brief.yaml"
     block = (block.replace("<the brief context above, as one JSON object>", json.dumps(context))
              .replace("{run_dir}", tmp_path.as_posix()).replace("{resolved-target-path}", target.as_posix())
@@ -783,6 +797,85 @@ def test_the_auto_path_hands_every_upstream_field_back_to_the_writer(tmp_path):
     assert written["doc_urls"] == merged and len(merged) == 2
     assert {k: v for k, v in written.items() if k != "doc_urls"} == \
         {k: v for k, v in upstream.items() if k != "doc_urls"}
+
+
+# The fields step 4 or a step 3 [R] pass can change: the ratify patch names each, and no other.
+RATIFY_PATCH_FIELDS = {
+    "name", "description", "language", "scripts_intent", "assets_intent", "doc_urls", "scope.type", "scope.include",
+    "scope.exclude", "scope.notes", "scope.rationale", "scope.tier_a_include", "scope.registry_path",
+    "scope.ui_variants", "scope.demo_patterns",
+}
+COMPONENT_FIELDS = ("registry_path", "ui_variants", "demo_patterns")
+
+
+def _value(context: dict, dotted: str):
+    for part in dotted.split("."):
+        context = context.get(part) if isinstance(context, dict) else None
+    return context
+
+
+def _ratify_change(name: str, context: dict) -> dict:
+    """The run's context after `name`: what step 4 or a step 3 [R] pass changed; returns any step 4 change to a
+    field the patch template does not name, which the prose adds to the patch under its brief key."""
+    if name == "step-four-description":
+        context["description"] = "Demo's buttons and dialogs. Use when it's a UI task in Demo."
+    elif name == "revise-off-component-library":
+        # scope-definition.md Rules: the pass drops the three fields when the type leaves component-library.
+        context["scope"].update(type="public-api", include=["packages/ui/src/index.ts"])
+        context["scope"]["rationale"].update(chosen="public-api", reason="the entry point only")
+        for field in COMPONENT_FIELDS:
+            context["scope"].pop(field)
+    elif name == "step-four-version":
+        context.update(version="1.3.0", target_version="1.3.0")
+        return {"version": "1.3.0", "target_version": "1.3.0"}
+    return {}
+
+
+@needs_bash
+@pytest.mark.parametrize("change", [
+    pytest.param("none", id="as-ratified"),
+    pytest.param("step-four-description", id="step-four-description"),
+    pytest.param("revise-off-component-library", id="revise-off-component-library"),
+    pytest.param("step-four-version", id="step-four-version"),
+])
+def test_a_ratify_run_writes_from_the_brief_it_ratified(tmp_path, change):
+    """Step 5b gate run 3 (determinism-3): step 5 writes a ratified brief from the file step 1 read, with a patch
+    of the fields steps 3 and 4 can change, so the amendments log, the tier-A list, the git refs and the version
+    survive though no step retypes them, and the component-library fields go only when an [R] pass drops them."""
+    section = _section(_read(WRITE_BRIEF), "### 3. Write the Brief")
+    [block] = _blocks(section, "--base-brief")
+    template = HEREDOC_RE.search(block).group("body")
+    assert set(re.findall(r"<([a-z_.]+)>", template)) == RATIFY_PATCH_FIELDS
+    for kept in ('"amendments"', '"version"', '"target_ref"', '"source_ref"', '"created"'):
+        assert kept not in template, kept
+    upstream = _upstream_brief(tmp_path)
+    source = tmp_path / "upstream" / "skill-brief.yaml"
+    # gather-intent-ratify.md §3 hydrates the run's context from the parsed brief, field for field.
+    context = json.loads(json.dumps(upstream))
+    extra = _ratify_change(change, context)
+    patch = template
+    for dotted in RATIFY_PATCH_FIELDS:
+        patch = patch.replace(f"<{dotted}>", json.dumps(_value(context, dotted)))
+    patch = json.dumps({**json.loads(patch), **extra})
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    target = tmp_path / "forge" / "demo" / "skill-brief.yaml"
+    script = (block.replace(template, patch).replace("{run_dir}", run_dir.as_posix())
+              .replace("{resolved-target-path}", target.as_posix())
+              .replace("{ratify_source_path}", source.as_posix())
+              .replace("uv run {writeSkillBriefHelper}", _script("skf-write-skill-brief.py")))
+    proc = _bash(script)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["version"] == context["version"]
+    assert "version_resolved" not in target.read_text(encoding="utf-8")
+    written = json.loads(_run("skf-validate-brief-schema.py", str(target)).stdout)["brief"]
+    assert written == context
+    assert written["scope"]["amendments"] == upstream["scope"]["amendments"]
+    assert written["scope"]["tier_a_include"] == upstream["scope"]["tier_a_include"]
+    assert (written["target_ref"], written["source_ref"]) == (upstream["target_ref"], upstream["source_ref"])
+    dropped = change == "revise-off-component-library"
+    for field in COMPONENT_FIELDS:
+        assert (field in written["scope"]) is not dropped, field
 
 
 # --------------------------------------------------------------------------

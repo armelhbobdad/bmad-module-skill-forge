@@ -76,7 +76,7 @@ If the file does not exist, proceed normally.
 
 ### 3. Write the Brief
 
-Assemble the brief context as a **flat** JSON object — every approved value is a top-level key, scope is split across four `scope_*` keys instead of nested, and every optional field is passed as `null` when not set rather than conditionally omitted. This eliminates the "decide what to omit" cognitive load that previously made this the most expensive HALT-typo site in the workflow:
+**Derive run** (any run but a ratify run): assemble the brief context as a **flat** JSON object: every approved value is a top-level key, scope is split across the `scope_*` keys instead of nested, and every optional field is passed as `null` when not set rather than conditionally omitted:
 
 ```json
 {
@@ -95,21 +95,17 @@ Assemble the brief context as a **flat** JSON object — every approved value is
   "scope_exclude":    ["{approved exclude patterns}"],
   "scope_notes":      "{approved scope notes or empty string}",
   "scope_rationale":  null | {"recommended":"...","chosen":"...","accepted_recommendation":true|false,"heuristic":"...","reason":"...","recorded":"YYYY-MM-DD"},
-  "scope_tier_a_include": null | ["{tier-A authoring-surface patterns — from step 03 §3c capture, or hydrated on a ratify run}"],
-  "scope_amendments":     null | [{"path":"...","action":"...","reason":"...","date":"YYYY-MM-DD","workflow":"..."}],
-  "scope_registry_path":  null | "{a component library's registry file, from step 03's component-library flow or hydrated on a ratify run}",
+  "scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3 §3c}"],
+  "scope_registry_path":  null | "{a component library's registry file; this key and the next two from step 3's component-library flow or its headless default}",
   "scope_ui_variants":    null | [{"name": "...", "package": "..."}],
   "scope_demo_patterns":  null | ["{demo globs}"],
   "doc_urls":         null | [{"url": "...", "label": "...", "source": "{optional: language-registry|readme-detection|homepage|pages-api|docs-folder}"}],
   "scripts_intent":   null | "{detect|none|free-text}",
   "assets_intent":    null | "{detect|none|free-text}",
   "source_authority": null | "{official|community|internal}",
-  "target_ref":       null | "{the explicit git ref: step 1's /tree/<ref>/ URL, or hydrated on a ratify run}",
-  "source_ref":       null | "{resolved git ref — ratify only}"
+  "target_ref":       null | "{the explicit git ref of step 1's /tree/<ref>/ URL}"
 }
 ```
-
-**Ratify mode (`ratify_mode: true`):** step 2 never re-derives the version on a ratify run (an [R] pass analyzes the brief's ref but keeps the hydrated version): the version was hydrated from the upstream brief when step 1 ratified it (`references/gather-intent-ratify.md`). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds. Likewise carry `target_ref`, `source_ref`, `scope_tier_a_include`/`scope_amendments` and `scope_registry_path`/`scope_ui_variants`/`scope_demo_patterns` from the hydrated brief, so the writer round-trips the monorepo git ref, the stratified tier-A surface, the amendment audit log, and a component library's registry file, design system variants and demo globs instead of dropping them. A derive run sets them itself, each null when nothing set it: `target_ref` from step 1's `/tree/<ref>/` URL, `scope_tier_a_include` from step 3 §3c, and the three component-library keys from step 3's component-library flow or its headless default; `source_ref` and `scope_amendments` are null.
 
 Stage it in the run folder, then run the writer on the file with the `--from-flat` flag:
 
@@ -122,7 +118,18 @@ uv run {writeSkillBriefHelper} write --target {resolved-target-path} --from-flat
 
 The script translates flat → nested internally, drops the null optional fields, and runs the same schema validation and atomic write as before — pass every key always, the writer decides what reaches the YAML.
 
-The script:
+**Ratify run (`ratify_mode: true`):** write from the brief step 1 ratified, `{ratify_source_path}`, so nothing it holds is retyped. The writer keeps every field of that brief that it renders and the patch below does not name, such as its version, which step 2 never re-derives on a ratify run (an [R] pass analyzes the brief's ref but keeps the hydrated version), its git refs and its `scope.amendments` log. The patch holds the fields step 4 or a step 3 `[R]` pass can change: write each `<field>` as its current value in JSON, `null` when it is unset, which removes the key (an `[R]` pass that moved `scope.type` off `component-library` unsets the three component-library fields). Add any other field the user changed at step 4 under its brief key; a changed `version` sets `target_version` too when the brief holds one, because the writer keeps the two equal:
+
+```bash
+cat > "{run_dir}/ratify-patch.json" <<'SKF_JSON'
+{"name": <name>, "description": <description>, "language": <language>,
+ "scope": {"type": <scope.type>, "include": <scope.include>, "exclude": <scope.exclude>, "notes": <scope.notes>, "rationale": <scope.rationale>, "tier_a_include": <scope.tier_a_include>, "registry_path": <scope.registry_path>, "ui_variants": <scope.ui_variants>, "demo_patterns": <scope.demo_patterns>},
+ "scripts_intent": <scripts_intent>, "assets_intent": <assets_intent>, "doc_urls": <doc_urls>}
+SKF_JSON
+uv run {writeSkillBriefHelper} write --target {resolved-target-path} --base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json"
+```
+
+Either way, the script:
 - Validates the context against `src/shared/scripts/schemas/skill-brief.v1.json`
 - Applies the version-precedence rule from `{versionResolutionFile}`
 - Enforces the `target_version == version` invariant (refuses to write a brief that violates it)
@@ -134,7 +141,7 @@ The script:
 - Exit 1 (validation/invariant): The error JSON on stderr names the offending field. This indicates a context-assembly bug, not a user error — surface the message to the user, log it, then HALT.
   - Interactive: **HALT** — display the error JSON's `message` field.
   - Headless: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HALT (exit code 2).
-- Exit 2 (I/O failure): The atomic write failed (target unwritable, disk full, etc.).
+- Exit 2 (I/O failure): The atomic write failed (target unwritable, disk full, etc.). On a ratify run it can also mean the brief at `{ratify_source_path}` could not be read: show the error JSON's `message` field.
   - Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Check that the directory is writable and try again."
   - Headless: emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "write-failed"` (SKILL.md Halt Contract), then HALT (exit code 4).
 
@@ -207,7 +214,7 @@ where `{brief_path}` is the absolute path captured from the §3 response envelop
 - **Never fail the workflow on hook errors:** the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production. On a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. A headless run bound its envelope at §4b, so the envelope does not carry this line.
 - On success, add nothing: the hook's own output is its report.
 
-When `{onCompleteCommand}` is empty (bundled default), skip this section entirely: no hook is invoked. An `[auto]` run never loads this file: step-auto-validate.md §3 runs the same hook right after its envelope.
+When `{onCompleteCommand}` is empty (bundled default), skip this section entirely: no hook is invoked. An `[auto]` run runs only §3b of this file: step-auto-validate.md §3 runs the same hook right after its envelope.
 
 ### 7. Chain to Health Check
 

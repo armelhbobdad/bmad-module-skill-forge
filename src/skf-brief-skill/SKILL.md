@@ -93,7 +93,7 @@ Give the halt's own `halt_reason`: the helper derives `exit_code` from it. `skil
 | 5 | Write Brief | references/write-brief.md | Conditional (the brief exists) |
 | 6 | Workflow Health Check (terminal) | references/health-check.md | Yes |
 
-Every run starts in gather-intent.md, whose §1 (run folder, forge tier) serves every mode; its §1b routes by mode. `[auto]` (a pipeline's `BS[auto]`): step-auto-brief.md → step-auto-validate.md → health-check.md, in place of stages 2-5. Headless: headless-args.md validates the arguments before any stage uses them, then continues at stage 2. Interactive: the rest of gather-intent.md. A brief to ratify (a brief path at the first prompt, or a headless `from_brief`) goes through gather-intent-ratify.md straight to stage 4, skipping stages 2 and 3.
+Every run starts in gather-intent.md, whose §1 (run folder, forge tier) serves every mode; its §1b routes by mode. `[auto]` (a pipeline's `BS[auto]`): step-auto-brief.md → step-auto-validate.md → health-check.md, in place of stages 2-5 except stage 5's §3b QMD registration, which step-auto-validate.md runs at Deep tier. It stays a separate route by design: the forge-auto pipeline contract gives it doc enrichment (step-auto-brief.md §2-§3), which the ratify and derive routes do not run, and an envelope with `mode: "auto"`. Headless: headless-args.md validates the arguments before any stage uses them, then continues at stage 2. Interactive: the rest of gather-intent.md. A brief to ratify (a brief path at the first prompt, or a headless `from_brief`) goes through gather-intent-ratify.md straight to stage 4, skipping stages 2 and 3.
 
 ## Invocation Contract
 

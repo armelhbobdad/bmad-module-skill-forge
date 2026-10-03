@@ -113,7 +113,7 @@ Load `{scopeTemplatesPath}` for the scope type options ([F], [M], [P], [C], [R])
 
 Judge the meaning, never a word: a negated or contrasted mention sets nothing ("the whole library, not just the parser" names no module; "the client library, not a demo app or starter template" wants no wiring pattern), and a word inside another word is not that word ("Kickstarter-style" says nothing about a starter). A signal the intent does not state stays `false` (or `[]`).
 
-**Run the recommender in one Bash call**; it reads step 2's file list through `--tree-file`, the registry files (`registry.ts`, `components.ts` and their `.tsx` forms) through `--entry-dir` and step 2's exports through `--extract-file`, never a list, a count or a file typed into the payload. For a GitHub source, the first two lines fetch the registry files the listing holds into `{run_dir}/files`:
+**Run the recommender in one Bash call**; it reads step 2's file list through `--tree-file`, the registry files (`registry.ts`, `components.ts` and their `.tsx` forms) through `--entry-dir` and step 2's exports through `--extract-file`, never the file list, a registry file or the exports typed into the payload; `module_count` is the one count it carries, because which folders are modules is step 2 §4.3's judgment. For a GitHub source, the first two lines fetch the registry files the listing holds into `{run_dir}/files`:
 
 ```bash
 uv run {recommendScopeTypeHelper} --tree-file "{run_dir}/tree.json" --registry-files > "{run_dir}/registry-files.txt"

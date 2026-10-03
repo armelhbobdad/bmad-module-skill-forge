@@ -1041,12 +1041,27 @@ def test_an_unbolded_copy_passes_and_maps_its_tiers(tmp_path):
     assert result["vs_raises"] == {"Verified": None, "Plausible": "Minor", "Risky": "Major", "Blocked": "Critical"}
 
 
+def test_a_bold_no_issue_raises_no_issue_whatever_its_prose_names(tmp_path):
+    # Bold decides, as it does for a tier, so a tier word in the prose around it never raises that tier.
+    text = _broken(("| No issue", "| **No issue**, even when the rationale notes minor caveats"))
+    code, result = _rules_result(tmp_path, text)
+    assert code == 0 and result["violations"] == [], result
+    assert result["vs_raises"] == {"Verified": None, "Plausible": "Minor", "Risky": "Major", "Blocked": "Critical"}
+
+
 def test_a_longer_tier_is_not_also_read_as_a_shorter_one():
     tiers = {"severe_count": "Severe", "very_severe_count": "Very Severe"}
     assert mod.vs_raised("A very  severe issue", tiers) == (["Very Severe"], False)
     assert mod.vs_raised("A **Severe** issue, not Very Severe", tiers) == (["Severe"], False)
     assert mod.vs_raised("Nothing to raise", tiers) == ([], False)
     assert mod.vs_raised("No issue: the pair is verified", tiers) == ([], True)
+    # A bold No issue or None counts as a bold tier does: the prose around it is not read.
+    assert mod.vs_raised("**No issue**, even when the rationale notes severe caveats", tiers) == ([], True)
+    assert mod.vs_raised("__None__, whatever the Severe rationale says", tiers) == ([], True)
+    # Unbolded, a tier word no longer hides No issue or None: check_rules reports the pair.
+    assert mod.vs_raised("No issue unless a severe caveat shows", tiers) == (["Severe"], True)
+    assert mod.vs_raised("A **Severe** issue or **No issue**", tiers) == (["Severe"], True)
+    assert mod.vs_raised("A **Severe** issue, none of the rationale changes it", tiers) == (["Severe"], False)
 
 
 def test_a_heading_of_any_level_and_case_holds_a_table(tmp_path):
@@ -1076,6 +1091,11 @@ BROKEN_RULES = [
     pytest.param((("A **Major** issue, confirmed", "Major or Minor, confirmed"),), "vs-raises",
                  "VS row `Risky` (line 57) names more than one tier of the Issue Severity table: Major, Minor",
                  id="raises-two-tiers"),
+    pytest.param((("| No issue", "| No issue, even when the rationale notes minor caveats"),), "vs-raises",
+                 "VS row `Verified` (line 59) names Minor and also says No issue or None", id="raises-tier-and-none"),
+    pytest.param((("| No issue", "| None (Critical findings are tracked elsewhere)"),), "vs-raises",
+                 "VS row `Verified` (line 59) names Critical and also says No issue or None: bold the one it raises",
+                 id="raises-none-and-tier"),
 ]
 
 

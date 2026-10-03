@@ -85,10 +85,6 @@ NO_RECORD = {
         "The envelope's `coexistence` field carries the choice",
     ("skf-setup", "references/auto-index.md"):
         "Set `{orphan_auto_resolution: {action: <keep|remove>, source: <as above>}}`",
-    # Update's rule R1: the change manifest entry carries the document or
-    # rescope choice, and step 4 writes a rescope into the brief.
-    ("skf-update-skill", "references/gap-driven.md"):
-        "give the manifest entry a `rescope` object",
     # Update's §4b test-report offer: headless keeps normal mode and warns.
     ("skf-update-skill", "references/init.md"):
         "add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`. The warning is the notice",

@@ -59,11 +59,12 @@ persistent_facts = [
 # the letters A to Z, digits and spaces; no two tiers share a name (ignoring
 # case), severity and value tiers included; none is named gap, issue,
 # improvement, unverified or skill; and each VS Report Integration row
-# raises a tier of Issue Severity, or no issue. Fixed whatever the copy
-# says: what each step looks for, which skills and pairs are analyzed (the
-# document scope), how findings are stored for recovery
-# (references/finding-storage.md), and how the refined document is built,
-# marked and checked (headings, callouts, RA markers, preservation).
+# raises a tier of Issue Severity, or no issue, not both (bold the one it
+# raises). Fixed whatever the copy says: what each step looks for, which
+# skills and pairs are analyzed (the document scope), how findings are
+# stored for recovery (references/finding-storage.md), and how the refined
+# document is built, marked and checked (headings, callouts, RA markers,
+# preservation).
 
 refinement_rules_path = ""
 

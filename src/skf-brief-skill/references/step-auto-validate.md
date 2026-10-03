@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'health-check.md'
+writeBriefFile: 'write-brief.md'
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
@@ -11,7 +12,7 @@ validateBriefSchemaProbeOrder:
 
 ## STEP GOAL:
 
-To check the auto-generated brief against the schema and show a concise summary of it, then build and bind the result envelope (the health check displays it as the run's last line), run the `on_complete` hook and chain to the health check. `[auto]` is a pipeline stage, which the forger always runs headless, so this step asks nothing.
+To check the auto-generated brief against the schema and show a concise summary of it, register it in QMD at Deep tier, then build and bind the result envelope (the health check displays it as the run's last line), run the `on_complete` hook and chain to the health check. `[auto]` is a pipeline stage, which the forger always runs headless, so this step asks nothing.
 
 ## Rules
 
@@ -73,6 +74,8 @@ Description:  "{description}"
 Where `{N}` is the count of `scope_include` patterns and `{M}` is the count of `scope_exclude` patterns. If `doc_urls` is null or empty, display "None detected". The `Pipeline` line names the auto pipeline and the resolved `{forge_tier}` — it carries no numeric quality target, which would be an unverified guarantee an automator might parse as fact.
 
 ### 3. Envelope, Hook and Chain
+
+**QMD registration.** When the run's forge tier (step 1 §1) is Deep, load `{writeBriefFile}` and run its §3b (QMD Collection Registration) alone, with `{skill-name}` ← `{skill_name}`, then come back here: it indexes the brief when QMD is available, and a warning it raises goes on `workflow_warnings[]` before the envelope below is built. Run nothing else of that file. At any other tier, skip this.
 
 Build the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`, through the `{emitBriefEnvelopeHelper}` SKILL.md On Activation step 4 resolved (`references/invocation-contract.md` defines each field). Bind `{result_envelope_line}` to the line it prints, and do not display it here: the shared health check displays it verbatim as the run's last line, the final message the pipeline reads:
 

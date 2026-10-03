@@ -96,6 +96,7 @@
                   "detect-changes.promoted-doc-prompt",
                   "detect-changes.scope-expansion",
                   "detect-changes.deletion-ratio",
+                  "gap-driven.rescope",
                   "merge.clean-merge-gate"
                 ],
                 "description": "Identifier for the gate. Matches the labels in stage prose so post-hoc audits can grep both directions."
@@ -108,7 +109,7 @@
               "taken_action": {
                 "type": "string",
                 "minLength": 1,
-                "description": "The action actually taken. It differs from default_action where headless resolves a gate its own way: 'D' at init.degraded-rebuild under --allow-degraded, and 'deferred-headless' at detect-changes.promoted-doc-prompt and detect-changes.scope-expansion, where a headless run decides nothing and leaves the path, recorded in the brief's scope.amendments[] as deferred-headless, for the next interactive run. One entry per path at those two gates (evidence.path)."
+                "description": "The action actually taken. It differs from default_action where headless resolves a gate its own way: 'D' at init.degraded-rebuild under --allow-degraded, 'R' at gap-driven.rescope when gap-driven.md's rule R1 rescopes the export (one entry per gap, evidence.gap_id), and 'deferred-headless' at detect-changes.promoted-doc-prompt and detect-changes.scope-expansion, where a headless run decides nothing and leaves the path, recorded in the brief's scope.amendments[] as deferred-headless, for the next interactive run. One entry per path at those two gates (evidence.path)."
               },
               "reason": {
                 "type": "string",

@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  At the Deep tier with QMD available, an `[auto]` Brief Skill run (`BS[auto]`, as the `forge-auto` pipeline starts it) now indexes the brief it writes into a `<name>-brief` QMD collection and records that collection in `forge-tier.yaml`, as an interactive, headless or ratify run does, so the similarity check of a later interactive Brief Skill run at the Deep tier sees the brief. A QMD problem adds a warning to the run's `SKF_BRIEF_RESULT_JSON` envelope and never fails the run. Before, a brief written by an `[auto]` run was never indexed.
+prs: [663]

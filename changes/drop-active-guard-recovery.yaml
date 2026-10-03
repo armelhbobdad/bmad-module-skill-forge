@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-drop-skill
+summary: |
+  Drop Skill's refusal to drop the active version while other non-deprecated versions remain now names a recovery that works: point the skill's `active` link at the version to keep (`ln -sfn <version to keep> <skills_output_folder>/<name>/active`, with the newest version it can keep filled in), run `@Ferris EX` on the skill, which exports that version and archives the one you meant to drop, then drop it. Before, the refusal said to re-run Export Skill with a different version selected, but Export Skill has no version choice: following it exported the same version again, and the drop was refused again. The guard refuses the same drops as before, with exit `5` (`active-version-guard-refused`).
+prs: [663]

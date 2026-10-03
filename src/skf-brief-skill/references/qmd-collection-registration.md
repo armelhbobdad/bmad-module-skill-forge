@@ -1,6 +1,6 @@
 # QMD Collection Registration (Deep Tier)
 
-Loaded by step 5 §3b only when forge tier is Deep AND QMD is available, before step 5 builds the result envelope. Skipped silently otherwise.
+Loaded by step 5 §3b (which step-auto-validate.md §3 also runs for an `[auto]` brief) only when forge tier is Deep AND QMD is available, before the run builds its result envelope. Skipped silently otherwise.
 
 Index the skill brief into a QMD collection so portfolio-level searches can find existing briefs and avoid duplicate skill creation across large monorepos.
 
@@ -46,4 +46,4 @@ The script handles the upsert deterministically (replace existing entry with sam
 
 - If `qmd embed` or `qmd collection add` fails: log the error. Do NOT fail the workflow — the brief file was already written successfully.
 - If the `register-qmd-collection` script call fails: log the error JSON, continue. The brief is the user-visible artifact; the registry entry is a portfolio-search optimisation.
-- If `{forgeTierRwHelper}` has no path (step 5 §3b found no `skf-forge-tier-rw.py`): skip the Registry Update. Step 5 has added the warning to `workflow_warnings[]`.
+- If `{forgeTierRwHelper}` has no path (step 5 §3b found no `skf-forge-tier-rw.py`): skip the Registry Update. Step 5 §3b has added the warning to `workflow_warnings[]`.

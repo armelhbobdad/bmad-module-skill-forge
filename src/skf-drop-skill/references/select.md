@@ -167,9 +167,11 @@ Set `target_versions = "all"` and `is_skill_level = true`.
       "**Cannot drop the active version `{version}`.**
       Other non-deprecated versions of `{target_skill}` still exist. To proceed, either:
 
-      **(a)** Switch the active version to another version first by re-running `[EX] Export Skill` with a different version selected, then return here to drop `{version}`, OR
+      **(a)** Make the version you keep active first: point the `active` link at it (`ln -sfn <version to keep> {skills_output_folder}/{target_skill}/active`), run `[EX] Export Skill` for `{target_skill}`, which exports that version and archives `{version}`, then return here to drop `{version}`, OR
 
       **(b)** Use the `[A] All versions` option to drop every version of `{target_skill}` at once."
+
+      In (a), `<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` and `on_disk` are true and whose `status` is not `"deprecated"` (the rows are newest first); with no such entry, show `<version to keep>` as written.
 
       HALT (exit code 5, `halt_reason: "active-version-guard-refused"`, phase `select:active-version-guard`), with `skill: "{target_skill}"` and `versions_affected: ["{version}"]` in the §1 halt envelope. Do not proceed.
 
