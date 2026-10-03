@@ -2,4 +2,5 @@ type: fixed
 scope: skf-forger
 summary: |
   A headless `maintain` chain whose audit found that upstream moved now always hands the new ref to Update Skill. The forger's gate, `pipeline-gate.py`, prints Audit Skill's `upstream_ref` as `target_ref` in a new `handoff` field of its decision, and `pipeline-journal.py step --gate` records it in the chain's journal, so the update no longer runs at the skill's old pin while the chain goes on to test and export it as a success. The ref is kept after a `CRITICAL` audit too, so the update that resumes the chain after you review the drift report reads it. The gate's JSON output gains the `handoff` key, null after every other decision.
+prs: [658]
 issues: [588]

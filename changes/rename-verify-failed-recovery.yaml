@@ -2,4 +2,5 @@ type: changed
 scope: skf-rename-skill
 summary: |
   A rename that stops with `verify-failed` now says how to recover: edit a note an earlier run wrote, or a `context-snippet.md` line such as `|gotchas:`, in the old skill and re-run the rename; or, when the match names the library or repository the skill is named after, or the old name is a word of the snippet template itself such as `api`, create the skill again under the new name with Brief Skill and Create Skill, as the troubleshooting guide explains.
+prs: [658]
 issues: [510]

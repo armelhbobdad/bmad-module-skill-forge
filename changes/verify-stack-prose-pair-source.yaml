@@ -2,4 +2,5 @@ type: changed
 scope: skf-verify-stack
 summary: |
   Verify Stack takes its integration pairs from the architecture document's prose alone, as every run already did: the rule that preferred a stack skill's `integration_patterns` is gone, because no stack skill SKF builds declares that key (a stack's `metadata.json` carries `integration_pairs`). The feasibility report's integration display table loses its Source column, which only ever read prose co-mention, and the Evidence Sources section no longer lists a stack manifest. The workflows reference and the BMAD synergy guide no longer say VS reads a stack skill's integration patterns.
+prs: [658]
 issues: [590]

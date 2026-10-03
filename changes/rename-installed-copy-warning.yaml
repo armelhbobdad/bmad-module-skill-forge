@@ -2,4 +2,5 @@ type: changed
 scope: skf-rename-skill
 summary: |
   Rename Skill now names the copy of a skill that `npx skills add` installed in the IDE skill folder a context file's managed section points at, such as `.claude/skills/<old-name>/`, which a rename leaves under the old name while the rebuilt context-file rows point at the new one. The confirmation plan says such copies are not renamed, the final report gives each copy it finds a next step (remove it, run `npx skills add` on the renamed package, then reload the IDE), and the run's warnings, in the envelope and the result record, carry an `installed-copy-not-renamed: <path>` warning for each. No check runs when `snippet_skill_root_override` is set.
+prs: [658]
 issues: [591]
