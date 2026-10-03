@@ -109,6 +109,10 @@ manifest's `gap-records` runs §4's spot-checks, the drift gate and the
 routing to §4a, matches §4a's records and writes the verification records;
 and detect-changes §1c skips a skill built without a brief.
 
+And the step 5b round 3 fix: a headless gap-driven run records rule R1's
+document or rescope answer for each gap under the schema's
+`gap-driven.rescope` gate, which the Gates row and the report name.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -189,12 +193,14 @@ ADVANCE_BINDINGS = {
 NEW_WARNINGS = ("source-tree:", "source-not-fetched", "source-version-lower", "file-diff-unavailable",
                 "workspace-clone-not-updated", "target-ref-not-recorded")
 # The envelope enums: no new status; init.degraded-rebuild, which init.md §4 records under --allow-degraded,
-# joined the gates when the emitter began to check every decision against the schema.
+# joined the gates when the emitter began to check every decision against the schema, and gap-driven.rescope,
+# which gap-driven.md's rule R1 records headless, in step 5b fix round 3.
 STATUS_ENUM = ["success", "no-changes", "detect-only", "dry-run", "halted-for-workspace-drift",
                "halted-for-brief-refinement", "halted-for-audit", "halted-for-remediation-path",
                "halted-for-manual-mismatch", "halted-for-write-failure", "halted-for-concurrent-run", "blocked"]
 GATE_ENUM = ["init.update-confirmation", "init.degraded-rebuild", "detect-changes.promoted-doc-prompt",
-             "detect-changes.scope-expansion", "detect-changes.deletion-ratio", "merge.clean-merge-gate"]
+             "detect-changes.scope-expansion", "detect-changes.deletion-ratio", "gap-driven.rescope",
+             "merge.clean-merge-gate"]
 FLAG_RE = re.compile(r"--[a-z][a-z-]*")
 GIT_MOVE_RE = re.compile(r"^\s*git\b.*\b(fetch|checkout|clone|worktree)\b")
 
@@ -1492,7 +1498,7 @@ def test_drift_override_keeps_the_recorded_counts_and_halts_on_a_rescope():
     message = _fence(gate, "Workspace drift blocks {N} gap(s)")
     for gone in ("Kept in skill-brief.yaml", "re-run adds them again", "scope.exclude {path}"):
         assert gone not in message and gone not in gate, gone
-    r1 = _slice(_read(GAP), "- **R1: DELETED_EXPORT (rescope).**", "\n")
+    r1 = _slice(_read(GAP), "- **R1: DELETED_EXPORT (rescope).**", "\n- **R2:")
     for token in ("give the manifest entry a `rescope` object", "This step writes neither to the brief: step 4 §6b "
                   "writes both", "skips an amendment or an exclude path the brief already holds",
                   "`proposed-amendment: excluded {path} (scope-expansion); not written:"):
@@ -3613,6 +3619,40 @@ def test_scope_reconciliation_skips_a_skill_with_no_brief(tmp_path):
                                "brief_path": str(forge / "lib" / "skill-brief.yaml")})],
                           capture_output=True, encoding="utf-8")
     assert proc.returncode == 1 and "brief not found" in proc.stderr
+
+
+def test_a_headless_rescope_answer_is_recorded(tmp_path):
+    """Rule R1's [D]/[R] gate records each `rescope` a headless run answers, under its own gate id that the
+    emitter's schema check accepts, and the Gates row and the report's decision sources name it (step 5b gate
+    run 3 architecture-1)."""
+    r1 = _slice(_read(GAP), "- **R1: DELETED_EXPORT (rescope).**", "\n- **R2:")
+    gate = _slice(r1, "**GATE [default: D]**", "A rescope is honest only if")
+    assert "Headless, record one decision for each `rescope` you answer, from `{project-root}`:" in gate
+    block = _fence(gate, "uv run {emitEnvelopeHelper} record")
+    template = _heredoc(block)
+    assert '"taken_action": "<D for false, R for true>"' in template
+    decision = _sample(template)
+    assert (decision["gate"], decision["default_action"]) == ("gap-driven.rescope", "D")
+    assert decision["reason"].startswith("headless: ")
+    assert set(decision["evidence"]) == {"gap_id", "export", "remediation"}
+    run_dir = tmp_path / "run"
+    argv = _cmd_args(block, "emitEnvelopeHelper", {"run_dir": str(run_dir)})
+    assert argv[:3] == ["record", "--workflow", "skf-update-skill"]  # the emitter checks the decision's gate
+    for taken in ("D", "R"):
+        code, _out, err = _emit(argv, {**decision, "taken_action": taken})
+        assert code == 0, err
+    lines = (run_dir / "headless-decisions.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [(d["gate"], d["taken_action"]) for d in map(json.loads, lines)] == [
+        ("gap-driven.rescope", "D"), ("gap-driven.rescope", "R")]  # one entry per answer
+    code, _out, _err = _emit(argv, {**decision, "gate": "gap-driven.rule-r1"})
+    assert code == 1  # a gate id the schema does not list is refused, so the enum and the fence move together
+    taken = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["headless_decisions"]["items"][
+        "properties"]["taken_action"]["description"]
+    assert "'R' at gap-driven.rescope when gap-driven.md's rule R1 rescopes the export" in taken
+    gates = _slice(_read(CONTRACT), "| **Gates** |", "\n")
+    assert ("| step 2g (gap-driven): gap-driven.md §1 rule R1's [D]/[R] for each gap whose remediation names "
+            "removal (headless: [D], or [R] only when the export is internal or `#[doc(hidden)]`) |") in gates
+    assert "gap-driven.md §1 rule R1, merge.md §8)" in _slice(_read(REPORT), "- `headless_decisions[]`:", "\n")
 
 
 def test_a_headless_run_needs_the_skill_name(tmp_path):

@@ -1,0 +1,4 @@
+type: added
+scope: skf-update-skill
+summary: |
+  A headless `--from-test-report` run now records how it answered each rescope question (document the export, or take it out of the skill's scope when the test report says to remove it) in the result line's `headless_decisions`, under the new `gate` value `gap-driven.rescope`, with the gap's id, the export and the remediation as `evidence`. The invocation contract's Gates row lists the gate. Before, the run took this decision without recording it, although the contract said every headless gate decision is recorded.
