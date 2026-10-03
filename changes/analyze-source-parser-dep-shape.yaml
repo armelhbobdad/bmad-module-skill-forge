@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-analyze-source
+summary: |
+  An `AN[auto]` run no longer classifies a repository as a `language-reference` just because it depends on a parsing library such as `nom`, `winnow`, `pyparsing` or `tree-sitter`, or lists one as a development dependency. A command-line tool or app built with one is now classified as it would be without it (a `reference-app` brief when it declares a `bin` or `[[bin]]` or runs on an app framework such as `express` or `fastapi`), and a library as `library-API`. When the repository may implement a language on that parser, the run decides from its description or README and records the decision in its result's `headless_decisions` under the gate `auto-scope.shape`; a repository that also depends on a concrete parser such as `yaml` or `acorn`, as a linter or formatter does, is not asked. Compilers, interpreters, grammars and parser libraries are classified as before.

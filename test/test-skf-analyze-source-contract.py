@@ -414,6 +414,21 @@ def test_the_auto_decisions_reach_the_envelope(tmp_path, gate, marker):
     assert [d["gate"] for d in envelope["headless_decisions"]] == [gate], "a halt reports the decision taken before it"
 
 
+def test_a_parser_dependency_is_judged_as_the_shape_choice():
+    """Gate run 6 determinism-1: a parser among the runtime dependencies asks rather than
+    decides. Section 4 judges it from the description or README, makes the judged shape
+    `{shape}` (the report and the result read it) and records it like the framework choice,
+    whose decision.json the test above runs."""
+    section = _section(_read(AUTO), "### 4. Map Shape to Scope", "### 5.")
+    rule = next(line for line in section.splitlines() if line.startswith("**A language on a parser.**"))
+    for needle in ("`language_or_user:parser_dep`", "description or README",
+                   "from here on `{shape}` is the shape that case gives", "Record it the same way",
+                   "`default_action` the shape you judged from", "`taken_action` the new `{shape}`"):
+        assert needle in rule, needle
+    row = next(line for line in _read(SHAPE_REF).splitlines() if "`language_or_user:parser_dep` signal |" in line)
+    assert "step-auto-scope.md §4 judges which" in row
+
+
 # --------------------------------------------------------------------------
 # Briefs go through the writer and the schema gate (#592)
 # --------------------------------------------------------------------------

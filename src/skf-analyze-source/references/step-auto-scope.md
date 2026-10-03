@@ -244,9 +244,11 @@ If the command fails, go on: only that entry is lost.
 
 ### 4. Map Shape to Scope
 
-Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1) — the single source of truth for this ladder (the `export_count > 200 → public-api` split, the `language-reference` corpora caveat, and the `stack-compose` decomposition note).
+Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1), the single source of truth for this ladder.
 
 **An app or a library on a framework.** When §3's `signals` hold `app_or_library:framework_dep`, take that table's row for it and judge which of its two cases the repository is from the scan-root manifest's `description` (its `manifests[]` entry in `{run_dir}/manifests-1.json`), or, when that does not settle it, the README's opening paragraph (a remote fetch checked out only the manifests: `git -C "{scan_root}" sparse-checkout add '/README*'` brings the README in). From here on `{shape}` is the shape you chose. Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.shape", "default_action": "reference-app", "taken_action": "<reference-app or library-API>", "reason": "<the sentence of the description or README that decided>", "evidence": {"signals": [<the §3 signals>]}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
+
+**A language on a parser.** When §3's `signals` hold `language_or_user:parser_dep`, judge which case of that signal's row the repository is, from the same description or README: from here on `{shape}` is the shape that case gives. Record it the same way (after the choice above when both hold), with `default_action` the shape you judged from and `taken_action` the new `{shape}`.
 
 ### 5. Generate Include/Exclude Patterns
 
