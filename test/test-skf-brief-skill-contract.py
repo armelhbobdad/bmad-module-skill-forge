@@ -433,6 +433,9 @@ def test_the_health_check_displays_the_bound_line_last():
         text = " ".join(_read(path).split())
         for stale in PRINTED_ENVELOPE:
             assert stale not in text, (path.name, stale)
+    final = next(line for line in _read(REPO / "docs" / "workflows.md").splitlines()
+                 if line.startswith("Setup is not the only workflow whose result line is the run's final message"))
+    assert "Brief Skill" in final and "`SKF_BRIEF_RESULT_JSON`" in final
 
 
 # --------------------------------------------------------------------------
