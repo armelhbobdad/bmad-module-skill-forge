@@ -90,7 +90,7 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-export-skill-XXXXXXXX"
    ```
 
-   Bind `{run_dir}` ← the path it prints. Step 6 deletes it once the run's envelope is out; a HARD HALT leaves it in place. If it cannot be created, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation §4`. When `{customization_resolver_unavailable}` is set, record it there: write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a file write (a resolver error can hold quotes or `$( )`, so never echo it or type it into an argument), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`.
+   Bind `{run_dir}` ← the path it prints. Step 6 deletes it once the run's envelope is built; a HARD HALT leaves it in place. If it cannot be created, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation §4`. When `{customization_resolver_unavailable}` is set, record it there: write `customization_resolver_unavailable: <reason>` to `{run_dir}/resolver-warning.txt` with a file write (a resolver error can hold quotes or `$( )`, so never echo it or type it into an argument), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"` from `{project-root}`.
 
 5. **Pre-flight write check.** Verify `{skills_output_folder}` is writable, so a read-only mount, a full disk or a denied path stops the run before the user confirms a batch. Without `--dry-run`, probe it with a write:
 

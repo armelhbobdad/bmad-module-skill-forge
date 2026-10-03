@@ -232,6 +232,29 @@ class TestDirective:
         ]
         assert "hard" not in d["skills"]
 
+    @pytest.mark.parametrize(
+        "item",
+        [
+            "react: soft_target 80 (was soft_target 90)",
+            "soft_target: 85, but react: soft_target 70",
+            "react: soft_target 70 only if the docs stay thin, otherwise soft_target 90",
+            "soft_target: 85, soft_target: 90",
+            "react: soft_fallback 70, soft_target 90, SOFT_FALLBACK 60",
+            "react: soft_target 85, soft_fallback75",
+            "react: soft_target85, soft_fallback 70",
+            "soft_target: 85, soft_fallback75",
+        ],
+        ids=["parenthesised-old-value", "second-skill-in-prose", "conditional-prose", "campaign-repeated-key",
+             "skill-repeated-key", "key-glued-to-number", "first-key-glued-to-number",
+             "campaign-key-glued-to-number"],
+    )
+    def test_item_beyond_the_grammar_applies_no_number(self, item):
+        # Other text or a repeated key leaves the item unparsed: no last number wins.
+        d = mod.parse_directive(f"## Quality Overrides\n- {item}\n")
+        assert d["unparsed"] == [{"section": "Quality Overrides", "line": 2, "text": item}]
+        assert d["campaign"] == {}
+        assert d["skills"] == {}
+
     def test_other_sections_are_ignored(self):
         # `## Notes` holds `soft_target: 10`, which is no override.
         assert mod.parse_directive(DIRECTIVE)["campaign"]["soft_target"] == 85

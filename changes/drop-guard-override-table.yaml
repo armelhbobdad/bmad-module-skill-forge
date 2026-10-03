@@ -1,0 +1,4 @@
+type: docs
+summary: |
+  Drop Skill's bundled `customize.toml`, its headless contract and the Customizing a Workflow docs now say that an override file must put its settings under a `[workflow]` line, as the bundled file does: a `forbid_purge_in_headless` written above that line is ignored without a warning, so the headless purge guard stays off. The examples show the two-line form, `[workflow]` then `forbid_purge_in_headless = "true"`. The docs also say that Ferris's `skf-forger` override goes under an `[agent]` line instead, as his bundled file does. Nothing changes in how a run reads the setting.
+prs: [662]

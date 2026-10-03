@@ -63,8 +63,9 @@ entry is one list item, backticks around a name are dropped):
   - legacy-lib                              or in parentheses is optional
 
 A list item in these sections that does not read this way is returned in
-`unparsed[]`, never dropped silently. A directive path that names no file
-means no directive.
+`unparsed[]`, never dropped silently: a Quality Overrides item with any other
+text, or that names a key twice, is unparsed and none of its numbers apply. A
+directive path that names no file means no directive.
 
 CLI:
   uv run campaign-quality-gate.py check --hard <value> --soft-target <N> --soft-fallback <N> [--brief-file <p>]
@@ -119,6 +120,12 @@ HINT_FIELDS = {"language_hint": ("language_hint", "language"), "scope_hint": ("s
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*\S)\s*$")
 PAIR_RE = re.compile(r"\b(soft_target|soft_fallback)\b\s*[:=]?\s*(-?\d+(?:\.\d+)?)\s*%?", re.I)
+# The whole override text: one or more PAIR_RE pairs separated by commas, nothing else.
+PAIRS_RE = re.compile(
+    r"(?:soft_target|soft_fallback)\b\s*[:=]?\s*-?\d+(?:\.\d+)?\s*%?"
+    r"(?:\s*,\s*(?:soft_target|soft_fallback)\b\s*[:=]?\s*-?\d+(?:\.\d+)?\s*%?)*",
+    re.I,
+)
 SKILL_LINE_RE = re.compile(r"^([^\s:]+)\s*:\s*(.+)$")
 SKIP_NAME_RE = re.compile(r"^([^\s:(]+)(.*)$")
 TS_PREFIX = "SKF_TEST_RESULT_JSON:"
@@ -192,11 +199,16 @@ def parse_directive(text: str) -> dict[str, Any]:
         first = entry.split(None, 1)[0].rstrip(":=").lower()
         per_skill = SKILL_LINE_RE.match(entry)
         if first in SOFT_KEYS:
-            name, pairs = None, PAIR_RE.findall(entry)
+            name, text = None, entry
         elif per_skill:
-            name, pairs = per_skill.group(1), PAIR_RE.findall(per_skill.group(2))
+            name, text = per_skill.group(1), per_skill.group(2)
         else:
-            name, pairs = None, []
+            name, text = None, ""
+        # Only the documented grammar applies: other text or a repeated key
+        # leaves the whole item unparsed, so no stray number becomes the gate.
+        pairs = PAIR_RE.findall(text) if PAIRS_RE.fullmatch(text) else []
+        if len({key.lower() for key, _ in pairs}) < len(pairs):
+            pairs = []
         if not pairs:
             unparsed.append({"section": "Quality Overrides", "line": lineno, "text": entry})
             continue

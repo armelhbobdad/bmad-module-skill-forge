@@ -1423,13 +1423,20 @@ def test_pipeline_docs_say_a_resume_comes_from_the_journal():
 
 
 def test_headless_docs_name_every_workflow_whose_line_is_the_last():
-    """#593: Test Skill and Campaign bind the line the shared health check displays last, as setup's envelope is."""
+    """#593: Test Skill, Campaign and Export Skill bind the line the shared health check displays last, as setup's
+    envelope is."""
     assert "it displays that line verbatim as its very last line" in _read(SRC / "shared" / "health-check.md")
     assert "bind `{result_envelope_line}`" in _read(TEST_SKILL / "references" / "report.md")
     assert "bound `{result_envelope_line}`" in _read(SRC / "skf-campaign" / "references" / "health-check.md")
+    export = SRC / "skf-export-skill" / "references"
+    assert "When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here" in (
+        _read(export / "summary.md"))
+    assert "summary.md §6 bound `{result_envelope_line}` to the `SKF_EXPORT_RESULT_JSON` line" in (
+        _read(export / "health-check.md"))
     setup = _slice(_read(WORKFLOWS), "**Exception: `/skf-setup` headless", "**Exception: `/skf-quick-skill` headless")
     final = _paragraph(setup, "Setup is not the only workflow whose result line is the run's final message")
     for token in ("`SKF_TEST_RESULT_JSON`", "`SKF_CAMPAIGN_RESULT_JSON`", "displays it last",
+                  "Export Skill (a `--dry-run` too)", "`SKF_EXPORT_RESULT_JSON`",
                   "(under `--no-health-check`, Test Skill displays it itself as its last line)"):
         assert token in final, token
     bypass = _paragraph(_read(TEST_SKILL / "references" / "report.md"), "**`--no-health-check` flag bypass.**")
@@ -1792,6 +1799,7 @@ def test_settings_list_names_only_settings_that_take_effect():
                   'An override file that fails to parse, the team one or your personal one, stops the '
                   'customization script: the run warns as above and ignores both override files, which leaves '
                   'the guard off, so write the value quoted, such as `"true"`.',
+                  'Write it as two lines, `[workflow]` then `forbid_purge_in_headless = "true"`.',
                   "`--acknowledge-official`", "the TOML boolean `true`", "the six house-style tables"):
         assert token in settings, token
     rules = _headings(RA_REFS / "refinement-rules.md")
@@ -1848,6 +1856,13 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
     assert "an interactive run only prints it" in _read(SRC / "skf-export-skill" / "SKILL.md")
     doc = _read(WORKFLOWS)
     customizing = _slice(doc, "## Customizing a Workflow", "Settings every workflow has:")
+    # The resolver reads the `[workflow]` table only, the first table of every bundled file.
+    opening = _paragraph(customizing, "Every workflow ships a `customize.toml`")
+    assert ("Start the file with a `[workflow]` line, as the bundled file does: a setting above it is ignored "
+            "without a warning.") in opening
+    for skill in _workflow_skills():
+        tables = re.findall(r"^\[[^\]]+\]", _read(SRC / skill / "customize.toml"), flags=re.M)
+        assert tables[:1] == ["[workflow]"], skill
     resolver = _paragraph(customizing, "These overrides are read by BMAD Method's customization script")
     for token in ("Every workflow, and Ferris, runs that script through `uv` when it starts", RESOLVER_WARNING,
                   "uses the bundled defaults, ignoring `_bmad/custom/`",
@@ -1857,6 +1872,11 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "`customization_resolver_unavailable: not found`"):
         assert token in resolver, token
     forger = _paragraph(customizing, "Ferris reads `_bmad/custom/skf-forger.toml`")
+    # Ferris resolves `--key agent`: his override opens with `[agent]`, not the `[workflow]` the opening names.
+    assert "under an `[agent]` line, as his bundled file does (a `[workflow]` table there is ignored)" in forger
+    tables = re.findall(r"^\[[^\]]+\]", _read(SRC / "skf-forger" / "customize.toml"), flags=re.M)
+    assert tables[:1] == ["[agent]"], tables
+    assert "--key agent" in _read(SRC / "skf-forger" / "SKILL.md")
     agent = tomllib.loads(_read(SRC / "skf-forger" / "customize.toml"))["agent"]
     arrays = sorted(key for key, value in agent.items() if isinstance(value, list))
     assert arrays == ["activation_steps_append", "activation_steps_prepend", "persistent_facts"], arrays
@@ -1879,7 +1899,8 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
     assert _settings("skf-setup")["persistent_facts"] == []
     for token in ("Every workflow except Setup Forge loads any `project-context.md`",
                   "an entry that starts with `!` drops each earlier entry it names and loads nothing itself",
-                  f'add `persistent_facts = ["!{DEFAULT_FACT}"]` to `_bmad/custom/<skill-name>.toml`',
+                  f'add `persistent_facts = ["!{DEFAULT_FACT}"]` under `[workflow]` in '
+                  "`_bmad/custom/<skill-name>.toml`",
                   "Every workflow that loads the default honours such an entry", "Campaign's kickoff loader"):
         assert token in facts, token
     assert "Brief, Create, Update and Rename Skill" not in facts
