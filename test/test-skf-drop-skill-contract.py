@@ -25,6 +25,11 @@ drop steps document, filled in as an agent fills them, against fixtures:
   purge (that rule is prose the agent applies, so it is restated here as code
   and run over the helper's output). test-skf-drop-roster.py tests the roster
   helper itself.
+- The active-version guard's refusal names a recovery that works (step 5b
+  gate run 3, enhancement-3): Export Skill takes no version, so the commands
+  its load and manifest steps document run over a fixture where `active`
+  points at the version to keep; that export publishes it and archives the
+  refused version, and the roster then lets the drop through.
 - The prose pins: a failed manifest write halts in every mode and never reaches
   the report; `skill_name` and `version` answer their gates in both modes; the
   helpers resolve before the first prompt and no step keeps a fallback for
@@ -38,6 +43,7 @@ drop steps document, filled in as an agent fills them, against fixtures:
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -66,6 +72,9 @@ EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 INVENTORY = SCRIPTS / "skf-skill-inventory.py"
 ROSTER = DROP / "scripts" / "drop-roster.py"
 MANIFEST_OPS = SCRIPTS / "skf-manifest-ops.py"
+# Export Skill's steps, which the active-version guard's recovery runs.
+EXPORT_LOAD = "src/skf-export-skill/references/load-skill.md"
+EXPORT_UPDATE = "src/skf-export-skill/references/update-context.md"
 SCHEMA_PATH = SCRIPTS / "schemas" / "skf-drop-skill-result-envelope.v1.json"
 SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 SETTINGS = SCHEMA["$defs"]["skf-envelope"]["const"]
@@ -948,6 +957,92 @@ def test_roster_counts_drive_the_active_version_guard(tmp_path, statuses, refuse
     assert [row["version"] for row in entry["versions"]] == ["0.6.0", "0.5.0", "0.1.0"]
     # §7: dropping the active 0.6.0 is refused when the count is above 1.
     assert (entry["counts"]["non_deprecated"] > 1) is refused
+
+
+def test_the_guard_refusal_names_a_recovery_that_works():
+    """enhancement-3 (gate run 3): Export Skill has no version choice, so the refusal names the `active` link."""
+    guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
+    assert "with a different version selected" not in guard, "Export Skill takes no version"
+    assert ("point the `active` link at it (`ln -sfn <version to keep> {skills_output_folder}/{target_skill}/active`), "
+            "run `[EX] Export Skill` for `{target_skill}`, which exports that version and archives `{version}`, "
+            "then return here to drop `{version}`") in guard
+    assert ("`<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` "
+            "and `on_disk` are true and whose `status` is not `\"deprecated\"`") in guard
+    safety = _section(_read("docs/workflows.md"), "### Drop Skill (DS)", "**Preview first:**")
+    assert "`ln -sfn <version to keep> <skills_output_folder>/<name>/active`" in safety and "`@Ferris EX`" in safety
+    drop = _section(_read("src/knowledge/version-paths.md"), "### Drop (DS - Drop Skill)", "**Skill-level drop:**")
+    assert "`ln -sfn <version to keep> {skill_group}/active`" in drop
+    assert "switch active to another version first" not in drop
+
+
+def _version_to_keep(entry: dict, version: str) -> str | None:
+    """select.md §7 (a): the `<version to keep>` the refusal names (prose the agent applies, restated as code)."""
+    return next((row["version"] for row in entry["versions"] if row["version"] != version and row["in_manifest"]
+                 and row["on_disk"] and row["status"] != "deprecated"), None)
+
+
+def _link_active(group: Path, version: str) -> None:
+    """Point `active` at a version, as `ln -sfn` does: a symlink, or a junction on Windows without the privilege."""
+    active = group / "active"
+    if os.path.lexists(active):
+        try:
+            active.unlink()
+        except OSError:
+            os.rmdir(active)  # a directory link on Windows
+    try:
+        active.symlink_to(version, target_is_directory=True)
+    except OSError as e:
+        if os.name != "nt":
+            pytest.skip(f"symlinks are not available: {e}")
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(active), str((group / version).resolve())],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            pytest.skip("neither a symlink nor a junction can be created")
+
+
+def _export_resolve(skills: Path, forge: Path, name: str) -> dict:
+    """The version Export Skill exports: its load step's documented `resolve` call."""
+    load = _section(_read(EXPORT_LOAD), "### 2. Load and Validate Skill Artifacts", "### 3. ")
+    command = _one_command(load, "{skillInventoryHelper} resolve")
+    assert "--version" not in command, "Export Skill exports the version `resolve` chooses"
+    proc = _run(command.replace("{skill-name}", "{skill_name}"),
+                {"skillInventoryHelper": str(INVENTORY), "skills_output_folder": str(skills),
+                 "forge_data_folder": str(forge), "skill_name": name})
+    result = json.loads(proc.stdout.decode("utf-8"))
+    assert proc.returncode == 0 and result["status"] == "ok", result
+    return result["resolve"]
+
+
+def test_the_guard_recovery_lets_the_drop_through(tmp_path):
+    """Roll back a bad latest version: drop the active 0.6.0 and keep 0.5.0."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    statuses = {"0.6.0": "active", "0.5.0": "archived", "0.1.0": "deprecated"}
+    for version in statuses:
+        _write_skill(skills, "cognee", version)
+    _write_manifest(skills, "cognee", "0.6.0", statuses)
+    forge.mkdir()
+    _link_active(skills / "cognee", "0.6.0")
+    entry = _roster_entry(skills, forge, "cognee")
+    assert entry["counts"]["non_deprecated"] > 1, "§7 refuses to drop the active 0.6.0"
+    # Re-running Export Skill alone exports 0.6.0 again, and §7 would refuse again.
+    assert _export_resolve(skills, forge, "cognee")["chosen_version"] == "0.6.0"
+    keep = _version_to_keep(entry, "0.6.0")
+    assert keep == "0.5.0"
+    _link_active(skills / "cognee", keep)
+    resolved = _export_resolve(skills, forge, "cognee")
+    assert (resolved["chosen_version"], resolved["reason"]) == ("0.5.0", "manifest-lags-link")
+    # Export's manifest step records the version in the exported package's metadata.json.
+    metadata = json.loads((Path(resolved["skill_package"]) / "metadata.json").read_text(encoding="utf-8"))
+    update = _section(_read(EXPORT_UPDATE), "### 9b. Update Export Manifest", "### 9c. ")
+    command = _one_command(update, "{manifestOpsHelper}").replace(" [--ides {ides_written}]", "")
+    proc = _run(command.replace("{skill-name}", "{skill_name}"),
+                {"manifestOpsHelper": str(MANIFEST_OPS), "skills_output_folder": str(skills),
+                 "skill_name": "cognee", "version": metadata["version"]})
+    assert proc.returncode == 0, proc.stderr
+    entry = _roster_entry(skills, forge, "cognee")
+    assert entry["active_version"] == "0.5.0"
+    assert {row["version"]: row["status"] for row in entry["versions"]} == {
+        "0.6.0": "archived", "0.5.0": "active", "0.1.0": "deprecated"}, "§7 step 2: 0.6.0 is no longer active"
 
 
 def test_roster_lists_a_draft_skill_by_its_folders(tmp_path):
