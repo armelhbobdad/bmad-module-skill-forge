@@ -212,6 +212,11 @@ class TestDeriveName:
         assert derive_name("http://www.example.org/api/") == "www-example-org"
         assert mod.derive_name_with_basis("https://docs.example.com/x") == ("docs-example-com", "docs-host")
 
+    def test_clone_url_on_any_host_is_named_after_its_repository(self):
+        # step 5b determinism-1: a .git or /_git/ clone URL off GIT_HOSTS is a repository
+        assert mod.derive_name_with_basis("https://git.acme.internal/team/mono.git") == ("mono", "target")
+        assert mod.derive_name_with_basis("https://dev.azure.com/org/proj/_git/repo") == ("repo", "target")
+
     @pytest.mark.parametrize("url", [
         "https://github.com/foo/bar", "https://www.github.com/foo/bar",
         "https://gitlab.com/group/sub/bar", "https://bitbucket.org/team/bar.git",
@@ -2648,6 +2653,13 @@ def test_cli_derive_name(tmp_path):
      pytest.param(".", "local", None, id="dot"),
      pytest.param("C:\\code\\mono", "local", None, id="windows-drive"),
      pytest.param("https://docs.example.com/guide", "docs", None, id="docs-url"),
+     pytest.param("https://github.acme.com/org/repo", "docs", None, id="enterprise-host-no-suffix"),
+     pytest.param("https://git.acme.internal/team/mono.git", "remote",
+                  "https://git.acme.internal/team/mono.git", id="self-hosted-clone-url"),
+     pytest.param("https://git.acme.internal/team/mono.git/", "remote",
+                  "https://git.acme.internal/team/mono.git/", id="self-hosted-clone-url-slash"),
+     pytest.param("https://dev.azure.com/org/proj/_git/repo", "remote",
+                  "https://dev.azure.com/org/proj/_git/repo", id="azure-devops-clone-url"),
      pytest.param("https://github.com/acme/mono", "remote", "https://github.com/acme/mono", id="https"),
      pytest.param("git@github.com:acme/mono.git", "remote", "git@github.com:acme/mono.git", id="ssh"),
      pytest.param("ssh://git@host.example/acme/mono", "remote", "ssh://git@host.example/acme/mono", id="ssh-url"),

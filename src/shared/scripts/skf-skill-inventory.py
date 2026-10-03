@@ -143,7 +143,8 @@ Without a manifest name, a merged unit (a composite, a merged monorepo)
 takes the name its members' manifest names share (`@aws-sdk/client-s3`
 and `@aws-sdk/core` give `aws-sdk`; Maven members of one group the
 group's last segment). Else a documentation URL (an http(s) URL whose
-host is not github.com, gitlab.com or bitbucket.org) gives its host
+host is not github.com, gitlab.com or bitbucket.org and that is not a git
+clone URL, one whose path ends in `.git` or holds `/_git/`) gives its host
 (`https://docs.example.com/guide` gives `docs-example-com`), and any other
 target its last folder or repository name (`https://github.com/vercel/next.js`
 gives `next-js`, `C:\\code\\mono` gives `mono`, and `.` the current
@@ -1819,7 +1820,8 @@ def _kebab(segment):
 
 
 # Hosts step-auto-scope's URL table reads as git hosting; an http(s) URL on
-# any other host is a documentation URL, named after its host.
+# any other host is a documentation URL, named after its host, unless its
+# path marks a git clone URL (see :func:`_docs_host`).
 GIT_HOSTS = ("github.com", "gitlab.com", "bitbucket.org")
 
 _MAJOR_VERSION_SEGMENT = re.compile(r"v\d+")
@@ -1876,12 +1878,22 @@ def _members_skill_name(members):
 
 
 def _docs_host(target):
-    """The host of a documentation URL, or None for any other target."""
+    """The host of a documentation URL, or None for any other target.
+
+    A clone URL on any host (its path ends in ``.git``, as
+    ``https://git.example.com/team/repo.git`` does, or holds ``/_git/``, as
+    an Azure DevOps ``https://dev.azure.com/org/project/_git/repo`` does)
+    is a repository, not documentation.
+    """
     s = str(target).strip()
     if not s.lower().startswith(("https://", "http://")):
         return None
-    host = (urlsplit(s).hostname or "").lower()
+    parts = urlsplit(s)
+    host = (parts.hostname or "").lower()
     if not host:
+        return None
+    path = parts.path.rstrip("/").lower()
+    if path.endswith(".git") or "/_git/" in path:
         return None
     bare = host[4:] if host.startswith("www.") else host
     return None if bare in GIT_HOSTS else host
@@ -1930,8 +1942,8 @@ def target_kind(target):
 
     A path that starts with `/`, `./`, `../` or `~` (`.` and `..` too, and a
     Windows drive, UNC or `.\\` path), or that names an existing folder, is
-    local; a documentation URL (an http(s) URL not on :data:`GIT_HOSTS`) is
-    docs; anything else is a repository git clones (:func:`clone_url`).
+    local; a documentation URL (an http(s) URL not on :data:`GIT_HOSTS` and
+    not a clone URL, see :func:`_docs_host`) is docs; anything else is a repository git clones (:func:`clone_url`).
     """
     s = str(target or "").strip()
     if not s:
@@ -1992,8 +2004,8 @@ def derive_name(target, manifest_name=None, private=False, members=None):
     private root, such as a monorepo's workspace manifest, names no
     published package); else from the ``members`` of a merged unit, the
     name they share (:func:`_members_skill_name`); else from ``target``: a
-    documentation URL (an http(s) URL not on :data:`GIT_HOSTS`) gives its
-    host, and any other target its last folder or repository name, scheme,
+    documentation URL (an http(s) URL not on :data:`GIT_HOSTS` and not a
+    clone URL, see :func:`_docs_host`) gives its host, and any other target its last folder or repository name, scheme,
     a Windows drive, ``.git`` and trailing slashes stripped (``.``, ``..``
     and ``~`` name the folder they resolve to). Every case funnels through
     :func:`_kebab`, so ``github.com/x/bar-baz`` -> ``bar-baz``,

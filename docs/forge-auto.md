@@ -19,8 +19,8 @@ Two kinds of target, one command pattern. The lines below are a repo URL, a doc 
 @Ferris forge-auto https://github.com/honojs/hono --pin v4.6.0
 ```
 
-- **Repo URL**: analyzes the source repository (GitHub, GitLab or Bitbucket), extracts its exports, and compiles a skill from code and docs. A path to a folder on your machine works the same way.
-- **Doc URL**: any other `http://` or `https://` address. SKF skips source analysis and builds the skill from the documentation alone, naming it after the site (`docs.example.com` becomes `docs-example-com`). Useful for closed-source libraries or when the docs are the canonical reference.
+- **Repo URL**: analyzes the source repository (GitHub, GitLab or Bitbucket; on any other host, its `.git` clone URL or SSH address), extracts its exports, and compiles a skill from code and docs. A path to a folder on your machine works the same way.
+- **Doc URL**: any other `http://` or `https://` address that is not a clone URL (one ending in `.git` or holding `/_git/`). SKF skips source analysis and builds the skill from the documentation alone, naming it after the site (`docs.example.com` becomes `docs-example-com`). Useful for closed-source libraries or when the docs are the canonical reference.
 - **`--pin <version>`**: add it to a GitHub repo URL to target a specific release tag or branch, so the skill is locked to that exact API surface. SKF checks the pin with the GitHub CLI (`gh`), so `gh` must be installed, and it stops if no tag or branch matches. Without `--pin`, SKF pins a GitHub repo to its latest release tag, and otherwise uses the latest commit. A doc URL ignores `--pin`.
 
 ---
