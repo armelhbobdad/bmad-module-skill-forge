@@ -243,17 +243,17 @@ Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run i
 
 **A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and the denominator from independent sets, so `documented` can exceed `denominator`: the script then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`. State the surplus beside both counts in the Coverage Analysis section. On a skill whose brief carries no `scope.tier_a_include`, a large surplus is the deflated-denominator signature: check `guards.deflation` before accepting the 100.
 
-**Classify what the script found.** §5b records each of these gaps:
+**Classify what the script found.** §5b records each of these gaps from the run files:
 
-- **Missing names** (barrel branch: `missing`): each is a Medium `missing-export` gap titled `Missing export: {name}`, or a Medium `missing-type` gap titled `Missing type: {name}` when `signatures.json` lists it in `missingTypes`, with `export` `{name}`. Its Source is the file `surface.json` `exports[]` records for it (`{file}:{line}` when the line is known), and its Remediation names that file, so update-skill can re-extract the export from it. A missing export does not block: it lowers Export Coverage.
-- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium `missing-export` gap for the count, titled `{missingCount} of {denominator} exports not documented`, with the source of the denominator as its Source. When §2b's numerator ground-truth check finds the count inflated, its `absent[]` names replace this gap (§4b).
-- **Stale names** (barrel branch: `stale`): each is a documented name the enumerated source surface lacks. Where ast-grep read the source at the pinned commit (Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden` in the `{outputFile}` frontmatter) and `{forge_provenance_map}` holds entries whose `export_name` is the name, check the line the skill cites for it. Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and run once per such entry, with `--export-type` when the entry records one:
+- **Missing names** (barrel branch: `missing`): Medium `missing-export` gaps (Medium `missing-type` for a name `signatures.json` lists in `missingTypes`), each at the file `surface.json` records for it, so update-skill can re-extract the export from it. A missing export does not block: it lowers Export Coverage.
+- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium `missing-export` gap for the count. When §2b's numerator ground-truth check found the count inflated, its `absent[]` names replace this gap, one each: update-skill documents a named export, not a count.
+- **Stale names** (barrel branch: `stale`): each is a documented name the enumerated source surface lacks. Where ast-grep read the source at the pinned commit (Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden` in the `{outputFile}` frontmatter) and init.md §2 bound `{forge_provenance_map}`, check the lines the skill cites for them: resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and run once:
 
   ```bash
-  uv run {verifyProvenanceCompletenessHelper} definition-lines --source-root "{source_path}" --file "{source_file}" --name "{name}" --line {source_line} [--export-type "{export_type}"]
+  uv run {verifyProvenanceCompletenessHelper} classify-stale --names "{run_dir}/coverage.json" --provenance "{forge_provenance_map}" --source-root "{source_path}" -o "{run_dir}/stale.json"
   ```
 
-  When every entry's `line_check` is `file-missing`, or `checked` with an empty `definition_lines`, the export is in neither the surface nor the cited file: a Critical `fabricated-signature` gap titled `Fabricated signature: {name}`, with `export` `{name}` and the entry's `source_file:source_line` (the first, when there are several) as its Source. Any other stale name (no entry, another tier or source access, the drift override, a helper that does not resolve or prints no JSON, a `skipped-export-type` or `skipped-language` result, or a cited file that defines the name) is a Medium `stale-documentation` gap titled `Stale documentation: {name}`, with `export` `{name}` and the SKILL.md or `references/` line that documents it as its Source.
+  A name it marks `fabricated: true` (every map entry of the name cites a missing file or one that does not define it) is a Critical `fabricated-signature` gap at its `source`. Any other stale name (no entry, the conditions above not met, a helper that does not resolve or exits non-zero) is a Medium `stale-documentation` gap.
 
 ### 4. Category Scores and the Denominator Record
 
@@ -274,19 +274,19 @@ Record the denominator source in the Coverage Analysis section with the annotati
 - root barrel: {rootBarrel | absent}                               {secondary candidate: root-barrel-vs-subpath-union audit}
 ```
 
-The guards raise coverage gaps too: `guards.deflation.fires` is a Medium `metadata-drift` gap titled `denominator deflation: effective_denominator below source public surface without tier_a_include`, and `guards.inflation.fires` a Medium `denominator-inflation` gap titled `denominator inflation: coarse scope.include union exceeds authored surface`, each with the two counts and the percentage the guard reports in its Issue and `{resolved_skill_package}/metadata.json` (deflation) or the skill brief (inflation) as its Source. When `guards.umbrella.umbrella` is true, the inflation gap's Remediation recommends `stats.effective_denominator` rather than `scope.tier_a_include`.
+The guards raise coverage gaps too, which §5b records from `surface.json`: `guards.deflation.fires` is a Medium `metadata-drift` gap and `guards.inflation.fires` a Medium `denominator-inflation` gap.
 
 ### 4b. Metadata Export-Count Coherence Cross-Check
 
 `{coherenceScript}` compares the `coverage-inputs.json` counts and owns every skip (a stack, a reference app, a cluster with fewer than two counts, drift within its threshold):
 
 ```bash
-uv run {coherenceScript} --inputs "{run_dir}/coverage-inputs.json"
+uv run {coherenceScript} --inputs "{run_dir}/coverage-inputs.json" > "{run_dir}/metadata-coherence.json"
 ```
 
-Record each `findings[]` entry: a Medium entry is a Medium `metadata-drift` gap and an Info entry an Info `multi-denominator` gap, titled with the entry's `title`, with its `detail` as the Issue and `{resolved_skill_package}/metadata.json` as the Source. They describe data quality and change no denominator. Record the denominator of a stack (`Denominator: stack composition ({N} cited contracts)` or `({N} libraries + integration pairs)`, from `stack.basis`) and of a reference app (`Denominator: pattern-surface ({pattern_surfaces_documented})`).
+A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its call and records no count finding, and note the error in the Coverage Analysis section. §5b records each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an Info `multi-denominator` gap. They describe data quality and change no denominator. Record the denominator of a stack (`Denominator: stack composition ({N} cited contracts)` or `({N} libraries + integration pairs)`, from `stack.basis`) and of a reference app (`Denominator: pattern-surface ({pattern_surfaces_documented})`).
 
-**The numerator ground truth §2b ran.** When `numerator.json` reports `inflated: true` (`verified < declared`): a High `numerator-inflation` gap titled `numerator inflation: {declared − verified} of {declared} declared exports absent from SKILL.md/references`, whose Issue lists the script's `absent[]` names and whose Source is `{resolved_skill_package}/metadata.json`. When §2c recorded a missing-count gap (the scalar branch), record each `absent[]` name in its place, as a Medium `missing-export` gap titled `Missing export: {name}` with `export` `{name}` and the name's provenance `source_file:source_line` as its Source (`{resolved_skill_package}/metadata.json` when the map holds none): update-skill documents a named export, not a count. `inflated: false` or `skipped: true` is no finding.
+**The numerator ground truth §2b ran.** `numerator.json` `inflated: true` (`verified < declared`) is a High `numerator-inflation` gap listing its `absent[]` names, which §5b records; on the scalar branch those names also replace §2c's missing-count gap. `inflated: false` or `skipped: true` is no finding.
 
 ### 4c. Provenance Line Check
 
@@ -298,19 +298,11 @@ Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{veri
 uv run {verifyProvenanceCompletenessHelper} verify \
     --metadata {resolved_skill_package}/metadata.json \
     --provenance {forge_version}/provenance-map.json \
-    --source-root {source_path}
+    --source-root {source_path} \
+    -o "{run_dir}/provenance-verify.json"
 ```
 
-Rely on the JSON, not the exit code; on exit 2 the helper prints no JSON: skip to section 5. For each `stale[]` item whose `reason` is `line-not-definition` and whose `definition_lines` holds one or more lines, §5b records one Low `provenance-line` gap. Its Source is exactly the `file:line` the map records, with nothing after it, because update-skill's rule R5 reads that pair as the gap's citation:
-
-- **Title:** `Provenance line is not the definition of {export_name}`
-- **Category:** `provenance-line`
-- **Source:** `{source_file}:{source_line}`
-- **Export:** `{export_name}`
-- **Issue:** the provenance map records `{export_name}` at `{source_file}:{source_line}`, which is not the line that defines it; the lines that define it are {definition_lines}.
-- **Remediation:** "Set the provenance `source_line` of `{export_name}` in `{source_file}` to its definition line ({definition_lines}) and move its citations to that line; update-skill `--from-test-report` applies this when the file defines it on one line."
-
-A `line-not-definition` item whose `definition_lines` is empty is unverified, not gone (the rules may not cover its shape): record one Info `provenance-unverified` gap for it instead, titled `Provenance line not verified for {export_name}`, with the same Source and `export`, the Issue "the line-check rules found no definition line for `{export_name}` in `{source_file}`; check by hand" and the Remediation "Open `{source_file}` and confirm that line {source_line} defines `{export_name}`; if another line does, set the provenance `source_line` to it." Never say the file no longer defines the export.
+Rely on the file, not the exit code (exit 1 means findings); on exit 2 the helper writes no file: skip to section 5. §5b records each `stale[]` item whose `reason` is `line-not-definition`: a Low `provenance-line` gap when its `definition_lines` holds a line, else an Info `provenance-unverified` gap (the rules may not cover its shape: the export is unverified, not gone). Its Source is exactly the `file:line` the map records, the citation update-skill's rule R5 reads.
 
 This section reports none of the helper's other findings, and neither gap blocks the gate.
 
@@ -355,17 +347,18 @@ Write the **Coverage Analysis** section in place of the template's `## Coverage 
 
 ### 5b. Record the Coverage Gaps
 
-Record every gap this step found in the gap ledger `{ledgerFile}`: the hard gate (step 4c) decides from it, and the report step renders the Gap Report from it. Load the Ledger Record Format from `{outputFormatsFile}`: each gap is one JSON record whose severity and category are those of its row in the Gap Severity table of `{scoringRulesFile}`, and whose Source and Remediation follow the remediation quality rules in `{outputFormatsFile}`. The gaps are §1b's split-body mismatches, §2b's signature mismatches (already in `{run_dir}/signature-gaps.json`), §2c's missing names or missing count and its stale names, §4's guard gaps, §4b's count findings and numerator gaps, and §4c's provenance line gaps.
-
-When §2b scored the signatures, append the records the script wrote first, as they are:
+Record every gap this step found in the gap ledger `{ledgerFile}`: the hard gate (step 4c) decides from it, and the report step renders the Gap Report from it. `{gapLedgerScript}` writes the record of each gap a script found from that script's file: §2b's signature mismatches, §2c's missing names, missing count and stale names, §4's guard gaps, §4b's count findings and numerator gap, and §4c's provenance line gaps, each with the severity and category of its row in the Gap Severity table of `{scoringRulesFile}` and a fixed title, Source, `export` and Remediation. Run each command whose `--input` file this run wrote, leaving out a bracketed flag whose file does not exist: a run file this run did not write, or `--provenance` when init.md §2 bound no `{forge_provenance_map}`:
 
 ```bash
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --input "{run_dir}/signature-gaps.json"
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from coverage --input "{run_dir}/coverage.json" [--surface "{run_dir}/surface.json"] [--signatures "{run_dir}/signatures.json"] [--numerator "{run_dir}/numerator.json"] [--stale "{run_dir}/stale.json"] [--provenance "{forge_provenance_map}"] --skill-dir "{resolved_skill_package}" --metadata "{resolved_skill_package}/metadata.json"
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from guards --input "{run_dir}/surface.json" --metadata "{resolved_skill_package}/metadata.json"
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from numerator --input "{run_dir}/numerator.json" --metadata "{resolved_skill_package}/metadata.json"
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from metadata-coherence --input "{run_dir}/metadata-coherence.json" --metadata "{resolved_skill_package}/metadata.json"
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from provenance-line --input "{run_dir}/provenance-verify.json"
 ```
 
-A record about one export (`missing-export`, `missing-type`, `signature-mismatch`, `fabricated-signature`, `stale-documentation`, `split-body-mismatch`, `provenance-line`, `provenance-unverified`) names it in `export` and in its title, as the sections above say: the ledger tells two gaps apart by their title, Source and `export`, and update-skill takes the export's name from `export`.
-
-Then write the other records as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without.
+Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of `{outputFormatsFile}`, each naming its export in `export` and in its title: the ledger tells two gaps apart by their title, Source and `export`, and update-skill takes the export's name from `export`. Write them as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without.
 
 ```bash
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check <<'SKF_GAPS'
@@ -373,10 +366,10 @@ uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check <
 SKF_GAPS
 ```
 
-Rely on its JSON:
+Rely on the JSON of each command:
 
 - Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
-- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0) and run the command again.
+- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0), or the file or flag the `error` names, and run the command again.
 - Exit 1: HALT with the script's `error` (`halt_reason: "helper-failed"`, phase `coverage-check:ledger`).
 
 ### 6. Report Coverage Results

@@ -28,7 +28,7 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 ## Rules
 
 - Focus only on extracting component catalog, props interfaces, and shared types
-- Do not compile SKILL.md content (Step 05). Write only the scratch files under `{component_scan}` and, in Phase 2b, the brief
+- Do not compile SKILL.md content (Step 05). Write only the scratch files under `{component_scan}`, Phase 4's runner JSON at `{extraction_json}` and, in Phase 2b, the brief
 - Every extracted item must have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
 
 ## MANDATORY SEQUENCE
@@ -150,15 +150,17 @@ Display: "**Parsed component catalog: {N} components across {M} categories.**"
 
 Extract props interfaces as the primary API contracts, then link to components.
 
-At Quick tier no recipe runs: read the shapes the steps below name from source, as T1-low. At Forge, Forge+ and Deep tiers, run the component-library recipes over `{scan_list}` in one call. Resolve `{extractPublicApiHelper}` from `{extractPublicApiProbeOrder}` and, from `{project-root}`, run it with `{tier}` the forge tier (when `{scan_list}` is null, pass `--brief "{brief_file}"` in place of `--files-from "{scan_list}"`: the runner then lists the brief's files itself):
+At Quick tier no recipe runs: read the shapes the steps below name from source, as T1-low. At Forge, Forge+ and Deep tiers, run the component-library recipes over `{scan_list}` in one call. Resolve `{extractPublicApiHelper}` from `{extractPublicApiProbeOrder}`; it writes `{extraction_json}`, which step 3 §2b bound beside the staging folder: step 3 §5's `init` seeds the inventory from it, so it sits outside the scratch folder Phase 6 removes. From `{project-root}`, create its folder (the runner creates none), remove the JSON an earlier run left there and run the runner with `{tier}` the forge tier (when `{scan_list}` is null, pass `--brief "{brief_file}"` in place of `--files-from "{scan_list}"`: the runner then lists the brief's files itself):
 
 ```bash
-uv run {extractPublicApiHelper} --mode full --source-root "{source_root}" --files-from "{scan_list}" --recipe-set component-library --scope-type component-library --tier {tier} -o "{component_scan}/extraction.json"
+mkdir -p "{project-root}/_bmad-output/.skf-stage"
+rm -f "{extraction_json}"
+uv run {extractPublicApiHelper} --mode full --source-root "{source_root}" --files-from "{scan_list}" --recipe-set component-library --scope-type component-library --tier {tier} -o "{extraction_json}"
 ```
 
-**On exit 0**, each of the `exports[]` in `{component_scan}/extraction.json` is T1: it carries its `citation` (`[AST:{file}:L{line}]`), `ast_recipe`, `ast_node_type`, `export_type`, `confidence` and `extraction_method`, and the steps below sort the exports by `ast_recipe`. Read by eye, as T1-low, each file its `file_issues` lists as `syntax-errors` or `not-utf8`, where a recipe can miss an export. A `no-recipes` issue is a file no recipe reads, such as a stylesheet: there is nothing to extract from it. A `missing` or `unreadable` issue is a listed file the runner could not read: record it for the evidence report as not extracted. When `truncated` is true, a recipe (`recipes[]` marks it) found more matches than the head cap keeps: Phase 6 says so.
+Act on the JSON's `status`, never on the exit code. **On `ok` or `incomplete`**, each of the `exports[]` in `{extraction_json}` is T1: it carries its `citation` (`[AST:{file}:L{line}]`), `ast_recipe`, `ast_node_type`, `export_type`, `confidence` and `extraction_method`, and the steps below sort the exports by `ast_recipe`. Read by eye, as T1-low, each file its `file_issues` lists as `syntax-errors` or `not-utf8`, where a recipe can miss an export. A `no-recipes` issue is a file no recipe reads, such as a stylesheet: there is nothing to extract from it. A `missing` or `unreadable` issue is a listed file the runner could not read: record it for the evidence report as not extracted. Step 3 §5's `init` records the runner's warnings, and Gate 2 shows them: the head-cap warning when `truncated` is true (a recipe, which `recipes[]` marks, found more matches than the head cap keeps), and each `errors[]` item of an `incomplete` run (an ast-grep run failed or timed out, so its files may be unread).
 
-**On exit 1, 2 or 3, or when no candidate resolves** (1: an ast-grep run failed or timed out, so files may be unread; 3: no ast-grep the runner can run): load `{extractionPatternsData}`, which holds every recipe the steps below name and the forms each does not cover (Known Limitation #11), and run each of them as its AST Extraction Protocol says: its **When the Runner Cannot Run** loads the recipes' notes, the languages each runs in among them.
+**On `no-ast-grep`, or with no JSON at `{extraction_json}`** (an input error, or no candidate resolves): load `{extractionPatternsData}`, which holds every recipe the steps below name and the forms each does not cover (Known Limitation #11), and run each of them as its AST Extraction Protocol says: its **When the Runner Cannot Run** loads the recipes' notes, the languages each runs in among them.
 
 **Step 1 (extract Props interfaces):**
 
@@ -215,13 +217,13 @@ Display: "**Variant consolidation: {unique} unique components across {variant_co
 
 ### Phase 6: Build Component Extraction Results
 
-Compile all extracted data into the format expected by step 3 section 5:
+Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them. Prepare what it sends on top: an entry below for each export read by eye (Quick tier, a `file_issues` file, or the runner's fallback), each Props interface's fields as its `params`, and `component_catalog[]`; keep the aggregate counts below in context for step 5's `metadata.json` stats:
 
 **Per-export entry (for Props interfaces — primary API):**
 
 - Interface name (e.g., `NativeLiquidButtonProps`)
 - Full interface with all fields and types
-- Parameters: each field as name, type, required/optional, default
+- `params`: each field as `{name, type, default, optional, description}`, sent with `patch`
 - Linked component name (e.g., `NativeLiquidButton`)
 - Source file and line number
 - Provenance citation
@@ -259,7 +261,7 @@ Remove this step's scratch folder, from `{project-root}` (the `case` guard delet
 case "{component_scan}" in "{project-root}/_bmad-output/.skf-run/skf-create-skill-3d-"*) rm -rf "{component_scan}" ;; esac
 ```
 
-Display: "**Component extraction complete.** Returning to main extraction flow." When the Phase 4 run's `truncated` was true, add: "{the recipes `recipes[]` marks truncated} stopped at the head cap of {head_cap} matches: exports past it are missing."
+Display: "**Component extraction complete.** Returning to main extraction flow."
 
 ## RETURN PROTOCOL
 

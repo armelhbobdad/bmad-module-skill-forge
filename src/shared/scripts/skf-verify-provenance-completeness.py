@@ -30,10 +30,11 @@ entries are per-citation, so the two sets measure different surfaces:
 `missing` and `orphaned` stay empty and `summary.set_diff` is
 `not-applicable` (`checked` otherwise).
 
-Three more subcommands act on the same rules: `fix` applies the citation
+Four more subcommands act on the same rules: `fix` applies the citation
 prefix and source-line fixes a `verify` result has one answer for,
-`definition-lines` gives the lines that define one export, and `kind-at`
-gives the node kind of the recipe that matches a source line.
+`definition-lines` gives the lines that define one export,
+`classify-stale` decides which stale names are fabricated signatures, and
+`kind-at` gives the node kind of the recipe that matches a source line.
 
 An LLM set-diff can silently pass a dropped or orphaned entry, and eyeballing
 whether a cited line still exists is not something the model can do reliably.
@@ -48,7 +49,8 @@ Timing: update-skill runs it **post-write**, in write.md §6, after
 `metadata.json` (§2) and `provenance-map.json` (§3) are on disk.
 create-skill runs it too, at validate §7a against the staged package (with
 `--skill-dir` and `--check-node-kinds`, as update-skill does), and
-test-skill at coverage-check §4c (line check only).
+test-skill at coverage-check §4c (line check only); test-skill's
+coverage-check §2c runs `classify-stale`.
 
 Determinism:
   - Set operations are pure over the two JSON inputs.
@@ -386,6 +388,46 @@ Subcommands:
     With `--line`, a recorded line that is an indented match the column-0
     rule dropped joins `definition_lines`, as in `verify`.
 
+  classify-stale --names <coverage.json> --provenance <provenance-map.json>
+                 --source-root <path> [-o <out.json>]
+
+    test-skill's fabricated-signature test, for each stale name (a
+    documented name the enumerated source surface lacks): the
+    definition-lines rules above, run for every provenance entry whose raw
+    `export_name` is the name, at its `source_file` and `source_line`, with
+    its `export_type`. `--names` holds reconcile-coverage.py's result (its
+    `stale` names) or a JSON array of names.
+
+    Emit JSON, one item per name, in the order given (a repeated name once):
+      [
+        {"name": "<as given>",
+         "fabricated": <bool>,
+         "source": "<source_file>:<source_line>" | "<source_file>" | null,
+         "reason": "not-defined" | "defined" | "unchecked" | "no-entry",
+         "entries": [{"source_file": "<as recorded>",
+                      "source_line": <as recorded>,
+                      "line_check": "checked" | "file-missing"
+                                    | "skipped-export-type"
+                                    | "skipped-language" | "unreadable"
+                                    | "no-file",
+                      "definition_lines": [<int>, ...] | null}, ...]},
+        ...
+      ]
+
+    `fabricated` is true, with reason `not-defined`, when the name has an
+    entry and every entry's `line_check` is `file-missing`, or `checked`
+    with an empty `definition_lines`: the export is in neither the surface
+    nor the cited file. Otherwise the reason is `defined` (a cited file
+    defines the name), `unchecked` (no rule could check a cited file, and
+    none defines it) or `no-entry` (the map has no entry for the name).
+    An entry with no `source_file` (update-skill writes one for an
+    `unknown` NEW_EXPORT) cites no file to check: its `line_check` is
+    `no-file`, which, like a skipped or unreadable check, neither proves
+    the name fabricated nor shows it defined, so the name is `unchecked`
+    unless another entry defines it. `source` is the citation of the first
+    entry with a `source_file` (the file alone when its line is not a
+    number), null when no entry has one.
+
   kind-at --file <path> --line <n> --recipes <recipes>
           [--language <lang>] [--name <export_name>]
           [--source-root <path>] [-o <out.json>]
@@ -438,6 +480,10 @@ CLI examples:
       --skill-dir {skill_package}
   uv run skf-verify-provenance-completeness.py definition-lines \\
       --source-root {source_root} --file src/api.py --name search --line 26
+  uv run skf-verify-provenance-completeness.py classify-stale \\
+      --names {run_dir}/coverage.json \\
+      --provenance {forge_version}/provenance-map.json \\
+      --source-root {source_root} -o {run_dir}/stale.json
   uv run skf-verify-provenance-completeness.py kind-at \\
       --source-root {source_root} --file src/api.ts --line 12 --name Store \\
       --recipes {extractionPatternsData}
@@ -453,14 +499,17 @@ Exit codes:
     1  something left as a WARN, or manual_verify not ok
   definition-lines
     0  the rules answered (whatever `line_check` says)
+  classify-stale
+    0  every name was classified (whatever `fabricated` says)
   kind-at
     0  status "found"
     1  any other status
   2  error, for every subcommand (an input file or folder not found,
      --skill-dir without a SKILL.md, malformed JSON or YAML, a verify
-     result without stale[] and citations[], no recipe in --recipes, no
-     PyYAML for kind-at, an atomic write that failed, an -o file that
-     cannot be written, or any unexpected failure, such as an unreadable
+     result without stale[] and citations[], --names without a list of
+     names, no recipe in --recipes, no PyYAML for kind-at, an atomic
+     write that failed, an -o file that cannot be written, or any
+     unexpected failure, such as an unreadable
      file; once fix has started writing, stderr names the files already
      written); one line on stderr and no JSON
 """
@@ -1535,6 +1584,115 @@ def definition_lines_report(
             defs = sorted(set(defs) | {line})
     report["definition_lines"] = defs
     return report
+
+
+# --------------------------------------------------------------------------
+# Stale names (classify-stale)
+# --------------------------------------------------------------------------
+
+STALE_NOT_DEFINED = "not-defined"
+STALE_DEFINED = "defined"
+STALE_UNCHECKED = "unchecked"
+STALE_NO_ENTRY = "no-entry"
+
+
+def stale_names(data: object) -> list[str]:
+    """The names `--names` holds: reconcile-coverage.py's `stale`, or a JSON
+    array of names, each once in the order given. Raises ValueError."""
+    names = data.get("stale") if isinstance(data, dict) else data
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        raise ValueError(
+            "--names must hold a `stale` list of names or a JSON array of names"
+        )
+    return list(dict.fromkeys(n for n in names if n))
+
+
+def _entry_file(entry: dict) -> str | None:
+    """The entry's `source_file`, None when it records none."""
+    source_file = entry.get("source_file")
+    if not isinstance(source_file, str) or not source_file.strip():
+        return None
+    return source_file
+
+
+def _entry_citation(entry: dict) -> str | None:
+    source_file = _entry_file(entry)
+    if source_file is None:
+        return None
+    line = _coerce_line(entry.get("source_line"))
+    return f"{source_file}:{line}" if isinstance(line, int) else source_file
+
+
+def _stale_line_check(
+    entry: dict, name: str, source_root: Path
+) -> tuple[str, list[int] | None]:
+    """(line_check, definition_lines) of one provenance entry of a stale name."""
+    source_file = _entry_file(entry)
+    if source_file is None:
+        # no file to check: it neither proves the name fabricated nor clears it
+        return "no-file", None
+    line = _coerce_line(entry.get("source_line"))
+    export_type = entry.get("export_type")
+    try:
+        report = definition_lines_report(
+            source_file,
+            name,
+            source_root,
+            line if isinstance(line, int) else None,
+            export_type if isinstance(export_type, str) else None,
+        )
+    except ValueError:
+        # the file exists but cannot be read: nothing proves it
+        return "unreadable", None
+    return report["line_check"], report["definition_lines"]
+
+
+def classify_stale(names: list[str], prov: dict, source_root: Path) -> list[dict]:
+    """The fabricated-signature test for each stale name: the definition-lines
+    rules at every provenance entry whose raw `export_name` is the name. The
+    classify-stale section of the module docstring gives each reason, what a
+    `no-file` entry means and which entry gives `source`.
+    """
+    entries = [e for e in prov.get("entries") or [] if isinstance(e, dict)]
+    results: list[dict] = []
+    for name in names:
+        mine = [e for e in entries if e.get("export_name") == name]
+        checks: list[dict] = []
+        for entry in mine:
+            line_check, defs = _stale_line_check(entry, name, source_root)
+            checks.append(
+                {
+                    "source_file": entry.get("source_file"),
+                    "source_line": entry.get("source_line"),
+                    "line_check": line_check,
+                    "definition_lines": defs,
+                }
+            )
+        if not checks:
+            reason = STALE_NO_ENTRY
+        elif all(
+            c["line_check"] == "file-missing"
+            or (c["line_check"] == "checked" and not c["definition_lines"])
+            for c in checks
+        ):
+            reason = STALE_NOT_DEFINED
+        elif any(
+            c["line_check"] == "checked" and c["definition_lines"] for c in checks
+        ):
+            reason = STALE_DEFINED
+        else:
+            reason = STALE_UNCHECKED
+        source = next(filter(None, map(_entry_citation, mine)), None)
+        results.append(
+            {
+                "name": name,
+                "fabricated": reason == STALE_NOT_DEFINED,
+                "source": source,
+                "reason": reason,
+                "entries": checks,
+            }
+        )
+    return results
 
 
 # --------------------------------------------------------------------------
@@ -2738,6 +2896,39 @@ def _cmd_definition_lines(args: argparse.Namespace) -> int:
     return 0 if _emit(report, args.output) else 2
 
 
+def _cmd_classify_stale(args: argparse.Namespace) -> int:
+    names_path, prov_path = Path(args.names), Path(args.provenance)
+    root = Path(args.source_root)
+    for label, path in (("names", names_path), ("provenance map", prov_path)):
+        if not path.is_file():
+            print(f"error: {label} not found: {path}", file=sys.stderr)
+            return 2
+    if not root.is_dir():
+        print(f"error: source root not found: {root}", file=sys.stderr)
+        return 2
+    try:
+        text = names_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"error: failed to read names {names_path}: {exc}", file=sys.stderr)
+        return 2
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        print(f"error: malformed JSON in names {names_path}: {exc}", file=sys.stderr)
+        return 2
+    try:
+        names = stale_names(data)
+        prov = load_json_object(prov_path, "provenance map")
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        result = classify_stale(names, prov, root)
+    except Exception as exc:  # noqa: BLE001 - exit 2, never read as an answer
+        return _unexpected("stale-name classification", exc)
+    return 0 if _emit(result, args.output) else 2
+
+
 def _cmd_kind_at(args: argparse.Namespace) -> int:
     # a `source_file` as a provenance entry records it, as `verify` reads it
     path = Path(args.file.strip().replace("\\", "/"))
@@ -2900,8 +3091,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "non-definition file:line citations, (with --skill-dir) "
             "citation prefixes and (with --check-node-kinds) ast-grep node "
             "kinds, emitting findings as JSON; fix the findings with one "
-            "answer; look up an export's definition lines or the recipe "
-            "kind at a line."
+            "answer; look up an export's definition lines, the stale names "
+            "no cited file defines, or the recipe kind at a line."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -3030,6 +3221,37 @@ def _build_parser() -> argparse.ArgumentParser:
         help="write JSON to this file instead of stdout ('-' for stdout)",
     )
     p.set_defaults(func=_cmd_definition_lines)
+
+    p = sub.add_parser(
+        "classify-stale",
+        help=(
+            "decide which stale names are fabricated signatures: no cited "
+            "file defines them"
+        ),
+    )
+    p.add_argument(
+        "--names",
+        required=True,
+        help=(
+            "reconcile-coverage.py's result (its `stale` names) or a JSON "
+            "array of names"
+        ),
+    )
+    p.add_argument(
+        "--provenance", required=True, help="path to provenance-map.json"
+    )
+    p.add_argument(
+        "--source-root",
+        required=True,
+        help="source tree root the entries' source_file paths are under",
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="write JSON to this file instead of stdout ('-' for stdout)",
+    )
+    p.set_defaults(func=_cmd_classify_stale)
 
     p = sub.add_parser(
         "kind-at",

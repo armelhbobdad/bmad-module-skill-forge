@@ -11,10 +11,10 @@ that ledger (#583, #541). These tests pin that wiring and run it:
   passes, a stage that recorded nothing makes the gate refuse, two missing
   exports of one file stay two records, and a High discovery gap recorded
   after the gate is counted apart from the blocking ones;
-- a stale name is a fabricated signature only when the line check the
-  documented definition-lines call runs finds no such name in the file the
-  skill cites (#583's decision), and each per-export record names its
-  export;
+- a stale name is a fabricated signature only when the documented
+  classify-stale call finds no such name in the file the skill cites
+  (#583's decision), and each per-export record gap-ledger.py writes from
+  the run files, as the prose calls it, names its export;
 - a blocked run is not a halt: it writes the Completeness Score section in
   scoring's place and ends through the report step, which gives the report
   its public name only once its checks pass (#587), renders the Gap Report,
@@ -215,6 +215,28 @@ def values(tmp_path: pathlib.Path) -> dict[str, str]:
     }
 
 
+# A bracketed `[--flag ...]` synopsis group of a prose call, repeatable or not.
+OPTIONAL_GROUP_RE = re.compile(r" \[(--[a-z-]+[^\]]*)\](?:\.\.\.)?")
+
+
+def _ledger_call(path: pathlib.Path, needle: str, keep: tuple[str, ...] = ()) -> str:
+    """The one fenced command of `path` that holds `needle`, with the bracketed
+    groups whose flag `keep` names kept and the others dropped."""
+    lines = [line.strip() for line in _fence(_read(path), needle).splitlines() if needle in line]
+    assert len(lines) == 1, (path.name, needle, lines)
+    return OPTIONAL_GROUP_RE.sub(lambda m: " " + m.group(1) if m.group(1).split()[0] in keep else "", lines[0])
+
+
+def _write_json(path: pathlib.Path, data) -> pathlib.Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(json.dumps(data).encode("utf-8"))
+    return path
+
+
+def _ledger_records(values: dict[str, str]) -> list[dict]:
+    return json.loads(pathlib.Path(values["{ledgerFile}"]).read_bytes())["records"]
+
+
 def _record(stage: str, records: list[dict], values: dict[str, str]) -> dict:
     proc = _run(_append_command(RECORDING_STAGES.get(stage, REPORT_FILE), stage), values, json.dumps(records))
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -375,16 +397,20 @@ class TestRunningTheGate:
         proc = _gate(values)
         assert proc.returncode == 1 and json.loads(proc.stdout)["code"] == "LEDGER_MISSING"
 
-    def test_two_missing_names_from_one_file_are_two_records(self, values: dict[str, str]) -> None:
-        """§2c titles a missing name after it and sets `export`, so two names of one file never merge."""
-        section = _flow(_slice(_read(COVERAGE_FILE), "**Classify what the script found.**", "### 4. Category"))
-        title = re.search(r"`missing-export` gap titled `([^`]+)`", section).group(1)
-        assert title == "Missing export: {name}" and "with `export` `{name}`" in section
-        out = _record("coverage-check", [
-            _gap("Medium", "missing-export", title.format(name=name), "src/index.ts", export=name)
-            for name in ("alpha", "beta")
-        ], values)
+    def test_two_missing_names_from_one_file_are_two_records(self, values: dict[str, str],
+                                                             tmp_path: pathlib.Path) -> None:
+        """§5b's coverage call titles a missing name after it and sets `export`, so two names of one file
+        never merge."""
+        run = tmp_path / "run"
+        _write_json(run / "coverage.json", {"branch": "enumerated", "missing": ["alpha", "beta"], "stale": []})
+        _write_json(run / "surface.json", {"inputs": {}, "guards": None, "exports": [
+            {"name": name, "kind": "function", "file": "src/index.ts", "line": None} for name in ("alpha", "beta")]})
+        call = _ledger_call(COVERAGE_FILE, "--from coverage", keep=("--surface",))
+        proc = _run(call, values | {"{run_dir}": run.as_posix(), "{resolved_skill_package}": tmp_path.as_posix()})
+        out = json.loads(proc.stdout)
         assert (out["appended"], out["duplicates"], out["record_count"]) == (["GAP-001", "GAP-002"], [], 2)
+        assert [(r["title"], r["source"], r["export"]) for r in _ledger_records(values)] == [
+            ("Missing export: alpha", "src/index.ts", "alpha"), ("Missing export: beta", "src/index.ts", "beta")]
 
     def test_a_rerun_of_a_stage_records_its_gaps_once(self, values: dict[str, str]) -> None:
         records = [_gap("High", "split-body-mismatch", "formatDate differs in references/api.md",
@@ -629,35 +655,87 @@ class TestStagesRecordTheirGaps:
             assert needle in text, needle
         for stale in ("gap list (built in section 5)", "feed into the gap report (step 6)"):
             assert stale not in text, stale
-        # update-skill's rule R5 reads the provenance line gap by this title and Source.
-        assert "`Provenance line is not the definition of {export_name}`" in text
-        assert "- **Source:** `{source_file}:{source_line}`" in _read(COVERAGE_FILE)
+
+    def test_the_provenance_line_gap_keeps_the_title_and_source_update_skill_reads(
+            self, values: dict[str, str], tmp_path: pathlib.Path) -> None:
+        """update-skill's rule R5 reads the provenance line gap by its title and its bare `file:line` Source."""
+        run = tmp_path / "run"
+        _write_json(run / "provenance-verify.json", {"stale": [
+            {"export_name": "search", "source_file": "src/api.py", "source_line": 25, "reason": "line-not-definition",
+             "definition_lines": [26]},
+            {"export_name": "fetch", "source_file": "src/api.py", "source_line": 40, "reason": "line-not-definition",
+             "definition_lines": []},
+            {"export_name": "gone", "source_file": "src/old.py", "source_line": 3, "reason": "file-missing"}]})
+        section = _slice(_read(COVERAGE_FILE), "### 4c. Provenance Line Check", "### 5. Write")
+        assert '-o "{run_dir}/provenance-verify.json"' in section
+        proc = _run(_ledger_call(COVERAGE_FILE, "--from provenance-line"), values | {"{run_dir}": run.as_posix()})
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert [(r["severity"], r["category"], r["title"], r["source"], r["export"])
+                for r in _ledger_records(values)] == [
+            ("Low", "provenance-line", "Provenance line is not the definition of search", "src/api.py:25", "search"),
+            ("Info", "provenance-unverified", "Provenance line not verified for fetch", "src/api.py:40", "fetch")]
 
     def test_a_split_body_gap_cites_a_line_inside_the_package(self) -> None:
         section = _flow(_slice(_read(COVERAGE_FILE), "### 1b. Cross-Check", "### 2. Analyze"))
         assert "(`{reference_file}:{reference_line}`), inside the skill package" in section
 
     def test_each_per_export_record_names_its_export(self) -> None:
+        """The hand-written split-body record and the script's per-export records name the export in
+        `export` and in the title."""
         text = _flow(_body(COVERAGE_FILE))
-        rule = text[text.index("A record about one export ("):]
-        listed = set(re.findall(r"`([a-z-]+)`", rule[:rule.index(")")]))
-        assert listed == {"missing-export", "missing-type", "signature-mismatch", "fabricated-signature",
-                          "stale-documentation", "split-body-mismatch", "provenance-line", "provenance-unverified"}
-        assert "names it in `export` and in its title" in rule
-        for needle in ("titled `Split-body mismatch: {export}`, with its `export`",
-                       "titled `Signature mismatch: {name}`, with `export` `{name}`",
-                       "titled `Missing export: {name}`", "titled `Missing type: {name}`",
-                       "titled `Fabricated signature: {name}`, with `export` `{name}`",
-                       "titled `Stale documentation: {name}`, with `export` `{name}`",
-                       "with the same Source and `export`"):
-            assert needle in text, needle
-        assert "- **Export:** `{export_name}`" in _read(COVERAGE_FILE)
+        assert "titled `Split-body mismatch: {export}`, with its `export`" in text
+        assert "titled `Signature mismatch: {name}`, with `export` `{name}`" in text
+        assert "§1b's split-body mismatches, in the Ledger Record Format" in text
+        assert "each naming its export in `export` and in its title" in text
+        records = gap_ledger.from_coverage(
+            {"branch": "enumerated", "missing": ["fetchData", "Options"], "stale": ["ghost", "old"]},
+            signatures={"missingTypes": ["Options"]},
+            stale=[{"name": "ghost", "fabricated": True, "source": "src/a.ts:3"}])
+        records += gap_ledger.from_provenance_line({"stale": [
+            {"export_name": n, "source_file": "a.py", "source_line": 1, "reason": "line-not-definition",
+             "definition_lines": lines} for n, lines in (("f", [2]), ("g", []))]})
+        assert {r["category"] for r in records} == {"missing-export", "missing-type", "fabricated-signature",
+                                                    "stale-documentation", "provenance-line",
+                                                    "provenance-unverified"}
+        for record in records:
+            assert record["export"] and record["title"].endswith(record["export"]), record
 
-    def test_inflated_names_become_missing_exports_update_skill_can_route(self) -> None:
+    def test_inflated_names_become_missing_exports_update_skill_can_route(self, values: dict[str, str],
+                                                                          tmp_path: pathlib.Path) -> None:
         text = _flow(_body(COVERAGE_FILE))
-        assert "its `absent[]` names replace this gap (§4b)" in text
-        assert ("record each `absent[]` name in its place, as a Medium `missing-export` gap titled "
-                "`Missing export: {name}` with `export` `{name}`") in text
+        assert "its `absent[]` names replace this gap, one each" in text
+        # §5b keeps `--provenance` whenever the map is bound, though no run file holds it: the absent names'
+        # Source comes from it, and update-skill takes that line as its `source_citation`.
+        assert ("leaving out a bracketed flag whose file does not exist: a run file this run did not write, "
+                "or `--provenance` when init.md §2 bound no `{forge_provenance_map}`:") in text
+        run = tmp_path / "run"
+        _write_json(run / "coverage.json", {"branch": "scalar", "denominator": 4, "documented": 2,
+                                            "missing": [], "missingCount": 2, "numeratorSource": "verified"})
+        _write_json(run / "numerator.json", {"inflated": True, "declared": 4, "verified": 2,
+                                             "absent": ["alpha", "beta"]})
+        provenance = _write_json(tmp_path / "provenance-map.json", {"entries": [
+            {"export_name": "alpha", "source_file": "src/a.ts", "source_line": 7}]})
+        call = _ledger_call(COVERAGE_FILE, "--from coverage", keep=("--numerator", "--provenance"))
+        proc = _run(call, values | {"{run_dir}": run.as_posix(), "{resolved_skill_package}": "pkg",
+                                    "{forge_provenance_map}": provenance.as_posix()})
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert [(r["category"], r["title"], r["source"], r["export"]) for r in _ledger_records(values)] == [
+            ("missing-export", "Missing export: alpha", "src/a.ts:7", "alpha"),
+            ("missing-export", "Missing export: beta", "pkg/metadata.json", "beta")]
+
+    def test_a_failed_count_check_leaves_no_file_for_5b(self, values: dict[str, str],
+                                                        tmp_path: pathlib.Path) -> None:
+        """§4b redirects the script into the run file; on a non-zero exit that file holds an error object, which
+        §5b's call refuses, so §4b deletes it and §5b skips the call."""
+        section = _flow(_slice(_read(COVERAGE_FILE), "### 4b. Metadata", "**The numerator ground truth"))
+        assert '> "{run_dir}/metadata-coherence.json"' in section
+        assert ("A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its "
+                "call and records no count finding") in section
+        run = tmp_path / "run"
+        _write_json(run / "metadata-coherence.json", {"error": "clusterA must be an object", "code": "INVALID_INPUT"})
+        proc = _run(_ledger_call(COVERAGE_FILE, "--from metadata-coherence"),
+                    values | {"{run_dir}": run.as_posix(), "{resolved_skill_package}": "pkg"})
+        assert proc.returncode == 2 and json.loads(proc.stdout)["code"] == "INVALID_INPUT", proc.stdout
 
     def test_coherence_records_references_patterns_and_structure(self) -> None:
         text = _flow(_body(COHERENCE_FILE))
@@ -687,8 +765,8 @@ class TestStaleNameLineCheck:
     A stale name alone is outside the barrel set, which an internal symbol or a
     stratified tier_a set also is, so §2c checks the cited line with the verifier."""
 
-    CALL = ('uv run {verifyProvenanceCompletenessHelper} definition-lines --source-root "{source_path}" '
-            '--file "{source_file}" --name "{name}" --line {source_line} [--export-type "{export_type}"]')
+    CALL = ('uv run {verifyProvenanceCompletenessHelper} classify-stale --names "{run_dir}/coverage.json" '
+            '--provenance "{forge_provenance_map}" --source-root "{source_path}" -o "{run_dir}/stale.json"')
     SOURCE = '"""Core."""\nimport os\n\n\ndef helper(x):\n    return os.fspath(x)\n'
 
     @pytest.fixture
@@ -705,10 +783,10 @@ class TestStaleNameLineCheck:
         flow = _flow(section)
         for needle in (
             "Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden`",
-            "When every entry's `line_check` is `file-missing`, or `checked` with an empty `definition_lines`",
-            "a Critical `fabricated-signature` gap titled `Fabricated signature: {name}`",
-            "a Medium `stale-documentation` gap titled `Stale documentation: {name}`",
-            "or a cited file that defines the name",
+            "A name it marks `fabricated: true` (every map entry of the name cites a missing file or one that "
+            "does not define it) is a Critical `fabricated-signature` gap at its `source`",
+            "is a Medium `stale-documentation` gap",
+            "a helper that does not resolve or exits non-zero",
         ):
             assert needle in flow, needle
 
@@ -721,18 +799,26 @@ class TestStaleNameLineCheck:
                                          fabricated: bool) -> None:
         (tmp_path / "pkg").mkdir()
         (tmp_path / "pkg" / "core.py").write_bytes(self.SOURCE.encode("utf-8"))
-        # The call as §2c writes it, without the optional --export-type group.
-        call = self.CALL.split(" [--export-type")[0].replace("uv run {verifyProvenanceCompletenessHelper} ", "")
-        for key, value in {"{source_path}": tmp_path.as_posix(), "{source_file}": cited_file, "{name}": name,
-                           "{source_line}": "5"}.items():
+        run = tmp_path / "run"
+        _write_json(run / "coverage.json", {"branch": "enumerated", "missing": [], "stale": [name]})
+        provenance = _write_json(tmp_path / "provenance-map.json", {"entries": [
+            {"export_name": name, "source_file": cited_file, "source_line": 5}]})
+        # The call as §2c writes it.
+        call = self.CALL.replace("uv run {verifyProvenanceCompletenessHelper} ", "")
+        for key, value in {"{run_dir}": run.as_posix(), "{forge_provenance_map}": provenance.as_posix(),
+                           "{source_path}": tmp_path.as_posix()}.items():
             call = call.replace(key, value)
         proc = subprocess.run([sys.executable, str(VERIFY_PROVENANCE), *shlex.split(call)],
                               capture_output=True, text=True, encoding="utf-8")
         assert proc.returncode == 0, proc.stderr
-        out = json.loads(proc.stdout)
-        decided = out["line_check"] == "file-missing" or (
-            out["line_check"] == "checked" and out["definition_lines"] == [])
-        assert decided is fabricated, out
+        [out] = json.loads((run / "stale.json").read_bytes())
+        assert out["fabricated"] is fabricated, out
+        # §5b's coverage call turns the result into the gap.
+        [record] = gap_ledger.from_coverage(json.loads((run / "coverage.json").read_bytes()),
+                                            stale=[out], skill_dir=None)
+        expected = ("Critical", "fabricated-signature") if fabricated else ("Medium", "stale-documentation")
+        assert (record["severity"], record["category"]) == expected, record
+        assert record["source"] == (f"{cited_file}:5" if fabricated else "SKILL.md")
 
 
 # ---------------------------------------------------------------------------

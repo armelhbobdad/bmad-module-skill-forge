@@ -1,0 +1,5 @@
+type: added
+scope: skf-create-skill
+summary: |
+  The extraction review gate, when it shows the zero-export or head-cap warning, and the zero-export gate after a failed documentation fetch offer `[R] Refine the brief`, which stops the run with `halted-for-brief-refinement` (exit code `6`) and, under `--batch`, ends only that brief. A headless run still continues past both gates.
+prs: [656]

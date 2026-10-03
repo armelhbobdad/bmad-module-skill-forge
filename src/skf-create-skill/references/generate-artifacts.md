@@ -53,10 +53,15 @@ promoteStagedProbeOrder:
   - '{project-root}/src/shared/scripts/skf-promote-staged.py'
 # Resolve `{sourceTreeHelper}` to the first existing path. §7 removes the
 # private tree step 3 read a remote source from; if neither path exists, the
-# tree stays until a later run removes it, seven days on.
+# tree stays until a later run removes it, seven days on; every HARD HALT
+# also closes the tree through it (Rules).
 sourceTreeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
+# HARD HALT helper (Rules).
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -71,6 +76,7 @@ To publish the staged skill byte for byte: the deliverables to `{skill_package}`
 
 - Generate only `extraction-rules.yaml` (§2): every other file is promoted as steps 5 to 6 left it in the staging folder, never written again from what context holds
 - All base artifact types must be written (3 deliverables + N reference files + 3 workspace files)
+- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 

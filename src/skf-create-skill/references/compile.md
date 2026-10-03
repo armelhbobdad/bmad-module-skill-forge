@@ -31,6 +31,13 @@ extractionInventoryProbeOrder:
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
   - '{project-root}/src/skf-create-skill/references/extraction-patterns.md'
+# HARD HALT helpers (Rules).
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -48,6 +55,7 @@ To assemble the complete skill content from the extraction inventory and enrichm
 - Write all compiled artifacts to the staging directory `_bmad-output/.skf-stage/{skill-name}/`. Do not write to `skills/` or `forge-data/` — step 7 promotes staged artifacts to their final versioned locations.
 - Do not fabricate examples not found in source tests or docs
 - Seed `<!-- [MANUAL] -->` markers for future update-skill compatibility
+- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 

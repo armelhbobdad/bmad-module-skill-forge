@@ -7,6 +7,13 @@ nextStepFile: 'step-doc-rot.md'
 shardBodyProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-shard-body.py'
   - '{project-root}/src/shared/scripts/skf-shard-body.py'
+# HARD HALT helpers (Rules).
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -26,6 +33,7 @@ Proactively reduce oversized SKILL.md bodies to under 400 lines by extracting Ti
 - Do not modify frontmatter — only body content and references/ directory
 - Do not invoke `npx skill-check split-body` — this step uses direct extraction
 - Do not invoke the Description Guard Protocol — frontmatter is untouched
+- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 

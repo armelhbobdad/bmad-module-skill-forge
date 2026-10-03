@@ -5,6 +5,14 @@ Covers:
   - required-section presence with canonical headings and synonyms
   - case-insensitive heading match; `##` vs `###` tolerated
   - missing section → satisfied=false + tried[] list
+  - required sections read headings outside fenced and indented code and
+    the frontmatter (a `# Usage` comment in a bash fence satisfies
+    nothing), the component-library `## Component Catalog` satisfies
+    api_surface, the `outline` of the body's headings, and
+    `frontmatter_description` (inline, block, empty)
+  - every SKF template and override heading that serves a family
+    (compile-assembly-rules.md, the quick-skill skill-template.md) is a
+    synonym of that family
   - fence balance: even → not unbalanced; odd → unbalanced
   - bare opening fence flagged; closing fences never flagged
   - table drift: header has N cols, body row has M ≠ N → flagged
@@ -42,6 +50,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -55,6 +64,8 @@ FIND_CYCLES_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-find-cycles.p
 ENUMERATE_PATH = (
     REPO_ROOT / "src" / "shared" / "scripts" / "skf-enumerate-stack-skills.py"
 )
+ASSEMBLY_RULES = REPO_ROOT / "src" / "skf-create-skill" / "assets" / "compile-assembly-rules.md"
+QUICK_TEMPLATE = REPO_ROOT / "src" / "skf-quick-skill" / "assets" / "skill-template.md"
 
 spec = importlib.util.spec_from_file_location("skf_scan_skill_md_structure", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
@@ -241,6 +252,137 @@ class TestRequiredSections:
         result = mod.find_required_sections(text)
         for family in ("description", "usage", "api_surface"):
             assert result[family]["satisfied"] is False
+
+    def test_component_catalog_satisfies_api_surface(self) -> None:
+        # The component-library override replaces Key API Summary with it.
+        text = "## Overview\n## Quick Start\n## Component Catalog\n"
+        result = mod.find_required_sections(text)
+        assert result["api_surface"]["satisfied"] is True
+        assert result["api_surface"]["matched_synonym"] == "Component Catalog"
+
+    def test_a_heading_inside_code_satisfies_nothing(self) -> None:
+        # `# Usage` and `# API` here are shell comments, not sections.
+        text = (
+            "## Description\nWhat it does.\n\n"
+            "```bash\n# Usage\nrun --it\n# API\n```\n\n"
+            "~~~\n## Exports\n~~~\n\n"
+            "    # Quick Start\n"
+        )
+        result = mod.find_required_sections(text)
+        assert result["description"]["satisfied"] is True
+        assert result["usage"]["satisfied"] is False
+        assert result["api_surface"]["satisfied"] is False
+        assert result["outline"] == [{"line": 1, "level": 2, "text": "Description"}]
+
+    def test_a_frontmatter_line_is_no_heading(self) -> None:
+        text = "---\nname: x\n# Usage\n---\n# X\n"
+        result = mod.find_required_sections(text)
+        assert result["usage"]["satisfied"] is False
+        assert result["outline"] == [{"line": 5, "level": 1, "text": "X"}]
+
+    def test_outline_lists_every_body_heading_with_its_line(self) -> None:
+        text = (
+            "---\nname: demo\n---\n"
+            "# demo\n\n"
+            "## Usage Examples ##\n\n"
+            "```python\n# not a heading\n```\n\n"
+            "### API Reference\n"
+        )
+        result = mod.find_required_sections(text)
+        assert result["usage"]["satisfied"] is False
+        assert result["api_surface"]["satisfied"] is False
+        assert result["outline"] == [
+            {"line": 4, "level": 1, "text": "demo"},
+            {"line": 6, "level": 2, "text": "Usage Examples"},
+            {"line": 12, "level": 3, "text": "API Reference"},
+        ]
+
+    @pytest.mark.parametrize("frontmatter, expected", [
+        ("description: Does things. Use when testing.", True),
+        ("description: >\n  Does things,\n  over two lines.", True),
+        ("description: |-\n  Does things.", True),
+        ("description:\n  plain text on the next line", True),
+        ('description: ""', False),
+        ("description:", False),
+        ("description: >\nname: x", False),
+        ("description: ~", False),
+        ("name: x", False),
+        ("  description: nested, not the skill's", False),
+    ], ids=["inline", "folded", "literal", "next-line", "empty-quotes", "empty", "empty-block", "null",
+            "absent", "nested"])
+    def test_frontmatter_description(self, frontmatter: str, expected: bool) -> None:
+        text = f"---\nname: demo\n{frontmatter}\n---\n# demo\n"
+        assert mod.find_required_sections(text)["frontmatter_description"] is expected
+
+    def test_no_frontmatter_has_no_description(self) -> None:
+        result = mod.find_required_sections("description: not frontmatter\n# demo\n")
+        assert result["frontmatter_description"] is False
+
+
+# --------------------------------------------------------------------------
+# Every SKF template heading that serves a family is a synonym
+# --------------------------------------------------------------------------
+
+# The Tier 1 sections of the create-skill assembly that serve a family, by
+# number, as compile-assembly-rules.md numbers them.
+SECTION_FAMILY = {1: "description", 2: "usage", 3: "usage", 4: "api_surface"}
+# `**Section 4 (Key API Summary) <dash> Component Catalog override:**` and
+# `**Section 1 <dash> Overview (~10 lines):**`; a lettered section (4b) is
+# not one of the four.
+SECTION_RE = re.compile(r"^\*\*Section (\d+)(?: \(([^)]+)\))?\W+(.+?)(?: \(~[^)]*\))?:\*\*$")
+
+
+def _template_headings() -> set[tuple[str, str]]:
+    """(family, heading) for each Tier 1 section and each override heading of
+    compile-assembly-rules.md that serves a family."""
+    lines = ASSEMBLY_RULES.read_text(encoding="utf-8").splitlines()
+    found: set[tuple[str, str]] = set()
+    for i, line in enumerate(lines):
+        m = SECTION_RE.match(line)
+        if not m or int(m.group(1)) not in SECTION_FAMILY:
+            continue
+        family = SECTION_FAMILY[int(m.group(1))]
+        if m.group(2) is None:
+            found.add((family, m.group(3)))
+            continue
+        # An override names its heading in the template that follows it.
+        for nxt in lines[i + 1:]:
+            if nxt.startswith(("**Section", "**New Section", "### ")):
+                break
+            if nxt.startswith("## "):
+                found.add((family, nxt[3:].strip()))
+                break
+    return found
+
+
+def _synonyms(family: str) -> set[str]:
+    return {s.lower() for s in mod.REQUIRED_SYNONYMS[family]}
+
+
+class TestTemplateHeadingsAreSynonyms:
+    """A template heading is never renamed (skills already forged carry it):
+    the synonym list widens instead, and this test keeps the two in step."""
+
+    def test_the_assembly_rules_headings(self) -> None:
+        found = _template_headings()
+        # the four Tier 1 sections and the overrides that rename a heading
+        assert {
+            ("description", "Overview"), ("usage", "Quick Start"), ("usage", "Common Workflows"),
+            ("api_surface", "Key API Summary"), ("api_surface", "Component Catalog"),
+            ("api_surface", "Pattern Surface"), ("usage", "Adoption Steps"),
+        } <= found, found
+        missing = sorted((f, h) for f, h in found if h.lower() not in _synonyms(f))
+        assert missing == [], f"add each to REQUIRED_SYNONYMS[family]: {missing}"
+
+    def test_the_quick_skill_required_sections(self) -> None:
+        text = QUICK_TEMPLATE.read_text(encoding="utf-8")
+        block = text[text.index("### Required Sections"):text.index("### Optional Sections")]
+        headings = re.findall(r"^## (.+)$", block, re.M)
+        assert headings == ["Overview", "Description", "Key Exports", "Usage Patterns"]
+        families = {f for h in headings for f in mod.REQUIRED_SYNONYMS if h.lower() in _synonyms(f)}
+        assert families == set(mod.REQUIRED_SYNONYMS)
+        for heading in headings:
+            assert any(heading.lower() in _synonyms(f) for f in mod.REQUIRED_SYNONYMS), heading
 
 
 # --------------------------------------------------------------------------
@@ -554,6 +696,22 @@ class TestCli:
         result = _run_cli("scan", str(tmp_path / "nope.md"))
         assert result.returncode == 1
         assert "file not found" in result.stderr
+
+    def test_scan_required_sections_outline_matches_grep(self, tmp_path: Path) -> None:
+        # a byte order mark and a CRLF file keep the outline's lines on grep -n's
+        skill = tmp_path / "SKILL.md"
+        skill.write_bytes(
+            "\ufeff---\r\nname: x\r\ndescription: Does it.\r\n---\r\n"
+            "# X\r\n\r\n## Usage Examples\r\n".encode("utf-8")
+        )
+        result = _run_cli("scan", str(skill), "--required-sections")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["frontmatter_description"] is True
+        assert payload["outline"] == [
+            {"line": 5, "level": 1, "text": "X"},
+            {"line": 7, "level": 2, "text": "Usage Examples"},
+        ]
 
     def test_scan_required_sections_unsatisfied(self, tmp_path: Path) -> None:
         skill = _write(tmp_path / "SKILL.md", "## Description\n## Usage\n")

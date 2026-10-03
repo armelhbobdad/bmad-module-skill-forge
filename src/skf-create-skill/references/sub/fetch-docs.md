@@ -29,6 +29,13 @@ extractionInventoryProbeOrder:
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# HARD HALT helpers (Rules).
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -43,9 +50,10 @@ Fetch remote documentation from brief-specified URLs using whatever web fetching
 
 - No tier gate — runs at any tier when `doc_urls` are present in the brief
 - Tool-agnostic — use whatever web fetching capability is available
-- Do not halt the workflow if web fetching is unavailable or fails, with one exception: a `docs-only` brief left with nothing to compile halts at §5's zero-content check, before anything is staged
+- Do not halt the workflow if web fetching is unavailable or fails, with one exception: a `docs-only` brief left with nothing to compile halts at §5's zero-content check, before anything is staged. The user may still stop the run at §5's zero-export gate ([R])
 - Do not override existing T1, T1-low, or T2 extraction data with T3 content
 - Never delete the staging directory of a `docs-only` skill, whose only source corpus is the fetched pages, or of a whole-language reference, whose Language Guide step 5 reads from them
+- A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
 ## MANDATORY SEQUENCE
 
@@ -151,7 +159,7 @@ Parse the successfully fetched markdown for:
 
 **No hallucination:** If information cannot be found in the fetched content, exclude it. Do not infer or fabricate API details.
 
-**Whole-language references — retain prose, do not shred (`whole_language_reference: true`):** For a whole-language reference the registry-sourced corpora (the guide/Book, the standard/library docs) ARE the product, not the compiler's internal exports. Reducing that prose to per-export signature items and then discarding it under the §5 "T3 never overrides T1" rule (the compiler's AST already owns names like `Vec`, `Option`, `HashMap`) would gut exactly the content the skill exists to teach. So for these briefs, skip §4a below for the registry corpora.
+**Whole-language references (`whole_language_reference: true`): retain the prose, do not shred it.** For a whole-language reference the registry-sourced corpora (the guide/Book, the standard/library docs) ARE the product, not the compiler's internal exports. So for these briefs, extract no per-export items from the registry corpora (`source: language-registry`): §4a below keeps their pages as the Language Guide.
 
 ### 4a. Retain the Language Guide (whole-language references only)
 
@@ -199,7 +207,7 @@ SKF_T3
 **Zero-content check.** Run `uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"` from `{project-root}` and read its `counts`:
 
 - **`source_type: "docs-only"`, no URL or subpage fetched in this run, and `counts.items` is 0:** there is nothing to compile, and a docs-only skill has no other source. Stage and promote nothing: **HARD HALT** (exit code 3, `docs-unreachable`, phase `fetch-docs`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**No documentation could be fetched for `{skill-name}`, so there is nothing to compile.** Failed: {each `doc_urls` URL with its reason}. Check the network and that this environment has a web fetch tool, or fix `doc_urls` in the brief, then re-run create-skill."
-- **`source_type: "source"`, `counts.exports` is 0 and every `doc_urls` fetch failed:** step 3 §6's zero-export check let this brief through because it declares `doc_urls`. Apply that check here: show its warning and wait for **[C] Continue anyway**. **GATE [default: C]**: under `{headless_mode}`, log and record its `zero-exports` decision as step 3 §6 says, and continue.
+- **`source_type: "source"`, `counts.exports` is 0 and every `doc_urls` fetch failed:** step 3 §6's zero-export check let this brief through because it declares `doc_urls`. Apply that check here: show its warning and offer **[C] Continue anyway** or **[R] Refine the brief**: stop here. **GATE [default: C]**: under `{headless_mode}`, log and record its `zero-exports` decision as step 3 §6 says, and continue. On [R], **HARD HALT** (exit code 6, `halted-for-brief-refinement`, phase `fetch-docs`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "**Halting create-skill:** no public export was extracted and no `doc_urls` page could be fetched. Fix `scope.include`, `target_version` or `doc_urls` in the brief (or re-run `skf-brief-skill`), then re-run `skf-create-skill`."
 - **Otherwise:** continue. When no page of this run was saved (every fetch failed, or no fetch tool), skip §5b and §5c, which have nothing to index or remove, and go on to §6: `{docs_staging}` stays as it was.
 
 ### 5b. Index into QMD (Deep Tier Only)
