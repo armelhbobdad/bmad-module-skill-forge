@@ -2,3 +2,4 @@ type: fixed
 scope: skf-brief-skill
 summary: |
   When you ratify an existing brief (a brief path at the first prompt, or a headless `from_brief`), Brief Skill now writes it from the brief file plus the changes approved at the review step, so the fields it holds are no longer dropped on the rewrite: its `scope.amendments` log, its `scope.tier_a_include` list, its `target_ref` and `source_ref` git refs, and the component-library `scope.registry_path`, `scope.ui_variants` and `scope.demo_patterns` stay as they are unless you change them. Before, the run retyped every field into a new payload for the writer, and a field it left out was lost with no warning.
+prs: [663]

@@ -2,3 +2,4 @@ type: fixed
 scope: skf-refine-architecture
 summary: |
   A team's refinement rules copy (`refinement_rules_path`) whose VS Report Integration Raises cell names a severity tier and also says No issue or None, such as `No issue, even when the rationale notes minor caveats`, now stops Refine Architecture before any analysis with exit `3` (`resolution-failure`, phase `init:rules`) and a `vs-raises` violation that asks you to bold the one it raises, instead of silently raising that tier for every matching [VS] verdict. A bolded No issue or None now raises no issue whatever tier the rest of the cell mentions, as a bolded tier already decides for its row, so `**No issue**, even when the rationale notes minor caveats` maps its verdict to no issue.
+prs: [663]
