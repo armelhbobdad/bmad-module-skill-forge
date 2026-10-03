@@ -125,32 +125,6 @@ Every unit, composite and brief is named by `skf-skill-inventory.py derive-name`
 
 Names that would clash in one call are told apart by their parent folders (`server-api`, `client-api`).
 
-## Script/Asset Detection Signals
-
-During per-unit analysis, check for scripts and assets alongside code exports.
-
-**Script signals:**
-
-| Strength | Signal                                                                                        | Example                                             |
-|----------|-----------------------------------------------------------------------------------------------|-----------------------------------------------------|
-| Strong   | Entry point in `package.json` `bin`, Cargo.toml `[[bin]]`, pyproject.toml `[project.scripts]` | `"bin": { "migrate": "scripts/migrate.js" }`        |
-| Strong   | Shebang + executable file                                                                     | `#!/usr/bin/env python` in `scripts/setup.py`       |
-| Moderate | File in `scripts/`, `bin/`, `tools/`, `cli/` directory                                        | `scripts/validate.sh`                               |
-| Moderate | CI/CD reference to script                                                                     | `.github/workflows/test.yml` runs `scripts/test.sh` |
-
-**Asset signals:**
-
-| Strength | Signal                                                                         | Example                          |
-|----------|--------------------------------------------------------------------------------|----------------------------------|
-| Strong   | JSON Schema file with `$schema` key                                            | `schemas/config.schema.json`     |
-| Strong   | Config template with `.example` or `.template` extension                       | `config.yaml.example`            |
-| Moderate | File in `assets/`, `templates/`, `schemas/`, `configs/`, `examples/` directory | `templates/report.hbs`           |
-| Moderate | OpenAPI/GraphQL definition                                                     | `openapi.json`, `schema.graphql` |
-
-**Per-unit output:** Record `has_scripts: boolean`, `has_assets: boolean`, `script_files: string[]`, `asset_files: string[]`.
-
-**Disqualify:** Generated files (dist/, build/), vendored dependencies, IDE configs (.vscode/, .idea/), binary files (.so, .dll, .jar).
-
 ## Stack Skill Candidate Detection
 
 Flag units as stack skill candidates when (map-and-detect §5, in the same pass as the composite merges):

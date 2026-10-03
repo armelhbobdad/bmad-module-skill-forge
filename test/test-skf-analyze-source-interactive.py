@@ -476,21 +476,33 @@ def test_the_discover_file_declares_every_helper_it_calls():
 
 def test_one_statement_of_the_per_unit_export_mapping():
     """map-and-detect and [D] run the same export mapping from one file, so
-    the discovered units get the same API surface, script check and extras."""
+    the discovered units get the same API surface and extras."""
     for path in (MAP, DISCOVER):
         text = _read(path)
         assert "unitExportsFile: 'references/map-unit-exports.md'" in _frontmatter(text), path.name
         assert "execute {unitExportsFile}" in text, path.name
-    contract = '"scripts_assets": {"scripts": [], "assets": []}'
+    contract = '"ccc_signals": {"top_files": [], "available": <bool>}'
     holders = [p.name for p in REFS.glob("*.md") if contract in _read(p)]
     assert holders == [UNIT_EXPORTS.name], holders
     shared = _read(UNIT_EXPORTS)
     for needle in ("**No recipe for the unit's language:**", "entry_point_diff.extraction_gaps[]", "file_issues[]",
-                   "**Tier-aware extras:**", "Script/asset presence", "**Graceful degradation.**",
+                   "**Tier-aware extras:**", "**Graceful degradation.**",
                    'uv run {checkUnitRecordsHelper} --dir "{run_dir}/unit-records"',
                    "`files_count` is the unit's file count the loading file gave"):
         assert needle in shared, needle
     assert "the `files_count` of its §3 record" in _read(DISCOVER)
+
+
+def test_no_unit_is_surveyed_for_scripts_and_assets():
+    """No brief reads a per-unit scripts/assets survey (every brief leaves
+    scripts_intent and assets_intent null and create-skill detects them at
+    extraction), so analyze-source neither runs nor shows one: no file of the
+    skill (references, templates, SKILL.md) names the record key, the column
+    or the survey bullet, in any case."""
+    for path in sorted(AN.rglob("*.md")):
+        text = _read(path).lower()
+        for gone in ("scripts_assets", "scripts/assets", "script/asset", "scripts+assets"):
+            assert gone not in text, (path.relative_to(AN).as_posix(), gone)
 
 
 def test_the_discover_file_leaves_map_and_detect_sections_to_its_section_7():

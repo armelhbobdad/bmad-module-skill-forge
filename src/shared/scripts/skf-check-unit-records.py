@@ -22,7 +22,6 @@ object is then checked against the return contract:
   exports_count   integer >= 0
   export_pattern  string
   api_surface     list of strings
-  scripts_assets  {"scripts": list, "assets": list}
   ccc_signals     {"top_files": list, "available": bool}
   strategy_used   "ast-grep" | "source-read"
   confidence      "T1" | "T1-low"
@@ -86,11 +85,6 @@ CONTRACT: dict[str, tuple[Any, Any]] = {
     "exports_count": (_is_count, 0),
     "export_pattern": (lambda v: isinstance(v, str), ""),
     "api_surface": (_is_str_list, []),
-    "scripts_assets": (
-        lambda v: _is_object_of(v, {"scripts": lambda x: isinstance(x, list),
-                                    "assets": lambda x: isinstance(x, list)}),
-        {"scripts": [], "assets": []},
-    ),
     "ccc_signals": (
         lambda v: _is_object_of(v, {"top_files": lambda x: isinstance(x, list),
                                     "available": lambda x: isinstance(x, bool)}),

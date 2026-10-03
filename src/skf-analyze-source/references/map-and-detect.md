@@ -78,9 +78,9 @@ For each qualifying unit, delegate deep analysis to a subagent so per-unit work 
 
 **Per-unit export summary (built from `per_unit_findings[]`):**
 
-| Unit | Files | Exports | Export Pattern | API Surface | Scripts/Assets | CCC Signals |
-|------|-------|---------|----------------|-------------|----------------|-------------|
-| {name} | {count} | {count} | {pattern} | {small/medium/large} | {N scripts, M assets or --} | {CCC signals or --} |
+| Unit | Files | Exports | Export Pattern | API Surface | CCC Signals |
+|------|-------|---------|----------------|-------------|-------------|
+| {name} | {count} | {count} | {pattern} | {small/medium/large} | {CCC signals or --} |
 
 ### 3. Map Import Graph
 
