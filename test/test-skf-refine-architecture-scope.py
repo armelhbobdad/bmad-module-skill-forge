@@ -370,6 +370,20 @@ def test_the_mentions_helper_decides_what_a_skill_covers():
                        "React": []}
 
 
+def test_an_alias_inside_a_longer_name_covers_nothing():
+    # Step 5b RA determinism-1: an `alias-contained` entry leaves the technology unverified, as the
+    # derived scope judges common-word aliases, unless the document shows the alias is that technology.
+    rule = _unverified_rule()
+    for needle in ("`covered_by` entry of kind `alias-contained`", "does not cover the technology",
+                   "stays in `{unverified_technologies}`", "the derived scope above judges common-word aliases"):
+        assert needle in rule, needle
+    helper = _comention_helper()
+    skills = helper.parse_skills(json.dumps([{"name": "oms-ai", "aliases": ["ai"]}]))
+    out = helper.mentions("", skills, ["Azure AI Search"])
+    assert out["technologies"][0]["covered_by"] == [{"skill": "oms-ai", "term": "ai", "kind": "alias-contained"}]
+    assert out["unverified_technologies"] == ["Azure AI Search"]
+
+
 def test_gap_report_names_unverified_technologies_and_stores_the_scope():
     report = _gap_report()
     assert "Three signals are not inferable" in report
@@ -923,6 +937,27 @@ def test_the_scope_block_holds_the_pair_lists():
     block = _slice(_gap_report(), "Append the scope under a `<!-- [RA-SCOPE] ... -->` block", "\n\n")
     assert "`{in_scope_pairs}`" in block and "`{out_of_scope_pairs}`" in block
     assert "Step 03, Step 04 and Step 05 read the block back" in block
+
+
+def test_existence_is_read_from_the_saved_inventory():
+    # Step 5b RA determinism-2 and its review: step 1 saves the inventory once, each step 2 subagent
+    # reads its skill's exports[] from that file and its references/ for signatures, and step 3 checks
+    # that a named export exists by membership in the file's list, so no copy of the names decides it.
+    scan = _slice(_read(INIT), "### 2. Scan Skills Folder", "### 3.")
+    assert '--pairs --reliability > "{run_dir}/skill-inventory.json"' in scan
+    assert "as `skill_inventory`" in scan
+    surfaces = _slice(_read(GAP), "### 4. Load Skill API Surfaces for Cross-Reference", "### 5.")
+    for needle in ("`exports[]` from the `skills[]` entry of that name in `{run_dir}/skill-inventory.json`",
+                   "`references/*.md` for the signatures SKILL.md lacks", "no name the list lacks",
+                   "Only when the list is empty (a stack skill, or `exports_source` `unknown`)"):
+        assert needle in surfaces, needle
+    assert "Hand each its skill's `exports[]`" not in surfaces, "the parent still types each export list"
+    verify = _slice(_read(ISSUES), "### 3. Verify Claims Against Skill API Surfaces", "### 4.")
+    for needle in ("membership lookup in the skill's `exports[]` in `{run_dir}/skill-inventory.json`",
+                   "fails on existence only when that list lacks the name",
+                   "judge only the signature, protocol or types the claim states",
+                   "When that list is empty", "never taking a missing name as proof"):
+        assert needle in verify, needle
 
 
 def test_language_comes_from_the_inventory():

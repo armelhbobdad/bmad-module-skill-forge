@@ -30,6 +30,9 @@ emitEnvelopeProbeOrder:
 bundleFile: '{run_dir}/extraction-bundle.json'
 exportRecordsFile: '{run_dir}/export-records.json'
 importCountsFile: '{run_dir}/import-counts.json'
+pairsFile: '{run_dir}/pair-intersect.json'
+stackInventoryFile: '{run_dir}/stack-inventory.json'
+composeEntriesFile: '{run_dir}/compose-entries.json'
 draftFolder: '{run_dir}/draft'
 ---
 
@@ -133,7 +136,7 @@ If step 6 extracted the catalog, copy `{draftFolder}/stack-catalog.md` to `{skil
 
 ### 4. Stage Integration Pair Reference Files
 
-For each entry of `{bundleFile}`'s `integrations[]`, write `{skill_staging}/references/integrations/{a}-{b}.md` in the integrations structure of `{stackSkillTemplatePath}` from the entry (`type`, the `co_import_files` count, `description` with its `key_files` citations, `tier`).
+For each entry of `{bundleFile}`'s `integrations[]`, write `{skill_staging}/references/integrations/{a}-{b}.md` in the integrations structure of `{stackSkillTemplatePath}` from the entry (`type`, its pair's `intersection_count` in `{pairsFile}` as the co-import file count, 0 in compose mode, `description` with its `key_files` citations, `tier`).
 
 ### 5. Stage context-snippet.md
 
@@ -143,7 +146,7 @@ Write `{skill_staging}/context-snippet.md` in the context-snippet format of `{st
 uv run {countTokensHelper} {skill_staging}
 ```
 
-While `{token_estimate}` exceeds **120**, apply the next trim and measure again: drop the `gotchas` line; strip the `stack` line's versions; keep its top 8 dependencies by import count (export count in compose mode); keep the top 5 `integrations` by file count, each cut list ending `, ...+{N} more`. Never trim the `IMPORTANT:` line. Over budget after the last trim, keep the snippet and append a `workflow_warnings[]` entry (`code: "snippet-over-budget"`, `message`: its `{token_estimate}`).
+While `{token_estimate}` exceeds **120**, apply the next trim and measure again: drop the `gotchas` line; strip the `stack` line's versions; keep its top 8 dependencies by import count (export count in compose mode); keep the top 5 `integrations` by co-import file count (§4), each cut list ending `, ...+{N} more`. Never trim the `IMPORTANT:` line. Over budget after the last trim, keep the snippet and append a `workflow_warnings[]` entry (`code: "snippet-over-budget"`, `message`: its `{token_estimate}`).
 
 ### 6. Stage metadata.json
 
@@ -159,16 +162,16 @@ Pipe it `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidenc
 
 Write `{forge_version}/provenance-map.json`, the variant of the run's mode in `assets/provenance-map-schema.md`; if the write fails, invoke the rollback contract from §1.
 
-- **In code-mode:** `entries[]` is the `entries` of `{exportRecordsFile}`, the records step 4 checked, and `integrations[]` holds the pairs of `{bundleFile}`: the call below writes both from those files as they stand. Pipe it only the map's `provenance_version`, `skill_name`, `skill_type`, `source_repo`, `source_commit` and `generated_at`. On exit `2` its stderr names the input it refused (fix it and run it again) or the write that failed.
+- **In code-mode:** `entries[]` is the `entries` of `{exportRecordsFile}`, the records step 4 checked, and `integrations[]` holds the pairs of `{bundleFile}`, each with its co-import files from `{pairsFile}`: the call below writes both from those files as they stand. Pipe it only the map's `provenance_version`, `skill_name`, `skill_type`, `source_repo`, `source_commit` and `generated_at`. On exit `2` its stderr names the input it refused (fix it and run it again) or the write that failed.
 
   ```bash
-  <the other map fields as JSON> | uv run {renderStackMetadataHelper} provenance --records "{exportRecordsFile}" --bundle "{bundleFile}" --input - --target "{forge_version}/provenance-map.json"
+  <the other map fields as JSON> | uv run {renderStackMetadataHelper} provenance --records "{exportRecordsFile}" --bundle "{bundleFile}" --pairs "{pairsFile}" --input - --target "{forge_version}/provenance-map.json"
   ```
 
-- **In compose-mode:** each entry's `confidence` and `signature_source` are its constituent's tier (`per_library_extractions[].confidence`), and its `export_name` the literal identifier of the cited contract as the staged `SKILL.md` or a file directly in `references/` writes it, never a descriptive label (§8 checks it). `integrations[]` holds one entry per pair of `{bundleFile}`'s `integrations[]`, its `tier` as `confidence`, and each `constituents[]` entry comes from its bundle entry (`library`, `skill_dir`, `version`, and the `metadata_hash` step 4 §0 recorded, never a fresh hash):
+- **In compose-mode:** write only the entries, as `{"entries": [...]}`, to `{composeEntriesFile}`, each with its `source_library` and cited fields, its `export_name` the literal identifier of the cited contract as the staged `SKILL.md` or a file directly in `references/` writes it, never a descriptive label (§8 checks it). The call below sets each entry's `confidence`, `signature_source` and `extraction_method` from its constituent's `per_library_extractions[].confidence` and adds `integrations[]` and `constituents[]`, each `metadata_hash` copied from `{stackInventoryFile}`, never a fresh hash. Pipe it the code-mode fields and `source_ref`, the `source_*` fields null; exit `2` as in code mode.
 
   ```bash
-  <json-content> | python3 {atomicWriteHelper} write --target {forge_version}/provenance-map.json
+  <the other map fields as JSON> | uv run {renderStackMetadataHelper} provenance --records "{composeEntriesFile}" --bundle "{bundleFile}" --inventory "{stackInventoryFile}" --skills-root "{skills_output_folder}" --project-root "{project-root}" --input - --target "{forge_version}/provenance-map.json"
   ```
 
 **Source lines (code mode only).** Check that each entry's `source_line` defines its export: resolve `{verifyProvenanceCompletenessHelper}` from `{verifyProvenanceCompletenessProbeOrder}` and run `verify`, `fix`, then `verify` again, with `{project_root}` the project root, `project_root` from step 1, that each `source_file` is relative to (never `{scan_root}`):
@@ -208,7 +211,7 @@ If the validator does not resolve or cannot run, the gate is advisory (`pre-comm
 uv run {namesPresentHelper} --provenance {forge_version}/provenance-map.json --skill-dir {skill_staging}
 ```
 
-When its `absent[]` is empty, go on to §8b. Otherwise, when `{headless_mode}` is false, rename each absent entry whose contract a staged file names by a literal identifier to that identifier, rewriting the map with the atomic writer; then, in both modes, run the call again with `--drop-absent` to drop every entry still absent. Record a `workflow_warnings[]` entry (`message`: its `source_library` and `export_name`, old and new for a rename) per renamed entry (`code: "compose-export-name-renamed"`) and per `dropped[]` entry (`code: "compose-export-name-dropped"`). The check is advisory (`compose-export-names-unchecked`).
+When its `absent[]` is empty, go on to §8b. Otherwise, when `{headless_mode}` is false, rename each absent entry whose contract a staged file names by a literal identifier to that identifier in `{composeEntriesFile}` and run the §7 compose-mode `provenance` call again; then, in both modes, run the call above with `--drop-absent` to drop every entry still absent. Record a `workflow_warnings[]` entry (`message`: its `source_library` and `export_name`, old and new for a rename) per renamed entry (`code: "compose-export-name-renamed"`) and per `dropped[]` entry (`code: "compose-export-name-dropped"`). The check is advisory (`compose-export-names-unchecked`).
 
 ### 8b. Write the Evidence Report (Workspace)
 
@@ -229,7 +232,7 @@ With §2 to §6 staged, swap the staging dir into place:
 python3 {atomicWriteHelper} commit-dir --target {skill_package}
 ```
 
-On failure, invoke the rollback contract from §1. Then delete the working files no later step reads: `rm -rf "{draftFolder}" "{bundleFile}" "{exportRecordsFile}" "{importCountsFile}"`; the run folder keeps its warnings and decisions for step 9's envelope.
+On failure, invoke the rollback contract from §1. Then delete the working files no later step reads: `rm -rf "{draftFolder}" "{bundleFile}" "{exportRecordsFile}" "{importCountsFile}" "{pairsFile}" "{stackInventoryFile}" "{composeEntriesFile}"`; the run folder keeps its warnings and decisions for step 9's envelope.
 
 ### 10. Flip Active Symlink
 

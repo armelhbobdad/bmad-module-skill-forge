@@ -8,7 +8,8 @@ name: {stack_name}
 description: >
   Stack skill for {project_name} — {lib_count} libraries with
   {integration_count} integration patterns. Use when working with
-  this project's technology stack.
+  this project's technology stack. NOT for: individual library usage
+  outside this project's conventions.
 ---
 
 # {project_name} Stack Skill
@@ -41,6 +42,7 @@ description: >
 **Key exports used:** {comma-separated list}
 **Usage pattern:** {brief pattern description}
 **Confidence:** {T1/T1-low/T2/T3}
+**Reference:** [ref](references/{name}.md)
 
 ## Conventions
 
@@ -124,6 +126,7 @@ from here.
 **Key exports used:** {comma-separated list}
 **Usage pattern:** {brief pattern description}
 **Confidence:** {T1/T1-low/T2/T3}
+**Reference:** [ref]({name}.md)
 ```
 
 ## references/{library}.md Structure

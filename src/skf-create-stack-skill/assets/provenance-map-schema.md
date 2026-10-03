@@ -15,7 +15,7 @@ Both variants share the top-level `provenance_version`, `skill_name`, `skill_typ
 
 ## Code-mode variant
 
-Used when the workflow ran in code-mode against an actual codebase. `source_repo` and `source_commit` capture the upstream anchor(s); `entries[].extraction_method` names the tool that read the export (`ast_bridge` or `source_reading`): step 4 §1 gives the labels each method pairs with, and §3a relabels them with `skf-render-stack-metadata.py relabel`. `entries[].source_file` is relative to `{project_root}`, the project root (`project_root` from step 1), whatever folder `{scan_root}` narrowed the scan to, and `source_line` is the line that defines the export. `integrations[].co_import_files[]` holds each file that imports both libraries as step 5 recorded it from `skf-pair-intersect.py` (`path`, relative to `{project_root}` too because step 3 counts imports with `--relative-to {project_root}`, and `line_a` and `line_b`, the first line that imports each library). `integrations[].detection_method` is `"co-import grep"` because integration pairs are confirmed by co-import file evidence.
+Used when the workflow ran in code-mode against an actual codebase. `source_repo` and `source_commit` capture the upstream anchor(s); `entries[].extraction_method` names the tool that read the export (`ast_bridge` or `source_reading`): step 4 §1 gives the labels each method pairs with, and §3a relabels them with `skf-render-stack-metadata.py relabel`. `entries[].source_file` is relative to `{project_root}`, the project root (`project_root` from step 1), whatever folder `{scan_root}` narrowed the scan to, and `source_line` is the line that defines the export. `integrations[].co_import_files[]` holds each file that imports both libraries, as `skf-render-stack-metadata.py provenance` copies it from the `skf-pair-intersect.py` result step 5 saved (`path`, relative to `{project_root}` too because step 3 counts imports with `--relative-to {project_root}`, and `line_a` and `line_b`, the first line that imports each library). `integrations[].detection_method` is `"co-import grep"` because integration pairs are confirmed by co-import file evidence.
 
 ```json
 {
@@ -90,7 +90,7 @@ Used when the workflow ran in compose-mode against pre-generated constituent ski
   "constituents": [
     {
       "skill_name": "{constituent-skill-name}",
-      "skill_path": "skills/{skill-dir}/",
+      "skill_path": "{skills_output_folder, relative to the project root}/{skill-dir}/",
       "version": "{version from constituent metadata.json}",
       "composed_at": "{ISO-8601}",
       "metadata_hash": "sha256:{hash of constituent metadata.json}"
@@ -99,4 +99,4 @@ Used when the workflow ran in compose-mode against pre-generated constituent ski
 }
 ```
 
-`constituents[].metadata_hash` is the hash step 4 §0 records as the provenance anchor; step 7 copies it and never hashes again.
+Step 7 writes `constituents[]` with `skf-render-stack-metadata.py provenance`, the only copier of each `metadata_hash`: the provenance anchor step 4 §0 read, copied from its saved inventory, never hashed again. Each `skill_path` is the constituent's folder in `skills_output_folder`, relative to the project root that Audit Skill resolves it from.

@@ -14,11 +14,18 @@ section 3, generate-output sections 6 and 7):
     when a violation no rule fixes is left, and exits 2 with nothing
     written when the stats helper is not beside it or the records are
     malformed
-  - `provenance` writes the code-mode map with its entries from the
+  - `provenance` writes the map in the bundle's mode, its entries from the
     records and its integrations from the extraction bundle's pairs (a, b,
-    type and tier renamed to the schema's fields, the co-import files as
-    they stand), in the schema's place, atomically, and writes nothing on a
-    bad input, a bad bundle or a target it cannot create
+    type and tier renamed to the schema's fields), in the schema's place,
+    atomically, and writes nothing on a bad input, a bad bundle or a target
+    it cannot create; in code mode each pair's co-import files come from the
+    pair-intersect result (--pairs), matched on the two libraries in either
+    order, and a pair it lacks is refused; in compose mode each entry takes
+    its constituent's tier from the bundle (an entry of no constituent is
+    refused), the co-import files are [] and the constituents come from the
+    bundle's entries and step 4's inventory, each hash copied and each
+    skill_path relative to the project root; a flag of the other mode, or a
+    missing one, is refused
   - `library-tiers` makes a code-mode library T1 only when it has export
     records and an ast-grep rule matched every one, T1-low otherwise (a
     library with no record included), in the order --libraries gives; a
@@ -45,6 +52,7 @@ import importlib.util
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -351,19 +359,27 @@ def test_relabel_refuses_a_bad_records_file(args, content, needle, tmp_path):
 MAP_FIELDS = {"provenance_version": "2.0", "skill_name": "demo-stack", "skill_type": "stack",
               "source_repo": ["https://github.com/acme/app"], "source_commit": {"app": "abc123"},
               "generated_at": "2026-10-02T08:00:00Z", "integrations": []}
-# The extraction bundle's pairs, as detect-integrations section 4 writes them.
+# The extraction bundle's pairs, as detect-integrations section 4 writes them: no co-import file.
 BUNDLE_PAIR = {"a": "liba", "b": "libb", "type": "adapter", "tier": "t1-LOW", "qualifier": "grep-co-import",
-               "detection_method": "co-import grep",
-               "co_import_files": [{"path": "src/app.py", "line_a": 1, "line_b": 2},
-                                   {"path": "src/db.py", "line_a": 4, "line_b": 3}],
-               "key_files": ["src/app.py:9"], "description": "liba feeds libb"}
+               "detection_method": "co-import grep", "key_files": ["src/app.py:9"], "description": "liba feeds libb"}
+CO_IMPORT_FILES = [{"path": "src/app.py", "line_a": 1, "line_b": 2}, {"path": "src/db.py", "line_a": 4, "line_b": 3}]
+# The skf-pair-intersect.py result detect-integrations section 1 saves.
+PAIR_INTERSECT = {"pairs": [{"a": "liba", "b": "libb", "intersection_count": 2, "files": CO_IMPORT_FILES}],
+                  "truncated": False, "total_pairs": 1}
 MAP_PAIR = {"libraries": ["liba", "libb"], "pattern_type": "adapter", "detection_method": "co-import grep",
-            "co_import_files": BUNDLE_PAIR["co_import_files"], "confidence": "T1-low"}
+            "co_import_files": CO_IMPORT_FILES, "confidence": "T1-low"}
 
 
-def _bundle(tmp_path, *pairs):
+def _bundle(tmp_path, *pairs, mode="code", **fields):
     path = tmp_path / "extraction-bundle.json"
-    path.write_bytes(json.dumps({"per_library_extractions": [], "integrations": list(pairs)}).encode("utf-8"))
+    bundle = {"mode": mode, "per_library_extractions": [], "integrations": list(pairs), **fields}
+    path.write_bytes(json.dumps(bundle).encode("utf-8"))
+    return path
+
+
+def _pairs(tmp_path, data=None):
+    path = tmp_path / "pair-intersect.json"
+    path.write_bytes(json.dumps(PAIR_INTERSECT if data is None else data).encode("utf-8"))
     return path
 
 
@@ -373,7 +389,7 @@ def test_provenance_writes_the_records_as_the_map_entries(tmp_path):
     records.write_bytes(json.dumps({"entries": entries}).encode("utf-8"))
     target = tmp_path / "forge" / "demo-stack" / "1.0.0" / "provenance-map.json"
     result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path, BUNDLE_PAIR)),
-                 "--input", "-", "--target", str(target),
+                 "--pairs", str(_pairs(tmp_path)), "--input", "-", "--target", str(target),
                  stdin=json.dumps(dict(MAP_FIELDS, entries=[{"export_name": "typed by hand"}])))
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"target": str(target), "entry_count": 1, "integration_count": 1}
@@ -386,10 +402,61 @@ def test_provenance_writes_the_records_as_the_map_entries(tmp_path):
 
 def test_the_map_integrations_are_the_bundle_pairs():
     """w3 determinism-5: no step types a second list of pairs; the bundle's is projected."""
-    assert mod.bundle_integrations({"integrations": [BUNDLE_PAIR, dict(BUNDLE_PAIR, a="libc", tier="T2",
-                                                                       co_import_files=[])]}) == [
+    pairs = mod.pair_files({"pairs": [*PAIR_INTERSECT["pairs"], {"a": "libb", "b": "libc", "files": []}]})
+    assert mod.bundle_integrations({"integrations": [BUNDLE_PAIR, dict(BUNDLE_PAIR, a="libc", tier="T2")]},
+                                   pairs) == [
         MAP_PAIR, dict(MAP_PAIR, libraries=["libc", "libb"], confidence="T2", co_import_files=[])]
-    assert mod.bundle_integrations({"integrations": []}) == []
+    assert mod.bundle_integrations({"integrations": []}, pairs) == []
+    # Compose mode: no pair-intersect result, so no co-import file.
+    assert mod.bundle_integrations({"integrations": [BUNDLE_PAIR]}) == [dict(MAP_PAIR, co_import_files=[])]
+
+
+def test_the_co_import_files_are_the_pair_helpers():
+    """Step 5b determinism-2: the files come from the saved pair-intersect result, never the bundle."""
+    stale = dict(BUNDLE_PAIR, co_import_files=[{"path": "typed/by/hand.py", "line_a": 9, "line_b": 9}])
+    [pair] = mod.bundle_integrations({"integrations": [stale]}, mod.pair_files(PAIR_INTERSECT))
+    assert pair["co_import_files"] == CO_IMPORT_FILES
+
+
+def test_a_pair_named_the_other_way_round_swaps_its_lines():
+    [pair] = mod.bundle_integrations({"integrations": [dict(BUNDLE_PAIR, a="libb", b="liba")]},
+                                     mod.pair_files(PAIR_INTERSECT))
+    assert pair["libraries"] == ["libb", "liba"]
+    assert pair["co_import_files"] == [{"path": "src/app.py", "line_a": 2, "line_b": 1},
+                                       {"path": "src/db.py", "line_a": 3, "line_b": 4}]
+
+
+@pytest.mark.parametrize("data, needle", [
+    pytest.param([], "`pairs` array", id="not-an-object"),
+    pytest.param({"pairs": None}, "`pairs` array", id="no-pairs"),
+    pytest.param({"pairs": ["liba+libb"]}, "pairs[0] must be an object", id="pair-not-object"),
+    pytest.param({"pairs": [{"a": "liba", "files": []}]}, "pairs[0].b", id="no-b"),
+    pytest.param({"pairs": [{"a": "liba", "b": "libb", "files": ["src/app.py"]}]}, "pairs[0].files",
+                 id="libraries-shape-files"),
+])
+def test_a_malformed_pair_intersect_result_is_refused(data, needle, tmp_path):
+    records = tmp_path / "export-records.json"
+    records.write_bytes(b'{"entries": []}')
+    target = tmp_path / "provenance-map.json"
+    result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path, BUNDLE_PAIR)),
+                 "--pairs", str(_pairs(tmp_path, data)), "--input", "-", "--target", str(target),
+                 stdin=json.dumps(MAP_FIELDS))
+    assert (result.returncode, result.stdout) == (2, "")
+    assert needle in result.stderr and len(result.stderr.strip().splitlines()) == 1
+    assert not target.exists()
+
+
+def test_a_code_mode_pair_with_no_pair_intersect_entry_is_refused(tmp_path):
+    records = tmp_path / "export-records.json"
+    records.write_bytes(b'{"entries": []}')
+    target = tmp_path / "provenance-map.json"
+    result = run("provenance", "--records", str(records),
+                 "--bundle", str(_bundle(tmp_path, BUNDLE_PAIR, dict(BUNDLE_PAIR, b="libc"))),
+                 "--pairs", str(_pairs(tmp_path)), "--input", "-", "--target", str(target),
+                 stdin=json.dumps(MAP_FIELDS))
+    assert (result.returncode, result.stdout) == (2, "")
+    assert "integrations[1] (liba + libc) has no entry in the pair-intersect result" in result.stderr
+    assert not target.exists()
 
 
 def test_the_entries_go_before_the_integrations():
@@ -406,17 +473,17 @@ def test_the_entries_go_before_the_integrations():
     pytest.param({"integrations": ["liba+libb"]}, "integrations[0] must be an object", id="pair-not-object"),
     pytest.param({"integrations": [dict(BUNDLE_PAIR, type="")]}, "integrations[0].type", id="no-type"),
     pytest.param({"integrations": [dict(BUNDLE_PAIR, tier="T9")]}, "integrations[0].tier", id="bad-tier"),
-    pytest.param({"integrations": [dict(BUNDLE_PAIR, co_import_files=None)]}, "co_import_files",
-                 id="no-co-import-files"),
+    pytest.param({"mode": None, "integrations": []}, "the bundle's mode", id="no-mode"),
+    pytest.param({"mode": "both", "integrations": []}, "the bundle's mode", id="bad-mode"),
 ])
 def test_provenance_writes_nothing_on_a_bad_bundle(bundle, needle, tmp_path):
     records = tmp_path / "export-records.json"
     records.write_bytes(b'{"entries": []}')
     path = tmp_path / "extraction-bundle.json"
-    path.write_bytes(json.dumps(bundle).encode("utf-8"))
+    path.write_bytes(json.dumps({"mode": "code", **bundle}).encode("utf-8"))
     target = tmp_path / "provenance-map.json"
-    result = run("provenance", "--records", str(records), "--bundle", str(path), "--input", "-",
-                 "--target", str(target), stdin=json.dumps(MAP_FIELDS))
+    result = run("provenance", "--records", str(records), "--bundle", str(path), "--pairs", str(_pairs(tmp_path)),
+                 "--input", "-", "--target", str(target), stdin=json.dumps(MAP_FIELDS))
     assert (result.returncode, result.stdout) == (2, "")
     assert needle in result.stderr and len(result.stderr.strip().splitlines()) == 1
     assert not target.exists()
@@ -432,7 +499,8 @@ def test_provenance_writes_nothing_on_a_bad_input(args_input, stdin, needle, tmp
     records.write_bytes(b'{"entries": []}')
     target = tmp_path / "provenance-map.json"
     result = subprocess.run([sys.executable, str(SCRIPT), "provenance", "--records", str(records),
-                             "--bundle", str(_bundle(tmp_path)), "--input", args_input, "--target", str(target)],
+                             "--bundle", str(_bundle(tmp_path)), "--pairs", str(_pairs(tmp_path)),
+                             "--input", args_input, "--target", str(target)],
                             input=stdin, capture_output=True, text=True, cwd=tmp_path)
     assert (result.returncode, result.stdout) == (2, "")
     assert needle in result.stderr
@@ -445,8 +513,8 @@ def test_provenance_reports_a_target_it_cannot_write(tmp_path):
     blocker = tmp_path / "forge"
     blocker.write_bytes(b"a file where the version folder should be")
     target = blocker / "provenance-map.json"
-    result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path)), "--input", "-",
-                 "--target", str(target), stdin=json.dumps(MAP_FIELDS))
+    result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path)),
+                 "--pairs", str(_pairs(tmp_path)), "--input", "-", "--target", str(target), stdin=json.dumps(MAP_FIELDS))
     assert (result.returncode, result.stdout) == (2, "")
     assert "cannot write" in result.stderr and len(result.stderr.strip().splitlines()) == 1
 
@@ -460,6 +528,184 @@ def test_provenance_reads_the_records_and_the_bundle_from_files(tmp_path):
     result = run("provenance", "--records", str(records), "--bundle", "-", "--input", "-",
                  "--target", str(tmp_path / "provenance-map.json"), stdin="{}")
     assert result.returncode == 2 and "--bundle from a file, not stdin" in result.stderr
+    result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path)), "--pairs", "-",
+                 "--input", "-", "--target", str(tmp_path / "provenance-map.json"), stdin="{}")
+    assert result.returncode == 2 and "--pairs from a file, not stdin" in result.stderr
+
+
+# The compose-mode map: step 4's inventory and the bundle's constituent entries.
+COMPOSE_FIELDS = {"provenance_version": "2.0", "skill_name": "demo-stack", "skill_type": "stack",
+                  "source_repo": None, "source_commit": None, "source_ref": None,
+                  "generated_at": "2026-10-03T08:00:00Z"}
+CONSTITUENTS = (("react", "18.2.0", "sha256:" + "a" * 64), ("express", "4.19.0", "sha256:" + "b" * 64))
+COMPOSE_PAIR = dict(BUNDLE_PAIR, a="react", b="express", tier="T1", detection_method="architecture_co_mention")
+
+
+def _compose_run(tmp_path, *, skills_dir="skills", constituents=CONSTITUENTS, inventory=None, fields=COMPOSE_FIELDS,
+                 extra=(), outside=False, entries=({"export_name": "render", "source_library": "react"},)):
+    """Lay out a project with a skills folder (beside the project when `outside`) and run the
+    compose-mode provenance call."""
+    project = tmp_path / "project"
+    skills_root = (tmp_path if outside else project) / skills_dir
+    for name, _version, _hash in constituents:
+        (skills_root / name).mkdir(parents=True, exist_ok=True)
+    records = tmp_path / "compose-entries.json"
+    records.write_bytes(json.dumps({"entries": list(entries)}).encode())
+    bundle = _bundle(tmp_path, COMPOSE_PAIR, mode="compose", per_library_extractions=[
+        {"library": name, "skill_dir": name, "version": version, "confidence": "T1"}
+        for name, version, _hash in constituents])
+    inventory_file = tmp_path / "stack-inventory.json"
+    if inventory is None:
+        inventory = {"skills": [{"name": name, "path": f"{name}/active/{name}", "metadata_hash": digest}
+                                for name, _version, digest in constituents]}
+    inventory_file.write_bytes(json.dumps(inventory).encode("utf-8"))
+    target = tmp_path / "forge" / "provenance-map.json"
+    result = run("provenance", "--records", str(records), "--bundle", str(bundle), "--inventory", str(inventory_file),
+                 "--skills-root", str(skills_root), "--project-root", str(project), *extra,
+                 "--input", "-", "--target", str(target), stdin=json.dumps(fields))
+    return result, target
+
+
+def test_compose_mode_writes_the_constituents_from_the_inventory(tmp_path):
+    """Step 5b determinism-3: the helper, not the model, builds integrations[] and constituents[], each
+    metadata_hash copied from step 4's inventory and each skill_path relative to the project root."""
+    result, target = _compose_run(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"target": str(target), "entry_count": 1, "integration_count": 1,
+                                         "constituent_count": 2}
+    written = json.loads(target.read_bytes().decode("utf-8"))
+    assert list(written) == [*COMPOSE_FIELDS, "entries", "integrations", "constituents"]
+    # The model writes the cited fields; the helper adds the constituent's tier and the method.
+    assert written["entries"] == [{"export_name": "render", "source_library": "react", "confidence": "T1",
+                                   "extraction_method": "compose-from-skill", "signature_source": "T1"}]
+    assert written["integrations"] == [{"libraries": ["react", "express"], "pattern_type": "adapter",
+                                        "detection_method": "architecture_co_mention", "co_import_files": [],
+                                        "confidence": "T1"}]
+    assert written["constituents"] == [
+        {"skill_name": name, "skill_path": f"skills/{name}/", "version": version,
+         "composed_at": "2026-10-03T08:00:00Z", "metadata_hash": digest}
+        for name, version, digest in CONSTITUENTS]
+
+
+def test_each_compose_entry_takes_its_constituents_tier():
+    """Step 5b review: the helper reads the tiers from the bundle, so no step copies a constituent's
+    tier into each entry by hand, and a label the model wrote is replaced, in its place."""
+    bundle = {"per_library_extractions": [{"library": "react", "confidence": "t1-low"},
+                                          {"library": "zod", "confidence": "T3"}]}
+    entries = [{"export_name": "render", "source_library": "react", "confidence": "T1",
+                "extraction_method": "ast_bridge", "signature_source": "T1", "source_line": 4},
+               {"export_name": "parse", "source_library": "zod"}]
+    assert mod.compose_entries(bundle, entries) == [
+        {"export_name": "render", "source_library": "react", "confidence": "T1-low",
+         "extraction_method": "compose-from-skill", "signature_source": "T1-low", "source_line": 4},
+        {"export_name": "parse", "source_library": "zod", "confidence": "T3",
+         "extraction_method": "compose-from-skill", "signature_source": "T3"}]
+    assert entries[1] == {"export_name": "parse", "source_library": "zod"}, "the records are not changed in place"
+
+
+@pytest.mark.parametrize("entries, bundle, needle", [
+    pytest.param([{"export_name": "x", "source_library": "vue"}], [{"library": "react", "confidence": "T1"}],
+                 "entries[0].source_library 'vue' is not a library", id="unknown-library"),
+    pytest.param([{"export_name": "x"}], [{"library": "react", "confidence": "T1"}],
+                 "entries[0].source_library None", id="no-library"),
+    pytest.param([{"export_name": "x", "source_library": "react"}], [{"library": "react", "confidence": "Deep"}],
+                 "per_library_extractions[0].confidence", id="constituent-without-a-tier"),
+])
+def test_a_compose_entry_without_a_constituent_tier_is_refused(entries, bundle, needle):
+    with pytest.raises(mod.InputError, match=re.escape(needle)):
+        mod.compose_entries({"per_library_extractions": bundle}, entries)
+
+
+def test_a_skill_path_follows_a_non_default_skills_folder(tmp_path):
+    result, target = _compose_run(tmp_path, skills_dir="agent-skills/generated")
+    assert result.returncode == 0, result.stderr
+    paths = [c["skill_path"] for c in json.loads(target.read_bytes().decode("utf-8"))["constituents"]]
+    assert paths == ["agent-skills/generated/react/", "agent-skills/generated/express/"]
+
+
+def test_a_skills_folder_outside_the_project_root_stays_relative(tmp_path):
+    result, target = _compose_run(tmp_path, skills_dir="shared-skills", outside=True)
+    assert result.returncode == 0, result.stderr
+    paths = [c["skill_path"] for c in json.loads(target.read_bytes().decode("utf-8"))["constituents"]]
+    assert paths == ["../shared-skills/react/", "../shared-skills/express/"]
+
+
+def test_a_compose_bundle_ignores_its_pairs_co_import_files(tmp_path):
+    stale = [{"path": "typed/by/hand.py", "line_a": 1, "line_b": 2}]
+    [pair] = mod.bundle_integrations({"integrations": [dict(COMPOSE_PAIR, co_import_files=stale)]})
+    assert pair["co_import_files"] == []
+
+
+def test_the_constituents_keep_the_place_the_input_gives_them():
+    fields = dict(COMPOSE_FIELDS, constituents=None, integrations=None)
+    assert list(mod.provenance_map(fields, [], [], [])) == [*COMPOSE_FIELDS, "constituents", "entries",
+                                                           "integrations"]
+
+
+@pytest.mark.parametrize("change, needle", [
+    pytest.param({"fields": dict(COMPOSE_FIELDS, generated_at=None)}, "generated_at", id="no-generated-at"),
+    pytest.param({"inventory": {"skills": [{"name": "react", "metadata_hash": "sha256:" + "a" * 64}]}},
+                 "holds no metadata_hash for 'express'", id="skill-not-in-inventory"),
+    pytest.param({"inventory": {"skills": [{"name": "react", "metadata_hash": None},
+                                           {"name": "express", "metadata_hash": "sha256:" + "b" * 64}]}},
+                 "holds no metadata_hash for 'react'", id="null-hash"),
+    pytest.param({"inventory": []}, "`skills` array", id="inventory-not-an-object"),
+    pytest.param({"constituents": (("react", 18, "sha256:a"),)}, "version must be a string or null",
+                 id="version-not-a-string"),
+    pytest.param({"extra": ("--pairs", "pair-intersect.json")}, "--pairs is for a code-mode bundle",
+                 id="pairs-in-compose-mode"),
+    pytest.param({"entries": ({"export_name": "render", "source_library": "vue"},)},
+                 "entries[0].source_library 'vue' is not a library", id="entry-of-no-constituent"),
+])
+def test_compose_mode_writes_nothing_on_a_bad_input(change, needle, tmp_path):
+    result, target = _compose_run(tmp_path, **change)
+    assert (result.returncode, result.stdout) == (2, "")
+    assert needle in result.stderr and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert not target.exists()
+
+
+def test_a_constituent_folder_missing_under_the_skills_root_is_refused(tmp_path):
+    """A wrongly bound --skills-root fails before a skill_path the audit cannot resolve is written."""
+    bundle = {"per_library_extractions": [{"library": "react", "skill_dir": "react", "version": "18.2.0"}]}
+    with pytest.raises(mod.InputError, match="no skill folder 'react' under --skills-root"):
+        mod.compose_constituents(bundle, {"react": "sha256:a"}, str(tmp_path / "skills"), str(tmp_path),
+                                 "2026-10-03T08:00:00Z")
+
+
+@pytest.mark.parametrize("skill_dir", ["..", "nested/react", "nested\\react"], ids=["parent", "slash", "backslash"])
+def test_a_skill_dir_that_is_not_a_folder_name_is_refused(skill_dir, tmp_path):
+    bundle = {"per_library_extractions": [{"library": "react", "skill_dir": skill_dir, "version": "1.0.0"}]}
+    with pytest.raises(mod.InputError, match="must be a folder name"):
+        mod.compose_constituents(bundle, {skill_dir: "sha256:a"}, str(tmp_path), str(tmp_path), "2026-10-03")
+
+
+@pytest.mark.parametrize("missing", ["--inventory", "--skills-root", "--project-root"])
+def test_a_compose_bundle_needs_its_three_flags(missing, tmp_path):
+    records = tmp_path / "compose-entries.json"
+    records.write_bytes(b'{"entries": []}')
+    flags = {"--inventory": "stack-inventory.json", "--skills-root": "skills", "--project-root": "."}
+    del flags[missing]
+    target = tmp_path / "provenance-map.json"
+    result = run("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path, mode="compose")),
+                 *[item for pair in flags.items() for item in pair], "--input", "-", "--target", str(target),
+                 stdin=json.dumps(COMPOSE_FIELDS))
+    assert (result.returncode, result.stdout) == (2, "")
+    assert f"a compose-mode bundle needs {missing}" in result.stderr
+    assert not target.exists()
+
+
+def test_a_code_bundle_needs_pairs_and_refuses_the_compose_flags(tmp_path):
+    records = tmp_path / "export-records.json"
+    records.write_bytes(b'{"entries": []}')
+    target = tmp_path / "provenance-map.json"
+    base = ("provenance", "--records", str(records), "--bundle", str(_bundle(tmp_path)))
+    tail = ("--input", "-", "--target", str(target))
+    result = run(*base, *tail, stdin=json.dumps(MAP_FIELDS))
+    assert result.returncode == 2 and "a code-mode bundle needs --pairs" in result.stderr
+    result = run(*base, "--pairs", str(_pairs(tmp_path)), "--inventory", "inv.json", *tail,
+                 stdin=json.dumps(MAP_FIELDS))
+    assert result.returncode == 2 and "--inventory is for a compose-mode bundle" in result.stderr
+    assert not target.exists()
 
 
 # --------------------------------------------------------------------------

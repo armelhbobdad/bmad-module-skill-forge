@@ -49,24 +49,7 @@ piping `{"mode": "code|compose", "libraries": [{"name": "<library>", "confidence
 
 ### 2. Generate Frontmatter
 
-The SKILL.md MUST begin with YAML frontmatter (agentskills.io compliance), with the counts §1 bound:
-
-```yaml
----
-name: {stack_name}
-description: >
-  Stack skill for {project_name} — {lib_count} libraries with
-  {integration_count} integration patterns. Use when working with
-  this project's technology stack. NOT for: individual library usage
-  outside this project's conventions.
----
-```
-
-**Frontmatter rules:**
-
-- `name`: lowercase alphanumeric + hyphens only, must match skill output directory name. **Stack skills MUST end in `-stack`** (`{stack_name}`, which step 1 §0 bound with that suffix): this is how consumers (skf-verify-stack, skf-test-skill) detect stack vs individual skills.
-- `description`: non-empty, max 1024 chars, trigger-optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can..."). **Do NOT enumerate every library by name** — a 12+ library stack overruns 1024 chars. Keep the generic "{lib_count} libraries with {integration_count} integration patterns" form; if a per-library parenthetical is used, cap it to the top libraries by import/export count with a `+{N} more` suffix (full list lives in `metadata.json` `libraries[]`). See "Sizing Guidance for Large Stacks" in `{stackSkillTemplatePath}`.
-- No other frontmatter fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec
+Use the template's frontmatter with the counts §1 bound; its Sizing Guidance caps the description.
 
 ### 3. Compile Integration Layer
 
@@ -92,42 +75,17 @@ Compile in order:
 
 ### 4. Compile Per-Library Sections
 
-**Catalog placement (decide once, applies to this section and §6).** The
-`Per-Library Summaries` and `Library Reference Index` are the largest sections
-and grow with the stack. For a **large stack** (heuristic: **> 6 libraries OR
-> 6 integration patterns**), author both into `references/stack-catalog.md`
-(structure in `{stackSkillTemplatePath}`) and place only the inline pointer from the
-template's "Sizing Guidance" in SKILL.md — this keeps the body under the 500-line
-`body.max_lines` budget that step 08 enforces. For a **small stack**, keep both
-inline (inline passive context yields higher task accuracy). Either way, step 08's
-body-size gate is the backstop; step 08 (`validate.md` §4) accepts both forms.
+**Catalog placement (decide once, applies to this section and §6).** By the template's Sizing Guidance, a large stack authors the `Per-Library Summaries` and `Library Reference Index` into `references/stack-catalog.md`, whose per-library links read `[ref]({name}.md)`, and leaves the inline pointer in SKILL.md; a small stack keeps both inline, its links reading `[ref](references/{name}.md)`. A link resolves from the file that holds it.
 
-For each confirmed library (ordered by integration connectivity, then import count — **in compose-mode**, order by integration connectivity, then skill confidence tier since import counts are not available):
-
-- Role in stack (one-line description)
-- Key exports used in this project
-- Usage patterns from extraction
-- Confidence tier label
-- Link to reference file: `references/{library}.md` in SKILL.md, but `{library}.md` in `references/stack-catalog.md`. A link resolves from the file that holds it, and the extracted catalog sits in `references/` beside the per-library files
+Order the libraries by integration connectivity, then import count (**in compose-mode**, connectivity then skill confidence tier, since import counts are not available).
 
 ### 5. Compile Project Conventions
 
-Extract project-specific conventions from the extractions:
-- Common initialization patterns
-- Error handling approaches across libraries
-- Configuration conventions
-- Import organization patterns
+The conventions the extractions show recurring across libraries.
 
 ### 6. Compile Library Reference Index
 
-Place per the §4 catalog-placement decision (inline for small stacks; in
-`references/stack-catalog.md` for large stacks). Create the reference index table:
-
-| Library | Imports | Key Exports | Confidence | Reference |
-|---------|---------|-------------|------------|-----------|
-| ... | ... | ... | ... | ... |
-
-(**in compose-mode**: replace the Imports column with Export Count from source skill metadata, since import counts are not available)
+Per the template and §4's placement (**in compose-mode**: replace the Imports column with Export Count from source skill metadata, since import counts are not available).
 
 The Reference column follows the §4 link rule: `[ref](references/{name}.md)` when the index stays in SKILL.md, `[ref]({name}.md)` when it goes to `references/stack-catalog.md`.
 

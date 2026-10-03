@@ -245,7 +245,8 @@ def test_producers_write_both_files_to_the_version_folder():
     stack = _read(STACK_OUTPUT)
     for name in (PROVENANCE, EVIDENCE):
         assert _versioned(name) in create
-        assert f"--target {{forge_version}}/{name}" in stack
+        # The provenance call quotes its target, the evidence report write does not.
+        assert any(f"--target {quote}{{forge_version}}/{name}" in stack for quote in ("", '"')), name
     migration = _slice(_read(VERSION_PATHS), "## Migration: Flat to Versioned", "**Migration preserves all content**")
     assert "Move provenance-map.json, evidence-report.md, extraction-rules.yaml, test-report into `{forge_version}`" \
         in migration

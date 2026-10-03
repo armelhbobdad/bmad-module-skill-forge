@@ -2,12 +2,17 @@
 """Tests for skf-comention-pairs.py.
 
 Covers:
-  - analyze: two-paragraph gate, section exclusion, substring trap, single-
-    paragraph silence, evidence excerpts, deterministic ordering
+  - analyze: every pair one body paragraph names is a candidate, an
+    introductory section (Overview and the like) marks its evidence
+    `excluded_section` instead of dropping it, substring trap, evidence
+    excerpts, deterministic ordering; the terse documents an architecture
+    may be (two sections, an Integration Points list, a lone Mermaid
+    block, an Overview only) each give their pairs
   - evidence kinds (#582): co-mention, lead-in and list-only for prose,
     list items (blockquoted ones too), table rows and code lines;
-    comention_count and lead_in_count; line numbers; a Tech Stack table
-    plus a Components list gives list-only candidates
+    comention_count and lead_in_count; line numbers; a pair only listed
+    together (a Tech Stack table plus a Components list) is counted in
+    list_only_pair_count, never emitted
   - unit quotes: unit_line and unit_excerpt show the co-mention or the
     lead-in past the paragraph excerpt, within 240 characters, keeping both
     names when they are far apart
@@ -16,8 +21,10 @@ Covers:
     blocks skipped and listed with their info strings, headings, per-skill
     paragraphs, candidates, each occurrence naming the longest term, the
     terms that named each skill (name or alias, with their counts), and
-    the --technologies check of which skills cover each name (a term inside
-    the name, or equal to it with case and separators dropped, one way only)
+    the --technologies check of which skills cover each name (the skill
+    name inside the name, or a term equal to it with case and separators
+    dropped, one way only; an alias only inside a longer name is
+    `alias-contained` and covers nothing)
   - infer (#582 no-document path): docs mentions with self-masking, shared
     keywords, a language (or a stack's list of them) never pairing on its
     own, the Top-K cap
@@ -55,11 +62,12 @@ spec.loader.exec_module(mod)
 # --------------------------------------------------------------------------
 
 # (a) X and Y co-mentioned in TWO distinct body paragraphs under a normal
-#     "## Data Flow" header  → pair (X, Y) qualifies with paragraph_count=2.
-# (b) X and Y also co-mentioned ONCE under "## Overview"  → excluded, and
-#     must not push any pair over the >=2 gate.
-# (c) "react" and "reactive" both appear  → substring must not create a pair.
-# (d) X and Z co-mentioned in only ONE body paragraph  → below gate, absent.
+#     "## Data Flow" header.
+# (b) X and Y also co-mentioned ONCE under "## Overview": that paragraph is
+#     evidence too, marked excluded_section, so (X, Y) has paragraph_count 3.
+# (c) "react" and "reactive" both appear: substring must not create a pair.
+# (d) X and Z co-mentioned in only ONE body paragraph: one is enough, so
+#     (X, Z) is a candidate with paragraph_count 1.
 FIXTURE_DOC = """\
 # Architecture
 
@@ -83,6 +91,8 @@ The react library is unrelated to the reactive scheduler mentioned above.
 """
 
 FIXTURE_SKILLS = ["XLib", "YLib", "ZLib", "react"]
+# The pairs FIXTURE_DOC names, in output order.
+FIXTURE_PAIRS = [("XLib", "YLib"), ("XLib", "ZLib")]
 
 
 # --------------------------------------------------------------------------
@@ -94,29 +104,28 @@ class TestAnalyzeCanonicalFixture:
     def _run(self) -> dict:
         return mod.analyze(FIXTURE_DOC, FIXTURE_SKILLS)
 
-    def test_only_xy_pair_qualifies(self) -> None:
+    def test_every_named_pair_is_a_candidate(self) -> None:
         result = self._run()
-        pair_names = {(p["a"], p["b"]) for p in result["pairs"]}
-        assert pair_names == {("XLib", "YLib")}
+        assert [(p["a"], p["b"], p["paragraph_count"]) for p in result["pairs"]] == [
+            ("XLib", "YLib", 3), ("XLib", "ZLib", 1),
+        ]
 
-    def test_xy_paragraph_count_is_two(self) -> None:
+    def test_xy_paragraph_count_counts_every_paragraph(self) -> None:
         result = self._run()
         xy = next(
             p for p in result["pairs"] if p["a"] == "XLib" and p["b"] == "YLib"
         )
-        assert xy["paragraph_count"] == 2
-        assert len(xy["evidence"]) == 2
+        assert xy["paragraph_count"] == 3
+        assert len(xy["evidence"]) == 3
 
-    def test_overview_comention_excluded_not_counted(self) -> None:
-        # The Overview paragraph co-mentions X and Y too — but it is section-
-        # excluded, so it must NOT contribute to the pair count (still 2, not 3)
-        # and it must not by itself create any qualifying pair.
+    def test_overview_comention_is_marked_not_dropped(self) -> None:
+        # The Overview paragraph co-mentions X and Y too: it is evidence,
+        # marked excluded_section, for the calling step to weigh.
         result = self._run()
-        xy = next(p for p in result["pairs"] if p["a"] == "XLib")
-        assert xy["paragraph_count"] == 2
-        # every evidence header is the Data Flow section, never Overview
-        for ev in xy["evidence"]:
-            assert ev["header"] == "Data Flow"
+        xy = next(p for p in result["pairs"] if p["b"] == "YLib")
+        assert [(ev["header"], ev["excluded_section"]) for ev in xy["evidence"]] == [
+            ("Overview", True), ("Data Flow", False), ("Data Flow", False),
+        ]
 
     def test_excluded_section_count(self) -> None:
         # Exactly one excluded section ("Overview") governed a body paragraph.
@@ -130,16 +139,16 @@ class TestAnalyzeCanonicalFixture:
         for p in result["pairs"]:
             assert "react" not in (p["a"], p["b"])
 
-    def test_single_paragraph_pair_absent(self) -> None:
-        # X and Z co-mention only once (Storage) → below the >=2 gate.
+    def test_single_paragraph_pair_is_a_candidate(self) -> None:
+        # X and Z co-mention only once (Storage): one paragraph is enough.
         result = self._run()
-        pair_names = {(p["a"], p["b"]) for p in result["pairs"]}
-        assert ("XLib", "ZLib") not in pair_names
-        assert ("ZLib", "XLib") not in pair_names
+        xz = next(p for p in result["pairs"] if p["b"] == "ZLib")
+        assert (xz["a"], xz["paragraph_count"], xz["comention_count"]) == ("XLib", 1, 1)
+        assert xz["evidence"][0]["unit_excerpt"] == "XLib persists via ZLib on shutdown."
 
     def test_evidence_excerpts_present(self) -> None:
         result = self._run()
-        xy = next(p for p in result["pairs"] if p["a"] == "XLib")
+        xy = next(p for p in result["pairs"] if p["b"] == "YLib")
         excerpts = [ev["excerpt"] for ev in xy["evidence"]]
         assert any("produces events" in e for e in excerpts)
         assert any("parsed output" in e for e in excerpts)
@@ -185,46 +194,59 @@ gamma and delta once more.
 
     def test_empty_doc_yields_no_pairs(self) -> None:
         result = mod.analyze("", ["a", "b"])
-        assert result == {"pairs": [], "excluded_section_count": 0}
+        assert result == {
+            "pairs": [], "list_only_pair_count": 0, "excluded_section_count": 0,
+        }
 
 
-class TestSectionExclusion:
-    def test_all_exclusion_headers(self) -> None:
-        for header in [
-            "Introduction",
-            "Overview",
-            "Glossary",
-            "Table of Contents",
-            "References",
-            "Appendix",
-            "Index",
-        ]:
-            doc = f"## {header}\n\nlibA and libB.\n\nlibA and libB again.\n"
-            result = mod.analyze(doc, ["libA", "libB"])
-            assert result["pairs"] == [], f"{header} should be excluded"
-            assert result["excluded_section_count"] == 1
+def _marks(result: dict) -> list[bool]:
+    """The excluded_section mark of each evidence entry of the one pair."""
+    (pair,) = result["pairs"]
+    return [e["excluded_section"] for e in pair["evidence"]]
+
+
+class TestIntroductorySections:
+    @pytest.mark.parametrize("header", [
+        "Introduction", "Overview", "Glossary", "Table of Contents",
+        "References", "Appendix", "Index",
+    ])
+    def test_every_introductory_header_marks_its_evidence(self, header) -> None:
+        doc = f"## {header}\n\nlibA and libB.\n\nlibA and libB again.\n"
+        result = mod.analyze(doc, ["libA", "libB"])
+        assert _marks(result) == [True, True], f"{header} should be marked"
+        assert result["excluded_section_count"] == 1
 
     def test_exclusion_header_normalised(self) -> None:
         # trailing punctuation + mixed case + closing hashes all normalise
         doc = "## OVERVIEW:  ##\n\nlibA and libB.\n\nlibA and libB again.\n"
         result = mod.analyze(doc, ["libA", "libB"])
-        assert result["pairs"] == []
+        assert _marks(result) == [True, True]
         assert result["excluded_section_count"] == 1
 
     def test_h1_governs_exclusion(self) -> None:
         # An H1 "Overview" governs following paragraphs until the next H1/H2.
-        doc = "# Overview\n\nlibA and libB.\n\nlibA and libB again.\n"
+        doc = "# Overview\n\nlibA and libB.\n\n## Flow\n\nlibA feeds libB.\n"
         result = mod.analyze(doc, ["libA", "libB"])
-        assert result["pairs"] == []
+        assert _marks(result) == [True, False]
 
     def test_h3_does_not_change_governing_header(self) -> None:
-        # H3 under an excluded H2 does not lift the exclusion.
+        # H3 under an excluded H2 does not lift the mark.
         doc = (
             "## Overview\n\n### Details\n\n"
             "libA and libB.\n\nlibA and libB again.\n"
         )
         result = mod.analyze(doc, ["libA", "libB"])
-        assert result["pairs"] == []
+        assert _marks(result) == [True, True]
+
+    def test_an_overview_only_pair_is_a_candidate(self) -> None:
+        # The only integration is described under Overview: the pair is a
+        # candidate, its evidence marked, never dropped.
+        doc = "## Overview\n\nThe React client calls the Express API for every page.\n"
+        result = mod.analyze(doc, ["react", "express"])
+        (pair,) = result["pairs"]
+        assert (pair["a"], pair["b"], pair["comention_count"]) == ("express", "react", 1)
+        assert _marks(result) == [True]
+        assert result["excluded_section_count"] == 1
 
     def test_heading_text_is_not_a_comention_source(self) -> None:
         # Both names appear only in the heading, never in a body paragraph.
@@ -237,6 +259,85 @@ class TestSectionExclusion:
         result = mod.analyze(doc, ["libA", "libB"])
         assert len(result["pairs"]) == 1
         assert result["pairs"][0]["evidence"][0]["header"] is None
+        assert _marks(result) == [False, False]
+
+
+# The step 5b reproductions: terse architecture documents that each name a
+# pair in one passage only. The old two-paragraph gate returned no pair for
+# the first three and dropped the fourth as an Overview.
+TERSE_SKILLS = ["react", "express", "zod", "prisma"]
+TERSE_DOCS = {
+    "two-sections": (
+        "## Request Flow\n\n"
+        "The React frontend calls the Express API for every page load.\n\n"
+        "## Data Layer\n\n"
+        "Each Express route validates its payload with a zod schema, then "
+        "writes the parsed object through prisma.\n"
+    ),
+    "integration-points-list": (
+        "## Integration Points\n\n"
+        "- The React client fetches every page's data from the Express API.\n"
+        "- Express validates each request body with zod before the handler runs.\n"
+        "- Express persists orders through the prisma client.\n"
+    ),
+    "lone-mermaid-block": (
+        "## Flow\n\n```mermaid\ngraph LR\n  react --> express --> prisma\n```\n"
+    ),
+    "overview-only": (
+        "## Overview\n\nThe React client calls the Express API for every page.\n"
+    ),
+}
+
+
+class TestTerseArchitectures:
+    @staticmethod
+    def _co_mentions(name: str) -> dict[tuple[str, str], str]:
+        """Each pair a unit names, with the unit's excerpt."""
+        result = mod.analyze(TERSE_DOCS[name], TERSE_SKILLS)
+        return {
+            (p["a"], p["b"]): p["evidence"][0]["unit_excerpt"]
+            for p in result["pairs"] if p["comention_count"]
+        }
+
+    def test_two_sections_give_each_described_pair(self) -> None:
+        found = self._co_mentions("two-sections")
+        assert set(found) == {
+            ("express", "react"), ("express", "zod"), ("express", "prisma"),
+            ("prisma", "zod"),
+        }
+        assert found["express", "react"] == (
+            "The React frontend calls the Express API for every page load."
+        )
+
+    def test_an_integration_points_list_gives_one_pair_per_item(self) -> None:
+        result = mod.analyze(TERSE_DOCS["integration-points-list"], TERSE_SKILLS)
+        kinds = {(p["a"], p["b"]): _kinds(result, p["a"], p["b"]) for p in result["pairs"]}
+        assert kinds == {
+            ("express", "react"): ["co-mention"],
+            ("express", "zod"): ["co-mention"],
+            ("express", "prisma"): ["co-mention"],
+        }
+        # Named in separate items only: counted, never emitted.
+        _list_only(result, ("prisma", "react"), ("prisma", "zod"), ("react", "zod"))
+        assert self._co_mentions("integration-points-list")["express", "prisma"] == (
+            "- Express persists orders through the prisma client."
+        )
+
+    def test_a_lone_mermaid_block_gives_its_edges(self) -> None:
+        found = self._co_mentions("lone-mermaid-block")
+        assert set(found) == {
+            ("express", "react"), ("express", "prisma"), ("prisma", "react"),
+        }
+        assert set(found.values()) == {"react --> express --> prisma"}
+
+    def test_an_overview_only_document_gives_a_marked_pair(self) -> None:
+        result = mod.analyze(TERSE_DOCS["overview-only"], TERSE_SKILLS)
+        assert _marks(result) == [True]
+        assert result["excluded_section_count"] == 1
+
+    @pytest.mark.parametrize("name", sorted(TERSE_DOCS))
+    def test_no_terse_document_leaves_pairs_empty(self, name) -> None:
+        assert mod.analyze(TERSE_DOCS[name], TERSE_SKILLS)["pairs"], name
 
 
 class TestWordBoundary:
@@ -260,13 +361,21 @@ def _kinds(result: dict, a: str, b: str, key: str = "pairs") -> list[str]:
     return [e["kind"] for e in _pair(result, a, b, key)["evidence"]]
 
 
+def _list_only(result: dict, *pairs: tuple[str, str]) -> None:
+    """`pairs` are every pair the document only lists together: comention
+    counts them in list_only_pair_count and emits none of them."""
+    emitted = {(p["a"], p["b"]) for p in result["pairs"]}
+    assert not emitted & set(pairs), sorted(emitted & set(pairs))
+    assert result["list_only_pair_count"] == len(pairs)
+
+
 def _skills(*entries: object) -> list:
     """Skills as the CLI parses them from a --skills JSON array."""
     return mod.parse_skills(json.dumps(list(entries)))
 
 
 def _twice(paragraph: str) -> str:
-    """The paragraph twice, as two paragraphs, to meet the >=2 gate."""
+    """The paragraph twice, as two paragraphs: two evidence entries."""
     return paragraph + "\n" + paragraph
 
 
@@ -275,8 +384,8 @@ def _twice(paragraph: str) -> str:
 # --------------------------------------------------------------------------
 
 # The #582 case: a Tech Stack table and a Components list name every
-# library, which gives every pair the two paragraphs the gate asks for.
-# Only the Data Flow paragraph describes two libraries together.
+# library, which gives every pair two list-only paragraphs. Only the Data
+# Flow paragraph describes two libraries together.
 STACK_DOC = """\
 # Shop
 
@@ -303,18 +412,25 @@ STACK_SKILLS = ["react", "express", "passport"]
 
 
 class TestEvidenceKinds:
-    def test_listed_pairs_stay_candidates_with_list_only_evidence(self) -> None:
+    def test_listed_pairs_are_counted_not_emitted(self) -> None:
         result = mod.analyze(STACK_DOC, STACK_SKILLS)
-        # Every pair still meets the two-paragraph gate: the pairs are
-        # candidates, and the calling step reads their evidence.
-        assert [(p["a"], p["b"]) for p in result["pairs"]] == [
-            ("express", "react"), ("express", "passport"), ("passport", "react"),
-        ]
-        for a, b in [("express", "passport"), ("passport", "react")]:
-            pair = _pair(result, a, b)
-            assert pair["paragraph_count"] == 2
-            assert (pair["comention_count"], pair["lead_in_count"]) == (0, 0)
-            assert _kinds(result, a, b) == ["list-only", "list-only"]
+        # A pair the table and the list only list together is no candidate:
+        # the helper counts it, so the calling step drops none by hand.
+        assert [(p["a"], p["b"]) for p in result["pairs"]] == [("express", "react")]
+        _list_only(result, ("express", "passport"), ("passport", "react"))
+
+    def test_a_tech_stack_table_gives_one_count_not_a_pair_per_library_pair(self) -> None:
+        # The step 5b review case: an 8-library Tech Stack table and one
+        # sentence give one candidate, not 28.
+        libraries = [f"lib{n}" for n in range(8)]
+        rows = "".join(f"| layer {n} | {name} |\n" for n, name in enumerate(libraries))
+        doc = (
+            "## Tech Stack\n\n| Layer | Library |\n| --- | --- |\n" + rows
+            + "\n## Data Flow\n\nlib0 hands every request to lib1.\n"
+        )
+        result = mod.analyze(doc, libraries)
+        assert [(p["a"], p["b"]) for p in result["pairs"]] == [("lib0", "lib1")]
+        assert result["list_only_pair_count"] == 27
 
     def test_prose_paragraph_is_a_co_mention(self) -> None:
         pair = _pair(mod.analyze(STACK_DOC, STACK_SKILLS), "express", "react")
@@ -341,8 +457,8 @@ class TestEvidenceKinds:
 
     def test_canonical_fixture_is_all_co_mention(self) -> None:
         xy = _pair(mod.analyze(FIXTURE_DOC, FIXTURE_SKILLS), "XLib", "YLib")
-        assert xy["comention_count"] == 2
-        assert [e["kind"] for e in xy["evidence"]] == ["co-mention", "co-mention"]
+        assert xy["comention_count"] == 3
+        assert [e["kind"] for e in xy["evidence"]] == ["co-mention"] * 3
 
     def test_new_fields_follow_the_existing_ones(self) -> None:
         xy = _pair(mod.analyze(FIXTURE_DOC, FIXTURE_SKILLS), "XLib", "YLib")
@@ -352,13 +468,14 @@ class TestEvidenceKinds:
         ]
         assert list(xy["evidence"][0]) == [
             "header", "excerpt", "line", "kind", "unit_line", "unit_excerpt",
+            "excluded_section",
         ]
 
     def test_list_item_naming_both_is_a_co_mention(self) -> None:
         doc = _twice("- react calls express\n- passport\n")
         result = mod.analyze(doc, ["react", "express", "passport"])
         assert _pair(result, "express", "react")["comention_count"] == 2
-        assert _pair(result, "passport", "react")["comention_count"] == 0
+        _list_only(result, ("express", "passport"), ("passport", "react"))
 
     def test_list_item_continuation_lines_join_the_item(self) -> None:
         doc = (
@@ -371,7 +488,7 @@ class TestEvidenceKinds:
     def test_nested_items_are_units_of_their_own(self) -> None:
         doc = _twice("- Backend\n  - express\n  - passport\n")
         result = mod.analyze(doc, ["express", "passport"])
-        assert _kinds(result, "express", "passport") == ["list-only", "list-only"]
+        _list_only(result, ("express", "passport"))
 
     def test_lead_in_line_and_item_are_a_lead_in(self) -> None:
         doc = _twice("The express layer uses:\n- passport\n- helmet\n")
@@ -380,12 +497,12 @@ class TestEvidenceKinds:
         assert (pair["comention_count"], pair["lead_in_count"]) == (0, 2)
         assert _kinds(result, "express", "passport") == ["lead-in", "lead-in"]
         # The items under one lead-in are still only listed together.
-        assert _kinds(result, "helmet", "passport") == ["list-only", "list-only"]
+        _list_only(result, ("helmet", "passport"))
 
     def test_lead_in_that_names_nothing_leaves_items_list_only(self) -> None:
         doc = _twice("Our stack:\n- express\n- passport\n")
         result = mod.analyze(doc, ["express", "passport"])
-        assert _kinds(result, "express", "passport") == ["list-only", "list-only"]
+        _list_only(result, ("express", "passport"))
 
     def test_lead_in_reaches_table_rows_and_code_lines(self) -> None:
         doc = _twice(
@@ -402,8 +519,7 @@ class TestEvidenceKinds:
         )
         result = mod.analyze(doc, ["express", "prisma", "redis"])
         assert _kinds(result, "prisma", "redis") == ["lead-in", "lead-in"]
-        assert _kinds(result, "express", "redis") == ["list-only", "list-only"]
-        assert _kinds(result, "express", "prisma") == ["list-only", "list-only"]
+        _list_only(result, ("express", "prisma"), ("express", "redis"))
 
     def test_a_co_mention_wins_over_a_lead_in(self) -> None:
         doc = _twice("express mounts passport:\n- passport sessions\n")
@@ -414,14 +530,14 @@ class TestEvidenceKinds:
         doc = _twice("> The express layer uses:\n> - passport\n> - helmet\n")
         result = mod.analyze(doc, ["express", "passport", "helmet"])
         assert _kinds(result, "express", "passport") == ["lead-in", "lead-in"]
-        assert _kinds(result, "helmet", "passport") == ["list-only", "list-only"]
+        _list_only(result, ("helmet", "passport"))
 
     def test_blockquoted_table_rows_are_units(self) -> None:
         doc = _twice(
             "> Layer | Library\n> --- | ---\n> API | express\n> Auth | passport\n"
         )
         result = mod.analyze(doc, ["express", "passport"])
-        assert _kinds(result, "express", "passport") == ["list-only", "list-only"]
+        _list_only(result, ("express", "passport"))
 
     def test_table_row_naming_both_is_a_co_mention(self) -> None:
         doc = _twice(
@@ -430,14 +546,14 @@ class TestEvidenceKinds:
         )
         result = mod.analyze(doc, ["express", "passport", "prisma"])
         assert _pair(result, "express", "passport")["comention_count"] == 2
-        assert _kinds(result, "express", "prisma") == ["list-only", "list-only"]
+        _list_only(result, ("express", "prisma"), ("passport", "prisma"))
 
     def test_table_without_leading_pipes(self) -> None:
         doc = _twice(
             "Layer | Library\n----- | -------\nAPI | express\nAuth | passport\n"
         )
         result = mod.analyze(doc, ["express", "passport"])
-        assert _kinds(result, "express", "passport") == ["list-only", "list-only"]
+        _list_only(result, ("express", "passport"))
 
     def test_prose_then_table_without_a_blank_line(self) -> None:
         doc = _twice("express and passport meet here.\n| a |\n| - |\n| prisma |\n")
@@ -460,7 +576,7 @@ class TestEvidenceKinds:
     def test_ordered_items_after_an_item_are_units(self) -> None:
         doc = _twice("1. express\n2. passport\n")
         result = mod.analyze(doc, ["express", "passport"])
-        assert _kinds(result, "express", "passport") == ["list-only", "list-only"]
+        _list_only(result, ("express", "passport"))
 
     def test_code_lines_are_units(self) -> None:
         # comention reads fenced code as body text, as it always has; each
@@ -472,7 +588,7 @@ class TestEvidenceKinds:
         result = mod.analyze(doc, ["react", "express", "prisma"])
         assert _pair(result, "express", "react")["comention_count"] == 2
         assert _pair(result, "express", "prisma")["comention_count"] == 2
-        assert _kinds(result, "prisma", "react") == ["list-only", "list-only"]
+        _list_only(result, ("prisma", "react"))
 
 
 # --------------------------------------------------------------------------
@@ -509,7 +625,8 @@ class TestUnitQuotes:
         assert entry["unit_excerpt"] == "| API | express with passport |"
 
     def test_list_only_entries_have_no_quote(self) -> None:
-        doc = _twice("- react\n- express\n")
+        # A candidate keeps the list-only entry of another paragraph.
+        doc = "- react\n- express\n\nreact calls express.\n"
         pair = _pair(mod.analyze(doc, ["react", "express"]), "express", "react")
         entry = pair["evidence"][0]
         assert (entry["kind"], entry["unit_line"], entry["unit_excerpt"]) == (
@@ -964,8 +1081,47 @@ class TestTechnologyCoverage:
 
     def test_a_term_two_skills_share_names_both(self) -> None:
         skills = _skills({"name": "vue-runtime", "aliases": ["vue"]}, {"name": "vue-router", "aliases": ["vue"]})
-        [entry] = mod.mentions("", skills, ["Vue 3"])["technologies"]
-        assert [c["skill"] for c in entry["covered_by"]] == ["vue-router", "vue-runtime"]
+        result = mod.mentions("", skills, ["Vue 3"])
+        [entry] = result["technologies"]
+        assert [(c["skill"], c["kind"]) for c in entry["covered_by"]] == [
+            ("vue-router", "alias-contained"), ("vue-runtime", "alias-contained")]
+        # An alias inside a longer name covers nothing: the caller judges it.
+        assert result["unverified_technologies"] == ["Vue 3"]
+
+    # The step 5b reproduction: repository and folder aliases that are common
+    # words sit inside longer technology names.
+    ALIAS_SKILLS = [
+        {"name": "vercel-ai", "aliases": ["ai"]}, {"name": "effect", "aliases": ["core"]},
+        {"name": "sentry", "aliases": ["node"]}, {"name": "oms-react", "aliases": ["react"]},
+    ]
+
+    def test_an_alias_inside_a_longer_name_covers_nothing(self) -> None:
+        result = mod.mentions("", _skills(*self.ALIAS_SKILLS),
+                              ["Azure AI Search", "ASP.NET Core", "Node.js", "Redis", "React"])
+        covered = {t["name"]: [(c["skill"], c["term"], c["kind"]) for c in t["covered_by"]]
+                   for t in result["technologies"]}
+        assert covered == {
+            "Azure AI Search": [("vercel-ai", "ai", "alias-contained")],
+            "ASP.NET Core": [("effect", "core", "alias-contained")],
+            "Node.js": [("sentry", "node", "alias-contained")],
+            "Redis": [],
+            # An alias equal to the whole name still covers it.
+            "React": [("oms-react", "react", "alias")],
+        }
+        assert result["unverified_technologies"] == ["Azure AI Search", "ASP.NET Core", "Node.js", "Redis"]
+
+    def test_a_name_inside_a_longer_name_still_covers_it(self) -> None:
+        result = mod.mentions("", _skills("node", {"name": "sentry", "aliases": ["node"]}), ["Node.js"])
+        [entry] = result["technologies"]
+        assert [(c["skill"], c["kind"]) for c in entry["covered_by"]] == [
+            ("node", "name"), ("sentry", "alias-contained")]
+        assert result["unverified_technologies"] == []
+
+    def test_each_covering_entry_names_its_kind(self) -> None:
+        [entry] = self._run(["Cognee"])["technologies"]
+        assert entry["covered_by"] == [{"skill": "oms-cognee", "term": "cognee", "kind": "alias"}]
+        [entry] = self._run(["Next.js"])["technologies"]
+        assert entry["covered_by"] == [{"skill": "next", "term": "next", "kind": "name"}]
 
     def test_no_technologies_adds_no_keys(self) -> None:
         result = mod.mentions(MENTIONS_DOC, MENTIONS_SKILLS)
@@ -1487,8 +1643,8 @@ class TestCli:
         )
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert [(p["a"], p["b"]) for p in payload["pairs"]] == [("XLib", "YLib")]
-        assert payload["pairs"][0]["paragraph_count"] == 2
+        assert [(p["a"], p["b"]) for p in payload["pairs"]] == FIXTURE_PAIRS
+        assert payload["pairs"][0]["paragraph_count"] == 3
 
     def test_comention_skills_from_stdin(self, tmp_path: Path) -> None:
         doc = tmp_path / "arch.md"
@@ -1499,7 +1655,7 @@ class TestCli:
         )
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert [(p["a"], p["b"]) for p in payload["pairs"]] == [("XLib", "YLib")]
+        assert [(p["a"], p["b"]) for p in payload["pairs"]] == FIXTURE_PAIRS
 
     def test_comention_doc_from_stdin(self, tmp_path: Path) -> None:
         skills = tmp_path / "skills.json"
@@ -1510,7 +1666,7 @@ class TestCli:
         )
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert [(p["a"], p["b"]) for p in payload["pairs"]] == [("XLib", "YLib")]
+        assert [(p["a"], p["b"]) for p in payload["pairs"]] == FIXTURE_PAIRS
 
     def test_both_stdin_exits_1(self, tmp_path: Path) -> None:
         result = _run_cli(
@@ -1575,10 +1731,8 @@ class TestCli:
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         got = [(p["a"], p["b"], p["comention_count"]) for p in payload["pairs"]]
-        assert got == [
-            ("express", "react", 1), ("express", "oms-passport", 0),
-            ("oms-passport", "react", 0),
-        ]
+        assert got == [("express", "react", 1)]
+        assert payload["list_only_pair_count"] == 2
 
     def test_comention_verbose_summary(self, tmp_path: Path) -> None:
         doc = tmp_path / "arch.md"
@@ -1589,8 +1743,8 @@ class TestCli:
         )
         assert result.returncode == 0, result.stderr
         assert result.stderr.strip() == (
-            "analyzed 4 distinct skill names; 1 qualifying pairs; "
-            "1 excluded sections"
+            "analyzed 4 distinct skill names; 2 candidate pairs; "
+            "0 list-only pairs; 1 introductory sections"
         )
 
 

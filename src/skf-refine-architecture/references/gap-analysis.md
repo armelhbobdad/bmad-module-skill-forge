@@ -96,7 +96,7 @@ uv run {emitEnvelopeHelper} record --workflow skf-refine-architecture --run-dir 
 - IF the input names skills: each skill name moves that skill into `{in_scope_skills}` and each `-skill_name` moves it out; recompute `{out_of_scope_skills}`. Name any entry that is not an inventory skill, and refuse an edit that would leave `{in_scope_skills}` empty. Then redisplay the table and the menu.
 - IF anything else: answer it (a question about the split, say), then redisplay the menu.
 
-**Technologies with no skill.** `{unverified_technologies}` = `{doc_mentions}.unverified_technologies`: the technologies §2 listed that no inventory skill covers, read in `{analysis_doc}` so an earlier Refine Architecture pass never adds a name. The helper decides what a skill covers (its `technologies[]` names, for each covered technology, the skill and term that cover it), so no step compares a technology with a skill by hand. No step can check what the document says about these technologies: §6 names them, and Step 05 lists them in the Refinement Summary as not verified. The list depends on the inventory, not on the scope, so `--scope-skills` and the edits above leave it unchanged.
+**Technologies with no skill.** `{unverified_technologies}` = `{doc_mentions}.unverified_technologies`: the technologies §2 listed that no inventory skill covers, read in `{analysis_doc}` so an earlier Refine Architecture pass never adds a name. The helper decides what a skill covers (its `technologies[]` names, for each technology, the skill, term and `kind` of each match), so no step compares a technology with a skill by hand. A `covered_by` entry of kind `alias-contained` (an alias such as `ai` or `core` inside a longer name) does not cover the technology, which stays in `{unverified_technologies}` unless the document shows the alias is that technology (`vue` for "Vue 3"), as the derived scope above judges common-word aliases. No step can check what the document says about these technologies: §6 names them, and Step 05 lists them in the Refinement Summary as not verified. The list depends on the inventory, not on the scope, so `--scope-skills` and the edits above leave it unchanged.
 
 Store `{in_scope_skills}`, `{out_of_scope_skills}` and `{unverified_technologies}` as workflow state; §3 settles the two sets and splits the pairs by them. Step 03 (issue detection) and Step 04 (improvements) reuse the scope sets and the pair lists §3 builds, and Step 05 (compile) reuses `{unverified_technologies}`; §6 also records them all in the RA state file.
 
@@ -126,7 +126,7 @@ uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning
 
 ### 4. Load Skill API Surfaces for Cross-Reference
 
-For each library in the skill inventory, delegate reading to a parallel subagent. Launch up to **8 subagents concurrently** (batch larger inventories in rounds of 8). Each reads one skill's SKILL.md and returns only this compact JSON, with no prose:
+For each library in the skill inventory, delegate reading to a parallel subagent. Launch up to **8 subagents concurrently** (batch larger inventories in rounds of 8). Hand each its skill's name. Each reads that skill's `exports[]` from the `skills[]` entry of that name in `{run_dir}/skill-inventory.json` (Step 01 §2), then its SKILL.md, and its `references/*.md` for the signatures SKILL.md lacks (a split-body skill keeps its full API there), and returns only this compact JSON, with no prose:
 
 ```json
 {
@@ -139,15 +139,15 @@ For each library in the skill inventory, delegate reading to a parallel subagent
 ```
 
 **Extraction rules for subagents:**
-- `exports`: exported functions with signatures, exported types/interfaces/classes
-- `protocols`: any protocol indicators found in the SKILL.md
-- `data_formats`: any data format indicators found in the SKILL.md
+- `exports`: the signature of each name of that `exports[]` that SKILL.md or `references/` shows, and no name the list lacks (Step 03 reads which names exist from the file itself). Only when the list is empty (a stack skill, or `exports_source` `unknown`), extract the exported functions with signatures and the exported types, interfaces and classes from SKILL.md
+- `protocols`: any protocol indicators found in the files read
+- `data_formats`: any data format indicators found in the files read
 - `capabilities`: the capabilities and features the SKILL.md documents beyond its exports, one short phrase each
 - If a field has no matches, return an empty array `[]`
 
 **Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context. Store the collected summaries as `{skill_api_surfaces}` workflow state, which Step 03 (issue detection) and Step 04 (improvements) reuse. Append them to the RA state file (`{forge_data_folder}/ra-state-{project_name}.md`) as a `<!-- [RA-SURFACES] ... -->` block too: Steps 03 and 04 read them back from it if context degrades on a long run.
 
-**From the skill inventory (Step 01 §2), also take** each skill's `language` (the enumerate helper reads it from `metadata.json`: a string, a list of strings for a stack, or null when none is recorded) and its `exports` count and names. Do not open `metadata.json` in the parent.
+**From the skill inventory (Step 01 §2), also take** each skill's `language` (the enumerate helper reads it from `metadata.json`: a string, a list of strings for a stack, or null when none is recorded). Do not open `metadata.json` in the parent.
 
 ### 5. Cross-Reference: Identify Gaps
 
