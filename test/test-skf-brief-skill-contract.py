@@ -27,6 +27,13 @@ line to `{result_envelope_line}` instead of displaying it, and the shared
 health check displays it as the run's last line, so a `claude -p` caller
 reads the envelope as the final message.
 
+Step 5b gate run 3: [auto] stays a separate route by design (enhancement-1,
+a written exception), and at Deep tier it runs write-brief.md section 3b's
+QMD registration before its envelope; a ratified brief is written from the
+file it ratified, so no step pins its version by hand (determinism-3);
+the module pick stays step 2's judgment, and the prose says why
+(determinism-1, a written exception).
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -498,9 +505,71 @@ def test_the_auto_validation_step_asks_nothing():
 
 
 def test_ratify_version_line_names_the_r_pass():
-    """Handoff from W2-brief-scope-signals: an [R] pass runs step 2 on a ratify run."""
-    text = _read(WRITE_BRIEF)
-    [line] = [line for line in text.splitlines() if line.startswith("**Ratify mode (`ratify_mode: true`):**")]
-    assert ("step 2 never re-derives the version on a ratify run (an [R] pass analyzes the brief's ref "
-            "but keeps the hydrated version)") in line
-    assert "this path never ran step 2" not in line and "`version_resolved`" in line
+    """Handoff from W2-brief-scope-signals: an [R] pass runs step 2 on a ratify run. Step 5b gate run 3
+    (determinism-3): step 5 writes a ratified brief from the file it ratified (--base-brief), which keeps its
+    version, so no step pins the version through a typed version_resolved key any more."""
+    section = _section(_read(WRITE_BRIEF), "### 3. Write the Brief")
+    [line] = [line for line in section.splitlines() if line.startswith("**Ratify run (`ratify_mode: true`):**")]
+    assert ("such as its version, which step 2 never re-derives on a ratify run (an [R] pass analyzes the "
+            "brief's ref but keeps the hydrated version)") in line
+    assert "this path never ran step 2" not in line
+    [call] = [line for line in section.splitlines() if "--base-brief" in line]
+    assert call == ('uv run {writeSkillBriefHelper} write --target {resolved-target-path} '
+                    '--base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json"')
+    confirm = _read(REFERENCES / "confirm-brief.md")
+    assert "rely on the hydrated `version` (step 5 writes from the ratified file, which keeps it)" in confirm
+    for path in sorted(SKILL_DIR.rglob("*.md")):
+        assert "version_resolved" not in _read(path), path.name
+
+
+def test_auto_stays_a_separate_route_by_design():
+    """Step 5b gate run 3 (enhancement-1), a written exception the maintainer accepted on 2026-10-03: [auto]
+    keeps its own stages, because the forge-auto contract gives it doc enrichment the other routes lack."""
+    [line] = [line for line in _read(SKILL_MD).splitlines() if line.startswith("Every run starts in gather-intent.md")]
+    assert ("It stays a separate route by design: the forge-auto pipeline contract gives it doc enrichment "
+            "(step-auto-brief.md §2-§3), which the ratify and derive routes do not run") in line
+    assert ("in place of stages 2-5 except stage 5's §3b QMD registration, which step-auto-validate.md runs at "
+            "Deep tier") in line
+    assert "skf-detect-docs.py" in _read(AUTO_BRIEF)
+    for path in (WRITE_BRIEF, RATIFY):
+        assert "skf-detect-docs.py" not in _read(path), path.name
+
+
+def test_the_auto_path_registers_the_brief_in_qmd_before_its_envelope():
+    """Step 5b gate run 3 (enhancement-1, drift 1): an [auto] run at Deep tier runs write-brief.md §3b, the one
+    QMD registration procedure, before it builds its envelope, so a warning the registration raises reaches it."""
+    text = _read(AUTO_VALIDATE)
+    assert re.search(r"^writeBriefFile: 'write-brief\.md'$", text, re.M)
+    approve = _section(text, AUTO_SUCCESS)
+    [qmd] = [line for line in approve.splitlines() if line.startswith("**QMD registration.**")]
+    for needle in ("When the run's forge tier (step 1 §1) is Deep, load `{writeBriefFile}` and run its §3b (QMD "
+                   "Collection Registration) alone", "with `{skill-name}` ← `{skill_name}`",
+                   "Run nothing else of that file.", "`workflow_warnings[]` before the envelope below is built",
+                   "At any other tier, skip this."):
+        assert needle in qmd, needle
+    assert approve.index("**QMD registration.**") < approve.index("<<'SKF_BRIEF_RESULT'")
+    assert "register it in QMD at Deep tier" in _section(text, "## STEP GOAL:")
+    # The section it runs is the one copy of the procedure: only write-brief.md loads the registration file.
+    write = _read(WRITE_BRIEF)
+    assert "\n### 3b. QMD Collection Registration (Deep Tier Only)\n" in write
+    loaders = sorted(path.name for path in REFERENCES.glob("*.md") if "{qmdRegistrationFile}" in _read(path))
+    assert loaders == ["write-brief.md"], loaders
+    assert "qmd collection add" not in text
+    # No file still says an [auto] run never loads write-brief.md, and the procedure names both callers.
+    assert "An `[auto]` run never loads this file" not in write
+    assert "An `[auto]` run runs only §3b of this file" in write
+    assert "(which step-auto-validate.md §3 also runs for an `[auto]` brief)" in _read(QMD_REGISTRATION)
+
+
+def test_the_module_pick_stays_step_2s_judgment():
+    """Step 5b gate run 3 (determinism-1), a written exception the maintainer accepted on 2026-10-03: which folders
+    are modules is step 2 §4.3's judgment, so the recommender carries `module_count` and the snapshot names no
+    module. The prose says so, so the old "never a count" contradiction cannot return and later audits see why."""
+    scope = _section(_read(SCOPE_DEFINITION), "### 2c. Offer Scope Templates")
+    [line] = [line for line in scope.splitlines() if line.startswith("**Run the recommender in one Bash call**")]
+    assert ("never the file list, a registry file or the exports typed into the payload; `module_count` is the one "
+            "count it carries, because which folders are modules is step 2 §4.3's judgment") in line
+    assert "never a list, a count" not in line
+    output = _section(_read(ANALYZE_TARGET), "#### 4.3 Output format (both paths)")
+    assert ("The snapshot lists candidates and names no module on purpose: a folder-name rule misreads `LICENSES`, "
+            "`ci`, `web` or lodash's `lib/`.") in output

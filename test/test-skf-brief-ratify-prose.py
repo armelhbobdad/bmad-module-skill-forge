@@ -8,8 +8,10 @@ by the schema default). SKILL.md must resolve `document_output_language`,
 the language step 1 writes the description in, and read `headless_mode`
 from the sidecar's preferences.yaml. The ratify route itself is one file,
 gather-intent-ratify.md, and an [R] pass keeps a ratified brief's
-component-library fields and its amendments log. No test runs the step
-prose, so these checks pin it.
+component-library fields and its amendments log. Step 5b gate run 3
+(determinism-3): step 5 writes a ratified brief from the file it ratified,
+with a patch of the fields steps 3 and 4 can change, so no field it holds
+is retyped or dropped. No test runs the step prose, so these checks pin it.
 """
 
 from __future__ import annotations
@@ -77,8 +79,8 @@ def test_activation_reads_headless_mode_from_the_sidecar_preferences():
 
 def test_ratify_hydration_keeps_the_component_library_fields():
     """#605: skf-create-skill writes a confirmed registry path and demo globs
-    back to the brief, so a ratify must hydrate them, with ui_variants, for
-    the writer to keep: each has a flat `scope_*` key the writer reads.
+    back to the brief, so a ratify must hydrate them, with ui_variants, and
+    step 5 must keep them: its ratify write starts from the brief file.
     #600: the ratify route is one file, gather-intent-ratify.md, which the
     interactive §3.1a branch and the headless `from_brief` route both load,
     so the mapping list is written once."""
@@ -96,12 +98,16 @@ def test_ratify_hydration_keeps_the_component_library_fields():
     flat_keys = flat_keys[:flat_keys.index(")")]
     for field in ("registry_path", "ui_variants", "demo_patterns"):
         assert f'"scope_{field}"' in flat_keys, field
-    # the writer payload names the three flat keys, and a ratify run carries them
-    write = _read(REFERENCES / "write-brief.md")
-    [carry] = [line for line in write.splitlines() if line.startswith("**Ratify mode (`ratify_mode: true`):**")]
+    # A derive run's payload names the three flat keys. Step 5b gate run 3 (determinism-3): a ratify run writes
+    # from the brief it ratified, which keeps them, and its patch names them, so an [R] pass that sets or drops
+    # them reaches the brief.
+    write = _section(_read(REFERENCES / "write-brief.md"), "### 3. Write the Brief")
+    [call] = [line for line in write.splitlines() if line.startswith("uv run {writeSkillBriefHelper}")
+              and "--base-brief" in line]
+    assert '--base-brief "{ratify_source_path}" --patch-file "{run_dir}/ratify-patch.json"' in call
     for field in ("registry_path", "ui_variants", "demo_patterns"):
         assert f'"scope_{field}":' in write, field
-        assert f"`scope_{field}`" in carry, field
+        assert f'"{field}": <scope.{field}>' in write, field
 
 
 def test_revise_scope_keeps_the_hydrated_component_library_fields_and_amendments():

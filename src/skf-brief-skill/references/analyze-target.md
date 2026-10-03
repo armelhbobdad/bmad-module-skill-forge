@@ -220,7 +220,7 @@ Fall back to ad-hoc inspection of `Gemfile` / `*.csproj` / `*.sln` / `Package.sw
 
 #### 4.3 Output format (both paths)
 
-Display `Picking the top-level modules...`. **Pick the Top-Level Modules from `{run_dir}/snapshot.json`** (Maven and Gradle aside: there the §4.1 script's `modules` array is the list):
+Display `Picking the top-level modules...`. The snapshot lists candidates and names no module on purpose: a folder-name rule misreads `LICENSES`, `ci`, `web` or lodash's `lib/`. **Pick the Top-Level Modules from `{run_dir}/snapshot.json`** (Maven and Gradle aside: there the §4.1 script's `modules` array is the list):
 - The snapshot's `workspaces`, when it lists some.
 - Else the `module_candidates` that hold the library's own code: not a folder with no source file (`source_file_count` 0), nor one of tests, docs, examples, scripts, build tooling or CI.
 - When one candidate holds most of the source files, it is the package itself (`pandas/` at the root of pandas): run the snapshot again for that folder, `uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --snapshot --root "<that folder>" > "{run_dir}/package-snapshot.json"`, and pick among its candidates.

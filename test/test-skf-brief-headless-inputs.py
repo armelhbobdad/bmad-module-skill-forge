@@ -516,14 +516,17 @@ def test_a_halt_that_names_no_halt_reason_emits_nothing():
 
 def test_a_derive_run_carries_the_scope_fields_step_three_set():
     """The headless component-library default sets the registry, demo and variant keys on a derive run, so
-    the writer payload must not null them."""
-    [carry] = [line for line in _read(REFERENCES / "write-brief.md").splitlines()
-               if line.startswith("**Ratify mode (`ratify_mode: true`):**")]
-    assert "on a derive run all null" not in carry
-    for needle in ("`scope_tier_a_include` from step 3 §3c",
-                   "the three component-library keys from step 3's component-library flow or its headless default",
-                   "`source_ref` and `scope_amendments` are null"):
-        assert needle in carry, needle
+    the writer payload must not null them. Step 5b gate run 3: the flat payload is the derive run's only (a
+    ratify run writes from the brief file), so it names no source_ref or amendments log, which only a ratified
+    brief holds."""
+    section = _section(_read(REFERENCES / "write-brief.md"), "### 3. Write the Brief")
+    start = section.index("```json\n")
+    payload = section[start:section.index("```\n", start + len("```json\n"))]
+    for needle in ('"scope_tier_a_include": null | ["{tier-A authoring-surface patterns, from step 3 §3c}"]',
+                   "this key and the next two from step 3's component-library flow or its headless default"):
+        assert needle in payload, needle
+    for gone in ('"source_ref"', '"scope_amendments"', "on a derive run all null", "hydrated on a ratify run"):
+        assert gone not in section, gone
 
 
 # --------------------------------------------------------------------------

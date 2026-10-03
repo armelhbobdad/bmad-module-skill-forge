@@ -1101,7 +1101,7 @@ class TestComponentLibraryFieldsAssembly:
 
 
 class TestComponentLibraryFieldsFlat:
-    """The flat payload a ratify in brief-skill sends (`--from-flat`)."""
+    """The component-library fields in the flat payload (`--from-flat`)."""
 
     def test_flat_fields_map_into_scope(self):
         flat = _baseline_flat()

@@ -54,7 +54,7 @@ Wait for the user's response:
 
 ## 3. Hydrate and Route
 
-Store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context, then hydrate the brief context variables from the parsed `brief`, so step 4 has the field set steps 1 to 3 would derive. This is the one mapping list every route uses:
+Store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context, then hydrate the brief context variables from the parsed `brief`, so step 4 has the field set steps 1 to 3 would derive. The hydrated values feed steps 3 and 4 and the patch step 5 lays over this brief, not the write itself: step 5 writes from the brief file. This is the one mapping list every route uses:
 
 - `name` ← `brief.name`; `version` ← `brief.version`; `target_version` ← `brief.target_version`
 - `target_ref` ← `brief.target_ref`; `source_ref` ← `brief.source_ref` (optional git refs; preserve when present)
