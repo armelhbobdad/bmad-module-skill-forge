@@ -63,13 +63,11 @@ Extract: verification checks (language boundary, protocol compatibility, type co
 
 ### 2. Extract Integration Claims
 
-**Source preference:** If a stack skill assembled by `skf-create-stack-skill` is present in the inventory and its manifest (`bmad-skill-manifest.yaml` or its `metadata.json`) declares `integration_patterns`, use THAT as the primary source of integration claims. Record `source: stack manifest` on each resulting pair. Fall back to prose co-mention (below) only when no such manifest is available, and record `source: prose co-mention` on those pairs.
-
-**Prose co-mention (fallback only):** step 2's mentions run already found the candidate pairs. Take each entry of `candidates[]` in `{docMentionsFile}` whose two skills (`a` and `b`) are both Covered in Step 02, and judge it from its `evidence[]` (`unit_excerpt`, with its `header` and `unit_line`): it is an integration claim when an entry describes an *integration relationship* (data flowing between the two, one wrapping, bridging, extending or consuming the other, or a layer boundary connecting them), not mere co-mention in the same text. A pair outside `candidates[]` is not claimed: no paragraph names both, the document only lists them together, or it draws them only in fenced code, such as a Mermaid diagram, which the mentions helper never reads.
+**Prose co-mention:** step 2's mentions run already found the candidate pairs. Take each entry of `candidates[]` in `{docMentionsFile}` whose two skills (`a` and `b`) are both Covered in Step 02, and judge it from its `evidence[]` (`unit_excerpt`, with its `header` and `unit_line`): it is an integration claim when an entry describes an *integration relationship* (data flowing between the two, one wrapping, bridging, extending or consuming the other, or a layer boundary connecting them), not mere co-mention in the same text. A pair outside `candidates[]` is not claimed: no paragraph names both, the document only lists them together, or it draws them only in fenced code, such as a Mermaid diagram, which the mentions helper never reads.
 
 **Build integration pairs list:**
 - Each pair: `{library_a, library_b, architectural_context}`
-- `architectural_context`: the quoted `unit_excerpt` of the evidence entry that shows the relationship (for a stack manifest pair, its `integration_patterns` entry)
+- `architectural_context`: the quoted `unit_excerpt` of the evidence entry that shows the relationship
 
 **Filter:** Only include pairs where BOTH libraries have a corresponding skill (Covered in Step 02). Skip pairs involving Missing skills: they cannot be verified. Drop a pair whose two technologies step 2 matched to the same skill: it is one library, with no integration to verify, and §5 lists it.
 
@@ -141,7 +139,6 @@ If no candidate exists, or the command exits non-zero, HALT (exit code 3, `halt_
 **Each verdict includes:**
 - Which checks passed and which flagged
 - Evidence citations: specific exports, types, or literal substrings from the skills
-- `source: stack manifest` or `source: prose co-mention` tag (per section 2)
 - For `Verified`: the Check 4 citation from `{run_dir}/citations.json`, its `substring` and `line` in the citing skill's SKILL.md with the hit's `excerpt` (e.g., `"react-query"` at line 42 of `next`'s SKILL.md)
 - **Tier annotation:** For each contributing skill, append `(evidence from a {evidence_tier} skill)` with that skill's `evidence_tier` from `skill_inventory` (e.g., `(evidence from a T1 skill)`), so reviewers weigh the evidence by the tier its skill rests on.
 
@@ -174,9 +171,9 @@ The Summary line shows the §4 tally's counts (`pairs_risky` includes each cycle
 
 "**Pass 2: Integration Verification**
 
-| Library A | Library B | Context | Source | Verdict | Evidence |
-|-----------|-----------|---------|--------|---------|----------|
-| {lib_a} | {lib_b} | {brief context} | {stack manifest / prose co-mention} | {Verified/Plausible/Risky/Blocked} | {key evidence, including Check 4 literal citation if Verified} |
+| Library A | Library B | Context | Verdict | Evidence |
+|-----------|-----------|---------|---------|----------|
+| {lib_a} | {lib_b} | {brief context} | {Verified/Plausible/Risky/Blocked} | {key evidence, including Check 4 literal citation if Verified} |
 
 **Summary:** {pairs_verified} Verified, {pairs_plausible} Plausible, {pairs_risky} Risky, {pairs_blocked} Blocked
 
@@ -208,7 +205,7 @@ Write the **Integration Verdicts** section of `{outputFile}`. The report templat
   ```
 
   Put the lines it prints under the template's header, as printed; on a non-zero exit, fix the row its JSON `error` names and run it again. With zero integration pairs, leave the table with its header and delimiter rows only.
-- After one blank line, add the display table with the extra Context, Source and Evidence columns for human readers (a separate table, so consumers skip it).
+- After one blank line, add the display table with the extra Context and Evidence columns for human readers (a separate table, so consumers skip it).
 - Include recommendations for Risky and Blocked pairs (a Blocked one that proposes a replacement names at least one alternative library with a one-line justification, or says no named candidate was found and gives the selection criteria)
 - Update frontmatter: append `'integrations'` to `stepsCompleted`; from the §4 tally, set `pairsVerified` ← `pairs_verified`, `pairsPlausible` ← `pairs_plausible`, `pairsRisky` ← `pairs_risky` (each cycle row included) and `pairsBlocked` ← `pairs_blocked`
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `integrations:report`, with `"path": "{outputFile}"`.

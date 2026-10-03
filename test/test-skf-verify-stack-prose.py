@@ -13,7 +13,8 @@ No test runs a stage file, so these pin what the stages promise:
 - the report fills the template's one canonical verdict table, with the
   display table a separate table below it;
 - the integrations stage takes each skill's language, exports and evidence
-  tier from the inventory, never from metadata.json;
+  tier from the inventory, never from metadata.json, and its pairs from the
+  document's prose alone (no stack-manifest source, tag or column);
 - the Plausible recommendation says what Check 4 reads;
 - each fact has one home (the single-technology note, where each run
   variable is fixed);
@@ -225,14 +226,31 @@ def test_integrations_reads_the_inventory_not_metadata():
     assert "verdict-cap references" not in integrations
 
 
+def test_the_pairs_come_from_the_documents_prose_alone():
+    """No SKF producer writes a stack manifest's `integration_patterns` (a stack's
+    metadata.json carries `integration_pairs`), so no stage reads one, tags a pair
+    with its source, or shows a Source column."""
+    integrations = _read(REFERENCES / "integrations.md")
+    claims = _section(integrations, "### 2. Extract Integration Claims", "### 3.")
+    assert claims.count("**Prose co-mention:**") == 1 and "**Source preference:**" not in claims
+    display = _section(integrations, "### 5. Display Integration Results", "### 6.")
+    assert "| Library A | Library B | Context | Verdict | Evidence |" in display
+    write = _section(integrations, "### 6. Append to Report", "### 7.")
+    assert "the extra Context and Evidence columns" in write
+    for path in _skill_markdown():
+        text = _read(path)
+        for gone in ("integration_patterns", "stack manifest", "bmad-skill-manifest", "`source: ", "| Source |"):
+            assert gone not in text, (_rel(path), gone)
+
+
 # --- The Plausible recommendation matches Check 4 ---------------------------------
 
 
 def test_the_plausible_recommendation_names_what_check_4_reads():
     synthesize = _read(REFERENCES / "synthesize.md")
     plausible = _section(synthesize, "**Plausible integration (from Step 03", "**Blocked integration")
-    # Check 4 searches only the two skills' SKILL.md, so a stack manifest
-    # never promotes the pair.
+    # Check 4 searches only the two skills' SKILL.md, so no other file
+    # (a stack skill's metadata.json included) promotes the pair.
     assert "SKILL.md names the other" in plausible
     assert "[SS]" not in plausible and "integration_patterns" not in plausible
     assert "promote" not in plausible

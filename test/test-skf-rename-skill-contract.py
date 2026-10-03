@@ -5,7 +5,10 @@ gate (#594, #596), the helpers resolved before the first question with no
 in-prompt fallback (#599), and one home for the headless contract with lean
 stage files and one manifest flag name (#600), and the w3 re-check findings
 (#591): one helper call for the package rename and the in-file rewrite, and
-the manifest backup as a file in the run folder.
+the manifest backup as a file in the run folder. The step 5b gate adds two:
+a copy `npx skills add` installed under the old name is named in the plan,
+recorded as a warning and given its reinstall step in the report, and the
+verify-failed halt says how to recover.
 
 Step prose is not executed by any test, so most checks pin the prose an agent
 follows. The source-authority decision is also run through the shared emitter,
@@ -20,12 +23,15 @@ success envelopes and the recovery after a manifest re-key.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
 
 REPO = Path(__file__).resolve().parent.parent
@@ -419,3 +425,121 @@ def test_the_report_lists_what_it_shows():
                 "Remove the remnants by hand with `rm -rf {path}`.", "re-run `@Ferris SF`",
                 "this rename is a LOCAL operation only"):
         assert fix in report, fix
+
+
+# --------------------------------------------------------------------------
+# step 5b: the copy `npx skills add` installed under the old name
+# (enhancement-1), and the verify-failed recovery (determinism-1)
+# --------------------------------------------------------------------------
+
+INSTALLED_ROOTS = "{the skill_root of each target_context_files entry, each quoted}"
+INSTALLED_RECORD = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+                    '--warning "installed-copy-not-renamed: {path}"')
+
+
+def _installed_copies() -> str:
+    delete = _section(_read(EXECUTE), "### 8. Delete Old Directories", "### 9. ")
+    assert delete.index("guarded-delete") < delete.index("**Installed copies.**"), "checked after the delete"
+    return delete[delete.index("**Installed copies.**"):]
+
+
+def _installed_check() -> str:
+    """The one bash block that lists the copies: the shell skips the skills folder and dedupes, not the model."""
+    copies = _installed_copies()
+    start = copies.index("```bash\n") + len("```bash\n")
+    return copies[start:copies.index("```", start)]
+
+
+def test_the_rename_names_the_installed_copies_it_leaves():
+    """The rows point at `{skill_root}{new_name}/`, but no step renames the copy `npx skills add`
+    installed under the old name: step 2 finds it, the envelope warns, and the report says how to reinstall."""
+    copies = _installed_copies()
+    assert ("When `snippet_skill_root_override` is unset in `config.yaml`, list the copies under the `skill_root` "
+            "of the `target_context_files` entries") in copies
+    check = _installed_check()
+    for token in (f"for root in {INSTALLED_ROOTS}; do", '[ "{project-root}/${root}" -ef "{skills_output_folder}" ] '
+                  "&& continue", 'copy="{project-root}/${root}{old_name}"', "done | sort -u"):
+        assert token in check, token
+    assert "Bind `installed_copies` to the lines it prints" in copies
+    assert "It skips a skill root that is the skills folder itself, where the path is `{old_skill_group}`" in copies
+    assert INSTALLED_RECORD in copies
+    stored = _section(_read(EXECUTE), "### 9. Store Results in Context", "### 10. ")
+    for name in ("installed_copies", "target_version"):
+        assert f"- `{name}`:" in stored, name
+    report = _section(_read(REPORT), "### 2. Render the Report", "### 3. ")
+    # Each copy is shown once, in the next steps with its fix, not again among the warnings.
+    assert ("`{run_warnings}`, as warnings, except a `{run_warnings}` entry that starts with "
+            "`installed-copy-not-renamed:`, which the next steps name.") in report
+    steps = report[report.index("Close with the next steps:"):]
+    for token in ("For each path in `installed_copies`", "the rebuilt rows point at the same folder under `{new_name}`",
+                  "run `npx skills add {new_skill_group}/{version}/{new_name}`, then reload the IDE.",
+                  "`{version}` is `target_version`, else the first of `renamed_versions` (newest first)",
+                  "`{new_skill_group}` is absolute, as export requires"):
+        assert token in steps, token
+    plan = _section(_read(SELECT), "### 8. Confirmation Gate", "### 9. ")
+    assert ("Copies installed in your IDE skill folders (`npx skills add`) are not renamed;\n"
+            "  unless `snippet_skill_root_override` is set, the report names any it finds.") in plan
+    # select.md binds new_skill_group absolute, and renamed_versions keeps affected_versions' newest-first order.
+    assert "- `new_skill_group`: absolute path `{skills_output_folder}/{new_name}`" in _read(SELECT)
+    assert "`affected_versions` = `result.affected_versions` (newest first)" in _read(SELECT)
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="runs the documented check through bash")
+def test_the_installed_copy_check_finds_a_folder_or_a_link_and_the_envelope_carries_it(tmp_path):
+    """A copy is a folder, or a link (a dangling one included); a missing path is no copy, a root two
+    targets share is listed once, and the skills folder's own old group (a delete that failed) is
+    skipped. Each copy found reaches the envelope's existing `warnings`, which the rename schema accepts."""
+    project = tmp_path / "project"
+    (project / ".claude" / "skills" / "cognee").mkdir(parents=True)
+    (project / ".cursor" / "skills").mkdir(parents=True)
+    (project / ".cursor" / "skills" / "cognee").symlink_to(project / "gone")
+    (project / ".agents" / "skills").mkdir(parents=True)
+    (project / "skills" / "cognee").mkdir(parents=True)  # the old skill group a failed delete left
+    roots = '".claude/skills/" ".cursor/skills/" ".agents/skills/" "skills/" ".claude/skills/"'
+    check = (_installed_check().replace(INSTALLED_ROOTS, roots).replace("{project-root}", project.as_posix())
+             .replace("{skills_output_folder}", (project / "skills").as_posix()).replace("{old_name}", "cognee"))
+    run = subprocess.run(["bash", "-c", check], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    found = run.stdout.splitlines()
+    assert found == [f"{project.as_posix()}/.claude/skills/cognee", f"{project.as_posix()}/.cursor/skills/cognee"]
+    run_dir = tmp_path / "skf-rename-skill-20261003T000000Z-00000000"
+    for path in found:
+        warning = INSTALLED_RECORD.split('--warning "', 1)[1].rstrip('"').replace("{path}", path)
+        record = subprocess.run([sys.executable, str(EMITTER), "record", "--run-dir", str(run_dir),
+                                 "--warning", warning], capture_output=True, timeout=60)
+        assert record.returncode == 0, record.stderr
+    payload = {"status": "success", "old_name": "cognee", "new_name": "cognee-ai", "versions_renamed": ["1.0.0"],
+               "manifest_rekeyed": True, "context_files_updated": ["CLAUDE.md"], "halt_reason": None}
+    emit = subprocess.run([sys.executable, str(EMITTER), "emit", "--workflow", "skf-rename-skill",
+                           "--run-dir", str(run_dir)],
+                          input=json.dumps(payload).encode("utf-8"), capture_output=True, timeout=60)
+    assert emit.returncode == 0, emit.stderr
+    [line] = emit.stdout.decode("utf-8").splitlines()
+    envelope = json.loads(line.removeprefix(PREFIX))
+    assert not list(Draft202012Validator(SCHEMA).iter_errors(envelope))
+    assert envelope["warnings"] == [f"installed-copy-not-renamed: {path}" for path in found]
+
+
+def test_a_verify_failed_halt_says_how_to_recover():
+    """determinism-1 (a skill named after its library cannot be renamed, as docs/troubleshooting.md
+    says) is accepted as a written exception by the maintainer's 2026-10-03 decision: the halt names
+    the ways out the guide gives, and points at the guide, instead of leaving the user at the rollback."""
+    verify = _section(_read(EXECUTE), "### 5. Verify", "### 6. ")
+    [halt] = [line for line in verify.splitlines() if "**Verification failed.**" in line]
+    for token in ("Old skill is intact.", "edit it in the old skill's file, then re-run the rename.",
+                  "or `{old_name}` is a word of the snippet template itself, such as `api`, `root` or `data`",
+                  "the skill cannot be renamed: create it again as `{new_name}` with `[BS] Brief Skill` and "
+                  "`[CS] Create Skill`.", "The troubleshooting guide's `verify-failed` entry has the details.",
+                  'HALT (exit code 5, `halt_reason: "verify-failed"`'):
+        assert token in halt, token
+    # The halt and the guide name the same three cases.
+    guide = (REPO / "docs" / "troubleshooting.md").read_text(encoding="utf-8")
+    entry = guide[guide.index("### Rename Skill stops with `verify-failed`"):]
+    entry = entry[:entry.index("\n### ")]
+    for case in ("Such a skill cannot be renamed. Create it again under the new name with Brief Skill and "
+                 "Create Skill.",
+                 "edit or remove it in the old skill's file, then re-run the rename.",
+                 "edit that line in the old skill's snippet, then re-run.",
+                 "When the old name is a label or fixed word of the snippet template itself (`api`, `root`, `data`), "
+                 "the skill cannot be renamed"):
+        assert case in entry, case

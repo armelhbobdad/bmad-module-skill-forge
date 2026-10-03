@@ -61,8 +61,12 @@ on_complete = ""
 #
 # Block a purge in headless mode. Any value other than the empty string
 # turns the guard on ("true", a TOML true, and even "false" or false), so a
-# mistyped value blocks the purge rather than allowing it. With the guard
-# on, a headless run with `mode=purge` HALTs at activation with exit code 6
+# mistyped value that still parses blocks the purge rather than allowing it.
+# An override file that fails to parse (an unquoted True, yes or on, or a
+# bad line elsewhere in it) stops the resolver: the run warns
+# customization_resolver_unavailable and uses this file alone, so the guard
+# is off. Quote the value, as in "true". With the guard on, a headless run
+# with `mode=purge` HALTs at activation with exit code 6
 # (`halt_reason: "headless-purge-forbidden"`) instead of deleting files:
 # re-run with `mode=deprecate`, or interactively. A draft skill with no
 # manifest entry cannot be deprecated, so it needs an interactive run or

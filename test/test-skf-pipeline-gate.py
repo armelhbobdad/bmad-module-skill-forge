@@ -8,6 +8,8 @@ TS, AS or VS instead of reading the result by hand:
     PASS below the threshold continues, a PASS with an error status halts),
     AN on enough units, AS skips a next US on CLEAN and halts on CRITICAL, VS
     halts on zero coverage and lets NOT_FEASIBLE with coverage on to RA
+  - an AS that found upstream moved hands US the new ref in `handoff`, on a
+    continue and on a CRITICAL halt alike; every other decision hands on none
   - the envelope line and the result record, errored results, and input the
     gate cannot read, UTF-8 with a byte-order mark included (it halts)
   - step 4d gates the envelope the step just printed, never a -latest.json
@@ -85,7 +87,7 @@ def test_ts_halts_on_every_verdict_but_pass(verdict, next_workflow, exit_code, r
 def test_ts_continues_on_pass_routed_to_export():
     d = decide("TS", ts_envelope("PASS", "export-skill"))
     assert d == {"code": "TS", "decision": "continue", "reason": None, "skip": None,
-                 "message": "TS verdict PASS: the skill goes on to export."}
+                 "message": "TS verdict PASS: the skill goes on to export.", "handoff": None}
 
 
 def test_ts_halts_on_a_capped_fail_whose_score_clears_the_threshold():
@@ -280,8 +282,55 @@ def test_a_clean_audit_reaches_us_when_upstream_moved(fields, decision):
     assert d["decision"] == decision
     if decision == "continue":
         assert d["skip"] is None and "v1.3.0" in d["message"]
+        assert d["handoff"] == {"target_ref": "v1.3.0"}
+    else:
+        assert d["handoff"] is None
     record = {"status": "success", "summary": {"severity": "CLEAN", "next_workflow": fields["next_workflow"]}}
     assert decide("AS", json.dumps(record), next_code="US")["decision"] == decision
+
+
+@pytest.mark.parametrize(
+    "severity,decision",
+    [
+        pytest.param("CLEAN", "continue", id="clean"),
+        pytest.param("MINOR", "continue", id="minor"),
+        pytest.param("SIGNIFICANT", "continue", id="significant"),
+        pytest.param("CRITICAL", "halt", id="critical"),
+    ],
+)
+def test_an_audit_that_found_upstream_moved_hands_us_the_new_ref(severity, decision):
+    """determinism-1: the gate, not the model, carries AS's `upstream_ref` on as
+    `handoff.target_ref`, so a `maintain` update reads the ref the audit found. A
+    CRITICAL halt carries it too: its review-drift-report repair resumes at US."""
+    moved = {"next_workflow": "update-skill", "upstream_moved": True, "upstream_ref": " v1.3.0 "}
+    d = decide("AS", as_envelope(severity, **moved), next_code="US")
+    assert (d["decision"], d["handoff"]) == (decision, {"target_ref": "v1.3.0"})
+    record = {"status": "success", "summary": {"severity": severity, "next_workflow": "update-skill",
+                                                "upstream_moved": True, "upstream_ref": "v1.3.0"}}
+    assert decide("AS", json.dumps(record), next_code="US")["handoff"] == {"target_ref": "v1.3.0"}
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({"upstream_moved": False, "upstream_ref": "v1.3.0"}, id="not-moved"),
+        pytest.param({"upstream_moved": True, "upstream_ref": None}, id="no-ref"),
+        pytest.param({"upstream_moved": True, "upstream_ref": "  "}, id="blank-ref"),
+        pytest.param({"upstream_moved": "true", "upstream_ref": "v1.3.0"}, id="moved-not-a-boolean"),
+        pytest.param({}, id="no-fields"),
+    ],
+)
+def test_an_audit_hands_on_no_ref_unless_upstream_moved_to_one(fields):
+    d = decide("AS", as_envelope("MINOR", next_workflow="update-skill", **fields), next_code="US")
+    assert (d["decision"], d["handoff"]) == ("continue", None)
+
+
+def test_a_skipped_update_and_the_other_gates_hand_on_nothing():
+    clean = decide("AS", as_envelope("CLEAN", upstream_moved=True, upstream_ref="v1.3.0"), next_code="US")
+    assert (clean["decision"], clean["handoff"]) == ("skip", None)
+    for d in (decide("TS", ts_envelope("FAIL", "update-skill")), decide("AN", "", next_code=None),
+              decide("AS", as_envelope(None, status="error", halt_reason="skill-not-found"))):
+        assert d["handoff"] is None, d
 
 
 @pytest.mark.parametrize(

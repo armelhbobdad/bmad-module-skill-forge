@@ -214,7 +214,7 @@ Read the JSON and decide. An exit code of 2 with no JSON on stdout (the helper r
 - **If `clean` is `true` (empty `hard_matches` AND empty `dir_violations`):** the rename is safe to commit. Set `verification_warnings` = the returned `body_warnings` (informational SKILL.md body mentions of `{old_name}` that are retained). Proceed.
 - **If `clean` is `false`:** this is a hard failure —
   - `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
-  - Halt with: "**Verification failed.** `{old_name}` still appears in: {the files from `hard_matches` plus any `dir_violations`}. Rolled back the new directories. Old skill is intact." HALT (exit code 5, `halt_reason: "verify-failed"`, `emit-halt` phase `execute:verify`).
+  - Halt with: "**Verification failed.** `{old_name}` still appears in: {the files from `hard_matches` plus any `dir_violations`}. Rolled back the new directories. Old skill is intact. Where a match is a note an earlier run wrote, or a `context-snippet.md` line such as `|gotchas:`, edit it in the old skill's file, then re-run the rename. Where it names the library or repository the skill is named after (a `description`, an export, a source path), or `{old_name}` is a word of the snippet template itself, such as `api`, `root` or `data`, the skill cannot be renamed: create it again as `{new_name}` with `[BS] Brief Skill` and `[CS] Create Skill`. The troubleshooting guide's `verify-failed` entry has the details." HALT (exit code 5, `halt_reason: "verify-failed"`, `emit-halt` phase `execute:verify`).
 
 Report: "**Verified:** no structural references to `{old_name}` remain inside the new location across the {number of `renamed_versions`} version(s) it checked. {if verification_warnings is non-empty: 'Informational body-text mentions retained in SKILL.md: {list}.'}"
 
@@ -338,6 +338,22 @@ Only when `{forge_move}` is true, add `"{old_forge_group}"` after `"{old_skill_g
 
 Report: "**Deleted old directories:** `{old_skill_group}`{if forge_move: ' and `{old_forge_group}`'}. {if deletion_errors is non-empty: 'Errors: {list} — remove manually with `rm -rf {path}`.'}"
 
+**Installed copies.** A copy `npx skills add` installed in an IDE skill folder keeps the old name, while §7 pointed the rows at `{new_name}`. When `snippet_skill_root_override` is unset in `config.yaml`, list the copies under the `skill_root` of the `target_context_files` entries:
+
+```bash
+for root in {the skill_root of each target_context_files entry, each quoted}; do
+  [ "{project-root}/${root}" -ef "{skills_output_folder}" ] && continue
+  copy="{project-root}/${root}{old_name}"
+  if [ -e "$copy" ] || [ -L "$copy" ]; then printf '%s\n' "$copy"; fi
+done | sort -u
+```
+
+Bind `installed_copies` to the lines it prints, each a folder or a link (a dangling one included): empty when the override is set or §7a resolved no target. It skips a skill root that is the skills folder itself, where the path is `{old_skill_group}`, gone after the delete or reported in `deletion_errors`. Record each path in the run sink, and never stop on the result:
+
+```bash
+uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "installed-copy-not-renamed: {path}"
+```
+
 ### 9. Store Results in Context
 
 Store the following for step 3:
@@ -350,6 +366,8 @@ Store the following for step 3:
 - `context_files_failed`: list of files that failed to rebuild (empty if none)
 - `verification_warnings`: list of informational SKILL.md body mentions of `{old_name}` retained (empty if none)
 - `deletion_errors`: list of post-commit deletion errors (empty if none)
+- `installed_copies`: the copies §8 found installed under `{old_name}` in IDE skill folders (empty if none)
+- `target_version`: the version §4 pointed `active` at (unset when the old skill had no `active` link)
 - `forge_move`: carried from step 1 (true when the forge folder was moved)
 - `forge_left_in_place`: carried from step 1 (the forge folder left under the old name, or null)
 - `same_folder`: carried from step 1 (true when `skills_output_folder` and `forge_data_folder` name one folder)
