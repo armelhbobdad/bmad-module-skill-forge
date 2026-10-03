@@ -2,3 +2,4 @@ type: fixed
 scope: skf-update-skill
 summary: |
   Every warning an update raises (`source-not-fetched`, `proposed-amendment:`, `target-ref-not-recorded`, `workspace-clone-not-updated` and the rest) is now recorded when it is raised, so the `SKF_UPDATE_RESULT_JSON` line and the report carry it even after a long run's context is compacted. Before, a step could keep a warning only in its working context, so a run that never reached upstream could end `no-changes` without `source-not-fetched`, and a `--dry-run` report could list no proposed skill brief amendment.
+prs: [664]
