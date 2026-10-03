@@ -40,6 +40,7 @@ activation_steps_append = []
 # The default below loads every project-context.md under {project-root}.
 # Overrides append, so they cannot delete it; to stop loading those files,
 # set in {project-root}/_bmad/custom/skf-drop-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -65,8 +66,12 @@ on_complete = ""
 # An override file that fails to parse (an unquoted True, yes or on, or a
 # bad line elsewhere in it) stops the resolver: the run warns
 # customization_resolver_unavailable and uses this file alone, so the guard
-# is off. Quote the value, as in "true". With the guard on, a headless run
-# with `mode=purge` HALTs at activation with exit code 6
+# is off. Quote the value, as in "true". In
+# {project-root}/_bmad/custom/skf-drop-skill.toml (or .user.toml) write it
+# under the table, as two lines: `[workflow]` then
+# `forbid_purge_in_headless = "true"`. A key above the `[workflow]` line is
+# ignored without a warning, which leaves the guard off. With the guard
+# on, a headless run with `mode=purge` HALTs at activation with exit code 6
 # (`halt_reason: "headless-purge-forbidden"`) instead of deleting files:
 # re-run with `mode=deprecate`, or interactively. A draft skill with no
 # manifest entry cannot be deprecated, so it needs an interactive run or

@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-campaign
+summary: |
+  A directive `## Quality Overrides` item that holds more than the documented `soft_target` and `soft_fallback` pairs, such as `- react: soft_target 80 (was soft_target 90)`, or that names a key twice, is now reported in `unparsed` and logged to the decision log, and none of its numbers apply. Before, `campaign-quality-gate.py` took every number it found in the item and applied the last one, so the gate a skill was tested and exported against could be a value the operator never meant, with nothing logged, although the directive spec says an item it cannot read is never applied.

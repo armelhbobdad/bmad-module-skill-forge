@@ -570,7 +570,11 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     toml = _read(CUSTOMIZE)
     comment = _comment(toml, "# Persistent facts the workflow keeps", "persistent_facts = [\n")
     assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-drop-skill.toml: '
-            'persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comment
+            '[workflow] persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comment
+    # The example is an override file as written: under the table, where the resolver's `--key workflow` reads it.
+    example = _section(toml, "skf-drop-skill.toml:\n", "\n\n")
+    override = tomllib.loads("\n".join(line.lstrip("#").strip() for line in example.splitlines()[1:]))
+    assert override == {"workflow": {"persistent_facts": ["!file:{project-root}/**/project-context.md"]}}
     assert "Each entry is either:" not in comment
     assert ("Each entry is one of: - a literal sentence" in comment
             and "- an entry prefixed with `!`, which loads nothing and drops each earlier entry it names." in comment)
@@ -688,7 +692,7 @@ def test_any_non_empty_forbid_value_turns_the_purge_guard_on():
     assert ('If `{headless_mode}` is true, `{forbidPurgeInHeadless}` is on and the `mode` arg is `"purge"`, '
             'HALT (exit code 6, `halt_reason: "headless-purge-forbidden"`') in guard
     assert "empty the setting in the team or personal override that sets it" in guard, "never the base file"
-    comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", "forbid_purge_in_headless = ")
+    comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", 'forbid_purge_in_headless = ""')
     assert "Any value other than the empty string turns the guard on" in comment
     for token in ("so a mistyped value that still parses blocks the purge rather than allowing it",
                   "An override file that fails to parse (an unquoted True, yes or on, or a bad line elsewhere in "
@@ -704,9 +708,31 @@ def test_any_non_empty_forbid_value_turns_the_purge_guard_on():
             "`customization_resolver_unavailable` and the bundled empty value leaves the guard off.") in headless
 
 
+def test_the_guard_is_set_under_the_workflow_table():
+    """Step 5b run 2 customization-1: the resolver reads `--key workflow`, so a key written above the
+    `[workflow]` line lands at the file's root, never reaches the guard and warns nothing. The comment and
+    the Headless row give the two-line form and say what a header-less key does, and TOML bears both out."""
+    comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", 'forbid_purge_in_headless = ""')
+    for token in ("In {project-root}/_bmad/custom/skf-drop-skill.toml (or .user.toml) write it under the table, "
+                  'as two lines: `[workflow]` then `forbid_purge_in_headless = "true"`.',
+                  "A key above the `[workflow]` line is ignored without a warning, which leaves the guard off."):
+        assert token in comment, token
+    headless = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Headless** |"))
+    assert "set under `[workflow]` in a team or personal override" in headless
+    assert ("A key written without the `[workflow]` line is ignored with no warning, and the guard stays off."
+            in headless)
+    # The comment's two lines, written as an override file, set the key the guard reads.
+    lines = re.search(r"as two lines: `(\[workflow\])` then `([^`]+)`", comment).groups()
+    assert tomllib.loads("\n".join(lines))["workflow"] == {"forbid_purge_in_headless": "true"}
+    # The same key without the table line parses, but `workflow` holds no guard: the warning stays true.
+    bare = tomllib.loads(lines[1])
+    assert bare == {"forbid_purge_in_headless": "true"}
+    assert "forbid_purge_in_headless" not in bare.get("workflow", {})
+
+
 def _unquoted_examples() -> list[str]:
     """The unquoted values the forbid_purge_in_headless comment names, read from the shipped comment."""
-    comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", "forbid_purge_in_headless = ")
+    comment = _comment(_read(CUSTOMIZE), "# --- Optional safety scalar ---", 'forbid_purge_in_headless = ""')
     found = re.search(r"an unquoted (\w+), (\w+) or (\w+)", comment)
     assert found, "the comment names the unquoted values that fail to parse"
     return list(found.groups())
