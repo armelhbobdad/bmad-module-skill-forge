@@ -30,10 +30,16 @@ fixtures:
   ref and hint flags match it, an [auto] report carries the skill and brief
   inventory its fallback reads, and map-and-detect and [D] read the import
   graph through skf-count-imports.py summary, never the whole envelope.
+- Step 5b gate run 7 determinism-1: both derive-name call sites pass
+  --probe-git, and an address git reads as a repository, asks credentials
+  for or leaves unanswered halts the [auto] path in section 0, before
+  coexistence, for every project path (and fails the scan root) with the
+  helper's message; a missing git goes docs-only with a warning.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -1030,3 +1036,161 @@ def test_one_mode_rule_and_one_brief_paths_rule():
     for claim in (next(line for line in contract.splitlines() if line.startswith("- `brief_paths`")),
                   SCHEMA["properties"]["brief_paths"]["description"]):
         assert "outside the docs-only branch" in claim, claim
+
+
+# --------------------------------------------------------------------------
+# Step 5b gate run 7 determinism-1: a repository's web address on a host off
+# GIT_HOSTS (no .git, no /_git/) stops for its clone URL, never a docs brief
+# --------------------------------------------------------------------------
+
+SCAN_ROOT = REFS / "scan-root.md"
+INVENTORY = SCRIPTS / "skf-skill-inventory.py"
+PAGE_ADDRESS = "https://codeberg.org/forgejo/forgejo"
+
+
+def _inventory():
+    spec = importlib.util.spec_from_file_location("skf_skill_inventory_for_contract", INVENTORY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+REMEDY = "use its `.git` clone URL, its address without https:// or its SSH address"
+CREDENTIALS = f"asks for credentials: SKF reads no documentation behind a login; if it is a private git repository, {REMEDY}"
+UNANSWERED = f"gave git no answer in 20 s: if it is a git repository, {REMEDY}; if it is documentation, give a documentation URL that answers"
+PROMPTS_OFF = b"fatal: could not read Username for 'https://codeberg.org': terminal prompts disabled\n"
+# Each verdict that stops a run, with the message the helper gives for PAGE_ADDRESS.
+HALTS = {"repository": f"{PAGE_ADDRESS} is a git repository: {REMEDY}.",
+         "credentials": f"{PAGE_ADDRESS} {CREDENTIALS}.",
+         "unanswered": f"{PAGE_ADDRESS} {UNANSWERED}."}
+
+
+@pytest.mark.parametrize("path", [AUTO, SCAN_ROOT], ids=["step-auto-scope", "scan-root"])
+@pytest.mark.parametrize(("exit_code", "stderr", "raises", "verdict"),
+                         [(0, b"", None, "repository"), (2, b"", None, "repository"), (128, b"", None, "docs"),
+                          (128, PROMPTS_OFF, None, "credentials"),
+                          (None, b"", subprocess.TimeoutExpired(["git"], 20), "unanswered"),
+                          (None, b"", FileNotFoundError("git"), "no-git")],
+                         ids=["repository", "no-branch", "docs", "credentials", "unanswered", "no-git"])
+def test_both_call_sites_probe_the_page_address_with_git(path, exit_code, stderr, raises, verdict, monkeypatch,
+                                                         capsys):
+    """The documented call asks git whether the address serves a repository and gives the
+    message a run stops with; git is stubbed, so no test reaches the network. The name stays the
+    host's: naming never depends on the probe. A server that asks for credentials is not reported
+    as a repository (fix round 7); git asks for the branches alone, and a probe git leaves
+    unanswered stops the run instead of going docs-only (fix round 8)."""
+    [call] = [line for block in _fenced(_read(path), "bash") for line in block.split("\n")
+              if " derive-name --target " in line]
+    assert call.endswith('derive-name --target "{project_path}" --probe-git' if path == AUTO
+                         else 'derive-name --target "{path}" --probe-git'), call
+    argv = _argv(call, {"skillInventoryHelper": INVENTORY.as_posix(), "project_path": PAGE_ADDRESS,
+                        "path": PAGE_ADDRESS})
+    assert argv[2] == "derive-name", argv
+    inventory, calls = _inventory(), []
+
+    def git(cmd, **kwargs):
+        calls.append(cmd)
+        if raises is not None:
+            raise raises
+        kwargs["stderr"].write(stderr)
+        return subprocess.CompletedProcess(cmd, exit_code)
+
+    monkeypatch.setattr(inventory.subprocess, "run", git)
+    assert inventory._main_derive_name(argv[3:]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["kind"], out["name"], out["clone_url"], out["git_probe"], out["halt_message"]) == (
+        "docs", "codeberg-org", None, verdict, HALTS.get(verdict))
+    assert calls == [["git", "ls-remote", "--exit-code", "--heads", PAGE_ADDRESS]]
+
+
+@pytest.mark.parametrize("verdict", sorted(HALTS))
+def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_path, verdict):
+    """The [auto] path halts in section 0 with the message the helper gives, before coexistence
+    (section 0c) can offer a merge into an unrelated skill named after the same host, and before
+    the docs-only branch can write a brief; section 2 halts the same way for every other path
+    (gate run 7 fix round 8). The step-by-step chain's scan root fails with the same message."""
+    auto = _read(AUTO)
+    [row] = [line for line in auto.splitlines() if line.startswith("| `docs` | Documentation URL |")]
+    assert row == ('| `docs` | Documentation URL | HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, '
+                   'phase `step-auto-scope:0`, path `{project_path}`) with its `halt_message` when it gives one, '
+                   'else `references/auto-docs-only.md`, via §0c |'), row
+    assert auto.index(row) < auto.index("### 0b. Pin Resolution") < auto.index("### 0c. Coexistence Detection")
+    # Every route out of section 0c is the one route it states (gate run 7 fix round 7).
+    coexistence = _section(auto, "### 0c. Coexistence Detection", "### 1. Load Context")
+    assert ("then goes on to its **route**: load, read fully, then execute `references/auto-docs-only.md` for a "
+            "documentation URL, §1 for every other kind.") in coexistence
+    assert coexistence.count("go on to the route") == 2 and coexistence.count("goes on to the route") == 1
+    assert coexistence.count("auto-docs-only.md") == 1
+    # Every other project path halts the same way, under section 2's phase and with its own address.
+    manifest_scan = _section(auto, "### 2. Manifest Scan", "**For each path in `project_paths[]`:**")
+    assert ("§0's `derive-name --target` call gives them for any other path, and its `halt_message` halts the run "
+            "as in §0, with phase `step-auto-scope:2` and that path as `{project_path}`.") in manifest_scan
+    # The docs-only branch holds no halt of its own on git's verdict any more.
+    for path in (AUTO, DOCS, SCAN_ROOT):
+        text = _read(path)
+        for gone in ("git_repository", "git_credentials", "asks for credentials", "is a git repository"):
+            assert gone not in text, (path.name, gone)
+    for phase in ("step-auto-scope:0", "step-auto-scope:2"):
+        run_dir = _run_dir(tmp_path / phase.replace(":", "-"))
+        (run_dir / "halt.json").write_bytes(json.dumps(
+            {"phase": phase, "reason": HALTS[verdict], "halt_reason": "resolution-failure", "mode": "auto",
+             "path": PAGE_ADDRESS}).encode("utf-8"))
+        proc = _run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+        assert proc.returncode == 0, proc.stderr
+        envelope = _envelope(proc.stderr)
+        assert (envelope["halt_reason"], envelope["exit_code"]) == ("resolution-failure", 3)
+        assert envelope["error"] == {"phase": phase, "reason": HALTS[verdict], "path": PAGE_ADDRESS}
+    docs = _section(_read(SCAN_ROOT), "- **A documentation URL**", "When a command fails")
+    assert ("Treat it as a command that failed with its `halt_message` as the first stderr line when it gives one "
+            "(the message the [auto] path halts with), else with \"{path} is a documentation URL: run the analysis "
+            "with [auto] for a docs-only brief\"." in docs), docs
+
+
+def test_the_contract_and_the_guide_say_which_addresses_are_a_repository():
+    """An address git reads as a repository stops the run; a repository browser page git cannot
+    read at its address is still documentation, and both texts say to give its clone URL (gate
+    run 7 fix round 8: SKF reads no browser page for the clone URL it advertises)."""
+    [row3] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 3 ")]
+    for site in ("step 1a §0 (a documentation URL that git reads as a repository, which on most hosts is the "
+                 "repository's main page, one whose server asks for credentials, or one that gives git no answer "
+                 "in 20 s: rerun with its `.git` clone URL, its address without https:// or its SSH address, or a "
+                 "documentation URL that answers; a repository browser page git cannot read at that address, such "
+                 "as a Bitbucket Data Center `/projects/<p>/repos/<r>` page, a SourceForge or Launchpad code page "
+                 "or a link to a file or folder inside a repository, is still read as documentation, so give its "
+                 "clone URL)",
+                 "step 1a §0a (docs-only URL unreachable);",
+                 "another path halts as in §0"):
+        assert site in row3, site
+    [doc_url] = [line for line in _read(REPO / "docs" / "forge-auto.md").splitlines()
+                 if line.startswith("- **Doc URL**")]
+    fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-git-url-any-host.yaml"))["summary"]
+    for text in (doc_url, fragment):
+        for claim in ("which on most hosts", "the repository's main page", "asks for credentials",
+                      "gets no answer from the address in 20 seconds", "a documentation URL that answers",
+                      "Bitbucket Data Center `/projects/<p>/repos/<r>` page", "SourceForge or Launchpad code page",
+                      "a link to a file or folder inside a repository"):
+            assert claim in text, claim
+    assert ("A repository browser page that git cannot read at its address is still read as documentation: "
+            "a Bitbucket Data Center") in doc_url and "inside a repository. Give its clone URL instead." in doc_url
+    assert "is still read as documentation: give its clone URL." in fragment
+    assert "Without git installed, SKF reads the address as documentation and warns" in doc_url
+
+
+def test_a_missing_git_goes_docs_only_with_a_warning_naming_it(tmp_path):
+    """With no git to ask, a documentation URL needs none: the docs-only branch goes on and
+    leaves a warning that names git as missing (gate run 7 fix round 8)."""
+    check = _section(_read(DOCS), "### 1. Validate URL reachability", "```bash")
+    assert check.startswith("### 1. Validate URL reachability\n\nWhen §0's `derive-name` call gave `git_probe` "
+                            "`no-git` (git is missing, so nothing asked whether `{url}` is a repository), run "), check
+    [record] = re.findall(r"`(uv run \{emitEnvelopeHelper\} record [^`]*)`", check)
+    assert "HARD HALT" not in check
+    run_dir = _run_dir(tmp_path)
+    url = "https://docs.example.com/guide/"
+    proc = _run(record.replace("{url}", url), {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    reason = f"Documentation URL unreachable: {url}: 404"
+    (run_dir / "halt.json").write_bytes(json.dumps(
+        {"phase": "auto-docs-only:1", "reason": reason, "halt_reason": "resolution-failure", "mode": "auto",
+         "source_type": "docs-only", "path": url}).encode("utf-8"))
+    envelope = _envelope(_run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)}).stderr)
+    assert envelope["warnings"] == [f"git_probe_unanswered: {url} was not checked for a repository: git is missing"]

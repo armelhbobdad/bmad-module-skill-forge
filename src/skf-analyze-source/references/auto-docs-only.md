@@ -27,6 +27,8 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 ### 1. Validate URL reachability
 
+When §0's `derive-name` call gave `git_probe` `no-git` (git is missing, so nothing asked whether `{url}` is a repository), run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'git_probe_unanswered: {url} was not checked for a repository: git is missing'`, a single quote in it written as a backtick (if it fails, go on). Then check that the URL answers:
+
 ```bash
 curl -sI --max-time 5 {url}
 ```

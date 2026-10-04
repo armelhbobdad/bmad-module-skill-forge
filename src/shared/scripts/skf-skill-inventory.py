@@ -21,7 +21,7 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --match-target <url-or-name>
      uv run skf-skill-inventory.py <skills-output-folder> --near <name>
      uv run skf-skill-inventory.py derive-name --target <url-or-path> [--manifest-name <name>]
-         [--skills-folder <skills-output-folder>]
+         [--skills-folder <skills-output-folder>] [--probe-git]
      uv run skf-skill-inventory.py derive-name --from <names.json|-> [--skills-folder <folder>]
      uv run skf-skill-inventory.py <skills-output-folder> --forge-data-folder <path>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name> --write-check
@@ -148,7 +148,7 @@ clone URL, one whose path ends in `.git` or holds `/_git/`) gives its host
 (`https://docs.example.com/guide` gives `docs-example-com`), and any other
 target its last folder or repository name (`https://github.com/vercel/next.js`
 gives `next-js`, `C:\\code\\mono` gives `mono`, and `.` the current
-folder's name). step-auto-scope routes a target on that `basis`.
+folder's name).
 
 `derive-name --target <t> [--manifest-name <n>]` returns `name` and
 `basis` ("manifest", "docs-host" or "target"), and exits 1 with `NO_NAME`
@@ -161,7 +161,19 @@ documentation URL and "remote" for anything else, and `clone_url` the URL
 git clones a remote target from (null for the other kinds): a URL with a
 scheme or an SSH address as given, `https://<path>` for a host path
 without a scheme (`github.com/acme/mono`) and `https://github.com/<path>`
-for the `owner/repo` shorthand. Both are null without a --target. `derive-name --from <file|->` takes a JSON
+for the `owner/repo` shorthand. Both are null without a --target.
+`--probe-git` adds git's verdict on a "docs" target as `git_probe` (see
+`probe_git`): "repository" when git reads a repository at the URL (on most
+hosts a repository's main page, such as a self-hosted GitLab, Gitea or
+Codeberg page), "credentials" when the server asks git for credentials (a
+private repository, or any page behind a login), "unanswered" when git
+gives no answer in time, "no-git" when git is missing, else "docs". It also
+adds `halt_message`, the message analyze-source stops with on
+"repository", "credentials" and "unanswered" (see `git_probe_halt`), else
+null. Both are null for the other kinds, which it does not probe. The name,
+`kind` and `clone_url` never depend on them, so the name stays the one
+coexistence matching compares offline.
+`derive-name --from <file|->` takes a JSON
 array of {"target", "manifest_name", "private", "members"} (all optional)
 and returns `names[]`, each entry's `target` and `manifest_name` with its
 `name` (null when none can be derived) and `basis` ("members" too). Entries
@@ -200,10 +212,12 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 
 def read_json_file(path):
@@ -1821,7 +1835,8 @@ def _kebab(segment):
 
 # Hosts step-auto-scope's URL table reads as git hosting; an http(s) URL on
 # any other host is a documentation URL, named after its host, unless its
-# path marks a git clone URL (see :func:`_docs_host`).
+# path marks a git clone URL (see :func:`_docs_host`). Naming stays offline:
+# :func:`probe_git` tells a repository's page address among them apart.
 GIT_HOSTS = ("github.com", "gitlab.com", "bitbucket.org")
 
 _MAJOR_VERSION_SEGMENT = re.compile(r"v\d+")
@@ -1971,6 +1986,72 @@ def clone_url(target):
     path = s.strip("/")
     first = path.split("/", 1)[0]
     return f"https://{path}" if ("." in first or ":" in first) else f"https://github.com/{path}"
+
+
+# How long `probe_git` waits for git, in seconds.
+GIT_PROBE_TIMEOUT = 20
+# What git prints (in the C locale) when the server asks for credentials and
+# none can be given without a prompt, or refuses the stored ones: a private
+# repository, or any other page behind a login.
+_GIT_CREDENTIAL_ERRORS = ("terminal prompts disabled", "Authentication failed")
+# What a run asks for in place of an address git reads as a repository.
+_CLONE_REMEDY = "use its `.git` clone URL, its address without https:// or its SSH address"
+
+
+def probe_git(url):
+    """git's verdict on ``url``: "repository", "credentials", "unanswered", "no-git" or "docs".
+
+    Runs ``git ls-remote --exit-code --heads <url>``, the URL less its query
+    and fragment (git appends ``/info/refs`` to the address it is given),
+    with every prompt off (no terminal prompt, no askpass program, no
+    credential-manager window), so it never waits on the user; a credential
+    helper's stored credentials still apply. ``--heads`` asks for the branches
+    alone (protocol v2 sends the server the prefix ``refs/heads/``), so a
+    repository with a huge ref list (one ref per Gerrit patch set) answers at
+    once. "repository" when git exits 0, or 2 (a repository that answered
+    with no branch); "credentials" when the server asks for credentials or
+    refuses the stored ones: a private repository answers so, and so does
+    documentation behind a login, so it never says which; "docs" on any
+    other answer (``repository not found`` for a documentation site);
+    "unanswered" when git gives no answer in :data:`GIT_PROBE_TIMEOUT`
+    seconds; "no-git" when git is missing or cannot run. stderr goes to a
+    file, not a pipe, so a timeout returns at once even while git's transport
+    helper still runs.
+    """
+    address = urlunsplit(urlsplit(str(url).strip())._replace(query="", fragment=""))
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "",
+           "GCM_INTERACTIVE": "never", "LC_ALL": "C"}
+    with tempfile.TemporaryFile() as err:
+        try:
+            proc = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", address], env=env,
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err,
+                                  timeout=GIT_PROBE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return "unanswered"
+        except OSError:
+            return "no-git"
+        if proc.returncode in (0, 2):
+            return "repository"
+        err.seek(0)
+        message = err.read().decode("utf-8", errors="replace")
+    return "credentials" if any(text in message for text in _GIT_CREDENTIAL_ERRORS) else "docs"
+
+
+def git_probe_halt(target, verdict):
+    """The message a run stops with for ``target`` on :func:`probe_git`'s ``verdict``, or None.
+
+    A run stops when git reads the address as a repository, when the server
+    asks for credentials and when git gives no answer; it goes on as
+    documentation on "docs" and on "no-git" (nothing could ask git, and a
+    documentation URL needs no git).
+    """
+    return {
+        "repository": f"{target} is a git repository: {_CLONE_REMEDY}.",
+        "credentials": f"{target} asks for credentials: SKF reads no documentation behind a login; "
+                       f"if it is a private git repository, {_CLONE_REMEDY}.",
+        "unanswered": f"{target} gave git no answer in {GIT_PROBE_TIMEOUT} s: if it is a git repository, "
+                      f"{_CLONE_REMEDY}; if it is documentation, give a documentation URL that answers.",
+    }.get(verdict)
 
 
 def derive_name_with_basis(target, manifest_name=None, private=False, members=None):
@@ -2242,7 +2323,7 @@ USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "[--skill <name>] [--manifest-only] [--match-target <url-or-name>] "
          "[--near <name>] [--forge-data-folder <path>]\n"
          "       uv run skf-skill-inventory.py derive-name --target <url-or-path> "
-         "[--manifest-name <name>] [--skills-folder <skills-output-folder>]\n"
+         "[--manifest-name <name>] [--skills-folder <skills-output-folder>] [--probe-git]\n"
          "       uv run skf-skill-inventory.py derive-name --from <names.json|-> "
          "[--skills-folder <skills-output-folder>]\n"
          "       uv run skf-skill-inventory.py <skills-output-folder> --skill <name> "
@@ -2422,10 +2503,12 @@ def _read_name_entries(source):
 
 
 def _main_derive_name(argv):
-    """`derive-name --target <t> [--manifest-name <n>] [--skills-folder <f>]` or
+    """`derive-name --target <t> [--manifest-name <n>] [--skills-folder <f>] [--probe-git]` or
     `derive-name --from <file|-> [--skills-folder <f>]`; exit 1 with `USAGE`,
     `BAD_INPUT` or (for one --target) `NO_NAME` on an error."""
     flags = ("--target", "--manifest-name", "--from", "--skills-folder")
+    probe = "--probe-git" in argv
+    argv = [arg for arg in argv if arg != "--probe-git"]
     try:
         target, manifest_name, source, skills_folder = (
             _flag_value(argv, flag, required=True) for flag in flags)
@@ -2434,6 +2517,8 @@ def _main_derive_name(argv):
             raise ValueError("--from takes no --target or --manifest-name")
         if source is None and target is None and manifest_name is None:
             raise ValueError("derive-name needs --target <url-or-path> or --from <names.json|->")
+        if probe and source is not None:
+            raise ValueError("--probe-git takes one --target, not --from")
     except ValueError as e:
         return _usage_error(str(e))
     existing = existing_by_name(skills_folder) if skills_folder is not None else None
@@ -2458,6 +2543,9 @@ def _main_derive_name(argv):
                              indent=2))
             return 1
         del result["target"], result["manifest_name"]
+        if probe:
+            verdict = probe_git(target) if result["kind"] == "docs" else None
+            result.update(git_probe=verdict, halt_message=git_probe_halt(target, verdict))
         print(json.dumps({"status": "ok", "command": "derive-name", **with_existing(result)}, indent=2))
         return 0
     try:

@@ -60,27 +60,25 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 ### 0. URL Type Detection
 
-Read the target URL or path from the pipeline context (`{project_path}` or the first entry in `project_paths[]`).
-
-**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0`): "`skf-skill-inventory.py` is missing. Re-install SKF." The helper that names every brief classifies the target:
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0`): "`skf-skill-inventory.py` is missing. Re-install SKF." The helper classifies `{project_path}` (the first of `project_paths[]`):
 
 ```bash
-uv run {skillInventoryHelper} derive-name --target "{project_path}"
+uv run {skillInventoryHelper} derive-name --target "{project_path}" --probe-git
 ```
 
 | `kind` | Classification | Route |
-|--------|----------------|-------|
-| `docs` | Documentation URL | `references/auto-docs-only.md` (docs-only, via §0c) |
-| `local` | Local filesystem path | §1 (standard auto-scope) |
-| `remote` | Repo URL, cloned from `clone_url` | §1 (standard auto-scope) |
+|---|---|---|
+| `docs` | Documentation URL | HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0`, path `{project_path}`) with its `halt_message` when it gives one, else `references/auto-docs-only.md`, via §0c |
+| `local` | Local filesystem path | §1 |
+| `remote` | Repo URL, cloned from `clone_url` | §1 |
 
-Store `{kind}` and `{clone_url}` (null unless `kind` is `remote`). For all input types, continue to §0b (Pin Resolution).
+Store `{kind}` and `{clone_url}`; every kind continues to §0b.
 
 ### 0b. Pin Resolution
 
-This section validates and resolves version pins. It runs for repo URLs and local paths only — skip for documentation URLs (doc URLs have no git repo to pin against). Initialize `{pinned_ref}`, `{pinned_ref_type}`, and `{pinned_version}` as null.
+This section validates and resolves version pins. Initialize `{pinned_ref}`, `{pinned_ref_type}`, and `{pinned_version}` as null.
 
-**For documentation URLs:** Skip this section entirely. Continue to §0c.
+**For documentation URLs** (no git repo to pin against): skip to §0c.
 
 **For a local path (`{kind}` is `local`) when `--pin` is provided:** Emit a warning: "**Local source may not match pinned version {pin_value}.** Ensure you've checked out the correct version locally, or use a remote GitHub URL so SKF can clone from the git tag automatically." Store `{pinned_ref}` = `{pin_value}`, `{pinned_ref_type}` = `"local"`, `{pinned_version}` = `{pin_value}`. Continue to §0c without running `skf-validate-pins.py`.
 
@@ -114,7 +112,7 @@ Handle exit codes:
 
 ### 0c. Coexistence Detection
 
-This section checks for existing skills matching the target before proceeding. It runs for all input types (repo URLs, doc URLs, and local paths). Initialize `{coexistence_suffix}` as empty.
+This section checks for existing skills matching the target, whatever its kind, then goes on to its **route**: load, read fully, then execute `references/auto-docs-only.md` for a documentation URL, §1 for every other kind. Initialize `{coexistence_suffix}` as empty.
 
 **1. Load skill inventory:**
 
@@ -124,7 +122,7 @@ Pass the target (`{project_path}`) to `{skillInventoryHelper}`, resolved in §0,
 uv run {skillInventoryHelper} "{skills_output_folder}" --match-target "{project_path}"
 ```
 
-Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and continue: load, read fully, then execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types.
+Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and go on to the route.
 
 **2. Read the match set:**
 
@@ -138,9 +136,9 @@ Read the top-level **`matches[]`** array; the helper has already matched, so do 
 
 **3. If `matches[]` is empty:**
 
-Complete silently. Continue: execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types. No user output.
+Complete silently and go on to the route. No user output.
 
-**4. If `matches[]` has one or more entries:** load, read fully, then execute {coexistenceFile}, the coexistence gate. Its [A]longside comes back here with `{coexistence_suffix}` set to `-wiki` and continues with `references/auto-docs-only.md` for a documentation URL, §1 for every other input; its [M]erge and [S]kip end the run through §9.
+**4. If `matches[]` has one or more entries:** load, read fully, then execute {coexistenceFile}, the coexistence gate. Its [A]longside comes back here with `{coexistence_suffix}` set to `-wiki` and goes on to the route; its [M]erge and [S]kip end the run through §9.
 
 ### 1. Load Context
 
@@ -154,7 +152,7 @@ Load `references/step-shape-detect.md` as reference for shape detection invocati
 
 ### 2. Manifest Scan
 
-Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses): do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists; if none does, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`): "`skf-scan-manifests.py` is missing. Re-install SKF." The scanner reads a **local directory**, so how you point it at the target depends on its `kind`: §0 gave `{kind}` and `{clone_url}` for its target, and §0's `derive-name --target` call gives them for any other path.
+Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses): do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists; if none does, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`): "`skf-scan-manifests.py` is missing. Re-install SKF." The scanner reads a **local directory**, so how you point it at the target depends on its `kind`: §0 gave `{kind}` and `{clone_url}` for its target, and §0's `derive-name --target` call gives them for any other path, and its `halt_message` halts the run as in §0, with phase `step-auto-scope:2` and that path as `{project_path}`.
 
 **For each path in `project_paths[]`:**
 

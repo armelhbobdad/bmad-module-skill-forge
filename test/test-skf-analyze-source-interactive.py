@@ -272,11 +272,13 @@ def test_a_remote_shorthand_is_cloned_over_https(target):
     assert '"{path}" "{run_dir}/source-{i}"' not in text and '"{url}"' not in text
     assert "skillInventoryProbeOrder:" in _frontmatter(text)
     [call] = [line for line in _bash_lines(text) if "{skillInventoryHelper}" in line]
-    assert call == 'uv run {skillInventoryHelper} derive-name --target "{path}"'
+    assert call == 'uv run {skillInventoryHelper} derive-name --target "{path}" --probe-git'
     proc = _run(call, {"skillInventoryHelper": str(INVENTORY), "path": target})
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)
-    assert (out["kind"], out["clone_url"]) == ("remote", "https://github.com/acme/mono")
+    # A remote target is never probed: only a docs one runs git (gate run 7 determinism-1).
+    assert (out["kind"], out["clone_url"], out["git_probe"], out["halt_message"]) == (
+        "remote", "https://github.com/acme/mono", None, None)
     # The rule lives in the helper: neither path restates it.
     for path in (SCAN_ROOT, AUTO):
         assert "for the `owner/repo` shorthand" not in _read(path), path.name
