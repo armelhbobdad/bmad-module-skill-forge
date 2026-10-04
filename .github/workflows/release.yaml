@@ -642,11 +642,11 @@ jobs:
       - name: Wait for required status checks
         if: github.ref == 'refs/heads/main' && github.event.inputs.version_bump != 'resume'
         id: wait_checks
-        # A backstop above the wait loop's own 20 minutes (TIMEOUT below),
+        # A backstop above the wait loop's own 45 minutes (TIMEOUT below),
         # which count only its sleeps: its gh and jq calls and the
         # registration poll come on top. The loop must end first, so that
         # its error, which reads the bot PR's state, is the one the run shows.
-        timeout-minutes: 30
+        timeout-minutes: 60
         # Story 3.5 AC #1–#4 (fixes issue #202): gh pr checks reads GraphQL's
         # PullRequest.statusCheckRollup which only surfaces check-runs in a
         # check suite that belongs to the PR (pull_request / push / merge_group
@@ -768,11 +768,15 @@ jobs:
           fi
 
           # AC #4: main wait loop: most-recent-wins per context, fail-fast on
-          # any conclusion that is not green, and 20 minutes of waits
+          # any conclusion that is not green, and 45 minutes of waits
           # (TIMEOUT) before it gives up, under the step's own timeout. A read
           # that fails is a pending tick, so only the timeout ends the wait.
+          # python (windows-latest) alone takes about 19 minutes, and the
+          # pull_request run the wait counts can start minutes after the
+          # dispatched one: at 20 minutes, the v3.0.0 run of 2026-10-04 timed
+          # out 11 seconds before that job went green.
           ELAPSED=0
-          TIMEOUT=1200
+          TIMEOUT=2700
           PENDING=()
           while [ $ELAPSED -lt $TIMEOUT ]; do
             CHECKS=$(check_runs)
