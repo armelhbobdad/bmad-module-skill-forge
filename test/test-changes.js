@@ -9,6 +9,15 @@
  *   gives, computed as the Bump version step computes it;
  * - a golden render of the fixture fragments, and the insertion into the
  *   real CHANGELOG.md with every older release left byte-identical;
+ * - GitHub's size limits: under them, the notes and the review are
+ *   byte-identical to what the tool wrote before it kept to them (golden
+ *   files rendered by the tool of b5150b08); 300 long fragments push both
+ *   over, and the notes come out in the compact form (every heading, each
+ *   entry its scope and first sentence, a link to CHANGELOG.md at the tag,
+ *   or to changes/ for a prerelease), then in the outline, counts and cut
+ *   forms under smaller budgets, never over one; the review keeps its
+ *   checklist and the reasons at the minimum, counts the rest and points to
+ *   the log and the run summary, which get the full review;
  * - the commands end to end against throwaway git repositories, released
  *   fragments edited, renamed or copied included;
  * - the pr command on branches of those repositories: a change to the code
@@ -58,6 +67,7 @@ const { spawnSync, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const YAML = require('yaml');
 
 const ROOT = path.join(__dirname, '..');
 const CHANGES_TOOL = path.join(ROOT, 'tools', 'changes.js');
@@ -729,17 +739,268 @@ test('renderReview: checklist, reasons, surfaces and the notes one heading level
   assert.match(review, /\n#### Breaking changes\n/);
 });
 
-test('renderReview: a text too long for a pull request body is cut', () => {
-  const many = Array.from({ length: 3000 }, (_, i) => ({ text: `shared: halt_reason value \`reason-${i}\` added` }));
-  const review = changes.renderReview({
-    version: '3.0.0',
+// --- GitHub's size limits ---
+
+// The surface changes and the gate of the golden review: the fixture
+// fragments, a removed enum value they name, an addition and a review item.
+const GOLDEN_SURFACES = {
+  hard: [hardFinding('write_failure')],
+  additive: [additiveFinding('--target-ref')],
+  review: [{ text: 'skf-setup: flag `--quiet` text changed' }],
+};
+
+function goldenGate() {
+  return changes.evaluateGate({
+    next: '3.0.0',
+    bump: 'major',
+    current: '2.2.0',
     baseTag: 'v2.2.0',
-    gate: gate({ bump: 'major', fragments: [breakingNamed()] }),
-    surfaces: { hard: [], additive: [], review: many },
-    block: fixtureBlock(),
+    fragments: fixtureFragments(),
+    surfaces: GOLDEN_SURFACES,
   });
-  assert.ok(review.length < 61_000, `${review.length} characters`);
-  assert.match(review, /Cut to fit a pull request body/);
+}
+
+/**
+ * `count` valid fragments with long summaries, deterministic: a breaking
+ * change every fifth one, each summary a first sentence (with a dot in a
+ * code span and an "e.g.") and then about 1,100 more characters.
+ */
+function longFragments(count, types = ['breaking', 'added', 'changed', 'fixed', 'docs']) {
+  return Array.from({ length: count }, (_, i) => {
+    const type = types[i % types.length];
+    const name = `long-${String(i).padStart(4, '0')}.yaml`;
+    const filler = Array.from({ length: 12 }, (_, j) => `Detail ${j} of change ${i} says what a user sees in the run, step by step.`).join(
+      ' ',
+    );
+    const data = {
+      summary: `Change ${i} makes \`skf-tool.v${i}\` read e.g. the pinned commit before it writes. ${filler}`,
+      prs: [1000 + i],
+    };
+    if (type !== 'docs') data.scope = `skf-area-${i % 7}`;
+    if (type === 'breaking')
+      data.migration = `Run \`skf-tool --fix-${i}\` once on each skill, then rerun the workflow. ${filler.slice(0, 300)}`;
+    return frag(type, data, name);
+  });
+}
+
+function releaseOf(fragments, version = '3.0.0') {
+  const input = { version, baseTag: 'v2.2.0', date: '2026-10-06', fragments, repoUrl: REPO };
+  return { ...input, block: changes.renderBlock(input), packageName: 'bmad-module-skill-forge' };
+}
+
+test("size limits: each is GitHub's limit, and each budget keeps a margin under it", () => {
+  assert.strictEqual(changes.RELEASE_BODY_LIMIT, 125_000);
+  assert.strictEqual(changes.PR_BODY_LIMIT, 65_536);
+  assert.strictEqual(changes.STEP_SUMMARY_LIMIT, 1_048_576);
+  assert.ok(changes.NOTES_BUDGET <= changes.RELEASE_BODY_LIMIT - 5000, `${changes.NOTES_BUDGET}`);
+  // release.yaml adds under 1,000 characters around the review in the bot PR body.
+  assert.ok(changes.REVIEW_BUDGET <= changes.PR_BODY_LIMIT - 5000, `${changes.REVIEW_BUDGET}`);
+  assert.ok(changes.SUMMARY_BUDGET <= changes.STEP_SUMMARY_LIMIT - 40_000, `${changes.SUMMARY_BUDGET}`);
+});
+
+test('under the limits: the notes and the review are byte-identical to what the tool wrote before it kept to them', () => {
+  const release = releaseOf(fixtureFragments());
+  const date = '2026-10-01';
+  const fitted = changes.fitNotes({ ...release, date, block: fixtureBlock() });
+  assert.strictEqual(fitted.form, 'full');
+  assert.strictEqual(fitted.notes, fs.readFileSync(path.join(FIXTURES, 'golden-notes.md'), 'utf8'));
+  assert.strictEqual(fitted.notes, changes.renderNotes({ ...release, block: fixtureBlock() }));
+  const input = {
+    ...release,
+    date,
+    block: fixtureBlock(),
+    gate: goldenGate(),
+    surfaces: GOLDEN_SURFACES,
+    runUrl: `${REPO}/actions/runs/1`,
+  };
+  const golden = fs.readFileSync(path.join(FIXTURES, 'golden-review.md'), 'utf8');
+  assert.strictEqual(changes.renderReview(input), golden);
+  assert.strictEqual(changes.fullReview(input), golden);
+});
+
+test('at the budget: notes and a review of exactly that length are unchanged, one character more shortens them', () => {
+  const padded = (extra) => releaseOf([frag('fixed', { summary: `A fix. More${'x'.repeat(extra)}` }, 'fix.yaml')]);
+  const notesRoom = changes.NOTES_BUDGET - changes.renderNotes(padded(0)).length;
+  const exact = changes.fitNotes(padded(notesRoom));
+  assert.strictEqual(exact.form, 'full');
+  assert.strictEqual(exact.notes, changes.renderNotes(padded(notesRoom)));
+  assert.strictEqual(exact.notes.length, changes.NOTES_BUDGET);
+  assert.strictEqual(changes.fitNotes(padded(notesRoom + 1)).form, 'compact');
+  const reviewOf = (extra) => {
+    const release = padded(extra);
+    const result = changes.evaluateGate({
+      next: '2.2.1',
+      bump: 'patch',
+      current: '2.2.0',
+      baseTag: 'v2.2.0',
+      fragments: release.fragments,
+      surfaces: null,
+    });
+    return { ...release, gate: result, surfaces: null };
+  };
+  const reviewRoom = changes.REVIEW_BUDGET - changes.fullReview(reviewOf(0)).length;
+  assert.strictEqual(changes.renderReview(reviewOf(reviewRoom)), changes.fullReview(reviewOf(reviewRoom)));
+  assert.strictEqual(changes.renderReview(reviewOf(reviewRoom)).length, changes.REVIEW_BUDGET);
+  const shortened = changes.renderReview(reviewOf(reviewRoom + 1));
+  assert.ok(shortened.length <= changes.REVIEW_BUDGET && shortened.includes('**Shortened to fit a pull request body.**'));
+});
+
+test('firstSentence: ends at a full stop that ends a word outside a code span', () => {
+  assert.strictEqual(changes.firstSentence('Reads `a.b` first. Then more.'), 'Reads `a.b` first.');
+  assert.strictEqual(
+    changes.firstSentence('Reads e.g. the tag, i.e. v3.0.0, first! Then more.'),
+    'Reads e.g. the tag, i.e. v3.0.0, first!',
+  );
+  assert.strictEqual(changes.firstSentence('One line\n  wrapped. Two.'), 'One line wrapped.');
+  assert.strictEqual(changes.firstSentence('No full stop at all'), 'No full stop at all');
+  assert.strictEqual(changes.firstSentence('Is it `x. y`? Yes.'), 'Is it `x. y`?');
+});
+
+test('notes over the limit: the compact form, every heading, each entry shortened, a link to CHANGELOG.md', () => {
+  const lead = frag('lead', { summary: 'SKF 3.0.0 is the long release.\nRead Breaking changes first.' }, 'lead.yaml');
+  const fragments = [lead, ...longFragments(300)];
+  const release = releaseOf(fragments);
+  const full = changes.renderNotes(release);
+  assert.ok(full.length > changes.RELEASE_BODY_LIMIT, `the fixture is over GitHub's limit: ${full.length}`);
+  const { notes, form, fullLength } = changes.fitNotes(release);
+  assert.strictEqual(form, 'compact');
+  assert.strictEqual(fullLength, full.length);
+  assert.ok(notes.length <= changes.NOTES_BUDGET, `${notes.length}`);
+  assert.ok(
+    notes.startsWith(
+      `## [3.0.0](${REPO}/compare/v2.2.0...v3.0.0) (2026-10-06)\n\nSKF 3.0.0 is the long release. Read Breaking changes first.\n\n`,
+    ),
+  );
+  const link = `[CHANGELOG.md at v3.0.0](${REPO}/blob/v3.0.0/CHANGELOG.md#300-2026-10-06)`;
+  assert.ok(notes.includes(`> **Shortened to fit this page.** Each entry gives only its scope and the first sentence of its summary.`));
+  assert.ok(notes.includes(`, are in ${link}.\n`), notes.slice(0, 1200));
+  const headings = notes.match(/^### .*/gm);
+  assert.deepStrictEqual(headings, ['### Breaking changes', '### Added', '### Changed', '### Fixed', '### Documentation']);
+  const entries = notes.match(/^- .*/gm);
+  assert.strictEqual(entries.length, 300);
+  assert.ok(entries.includes('- **skf-area-0:** Change 0 makes `skf-tool.v0` read e.g. the pinned commit before it writes.'));
+  assert.ok(entries.includes('- Change 4 makes `skf-tool.v4` read e.g. the pinned commit before it writes.'), 'a docs entry with no scope');
+  assert.ok(!notes.includes('**Migration:**') && !notes.includes('/pull/1000') && !notes.includes('Detail 0'));
+  assert.ok(
+    notes.endsWith(
+      `## Installation\n\n\`\`\`bash\nnpx bmad-module-skill-forge install\n\`\`\`\n\n**Full Changelog**: <${REPO}/compare/v2.2.0...v3.0.0>\n`,
+    ),
+  );
+});
+
+test('notes over the limit: shorter forms when compact does not fit, and never over the budget', () => {
+  const release = releaseOf([frag('lead', { summary: 'The lead.' }, 'lead.yaml'), ...longFragments(300)]);
+  const compact = changes.fitNotes(release).notes.length;
+  const outline = changes.fitNotes({ ...release, budget: compact - 1 });
+  assert.strictEqual(outline.form, 'outline');
+  assert.ok(outline.notes.length < compact);
+  assert.match(outline.notes, /\n### Breaking changes\n\n60 changes\.\n\n- \*\*skf-area-0:\*\* Change 0 makes/);
+  assert.match(outline.notes, /\n### Fixed\n\n60 changes\.\n\n### Documentation\n\n60 changes\.\n\n## Installation/);
+  assert.match(outline.notes, /\n\nThe lead\.\n\n> \*\*Shortened to fit this page\.\*\* Each section gives only its number of changes/);
+  assert.strictEqual(outline.notes.match(/^- /gm).length, 60, 'only the breaking changes are listed');
+  const counts = changes.fitNotes({ ...release, budget: outline.notes.length - 1 });
+  assert.strictEqual(counts.form, 'counts');
+  assert.ok(!counts.notes.includes('The lead.') && !/^- /m.test(counts.notes));
+  assert.match(counts.notes, /\n### Added\n\n60 changes\.\n/);
+  for (const budget of [counts.notes.length - 1, 400, 0]) {
+    const cut = changes.fitNotes({ ...release, budget });
+    assert.strictEqual(cut.form, 'cut');
+    assert.ok(cut.notes.length <= budget, `${budget}: ${cut.notes.length}`);
+  }
+  assert.match(
+    changes.fitNotes({ ...release, budget: 400 }).notes,
+    /\n\n\(Cut to fit a GitHub Release: the full notes are in \[CHANGELOG\.md at v3\.0\.0]\(/,
+  );
+});
+
+test('notes over the limit: a prerelease links to its change fragments, at its tag', () => {
+  const { notes, form } = changes.fitNotes(releaseOf(longFragments(300), '3.0.0-rc.1'));
+  assert.strictEqual(form, 'compact');
+  assert.ok(notes.includes(`the change fragments in [changes/ at v3.0.0-rc.1](${REPO}/tree/v3.0.0-rc.1/changes), one file per entry.`));
+  assert.ok(!notes.includes('CHANGELOG.md'));
+  assert.match(notes, /npx bmad-module-skill-forge@3\.0\.0-rc\.1 install/);
+});
+
+test('review over the limit: the checklist and the reasons at the minimum stay, the rest is counted', () => {
+  const fragments = longFragments(300);
+  const release = releaseOf(fragments);
+  const found = {
+    hard: [hardFinding('write_failure')],
+    additive: Array.from({ length: 900 }, (_, i) => additiveFinding(`--flag-${i}`)),
+    review: Array.from({ length: 400 }, (_, i) => ({ text: `skf-setup: flag \`--old-${i}\` text changed` })),
+  };
+  const result = changes.evaluateGate({ next: '3.0.0', bump: 'major', current: '2.2.0', baseTag: 'v2.2.0', fragments, surfaces: found });
+  const runUrl = 'https://github.com/owner/repo/actions/runs/42';
+  const input = { ...release, gate: result, surfaces: found, runUrl };
+  const full = changes.fullReview(input);
+  assert.ok(full.length > changes.PR_BODY_LIMIT, `the fixture is over GitHub's limit: ${full.length}`);
+  const review = changes.renderReview(input);
+  assert.ok(review.length <= changes.REVIEW_BUDGET, `${review.length}`);
+  assert.ok(review.startsWith(full.slice(0, full.indexOf('Approve only when:')).replace(/\n$/, '')), 'the step line is kept');
+  // GitHub shows a job's summary only once the job ends, so the review points to the log first.
+  const notice =
+    '> **Shortened to fit a pull request body.** The full review, with every reason, every surface change and the full notes, ' +
+    `is in the log of [the release run](${runUrl}), in the group "The full review", and in its summary once the job ends.`;
+  assert.ok(review.includes(`${notice}\n`));
+  const where = 'the full review';
+  const checklist = full.slice(full.indexOf('Approve only when:'), full.indexOf('### Why'));
+  assert.ok(review.includes(checklist), 'the checklist is kept in full');
+  const major = result.floor.reasons.filter((reason) => reason.level === 'major');
+  assert.strictEqual(major.length, 61);
+  for (const reason of major) assert.ok(review.includes(`- major: ${reason.text}\n`), reason.text);
+  const minor = result.floor.reasons.filter((reason) => reason.level === 'minor').length;
+  assert.ok(review.includes(`- ${minor} minor and 120 patch reasons more, listed in ${where}.`), 'the lower reasons are counted');
+  assert.ok(review.includes('\n1 hard, 900 additive and 400 to review.\n'));
+  assert.ok(review.includes('Hard (a breaking fragment names each one):\n\n- skf-setup: schema enum value `write_failure` removed\n'));
+  assert.ok(review.includes(`Additive:\n\n- 900 changes, listed in ${where}.\n`));
+  assert.match(review, /\n### \[3\.0\.0]\(/, 'the notes are there, one heading level down');
+  assert.match(review, /\n#### Breaking changes\n/);
+  assert.ok(
+    review.includes(`> **Shortened to fit this page.**`) && review.includes(`are in ${where}.`),
+    'the notes are shortened and point to the full review',
+  );
+  // Without a run (a local run), the pointer names the preview.
+  const local = changes.renderReview({ ...input, runUrl: null });
+  assert.ok(local.length <= changes.REVIEW_BUDGET);
+  assert.ok(local.includes('Every reason, every surface change and the full notes are in the output of `npm run changes:preview`.'));
+  assert.ok(local.includes('- 900 changes, listed in the output of `npm run changes:preview`.'));
+});
+
+test('review over the limit: a part that fits is given in full, and a review with no reasons still fits', () => {
+  const fragments = longFragments(300, ['fixed']);
+  const release = releaseOf(fragments);
+  const found = {
+    hard: [],
+    additive: [],
+    review: Array.from({ length: 2000 }, (_, i) => ({ text: `skf-setup: flag \`--old-${i}\` text changed` })),
+  };
+  const result = changes.evaluateGate({ next: '2.2.1', bump: 'patch', current: '2.2.0', baseTag: 'v2.2.0', fragments, surfaces: found });
+  const review = changes.renderReview({ ...release, version: '2.2.1', gate: result, surfaces: found });
+  assert.ok(review.length <= changes.REVIEW_BUDGET, `${review.length}`);
+  assert.ok(review.includes('Hard (a breaking fragment names each one):\n\n- none\n'));
+  assert.ok(review.includes('- 2000 changes, listed in'));
+  assert.strictEqual(review.match(/^- patch: /gm).length, 300, 'every reason fits, so every reason is listed');
+  const none = changes.renderReview({
+    ...release,
+    gate: { reached: 'patch', floor: { level: 'none', reasons: [] } },
+    surfaces: null,
+    budget: 2000,
+  });
+  assert.ok(none.length <= 2000, `${none.length}`);
+  assert.match(none, /### Why the minimum is none\n\n- no fragment or surface change sets one\n/);
+  assert.match(none, /No stable release tag was found/);
+});
+
+test('cutToFit: whole lines under the budget, in characters or in UTF-8 bytes', () => {
+  const text = `${'ab\n'.repeat(10)}`;
+  assert.strictEqual(changes.cutToFit(text, 30, 'X'), text);
+  const cut = changes.cutToFit(text, 12, 'X');
+  assert.ok(cut.length <= 12 && cut.endsWith('\n\nX\n'), JSON.stringify(cut));
+  const wide = `${'ééé\n'.repeat(400)}`;
+  const bytes = changes.cutToFit(wide, 1000, '(cut)', true);
+  assert.ok(Buffer.byteLength(bytes) <= 1000, `${Buffer.byteLength(bytes)}`);
+  assert.ok(bytes.length < Buffer.byteLength(bytes) && !bytes.includes('�') && bytes.endsWith('é\n\n(cut)\n'));
+  assert.strictEqual(changes.cutToFit(text, 3, 'a note too long'), 'ab', 'a note that does not fit is left out');
 });
 
 // --- The commands against throwaway repositories ---
@@ -878,6 +1139,74 @@ test('release: a prerelease writes only the notes', () => {
   assert.strictEqual(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), TEMP_CHANGELOG);
   assert.match(fs.readFileSync(path.join(root, 'notes.md'), 'utf8'), /^## \[1\.1\.0-rc\.1][\s\S]*npx example-tool@1\.1\.0-rc\.1 install/);
   assert.match(out, /A prerelease leaves CHANGELOG\.md alone/);
+});
+
+test('release: notes and a review over GitHub limits are shortened, and the log and the run summary get the full review', () => {
+  const root = makeRepo({ version: '2.0.0' });
+  write(root, Object.fromEntries(longFragments(300).map((fragment) => [fragment.file, YAML.stringify(fragment.data)])));
+  const summary = path.join(root, 'summary.md');
+  const run = {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'example/tool',
+    GITHUB_RUN_ID: '42',
+    GITHUB_STEP_SUMMARY: summary,
+  };
+  const args = ['release', '--root', root, '--date', '2026-10-06', '--review', 'release_review.md'];
+  const { status, out } = runTool(CHANGES_TOOL, args, run);
+  assert.strictEqual(status, 0, out);
+  const notes = fs.readFileSync(path.join(root, 'release_notes.md'), 'utf8');
+  const review = fs.readFileSync(path.join(root, 'release_review.md'), 'utf8');
+  assert.ok(notes.length <= changes.NOTES_BUDGET, `${notes.length}`);
+  assert.ok(review.length <= changes.REVIEW_BUDGET, `${review.length}`);
+  assert.ok(notes.includes('[CHANGELOG.md at v2.0.0](https://github.com/example/tool/blob/v2.0.0/CHANGELOG.md#200-2026-10-06)'));
+  assert.ok(
+    review.includes('is in the log of [the release run](https://github.com/example/tool/actions/runs/42), in the group "The full review"'),
+  );
+  const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
+  assert.ok(changelog.length > changes.RELEASE_BODY_LIMIT, 'CHANGELOG.md keeps the full block');
+  assert.ok(changelog.includes('  **Migration:** Run `skf-tool --fix-0` once'));
+  const full = fs.readFileSync(summary, 'utf8');
+  assert.ok(full.length > changes.PR_BODY_LIMIT && Buffer.byteLength(full) <= changes.SUMMARY_BUDGET, `${full.length}`);
+  assert.ok(full.startsWith('## Review before approving\n') && full.includes('  **Migration:** Run `skf-tool --fix-0` once'));
+  assert.ok(!full.includes('Shortened'), 'the run summary has the review in full');
+  assert.match(
+    out,
+    /::notice::The full notes run to \d+ characters, over the 120000 kept for a GitHub Release body \(GitHub's limit is 125000\): release_notes\.md holds the compact form/,
+  );
+  assert.match(
+    out,
+    /::notice::The full review runs to \d+ characters, over the 60000 kept for a pull request body \(GitHub's limit is 65536\): release_review\.md is shortened/,
+  );
+  // The log shows both, each in a group with workflow commands stopped, while the bot PR waits.
+  const group = (title, text) =>
+    new RegExp(String.raw`::group::${title}\n::stop-commands::([\w-]+)\n([\s\S]*?)\n::\1::\n::endgroup::`).exec(text);
+  const logged = group('The full review', out);
+  assert.ok(logged, out.slice(-2000));
+  assert.strictEqual(`${logged[2]}\n\n`, full, 'the log shows the review of the run summary');
+  assert.strictEqual(`${group(String.raw`release_notes\.md`, out)[2]}\n`, notes);
+});
+
+test('release: notes under the limits are written as before, and the run summary gets the same review', () => {
+  const root = makeRepo({ version: '1.1.0' });
+  write(root, { 'changes/all-flag.yaml': 'type: added\nscope: skf-tool\nsummary: New `--all` flag.\n' });
+  const summary = path.join(root, 'summary.md');
+  const args = ['release', '--root', root, '--date', '2026-10-01', '--review', 'release_review.md'];
+  const { status, out } = runTool(CHANGES_TOOL, args, { GITHUB_STEP_SUMMARY: summary });
+  assert.strictEqual(status, 0, out);
+  const block =
+    '## [1.1.0](https://github.com/example/tool/compare/v1.0.0...v1.1.0) (2026-10-01)\n\n### Added\n\n- **skf-tool:** New `--all` flag.\n';
+  const notes = changes.renderNotes({
+    block,
+    version: '1.1.0',
+    baseTag: 'v1.0.0',
+    repoUrl: 'https://github.com/example/tool',
+    packageName: 'example-tool',
+  });
+  assert.strictEqual(fs.readFileSync(path.join(root, 'release_notes.md'), 'utf8'), notes);
+  const review = fs.readFileSync(path.join(root, 'release_review.md'), 'utf8');
+  assert.strictEqual(fs.readFileSync(summary, 'utf8'), `${review}\n`);
+  assert.ok(!out.includes('over the'), out);
 });
 
 test('release: refuses what the gate refuses, and a non-empty [Unreleased]', () => {
