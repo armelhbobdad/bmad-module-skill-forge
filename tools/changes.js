@@ -46,8 +46,13 @@
  *              byte-identical; every release writes release_notes.md (or
  *              --notes <file>). A prerelease leaves CHANGELOG.md alone.
  *              --review <file> also writes the "Review before approving"
- *              text for the bot PR. --notes-only skips CHANGELOG.md.
- *              --date YYYY-MM-DD overrides today's date (UTC).
+ *              text for the bot PR, and writes that text in full to the
+ *              step summary in GitHub Actions. --notes-only skips
+ *              CHANGELOG.md. --date YYYY-MM-DD overrides today's date
+ *              (UTC). The notes and the review are kept under GitHub's size
+ *              limits (see RELEASE_BODY_LIMIT): when the full text does not
+ *              fit, each is shortened and says where the full text is, and
+ *              in GitHub Actions the log shows what was shortened.
  *   pr         Check one branch, from its merge base with the base branch
  *              to HEAD (commits only: the working tree is not read). The
  *              base is --base <ref>, else origin/$GITHUB_BASE_REF on a pull
@@ -93,6 +98,7 @@
  */
 
 const { execFileSync } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 // Dev-only tool: yaml and semver are devDependencies (release.yaml runs npm ci first).
@@ -124,8 +130,21 @@ const SCOPE = /^[a-z0-9][a-z0-9 ,._/-]*$/;
 // fragmentTemplate starts each sentence to rewrite with this, so a template committed as printed fails.
 const TEMPLATE_MARK = 'Rewrite this paragraph';
 const TEMPLATE_FIX = { summary: 'say what changed, in words a user understands', migration: 'give the exact action a user takes' };
-// A pull request body holds at most 65536 characters; leave room for the rest of the body.
-const REVIEW_LIMIT = 60_000;
+// GitHub's size limits on what a release writes. A length here is a
+// JavaScript string length, in UTF-16 code units, never fewer than the
+// characters GitHub counts (a character outside the Basic Multilingual Plane
+// takes two units), and each budget keeps a margin under its limit.
+// GitHub refuses a release body over 125,000 characters.
+const RELEASE_BODY_LIMIT = 125_000;
+const NOTES_BUDGET = RELEASE_BODY_LIMIT - 5000;
+// GitHub refuses a pull request body over 65,536 characters. REVIEW_BUDGET
+// leaves room for the lines release.yaml adds around the review (the Open
+// bot PR step, which checks the review against the same number).
+const PR_BODY_LIMIT = 65_536;
+const REVIEW_BUDGET = 60_000;
+// GitHub drops a step summary over 1 MiB; this limit and its budget are bytes.
+const STEP_SUMMARY_LIMIT = 1_048_576;
+const SUMMARY_BUDGET = 1_000_000;
 
 class ToolError extends Error {
   constructor(message, exitCode = 1) {
@@ -485,13 +504,8 @@ function renderBlock({ version, baseTag, date, fragments, repoUrl }) {
   const lines = [`## [${version}](${compareUrl(repoUrl, baseTag, version)}) (${date})`, ''];
   const lead = fragments.find((fragment) => fragment.data.type === 'lead');
   if (lead) lines.push(oneParagraph(lead.data.summary), '');
-  let sections = 0;
-  for (const [type, title] of SECTIONS) {
-    const group = fragments
-      .filter((fragment) => fragment.data.type === type)
-      .sort((a, b) => (a.data.scope || '').localeCompare(b.data.scope || '', 'en') || a.name.localeCompare(b.name, 'en'));
-    if (group.length === 0) continue;
-    sections += 1;
+  const found = sections(fragments);
+  for (const { type, title, group } of found) {
     lines.push(`### ${title}`, '');
     for (const fragment of group) {
       lines.push(entry(fragment, repoUrl));
@@ -499,8 +513,103 @@ function renderBlock({ version, baseTag, date, fragments, repoUrl }) {
     }
     if (type !== 'breaking') lines.push('');
   }
-  if (sections === 0 && !lead) lines.push('No change fragments were added for this release.', '');
+  if (found.length === 0 && !lead) lines.push('No change fragments were added for this release.', '');
   return `${lines.join('\n').trimEnd()}\n`;
+}
+
+/** The sections that have entries, in SECTIONS order, each with its entries ordered by scope, then file name. */
+function sections(fragments) {
+  return SECTIONS.map(([type, title]) => ({
+    type,
+    title,
+    group: fragments
+      .filter((fragment) => fragment.data.type === type)
+      .sort((a, b) => (a.data.scope || '').localeCompare(b.data.scope || '', 'en') || a.name.localeCompare(b.name, 'en')),
+  })).filter(({ group }) => group.length > 0);
+}
+
+// The shortened forms of the block, longest first, each with the notice that
+// says what it leaves out; `full` is where the full notes are.
+const SHORT_NOTICES = {
+  compact: (full) =>
+    '> **Shortened to fit this page.** Each entry gives only its scope and the first sentence of its summary. ' +
+    `The full notes, with each migration and the linked issues and pull requests, are in ${full}.`,
+  outline: (full) =>
+    '> **Shortened to fit this page.** Each section gives only its number of changes, and each breaking change ' +
+    `only its scope and the first sentence of its summary. The full notes, with each migration, are in ${full}.`,
+  counts: (full) => `> **Shortened to fit this page.** Each section gives only its number of changes. The full notes are in ${full}.`,
+};
+const SHORT_FORMS = Object.keys(SHORT_NOTICES);
+
+/** The first sentence of a paragraph: up to the first ".", "!" or "?" outside a code span that ends a word, else all of it. */
+function firstSentence(text) {
+  const paragraph = oneParagraph(text);
+  let code = false;
+  for (let index = 0; index < paragraph.length; index += 1) {
+    const char = paragraph[index];
+    if (char === '`') code = !code;
+    if (code || !'.!?'.includes(char) || /\S/.test(paragraph[index + 1] || ' ')) continue;
+    if (!/\b(?:e\.g|i\.e)$/i.test(paragraph.slice(0, index))) return paragraph.slice(0, index + 1);
+  }
+  return paragraph;
+}
+
+/**
+ * The block in one of SHORT_FORMS, for a page too small for it: the version
+ * heading, the lead paragraph (not in counts), the notice, and every
+ * section heading. compact gives each entry its scope and its first
+ * sentence; outline gives each section its number of entries and lists its
+ * breaking changes as compact does; counts gives the numbers only.
+ *
+ * @returns {string} the block, ending with one newline
+ */
+function shortBlock({ version, baseTag, date, fragments, repoUrl, form, full }) {
+  const lines = [`## [${version}](${compareUrl(repoUrl, baseTag, version)}) (${date})`, ''];
+  const lead = fragments.find((fragment) => fragment.data.type === 'lead');
+  if (lead && form !== 'counts') lines.push(oneParagraph(lead.data.summary), '');
+  lines.push(SHORT_NOTICES[form](full), '');
+  for (const { type, title, group } of sections(fragments)) {
+    lines.push(`### ${title}`, '');
+    if (form !== 'compact') lines.push(`${group.length} ${group.length === 1 ? 'change' : 'changes'}.`, '');
+    if (form === 'compact' || (form === 'outline' && type === 'breaking')) {
+      for (const { data } of group) lines.push(`- ${data.scope ? `**${data.scope.trim()}:** ` : ''}${firstSentence(data.summary)}`);
+      lines.push('');
+    }
+  }
+  return `${lines.join('\n').trimEnd()}\n`;
+}
+
+/**
+ * Where the full notes of a release stay, as a Markdown link: its block in
+ * CHANGELOG.md at its tag, under the heading's anchor (GitHub renders a
+ * Markdown file there in full well past the 537,000 characters CHANGELOG.md
+ * reaches with 3.0.0), or, for a prerelease, which has no block, the change
+ * fragments at its tag.
+ */
+function fullNotesLink({ version, date, repoUrl }) {
+  if (semver.prerelease(version)) {
+    return `the change fragments in [changes/ at v${version}](${repoUrl}/tree/v${version}/changes), one file per entry`;
+  }
+  const anchor = `${version} (${date})`
+    .toLowerCase()
+    .replaceAll(/[^\w\- ]/g, '')
+    .replaceAll(' ', '-');
+  return `[CHANGELOG.md at v${version}](${repoUrl}/blob/v${version}/CHANGELOG.md#${anchor})`;
+}
+
+/**
+ * `text` when it fits `budget`, else its longest run of whole lines that
+ * fits with `note` after it (or alone, when the note does not fit either).
+ * With `bytes`, sizes are UTF-8 bytes.
+ */
+function cutToFit(text, budget, note, bytes = false) {
+  const size = (part) => (bytes ? Buffer.byteLength(part) : part.length);
+  if (size(text) <= budget) return text;
+  const tail = size(note) + 3 <= budget ? `\n\n${note}\n` : '';
+  const room = budget - size(tail);
+  // A byte prefix can end inside a character; the cut at its last line break drops that part.
+  const prefix = bytes ? Buffer.from(text).subarray(0, room).toString() : text.slice(0, room);
+  return `${text.slice(0, Math.max(prefix.lastIndexOf('\n'), 0))}${tail}`;
 }
 
 /**
@@ -558,6 +667,30 @@ function renderNotes({ block, version, baseTag, repoUrl, packageName }) {
   ].join('\n');
 }
 
+/**
+ * The GitHub Release body that fits `budget`: renderNotes when it does
+ * (every release before 3.0.0), else renderNotes of the first form of
+ * SHORT_FORMS that does, linking to the full notes (fullNotesLink).
+ *
+ * @returns {{notes: string, form: string, fullLength: number}} the body, the form used ('full', a short form, or 'cut'), and the length of the full body
+ */
+function fitNotes({ block, version, baseTag, date, fragments, repoUrl, packageName, budget = NOTES_BUDGET }) {
+  const notesOf = (text) => renderNotes({ block: text, version, baseTag, repoUrl, packageName });
+  const full = notesOf(block);
+  if (full.length <= budget) return { notes: full, form: 'full', fullLength: full.length };
+  const link = fullNotesLink({ version, date, repoUrl });
+  let notes = full;
+  for (const form of SHORT_FORMS) {
+    notes = notesOf(shortBlock({ version, baseTag, date, fragments, repoUrl, form, full: link }));
+    if (notes.length <= budget) return { notes, form, fullLength: full.length };
+  }
+  return {
+    notes: cutToFit(notes, budget, `(Cut to fit a GitHub Release: the full notes are in ${link}.)`),
+    form: 'cut',
+    fullLength: full.length,
+  };
+}
+
 /** Headings one level down, outside fenced code, so the notes nest inside a PR body section. */
 function demoteHeadings(markdown) {
   let fenced = false;
@@ -574,54 +707,158 @@ function surfaceList(surfaces, group) {
   return surfaces[group].length === 0 ? ['- none'] : surfaces[group].map((finding) => `- ${finding.text}`);
 }
 
-/** The "Review before approving" section of the bot PR. */
-function renderReview({ version, baseTag, gate, surfaces, block }) {
-  const from = baseTag || 'the last release';
-  const lines = [
+const SURFACE_TITLES = {
+  hard: 'Hard (a breaking fragment names each one):',
+  additive: 'Additive:',
+  review: 'Review (never fails; decide whether each one needs a note):',
+};
+const NO_REASON = '- no fragment or surface change sets one';
+const reasonLine = (reason) => `- ${reason.level}: ${reason.text}`;
+
+/** The heading, the step, an optional notice and the checklist of the review. */
+function reviewHead({ version, baseTag, gate }, notice = []) {
+  return [
     '## Review before approving',
     '',
-    `v${version} is a ${gate.reached} step from ${from}; the change fragments and covered surfaces need at least ${gate.floor.level}.`,
+    `v${version} is a ${gate.reached} step from ${baseTag || 'the last release'}; the change fragments and covered surfaces need at least ${gate.floor.level}.`,
     '',
+    ...notice,
     'Approve only when:',
     '',
     '- [ ] each breaking change says what stopped working and gives a migration a user can follow;',
     '- [ ] each surface change below is described by a fragment of the right type, or needs no note;',
     '- [ ] the notes below read well as the GitHub Release page (it adds Installation and the compare link).',
     '',
+  ];
+}
+
+/** The "Review before approving" section in full: every reason, every surface change and the notes. The run summary shows it. */
+function fullReview({ version, baseTag, gate, surfaces, block }) {
+  const { reasons } = gate.floor;
+  const lines = [
+    ...reviewHead({ version, baseTag, gate }),
     `### Why the minimum is ${gate.floor.level}`,
     '',
-    ...(gate.floor.reasons.length === 0
-      ? ['- no fragment or surface change sets one']
-      : gate.floor.reasons.map((reason) => `- ${reason.level}: ${reason.text}`)),
+    ...(reasons.length === 0 ? [NO_REASON] : reasons.map(reasonLine)),
     '',
   ];
   if (surfaces) {
-    lines.push(
-      `### Surface changes since ${from}`,
-      '',
-      'Hard (a breaking fragment names each one):',
-      '',
-      ...surfaceList(surfaces, 'hard'),
-      '',
-      'Additive:',
-      '',
-      ...surfaceList(surfaces, 'additive'),
-      '',
-      'Review (never fails; decide whether each one needs a note):',
-      '',
-      ...surfaceList(surfaces, 'review'),
-      '',
-    );
+    lines.push(`### Surface changes since ${baseTag || 'the last release'}`, '');
+    for (const group of ['hard', 'additive', 'review']) lines.push(SURFACE_TITLES[group], '', ...surfaceList(surfaces, group), '');
   } else {
     lines.push('No stable release tag was found, so the covered surfaces were not compared.', '');
   }
   lines.push(demoteHeadings(block.trimEnd()), '');
-  let text = lines.join('\n');
-  if (text.length > REVIEW_LIMIT) {
-    const cut = text.lastIndexOf('\n', REVIEW_LIMIT);
-    text = `${text.slice(0, cut)}\n\n(Cut to fit a pull request body: run \`npm run changes:preview\` for the full text.)\n`;
+  return lines.join('\n');
+}
+
+/**
+ * The "Review before approving" section of the bot PR: fullReview when it
+ * fits `budget` (every release before 3.0.0), else shortReview.
+ */
+function renderReview(input) {
+  const full = fullReview(input);
+  return full.length <= (input.budget || REVIEW_BUDGET) ? full : shortReview(input);
+}
+
+/** "77 major, 805 minor and 121 patch reasons", highest level first. */
+function countReasons(reasons) {
+  const counts = LEVELS.toReversed().map((level) => [level, reasons.filter((reason) => reason.level === level).length]);
+  const named = counts.filter(([, count]) => count > 0).map(([level, count]) => `${count} ${level}`);
+  return `${andList(named)} ${reasons.length === 1 ? 'reason' : 'reasons'}`;
+}
+
+/** The first lines that fit in `budget` characters, one line break each. */
+function linesWithin(lines, budget) {
+  const shown = [];
+  let size = 0;
+  for (const line of lines) {
+    size += line.length + 1;
+    if (size > budget) break;
+    shown.push(line);
   }
-  return text;
+  return shown;
+}
+
+// The log group runRelease prints the full review in when the review is shortened.
+const FULL_REVIEW_GROUP = 'The full review';
+
+/**
+ * The review shortened to fit `budget`: the checklist in full, a notice that
+ * points to the full review of the run at `runUrl` (its log, while the bot
+ * PR waits: GitHub shows a job's summary only once the job ends), and each
+ * part at the longest of its forms that still fits, tried in this order:
+ * the reasons at the minimum level (up to a third of the budget), the hard
+ * surface changes, the notes (full, then each of SHORT_FORMS), every reason,
+ * the additive and then the review surface changes. A part that does not
+ * fit is only counted.
+ */
+function shortReview({ version, baseTag, gate, surfaces, block, fragments, date, repoUrl, runUrl = null, budget = REVIEW_BUDGET }) {
+  const where = runUrl ? 'the full review' : 'the output of `npm run changes:preview`';
+  const notice = [
+    runUrl
+      ? '> **Shortened to fit a pull request body.** The full review, with every reason, every surface change and the full notes, ' +
+        `is in the log of [the release run](${runUrl}), in the group "${FULL_REVIEW_GROUP}", and in its summary once the job ends.`
+      : `> **Shortened to fit a pull request body.** Every reason, every surface change and the full notes are in ${where}.`,
+    '',
+  ];
+  const { reasons } = gate.floor;
+  const top = linesWithin(reasons.filter((reason) => reason.level === gate.floor.level).map(reasonLine), Math.floor(budget / 3));
+  const more = reasons.slice(top.length);
+  const counted = (count) => (count === 0 ? '- none' : `- ${count} ${count === 1 ? 'change' : 'changes'}, listed in ${where}.`);
+  const surfaceForms = (group) => (surfaces ? [counted(surfaces[group].length), surfaceList(surfaces, group).join('\n')] : []);
+  const notesIn = (form) => demoteHeadings(shortBlock({ version, baseTag, date, fragments, repoUrl, form, full: where }).trimEnd());
+  // Each part's forms, shortest first.
+  const forms = {
+    why:
+      reasons.length === 0
+        ? [NO_REASON]
+        : [
+            `- ${countReasons(reasons)}, listed in ${where}.`,
+            [...top, ...(more.length > 0 ? [`- ${countReasons(more)} more, listed in ${where}.`] : [])].join('\n'),
+            reasons.map(reasonLine).join('\n'),
+          ],
+    hard: surfaceForms('hard'),
+    additive: surfaceForms('additive'),
+    review: surfaceForms('review'),
+    notes: [...SHORT_FORMS.toReversed().map((form) => notesIn(form)), demoteHeadings(block.trimEnd())],
+  };
+  const pick = { why: 0, hard: 0, additive: 0, review: 0, notes: 0 };
+  const text = () => {
+    const lines = [
+      ...reviewHead({ version, baseTag, gate }, notice),
+      `### Why the minimum is ${gate.floor.level}`,
+      '',
+      forms.why[pick.why],
+      '',
+    ];
+    if (surfaces) {
+      const total = `${surfaces.hard.length} hard, ${surfaces.additive.length} additive and ${surfaces.review.length} to review.`;
+      lines.push(`### Surface changes since ${baseTag || 'the last release'}`, '', total, '');
+      for (const group of ['hard', 'additive', 'review']) lines.push(SURFACE_TITLES[group], '', forms[group][pick[group]], '');
+    } else {
+      lines.push('No stable release tag was found, so the covered surfaces were not compared.', '');
+    }
+    lines.push(forms.notes[pick.notes], '');
+    return lines.join('\n');
+  };
+  const steps = [
+    ['why', 1],
+    ['hard', 1],
+    ['notes', 3],
+    ['notes', 2],
+    ['notes', 1],
+    ['why', 2],
+    ['additive', 1],
+    ['review', 1],
+  ];
+  for (const [part, form] of steps) {
+    if (pick[part] >= form || form >= forms[part].length) continue;
+    const before = pick[part];
+    pick[part] = form;
+    if (text().length > budget) pick[part] = before;
+  }
+  return cutToFit(text(), budget, '(Cut to fit a pull request body: the notice at the top says where the full review is.)');
 }
 
 // --- Commands ---
@@ -867,17 +1104,59 @@ function runRelease(root, argv, env) {
     written.push(`CHANGELOG.md (the ${version} block)`);
   }
   const notesPath = path.resolve(root, argValue(argv, '--notes') || 'release_notes.md');
-  fs.writeFileSync(notesPath, renderNotes({ block, version, baseTag, repoUrl, packageName: pkg.name }));
-  written.push(path.relative(root, notesPath));
+  const fitted = fitNotes({ block, version, baseTag, date, fragments: valid, repoUrl, packageName: pkg.name });
+  fs.writeFileSync(notesPath, fitted.notes);
+  const notesFile = path.relative(root, notesPath);
+  written.push(notesFile);
+  const notices = [];
+  // Shortened texts and what they leave out, shown in the log while the bot PR waits.
+  const groups = [];
+  if (fitted.form !== 'full') {
+    notices.push(
+      `The full notes run to ${fitted.fullLength} characters, over the ${NOTES_BUDGET} kept for a GitHub Release body ` +
+        `(GitHub's limit is ${RELEASE_BODY_LIMIT}): ${notesFile} holds the ${fitted.form} form (${fitted.notes.length} characters), ` +
+        `which links to the full notes. The log shows it in the group "${notesFile}".`,
+    );
+    groups.push([notesFile, fitted.notes]);
+  }
   const reviewArg = argValue(argv, '--review');
   if (reviewArg) {
     const reviewPath = path.resolve(root, reviewArg);
-    fs.writeFileSync(reviewPath, renderReview({ version, baseTag, gate, surfaces, block }));
+    const input = { version, baseTag, gate, surfaces, block, fragments: valid, date, repoUrl, runUrl: runUrlOf(env) };
+    const full = fullReview(input);
+    const review = renderReview(input);
+    fs.writeFileSync(reviewPath, review);
     written.push(path.relative(root, reviewPath));
+    const cut = '(Cut to fit the run summary: run `npm run changes:preview` for the full text.)';
+    writeStepSummary(env, [cutToFit(full, SUMMARY_BUDGET, cut, true)]);
+    if (review !== full) {
+      notices.push(
+        `The full review runs to ${full.length} characters, over the ${REVIEW_BUDGET} kept for a pull request body ` +
+          `(GitHub's limit is ${PR_BODY_LIMIT}): ${path.relative(root, reviewPath)} is shortened (${review.length} characters). ` +
+          `The log shows the full review in the group "${FULL_REVIEW_GROUP}", and the run summary holds it.`,
+      );
+      groups.push([FULL_REVIEW_GROUP, full]);
+    }
   }
   console.log(`Release ${version} from ${valid.length} change fragment(s) since ${baseTag || 'the start'}. Wrote ${written.join(', ')}.`);
+  for (const notice of notices) {
+    console.log(notice);
+    annotate(env, 'notice', notice);
+  }
+  if (env.GITHUB_ACTIONS === 'true') {
+    // The texts quote the fragments: no line of theirs is read as a workflow command.
+    const token = crypto.randomUUID();
+    for (const [title, text] of groups)
+      console.log(`::group::${title}\n::stop-commands::${token}\n${text.trimEnd()}\n::${token}::\n::endgroup::`);
+  }
   if (gate.prerelease) console.log('A prerelease leaves CHANGELOG.md alone: its fragments are rendered again for the stable release.');
   return 0;
+}
+
+/** The URL of this GitHub Actions run, or null outside one. */
+function runUrlOf(env) {
+  const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: repository, GITHUB_RUN_ID: run } = env;
+  return server && repository && run ? `${server}/${repository}/actions/runs/${run}` : null;
 }
 
 // --- Pull request check ---
@@ -1449,11 +1728,21 @@ if (require.main === module) {
 
 module.exports = {
   BUMPS,
+  NOTES_BUDGET,
+  PR_BODY_LIMIT,
+  RELEASE_BODY_LIMIT,
+  REVIEW_BUDGET,
+  STEP_SUMMARY_LIMIT,
+  SUMMARY_BUDGET,
   TYPES,
   changelogTrailers,
+  cutToFit,
   evaluateGate,
   evaluatePullRequest,
+  firstSentence,
+  fitNotes,
   fragmentTemplate,
+  fullReview,
   insertIntoChangelog,
   isShipped,
   main,
@@ -1467,6 +1756,7 @@ module.exports = {
   renderNotes,
   renderReview,
   selectFragments,
+  shortBlock,
   unreleasedProblem,
   validateFragment,
 };

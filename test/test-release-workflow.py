@@ -23,6 +23,12 @@ for data fails here.
 
 Covers:
   - Push commit to temp branch: the branch name carries the run attempt
+  - Open bot PR: a review within the REVIEW_BUDGET of tools/changes.js goes
+    into the body as written, under GitHub's 65,536-character limit; a
+    longer one, or the notes the fallback shows for a missing review, gives
+    way to a pointer to `npm run changes:preview`. Write release notes and
+    CHANGELOG.md leaves the run summary to the tool, which writes the full
+    review there
   - Wait for required status checks: check-runs read as one list over
     several pages (a context on two pages resolves to its newest run), a
     failed read of every shape retried as a pending tick until the timeout,
@@ -218,10 +224,10 @@ def step(name: str) -> dict:
     return matches[0]
 
 
-def release_state(name: str) -> object:
-    """An export of tools/release-state.js, read through node (needs_node)."""
+def release_state(name: str, tool: str = "release-state.js") -> object:
+    """An export of tools/<tool>, release-state.js by default, read through node (needs_node)."""
     proc = subprocess.run(
-        ["node", "-e", f"process.stdout.write(JSON.stringify(require('./tools/release-state.js').{name}))"],
+        ["node", "-e", f"process.stdout.write(JSON.stringify(require('./tools/{tool}').{name}))"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -979,6 +985,78 @@ def test_temp_branch_name_carries_the_run_attempt(tmp_path):
     result = run_step(tmp_path, TEMP_PUSH, {"NEW_VERSION": "3.0.0"}, git=git)
     assert result.code == 0, result.out
     assert f"temp_branch={TEMP_BRANCH}" in result.output
+
+
+# --------------------------------------------------------------------------
+# The bot PR body and the release notes under GitHub's size limits
+# --------------------------------------------------------------------------
+
+OPEN_PR = "Open bot PR"
+NOTES = "Write release notes and CHANGELOG.md"
+PR_BODY_LIMIT = 65_536
+RUN_URL = f"https://github.com/{REPOSITORY}/actions/runs/{RUN_ID}"
+POINTER = (
+    "The review is too long for a pull request body: `npm run changes:preview` prints its reasons, "
+    "surface changes and notes. Read them, and the `CHANGELOG.md` diff, before approving."
+)
+
+
+def open_pr(tmp_path: Path, review: str | None, notes: str = "## [3.0.0]\n") -> tuple[Result, str]:
+    """Run the Open bot PR step with these files; return the result and pr_body.md."""
+    (tmp_path / "release_notes.md").write_text(notes, encoding="utf-8")
+    if review is not None:
+        (tmp_path / "release_review.md").write_text(review, encoding="utf-8")
+    gh = [
+        {"match": "pr create", "answers": [ok("https://github.com/owner/repo/pull/7\n")]},
+        {"match": "pr view", "answers": [ok("7\n")]},
+    ]
+    result = run_step(tmp_path, OPEN_PR, {"TEMP_BRANCH": TEMP_BRANCH, "NEW_VERSION": "3.0.0"}, gh=gh)
+    return result, (tmp_path / "pr_body.md").read_text(encoding="utf-8")
+
+
+@needs_shell
+def test_bot_pr_body_holds_a_review_within_the_budget(tmp_path):
+    review = "## Review before approving\n\n" + ("- a line of the review that fits\n" * 1800)
+    assert len(review) < 60_000
+    result, body = open_pr(tmp_path, review)
+    assert result.code == 0, result.out
+    assert result.called("gh", "pr create", "--body-file pr_body.md")
+    assert review in body
+    assert f"## Workflow run\n\n{RUN_URL}\n" in body
+    assert len(body) < PR_BODY_LIMIT
+    assert "::warning::" not in result.out
+
+
+@needs_shell
+@pytest.mark.parametrize(
+    "review, notes",
+    [(("x" * 70 + "\n") * 1000, "## [3.0.0]\n"), (None, ("y" * 99 + "\n") * 1200)],
+    ids=["review", "fallback notes"],
+)
+def test_bot_pr_body_points_to_the_preview_when_the_review_is_over_the_budget(tmp_path, review, notes):
+    # A review written some other way, or the notes the fallback shows when
+    # the review is missing (a shortened release body runs to 120,000).
+    result, body = open_pr(tmp_path, review, notes)
+    assert result.code == 0, result.out
+    assert len(body) < PR_BODY_LIMIT
+    assert f"## Review before approving\n\n{POINTER}\n" in body
+    assert f"## Workflow run\n\n{RUN_URL}\n" in body
+    assert "::warning::release_review.md is over 60000 characters" in result.out
+
+
+@needs_node
+def test_bot_pr_step_checks_the_review_against_the_budget_of_the_tool():
+    budget = release_state("REVIEW_BUDGET", "changes.js")
+    assert f"REVIEW_BUDGET={budget}\n" in step(OPEN_PR)["run"]
+    assert budget + 1_000 < release_state("PR_BODY_LIMIT", "changes.js") == PR_BODY_LIMIT
+
+
+def test_the_notes_step_leaves_the_run_summary_to_the_tool():
+    # tools/changes.js writes the full review into the step summary (within
+    # its 1 MiB limit); a copy of release_review.md would add the shortened one.
+    run = step(NOTES)["run"]
+    assert "--notes release_notes.md --review release_review.md" in run
+    assert "GITHUB_STEP_SUMMARY" not in run
 
 
 def test_no_failure_message_says_the_pr_was_left_open():

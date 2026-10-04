@@ -16,8 +16,9 @@ name: Release
 #    .claude-plugin/marketplace.json and docs/_data/pinned.yaml, and the
 #    fragments added since the last stable tag are rendered into
 #    release_notes.md (the GitHub Release body), release_review.md (the
-#    "Review before approving" section of the bot PR and the run summary) and,
-#    for a stable release only, a new block in CHANGELOG.md.
+#    "Review before approving" section of the bot PR, given in full in the
+#    run summary) and, for a stable release only, a new block in
+#    CHANGELOG.md.
 # 3. From main, the release commit goes to a temp branch and a bot PR, because
 #    the Default ruleset refuses a direct push to main. The run dispatches the
 #    required checks on that branch, waits for them, then waits for a
@@ -370,9 +371,15 @@ jobs:
       # (the GitHub Release body) and release_review.md (the "Review before
       # approving" section of the bot PR). The tool repeats the gate's checks
       # against the bumped version and fails before the commit step if one
-      # does not pass, or if "## [Unreleased]" is not empty. The review also
-      # goes into the run summary: a prerelease cut from a feature branch has
-      # no bot PR, so the summary is the only place it is shown.
+      # does not pass, or if "## [Unreleased]" is not empty. It keeps each
+      # file under GitHub's size limit (125,000 characters for a release
+      # body, 65,536 for a pull request body): notes too long for it are
+      # shortened and link to the full notes. The tool also writes the full
+      # review into the run summary (within its 1 MiB limit): a prerelease
+      # cut from a feature branch has no bot PR, so the summary is the only
+      # place it is shown. GitHub shows the summary only once the job ends,
+      # so when the review in the bot PR is shortened, this step's log also
+      # shows the full review, and the review points there.
       - name: Write release notes and CHANGELOG.md
         if: github.event.inputs.version_bump != 'resume'
         env:
@@ -381,7 +388,6 @@ jobs:
         run: |
           node tools/changes.js release --base "$PREVIOUS_TAG" --version "$NEW_VERSION" --notes release_notes.md --review release_review.md
           [ -s release_notes.md ] || { echo "::error::release_notes.md is empty or missing; aborting release."; exit 1; }
-          if [ -s release_review.md ]; then cat release_review.md >> "$GITHUB_STEP_SUMMARY"; fi
           git diff --stat -- CHANGELOG.md
 
       # A resumed cut's GitHub Release gets the notes its cut rendered: the
@@ -494,6 +500,17 @@ jobs:
           if [ ! -s release_review.md ]; then
             echo "::warning::release_review.md missing or empty; showing the release notes only."
             { echo "## Review before approving"; echo; cat release_notes.md; } > release_review.md
+          fi
+          # GitHub refuses a pull request body over 65,536 characters.
+          # tools/changes.js keeps release_review.md within REVIEW_BUDGET, which
+          # leaves room for the lines added around it below; a review over it
+          # (the notes above can run to 120,000) gives way to a pointer. wc -m
+          # never counts fewer characters than GitHub does (in a C locale it
+          # counts bytes).
+          REVIEW_BUDGET=60000
+          if [ "$(wc -m < release_review.md)" -gt "$REVIEW_BUDGET" ]; then
+            echo "::warning::release_review.md is over $REVIEW_BUDGET characters, too long for the bot PR body; the body points to npm run changes:preview instead."
+            { echo "## Review before approving"; echo; echo "The review is too long for a pull request body: \`npm run changes:preview\` prints its reasons, surface changes and notes. Read them, and the \`CHANGELOG.md\` diff, before approving."; } > release_review.md
           fi
 
           {
@@ -1127,7 +1144,9 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.new_version }}
           name: "Skill Forge (SKF) v${{ steps.version.outputs.new_version }}"
-          # Written by the "Write release notes and CHANGELOG.md" step from the change fragments.
+          # Written from the change fragments by "Write release notes and CHANGELOG.md" (or, on
+          # resume, "Write the release notes (resume)"), under GitHub's 125,000-character limit
+          # for a release body.
           body_path: release_notes.md
           draft: false
           # Every dist-tag but latest is a prerelease line.
