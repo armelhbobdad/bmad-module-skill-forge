@@ -2,7 +2,7 @@
 
 Each change a user or a pipeline can notice gets one short YAML file in this folder, `changes/<topic>.yaml`, added by the pull request that makes the change. At release, `tools/changes.js` renders the fragments added since the last stable release into the new CHANGELOG.md block and the GitHub Release notes, and their types set the smallest version bump the release may take.
 
-Fragments stay here after a release. A release takes only the fragments that did not exist at the last stable tag, so nothing is deleted when a version ships. A released fragment is never read again, so every new change, and each release's lead, needs a file with a new name (for a lead, for example `lead-3-1-0.yaml`). A released fragment that was edited, renamed or copied is refused, and the check names the file.
+Fragments stay here after a release. A release takes only the fragments that did not exist at the last stable tag, so nothing is deleted when a version ships. A release never renders a released fragment again (only the markdownlint check still lints it), so every new change, and each release's lead, needs a file with a new name (for a lead, for example `lead-3-1-0.yaml`). A released fragment that was edited, renamed or copied is refused, and the check names the file.
 
 ## When to add one
 
@@ -32,7 +32,7 @@ issues: [497]
 | `issues` | no | issue numbers, as a list: `[502]` |
 | `prs` | no | pull request numbers, as a list: `[509]` |
 
-Name the file after the change, in lower case with hyphens, such as `setup-retire-write-failure.yaml`. No other key is accepted. A summary or migration holds no em dash and cites no step-file section (§): describe the behaviour instead. A `lead` holds only a `summary`, the paragraph that opens the release notes, and a release takes at most one.
+Name the file after the change, in lower case with hyphens, such as `setup-retire-write-failure.yaml`. No other key is accepted. A summary or migration holds no em dash and cites no step-file section (§): describe the behaviour instead. A `lead` holds only a `summary`, the paragraph that opens the release notes, and a release takes at most one. The required `markdownlint` check (`npm run lint:md`) also lints the fragments as the release block, rendered into the CHANGELOG.md a release would write, so Markdown that would break the release commit, such as a bare URL (write `<https://example.com>`), fails your pull request instead.
 
 ## Which type
 

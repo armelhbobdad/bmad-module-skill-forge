@@ -83,11 +83,25 @@
  *              reachable from the base (--tag <ref> replaces it). Exit 2 when
  *              the base or, in CI, the stable tag is missing, or when a
  *              shallow clone hides the merge base.
+ *   lint       Render the CHANGELOG.md a stable release would write, its
+ *              block holding every valid fragment in changes/ (released ones
+ *              too, and every lead's paragraph: no tag is read), and lint it
+ *              with markdownlint-cli2 and the repository's config, as the
+ *              required markdownlint check lints the release commit. A
+ *              fragment can pass every other check of its own pull request
+ *              and still break that commit: a bare URL (MD034) failed the
+ *              3.0.0 release commit. Reads no git, so a shallow checkout runs it; npm run lint:md
+ *              runs it after linting the Markdown files. Exit 1 on a
+ *              markdownlint problem, naming the fragment its line comes from
+ *              (annotated in GitHub Actions); exit 2 when markdownlint-cli2
+ *              cannot run. When CHANGELOG.md has no empty "## [Unreleased]"
+ *              to take the block (check refuses that), the block is linted
+ *              alone.
  *
  * Common options: --base <ref> (instead of the last stable tag; for pr, the
  * base branch), --root <dir> (another checkout; the tests use this). With no
  * stable tag a CI run exits 2; a local run selects every fragment, skips the
- * surface diff and says so.
+ * surface diff and says so. lint takes only --root and reads no tag.
  *
  * Usage:
  *   node tools/changes.js check
@@ -95,9 +109,10 @@
  *   node tools/changes.js gate --bump minor
  *   node tools/changes.js release [--review release_review.md]
  *   node tools/changes.js pr [--base origin/main]
+ *   node tools/changes.js lint
  */
 
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -1159,6 +1174,133 @@ function runUrlOf(env) {
   return server && repository && run ? `${server}/${repository}/actions/runs/${run}` : null;
 }
 
+// --- The release block, linted ---
+
+/**
+ * The lines one fragment puts in a release block, as renderBlock writes
+ * them: its entry and, for a breaking change, its migration, or a lead's
+ * paragraph. Headings and blank lines are left out.
+ */
+function renderedLines(fragment, repoUrl) {
+  return renderBlock({ version: '0.0.0', baseTag: null, date: '1970-01-01', fragments: [fragment], repoUrl })
+    .split('\n')
+    .filter((line) => line.trim() !== '' && !line.startsWith('#'));
+}
+
+/**
+ * The CHANGELOG.md a stable release would write with `fragments` in its
+ * block, to lint. renderBlock writes one lead, and changes/ keeps the leads
+ * of earlier releases, so every other lead's paragraph goes under the first.
+ * When CHANGELOG.md cannot take the block (insertIntoChangelog refuses it),
+ * the text is the block alone and `alone` says why.
+ *
+ * @returns {{text: string, alone: string|null, sources: Map<string, string[]>}} the text, why the block is alone (or null), and the fragment files each rendered line comes from
+ */
+function changelogToLint({ changelog, fragments, version, date, repoUrl }) {
+  const lines = renderBlock({ version, baseTag: null, date, fragments, repoUrl }).split('\n');
+  const [lead, ...otherLeads] = fragments.filter((fragment) => fragment.data.type === 'lead');
+  if (otherLeads.length > 0) {
+    const at = lines.indexOf(renderedLines(lead, repoUrl)[0]) + 1;
+    lines.splice(at, 0, ...otherLeads.flatMap((other) => ['', ...renderedLines(other, repoUrl)]));
+  }
+  const block = lines.join('\n');
+  const sources = new Map();
+  for (const fragment of fragments) {
+    for (const line of renderedLines(fragment, repoUrl)) sources.set(line, [...(sources.get(line) || []), fragment.file]);
+  }
+  try {
+    return { text: insertIntoChangelog(changelog, block, version), alone: null, sources };
+  } catch (error) {
+    if (!(error instanceof ToolError)) throw error;
+    return { text: block, alone: error.message, sources };
+  }
+}
+
+/** The markdownlint-cli2 script `npm ci` installed, found as Node finds the package. */
+function markdownlintScript() {
+  for (const modules of require.resolve.paths('markdownlint-cli2') || []) {
+    const folder = path.join(modules, 'markdownlint-cli2');
+    let pkg;
+    try {
+      pkg = JSON.parse(fs.readFileSync(path.join(folder, 'package.json'), 'utf8'));
+    } catch {
+      continue;
+    }
+    const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin && pkg.bin['markdownlint-cli2'];
+    if (bin) return path.join(folder, bin);
+  }
+  throw new ToolError('markdownlint-cli2 is not installed: run npm ci.', 2);
+}
+
+// A problem as markdownlint-cli2's default formatter prints one for standard
+// input: "stdin:223:159 error MD034/no-bare-urls Bare URL used [Context: ...]".
+const LINT_PROBLEM = /^stdin:(\d+)(?::(\d+))?\s+(?:(?:error|warning)\s+)?(\S.*)$/;
+
+/**
+ * Lint `text` with markdownlint-cli2, run from `root` so that the
+ * repository's config applies as it does in `npm run lint:md`. The text goes
+ * in on standard input, so no file is written and the config's ignores do
+ * not apply; --no-globs keeps any globs the config lists out of the run.
+ *
+ * @returns {{status: number|null, output: string, problems: {line: number, column: number|null, message: string}[]}}
+ */
+function markdownlint(root, text) {
+  const result = spawnSync(process.execPath, [markdownlintScript(), '--no-globs', '-'], {
+    cwd: root,
+    input: text,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.error) throw new ToolError(`markdownlint-cli2 did not run: ${result.error.message}`, 2);
+  const output = `${result.stdout}${result.stderr}`;
+  const problems = [];
+  for (const line of output.split(/\r?\n/)) {
+    const match = LINT_PROBLEM.exec(line);
+    if (match) problems.push({ line: Number(match[1]), column: match[2] ? Number(match[2]) : null, message: match[3] });
+  }
+  return { status: result.status, output, problems };
+}
+
+function runLint(root, argv, env) {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const repoUrl = repoUrlOf(pkg);
+  const { fragments } = readFragments(root);
+  const valid = fragments.filter((fragment) => fragment.errors.length === 0);
+  const floor = minimumBump(valid, null).level;
+  const version = nextVersion(pkg.version, floor === 'none' ? 'patch' : floor);
+  const { text, alone, sources } = changelogToLint({ changelog: readChangelog(root), fragments: valid, version, date: today(), repoUrl });
+  const skipped = fragments.length - valid.length;
+  if (skipped > 0) {
+    console.log(`warning: ${skipped} fragment(s) in changes/ are not valid and were left out (npm run validate:changes names them).`);
+  }
+  if (alone) console.log(`warning: ${alone} The release block was linted alone.`);
+  const linted = alone ? `the ${version} release block` : `the CHANGELOG.md a ${version} release would write`;
+  const lint = markdownlint(root, text);
+  if (lint.status !== 0 && (lint.status !== 1 || lint.problems.length === 0)) {
+    console.log(lint.output.trimEnd());
+    throw new ToolError(`markdownlint-cli2 stopped (exit ${lint.status}) without linting ${linted}.`, 2);
+  }
+  const lines = text.split('\n');
+  for (const problem of lint.problems) {
+    const files = sources.get(lines[problem.line - 1]) || [];
+    const where = `line ${problem.line}${problem.column ? `, column ${problem.column}` : ''} of ${linted}`;
+    const level = lint.status === 0 ? 'warning' : 'error';
+    console.log(`${level}: ${files.length > 0 ? files.join(', ') : 'CHANGELOG.md'}: ${problem.message} (${where})`);
+    for (const file of files.length > 0 ? files : ['CHANGELOG.md']) annotate(env, level, `${problem.message} (${where})`, file);
+  }
+  const from = `${valid.length} change fragment(s) in changes/`;
+  if (lint.status === 0) {
+    console.log(`markdownlint passes ${linted}, its block rendered from all ${from}.`);
+    return 0;
+  }
+  console.log(
+    `\n${lint.problems.length} markdownlint problem(s) in ${linted}, its block rendered from all ${from}: ` +
+      'the required markdownlint check would fail on the release commit. Fix the text of each fragment named above ' +
+      '(a bare URL, for example, goes in angle brackets: <https://example.com>).',
+  );
+  return 1;
+}
+
 // --- Pull request check ---
 
 // The code the npm package ships, and .npmignore, which decides what ships: a
@@ -1673,6 +1815,7 @@ const USAGE = `Usage: node tools/changes.js <command> [options]
   gate --bump <type>           refuse a version_bump the fragments and surfaces do not allow
   release [--review <file>]    render CHANGELOG.md (stable only) and release_notes.md
   pr [--base <branch>]         check the fragments a branch needs, from its merge base to HEAD
+  lint                         lint the CHANGELOG.md a release would write from changes/, with markdownlint-cli2
 
   <type> is one of ${BUMPS.join(', ')}.
   Options: --base <ref>, --root <dir>, and for release --version <v>, --date YYYY-MM-DD,
@@ -1699,6 +1842,9 @@ function main(argv = process.argv.slice(2), env = process.env) {
       }
       case 'pr': {
         return runPr(root, rest, env);
+      }
+      case 'lint': {
+        return runLint(root, rest, env);
       }
       case '--help':
       case '-h': {
@@ -1735,6 +1881,7 @@ module.exports = {
   STEP_SUMMARY_LIMIT,
   SUMMARY_BUDGET,
   TYPES,
+  changelogToLint,
   changelogTrailers,
   cutToFit,
   evaluateGate,

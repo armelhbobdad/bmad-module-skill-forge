@@ -36,7 +36,7 @@ npm run quality       # run the full local pre-flight
 
 The `npm run quality` script is your contract with CI. It runs:
 
-- `format:check` (Prettier), `lint` (ESLint), `lint:md` (markdownlint), `lint:instructions` (LintLang on the agent instructions under `src/`)
+- `format:check` (Prettier), `lint` (ESLint), `lint:md` (markdownlint, on every Markdown file and on the CHANGELOG.md block the change fragments render into), `lint:instructions` (LintLang on the agent instructions under `src/`)
 - `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:rehype`, `test:docs-links-tool`, `test:em-dash-tool`, `test:file-refs-tool`, `test:changes-tool`, `test:tool-requirements-tool`, `test:knowledge`
 - `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`, `validate:em-dash`, `validate:changes` (the change fragments in `changes/`, see [Change Fragments](#change-fragments)), `validate:tool-requirements` (the tool versions, see [Tool Versions](#tool-versions))
 - `docs:validate-drift` — SKF docs vs. the canonical [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills) output

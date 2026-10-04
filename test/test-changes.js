@@ -20,6 +20,13 @@
  *   the log and the run summary, which get the full review;
  * - the commands end to end against throwaway git repositories, released
  *   fragments edited, renamed or copied included;
+ * - the lint command, which the required markdownlint check runs through
+ *   lint:md: it lints the CHANGELOG.md a release would write with the
+ *   repository's markdownlint config, every lead's paragraph in its block,
+ *   in a tree that is no git repository; the migration that failed the
+ *   3.0.0 release commit fails it at the columns markdownlint gave that
+ *   commit, each problem names its fragment, an invalid fragment is left
+ *   out, and a CHANGELOG.md that cannot take the block has it linted alone;
  * - the pr command on branches of those repositories: a change to the code
  *   the package ships (renames and deletions included) needs a fragment or
  *   a "Changelog: none (<reason>)" line, in any commit, merges included,
@@ -670,8 +677,11 @@ test('render: heading shape, section order, migration under each breaking change
 
 test('CHANGELOG.md: the block goes under an empty [Unreleased] and older history stays byte-identical', () => {
   const original = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
-  const block = fixtureBlock();
-  const updated = changes.insertIntoChangelog(original, block, '3.0.0');
+  // A version the real CHANGELOG.md can never hold, so the test also passes on
+  // the release commit and after a release, whose CHANGELOG.md has its block.
+  const version = '999.0.0';
+  const block = changes.renderBlock({ version, baseTag: 'v2.2.0', date: '2026-10-01', fragments: fixtureFragments(), repoUrl: REPO });
+  const updated = changes.insertIntoChangelog(original, block, version);
   const firstRelease = original.search(/^## \[\d/m);
   const history = original.slice(firstRelease);
   const unreleasedEnd = original.indexOf('## [Unreleased]') + '## [Unreleased]'.length;
@@ -682,7 +692,7 @@ test('CHANGELOG.md: the block goes under an empty [Unreleased] and older history
     `\n\n${block}\n${history}`,
     'the block sits between [Unreleased] and the previous release',
   );
-  assert.throws(() => changes.insertIntoChangelog(updated, block, '3.0.0'), /already has a ## \[3\.0\.0] section/);
+  assert.throws(() => changes.insertIntoChangelog(updated, block, version), /already has a ## \[999\.0\.0] section/);
 });
 
 test('CHANGELOG.md: a non-empty or missing [Unreleased] is refused', () => {
@@ -1300,6 +1310,154 @@ test('lastStableTag takes only version tags: `stable` and prerelease tags are sk
   git(root, ['tag', '-a', 'stable', '-m', 'stable']);
   git(root, ['tag', '-a', 'v1.1.0-rc.0', '-m', 'v1.1.0-rc.0']);
   assert.strictEqual(surfaces.lastStableTag(root), 'v1.0.0');
+});
+
+// --- The lint command: the release block, linted ---
+
+const MARKDOWNLINT_CONFIG = fs.readFileSync(path.join(ROOT, '.markdownlint-cli2.yaml'), 'utf8');
+
+// The migration of changes/tool-minimums.yaml at cb839a12, which failed the
+// markdownlint check on the 3.0.0 release commit (run 37198869046) with
+// MD034/no-bare-urls at CHANGELOG.md:223:159 and 223:262.
+const BARE_URL_MIGRATION =
+  'Upgrade each tool the report names, then run `/skf-setup` again: `npm install -g @ast-grep/cli@latest` for ast-grep, ' +
+  'the latest release from https://git-scm.com/downloads for git, `uv python install` for Python and the current LTS ' +
+  "release from https://nodejs.org for Node.js. A pipeline that checks the envelope's `warnings` one by one should " +
+  'accept the `tool_below_minimum:` prefix.';
+
+function toolMinimums(migration) {
+  return YAML.stringify({
+    type: 'breaking',
+    scope: 'skf-setup, installer',
+    summary: 'SKF now holds tools to minimums.',
+    migration,
+    prs: [631],
+  });
+}
+
+/** A throwaway repository with the repository's markdownlint config, as `npm run lint:md` reads it. */
+function lintRepo(files = {}) {
+  const root = makeRepo();
+  write(root, { '.markdownlint-cli2.yaml': MARKDOWNLINT_CONFIG, ...files });
+  return root;
+}
+
+function runLint(root, env = {}) {
+  return runTool(CHANGES_TOOL, ['lint', '--root', root], env);
+}
+
+test('changelogToLint: the block under [Unreleased], every lead in it, and the fragment of each line', () => {
+  const fragments = [
+    frag('lead', { summary: 'First lead.' }, 'lead-a.yaml'),
+    frag('lead', { summary: 'Second lead.' }, 'lead-b.yaml'),
+    frag('breaking', { migration: 'Run it again.' }, 'gone.yaml'),
+    frag('fixed', {}, 'small-fix.yaml'),
+  ];
+  const input = { fragments, version: '2.0.0', date: '2026-10-04', repoUrl: REPO };
+  const { text, alone, sources } = changes.changelogToLint({ ...input, changelog: TEMP_CHANGELOG });
+  assert.strictEqual(alone, null);
+  assert.match(
+    text,
+    /\n## \[Unreleased]\n\n## \[2\.0\.0]\(\S+\) \(2026-10-04\)\n\nFirst lead\.\n\nSecond lead\.\n\n### Breaking changes\n\n/,
+  );
+  assert.ok(text.endsWith(TEMP_CHANGELOG.slice(TEMP_CHANGELOG.indexOf('## [1.0.0]'))), text);
+  assert.deepStrictEqual(sources.get('Second lead.'), ['changes/lead-b.yaml']);
+  assert.deepStrictEqual(sources.get('  **Migration:** Run it again.'), ['changes/gone.yaml']);
+  assert.deepStrictEqual(sources.get('- **skf-setup:** A fixed change.'), ['changes/small-fix.yaml']);
+  const single = changes.changelogToLint({ ...input, fragments: fragments.slice(1), changelog: '# Changelog\n' });
+  assert.match(single.alone, /no "## \[Unreleased]" heading/);
+  assert.strictEqual(
+    single.text,
+    changes.renderBlock({ ...input, baseTag: null, fragments: fragments.slice(1) }),
+    'one lead: the block as rendered',
+  );
+});
+
+test('lint: the migration that failed the 3.0.0 release commit fails, at the columns markdownlint gave it, and passes as autolinks', () => {
+  const root = lintRepo({ 'changes/tool-minimums.yaml': toolMinimums(BARE_URL_MIGRATION) });
+  const bad = runLint(root);
+  assert.strictEqual(bad.status, 1, bad.out);
+  const problems = bad.out.split('\n').filter((line) => line.startsWith('error: '));
+  assert.strictEqual(problems.length, 2, bad.out);
+  assert.match(
+    problems[0],
+    /^error: changes\/tool-minimums\.yaml: MD034\/no-bare-urls Bare URL used \[Context: "https:\/\/git-scm\.com\/downloads"] \(line \d+, column 159 of the CHANGELOG\.md a 2\.0\.0 release would write\)$/,
+  );
+  assert.match(problems[1], /^error: changes\/tool-minimums\.yaml: MD034\/no-bare-urls .*"https:\/\/nodejs\.org"] \(line \d+, column 262 /);
+  assert.match(
+    bad.out,
+    /2 markdownlint problem\(s\) in the CHANGELOG\.md a 2\.0\.0 release would write, its block rendered from all 2 change fragment\(s\)/,
+  );
+  assert.match(bad.out, /the required markdownlint check would fail on the release commit/);
+  const autolinks = BARE_URL_MIGRATION.replace('https://git-scm.com/downloads', '<https://git-scm.com/downloads>').replace(
+    'https://nodejs.org',
+    '<https://nodejs.org>',
+  );
+  write(root, { 'changes/tool-minimums.yaml': toolMinimums(autolinks) });
+  const good = runLint(root);
+  assert.strictEqual(good.status, 0, good.out);
+  assert.match(
+    good.out,
+    /^markdownlint passes the CHANGELOG\.md a 2\.0\.0 release would write, its block rendered from all 2 change fragment\(s\)/m,
+  );
+});
+
+test('lint: reads no git, so a tree that is no repository is linted in CI, with an annotation on the fragment', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skf-changes-lint-'));
+  tmpRoots.push(root);
+  write(root, {
+    'package.json': JSON.stringify({ name: 'example-tool', version: '1.0.0', repository: 'https://github.com/example/tool' }),
+    'CHANGELOG.md': TEMP_CHANGELOG,
+    '.markdownlint-cli2.yaml': MARKDOWNLINT_CONFIG,
+    'changes/docs-link.yaml': 'type: docs\nsummary: The guide moved to <https://example.com/guide>.\n',
+  });
+  const env = { CI: 'true', GITHUB_ACTIONS: 'true' };
+  const ok = runLint(root, env);
+  assert.strictEqual(ok.status, 0, ok.out);
+  assert.match(ok.out, /markdownlint passes the CHANGELOG\.md a 1\.0\.1 release would write/);
+  write(root, { 'changes/docs-link.yaml': 'type: docs\nsummary: The guide moved to https://example.com/guide.\n' });
+  const bad = runLint(root, env);
+  assert.strictEqual(bad.status, 1, bad.out);
+  assert.match(bad.out, /^::error file=changes\/docs-link\.yaml::MD034\/no-bare-urls Bare URL used .*\(line 11, column 22 of /m);
+});
+
+test('lint: every lead is linted, a released one included, and an invalid fragment is left out and counted', () => {
+  const root = lintRepo({
+    'changes/lead-1-0-0.yaml': 'type: lead\nsummary: The 1.0.0 lead.\n',
+    'changes/lead-1-1-0.yaml': 'type: lead\nsummary: Read https://example.com/news first.\n',
+    'changes/no-scope.yaml': 'type: fixed\nsummary: See https://example.com/fix.\n',
+  });
+  const { status, out } = runLint(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /^warning: 1 fragment\(s\) in changes\/ are not valid and were left out/m);
+  const problems = out.split('\n').filter((line) => line.startsWith('error: '));
+  assert.strictEqual(problems.length, 1, out);
+  assert.match(
+    problems[0],
+    /^error: changes\/lead-1-1-0\.yaml: MD034\/no-bare-urls Bare URL used \[Context: "https:\/\/example\.com\/news"]/,
+  );
+});
+
+test('lint: a CHANGELOG.md that cannot take the block has the block linted alone', () => {
+  const root = lintRepo({
+    'CHANGELOG.md': TEMP_CHANGELOG.replace('## [Unreleased]\n', '## [Unreleased]\n\n- a stray note\n'),
+    'changes/bare.yaml': 'type: fixed\nscope: skf-tool\nsummary: Fixed, see https://example.com/fix.\n',
+  });
+  const { status, out } = runLint(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /^warning: "## \[Unreleased]" in CHANGELOG\.md is not empty\. .* The release block was linted alone\.$/m);
+  assert.match(out, /^error: changes\/bare\.yaml: MD034\/no-bare-urls .*\(line \d+, column \d+ of the 2\.0\.0 release block\)$/m);
+});
+
+test('lint runs in the required markdownlint check, through lint:md, which npm run quality runs too', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  assert.match(pkg.scripts['lint:md'], /^markdownlint-cli2 "\*\*\/\*\.md" && node tools\/changes\.js lint$/);
+  assert.match(pkg.scripts.quality, /(^| )npm run lint:md( |$)/);
+  const workflow = YAML.parse(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'quality.yaml'), 'utf8'));
+  assert.ok(
+    workflow.jobs.markdownlint.steps.some((step) => step.run === 'npm run lint:md'),
+    'the markdownlint job runs npm run lint:md',
+  );
 });
 
 // --- The pr command: the fragments one branch needs ---
