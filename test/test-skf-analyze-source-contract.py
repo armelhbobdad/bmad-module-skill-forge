@@ -35,6 +35,10 @@ fixtures:
   for or leaves unanswered halts the [auto] path in section 0, before
   coexistence, for every project path (and fails the scan root) with the
   helper's message; a missing git goes docs-only with a warning.
+- Step 5b gate run 7 architecture-1: an unfinished report whose `mode` is
+  'auto' is archived like one an [auto] invocation finds, and continue.md
+  never routes a resume back into auto-scope; the fallback report, marked
+  interactive, still resumes.
 """
 
 from __future__ import annotations
@@ -818,7 +822,8 @@ def test_each_remote_path_is_fetched_into_its_own_folder():
 def test_a_finished_report_is_archived_and_the_run_starts_fresh():
     section = _section(_read(INIT), "### 1. Check for Existing Report", "### 2. Verify Prerequisites")
     for needle in ("`stepsCompleted` holds `generate-briefs` or `auto-scope`", "A finished report is never resumed",
-                   "in headless mode either", "**Auto invocation:**", "Headless runs resume it too",
+                   "in headless mode either", "**Auto invocation or auto report:**",
+                   "the report's `mode` is `'auto'`", "Headless runs resume it too",
                    "**Different target (stale collision):**"):
         assert needle in section, needle
     archive = _one_command(section, "mv -n")
@@ -828,6 +833,21 @@ def test_a_finished_report_is_archived_and_the_run_starts_fresh():
     # unfinished report of the same target resumes where it is.
     assert section.index("Apply the first rule that holds") < section.index("mv -n")
     assert "a report that resumes stays where it is" in section
+    # Gate run 7 architecture-1: an [auto] run that ended at the coexistence
+    # gate's [M]erge or [S]kip, or was interrupted, leaves a mode 'auto'
+    # report. Rule 2 archives it before rule 3 can resume it, so a plain AN
+    # of the same target starts the step-by-step analysis it asked for.
+    assert section.index("the report's `mode` is `'auto'`") < section.index("3. **Unfinished:**")
+    assert "mode-aware" not in section and "resumes through the auto path" not in section
+    note = next(line for line in _read(REPO / "docs" / "workflows.md").splitlines()
+                if line.startswith("**Note:** Run `@Ferris AN` again"))
+    assert "an unfinished `AN[auto]` one (interrupted, or ended by a merge or skip choice)" in note
+    # Rule 2 says why the run did not resume, as rules 1 and 3 do (fix round 7), and the stage table
+    # names the report continue.md resumes by the same `mode` rule.
+    assert ('announce "**An `[auto]` analysis never resumes: archived the unfinished report as <name>; '
+            'starting a fresh analysis.**"') in section
+    row = next(line for line in _read(SKILL).splitlines() if line.startswith("| 1b |"))
+    assert "An unfinished step-by-step report (`mode` not `'auto'`)" in row and "without `[auto]`" in row
 
 
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
@@ -851,12 +871,19 @@ def test_continue_resumes_only_unfinished_reports():
         assert gone not in text, gone
     assert "only an unfinished report" in text
     assert "health-check.md" not in text.split("\n---\n", 1)[0], "nothing routes a resume to the health check"
+    assert "step-auto-scope.md" not in text, "init archives an auto report: no resume re-enters auto-scope"
+    assert "it archives a finished report and one whose `mode` is `'auto'`" in text, "the fallback report resumes"
 
 
 def test_the_fallback_to_the_interactive_chain_resets_the_mode():
     branch = _section(_read(AUTO), "- **Exit 1 (unknown shape):**", "- **Exit 2 (error):**")
     assert "Set `mode: 'interactive'`" in branch and "`{auto_mode}` to false" in branch
     assert "set the report's `mode: 'interactive'` first" in _read(SHAPE_REF)
+    # The fallback report still resumes: init archives a mode 'auto' report
+    # only, and continue.md routes an unfinished report from its last step.
+    assert "init archives an unfinished `'auto'` report" in branch
+    routing = _section(_read(CONTINUE), "### 4. Determine Next Step", "### 5.")
+    assert "| init | scan-project |" in routing and "`mode`" not in routing
 
 
 def test_only_compiled_skills_count_as_already_skilled():

@@ -1,0 +1,6 @@
+type: changed
+scope: skf-analyze-source
+summary: |
+  After an `AN[auto]` run that merged into or skipped an existing skill, or one that was interrupted, a plain `AN` of the same target now archives that analysis in `forge_data_folder` as `analyze-source-report-<project>-<YYYYMMDD-HHmmss>.md` and starts the step-by-step analysis. Before, it went back into automatic scoping: it asked the merge, alongside or skip question again, a headless run wrote a `-wiki` brief that the skip had declined, and an interrupted `--pin` run lost its pin. An `[auto]` run that switched to the step-by-step analysis still resumes.
+prs: [665]
+issues: [587]
