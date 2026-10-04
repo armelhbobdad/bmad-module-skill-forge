@@ -89,8 +89,8 @@ tools:
     workflows: [all]
     used_for: Running Python scripts with automatic dependency management
     minimum: null
-    tested: []
-    basis: No version recorded yet. CI installs the latest uv without pinning one.
+    tested: ["0.12.15", "0.12.23"]
+    basis: No minimum yet. CI installs the latest uv without pinning one, so each run takes that day's release. Quality & Validation run 37190025809 (2026-10-04, pull request 665, the tree of main b5150b08, the v3.0.0 release candidate) ran the Python tests through uv 0.12.23 on ubuntu-latest and windows-latest. Pull request 665's npm run quality on its branch head (issue 556 step 5b fix round 8, 2026-10-04, commit 4fecff22, the same tree) ran on uv 0.12.15 on Linux.
     version_command: [uv, --version]
     install_url: https://docs.astral.sh/uv/getting-started/installation/
     upgrade: uv self update
@@ -102,8 +102,8 @@ tools:
     workflows: [analyze-source, audit-skill, brief-skill, create-skill, setup, test-skill, update-skill]
     used_for: Reading remote sources, and checking that a local source is still at the commit a skill was built from
     minimum: "2.15"
-    tested: []
-    basis: The minimum is the one skf-source-tree.py states. No run is recorded on it, and CI uses the runner's git without recording its version.
+    tested: ["2.47.3", "2.55.0"]
+    basis: The minimum is the one skf-source-tree.py states. No run is recorded on it. Quality & Validation run 37190025809 (2026-10-04, pull request 665, the tree of main b5150b08, the v3.0.0 release candidate) ran the Python tests, which drive real git, on the runners' git 2.55.0 (2.55.0.windows.5 on windows-latest). Pull request 665's npm run quality on its branch head, and its verification of skf-skill-inventory.py derive-name --probe-git against live remotes (issue 556 step 5b fix round 8, 2026-10-04, commit 4fecff22, the same tree), ran on git 2.47.3 on Linux.
     version_command: [git, --version]
     install_url: https://git-scm.com/downloads
     upgrade: Install the latest release from https://git-scm.com/downloads
@@ -116,8 +116,8 @@ tools:
     workflows: [analyze-source, audit-skill, brief-skill, campaign, create-skill, forger, quick-skill, test-skill]
     used_for: Required for the Deep tier, for Campaign, and for `forge-auto --pin`. Optional otherwise, where it makes reading GitHub sources easier
     minimum: null
-    tested: []
-    basis: No version recorded yet, so no minimum. The tests stub gh.
+    tested: ["2.102.0"]
+    basis: No minimum yet. The tests stub gh. On 2026-10-04 the v3.0.0 pre-release tool check (recorded in the pull request that added these versions) ran every helper of main b5150b08 (the release candidate) that calls gh, the way the step files call them, against honojs/hono at v4.6.0 on gh 2.102.0, and each exited 0. They were skf-github-probe.py (repo, tags, tree), skf-validate-pins.py, skf-fetch-temporal.py, skf-detect-docs.py, campaign-provenance.py and skf-github-fetch.py, whose gh fallback ran with raw.githubusercontent.com blocked. Setup's skf-detect-tools.py also read the version.
     version_command: [gh, --version]
     install_url: https://cli.github.com
     upgrade: Install the latest release from https://cli.github.com
@@ -146,8 +146,8 @@ tools:
     workflows: [analyze-source, audit-skill, brief-skill, create-skill, create-stack-skill, update-skill]
     used_for: Forge+ tier, and the Deep tier when installed
     minimum: null
-    tested: []
-    basis: No version recorded yet, so no minimum. The tests stub ccc.
+    tested: ["0.2.41"]
+    basis: No minimum yet. The tests stub ccc. On 2026-10-04 the v3.0.0 pre-release tool check (recorded in the pull request that added these versions) ran the ccc commands of main b5150b08 (the release candidate) on cocoindex-code 0.2.41. skf-detect-tools.py found ccc with a healthy daemon (Forge+), and skf-merge-ccc-exclusions.py in setup and clone mode (ccc init, ccc index and ccc status) and the create-skill and audit-skill ccc search commands ran on scratch projects. Earlier full workflow runs on 0.2.41 were /skf-setup on SKF 2.2.0 (issue 490, 2026-09-23), the workspace-clone and audit-skill runs of pull request 509 (2026-09-27), and the /skf-setup re-runs of pull request 517 (2026-09-28). Both pull requests are unreleased v3 development.
     # ccc has no --version flag: the version is on the cocoindex-code line of
     # `uv tool list` when ccc was installed with uv.
     version_command: [uv, tool, list]
@@ -163,8 +163,8 @@ tools:
     workflows: [audit-skill, brief-skill, create-skill, create-stack-skill, update-skill]
     used_for: Deep tier
     minimum: null
-    tested: []
-    basis: No version recorded yet, so no minimum. The tests stub qmd.
+    tested: ["2.8.3"]
+    basis: No minimum yet. The tests stub qmd. On 2026-10-04 the v3.0.0 pre-release tool check (recorded in the pull request that added these versions) ran the qmd commands of main b5150b08 (the release candidate) on qmd 2.8.3 with an isolated index. It ran create-skill's qmd collection remove and add (first run and re-run) and qmd search, audit-skill's qmd ls and qmd search, and setup's qmd status and collection classifier. qmd embed and the vector searches did not run, because no embedding model was cached and the check downloaded none. Before that, qmd 2.8.3 ran in the Deep-tier create-skill runs of 2026-09-28 in bmad-module-ultracode-goal, which built four skills with qmd collection add, embed and search, on SKF main 8ce1db01, an unreleased build between v2.2.0 and v3.0.0.
     version_command: [qmd, --version]
     install_url: https://github.com/tobi/qmd
     upgrade: bun install -g @tobilu/qmd@latest
@@ -178,8 +178,8 @@ tools:
     workflows: [create-skill, test-skill]
     used_for: Opt-in Tessl Review in Create Skill and Test Skill (`tessl_review_workspace` in preferences)
     minimum: null
-    tested: []
-    basis: No version recorded yet, so no minimum. The tests stub tessl.
+    tested: ["0.111.0"]
+    basis: No minimum yet, since no older tessl has run Tessl Review. The tests stub tessl. Pull request 517 (unreleased v3 development, merged 2026-09-28 as 2b3b5113) records live create-skill and test-skill runs on tessl 0.111.0 in which Tessl Review returned a score. On 2026-10-04 the v3.0.0 pre-release tool check (recorded in the pull request that added these versions) ran `skf status` from main b5150b08 (the release candidate), which read tessl 0.111.0, and ran skf-tessl-review.py collect against it signed out, which starts no review.
     version_command: [tessl, --version]
     install_url: https://tessl.io
     upgrade: tessl cli update
@@ -193,8 +193,8 @@ tools:
     workflows: [create-skill, create-stack-skill, quick-skill, test-skill, update-skill]
     used_for: Spec validation, auto-fix and quality scoring. SKF runs it with npx, so it needs no install; without it, validation is done by hand
     minimum: null
-    tested: []
-    basis: SKF runs it through npx at whatever version npx resolves, so there is no floor it can check. No version recorded yet.
+    tested: ["1.2.0"]
+    basis: SKF runs it through npx at whatever version npx resolves, so there is no floor it can check. In the v3.0.0 pre-release tool check (recorded in the pull request that added these versions) on 2026-10-04, on main b5150b08 (the release candidate), npx resolved skill-check 1.2.0, npm's latest since 2026-02-21, and test-skill's check (`npx skill-check check <skill-dir> --format json --no-security-scan`) on a copy of an oh-my-skills skill returned every field SKF reads. No other version has a recorded run.
     version_command: [skill-check, --version]
     install_url: https://github.com/thedaviddias/skill-check
     upgrade: npm install -g skill-check@latest

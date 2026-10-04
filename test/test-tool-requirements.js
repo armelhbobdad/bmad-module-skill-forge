@@ -149,8 +149,12 @@ test('renderTable: one row per tool with its minimum and tested versions, then t
   assert.strictEqual(table.length, 2 + Object.keys(tools).length + 2);
   const astGrep = table.find((row) => row.startsWith('| `ast-grep` (CLI'));
   assert.match(astGrep, /\| 0\.45\.3 +\| 0\.45\.3 +\|/);
-  const qmd = table.find((row) => row.startsWith('| `qmd`'));
-  assert.match(qmd, /\| none +\| not recorded +\|/);
+  // No minimum reads `none`, and no tested version `not recorded`.
+  const unrecorded = renderTable({ ...tools, qmd: { ...tools.qmd, minimum: null, tested: [] } });
+  assert.match(
+    unrecorded.find((row) => row.startsWith('| `qmd`')),
+    /\| none +\| not recorded +\|/,
+  );
   for (const name of ['`git`', '`tessl`', '`skill-check`']) {
     assert.ok(
       table.some((row) => row.startsWith(`| ${name}`)),
