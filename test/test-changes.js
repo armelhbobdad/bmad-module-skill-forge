@@ -677,8 +677,11 @@ test('render: heading shape, section order, migration under each breaking change
 
 test('CHANGELOG.md: the block goes under an empty [Unreleased] and older history stays byte-identical', () => {
   const original = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
-  const block = fixtureBlock();
-  const updated = changes.insertIntoChangelog(original, block, '3.0.0');
+  // A version the real CHANGELOG.md can never hold, so the test also passes on
+  // the release commit and after a release, whose CHANGELOG.md has its block.
+  const version = '999.0.0';
+  const block = changes.renderBlock({ version, baseTag: 'v2.2.0', date: '2026-10-01', fragments: fixtureFragments(), repoUrl: REPO });
+  const updated = changes.insertIntoChangelog(original, block, version);
   const firstRelease = original.search(/^## \[\d/m);
   const history = original.slice(firstRelease);
   const unreleasedEnd = original.indexOf('## [Unreleased]') + '## [Unreleased]'.length;
@@ -689,7 +692,7 @@ test('CHANGELOG.md: the block goes under an empty [Unreleased] and older history
     `\n\n${block}\n${history}`,
     'the block sits between [Unreleased] and the previous release',
   );
-  assert.throws(() => changes.insertIntoChangelog(updated, block, '3.0.0'), /already has a ## \[3\.0\.0] section/);
+  assert.throws(() => changes.insertIntoChangelog(updated, block, version), /already has a ## \[999\.0\.0] section/);
 });
 
 test('CHANGELOG.md: a non-empty or missing [Unreleased] is refused', () => {
