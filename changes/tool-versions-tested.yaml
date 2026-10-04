@@ -1,0 +1,5 @@
+type: docs
+summary: |
+  The prerequisites table in Getting Started now fills in Tested on for `uv`, `git`, `gh`, `ccc`, `qmd`, `tessl` and `skill-check`, which read `not recorded` before. They now read uv 0.12.15 and 0.12.23, git 2.47.3 and 2.55.0, gh 2.102.0, ccc (cocoindex-code) 0.2.41, qmd 2.8.3, tessl 0.111.0 and skill-check 1.2.0. Each version comes from a named run, which `src/shared/tool-requirements.yaml` gives. qmd's is the release candidate's own qmd commands (collection add and remove, `qmd search` and `qmd ls`) run on qmd 2.8.3 with an isolated index and without the embedding step, and before that the Deep-tier create-skill runs of a development build shortly before 3.0.0. No minimum changed, so uv, gh, ccc, qmd, tessl and skill-check still have none and never warn.
+prs: [667]
+issues: [556]
