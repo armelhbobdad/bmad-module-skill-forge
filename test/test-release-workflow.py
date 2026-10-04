@@ -449,8 +449,8 @@ def test_wait_retries_a_failed_read_until_the_timeout(tmp_path):
     answers = [ok(THREE_PAGES), fail("connect: connection refused\n", "[]")]
     result = run_step(tmp_path, WAIT, WAIT_ENV, gh=wait_rules(answers))
     assert result.code == 1, result.out
-    assert result.out.count(f"Reading the check-runs on {HEAD_SHA} failed") == 60
-    assert "did not all succeed within 1200s" in result.out
+    assert result.out.count(f"Reading the check-runs on {HEAD_SHA} failed") == 2700 // 20  # TIMEOUT in 20 s ticks
+    assert "did not all succeed within 2700s" in result.out
     assert "Pending: unknown, the check-runs could not be read." in result.out
 
 
@@ -473,7 +473,7 @@ def test_wait_timeout_names_the_cleanup_not_an_open_pr(tmp_path):
     )
     result = run_step(tmp_path, WAIT, WAIT_ENV, gh=wait_rules([ok(pending)]))
     assert result.code == 1, result.out
-    assert "did not all succeed within 1200s" in result.out
+    assert "did not all succeed within 2700s" in result.out
     assert "Pending: lint(in_progress)" in result.out
     assert "left open" not in result.out
     assert "closes the bot PR, unless it has merged, and deletes its branch" in result.out
@@ -512,7 +512,7 @@ def test_wait_names_the_resume_path_on_a_timeout_after_the_merge(tmp_path):
     pending = pages([check_run("lint", None, "2026-09-22T19:40:00Z", status="in_progress")])
     result = run_step(tmp_path, WAIT, WAIT_ENV, gh=wait_rules([ok(pending)], state=[ok("MERGED\n")]))
     assert result.code == 1, result.out
-    assert "did not all succeed within 1200s" in result.out
+    assert "did not all succeed within 2700s" in result.out
     assert "so main now carries v3.0.0, which this run does not tag or publish" in result.out
     assert RESUME_HINT in result.out
     assert "Re-run failed jobs" not in result.out
