@@ -44,7 +44,7 @@
     "lint": "eslint . --ext .js,.cjs,.mjs,.yaml --max-warnings=0",
     "lint:fix": "eslint . --ext .js,.cjs,.mjs,.yaml --fix",
     "lint:instructions": "uvx lintlang@0.8.2 scan src --fail-on fail",
-    "lint:md": "markdownlint-cli2 \"**/*.md\"",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" && node tools/changes.js lint",
     "prepare": "husky || exit 0",
     "quality": "npm run format:check && npm run lint && npm run lint:md && npm run lint:instructions && npm run test:schemas && npm run test:install && npm run test:cli && npm run test:workflow && npm run test:python && npm run test:rehype && npm run test:docs-links-tool && npm run test:em-dash-tool && npm run test:file-refs-tool && npm run test:changes-tool && npm run test:tool-requirements-tool && npm run test:knowledge && npm run validate:schemas && npm run validate:skills && npm run validate:refs && npm run validate:docs-links && npm run validate:em-dash && npm run validate:changes && npm run validate:tool-requirements && npm run docs:validate-drift",
     "skf:install": "node tools/cli/skf-cli.js install",

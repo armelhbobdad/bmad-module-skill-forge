@@ -3,7 +3,8 @@ name: Quality & Validation
 # Runs comprehensive quality checks on all PRs:
 # - Prettier (formatting)
 # - ESLint (linting)
-# - markdownlint (markdown quality)
+# - markdownlint (markdown quality, and the CHANGELOG.md a release would write
+#   from the change fragments)
 # - LintLang (agent instructions under src/)
 # - No em dashes (published docs, and the lines and commit messages a PR adds)
 # - Change fragments (changes/*.yaml), the fragments a PR needs (pull
@@ -64,6 +65,13 @@ jobs:
       - name: ESLint
         run: npm run lint
 
+  # lint:md lints every Markdown file, then the CHANGELOG.md a stable release
+  # would write, its block rendered from every change fragment in changes/
+  # (`node tools/changes.js lint`), so a fragment's Markdown fails its own pull
+  # request rather than the release commit: a bare URL in one passed every
+  # check of its pull request and then failed the 3.0.0 release commit here
+  # (MD034). The render reads no git history, so the shallow checkout is
+  # enough. The job keeps its name: it is a required check.
   markdownlint:
     runs-on: ubuntu-latest
     steps:

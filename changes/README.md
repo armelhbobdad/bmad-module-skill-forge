@@ -32,7 +32,7 @@ issues: [497]
 | `issues` | no | issue numbers, as a list: `[502]` |
 | `prs` | no | pull request numbers, as a list: `[509]` |
 
-Name the file after the change, in lower case with hyphens, such as `setup-retire-write-failure.yaml`. No other key is accepted. A summary or migration holds no em dash and cites no step-file section (§): describe the behaviour instead. A `lead` holds only a `summary`, the paragraph that opens the release notes, and a release takes at most one.
+Name the file after the change, in lower case with hyphens, such as `setup-retire-write-failure.yaml`. No other key is accepted. A summary or migration holds no em dash and cites no step-file section (§): describe the behaviour instead. A `lead` holds only a `summary`, the paragraph that opens the release notes, and a release takes at most one. The required `markdownlint` check (`npm run lint:md`) also lints the fragments as the release block, rendered into the CHANGELOG.md a release would write, so Markdown that would break the release commit, such as a bare URL (write `<https://example.com>`), fails your pull request instead.
 
 ## Which type
 
