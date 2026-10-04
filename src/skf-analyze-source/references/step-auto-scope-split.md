@@ -47,7 +47,13 @@ uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'coexistence:
 
 ### 5a. Generate Multi-Scope Patterns
 
-For each boundary, generate include and exclude patterns with the §5 language rules and default pattern table, scoped to the boundary's source paths: a monorepo boundary is rooted at its package path (`packages/auth/src/**/*.ts` instead of `src/**/*.ts`).
+For boundary `{i}`, list its files, detect its language from them without `--workspace-signal` (the workspace root's language would answer for every boundary) and read it as §5 says, the boundary's own manifest standing for the scan-root manifest. Its include and exclude patterns are the ones `scope-patterns` prints for that language, rooted at the boundary's source folder (`packages/auth/src/**/*.ts`):
+
+```bash
+awk -v p="<boundary path>/" 'index($0, p) == 1' "{run_dir}/tree.txt" > "{run_dir}/tree-{i}.txt"
+uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{i}.txt"
+uv run {detectLanguageHelper} scope-patterns --tree-file "{run_dir}/tree-{i}.txt" --language <its language>
+```
 
 ### 6a. Build Multi-Scope
 
@@ -55,14 +61,7 @@ This is the one statement of what each boundary's brief holds; §8 writes these 
 
 - **Name:** the one §4a gave it, suffix included.
 - **Scope:** `scope.type` from its §4a mapping, `scope.include` and `scope.exclude` from §5a, and `scope.notes` ← `Decomposed from {project_name} ({N} skills): boundary {i}/{N}, {boundary role}.`, where `{boundary role}` says in a few words what the boundary is for (for example `core library` or `CLI`).
-- **Language:** detected from the boundary's own files, without `--workspace-signal` (the workspace root's language would answer for every boundary):
-
-  ```bash
-  awk -v p="<boundary path>/" 'index($0, p) == 1' "{run_dir}/tree.txt" > "{run_dir}/tree-{i}.txt"
-  uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{i}.txt"
-  ```
-
-  Read it as §5 says, the boundary's own manifest standing for the scan-root manifest.
+- **Language:** the one §5a detected.
 - **Description:** one to three sentences naming the parent project and the boundary's role (for example "Core library package of the my-monorepo project, providing..."), worded toward `intent_hint` when it is not empty.
 
 ### 7. The Decomposition Report

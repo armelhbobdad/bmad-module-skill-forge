@@ -838,3 +838,153 @@ def test_the_non_core_folders_match_shape_detection():
     shape = importlib.util.module_from_spec(spec_shape)
     spec_shape.loader.exec_module(shape)
     assert mod._NON_CORE_PATH_SEGMENTS == shape._NON_CORE_PATH_SEGMENTS
+
+
+# --------------------------------------------------------------------------
+# scope-patterns: a brief's include and exclude patterns from the listing
+# (step 5b gate run 6, skf-analyze-source determinism-2)
+# --------------------------------------------------------------------------
+
+EXPRESS_TREE = [
+    "package.json", "index.js", "lib/express.js", "lib/router/index.js", "test/app.js",
+    "examples/auth/index.js", "benchmarks/middleware.js", ".github/workflows/ci.yml",
+]
+SKLEARN_TREE = [
+    "pyproject.toml", "setup.py", "sklearn/__init__.py", "sklearn/base.py", "sklearn/linear_model/__init__.py",
+    "sklearn/linear_model/_base.py", "sklearn/tests/test_base.py", "doc/conf.py", "examples/plot_digits.py",
+    "build_tools/github/check_wheels.py",
+]
+
+
+@pytest.mark.parametrize(
+    "tree, language, folders, include, exclude",
+    [
+        pytest.param(EXPRESS_TREE, "javascript", ["lib"], ["lib/**/*.js"],
+                     ["**/*.test.js", "**/*.spec.js", "**/node_modules/**"], id="javascript-lib"),
+        pytest.param(["package.json", "tsconfig.json", "src/index.ts", "src/ui/Button.tsx", "lib/index.d.ts"],
+                     "typescript", ["src"], ["src/**/*.ts", "src/**/*.tsx"],
+                     ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "**/node_modules/**"],
+                     id="typescript-src-before-lib"),
+        pytest.param(SKLEARN_TREE, "python", ["sklearn"], ["sklearn/**/*.py"],
+                     ["**/*_test.py", "**/test_*.py", "**/tests/**"], id="python-import-package"),
+        pytest.param(["pyproject.toml", "src/pkg/__init__.py", "src/pkg/core.py", "tests/__init__.py"], "python",
+                     ["src"], ["src/**/*.py"], ["**/*_test.py", "**/test_*.py", "**/tests/**"], id="python-src-layout"),
+        pytest.param(["setup.py", "six.py", "test_six.py", "documentation/conf.py", "docs/x.py"], "python",
+                     ["."], ["**/*.py"], ["**/*_test.py", "**/test_*.py", "**/tests/**", "docs/**"],
+                     id="python-single-module"),
+        pytest.param(["Cargo.toml", "src/lib.rs", "benches/b.rs"], "rust", ["src"], ["src/**/*.rs"],
+                     ["**/tests/**", "**/benches/**"], id="rust-crate"),
+        pytest.param(["Cargo.toml", "crates/a/src/lib.rs", "crates/b/src/lib.rs", "examples/demo.rs"], "rust",
+                     ["."], ["**/*.rs"], ["**/tests/**", "**/benches/**", "examples/**"], id="rust-workspace"),
+        pytest.param(["go.mod", "main.go", "internal/a.go", "pkg/b.go", "src/c.go", "_examples/x.go"], "go",
+                     ["."], ["**/*.go"], ["**/*_test.go", "**/vendor/**"], id="go-whole-tree"),
+        pytest.param(["pom.xml", "src/main/java/a/A.java", "src/test/java/a/ATest.java"], "java",
+                     ["src/main/java"], ["src/main/java/**/*.java"], ["**/src/test/**"], id="java-module"),
+        pytest.param(["pom.xml", "core/src/main/java/a/A.java", "api/src/main/java/b/B.java"], "java",
+                     ["**/src/main/java"], ["**/src/main/java/**/*.java"], ["**/src/test/**"],
+                     id="java-multi-module"),
+        pytest.param(["build.gradle.kts", "src/main/kotlin/A.kt"], "kotlin", ["src/main/kotlin"],
+                     ["src/main/kotlin/**/*.kt"], ["**/src/test/**"], id="kotlin"),
+        pytest.param(["Package.swift", "Sources/Lib/A.swift", "Tests/LibTests/ATests.swift"], "swift", ["Sources"],
+                     ["Sources/**/*.swift"], ["**/Tests/**"], id="swift"),
+        pytest.param(["Gemfile", "lib/gem.rb", "spec/gem_spec.rb"], "ruby", ["lib"], ["lib/**/*.rb"],
+                     ["**/spec/**", "**/test/**"], id="ruby"),
+        pytest.param(["README.md", "notes/a.txt", "tests/x.txt"], "unknown", ["."], ["**/*"],
+                     ["**/test/**", "**/tests/**", "tests/**"], id="unknown"),
+    ],
+)
+def test_scope_patterns_root_at_the_listed_source_folder(tree, language, folders, include, exclude):
+    out = mod.scope_patterns(tree, language)
+    assert out == {"language": language, "source_folders": folders, "include": include, "exclude": exclude}
+
+
+# A monorepo merged into one skill whose root lib/ is one package among its
+# members, as aws-sdk-js-v3's is (lib/lib-dynamodb beside clients/ and packages/).
+AWS_SDK_TREE = [
+    "package.json", "tsconfig.json", "lib/lib-dynamodb/package.json", "lib/lib-dynamodb/src/index.ts",
+    "lib/lib-storage/package.json", "lib/lib-storage/src/Upload.ts", "clients/client-s3/package.json",
+    "clients/client-s3/src/S3Client.ts", "clients/client-s3/test/e2e/S3.ispec.ts", "packages/core/package.json",
+    "packages/core/src/index.ts", "private/aws-protocoltests/package.json", "private/aws-protocoltests/src/x.ts",
+    "scripts/build.ts", "codegen/build.gradle.kts", "codegen/sdk-codegen/src/main/java/x/Gen.java",
+    ".github/workflows/ci.yml",
+]
+
+
+@pytest.mark.parametrize(
+    "tree, language, folders, include",
+    [
+        pytest.param(AWS_SDK_TREE, "typescript", ["."], ["**/*.ts"], id="merged-root-lib-beside-packages"),
+        pytest.param(["pyproject.toml", "src/core/__init__.py", "src/core/a.py", "packages/ext/pyproject.toml",
+                      "packages/ext/src/ext/__init__.py", "tests/test_a.py"], "python", ["."], ["**/*.py"],
+                     id="merged-root-src-beside-packages"),
+        pytest.param(["pyproject.toml", "core/__init__.py", "plugins/x/pyproject.toml", "plugins/x/x/__init__.py"],
+                     "python", ["."], ["**/*.py"], id="merged-import-package-beside-a-plugin"),
+        pytest.param(["pom.xml", "src/main/java/a/A.java", "module-b/pom.xml", "module-b/src/main/java/b/B.java"],
+                     "java", ["**/src/main/java"], ["**/src/main/java/**/*.java"], id="java-root-and-module"),
+        pytest.param(["package.json", "src/index.ts", "packages/fixture-pkg/package.json",
+                      "packages/fixture-pkg/test/a.ts", "examples/demo/package.json", "examples/demo/src/b.ts"],
+                     "typescript", ["src"], ["src/**/*.ts"], id="a-package-with-only-tests-is-left-alone"),
+        pytest.param(["pyproject.toml", "mypkg/__init__.py", "mypkg/core.py", "third_party/vendored/setup.py",
+                      "third_party/vendored/vendored.py"], "python", ["mypkg"], ["mypkg/**/*.py"],
+                     id="a-vendored-copy-is-no-package"),
+    ],
+)
+def test_scope_patterns_cover_every_package_of_a_merged_monorepo(tree, language, folders, include):
+    """A root src/ or lib/ wins only when no package below the root holds sources
+    outside it; otherwise the patterns take the whole tree (or every module's
+    src/main/java), so a merged skill drops no member."""
+    out = mod.scope_patterns(tree, language)
+    assert (out["source_folders"], out["include"]) == (folders, include)
+
+
+def test_scope_patterns_of_a_merged_monorepo_leave_its_tool_folders_out():
+    out = mod.scope_patterns(AWS_SDK_TREE, "typescript")
+    assert out["exclude"] == ["**/*.test.ts", "**/*.spec.ts", "**/node_modules/**", "scripts/**"]
+
+
+@pytest.mark.parametrize("package", [["com", "example", "demo"], ["org", "springframework", "samples", "petclinic"]],
+                         ids=["com-example", "spring-petclinic"])
+def test_a_java_package_path_does_not_hide_the_source_folder(package):
+    """Only the folders down to src/main/java are judged core: a package path that
+    holds `example` or `samples` is still the project's own source."""
+    path = "/".join(package)
+    tree = ["pom.xml", f"src/main/java/{path}/App.java", f"src/test/java/{path}/AppTests.java"]
+    out = mod.scope_patterns(tree, "java")
+    assert (out["source_folders"], out["include"]) == (["src/main/java"], ["src/main/java/**/*.java"])
+
+
+def test_scope_patterns_of_one_unit_carry_its_folder():
+    """The files of one boundary (step-auto-scope-split section 5a) sit under its folder."""
+    tree = ["packages/auth/package.json", "packages/auth/tsconfig.json", "packages/auth/src/index.ts",
+            "packages/auth/test/a.test.ts"]
+    out = mod.scope_patterns(tree, "typescript")
+    assert (out["source_folders"], out["include"]) == (["packages/auth/src"], ["packages/auth/src/**/*.ts"])
+    go = mod.scope_patterns(["svc/go.mod", "svc/main.go", "svc/examples/x.go"], "go")
+    assert (go["include"], go["exclude"][-1]) == (["svc/**/*.go"], "svc/examples/**")
+
+
+def test_scope_patterns_cover_every_language_the_detector_emits():
+    assert set(mod._SCOPE_RULES) == set(mod._EXTENSION_TO_LANGUAGE.values()) | {"unknown"}
+
+
+def test_the_cli_prints_scope_patterns_from_a_listing(tmp_path):
+    listing = tmp_path / "tree.txt"
+    listing.write_bytes("".join(f"{p}\n" for p in EXPRESS_TREE).encode("utf-8"))
+    out = _out(run_cli("scope-patterns", "--tree-file", str(listing), "--language", "javascript"))
+    assert out == mod.scope_patterns(EXPRESS_TREE, "javascript")
+    assert _out(run_cli("--tree-file", str(listing)))["language"] == "javascript", "the detector's CLI is unchanged"
+
+
+@pytest.mark.parametrize(
+    "args, message",
+    [
+        pytest.param(["--language", "cobol"], b"invalid choice", id="unknown-language"),
+        pytest.param(["--language", "python", "--empty"], b"is empty", id="empty-listing"),
+        pytest.param([], b"--language", id="no-language"),
+    ],
+)
+def test_scope_patterns_refuse_bad_input_with_2(tmp_path, args, message):
+    listing = tmp_path / "tree.txt"
+    listing.write_bytes(b"" if "--empty" in args else b"src/a.py\n")
+    proc = run_cli("scope-patterns", "--tree-file", str(listing), *[a for a in args if a != "--empty"])
+    assert proc.returncode == 2 and message in proc.stderr, proc.stderr

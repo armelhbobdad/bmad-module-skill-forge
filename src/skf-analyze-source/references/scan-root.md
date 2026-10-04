@@ -13,7 +13,7 @@ Every helper of the step-by-step analysis reads a local folder, the project path
 **What the path is.** The helper that names every unit tells a local path from a repository and gives the URL git clones a repository from. Resolve `{skillInventoryHelper}` from `{skillInventoryProbeOrder}` (first existing path wins; with none, the command below fails with "`skf-skill-inventory.py` is missing. Re-install SKF." as its first stderr line) and run:
 
 ```bash
-uv run {skillInventoryHelper} derive-name --target "{path}"
+uv run {skillInventoryHelper} derive-name --target "{path}" --probe-git
 ```
 
 Its `kind` is `local` for a local path, `remote` for a repository and `docs` for a documentation URL, and its `clone_url` is the URL git reads for a repository.
@@ -34,6 +34,6 @@ Its `kind` is `local` for a local path, `remote` for a repository and `docs` for
   ```
 
   `{ref_flag}` is `--branch {ref}` when the path has a ref, else nothing. The project path stays as it was given everywhere else: in `project_paths[]`, the keys of `scan_roots` and `refs`, and each brief's `source_repo`.
-- **A documentation URL** (`kind` is `docs`): there is no repository to scan. Treat it as a command that failed with "{path} is a documentation URL: run the analysis with [auto] for a docs-only brief" as its first stderr line.
+- **A documentation URL** (`kind` is `docs`): there is no repository to scan. Treat it as a command that failed with its `halt_message` as the first stderr line when it gives one (the message the [auto] path halts with), else with "{path} is a documentation URL: run the analysis with [auto] for a docs-only brief".
 
 When a command fails, the file that loaded this one says what happens, with the first line it printed on stderr.

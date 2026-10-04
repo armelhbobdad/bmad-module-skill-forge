@@ -60,27 +60,25 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 ### 0. URL Type Detection
 
-Read the target URL or path from the pipeline context (`{project_path}` or the first entry in `project_paths[]`).
-
-**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0`): "`skf-skill-inventory.py` is missing. Re-install SKF." The helper that names every brief classifies the target:
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins. If neither resolves, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0`): "`skf-skill-inventory.py` is missing. Re-install SKF." The helper classifies `{project_path}` (the first of `project_paths[]`):
 
 ```bash
-uv run {skillInventoryHelper} derive-name --target "{project_path}"
+uv run {skillInventoryHelper} derive-name --target "{project_path}" --probe-git
 ```
 
 | `kind` | Classification | Route |
-|--------|----------------|-------|
-| `docs` | Documentation URL | `references/auto-docs-only.md` (docs-only, via §0c) |
-| `local` | Local filesystem path | §1 (standard auto-scope) |
-| `remote` | Repo URL, cloned from `clone_url` | §1 (standard auto-scope) |
+|---|---|---|
+| `docs` | Documentation URL | HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:0`, path `{project_path}`) with its `halt_message` when it gives one, else `references/auto-docs-only.md`, via §0c |
+| `local` | Local filesystem path | §1 |
+| `remote` | Repo URL, cloned from `clone_url` | §1 |
 
-Store `{kind}` and `{clone_url}` (null unless `kind` is `remote`). For all input types, continue to §0b (Pin Resolution).
+Store `{kind}` and `{clone_url}`; every kind continues to §0b.
 
 ### 0b. Pin Resolution
 
-This section validates and resolves version pins. It runs for repo URLs and local paths only — skip for documentation URLs (doc URLs have no git repo to pin against). Initialize `{pinned_ref}`, `{pinned_ref_type}`, and `{pinned_version}` as null.
+This section validates and resolves version pins. Initialize `{pinned_ref}`, `{pinned_ref_type}`, and `{pinned_version}` as null.
 
-**For documentation URLs:** Skip this section entirely. Continue to §0c.
+**For documentation URLs** (no git repo to pin against): skip to §0c.
 
 **For a local path (`{kind}` is `local`) when `--pin` is provided:** Emit a warning: "**Local source may not match pinned version {pin_value}.** Ensure you've checked out the correct version locally, or use a remote GitHub URL so SKF can clone from the git tag automatically." Store `{pinned_ref}` = `{pin_value}`, `{pinned_ref_type}` = `"local"`, `{pinned_version}` = `{pin_value}`. Continue to §0c without running `skf-validate-pins.py`.
 
@@ -114,7 +112,7 @@ Handle exit codes:
 
 ### 0c. Coexistence Detection
 
-This section checks for existing skills matching the target before proceeding. It runs for all input types (repo URLs, doc URLs, and local paths). Initialize `{coexistence_suffix}` as empty.
+This section checks for existing skills matching the target, whatever its kind, then goes on to its **route**: load, read fully, then execute `references/auto-docs-only.md` for a documentation URL, §1 for every other kind. Initialize `{coexistence_suffix}` as empty.
 
 **1. Load skill inventory:**
 
@@ -124,7 +122,7 @@ Pass the target (`{project_path}`) to `{skillInventoryHelper}`, resolved in §0,
 uv run {skillInventoryHelper} "{skills_output_folder}" --match-target "{project_path}"
 ```
 
-Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and continue: load, read fully, then execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types.
+Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and go on to the route.
 
 **2. Read the match set:**
 
@@ -138,9 +136,9 @@ Read the top-level **`matches[]`** array; the helper has already matched, so do 
 
 **3. If `matches[]` is empty:**
 
-Complete silently. Continue: execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types. No user output.
+Complete silently and go on to the route. No user output.
 
-**4. If `matches[]` has one or more entries:** load, read fully, then execute {coexistenceFile}, the coexistence gate. Its [A]longside comes back here with `{coexistence_suffix}` set to `-wiki` and continues with `references/auto-docs-only.md` for a documentation URL, §1 for every other input; its [M]erge and [S]kip end the run through §9.
+**4. If `matches[]` has one or more entries:** load, read fully, then execute {coexistenceFile}, the coexistence gate. Its [A]longside comes back here with `{coexistence_suffix}` set to `-wiki` and goes on to the route; its [M]erge and [S]kip end the run through §9.
 
 ### 1. Load Context
 
@@ -154,7 +152,7 @@ Load `references/step-shape-detect.md` as reference for shape detection invocati
 
 ### 2. Manifest Scan
 
-Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses): do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists; if none does, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`): "`skf-scan-manifests.py` is missing. Re-install SKF." The scanner reads a **local directory**, so how you point it at the target depends on its `kind`: §0 gave `{kind}` and `{clone_url}` for its target, and §0's `derive-name --target` call gives them for any other path.
+Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses): do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists; if none does, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`): "`skf-scan-manifests.py` is missing. Re-install SKF." The scanner reads a **local directory**, so how you point it at the target depends on its `kind`: §0 gave `{kind}` and `{clone_url}` for its target, and §0's `derive-name --target` call gives them for any other path, and its `halt_message` halts the run as in §0, with phase `step-auto-scope:2` and that path as `{project_path}`.
 
 **For each path in `project_paths[]`:**
 
@@ -205,7 +203,7 @@ Parse the JSON output: `{shape, signals, confidence, export_count, package_count
 **Handle exit codes:**
 
 - **Exit 0 (shape classified):** Continue to §3a.
-- **Exit 1 (unknown shape):** the run goes on as an interactive analysis. Set `mode: 'interactive'` in {outputFile}'s frontmatter (a session that resumes this report must take the interactive chain, not re-enter auto-scope) and `{auto_mode}` to false. When `{pinned_ref_type}` is `"tag"` or `"branch"`, also set `target_ref: '{pinned_ref}'` and `refs: {each project path: '{pinned_ref}'}` there, so the chain scans every path and writes every brief at the §0b pin (a `"local"` pin, or none, sets neither, as the §8 pin table gives no `target_ref` for them). Then emit the fallback message: "**Auto-scope could not classify this repo: switching to interactive mode.**", then load, read fully, and execute `references/scan-project.md`. **STOP HERE.**
+- **Exit 1 (unknown shape):** the run goes on as an interactive analysis. Set `mode: 'interactive'` in {outputFile}'s frontmatter (so a later session resumes it: init archives an unfinished `'auto'` report) and `{auto_mode}` to false. When `{pinned_ref_type}` is `"tag"` or `"branch"`, also set `target_ref: '{pinned_ref}'` and `refs: {each project path: '{pinned_ref}'}` there, so the chain scans every path and writes every brief at the §0b pin (a `"local"` pin, or none, sets neither, as the §8 pin table gives no `target_ref` for them). Then emit the fallback message: "**Auto-scope could not classify this repo: switching to interactive mode.**", then load, read fully, and execute `references/scan-project.md`. **STOP HERE.**
 - **Exit 2 (error):** HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:3`): "Shape detection failed: {the `error` its stderr JSON names}."
 
 ### 3a. Check Decomposition Thresholds
@@ -216,7 +214,7 @@ Apply the **Decomposition Thresholds** ladder from `step-shape-detect.md` (loade
 
 **Decision:**
 
-- **Threshold not met** (`package_count ≤ 3`) → Continue to §4 (single-scope flow, entirely unchanged).
+- **Threshold not met** (`package_count ≤ 3`) → Continue to §4 (single-scope flow).
 - **Threshold met** (`package_count > 3`) → this repo is a **decomposition candidate**. A threshold firing means the repo *could* decompose, not that it *should* — continue to §3b to decide merge-vs-split. Log: "Auto-decomposition candidate: package_threshold ({value} packages exceeds 3)".
 
 ### 3b. Cohesion Check — Merge to One Skill vs Split into N
@@ -244,15 +242,15 @@ If the command fails, go on: only that entry is lost.
 
 ### 4. Map Shape to Scope
 
-Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1) — the single source of truth for this ladder (the `export_count > 200 → public-api` split, the `language-reference` corpora caveat, and the `stack-compose` decomposition note).
+Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1).
 
 **An app or a library on a framework.** When §3's `signals` hold `app_or_library:framework_dep`, take that table's row for it and judge which of its two cases the repository is from the scan-root manifest's `description` (its `manifests[]` entry in `{run_dir}/manifests-1.json`), or, when that does not settle it, the README's opening paragraph (a remote fetch checked out only the manifests: `git -C "{scan_root}" sparse-checkout add '/README*'` brings the README in). From here on `{shape}` is the shape you chose. Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.shape", "default_action": "reference-app", "taken_action": "<reference-app or library-API>", "reason": "<the sentence of the description or README that decided>", "evidence": {"signals": [<the §3 signals>]}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
 
+**A language on a parser.** When §3's `signals` hold `language_or_user:parser_dep`, judge which case of that signal's row the repository is, from the same description or README: from here on `{shape}` is the shape that case gives. Record it the same way (after the choice above when both hold), with `default_action` the shape you judged from and `taken_action` the new `{shape}`.
+
 ### 5. Generate Include/Exclude Patterns
 
-Generate `scope.include` and `scope.exclude` arrays from the detected language and project structure.
-
-**Detect the primary language once, deterministically**, from the §2 file list, via the shared helper: the single source of truth for the manifest→language rule table. **Resolve `{detectWorkspacesHelper}`** from `{detectWorkspacesProbeOrder}` and **`{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:5`): "`{the missing script}` is missing. Re-install SKF." First find the workspace layout, which reads the root manifests from the scan root (§2):
+**Detect the primary language once**, from the §2 file list, with the shared helper. **Resolve `{detectWorkspacesHelper}`** from `{detectWorkspacesProbeOrder}` and **`{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:5`): "`{the missing script}` is missing. Re-install SKF." First find the workspace layout, which reads the root manifests from the scan root (§2):
 
 ```bash
 uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.txt" --manifest-dir "{scan_root}"
@@ -269,21 +267,13 @@ The helper owns the `tsconfig.json` JS-vs-TS and `build.gradle` Java-vs-Kotlin d
 - **`detected_languages` has one entry or none, or `.confidence` is `high` and the §2 scan-root manifests (the `manifests[]` entries whose `path` has no folder) are all of one ecosystem:** `{detected_language}` ← `.language`. A manifest at the root decided, so the choice below would give the same answer.
 - **Otherwise** (several languages, and no single-ecosystem root manifest decided): `.language` is the helper's first guess, not the answer. Choose the language the skill documents: among `detected_languages`, the language of the scan-root manifest (the §2 `manifests[]` entry whose `path` has no folder; with several, the one whose `name` is the package this repository publishes), or, when there is none, `.source_language`, the language most of the files are written in (CPython's listing holds only manifests below its root, so `.confidence` is `medium` and its sources say `python`). Record the choice: write `{run_dir}/decision.json` as `{"gate": "auto-scope.language", "default_action": "<detected_languages[0]>", "taken_action": "<the language you chose>", "reason": "<the manifest or the source files that decided>", "evidence": {"detected_languages": [<detected_languages>], "source_language": "<source_language>"}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"` (if it fails, go on).
 
-**Default patterns (adjust based on actual project structure):**
+**Take the patterns from the §2 listing**, never from the folders on disk (a remote scan root holds only the manifests): `scope.include` and `scope.exclude` are what this prints:
 
-| Language | Default include | Default exclude |
-|----------|-----------------|-----------------|
-| TypeScript/JavaScript | `['src/**/*.ts', 'src/**/*.tsx']` | `['**/*.test.ts', '**/*.spec.ts', '**/node_modules/**']` |
-| Python | `['src/**/*.py']` or `['{package_name}/**/*.py']` | `['**/*_test.py', '**/test_*.py', '**/tests/**']` |
-| Rust | `['src/**/*.rs']` | `['**/tests/**', '**/benches/**']` |
-| Go | `['**/*.go']` | `['**/*_test.go', '**/vendor/**']` |
-| Java | `['src/main/java/**/*.java']` | `['**/src/test/**']` |
-| Kotlin | `['src/main/kotlin/**/*.kt']` | `['**/src/test/**']` |
-| Swift | `['Sources/**/*.swift']` | `['**/Tests/**']` |
+```bash
+uv run {detectLanguageHelper} scope-patterns --tree-file "{run_dir}/tree.txt" --language {detected_language}
+```
 
-**Adjust for actual layout:** If the project uses a non-standard layout (e.g., `lib/` instead of `src/`, or a named package directory for Python), detect and use the actual paths. Check for the existence of common source directories (`src/`, `lib/`, `pkg/`, the package name directory) and prefer the one that exists.
-
-**Apply `scope_hint`** when it is not empty: root the include patterns at the folders or packages it focuses on (`packages/auth/src/**/*.ts`), and add `<folder>/**` to the exclude patterns for each folder it skips. Name the hint in `scope.notes`.
+**Apply `scope_hint`** when it is not empty: root the include patterns at the folders or packages it focuses on (`packages/auth/**/*.ts`), and add `<folder>/**` to the exclude patterns for each folder it skips. Name the hint in `scope.notes`.
 
 ### 6. Build Scope and Determine Skill Name
 
@@ -339,11 +329,11 @@ decomposition:
 
 Each `confirmed_units` entry includes `boundary_path` — the relative path to the boundary's root (e.g., `packages/core`). Omit the `decomposition` key entirely when single-scope (N = 1).
 
-**When single-scope (N = 1):** No `decomposition` key. `confirmed_units` contains a single entry (existing behavior).
+**When single-scope (N = 1):** No `decomposition` key. `confirmed_units` contains a single entry.
 
 **Append body section:**
 
-For single-scope (unchanged):
+For single-scope:
 ```markdown
 ## Auto-Scope Analysis
 

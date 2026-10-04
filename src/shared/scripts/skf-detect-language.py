@@ -63,6 +63,7 @@ CLI:
   uv run skf-detect-language.py --json '{"tree": [...]}'
   uv run skf-detect-language.py --tree-file <file> [--workspace-signal <manifest_kind>]
   <listing> | uv run skf-detect-language.py --tree-file - [--workspace-signal <manifest_kind>]
+  uv run skf-detect-language.py scope-patterns --tree-file <file> --language <language>
 
 --tree-file reads the repository's file list from a file (`-` reads it from
 stdin), so a tree of any size reaches the script whole and never passes
@@ -125,6 +126,38 @@ Exit codes:
   2  bad input: invalid JSON, a missing or empty tree, the tree or the
      workspace_signal passed twice, or a tree listing that cannot be read,
      holds no path or reports a failure
+
+scope-patterns prints a brief's `scope.include` and `scope.exclude` for one
+language (a value `language` above takes) from the --tree-file listing alone,
+so a manifests-only sparse checkout, which holds no source folder on disk,
+roots them the same as a full one. The paths are read below the tree's root
+(above), and the patterns carry that root, so the files of one unit give
+patterns rooted at the unit's folder. The source folders are the first of
+these to hold files of the language's extensions (_SCOPE_RULES) and leave
+no package out:
+  1. the language's conventional folders, in order (src/ then lib/ for
+     JavaScript and TypeScript; `**/src/main/java` is every module's). A
+     file counts when no folder down to the conventional one is hidden or
+     non-core, whatever the folders below it are named (a Java package
+     path such as com/example/);
+  2. for Python, every top-level core folder that holds an __init__.py
+     itself: the import packages (sklearn/ of scikit-learn, django/);
+  3. otherwise the whole tree, less each top-level hidden or non-core
+     folder that holds files of the language. Go always takes the whole
+     tree, and `unknown` matches every file.
+A folder leaves a package out when a core folder below the root that holds
+a manifest (not a vendored copy) has files of the language outside it, in
+its own files or a core folder of its own: a monorepo merged into one
+skill, whose root lib/ is one package among its members (aws-sdk-js-v3,
+with clients/ and packages/ beside it). Then only a later conventional
+folder that matches at any depth (`**/src/main/java`) may still answer,
+and otherwise the whole tree does.
+`include` lists `<folder>/**/*<ext>` for each extension the source folders
+hold (every extension of the language when they hold none); `exclude` lists
+the language's test, benchmark and vendored-code globs, then the left-out
+folders. Output: {language, source_folders, include, exclude}, with
+`source_folders` repo-relative (`.` for the repository root). Exit 2 on an
+unusable listing or a language outside the list.
 """
 
 from __future__ import annotations
@@ -486,6 +519,134 @@ def _winner(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# scope-patterns: a brief's include and exclude patterns
+# --------------------------------------------------------------------------
+
+# Per language: the extensions an include lists, the conventional source
+# folders in the order they are tried (None: the whole tree, as Go keeps its
+# packages in the module's own folders; a leading `**/` matches the folder at
+# any depth) and the exclude globs, where `{ext}` stands for each included
+# extension. `unknown` has no extension: it matches every file.
+_SCOPE_RULES: dict[str, tuple[tuple[str, ...], tuple[str, ...] | None, tuple[str, ...]]] = {
+    "typescript": ((".ts", ".tsx"), ("src", "lib"), ("**/*.test{ext}", "**/*.spec{ext}", "**/node_modules/**")),
+    "javascript": ((".js", ".jsx", ".mjs", ".cjs"), ("src", "lib"),
+                   ("**/*.test{ext}", "**/*.spec{ext}", "**/node_modules/**")),
+    "python": ((".py",), ("src",), ("**/*_test.py", "**/test_*.py", "**/tests/**")),
+    "rust": ((".rs",), ("src",), ("**/tests/**", "**/benches/**")),
+    "go": ((".go",), None, ("**/*_test.go", "**/vendor/**")),
+    "java": ((".java",), ("src/main/java", "**/src/main/java"), ("**/src/test/**",)),
+    "kotlin": ((".kt",), ("src/main/kotlin", "**/src/main/kotlin"), ("**/src/test/**",)),
+    "swift": ((".swift",), ("Sources",), ("**/Tests/**",)),
+    "csharp": ((".cs",), ("src",), ("**/bin/**", "**/obj/**", "**/*Tests/**")),
+    "ruby": ((".rb",), ("lib",), ("**/spec/**", "**/test/**")),
+    "php": ((".php",), ("src", "lib"), ("**/tests/**", "**/vendor/**")),
+    "unknown": ((), (), ("**/test/**", "**/tests/**")),
+}
+
+
+def _depth_below(parts: list[str], folder: str) -> int:
+    """How many of a file's folder segments reach down to `folder` (whose
+    leading `**/` matches it at any depth), or 0 when the file is not below
+    it. Only those segments are judged core: a Java package path below
+    src/main/java/ (com/example/, org/.../samples/) is the project's own."""
+    segs = folder.split("/")
+    folders = parts[:-1]
+    if segs[0] != "**":
+        return len(segs) if folders[:len(segs)] == segs and _is_core(segs) else 0
+    tail = segs[1:]
+    for i in range(len(folders) - len(tail) + 1):
+        if folders[i:i + len(tail)] == tail and _is_core(folders[:i + len(tail)]):
+            return i + len(tail)
+    return 0
+
+
+# Folders that hold a copy of someone else's code: a manifest there is no
+# package of the repository's own (scope_patterns' merged-monorepo check).
+_VENDORED_SEGMENTS = frozenset({"vendor", "vendored", "third_party", "third-party", "thirdparty"})
+
+
+def _leaves_out_a_package(paths: list[list[str]], files: list[list[str]], folders: list[str]) -> bool:
+    """Whether a package below the root (a core folder, not a vendored copy,
+    that holds a manifest) holds files of the language that none of
+    `folders` covers, in a folder of its own that is core: a monorepo merged
+    into one skill, whose root src/ or lib/ is one package among its members
+    (aws-sdk-js-v3's lib/ beside clients/ and packages/)."""
+    packages = {tuple(parts[:-1]) for parts in paths
+                if len(parts) > 1 and _rule_of(parts[-1]) is not None and _is_core(parts[:-1])
+                and not any(seg.lower() in _VENDORED_SEGMENTS for seg in parts[:-1])}
+    for parts in files:
+        if any(_depth_below(parts, folder) for folder in folders):
+            continue
+        below = parts[:-1]
+        if any(tuple(below[:len(pkg)]) == pkg and _is_core(below[:len(pkg) + 1]) for pkg in packages):
+            return True
+    return False
+
+
+def scope_patterns(tree: list[str], language: str) -> dict[str, Any]:
+    """A brief's include and exclude patterns for `language` from the file
+    list alone (see the module docstring)."""
+    exts, conventional, excludes = _SCOPE_RULES[language]
+    root = _tree_root(tree)
+    prefix = "".join(f"{seg}/" for seg in root)
+    paths = [parts for parts in (_parts(p)[len(root):] for p in tree) if parts]
+    files = [parts for parts in paths if not exts or _extension(parts[-1]) in exts]
+    sources = [parts for parts in files if _is_core(parts[:-1])]
+    folders: list[str] = []
+    merged = False  # a source folder held files but left a package's out
+    for folder in conventional or ():
+        if merged and not folder.startswith("**/"):
+            continue
+        if any(_depth_below(parts, folder) for parts in files):
+            if not _leaves_out_a_package(paths, files, [folder]):
+                folders = [folder]
+                break
+            merged = True
+    if not folders and not merged and language == "python":
+        packages = sorted({parts[0] for parts in sources if len(parts) == 2 and parts[1] == "__init__.py"})
+        if packages and not _leaves_out_a_package(paths, files, packages):
+            folders = packages
+    left_out: list[str] = []
+    if not folders:
+        left_out = sorted({parts[0] for parts in files if len(parts) > 1 and not _is_core(parts[:1])})
+    chosen = ([parts for parts in files if any(_depth_below(parts, f) for f in folders)] if folders
+              else sources)
+    held = [ext for ext in exts if any(_extension(parts[-1]) == ext for parts in chosen)] or list(exts)
+    names = [f"*{ext}" for ext in held] or ["*"]
+    bases = [f"{prefix}{folder}/" for folder in folders] or [prefix]
+    exclude: list[str] = []
+    for glob in excludes:
+        for ext in held if "{ext}" in glob else [""]:
+            if glob.replace("{ext}", ext) not in exclude:
+                exclude.append(glob.replace("{ext}", ext))
+    return {
+        "language": language,
+        "source_folders": [base.rstrip("/") or "." for base in bases],
+        "include": [f"{base}**/{name}" for base in bases for name in names],
+        "exclude": exclude + [f"{prefix}{folder}/**" for folder in left_out],
+    }
+
+
+def _scope_patterns_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="skf-detect-language.py scope-patterns",
+        description="Print a brief's scope.include and scope.exclude for one language from a file list.",
+    )
+    parser.add_argument("--tree-file", required=True,
+                        help="the repository's file list, as the detector's --tree-file reads it; - reads stdin")
+    parser.add_argument("--language", required=True, choices=sorted(_SCOPE_RULES),
+                        help="the language the skill documents: a value the detector's `language` takes")
+    args = parser.parse_args(argv)
+    try:
+        tree = read_tree_file(args.tree_file)[0]
+    except TreeListingError as e:
+        _die(str(e))
+    json.dump(scope_patterns(tree, args.language), sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+# --------------------------------------------------------------------------
 # --tree-file listings
 # --------------------------------------------------------------------------
 
@@ -615,6 +776,8 @@ def _force_utf8(*streams) -> None:
 
 def main(argv: list[str]) -> int:
     _force_utf8(sys.stdin, sys.stdout)
+    if argv[:1] == ["scope-patterns"]:
+        return _scope_patterns_main(argv[1:])
     payload = _parse_argv(argv)
     result = detect(payload)
     json.dump(result, sys.stdout, ensure_ascii=False)

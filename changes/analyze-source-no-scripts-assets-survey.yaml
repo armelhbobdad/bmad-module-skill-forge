@@ -1,0 +1,6 @@
+type: changed
+scope: skf-analyze-source
+summary: |
+  Analyze Source no longer checks each unit for scripts and assets. The export summary it shows, and the Export Map in `analyze-source-report-<project>.md`, drop their Scripts/Assets column, and each unit's analysis does less work. Briefs are unchanged: Create Skill still detects and packages a skill's scripts and assets when it extracts the source.
+prs: [665]
+issues: [599]

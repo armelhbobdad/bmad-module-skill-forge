@@ -34,7 +34,6 @@ GOOD = {
     "exports_count": 7,
     "export_pattern": "barrel: 5 functions, 2 classes",
     "api_surface": ["login", "logout"],
-    "scripts_assets": {"scripts": [], "assets": []},
     "ccc_signals": {"top_files": [], "available": False},
     "strategy_used": "ast-grep",
     "confidence": "T1",
@@ -83,6 +82,16 @@ def test_a_missing_or_wrong_key_degrades_the_record_and_names_the_problem(tmp_pa
     assert any(p.startswith("key api_surface has the wrong type") for p in problems)
     assert any(p.startswith("key confidence has the wrong type") for p in problems)
     assert {p["unit_name"] for p in out["problems"]} == {"auth"}
+
+
+def test_a_record_with_the_retired_scripts_assets_key_is_kept_as_it_came(tmp_path):
+    """The contract no longer asks for a scripts/assets survey: a record that
+    still carries one is neither a problem nor rewritten."""
+    assert "scripts_assets" not in mod.CONTRACT
+    record = {**GOOD, "scripts_assets": {"scripts": ["bin/cli.js"], "assets": []}}
+    out = mod.check_folder(_folder(tmp_path, {"auth.json": json.dumps(record)}))
+    assert out["records"] == [record]
+    assert out["problems"] == []
 
 
 def test_counts_reject_booleans_and_negatives(tmp_path):

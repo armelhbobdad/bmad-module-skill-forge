@@ -37,7 +37,7 @@ These rules apply to every step in this workflow:
 |---|------|------|--------------|-----------|
 | 1 | Initialize | references/init.md | Yes | Always |
 | 1a | Auto-Scope | references/step-auto-scope.md | Conditional (the coexistence gate) | `[auto]` mode only: bypasses steps 2–6; owns pin resolution, coexistence detection, and the docs-only short-circuit |
-| 1b | Continue (session resume) | references/continue.md | Yes | An unfinished report of the same target and inputs (init section 1) |
+| 1b | Continue (session resume) | references/continue.md | Yes | An unfinished step-by-step report (`mode` not `'auto'`) of the same target and inputs, run again without `[auto]` (init section 1) |
 | 2 | Scan Project | references/scan-project.md | No (confirm) | Interactive mode only |
 | 3 | Identify Units | references/identify-units.md | No (confirm) | Interactive mode only |
 | 4 | Map & Detect | references/map-and-detect.md | No (confirm) | Interactive mode only |
@@ -55,7 +55,7 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | project_path [required], intent_hint, scope_hint, target_ref or target_refs [optional]. `project_path` is a GitHub repo URL or a local path, or in `[auto]` mode a documentation URL (routed docs-only). An interactive run reads them from the invocation and asks at most one opening question. |
+| **Inputs** | project_path [required], intent_hint, scope_hint, target_ref or target_refs [optional]. `project_path` is a repository URL or a local path, or in `[auto]` mode a documentation URL (routed docs-only). An interactive run reads them from the invocation and asks at most one opening question. |
 | **Headless inputs** | `--project-path <path>` (comma-separated for several), `--scope-hint <text>` (folders or packages to focus on or skip, `[auto]` included), `--intent-hint <text>` (the goal: ranks the step 5 recommendations; an interactive run also defers the units outside it before step 4, restorable, a headless run never; `[auto]` keeps a merged repo's facets it names), `--target-ref <ref>` (a tag or branch for every project path, written into every brief; not `[auto]`, which pins with `--pin`), `--target-refs <path:ref,...>` (one ref per path, written into each unit's brief; not with `--target-ref`, and not `[auto]`), `--pin <version>` (`[auto]` only: a tag or branch; absent, the latest release tag; a step-by-step analysis an `[auto]` run falls back to keeps its pin) |
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a; see **Auto mode path** above). Pipelines pass this as `AN[auto]`. Requires `--project-path`. |

@@ -212,6 +212,11 @@ class TestDeriveName:
         assert derive_name("http://www.example.org/api/") == "www-example-org"
         assert mod.derive_name_with_basis("https://docs.example.com/x") == ("docs-example-com", "docs-host")
 
+    def test_clone_url_on_any_host_is_named_after_its_repository(self):
+        # step 5b determinism-1: a .git or /_git/ clone URL off GIT_HOSTS is a repository
+        assert mod.derive_name_with_basis("https://git.acme.internal/team/mono.git") == ("mono", "target")
+        assert mod.derive_name_with_basis("https://dev.azure.com/org/proj/_git/repo") == ("repo", "target")
+
     @pytest.mark.parametrize("url", [
         "https://github.com/foo/bar", "https://www.github.com/foo/bar",
         "https://gitlab.com/group/sub/bar", "https://bitbucket.org/team/bar.git",
@@ -2648,6 +2653,13 @@ def test_cli_derive_name(tmp_path):
      pytest.param(".", "local", None, id="dot"),
      pytest.param("C:\\code\\mono", "local", None, id="windows-drive"),
      pytest.param("https://docs.example.com/guide", "docs", None, id="docs-url"),
+     pytest.param("https://github.acme.com/org/repo", "docs", None, id="enterprise-host-no-suffix"),
+     pytest.param("https://git.acme.internal/team/mono.git", "remote",
+                  "https://git.acme.internal/team/mono.git", id="self-hosted-clone-url"),
+     pytest.param("https://git.acme.internal/team/mono.git/", "remote",
+                  "https://git.acme.internal/team/mono.git/", id="self-hosted-clone-url-slash"),
+     pytest.param("https://dev.azure.com/org/proj/_git/repo", "remote",
+                  "https://dev.azure.com/org/proj/_git/repo", id="azure-devops-clone-url"),
      pytest.param("https://github.com/acme/mono", "remote", "https://github.com/acme/mono", id="https"),
      pytest.param("git@github.com:acme/mono.git", "remote", "git@github.com:acme/mono.git", id="ssh"),
      pytest.param("ssh://git@host.example/acme/mono", "remote", "ssh://git@host.example/acme/mono", id="ssh-url"),
@@ -2671,6 +2683,117 @@ def test_derive_name_reads_an_existing_folder_as_local(tmp_path, monkeypatch):
     assert (mod.target_kind("acme/other"), mod.clone_url("acme/other")) == (
         "remote", "https://github.com/acme/other")
     assert (mod.target_kind(""), mod.clone_url("")) == (None, None)
+
+
+class _FakeGit:
+    """Stands in for subprocess.run under probe_git, so no test reaches the network."""
+
+    def __init__(self, returncode=0, stderr=b"", raises=None):
+        self.returncode, self.stderr, self.raises, self.calls = returncode, stderr, raises, []
+
+    def __call__(self, argv, **kwargs):
+        self.calls.append((argv, kwargs))
+        if self.raises is not None:
+            raise self.raises
+        kwargs["stderr"].write(self.stderr)
+        return subprocess.CompletedProcess(argv, self.returncode)
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stderr", "raises", "verdict"),
+    [pytest.param(0, b"", None, "repository", id="exit-0"),
+     pytest.param(2, b"", None, "repository", id="no-branch"),
+     pytest.param(128, b"fatal: repository 'https://docs.example.com/guide/' not found\n", None, "docs",
+                  id="not-a-repository"),
+     pytest.param(128, b"fatal: https://bb.acme.internal/projects/P/repos/r/browse/info/refs not valid: "
+                       b"is this a git repository?\n", None, "docs", id="browser-page"),
+     pytest.param(128, b"fatal: could not read Username for 'https://git.acme.internal': "
+                       b"terminal prompts disabled\n", None, "credentials", id="asks-for-credentials"),
+     pytest.param(128, b"fatal: Authentication failed for 'https://git.acme.internal/team/mono/'\n", None,
+                  "credentials", id="credentials-refused"),
+     pytest.param(None, b"", FileNotFoundError("git"), "no-git", id="git-missing"),
+     pytest.param(None, b"", subprocess.TimeoutExpired(["git"], 20), "unanswered", id="timeout")],
+)
+def test_probe_git_asks_git_without_a_prompt(monkeypatch, returncode, stderr, raises, verdict):
+    """step 5b gate run 7 determinism-1: whether a page address serves a repository is git's
+    answer, not the host's name. A server that asks for credentials (or refuses the stored ones)
+    is a private repository or a page behind a login alike, so that answer is "credentials",
+    never "repository" (fix round 7). git asks for the branches alone, so a repository with a
+    huge ref list answers in time, and exit 2 is a repository with no branch (fix round 8)."""
+    fake = _FakeGit(returncode, stderr, raises)
+    monkeypatch.setattr(mod.subprocess, "run", fake)
+    assert mod.probe_git("https://git.acme.internal/team/mono") == verdict
+    [(argv, kwargs)] = fake.calls
+    assert argv == ["git", "ls-remote", "--exit-code", "--heads", "https://git.acme.internal/team/mono"]
+    env = kwargs["env"]
+    assert (env["GIT_TERMINAL_PROMPT"], env["GIT_ASKPASS"], env["GCM_INTERACTIVE"], env["LC_ALL"]) == (
+        "0", "", "never", "C")
+    assert (kwargs["timeout"], kwargs["stdin"], kwargs["stdout"]) == (
+        mod.GIT_PROBE_TIMEOUT, subprocess.DEVNULL, subprocess.DEVNULL)
+
+
+REMEDY = "use its `.git` clone URL, its address without https:// or its SSH address"
+
+
+def test_git_probe_halt_gives_the_message_a_run_stops_with():
+    """A run stops for a repository, a login and a probe git left unanswered (fix round 8: an
+    unanswered probe no longer goes docs-only); it goes on as documentation on "docs" and on
+    "no-git", since a documentation URL needs no git."""
+    url = "https://git.acme.internal/team/mono"
+    assert mod.git_probe_halt(url, "repository") == f"{url} is a git repository: {REMEDY}."
+    assert mod.git_probe_halt(url, "credentials") == (
+        f"{url} asks for credentials: SKF reads no documentation behind a login; "
+        f"if it is a private git repository, {REMEDY}.")
+    assert mod.git_probe_halt(url, "unanswered") == (
+        f"{url} gave git no answer in {mod.GIT_PROBE_TIMEOUT} s: if it is a git repository, {REMEDY}; "
+        "if it is documentation, give a documentation URL that answers.")
+    for verdict in ("docs", "no-git", None):
+        assert mod.git_probe_halt(url, verdict) is None, verdict
+
+
+def test_cli_derive_name_probe_git(monkeypatch, capsys):
+    """--probe-git adds git's verdict and the halt message for a docs target only; the name, kind
+    and clone URL stay offline, so the coexistence check compares the same name."""
+    fake = _FakeGit(0)
+    monkeypatch.setattr(mod.subprocess, "run", fake)
+
+    def run(*argv):
+        code = mod._main_derive_name(list(argv))
+        return code, json.loads(capsys.readouterr().out)
+
+    target = "https://codeberg.org/forgejo/forgejo"
+    code, out = run("--probe-git", "--target", target)
+    assert (code, out) == (0, {"status": "ok", "command": "derive-name", "name": "codeberg-org",
+                               "basis": "docs-host", "kind": "docs", "clone_url": None, "git_probe": "repository",
+                               "halt_message": f"{target} is a git repository: {REMEDY}."})
+    # git appends /info/refs to the address, so the probe drops a query and a fragment; the
+    # message names the address as given.
+    code, out = run("--target", f"{target}/?tab=readme#top", "--probe-git")
+    assert (code, out["name"], out["git_probe"]) == (0, "codeberg-org", "repository")
+    assert out["halt_message"].startswith(f"{target}/?tab=readme#top is a git repository")
+    assert fake.calls[-1][0] == ["git", "ls-remote", "--exit-code", "--heads", f"{target}/"]
+    fake.returncode = 128
+    code, out = run("--target", "https://docs.example.com/guide", "--probe-git")
+    assert (code, out["kind"], out["git_probe"], out["halt_message"]) == (0, "docs", "docs", None)
+    # A 401 page: git says the server wants credentials, which is not a repository.
+    fake.stderr = b"fatal: could not read Username for 'https://docs.acme.internal': terminal prompts disabled\n"
+    code, out = run("--target", "https://docs.acme.internal/guide/", "--probe-git")
+    assert (code, out["kind"], out["git_probe"]) == (0, "docs", "credentials")
+    assert out["halt_message"].startswith("https://docs.acme.internal/guide/ asks for credentials")
+    fake.raises = subprocess.TimeoutExpired(["git"], mod.GIT_PROBE_TIMEOUT)
+    code, out = run("--target", "https://gerrit.acme.internal/gerrit", "--probe-git")
+    assert (code, out["kind"], out["git_probe"]) == (0, "docs", "unanswered")
+    assert out["halt_message"].startswith("https://gerrit.acme.internal/gerrit gave git no answer")
+    fake.raises = FileNotFoundError("git")
+    code, out = run("--target", "https://docs.example.com/guide", "--probe-git")
+    assert (code, out["kind"], out["git_probe"], out["halt_message"]) == (0, "docs", "no-git", None)
+    assert len(fake.calls) == 6
+    for other in ("https://github.com/acme/mono", "https://git.acme.internal/team/mono.git", "./mono"):
+        code, out = run("--target", other, "--probe-git")
+        assert (code, out["git_probe"], out["halt_message"]) == (0, None, None), other
+    code, out = run("--target", "https://docs.example.com/guide")
+    assert "git_probe" not in out and "halt_message" not in out
+    assert len(fake.calls) == 6, "only a docs target with --probe-git runs git"
 
 
 def test_cli_derive_name_batch_private_and_members(tmp_path):
@@ -2748,6 +2871,8 @@ def test_cli_derive_name_errors(tmp_path):
         ["derive-name", "--from", str(bad), "--target", "x"],
         ["derive-name", "--manifest-name", "--target", "x"],
         ["derive-name", "--target", "x", "--skills-folder"],
+        ["derive-name", "--from", str(bad), "--probe-git"],
+        ["derive-name", "--target", "--probe-git"],
     ):
         code, out, err = _run_inventory(*argv)
         assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv

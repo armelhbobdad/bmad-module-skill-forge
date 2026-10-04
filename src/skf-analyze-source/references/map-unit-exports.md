@@ -9,7 +9,7 @@ The per-unit export analysis, stated once for the two files that run it: map-and
 For each unit, launch a subagent task with these explicit constraints:
 
 - The subagent reads only that unit's directory tree
-- The subagent analyzes exports / usage / CCC signals / scripts+assets for that one unit
+- The subagent analyzes exports / usage / CCC signals for that one unit
 - **The parent does not read the unit's source files before delegating** (avoid the implicit-read trap: the whole point of fan-out is to keep large source bodies out of the parent's context)
 - The subagent writes its record (§3) to a file of the run folder and returns only that file's path, so the parent never copies a record: pass it `{run_dir}` and the resolved `{extractPublicApiHelper}`
 
@@ -33,10 +33,7 @@ Otherwise read the JSON by the exit code:
 
 **Tier-aware extras:** when `tools.ccc` is true (Forge+, or Deep with ccc installed), search `"{unit_name} exports public API"` (top 15) with the ccc tool the runtime offers (the `/ccc` skill, a ccc MCP server or the `ccc search` CLI) and record the top 3 files in `ccc_signals.top_files`, with `available: true`; with no ccc tool, record `available: false`.
 
-**The subagent also records:**
-
-- Script/asset presence: check for `scripts/`, `bin/`, `assets/`, `templates/` directories and files matching the detection signals in `references/unit-detection-heuristics.md`
-- The export-surface call's `strategy_used`, `confidence` and `warnings`
+The subagent also records the export-surface call's `strategy_used`, `confidence` and `warnings`.
 
 ## 3. Record Contract
 
@@ -49,7 +46,6 @@ Each subagent writes only this JSON object, with no prose, no commentary and no 
   "exports_count": N,
   "export_pattern": "...",
   "api_surface": ["..."],
-  "scripts_assets": {"scripts": [], "assets": []},
   "ccc_signals": {"top_files": [], "available": <bool>},
   "strategy_used": "ast-grep|source-read",
   "confidence": "T1|T1-low",

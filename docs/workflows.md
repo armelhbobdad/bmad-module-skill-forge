@@ -184,7 +184,7 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 
 **Questions:** Init uses what the invocation already gives (the target path, the goal and the scope) and asks at most one opening question for what is missing. In an interactive run, the map-and-detect and recommend menus also offer `[D]` Discover Additional Source, which adds one more project path to the analysis.
 
-**Note:** Run `@Ferris AN` again after an interruption and an unfinished analysis of the same target resumes where it left off. A finished analysis, an unfinished one when the new run is `AN[auto]`, one of a different target, and one the new run gives a different `--target-ref`, `--target-refs`, `--scope-hint` or `--intent-hint` are archived in `forge_data_folder` as `analyze-source-report-<project>-<YYYYMMDD-HHmmss>.md`, and a fresh analysis starts.
+**Note:** Run `@Ferris AN` again after an interruption and an unfinished analysis of the same target resumes where it left off. A finished analysis, an unfinished `AN[auto]` one (interrupted, or ended by a merge or skip choice) unless it switched to the step-by-step analysis, an unfinished one when the new run is `AN[auto]`, one of a different target, and one the new run gives a different `--target-ref`, `--target-refs`, `--scope-hint` or `--intent-hint` are archived in `forge_data_folder` as `analyze-source-report-<project>-<YYYYMMDD-HHmmss>.md`, and a fresh analysis starts.
 
 **Agent:** Ferris (Architect mode)
 

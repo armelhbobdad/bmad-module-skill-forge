@@ -13,7 +13,8 @@ three pipelines.
 The five-shape heuristic ladder (apply in order, first match wins):
 
   1. language-reference — parser/grammar/language-toolchain project
-     Signals: parser-related deps (pest, antlr4, tree-sitter, lark ...)
+     Signals: a compiler tree, a grammar file, a package named after a
+     parser tool (pest, antlr4, tree-sitter, lark ...)
   2. stack-compose     — multi-ecosystem composite project
      Signals: manifests from 2+ distinct ecosystems
   3. reference-app     — application, CLI, or demo project
@@ -28,6 +29,18 @@ package that names itself a library also carries the signal
 library that extends it (FastAPI, a Flask or Django extension, axum-extra)
 declare the same dependencies, so the caller judges which one it is from
 the README or the manifest description. The shape stays reference-app.
+
+A parser tool among the runtime dependencies (a consumer: nom, pyparsing,
+tree-sitter ...) decides no shape: a language or DSL built on it and an app
+or library that only reads its input with it declare the same dependency.
+The ladder goes on and its shape carries the signal
+`language_or_user:parser_dep`, so the caller judges which one it is from the
+README or the manifest description. A dev or build dependency is no
+consumer, nor is one in a non-core member (examples/, docs/) or the monorepo
+coordinator root, as with frameworks. Only when the parser dependency is the
+repository's only signal (a bare DSL manifest: no rung answers and no
+manifest declares a bin) does it still give language-reference, in place of
+unknown.
 
 CLI:
   uv run src/shared/scripts/skf-shape-detect.py \\
@@ -112,7 +125,9 @@ from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Parser/grammar deps that signal language-reference shape
+# Parser/grammar tools: a package named after one is a language-reference
+# producer; one among the runtime deps raises the language_or_user:parser_dep
+# question (detect() below)
 # ---------------------------------------------------------------------------
 
 _PARSER_DEPS_NPM = frozenset({
@@ -940,15 +955,20 @@ def detect(
     # like "parser"/"compiler"/"lang", which are false-positive farms (a CSS
     # parser, compiler-builtins, an arg parser are ordinary libraries).
     #
-    # CONSUMER: a project that depends on a parser generator (a DSL built on
-    # lalrpop) is also a language project. Exclude the repo's own producer name
-    # from the consumer list so a self-reference isn't double-counted as "uses".
+    # CONSUMER: a project with a parser tool among its core members' RUNTIME
+    # deps, read like the framework signals above: a dev or build dependency
+    # tests or builds the project, and an examples/ member or the coordinator
+    # root is not the product. It may be a language built on the tool (a DSL
+    # on lalrpop) or only read its input with it (a CLI on nom), so it
+    # decides no shape: the ladder asks (below). Exclude the repo's own
+    # producer name from the consumer list so a self-reference isn't
+    # double-counted as "uses".
     own_names = {
         (m.get("name") or "").strip().lower() for m in parsed if m.get("name")
     }
     parser_producers = sorted(n for n in own_names if n in _ALL_PARSER_DEPS)
     parser_deps = sorted(
-        d for d in all_deps
+        d for d in core_runtime_deps
         if d.lower() in _ALL_PARSER_DEPS and d.lower() not in parser_producers
     )
 
@@ -1025,16 +1045,21 @@ def detect(
         return {"shape": "language-reference", "signals": signals,
                 "confidence": round(confidence, 2), **result_base}
 
-    # 1b. language-reference — a parser/grammar producer (own name) or a project
-    # built on a parser generator (consumer dep).
-    if parser_producers or parser_deps:
-        # A producer (named itself a grammar tool) is a stronger signal than a
-        # consumer (merely depends on one).
-        base = 0.80 if parser_producers else 0.75
+    # 1b. language-reference: a parser/grammar producer (own name).
+    if parser_producers:
         n_sig = len(parser_producers) + len(parser_deps)
-        confidence = _clamp(base + n_sig * 0.05, base, 0.90)
+        confidence = _clamp(0.80 + n_sig * 0.05, 0.80, 0.90)
         return {"shape": "language-reference", "signals": signals,
                 "confidence": round(confidence, 2), **result_base}
+
+    # A consumer dep fits a language built on the parser tool and a project
+    # that only reads its input with it alike: the dependency names alone
+    # cannot tell them apart, so the rungs below answer with their own shape
+    # and this signal hands that question to the caller. Gates G and L hold
+    # here too: a repo they exclude is no language reference either way.
+    parser_question = bool(parser_deps) and not delegating_consumer and not markup_identity
+    if parser_question:
+        signals.append("language_or_user:parser_dep")
 
     # 2. stack-compose
     if len(ecosystems) > 1:
@@ -1072,7 +1097,21 @@ def detect(
         return {"shape": "library-API", "signals": signals,
                 "confidence": round(confidence, 2), **result_base}
 
-    # 5. unknown
+    # 5. language-reference: a consumer dep is the repository's only signal (a
+    # bare DSL manifest: no rung above answered and no manifest declares a
+    # bin), so no other shape is left to weigh the question against. A bin
+    # that rung 3 does not count (the bin-only members of a monorepo) is an
+    # app signal all the same: such a repository stays unknown, like its twin
+    # with no parser dependency, and the caller analyzes it interactively.
+    if parser_question and not has_bin:
+        signals.remove("language_or_user:parser_dep")
+        return {"shape": "language-reference", "signals": signals,
+                "confidence": 0.75, **result_base}
+
+    # 6. unknown: the interactive fallback weighs the parser itself, with no
+    # shape for the question to qualify.
+    if parser_question:
+        signals.remove("language_or_user:parser_dep")
     return {"shape": "unknown", "signals": signals,
             "confidence": 0.0, **result_base}
 

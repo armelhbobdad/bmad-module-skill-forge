@@ -256,8 +256,13 @@ tokio = { version = "1", features = ["full"] }
 # --------------------------------------------------------------------------
 
 
+PARSER_QUESTION = "language_or_user:parser_dep"
+
+
 class TestLanguageReference:
     def test_npm_with_parser_dep(self, tmp_path):
+        """A bare DSL manifest: the parser dependency is its only signal, so it
+        still gives language-reference, with no question left to ask."""
         path = write_package_json(tmp_path, {
             "name": "my-grammar",
             "dependencies": {"antlr4": "4.13.0"},
@@ -265,8 +270,9 @@ class TestLanguageReference:
         result = mod.detect(REPO_URL, [path])
         assert_result_shape(result)
         assert result["shape"] == "language-reference"
-        assert result["confidence"] >= 0.75
+        assert result["confidence"] == 0.75
         assert "parser_dep:antlr4" in result["signals"]
+        assert PARSER_QUESTION not in result["signals"]
 
     def test_python_with_parser_dep(self, tmp_path):
         path = write_pyproject_toml(tmp_path, """
@@ -277,8 +283,8 @@ dependencies = ["lark>=1.0", "lark-parser"]
 """)
         result = mod.detect(REPO_URL, [path])
         assert_result_shape(result)
-        assert result["shape"] == "language-reference"
-        assert result["confidence"] >= 0.80
+        assert result["shape"] == "library-API"
+        assert {"parser_dep:lark", "parser_dep:lark-parser", PARSER_QUESTION} <= set(result["signals"])
 
     def test_rust_with_pest_dep(self, tmp_path):
         path = write_cargo_toml(tmp_path, """
@@ -292,17 +298,19 @@ pest_derive = "2.0"
 """)
         result = mod.detect(REPO_URL, [path])
         assert_result_shape(result)
-        assert result["shape"] == "language-reference"
-        assert any("parser_dep:" in s for s in result["signals"])
+        assert result["shape"] == "library-API"
+        assert {"parser_dep:pest", "parser_dep:pest_derive", PARSER_QUESTION} <= set(result["signals"])
 
-    def test_parser_dep_beats_framework_dep(self, tmp_path):
-        """language-reference fires before reference-app in the ladder."""
+    def test_a_framework_app_with_a_parser_dep_asks(self, tmp_path):
+        """The parser dependency no longer outranks the framework: the app
+        answers, and the question goes with it to the caller."""
         path = write_package_json(tmp_path, {
             "name": "compiler-app",
             "dependencies": {"tree-sitter": "0.20.0", "express": "4.18.0"},
         })
         result = mod.detect(REPO_URL, [path])
-        assert result["shape"] == "language-reference"
+        assert result["shape"] == "reference-app"
+        assert {"parser_dep:tree-sitter", "framework_dep:express", PARSER_QUESTION} <= set(result["signals"])
 
 
 # --------------------------------------------------------------------------
@@ -313,8 +321,8 @@ pest_derive = "2.0"
 # a parser generator — it IS one (pest's Cargo.toml has no `pest` dep; it
 # declares `[package] name = "pest"`). Tier 1 fix: a repo whose own package
 # name is itself a known parser/grammar tool is a producer and classifies as
-# language-reference. The consumer path is kept (a DSL built on lalrpop is
-# still a language project).
+# language-reference. A consumer (a parser tool among the runtime deps)
+# decides no shape: it raises the question TestParserConsumers pins.
 # --------------------------------------------------------------------------
 
 
@@ -358,8 +366,9 @@ version = "1.1.0"
         assert_result_shape(result)
         assert result["shape"] == "language-reference"
 
-    def test_lalrpop_consumer_still_language_reference(self, tmp_path):
-        """A DSL built ON lalrpop (build-dep) stays language-reference."""
+    def test_lalrpop_consumer_asks_and_its_grammar_answers(self, tmp_path):
+        """A DSL built ON lalrpop: its runtime lalrpop-util asks the question,
+        and the grammar file it compiles makes it language-reference."""
         path = write_cargo_toml(tmp_path, """
 [package]
 name = "my-query-lang"
@@ -376,7 +385,12 @@ lalrpop-util = "0.20"
 """)
         result = mod.detect(REPO_URL, [path])
         assert_result_shape(result)
+        assert result["shape"] == "library-API"
+        assert {"parser_dep:lalrpop-util", PARSER_QUESTION} <= set(result["signals"])
+        assert "parser_dep:lalrpop" not in result["signals"], "a build dependency is no consumer"
+        result = mod.detect(REPO_URL, [path], ["src/grammar.lalrpop"], [])
         assert result["shape"] == "language-reference"
+        assert "grammar_file:grammar.lalrpop" in result["signals"]
 
 
 # --------------------------------------------------------------------------
@@ -1179,7 +1193,8 @@ dependencies = [
         result = mod.detect(REPO_URL, [path])
         assert "parser_dep:lark" in result["signals"]
         assert "framework_dep:flask" in result["signals"]
-        assert result["shape"] == "language-reference"
+        assert result["shape"] == "reference-app"
+        assert {"app_or_library:framework_dep", PARSER_QUESTION} <= set(result["signals"])
 
     def test_a_dotted_cargo_key_names_the_dependency(self, tmp_path):
         """`pest.workspace = true` is the dependency pest, which the fallback
@@ -1910,3 +1925,175 @@ axum = "0.7"
         result = mod.detect(REPO_URL, [root, plugin])
         assert result["shape"] == "reference-app"
         assert "app_or_library:framework_dep" in result["signals"]
+
+
+# --------------------------------------------------------------------------
+# A parser consumer decides no shape: a parser tool among the runtime
+# dependencies fits a language built on it and a project that only reads its
+# input with it alike, so the ladder goes on and its shape carries the
+# question the caller judges from the README or the manifest description.
+# --------------------------------------------------------------------------
+
+LOGTAIL_CARGO = b"""[package]
+name = "logtail"
+version = "0.3.0"
+
+[[bin]]
+name = "logtail"
+path = "src/main.rs"
+
+[dependencies]
+nom = "7"
+clap = "4"
+"""
+MATPLOTLIB_PYPROJECT = b"""[project]
+name = "matplotlib"
+version = "3.9.0"
+description = "Python plotting package"
+dependencies = ["contourpy>=1.0.1", "cycler>=0.10", "numpy>=1.23", "pyparsing>=2.3.1", "pillow>=8"]
+"""
+TOML_EDIT_CARGO = b"""[package]
+name = "toml_edit"
+version = "0.22.0"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+winnow = "0.6"
+indexmap = "2"
+"""
+
+
+class TestParserConsumers:
+    @pytest.mark.parametrize(
+        ("filename", "content", "source", "shape", "dep"),
+        [pytest.param("Cargo.toml", LOGTAIL_CARGO, "src/main.rs", "reference-app", "nom", id="cli-on-nom"),
+         pytest.param("pyproject.toml", MATPLOTLIB_PYPROJECT, "lib/matplotlib/__init__.py", "library-API",
+                      "pyparsing", id="matplotlib-on-pyparsing"),
+         pytest.param("Cargo.toml", TOML_EDIT_CARGO, "src/lib.rs", "library-API", "winnow",
+                      id="toml_edit-on-winnow")],
+    )
+    def test_the_scan_envelope_call_answers_and_asks(self, tmp_path, filename, content, source, shape, dep):
+        """The step-auto-scope call gives the shape the rest of the ladder finds,
+        exit 0, and adds the question the caller judges."""
+        root = tmp_path / "repo"
+        _write_bytes(root, filename, content)
+        scan = subprocess.run([sys.executable, str(SCAN_SCRIPT), "scan", str(root)], capture_output=True, timeout=60)
+        assert scan.returncode == 0, scan.stderr
+        envelope = tmp_path / "manifests-1.json"
+        envelope.write_bytes(scan.stdout)
+        tree = _tree_file(tmp_path, [filename, source])
+        proc = run_manifests_file("--manifests-file", str(envelope), "--manifest-dir", str(root), "--tree-file", tree)
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["shape"] == shape
+        assert {f"parser_dep:{dep}", PARSER_QUESTION} <= set(out["signals"])
+
+    @pytest.mark.parametrize(
+        ("write", "content"),
+        [pytest.param(write_cargo_toml, '[package]\nname = "my-crate"\n\n[lib]\nname = "my_crate"\n\n'
+                      '[dev-dependencies]\nnom = "7"\n', id="cargo-dev-dependency"),
+         pytest.param(write_cargo_toml, '[package]\nname = "my-crate"\n\n[lib]\nname = "my_crate"\n\n'
+                      '[build-dependencies]\npest = "2"\n', id="cargo-build-dependency"),
+         pytest.param(write_package_json, {"name": "my-lib", "main": "index.js", "devDependencies": {"moo": "0.5"}},
+                      id="npm-dev-dependency")],
+    )
+    def test_a_dev_or_build_dependency_is_no_consumer(self, tmp_path, write, content):
+        result = mod.detect(REPO_URL, [write(tmp_path, content)])
+        assert result["shape"] == "library-API"
+        assert not any(s.startswith("parser_dep:") for s in result["signals"])
+        assert PARSER_QUESTION not in result["signals"]
+
+    def test_a_framework_library_with_a_parser_dep_asks_both(self, tmp_path):
+        """A FastAPI package that also depends on lark carries both questions."""
+        path = write_pyproject_toml(tmp_path, """
+[project]
+name = "my-api"
+version = "0.1.0"
+dependencies = ["fastapi>=0.110", "lark>=1"]
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "reference-app"
+        assert {"app_or_library:framework_dep", "parser_dep:lark", PARSER_QUESTION} <= set(result["signals"])
+
+    def test_an_npm_bin_cli_on_moo_asks(self, tmp_path):
+        path = write_package_json(tmp_path, {"name": "logfmt-cli", "bin": {"logfmt": "cli.js"},
+                                             "dependencies": {"moo": "0.5"}})
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "reference-app"
+        assert {"has_bin_field", "parser_dep:moo", PARSER_QUESTION} <= set(result["signals"])
+
+    def test_a_stack_compose_repo_asks(self, tmp_path):
+        js = _write(tmp_path, "package.json", {"name": "web", "main": "index.js", "dependencies": {"chevrotain": "11"}})
+        py = write_pyproject_toml(tmp_path, '[project]\nname = "core"\nversion = "1.0.0"\n')
+        result = mod.detect(REPO_URL, [js, py])
+        assert result["shape"] == "stack-compose"
+        assert PARSER_QUESTION in result["signals"]
+
+    def test_gate_g_keeps_a_delegating_consumer_out(self, tmp_path):
+        """A repo that delegates parsing to a concrete parser is no language
+        reference, so its parser dependency raises no question."""
+        path = write_package_json(tmp_path, {"name": "my-linter", "main": "index.js",
+                                             "dependencies": {"acorn": "8", "moo": "0.5"}})
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "library-API"
+        assert {"delegating_consumer", "parser_dep:moo"} <= set(result["signals"])
+        assert PARSER_QUESTION not in result["signals"]
+
+    def test_gate_g_leaves_a_bare_manifest_unknown(self, tmp_path):
+        """Gate G also keeps the bare-manifest rung from answering: with no
+        other signal, a parser dependency beside a concrete parser (yaml) is
+        unknown, and the caller analyzes the repository interactively."""
+        path = write_package_json(tmp_path, {"name": "logq", "description": "A query language for logs",
+                                             "dependencies": {"chevrotain": "11", "yaml": "2"}})
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "unknown"
+        assert {"delegating_consumer", "parser_dep:chevrotain"} <= set(result["signals"])
+        assert PARSER_QUESTION not in result["signals"]
+
+    @pytest.mark.parametrize("parser", [True, False], ids=["with-moo", "without-moo"])
+    def test_a_monorepo_of_bin_only_members_stays_unknown(self, tmp_path, parser):
+        """Rung 3 does not count the bins of a monorepo's members, but a bin is
+        no bare DSL manifest: a toolbox of CLIs, one of them on moo, is unknown
+        (exit 1) like its twin with no parser, never language-reference."""
+        root = tmp_path / "repo"
+        deps = {"moo": "0.5", "chalk": "5"} if parser else {"chalk": "5"}
+        for rel, data in {"package.json": {"name": "tools-root", "private": True, "workspaces": ["packages/*"]},
+                          "packages/logfmt/package.json": {"name": "logfmt-cli", "bin": {"logfmt": "cli.js"},
+                                                           "dependencies": deps},
+                          "packages/jsonl/package.json": {"name": "jsonl-cli", "bin": {"jsonl": "cli.js"},
+                                                          "dependencies": {"chalk": "5"}}}.items():
+            _write_bytes(root, rel, json.dumps(data).encode("utf-8"))
+        scan = subprocess.run([sys.executable, str(SCAN_SCRIPT), "scan", str(root)], capture_output=True, timeout=60)
+        assert scan.returncode == 0, scan.stderr
+        envelope = tmp_path / "manifests-1.json"
+        envelope.write_bytes(scan.stdout)
+        tree = _tree_file(tmp_path, ["package.json", "packages/logfmt/package.json", "packages/logfmt/cli.js",
+                                     "packages/jsonl/package.json", "packages/jsonl/cli.js"])
+        proc = run_manifests_file("--manifests-file", str(envelope), "--manifest-dir", str(root), "--tree-file", tree)
+        assert proc.returncode == 1, proc.stdout
+        out = json.loads(proc.stdout)
+        assert out["shape"] == "unknown"
+        assert ("parser_dep:moo" in out["signals"]) is parser
+        assert PARSER_QUESTION not in out["signals"]
+
+    def test_a_parser_in_an_example_member_is_no_consumer(self, tmp_path):
+        """As with frameworks, only the core members' runtime dependencies
+        count: a parser used by an examples/ member raises no question."""
+        core = _write(tmp_path, "packages/core/package.json", {"name": "@acme/core", "main": "index.js"})
+        demo = _write(tmp_path, "examples/dsl-demo/package.json",
+                      {"name": "dsl-demo", "dependencies": {"chevrotain": "11"}})
+        result = mod.detect(REPO_URL, [core, demo])
+        assert result["shape"] == "library-API"
+        assert not any(s.startswith("parser_dep:") for s in result["signals"])
+        assert PARSER_QUESTION not in result["signals"]
+
+    def test_a_producer_still_decides(self, tmp_path):
+        """A package named after a parser tool is one: no question."""
+        path = write_cargo_toml(tmp_path, '[package]\nname = "winnow"\n\n[lib]\nname = "winnow"\n\n'
+                                          '[dependencies]\nnom = "7"\n')
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "language-reference"
+        assert "parser_producer:winnow" in result["signals"]
+        assert PARSER_QUESTION not in result["signals"]

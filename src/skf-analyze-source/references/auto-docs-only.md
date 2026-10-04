@@ -13,7 +13,7 @@ skillInventoryProbeOrder:
 
 # Step 1a §0a: Docs-Only Short-Circuit
 
-Reached from `step-auto-scope.md` §0c when the target is a documentation URL (not a GitHub repo or local path). It validates the URL, writes a minimal brief and analysis report, emits the result envelope, and chains directly to health-check: the standard auto-scope body (§1 through §9 in `step-auto-scope.md`) never runs for a docs-only target. `{coexistence_suffix}`, `{forge_tier}`, `{user_name}`, `{current_date}`, and the classification set upstream in §0/§0c carry into this file.
+Reached from `step-auto-scope.md` §0c when the target is a documentation URL (not a repository URL or local path). It validates the URL, writes a minimal brief and analysis report, emits the result envelope, and chains directly to health-check: the standard auto-scope body (§1 through §9 in `step-auto-scope.md`) never runs for a docs-only target. `{coexistence_suffix}`, `{forge_tier}`, `{user_name}`, `{current_date}`, and the classification set upstream in §0/§0c carry into this file.
 
 ## MANDATORY SEQUENCE — §0a
 
@@ -26,6 +26,8 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{
 and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
 ### 1. Validate URL reachability
+
+When §0's `derive-name` call gave `git_probe` `no-git` (git is missing, so nothing asked whether `{url}` is a repository), run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'git_probe_unanswered: {url} was not checked for a repository: git is missing'`, a single quote in it written as a backtick (if it fails, go on). Then check that the URL answers:
 
 ```bash
 curl -sI --max-time 5 {url}

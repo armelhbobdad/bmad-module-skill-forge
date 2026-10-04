@@ -20,6 +20,8 @@ fixtures:
   the forge folder; the interactive path's context does the same.
 - The auto path lists the target's files once into a run file, and shape
   and language detection read it: no grep pre-filter and no echo'd tree.
+  A brief's include and exclude patterns come from that list too, never
+  from a remote target's manifests-only checkout (gate run 6 determinism-2).
 - The prose pins: a finished report is archived and the run starts fresh,
   continue.md keeps no unreachable "already complete" branch, the fallback
   to the interactive chain resets `mode`, the per-boundary brief rules are
@@ -28,10 +30,20 @@ fixtures:
   ref and hint flags match it, an [auto] report carries the skill and brief
   inventory its fallback reads, and map-and-detect and [D] read the import
   graph through skf-count-imports.py summary, never the whole envelope.
+- Step 5b gate run 7 determinism-1: both derive-name call sites pass
+  --probe-git, and an address git reads as a repository, asks credentials
+  for or leaves unanswered halts the [auto] path in section 0, before
+  coexistence, for every project path (and fails the scan root) with the
+  helper's message; a missing git goes docs-only with a warning.
+- Step 5b gate run 7 architecture-1: an unfinished report whose `mode` is
+  'auto' is archived like one an [auto] invocation finds, and continue.md
+  never routes a resume back into auto-scope; the fallback report, marked
+  interactive, still resumes.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -414,6 +426,21 @@ def test_the_auto_decisions_reach_the_envelope(tmp_path, gate, marker):
     assert [d["gate"] for d in envelope["headless_decisions"]] == [gate], "a halt reports the decision taken before it"
 
 
+def test_a_parser_dependency_is_judged_as_the_shape_choice():
+    """Gate run 6 determinism-1: a parser among the runtime dependencies asks rather than
+    decides. Section 4 judges it from the description or README, makes the judged shape
+    `{shape}` (the report and the result read it) and records it like the framework choice,
+    whose decision.json the test above runs."""
+    section = _section(_read(AUTO), "### 4. Map Shape to Scope", "### 5.")
+    rule = next(line for line in section.splitlines() if line.startswith("**A language on a parser.**"))
+    for needle in ("`language_or_user:parser_dep`", "description or README",
+                   "from here on `{shape}` is the shape that case gives", "Record it the same way",
+                   "`default_action` the shape you judged from", "`taken_action` the new `{shape}`"):
+        assert needle in rule, needle
+    row = next(line for line in _read(SHAPE_REF).splitlines() if "`language_or_user:parser_dep` signal |" in line)
+    assert "step-auto-scope.md §4 judges which" in row
+
+
 # --------------------------------------------------------------------------
 # Briefs go through the writer and the schema gate (#592)
 # --------------------------------------------------------------------------
@@ -602,7 +629,7 @@ def test_the_auto_path_has_no_grep_pre_filter_and_no_echoed_tree():
     for gone in ("grep -Ei", "grammar_matches", "--grammar-files", "--tree-paths", 'echo \'{"tree"', '"$tmp"'):
         assert gone not in text, gone
     assert '--tree-file "{run_dir}/tree.txt"' in _one_command(text, "uv run {shapeDetectHelper}")
-    language = _one_command(_section(text, "### 5. Generate", "### 6. Build"), "uv run {detectLanguageHelper}")
+    language = _one_command(_section(text, "### 5. Generate", "### 6. Build"), "uv run {detectLanguageHelper} --tree-file")
     assert language == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree.txt" [--workspace-signal {workspace_kind}]'
     assert "detectWorkspacesProbeOrder:" in text.split("\n---\n", 1)[0]
     assert "{detectLanguageHelper}" not in _read(CORPORA), "6b reuses the language §5 detected"
@@ -659,10 +686,100 @@ def test_the_documented_listing_feeds_shape_and_language_detection(tmp_path):
     shape = _run(_one_command(text, "uv run {shapeDetectHelper}"), values)
     assert shape.returncode == 0, shape.stderr
     assert any(s.startswith("grammar_file:") for s in json.loads(shape.stdout)["signals"])
-    language = _run(_one_command(_section(text, "### 5. Generate", "### 6. Build"), "uv run {detectLanguageHelper}"),
-                    values)
+    language = _run(_one_command(_section(text, "### 5. Generate", "### 6. Build"),
+                                 "uv run {detectLanguageHelper} --tree-file"), values)
     out = json.loads(language.stdout)
     assert (out["language"], out["confidence"], out["detected_languages"]) == ("python", "high", ["python", "typescript"])
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_a_remote_target_takes_its_patterns_from_the_listing(tmp_path):
+    """Step 5b gate run 6 determinism-2: §2 fetches a remote target as a manifests-only
+    sparse checkout, where an Express-style lib/ does not exist on disk. §5 takes the
+    patterns from the listing, so they root at lib/ and never fall back to src/."""
+    origin = tmp_path / "express"
+    for rel, data in {"package.json": b'{"name": "express", "version": "5.0.0", "main": "index.js"}\n',
+                      "index.js": b"module.exports = require('./lib/express');\n",
+                      "lib/express.js": b"exports.app = 1;\n", "lib/router/index.js": b"exports.route = 1;\n",
+                      "test/app.js": b"require('..');\n", "examples/auth/index.js": b"require('../..');\n"}.items():
+        (origin / rel).parent.mkdir(parents=True, exist_ok=True)
+        (origin / rel).write_bytes(data)
+    _git("init", "-q", cwd=origin)
+    _git("add", "-A", cwd=origin)
+    _git("-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false",
+         "commit", "-q", "-m", "init", cwd=origin)
+    _git("config", "uploadpack.allowFilter", "true", cwd=origin)
+    text = _read(AUTO)
+    run_dir = _run_dir(tmp_path)
+    [fetch] = _fenced(_section(text, "- **`kind` is `remote`:**", "Each `{run_dir}/manifests-{i}.json`"), "bash")
+    values = {"clone_url": origin.as_uri(), "run_dir": run_dir.as_posix(), "i": "1", "pinned_branch_flag": ""}
+    for line in [line for line in fetch.strip().split("\n") if line.startswith("git ")]:
+        argv = shlex.split(re.sub(r"\{(\w+)\}", lambda m: values[m.group(1)], line))
+        subprocess.run(argv, check=True, capture_output=True, timeout=60)
+    scan_root = run_dir / "clone-1"
+    assert (scan_root / "package.json").is_file() and not (scan_root / "lib").exists(), "a manifests-only checkout"
+    [listing] = [line for line in _fenced(_section(text, "**List the target's files once.**", "### 3."), "bash")[0]
+                 .split("\n") if "ls-tree" in line]
+    command, _, out = listing.partition(" > ")
+    tree = subprocess.run(shlex.split(command.replace("{scan_root}", scan_root.as_posix())), capture_output=True,
+                          check=True, timeout=60).stdout
+    Path(out.strip('"').replace("{run_dir}", str(run_dir))).write_bytes(tree)
+    section = _section(text, "### 5. Generate", "### 6. Build")
+    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE)}
+    language = _run(_one_command(section, "uv run {detectLanguageHelper} --tree-file"), values)
+    values["detected_language"] = json.loads(language.stdout)["language"]
+    patterns = _run(_one_command(section, "uv run {detectLanguageHelper} scope-patterns"), values)
+    assert patterns.returncode == 0, patterns.stderr
+    out = json.loads(patterns.stdout)
+    assert (out["language"], out["source_folders"], out["include"]) == ("javascript", ["lib"], ["lib/**/*.js"])
+    for gone in ("Check for the existence", "| Language | Default include |", "**Adjust for actual layout:**"):
+        assert gone not in text, gone
+
+
+def test_a_merged_monorepo_takes_patterns_over_every_member(tmp_path):
+    """Section 3b prefers merge, and its facet guard never drops a member silently: the
+    documented section 5 commands on an aws-sdk-js-v3-shaped listing, whose root lib/
+    is one package beside clients/ and packages/, give patterns over every member."""
+    run_dir = _run_dir(tmp_path)
+    tree = ["package.json", "tsconfig.json", "lib/lib-storage/package.json", "lib/lib-storage/src/Upload.ts",
+            "clients/client-s3/package.json", "clients/client-s3/src/S3Client.ts", "packages/core/package.json",
+            "packages/core/src/index.ts", "scripts/build.ts"]
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    section = _section(_read(AUTO), "### 5. Generate", "### 6. Build")
+    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE)}
+    language = _run(_one_command(section, "uv run {detectLanguageHelper} --tree-file"), values)
+    values["detected_language"] = json.loads(language.stdout)["language"]
+    patterns = _run(_one_command(section, "uv run {detectLanguageHelper} scope-patterns"), values)
+    assert patterns.returncode == 0, patterns.stderr
+    out = json.loads(patterns.stdout)
+    assert (out["language"], out["include"], out["exclude"][-1]) == ("typescript", ["**/*.ts"], "scripts/**")
+
+
+def test_each_boundary_takes_its_patterns_from_its_own_listing(tmp_path):
+    """Split §5a lists a boundary's files, detects its language from them and prints the
+    patterns rooted at its source folder; §6a reuses that language."""
+    split = _read(SPLIT)
+    [block] = _fenced(_section(split, "### 5a.", "### 6a."), "bash")
+    awk, detect, patterns = block.strip().split("\n")
+    assert detect == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{i}.txt"', "no --workspace-signal"
+    assert "{detectLanguageHelper}" not in _section(split, "### 6a.", "### 7."), "6a reuses the language 5a detected"
+    assert "default pattern table" not in split
+    run_dir = _run_dir(tmp_path)
+    tree = ["package.json", "packages/auth/package.json", "packages/auth/tsconfig.json", "packages/auth/lib/index.ts",
+            "packages/auth/test/index.test.ts", "packages/auth-ui/package.json", "packages/auth-ui/src/a.ts"]
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    awk = awk.replace("<boundary path>", "packages/auth").replace("{run_dir}", run_dir.as_posix())
+    command, _, out = awk.partition(" > ")
+    if shutil.which("awk"):
+        listed = subprocess.run(shlex.split(command), capture_output=True, check=True, timeout=60).stdout
+    else:  # the paths awk keeps: those that start with "<boundary path>/"
+        listed = "".join(f"{p}\n" for p in tree if p.startswith("packages/auth/")).encode("utf-8")
+    Path(out.strip('"').replace("{i}", "1")).write_bytes(listed)
+    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE), "i": "1"}
+    language = json.loads(_run(detect, values).stdout)["language"]
+    printed = _run(patterns.replace("<its language>", language), values)
+    assert printed.returncode == 0, printed.stderr
+    assert (language, json.loads(printed.stdout)["include"]) == ("typescript", ["packages/auth/lib/**/*.ts"])
 
 
 # --------------------------------------------------------------------------
@@ -705,7 +822,8 @@ def test_each_remote_path_is_fetched_into_its_own_folder():
 def test_a_finished_report_is_archived_and_the_run_starts_fresh():
     section = _section(_read(INIT), "### 1. Check for Existing Report", "### 2. Verify Prerequisites")
     for needle in ("`stepsCompleted` holds `generate-briefs` or `auto-scope`", "A finished report is never resumed",
-                   "in headless mode either", "**Auto invocation:**", "Headless runs resume it too",
+                   "in headless mode either", "**Auto invocation or auto report:**",
+                   "the report's `mode` is `'auto'`", "Headless runs resume it too",
                    "**Different target (stale collision):**"):
         assert needle in section, needle
     archive = _one_command(section, "mv -n")
@@ -715,6 +833,21 @@ def test_a_finished_report_is_archived_and_the_run_starts_fresh():
     # unfinished report of the same target resumes where it is.
     assert section.index("Apply the first rule that holds") < section.index("mv -n")
     assert "a report that resumes stays where it is" in section
+    # Gate run 7 architecture-1: an [auto] run that ended at the coexistence
+    # gate's [M]erge or [S]kip, or was interrupted, leaves a mode 'auto'
+    # report. Rule 2 archives it before rule 3 can resume it, so a plain AN
+    # of the same target starts the step-by-step analysis it asked for.
+    assert section.index("the report's `mode` is `'auto'`") < section.index("3. **Unfinished:**")
+    assert "mode-aware" not in section and "resumes through the auto path" not in section
+    note = next(line for line in _read(REPO / "docs" / "workflows.md").splitlines()
+                if line.startswith("**Note:** Run `@Ferris AN` again"))
+    assert "an unfinished `AN[auto]` one (interrupted, or ended by a merge or skip choice)" in note
+    # Rule 2 says why the run did not resume, as rules 1 and 3 do (fix round 7), and the stage table
+    # names the report continue.md resumes by the same `mode` rule.
+    assert ('announce "**An `[auto]` analysis never resumes: archived the unfinished report as <name>; '
+            'starting a fresh analysis.**"') in section
+    row = next(line for line in _read(SKILL).splitlines() if line.startswith("| 1b |"))
+    assert "An unfinished step-by-step report (`mode` not `'auto'`)" in row and "without `[auto]`" in row
 
 
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
@@ -738,12 +871,19 @@ def test_continue_resumes_only_unfinished_reports():
         assert gone not in text, gone
     assert "only an unfinished report" in text
     assert "health-check.md" not in text.split("\n---\n", 1)[0], "nothing routes a resume to the health check"
+    assert "step-auto-scope.md" not in text, "init archives an auto report: no resume re-enters auto-scope"
+    assert "it archives a finished report and one whose `mode` is `'auto'`" in text, "the fallback report resumes"
 
 
 def test_the_fallback_to_the_interactive_chain_resets_the_mode():
     branch = _section(_read(AUTO), "- **Exit 1 (unknown shape):**", "- **Exit 2 (error):**")
     assert "Set `mode: 'interactive'`" in branch and "`{auto_mode}` to false" in branch
     assert "set the report's `mode: 'interactive'` first" in _read(SHAPE_REF)
+    # The fallback report still resumes: init archives a mode 'auto' report
+    # only, and continue.md routes an unfinished report from its last step.
+    assert "init archives an unfinished `'auto'` report" in branch
+    routing = _section(_read(CONTINUE), "### 4. Determine Next Step", "### 5.")
+    assert "| init | scan-project |" in routing and "`mode`" not in routing
 
 
 def test_only_compiled_skills_count_as_already_skilled():
@@ -923,3 +1063,161 @@ def test_one_mode_rule_and_one_brief_paths_rule():
     for claim in (next(line for line in contract.splitlines() if line.startswith("- `brief_paths`")),
                   SCHEMA["properties"]["brief_paths"]["description"]):
         assert "outside the docs-only branch" in claim, claim
+
+
+# --------------------------------------------------------------------------
+# Step 5b gate run 7 determinism-1: a repository's web address on a host off
+# GIT_HOSTS (no .git, no /_git/) stops for its clone URL, never a docs brief
+# --------------------------------------------------------------------------
+
+SCAN_ROOT = REFS / "scan-root.md"
+INVENTORY = SCRIPTS / "skf-skill-inventory.py"
+PAGE_ADDRESS = "https://codeberg.org/forgejo/forgejo"
+
+
+def _inventory():
+    spec = importlib.util.spec_from_file_location("skf_skill_inventory_for_contract", INVENTORY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+REMEDY = "use its `.git` clone URL, its address without https:// or its SSH address"
+CREDENTIALS = f"asks for credentials: SKF reads no documentation behind a login; if it is a private git repository, {REMEDY}"
+UNANSWERED = f"gave git no answer in 20 s: if it is a git repository, {REMEDY}; if it is documentation, give a documentation URL that answers"
+PROMPTS_OFF = b"fatal: could not read Username for 'https://codeberg.org': terminal prompts disabled\n"
+# Each verdict that stops a run, with the message the helper gives for PAGE_ADDRESS.
+HALTS = {"repository": f"{PAGE_ADDRESS} is a git repository: {REMEDY}.",
+         "credentials": f"{PAGE_ADDRESS} {CREDENTIALS}.",
+         "unanswered": f"{PAGE_ADDRESS} {UNANSWERED}."}
+
+
+@pytest.mark.parametrize("path", [AUTO, SCAN_ROOT], ids=["step-auto-scope", "scan-root"])
+@pytest.mark.parametrize(("exit_code", "stderr", "raises", "verdict"),
+                         [(0, b"", None, "repository"), (2, b"", None, "repository"), (128, b"", None, "docs"),
+                          (128, PROMPTS_OFF, None, "credentials"),
+                          (None, b"", subprocess.TimeoutExpired(["git"], 20), "unanswered"),
+                          (None, b"", FileNotFoundError("git"), "no-git")],
+                         ids=["repository", "no-branch", "docs", "credentials", "unanswered", "no-git"])
+def test_both_call_sites_probe_the_page_address_with_git(path, exit_code, stderr, raises, verdict, monkeypatch,
+                                                         capsys):
+    """The documented call asks git whether the address serves a repository and gives the
+    message a run stops with; git is stubbed, so no test reaches the network. The name stays the
+    host's: naming never depends on the probe. A server that asks for credentials is not reported
+    as a repository (fix round 7); git asks for the branches alone, and a probe git leaves
+    unanswered stops the run instead of going docs-only (fix round 8)."""
+    [call] = [line for block in _fenced(_read(path), "bash") for line in block.split("\n")
+              if " derive-name --target " in line]
+    assert call.endswith('derive-name --target "{project_path}" --probe-git' if path == AUTO
+                         else 'derive-name --target "{path}" --probe-git'), call
+    argv = _argv(call, {"skillInventoryHelper": INVENTORY.as_posix(), "project_path": PAGE_ADDRESS,
+                        "path": PAGE_ADDRESS})
+    assert argv[2] == "derive-name", argv
+    inventory, calls = _inventory(), []
+
+    def git(cmd, **kwargs):
+        calls.append(cmd)
+        if raises is not None:
+            raise raises
+        kwargs["stderr"].write(stderr)
+        return subprocess.CompletedProcess(cmd, exit_code)
+
+    monkeypatch.setattr(inventory.subprocess, "run", git)
+    assert inventory._main_derive_name(argv[3:]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["kind"], out["name"], out["clone_url"], out["git_probe"], out["halt_message"]) == (
+        "docs", "codeberg-org", None, verdict, HALTS.get(verdict))
+    assert calls == [["git", "ls-remote", "--exit-code", "--heads", PAGE_ADDRESS]]
+
+
+@pytest.mark.parametrize("verdict", sorted(HALTS))
+def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_path, verdict):
+    """The [auto] path halts in section 0 with the message the helper gives, before coexistence
+    (section 0c) can offer a merge into an unrelated skill named after the same host, and before
+    the docs-only branch can write a brief; section 2 halts the same way for every other path
+    (gate run 7 fix round 8). The step-by-step chain's scan root fails with the same message."""
+    auto = _read(AUTO)
+    [row] = [line for line in auto.splitlines() if line.startswith("| `docs` | Documentation URL |")]
+    assert row == ('| `docs` | Documentation URL | HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, '
+                   'phase `step-auto-scope:0`, path `{project_path}`) with its `halt_message` when it gives one, '
+                   'else `references/auto-docs-only.md`, via §0c |'), row
+    assert auto.index(row) < auto.index("### 0b. Pin Resolution") < auto.index("### 0c. Coexistence Detection")
+    # Every route out of section 0c is the one route it states (gate run 7 fix round 7).
+    coexistence = _section(auto, "### 0c. Coexistence Detection", "### 1. Load Context")
+    assert ("then goes on to its **route**: load, read fully, then execute `references/auto-docs-only.md` for a "
+            "documentation URL, §1 for every other kind.") in coexistence
+    assert coexistence.count("go on to the route") == 2 and coexistence.count("goes on to the route") == 1
+    assert coexistence.count("auto-docs-only.md") == 1
+    # Every other project path halts the same way, under section 2's phase and with its own address.
+    manifest_scan = _section(auto, "### 2. Manifest Scan", "**For each path in `project_paths[]`:**")
+    assert ("§0's `derive-name --target` call gives them for any other path, and its `halt_message` halts the run "
+            "as in §0, with phase `step-auto-scope:2` and that path as `{project_path}`.") in manifest_scan
+    # The docs-only branch holds no halt of its own on git's verdict any more.
+    for path in (AUTO, DOCS, SCAN_ROOT):
+        text = _read(path)
+        for gone in ("git_repository", "git_credentials", "asks for credentials", "is a git repository"):
+            assert gone not in text, (path.name, gone)
+    for phase in ("step-auto-scope:0", "step-auto-scope:2"):
+        run_dir = _run_dir(tmp_path / phase.replace(":", "-"))
+        (run_dir / "halt.json").write_bytes(json.dumps(
+            {"phase": phase, "reason": HALTS[verdict], "halt_reason": "resolution-failure", "mode": "auto",
+             "path": PAGE_ADDRESS}).encode("utf-8"))
+        proc = _run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+        assert proc.returncode == 0, proc.stderr
+        envelope = _envelope(proc.stderr)
+        assert (envelope["halt_reason"], envelope["exit_code"]) == ("resolution-failure", 3)
+        assert envelope["error"] == {"phase": phase, "reason": HALTS[verdict], "path": PAGE_ADDRESS}
+    docs = _section(_read(SCAN_ROOT), "- **A documentation URL**", "When a command fails")
+    assert ("Treat it as a command that failed with its `halt_message` as the first stderr line when it gives one "
+            "(the message the [auto] path halts with), else with \"{path} is a documentation URL: run the analysis "
+            "with [auto] for a docs-only brief\"." in docs), docs
+
+
+def test_the_contract_and_the_guide_say_which_addresses_are_a_repository():
+    """An address git reads as a repository stops the run; a repository browser page git cannot
+    read at its address is still documentation, and both texts say to give its clone URL (gate
+    run 7 fix round 8: SKF reads no browser page for the clone URL it advertises)."""
+    [row3] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 3 ")]
+    for site in ("step 1a §0 (a documentation URL that git reads as a repository, which on most hosts is the "
+                 "repository's main page, one whose server asks for credentials, or one that gives git no answer "
+                 "in 20 s: rerun with its `.git` clone URL, its address without https:// or its SSH address, or a "
+                 "documentation URL that answers; a repository browser page git cannot read at that address, such "
+                 "as a Bitbucket Data Center `/projects/<p>/repos/<r>` page, a SourceForge or Launchpad code page "
+                 "or a link to a file or folder inside a repository, is still read as documentation, so give its "
+                 "clone URL)",
+                 "step 1a §0a (docs-only URL unreachable);",
+                 "another path halts as in §0"):
+        assert site in row3, site
+    [doc_url] = [line for line in _read(REPO / "docs" / "forge-auto.md").splitlines()
+                 if line.startswith("- **Doc URL**")]
+    fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-git-url-any-host.yaml"))["summary"]
+    for text in (doc_url, fragment):
+        for claim in ("which on most hosts", "the repository's main page", "asks for credentials",
+                      "gets no answer from the address in 20 seconds", "a documentation URL that answers",
+                      "Bitbucket Data Center `/projects/<p>/repos/<r>` page", "SourceForge or Launchpad code page",
+                      "a link to a file or folder inside a repository"):
+            assert claim in text, claim
+    assert ("A repository browser page that git cannot read at its address is still read as documentation: "
+            "a Bitbucket Data Center") in doc_url and "inside a repository. Give its clone URL instead." in doc_url
+    assert "is still read as documentation: give its clone URL." in fragment
+    assert "Without git installed, SKF reads the address as documentation and warns" in doc_url
+
+
+def test_a_missing_git_goes_docs_only_with_a_warning_naming_it(tmp_path):
+    """With no git to ask, a documentation URL needs none: the docs-only branch goes on and
+    leaves a warning that names git as missing (gate run 7 fix round 8)."""
+    check = _section(_read(DOCS), "### 1. Validate URL reachability", "```bash")
+    assert check.startswith("### 1. Validate URL reachability\n\nWhen §0's `derive-name` call gave `git_probe` "
+                            "`no-git` (git is missing, so nothing asked whether `{url}` is a repository), run "), check
+    [record] = re.findall(r"`(uv run \{emitEnvelopeHelper\} record [^`]*)`", check)
+    assert "HARD HALT" not in check
+    run_dir = _run_dir(tmp_path)
+    url = "https://docs.example.com/guide/"
+    proc = _run(record.replace("{url}", url), {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    reason = f"Documentation URL unreachable: {url}: 404"
+    (run_dir / "halt.json").write_bytes(json.dumps(
+        {"phase": "auto-docs-only:1", "reason": reason, "halt_reason": "resolution-failure", "mode": "auto",
+         "source_type": "docs-only", "path": url}).encode("utf-8"))
+    envelope = _envelope(_run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)}).stderr)
+    assert envelope["warnings"] == [f"git_probe_unanswered: {url} was not checked for a repository: git is missing"]
