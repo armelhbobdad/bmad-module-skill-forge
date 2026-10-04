@@ -2,3 +2,5 @@ type: fixed
 scope: skf-analyze-source
 summary: |
   An `AN[auto]` run on a repository URL now roots each brief's include patterns at the source folder the repository really has, such as `lib/` for a JavaScript package or the import package folder of a Python project (`sklearn/` for scikit-learn). Before, the run looked for that folder in a checkout that holds only the manifests and could fall back to `src/`, which wrote a brief that matched no file, so Create Skill extracted nothing. On every `AN[auto]` run, a local path included, a package the run detects as JavaScript now gets `.js` patterns instead of `.ts` ones, and a Python project's import package is found from its file list. A repository with no conventional source folder, or a monorepo merged into one brief whose packages sit outside its root `src/` or `lib/`, now gets patterns over the whole repository that leave out top-level folders such as `docs/`, `examples/`, `scripts/` and `tests/`, so the brief drops no package. A monorepo the run splits into several briefs gets the same patterns for each package, rooted at the package's folder.
+prs: [665]
+issues: [592]

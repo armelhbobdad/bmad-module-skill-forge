@@ -2,3 +2,5 @@ type: fixed
 scope: skf-analyze-source
 summary: |
   An `AN[auto]` run (forge-auto included) given an https clone URL on a host other than GitHub, GitLab or Bitbucket, such as a self-hosted `https://git.example.com/team/repo.git` or an Azure DevOps `/_git/` URL, now analyzes it as a repository, named after the repository. Before, any such URL was treated as a documentation site: the run wrote a docs-only brief named after the host and reported success, and an interactive run stopped saying the URL was a documentation URL. An https URL on another host without `.git` or `/_git/` (a GitHub Enterprise page address, for example) is still read as documentation; pass its clone URL or SSH address instead.
+prs: [665]
+issues: [582]
