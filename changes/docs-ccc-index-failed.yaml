@@ -1,0 +1,4 @@
+type: docs
+summary: |
+  Troubleshooting has a new entry for when Setup says the CCC index failed, for example on an index an older ccc wrote (`Failed to deserialize pickle payload`): run `ccc reset`, then `ccc daemon restart`, then `@Ferris SF` again. Without the restart, the next index can fail with `environment already open in this program`.
+prs: [675]
