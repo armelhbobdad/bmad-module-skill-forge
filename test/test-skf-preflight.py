@@ -558,6 +558,28 @@ def run_cli(*args):
 class TestPreflightCli:
     """Suite 10: the command line."""
 
+    def test_a_forge_tier_from_skf_1_with_unquoted_timestamps_prints_json(self, tmp_path):
+        """#674: SKF 1.x wrote tier_detected_at and ccc_index.last_indexed
+        unquoted, YAML reads them as datetimes, and the preflight crashed
+        printing them, so setup and Ferris halted on a valid sidecar."""
+        root = make_project(tmp_path)
+        tier = root / "_bmad" / "_memory" / "forger-sidecar" / "forge-tier.yaml"
+        tier.write_text(
+            "tools:\n  ast_grep: true\ntier: Forge\n"
+            "tier_detected_at: 2026-04-10T15:12:15Z\n"
+            "ccc_index:\n  last_indexed: 2026-04-10\n  status: created\n",
+            encoding="utf-8",
+        )
+        done = run_cli(str(root))
+        assert done.returncode == 0, done.stdout + done.stderr
+        forge_tier = json.loads(done.stdout)["sidecar"]["forge_tier"]
+        assert forge_tier["tier_detected_at"] == "2026-04-10T15:12:15+00:00"
+        assert forge_tier["ccc_index"]["last_indexed"] == "2026-04-10"
+
+    def test_a_value_json_cannot_print_still_fails(self):
+        with pytest.raises(TypeError):
+            mod._json_default(object())
+
     def test_allow_missing_sidecar_flag(self, tmp_path):
         root = make_project(tmp_path, sidecar=False)
         done = run_cli(str(root), "--allow-missing-sidecar")

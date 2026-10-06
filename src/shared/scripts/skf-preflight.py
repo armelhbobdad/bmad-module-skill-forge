@@ -49,6 +49,7 @@ SIDECAR_MISSING.
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import stat
@@ -80,6 +81,19 @@ INSTALL_REMEDY = (
 PROJECT_ROOT_RE = re.compile(r"\A\{project-root\}(?:[/\\]+|\Z)")
 PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}")
 FOLDER_KEYS = ("output_folder", "skills_output_folder", "forge_data_folder")
+
+
+def _json_default(value):
+    """Print a date or time as ISO 8601.
+
+    YAML reads an unquoted timestamp as a date or datetime object. SKF 1.x
+    wrote ``tier_detected_at`` and ``ccc_index.last_indexed`` in
+    forge-tier.yaml unquoted, so a sidecar from before 2.0.0 holds them; any
+    other value json cannot print is still an error.
+    """
+    if isinstance(value, (datetime.date, datetime.time)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def load_yaml_file(path):
@@ -304,5 +318,5 @@ if __name__ == "__main__":
             cfg_path = sys.argv[idx + 1]
 
     result = run_preflight(proj_root, cfg_path, allow_missing_sidecar="--allow-missing-sidecar" in sys.argv)
-    print(json.dumps(result, indent=2))
+    print(json.dumps(result, indent=2, default=_json_default))
     sys.exit(1 if result["status"] == "hard-halt" else 0)

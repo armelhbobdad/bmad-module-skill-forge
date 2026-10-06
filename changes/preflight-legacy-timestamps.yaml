@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup, skf-forger
+summary: |
+  Ferris and Setup now start in a project whose `forge-tier.yaml` an SKF 1.x setup wrote. That file holds `tier_detected_at` and `ccc_index.last_indexed` as unquoted timestamps, and the preflight both run first crashed on them: Ferris stopped at activation with a Python `TypeError`, and Setup halted with `on-activation:config-malformed`, so the setup run that would rewrite the file could not start. The preflight now prints such values as ISO 8601 strings.
+prs: [675]
+issues: [674]
