@@ -114,8 +114,9 @@ import yaml
 # parse_brief_yaml, and every other script that reads a skill brief
 # (skf-validate-brief-schema.py, skf-provenance-gap-dispatch.py,
 # skf-derive-assembly-shape.py, skf-write-skill-brief.py and skf-test-skill's
-# load-coverage-inputs.py) for parse_brief_yaml: keep those names and what
-# they take and return.
+# load-coverage-inputs.py) for parse_brief_yaml, load-coverage-inputs.py
+# also for _amendment_action: keep those names and what they take and
+# return.
 
 
 # --------------------------------------------------------------------------

@@ -276,7 +276,9 @@ is one the recipes read (python, typescript, tsx, javascript, rust, go and
 .vue files) and --language allows it. Globs follow
 skf-resolve-authoritative-files.py's rules: `**` spans any number of path
 segments, none included, and `*` and `?` stay inside one, so `src/**/*.ts`
-matches `src/index.ts` and `**/test_*` matches a top-level `test_x.py`.
+matches `src/index.ts` and `**/test_*` matches a top-level `test_x.py`. An
+include glob that matches no file (a brief written for an older layout,
+say) is named in `warnings` and listed in `scope.unmatched_include`.
 
 --brief supplies scope.include, scope.exclude, scope.tier_a_include,
 scope.type and language; --include, --exclude, --tier-a-include,
@@ -376,7 +378,8 @@ Output JSON (stdout, or -o):
     "ast_grep": {"path": "<exe>" | null, "version": "<x.y.z>" | null},
     "scope": {"include": [...], "exclude": [...],
               "tier_a_include": [...] | null, "type": "<type>" | null,
-              "languages": [...], "files_from": "<file>" | null},
+              "languages": [...], "files_from": "<file>" | null,
+              "unmatched_include": [...]},  # include globs no file matches
     "files_in_scope": N,
     "files_by_language": {"<language>": N, ...},
     "files_without_recipes": {".java": N, ...},  # in scope, no recipe reads them
@@ -3839,11 +3842,11 @@ def _monorepo(root: Path, tree: list[str], tree_set: set[str]) -> tuple[bool, st
 
 def _select_files(root: Path, candidates: list[str], listed: bool, includes: list[str], excludes: list[str],
                   wanted: set[str], glob_match: Callable[[str, str], bool], issues: list[dict],
-                  warnings: list[str]) -> tuple[list[str], dict[str, int]]:
+                  warnings: list[str]) -> tuple[list[str], dict[str, int], list[str]]:
     """(the files in scope, by extension the in-scope source files no recipe
-    reads). A file a --files-from list names that is missing, or that no
-    recipe reads, is an issue; an include glob no candidate matches, a
-    warning."""
+    reads, the include globs no candidate matches). A file a --files-from
+    list names that is missing, or that no recipe reads, is an issue; an
+    include glob no candidate matches, a warning too."""
     in_scope: list[str] = []
     without_recipes: Counter = Counter()
     used = dict.fromkeys(includes, False)
@@ -3864,8 +3867,9 @@ def _select_files(root: Path, candidates: list[str], listed: bool, includes: lis
                 without_recipes[extension] += 1
             continue
         in_scope.append(rel)
-    warnings += [f"scope.include pattern {g!r} matches no file" for g, hit in used.items() if not hit]
-    return in_scope, dict(sorted(without_recipes.items()))
+    unmatched = [g for g, hit in used.items() if not hit]
+    warnings += [f"scope.include pattern {g!r} matches no file" for g in unmatched]
+    return in_scope, dict(sorted(without_recipes.items())), unmatched
 
 
 def run_full(args: argparse.Namespace) -> tuple[dict, int]:
@@ -3893,8 +3897,9 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     tree = list_tree(root)
     tree_set = set(tree)
     listed = _read_file_list(Path(args.files_from)) if args.files_from else None
-    in_scope, without_recipes = _select_files(root, tree if listed is None else listed, listed is not None,
-                                              includes, excludes, wanted, glob_match, issues, warnings)
+    in_scope, without_recipes, unmatched_include = _select_files(
+        root, tree if listed is None else listed, listed is not None, includes, excludes, wanted, glob_match,
+        issues, warnings)
     readable = []
     for rel in in_scope:
         try:
@@ -3942,7 +3947,7 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
         "ast_grep": {"path": exe, "version": version},
         "scope": {"include": includes, "exclude": excludes, "tier_a_include": tier_a or None,
                   "type": scope_type, "languages": sorted(wanted),
-                  "files_from": args.files_from},
+                  "files_from": args.files_from, "unmatched_include": unmatched_include},
         "files_in_scope": len(in_scope),
         "files_by_language": dict(sorted(Counter(_file_language(f) for f in in_scope).items())),
         "files_without_recipes": without_recipes,

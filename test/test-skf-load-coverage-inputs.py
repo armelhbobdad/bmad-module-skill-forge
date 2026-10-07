@@ -16,6 +16,9 @@ branches coverage-check.md §2 loads from coverage-check-tiers.md):
     the name sets, the Denominator Candidates, the guards and the fallback
     verdict; a brief gives the scope when no extraction recorded one, so a
     Quick-tier surface has its scope sets and guards too
+  - surface, #677: an include glob that matches no file restores the root
+    exports the brief does not exclude (the stale-scope guard), and a
+    Python top nested in another top's folder is no barrel
 The extraction fixture mirrors skf-extract-public-api.py --mode full output;
 a last test runs the real extractor when ast-grep is installed.
 """
@@ -37,6 +40,8 @@ SCRIPT = SCRIPTS / "load-coverage-inputs.py"
 COHERENCE = SCRIPTS / "check-metadata-coherence.py"
 COMPUTE_SCORE = SCRIPTS / "compute-score.py"
 EXTRACTOR = REPO_ROOT / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
+GAP_LEDGER = SCRIPTS / "gap-ledger.py"
+SCORE_SIGNATURES = SCRIPTS / "score-signatures.py"
 RESOLVER = REPO_ROOT / "src" / "shared" / "scripts" / "skf-resolve-authoritative-files.py"
 
 
@@ -49,6 +54,7 @@ def _load(path: Path, name: str):
 
 
 mod = _load(SCRIPT, "load_coverage_inputs")
+gap_ledger = _load(GAP_LEDGER, "skf_gap_ledger_for_coverage_inputs")
 
 
 def _write(path: Path, payload) -> str:
@@ -387,6 +393,352 @@ def test_the_glob_rule_is_the_extractors(path, pattern):
 
 
 # --------------------------------------------------------------------------
+# surface: a stale brief scope and nested Python tops (#677)
+# --------------------------------------------------------------------------
+
+
+# cognee v1.0.0 under a brief written for v0.5.8: pipelines.py became the
+# pipelines/ package, so the brief's `cognee/pipelines.py` glob matches no
+# file and the root re-exports run_pipeline and Task from files no glob
+# covers; test_helper's file is excluded; the FastAPI routers/__init__.py is
+# a top only because cognee/api/v1/ has no __init__.py. The shape is
+# skf-extract-public-api.py's output on that tree (test_a_real_cognee_tree).
+COGNEE_BRIEF = ("name: cognee\nlanguage: python\nscope:\n  type: public-api\n"
+                "  include: ['cognee/__init__.py', 'cognee/pipelines.py', 'cognee/api/**']\n"
+                "  exclude: ['cognee/tests/**']\n")
+ROUTERS = "cognee/api/v1/routers/__init__.py"
+ROUTER_NAMES = ["get_add_router", "get_search_router"]
+
+
+def _public(name: str, entry: str, module: str, file: str, line: int = 1) -> dict:
+    return {"name": name, "entry": entry, "via": "re-export", "from": module, "local": None, "file": file,
+            "line": line, "language": "python"}
+
+
+def _outside(name: str, file: str, line: int = 1, entry: str = "cognee/__init__.py") -> dict:
+    return {"name": name, "language": "python", "entry": entry, "file": file, "line": line}
+
+
+COGNEE = {
+    "mode": "full",
+    "status": "ok",
+    "files_in_scope": 5,
+    "truncated": False,
+    "files_without_recipes": {},
+    "file_issues": [],
+    "errors": [],
+    "scope": {"include": ["cognee/__init__.py", "cognee/pipelines.py", "cognee/api/**"],
+              "exclude": ["cognee/tests/**"], "tier_a_include": None, "type": "public-api",
+              "languages": ["python"], "files_from": None, "unmatched_include": ["cognee/pipelines.py"]},
+    "exports": [
+        {"export_name": "add", "export_type": "function", "source_file": "cognee/api/v1/add.py", "source_line": 1,
+         "signature_line": "def add(data, dataset_name=\"main\"):"},
+        {"export_name": "get_add_router", "export_type": "function", "source_file": "cognee/api/v1/routers/add.py",
+         "source_line": 1, "signature_line": "def get_add_router():"},
+        {"export_name": "get_search_router", "export_type": "function",
+         "source_file": "cognee/api/v1/routers/search.py", "source_line": 1,
+         "signature_line": "def get_search_router():"},
+    ],
+    "entry_points": {
+        "status": "barrel",
+        "files": [
+            {"language": "python", "file": "cognee/__init__.py", "package": "cognee", "subpath": None,
+             "resolution": "file", "in_scope": True},
+            {"language": "python", "file": ROUTERS, "package": "cognee/api/v1/routers", "subpath": None,
+             "resolution": "file", "in_scope": True},
+        ],
+        "exports_maps": [], "unresolved": [],
+    },
+    "entry_point_diff": {
+        "public": [
+            _public("Task", "cognee/__init__.py", ".pipelines", "cognee/pipelines/task.py", 2),
+            _public("add", "cognee/__init__.py", ".api.v1.add", "cognee/api/v1/add.py"),
+            _public("get_add_router", ROUTERS, ".add", "cognee/api/v1/routers/add.py"),
+            _public("get_search_router", ROUTERS, ".search", "cognee/api/v1/routers/search.py"),
+            _public("run_pipeline", "cognee/__init__.py", ".pipelines", "cognee/pipelines/run.py", 4),
+            _public("test_helper", "cognee/__init__.py", ".tests.helper", "cognee/tests/helper.py"),
+        ],
+        "internal": [],
+        "extraction_gaps": [],
+        "outside_scope": [_outside("Task", "cognee/pipelines/task.py", 2),
+                          _outside("run_pipeline", "cognee/pipelines/run.py", 4),
+                          _outside("test_helper", "cognee/tests/helper.py")],
+    },
+    "counts": {"exports_public_api": 6, "exports_internal": 0, "effective_denominator": 3,
+               "effective_denominator_basis": "scope.include", "denominator_files": 5},
+    "arms": {"monorepo": False, "monorepo_kind": None, "specific_modules": False, "multi_subpath_exports": False},
+    "warnings": ["scope.include pattern 'cognee/pipelines.py' matches no file"],
+}
+RESTORED = [{"name": "Task", "file": "cognee/pipelines/task.py", "line": 2},
+            {"name": "run_pipeline", "file": "cognee/pipelines/run.py", "line": 4}]
+
+
+def _cognee(tmp_path: Path, patch: dict | None = None, brief: str | None = COGNEE_BRIEF,
+            data: dict | None = None) -> dict:
+    data = json.loads(json.dumps(data or COGNEE))
+    for key, value in (patch or {}).items():
+        data["scope"][key] = value
+    args = ["--extraction", _write(tmp_path / "extract-full.json", data)]
+    if brief is not None:
+        args += ["--brief", _write(tmp_path / "skill-brief.yaml", brief)]
+    return _surface(tmp_path, *args)
+
+
+def test_a_stale_glob_restores_the_root_exports_it_dropped(tmp_path):
+    """The #677 acceptance: the re-exports come back to `all`, the routers'
+    names leave it, and the ledger holds one brief-scope-stale gap."""
+    out = _cognee(tmp_path)
+    assert out["sets"]["all"] == ["Task", "add", "run_pipeline"]
+    assert out["sets"]["scope.include"] == ["add", *ROUTER_NAMES], "a restored file matches no include glob"
+    assert out["sets"]["root"] == ["Task", "add", "run_pipeline", "test_helper"]
+    assert out["excluded"]["outsideScope"] == [{"name": "test_helper", "file": "cognee/tests/helper.py"}]
+    assert out["guards"]["staleScope"] == {"applicable": True, "fires": True,
+                                           "unmatchedInclude": ["cognee/pipelines.py"], "restored": RESTORED}
+    # No recipe reads a file out of scope, so a restored name has no kind: it
+    # carries the file and line of its outside_scope row.
+    restored = [e for e in out["exports"] if e["origin"] == "restored"]
+    assert restored == [{"name": "Task", "kind": None, "file": "cognee/pipelines/task.py", "line": 2,
+                         "signatureLine": None, "origin": "restored"},
+                        {"name": "run_pipeline", "kind": None, "file": "cognee/pipelines/run.py", "line": 4,
+                         "signatureLine": None, "origin": "restored"}]
+    # The runner's warning text reaches the surface unchanged.
+    assert out["warnings"] == ["extract-full.json: scope.include pattern 'cognee/pipelines.py' matches no file"]
+    ledger = tmp_path / "test-findings-20261007T000000Z-abcdef12.json"
+    proc = subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",
+                           "coverage-check", "--from", "guards", "--input", str(tmp_path / "surface.json")],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout
+    records = json.loads(ledger.read_text(encoding="utf-8"))["records"]
+    assert [(r["severity"], r["category"], r["source"]) for r in records] == [
+        ("Medium", "brief-scope-stale", str(tmp_path / "skill-brief.yaml"))]
+    assert records[0]["issue"] == (
+        "the `scope.include` glob `cognee/pipelines.py` matches no file in the source tested; the `all` set "
+        "restores 2 root exports, defined in files no include glob covers: `Task` in `cognee/pipelines/task.py`, "
+        "`run_pipeline` in `cognee/pipelines/run.py`")
+
+
+def test_a_nested_python_top_is_no_barrel(tmp_path):
+    out = _cognee(tmp_path)
+    assert not set(ROUTER_NAMES) & (set(out["sets"]["all"]) | set(out["sets"]["root"]))
+    assert out["excluded"]["nestedEntries"] == [{"entry": ROUTERS, "within": "cognee/__init__.py",
+                                                 "names": ROUTER_NAMES}]
+    # The umbrella ratio counts the root barrel only: its four names, each a re-export.
+    umbrella = out["guards"]["umbrella"]
+    assert (umbrella["entries"], umbrella["names"], umbrella["reexported"]) == (["cognee/__init__.py"], 4, 4)
+    # The records stay, with the kind and line the recipes gave them.
+    kept = [(e["name"], e["kind"], e["file"], e["line"], e["origin"]) for e in out["exports"]
+            if e["name"] in ROUTER_NAMES]
+    assert kept == [("get_add_router", "function", "cognee/api/v1/routers/add.py", 1, "extraction"),
+                    ("get_search_router", "function", "cognee/api/v1/routers/search.py", 1, "extraction")]
+
+
+def test_a_documented_nested_name_keeps_its_signature_check(tmp_path):
+    """A nested top's names leave `all`, yet score-signatures.py still plans
+    and scores a documented one from its record: its wrong signature is a
+    Critical gap, not a warning."""
+    _cognee(tmp_path)
+    surface = str(tmp_path / "surface.json")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "add", "kind": "function", "params": "data, dataset_name", "return_type": "None"},
+        {"name": "get_add_router", "kind": "function", "params": "", "return_type": "Router"},
+    ], "cross_check_mismatches": []})
+    plan = json.loads(subprocess.run([sys.executable, str(SCORE_SIGNATURES), "plan", "--inventory", inventory,
+                                      "--surface", surface], capture_output=True, text=True, check=True).stdout)
+    assert plan["compared"] == 2
+    assert plan["files"][1] == {"file": "cognee/api/v1/routers/add.py", "checks": [
+        {"name": "get_add_router", "line": 1, "signatureLine": "def get_add_router():",
+         "documented": {"params": "", "return_type": "Router"}}]}
+    mismatch = {"name": "get_add_router", "line": 1, "source_sig": "() -> APIRouter",
+                "documented_sig": "() -> Router", "issue": "wrong return type"}
+    results = _write(tmp_path / "signatures-1.txt", {"file": "cognee/api/v1/routers/add.py",
+                                                      "signature_mismatches": [mismatch]})
+    out = json.loads(subprocess.run([sys.executable, str(SCORE_SIGNATURES), "score", "--inventory", inventory,
+                                     "--surface", surface, "--results", results],
+                                    capture_output=True, text=True, check=True).stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (1, 2, 50.0)
+    assert [(g["severity"], g["export"], g["source"]) for g in out["gapRecords"]] == [
+        ("Critical", "get_add_router", "cognee/api/v1/routers/add.py:1")]
+    assert out["warnings"] == ["the source surface has no interface, type alias, enum or class: Type "
+                               "Coverage has nothing to cover and scores 100"]
+
+
+def test_a_nested_top_keeps_its_names_in_the_scope_sets(tmp_path):
+    """A specific-modules or stratified brief that scopes the sub-package in
+    still counts it: a nested top leaves only `all`, `root` and the umbrella
+    ratio, and a glob over its folder does not list its file."""
+    out = _cognee(tmp_path, {"tier_a_include": ["cognee/api/v1/routers/**"]})
+    assert out["sets"]["scope.include"] == ["add", *ROUTER_NAMES]
+    assert out["sets"]["tier_a_include"] == ROUTER_NAMES
+    assert (out["candidates"]["scopeIncludeUnion"], out["candidates"]["tierAIncludeUnion"]) == (3, 2)
+    assert not set(ROUTER_NAMES) & set(out["sets"]["all"])
+    assert [n["entry"] for n in out["excluded"]["nestedEntries"]] == [ROUTERS]
+
+
+def test_a_nested_top_keeps_its_outside_scope_and_extraction_gap_rows(tmp_path):
+    data = json.loads(json.dumps(COGNEE))
+    diff = data["entry_point_diff"]
+    diff["public"] += [_public("RouterConfig", ROUTERS, "..shared.config", "cognee/shared/config.py", 3),
+                       _public("get_admin_router", ROUTERS, ".admin", "cognee/api/v1/routers/admin.py", 5)]
+    diff["outside_scope"].append(_outside("RouterConfig", "cognee/shared/config.py", 3, entry=ROUTERS))
+    diff["extraction_gaps"].append({"name": "get_admin_router", "language": "python", "entry": ROUTERS,
+                                    "file": "cognee/api/v1/routers/admin.py", "line": 5})
+    for rows in ("public", "outside_scope"):
+        diff[rows].sort(key=lambda row: row["name"])  # the runner's order
+    out = _cognee(tmp_path, data=data)
+    assert out["excluded"]["outsideScope"] == [{"name": "RouterConfig", "file": "cognee/shared/config.py"},
+                                               {"name": "test_helper", "file": "cognee/tests/helper.py"}]
+    assert out["guards"]["staleScope"]["restored"] == RESTORED, "a nested top is no root entry point"
+    assert out["extractionGaps"] == [{"name": "get_admin_router", "file": "cognee/api/v1/routers/admin.py",
+                                      "line": 5}]
+    assert out["excluded"]["nestedEntries"][0]["names"] == ["RouterConfig", "get_add_router", "get_admin_router",
+                                                            "get_search_router"]
+    assert out["sets"]["scope.include"] == ["add", "get_add_router", "get_admin_router", "get_search_router"]
+    assert out["sets"]["all"] == ["Task", "add", "run_pipeline"]
+
+
+@pytest.mark.parametrize("key", ["include", "tier_a_include"])
+def test_a_nested_top_the_brief_names_stays_a_barrel(tmp_path, key):
+    scope = json.loads(json.dumps(COGNEE["scope"]))
+    out = _cognee(tmp_path, {key: (scope[key] or []) + [ROUTERS]})
+    assert set(ROUTER_NAMES) <= set(out["sets"]["all"]) & set(out["sets"]["root"])
+    assert out["excluded"]["nestedEntries"] == []
+
+
+@pytest.mark.parametrize("amendments, restored", [
+    ([("cognee/pipelines/**", "skipped", "scope-expansion", None)], []),
+    ([("cognee/pipelines/run.py", "demoted-include", "scope-expansion", None)], RESTORED[:1]),
+    ([("cognee/pipelines/**", "skipped", "scope-expansion", None),
+      ("./cognee/pipelines/**", "promoted", "scope-expansion", None)], RESTORED),
+    ([("cognee/pipelines/**", "skipped", "scope-expansion", "headless: no user to prompt")], RESTORED),
+    ([("cognee/pipelines/**", "skipped", "auth-doc", None)], RESTORED),
+], ids=["skipped", "demoted-include", "latest-wins", "legacy-headless-skip-is-a-deferral", "other-category"])
+def test_a_declined_scope_expansion_keeps_its_file_out(tmp_path, amendments, restored):
+    lines = "".join(f"    - path: '{path}'\n      action: {action}\n      category: {category}\n"
+                    + (f"      reason: '{reason}'\n" if reason else "")
+                    for path, action, category, reason in amendments)
+    out = _cognee(tmp_path, brief=COGNEE_BRIEF + "  amendments:\n" + lines)
+    assert out["guards"]["staleScope"]["restored"] == restored
+    kept = {r["name"] for r in RESTORED} - {r["name"] for r in restored}
+    assert [o["name"] for o in out["excluded"]["outsideScope"]] == sorted(kept | {"test_helper"})
+    assert out["guards"]["staleScope"]["fires"] is True, "the glob is stale whatever the brief declined"
+
+
+def test_an_excluded_file_stays_outside_scope(tmp_path):
+    out = _cognee(tmp_path, {"exclude": ["cognee/tests/**", "cognee/pipelines/task.py"]})
+    assert out["guards"]["staleScope"]["restored"] == RESTORED[1:]
+    assert [o["name"] for o in out["excluded"]["outsideScope"]] == ["Task", "test_helper"]
+    assert "Task" not in out["sets"]["all"]
+
+
+def test_a_stale_glob_restores_root_exports_only(tmp_path):
+    """A non-root `exports` subpath is no standard barrel: its outside_scope
+    name stays out under a stale glob, while the root entry's comes back."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["scope"].update(include=["src/**", "src/old.ts"], unmatched_include=["src/old.ts"])
+    data["entry_point_diff"]["public"].append(
+        {"name": "oldExtra", "entry": "src/extra.ts", "via": "re-export", "file": "lib/old-extra.ts", "line": 5})
+    data["entry_point_diff"]["outside_scope"].append(
+        {"name": "oldExtra", "language": "javascript", "entry": "src/extra.ts", "file": "lib/old-extra.ts",
+         "line": 5})
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
+    assert out["guards"]["staleScope"]["restored"] == [{"name": "legacy", "file": "lib/legacy.ts", "line": 3}]
+    assert out["excluded"]["outsideScope"] == [{"name": "oldExtra", "file": "lib/old-extra.ts"}]
+    assert "legacy" in out["sets"]["all"] and "oldExtra" not in out["sets"]["all"]
+
+
+def test_a_fresh_brief_leaves_the_surface_unchanged(tmp_path):
+    out = _cognee(tmp_path, {"unmatched_include": []})
+    assert out["sets"]["all"] == ["add"]
+    assert [o["name"] for o in out["excluded"]["outsideScope"]] == ["Task", "run_pipeline", "test_helper"]
+    assert out["guards"]["staleScope"] == {"applicable": True, "fires": False, "unmatchedInclude": [],
+                                           "restored": []}
+    assert gap_ledger.from_guards(out) == []
+
+
+def test_without_a_brief_the_recorded_scope_still_decides(tmp_path):
+    out = _cognee(tmp_path, brief=None)
+    assert out["guards"]["staleScope"]["restored"] == RESTORED
+    assert out["inputs"]["brief"] is None
+
+
+def test_without_an_extraction_the_stale_scope_guard_does_not_apply(tmp_path):
+    brief = _write(tmp_path / "skill-brief.yaml", COGNEE_BRIEF)
+    out = _surface(tmp_path, "--name", "add", "--brief", brief)
+    assert out["guards"]["staleScope"] == {"applicable": False, "fires": False, "unmatchedInclude": [],
+                                           "restored": []}
+    assert out["excluded"] == {"outsideScope": [], "nestedEntries": []}
+
+
+@pytest.mark.parametrize("tops, silent, nested", [
+    (["pkg/__init__.py", "pkg/a/routers/__init__.py"], [], {"pkg/a/routers/__init__.py": "pkg/__init__.py"}),
+    (["ns/a/__init__.py", "ns/b/__init__.py"], [], {}),
+    (["__init__.py", "sub/x/__init__.py"], [], {"sub/x/__init__.py": "__init__.py"}),
+    (["pkg/__init__.py", "pkg/a/x/__init__.py", "pkg/a/x/b/y/__init__.py"], [],
+     {"pkg/a/x/__init__.py": "pkg/__init__.py", "pkg/a/x/b/y/__init__.py": "pkg/__init__.py"}),
+    (["pkg/__init__.py", "pkgx/a/__init__.py"], [], {}),
+    (["pkg/__init__.py", "pkg/a/routers/__init__.py"], ["pkg/__init__.py"], {}),
+    (["__init__.py", "pkg/__init__.py", "pkg/a/routers/__init__.py"], ["__init__.py"],
+     {"pkg/a/routers/__init__.py": "pkg/__init__.py"}),
+], ids=["nested", "siblings", "source-root-top", "outermost-holder", "prefix-is-not-a-folder",
+        "outer-exports-nothing", "stray-source-root-init"])
+def test_which_python_tops_are_nested(tops, silent, nested):
+    """`silent` lists the tops that export no public name: such a top nests no other."""
+    entries = [{"language": "python", "file": f, "subpath": None} for f in tops]
+    assert mod._nested_tops(entries, set(), set(tops) - set(silent)) == nested
+
+
+def test_a_stray_source_root_init_leaves_the_barrel_whole(tmp_path):
+    """An empty __init__.py at the source root exports nothing, so it nests
+    neither cognee/ nor its routers: the root barrel keeps its names, and the
+    routers stay nested in cognee/__init__.py."""
+    data = json.loads(json.dumps(COGNEE))
+    data["entry_points"]["files"].insert(0, {"language": "python", "file": "__init__.py", "package": ".",
+                                             "subpath": None, "resolution": "file", "in_scope": True})
+    out = _cognee(tmp_path, data=data)
+    assert out["sets"]["all"] == ["Task", "add", "run_pipeline"]
+    assert out["sets"]["root"] == ["Task", "add", "run_pipeline", "test_helper"]
+    assert out["excluded"]["nestedEntries"] == [{"entry": ROUTERS, "within": "cognee/__init__.py",
+                                                 "names": ROUTER_NAMES}]
+    assert out["guards"]["staleScope"]["restored"] == RESTORED
+
+
+def test_sibling_tops_both_stay_barrels(tmp_path):
+    data = {"mode": "full", "status": "ok", "files_in_scope": 2, "exports": [],
+            "scope": {"include": ["ns/**"], "exclude": [], "tier_a_include": None, "unmatched_include": []},
+            "entry_points": {"files": [
+                {"language": "python", "file": "ns/a/__init__.py", "package": "ns/a", "subpath": None},
+                {"language": "python", "file": "ns/b/__init__.py", "package": "ns/b", "subpath": None}]},
+            "entry_point_diff": {"public": [
+                {"name": "alpha", "entry": "ns/a/__init__.py", "via": "declaration", "file": "ns/a/__init__.py",
+                 "line": 1},
+                {"name": "beta", "entry": "ns/b/__init__.py", "via": "declaration", "file": "ns/b/__init__.py",
+                 "line": 1}], "outside_scope": [], "extraction_gaps": []}}
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "e.json", data))
+    assert out["sets"]["all"] == out["sets"]["root"] == ["alpha", "beta"]
+    assert out["excluded"]["nestedEntries"] == []
+
+
+def test_a_ts_entry_inside_the_root_entrys_folder_stays_a_barrel(tmp_path):
+    """Only a Python top can be nested: a TypeScript entry point is a barrel
+    wherever its folder lies."""
+    data = {"mode": "full", "status": "ok", "files_in_scope": 2, "exports": [],
+            "scope": {"include": ["pkg/**"], "exclude": [], "tier_a_include": None, "unmatched_include": []},
+            "entry_points": {"files": [
+                {"language": "python", "file": "pkg/__init__.py", "package": "pkg", "subpath": None},
+                {"language": "typescript", "file": "pkg/ui/index.ts", "package": "pkg/ui", "subpath": "."}]},
+            "entry_point_diff": {"public": [
+                {"name": "alpha", "entry": "pkg/__init__.py", "via": "declaration", "file": "pkg/__init__.py",
+                 "line": 1},
+                {"name": "Widget", "entry": "pkg/ui/index.ts", "via": "declaration", "file": "pkg/ui/index.ts",
+                 "line": 2}], "outside_scope": [], "extraction_gaps": []}}
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "e.json", data))
+    assert out["sets"]["all"] == out["sets"]["root"] == ["Widget", "alpha"]
+    assert out["excluded"]["nestedEntries"] == []
+    entries = [{"language": "typescript", "file": f, "subpath": "."} for f in ("src/index.ts", "src/sub/index.ts")]
+    assert mod._nested_tops(entries, set(), {"src/index.ts", "src/sub/index.ts"}) == {}
+
+
+# --------------------------------------------------------------------------
 # surface: the other sources
 # --------------------------------------------------------------------------
 
@@ -598,3 +950,46 @@ def test_a_real_extraction_feeds_the_surface(tmp_path):
                                                               "fetchData": "function", "helper": "function"}
     config = next(e for e in out["exports"] if e["name"] == "Config")
     assert (config["file"], config["line"]) == ("src/impl.ts", 1)
+
+
+COGNEE_TREE = {
+    "cognee/__init__.py": "from .api.v1.add import add\nfrom .pipelines import run_pipeline, Task\n"
+                          "from .tests.helper import test_helper\n",
+    "cognee/pipelines/__init__.py": "from .run import run_pipeline\nfrom .task import Task\n",
+    "cognee/pipelines/run.py": ("\"\"\"Run a pipeline.\"\"\"\n\n\n"
+                                "def run_pipeline(tasks, data=None):\n    return tasks\n"),
+    "cognee/pipelines/task.py": "# A pipeline step.\nclass Task:\n    pass\n",
+    "cognee/api/v1/add.py": "def add(data, dataset_name=\"main\"):\n    return data\n",
+    "cognee/api/v1/routers/__init__.py": "from .add import get_add_router\nfrom .search import get_search_router\n",
+    "cognee/api/v1/routers/add.py": "def get_add_router():\n    return None\n",
+    "cognee/api/v1/routers/search.py": "def get_search_router():\n    return None\n",
+    "cognee/tests/helper.py": "def test_helper():\n    return 1\n",
+}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_a_real_cognee_tree(tmp_path):
+    """#677 end to end: the runner on the cognee v1.0.0 shape under its v0.5.8
+    brief, then the surface: COGNEE above is this run's output."""
+    source = tmp_path / "src"
+    for rel, text in COGNEE_TREE.items():
+        _write(source / rel, text)
+    brief = _write(tmp_path / "skill-brief.yaml", COGNEE_BRIEF)
+    extraction = tmp_path / "run" / "extract-full.json"
+    extraction.parent.mkdir()
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--brief", brief, "--tier", "Forge", "--head-cap", "0", "--output", str(extraction)],
+                          capture_output=True, text=True)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(extraction.read_text(encoding="utf-8"))
+    assert data["scope"] == COGNEE["scope"]
+    assert data["entry_points"]["files"] == COGNEE["entry_points"]["files"]
+    assert data["entry_point_diff"] == COGNEE["entry_point_diff"]
+    assert data["warnings"] == COGNEE["warnings"]
+    out = _surface(tmp_path, "--extraction", str(extraction), "--brief", brief)
+    assert out["sets"]["all"] == ["Task", "add", "run_pipeline"]
+    assert out["sets"]["scope.include"] == ["add", *ROUTER_NAMES]
+    assert out["guards"]["staleScope"]["restored"] == RESTORED
+    assert [n["entry"] for n in out["excluded"]["nestedEntries"]] == [ROUTERS]

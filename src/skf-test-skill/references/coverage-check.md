@@ -130,13 +130,13 @@ uv run {extractPublicApiHelper} --mode full --source-root "{source_path}" --brie
 
 Exit 2 is an input error (a brief the runner cannot read, say) or a failure the runner did not foresee, named in one line on stderr with no JSON: HALT with that line (`halt_reason: "helper-failed"`, phase `coverage-check:surface`). No Fallback Per-File Scan stands in for it: every flag here is fixed, so the error is a defect to surface.
 
-Build the surface from it, with the metadata and, when init.md §2 bound one, the provenance map (the baselines of the §2b candidates and guards; they add no name):
+Build the surface from it, with the metadata, the brief when the skill has one and, when init.md §2 bound one, the provenance map (the baselines of the §2b candidates and guards; they add no name):
 
 ```bash
-uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json" --metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] --output "{run_dir}/surface.json"
+uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json" --metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] --output "{run_dir}/surface.json"
 ```
 
-The surface holds the names the entry points export, less those defined in a file the brief scopes out (`excluded.outsideScope`, listed in the report); the recipes' internal matches are never part of it. Decide what to do from the JSON, not from the exit code:
+The surface holds the names the entry points export, less those defined in a file the brief scopes out (`excluded.outsideScope`); the recipes' internal matches are never part of it. A Python `__init__.py` nested in the folder of another package that exports a name is no barrel: its names (`excluded.nestedEntries`) leave only the `all` and `root` sets and the umbrella ratio, and `plan` still compares their signatures. When a `scope.include` glob matches no file (`guards.staleScope.fires`, a brief older than the source), the root exports defined in a file no glob covers and the brief does not exclude are back in it (`guards.staleScope.restored`). List `excluded.outsideScope`, `excluded.nestedEntries` and the restored names in the report. Decide what to do from the JSON, not from the exit code:
 
 - `extraction.fallback.needed` is true, or the runner printed no JSON on an exit other than 2: load `{coverageTiersFile}` and run its **Fallback Per-File Scan** in place of the rest of this tier.
 - `extraction.status` is `incomplete` (exit 1): keep the surface, read by eye only the files `extraction.readByEye` names, save a per-file result for each, and run `surface` again with them.
@@ -276,7 +276,7 @@ Record the denominator source in the Coverage Analysis section with the annotati
 - root barrel: {rootBarrel | absent}                               {secondary candidate: root-barrel-vs-subpath-union audit}
 ```
 
-The guards raise coverage gaps too, which §5b records from `surface.json`: `guards.deflation.fires` is a Medium `metadata-drift` gap and `guards.inflation.fires` a Medium `denominator-inflation` gap.
+The guards raise coverage gaps too, which §5b records from `surface.json`: `guards.deflation.fires` is a Medium `metadata-drift` gap, `guards.inflation.fires` a Medium `denominator-inflation` gap and `guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief.
 
 ### 4b. Metadata Export-Count Coherence Cross-Check
 

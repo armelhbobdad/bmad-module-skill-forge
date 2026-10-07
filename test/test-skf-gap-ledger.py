@@ -546,6 +546,7 @@ def test_categories_cover_the_gap_severity_rows():
         "provenance-line",
         "metadata-drift",
         "denominator-inflation",
+        "brief-scope-stale",  # coverage-check 4, Medium (#677)
         "numerator-inflation",  # coverage-check 4b, High
         "reference-escape",  # coherence-check contextual 5, High
         "discovery",
@@ -733,6 +734,54 @@ class TestCountAdapters:
         assert umbrella.startswith("Set `stats.effective_denominator` in `other/metadata.json`")
         assert mod.from_guards({"inputs": {}, "guards": None}) == []
         assert mod.from_guards({"inputs": {}, "guards": {"deflation": {"fires": False}}}) == []
+
+    def test_a_stale_brief_scope_is_one_gap_at_the_brief(self):
+        """#677: a scope.include glob that matches no file, and the root exports the surface restored."""
+        stale = {"applicable": True, "fires": True, "unmatchedInclude": ["cognee/pipelines.py"],
+                 "restored": [{"name": "Task", "file": "cognee/pipelines/task.py", "line": 2},
+                              {"name": "run_pipeline", "file": "cognee/pipelines/run.py", "line": 4}]}
+        surface = {"inputs": {"brief": "data/cognee/skill-brief.yaml"}, "guards": {"staleScope": stale}}
+        records = mod.from_guards(surface)
+        assert brief(records) == [("Medium", "brief-scope-stale",
+                                   "stale brief scope: scope.include globs match no source file",
+                                   "data/cognee/skill-brief.yaml", None)]
+        # Each restored export comes with its file, the one the remediation may add to scope.exclude.
+        assert records[0]["issue"] == (
+            "the `scope.include` glob `cognee/pipelines.py` matches no file in the source tested; the `all` set "
+            "restores 2 root exports, defined in files no include glob covers: `Task` in "
+            "`cognee/pipelines/task.py`, `run_pipeline` in `cognee/pipelines/run.py`")
+        # update-skill never rewrites an include glob: the fix is a hand edit of the brief.
+        assert records[0]["remediation"] == (
+            "Edit `scope.include` in `data/cognee/skill-brief.yaml` by hand so each glob matches the files it "
+            "meant in this version of the source (update-skill does not rewrite an include glob), and add to "
+            "`scope.exclude` any restored file the brief meant to leave out.")
+        # One restored export and two globs: each count takes its own grammatical number.
+        stale.update(unmatchedInclude=["cognee/pipelines.py", "docs/**"], restored=stale["restored"][:1])
+        assert mod.from_guards(surface)[0]["issue"] == (
+            "the `scope.include` globs `cognee/pipelines.py`, `docs/**` match no file in the source tested; the "
+            "`all` set restores 1 root export, defined in a file no include glob covers: `Task` in "
+            "`cognee/pipelines/task.py`")
+        # Without --brief the surface records no brief path: the gap cites the bare file name.
+        stale["restored"] = []
+        record = mod.from_guards({"inputs": {}, "guards": {"staleScope": stale}})[0]
+        assert record["source"] == "skill-brief.yaml" and record["issue"].endswith("; no root export was restored")
+        stale["fires"] = False
+        assert mod.from_guards(surface) == []
+        stale.update(fires=True, unmatchedInclude="cognee/pipelines.py")
+        with pytest.raises(mod.AdapterError, match="'unmatchedInclude' must be a list"):
+            mod.from_guards(surface)
+
+    def test_a_rerun_records_the_stale_scope_gap_once(self, tmp_path):
+        surface = tmp_path / "surface.json"
+        surface.write_text(json.dumps({"inputs": {"brief": "skill-brief.yaml"}, "guards": {"staleScope": {
+            "fires": True, "unmatchedInclude": ["a.py"], "restored": [{"name": "x", "file": "a/x.py"}]}}}))
+        ledger = tmp_path / "test-findings-r.json"
+        first = run("append", "--ledger", str(ledger), "--stage", "coverage-check", "--from", "guards",
+                    "--input", str(surface))
+        second = run("append", "--ledger", str(ledger), "--stage", "coverage-check", "--from", "guards",
+                     "--input", str(surface))
+        assert json.loads(first.stdout)["appended"] == ["GAP-001"]
+        assert json.loads(second.stdout)["duplicates"] == ["GAP-001"]
 
     def test_numerator(self):
         records = mod.from_numerator({"inflated": True, "declared": 10, "verified": 7,

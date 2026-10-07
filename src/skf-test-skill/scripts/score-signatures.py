@@ -15,18 +15,21 @@ ratios and the gap records of the wrong signatures.
 
   plan   the comparisons to make. For each documented export with a
          signature (an inventory entry of any kind but `method` that carries
-         `params`, `return_type` or `usage_signature`) that the source
-         surface lists, grouped by source file, with the line that defines
-         it in the source and the documented signature. Also the whole
+         `params`, `return_type` or `usage_signature`) in the signature
+         universe, grouped by source file, with the line that defines it in
+         the source and the documented signature. The signature universe is
+         the surface's `all` set plus every name on its export records, so
+         the names of a Python sub-package load-coverage-inputs.py keeps out
+         of `all` (excluded.nestedEntries) keep their checks. Also the whole
          documented-signature map, for the fallback scan that has no surface
          lines yet.
   score  the categories. Reads every subagent result, checks its schema,
          and computes:
            Signature Accuracy = matching / compared * 100, where compared is
-             the documented signatures the whole surface lists (the `all`
-             set, with a fallback scan's exports_found) and matching those
-             no result names in signature_mismatches[]: a wrong signature is
-             wrong whichever set the denominator counts
+             the documented signatures of the signature universe (with a
+             fallback scan's exports_found) and matching those no result
+             names in signature_mismatches[]: a wrong signature is wrong
+             whichever set the denominator counts
            Type Coverage = documented types / total types * 100, where
              total types counts the names of the --surface-set set (the
              denominator set coverage-check section 2b picked) whose kind is
@@ -45,8 +48,9 @@ Inputs, all files in the run folder:
   --inventory  the validated inventory validate-inventory.py wrote (--output)
   --surface    load-coverage-inputs.py surface output: `exports[]` (name,
                kind, file, line, signatureLine) and the name `sets`;
-               --surface-set picks the set (default "all"): plan's
-               comparisons and score's Type Coverage
+               --surface-set picks the set (default "all") score's Type
+               Coverage counts, while plan and Signature Accuracy compare
+               the signature universe whichever set it picks
   --results    a subagent result, as the subagent returned it (a wrapping
                markdown fence is stripped), repeatable. One object, or a
                list of them:
@@ -259,13 +263,23 @@ def _records_by_name(exports: list[dict]) -> dict[str, list[dict]]:
     return by_name
 
 
+def signature_universe(names: list[str], exports: list[dict]) -> set[str]:
+    """The names whose documented signature is compared: the `all` set
+    (`names`) plus every name on the surface's export records. A nested
+    Python top's names leave `all` but keep their records, so a documented
+    one still has its signature checked."""
+    return set(names) | set(_records_by_name(exports))
+
+
 def plan(inventory: list[dict], names: list[str] | None, exports: list[dict]) -> dict:
+    """The comparisons over the signature universe of `names` (the `all`
+    set) and `exports`; none without a surface (`names` None)."""
     signatures = documented_signatures(inventory)
     files: dict[str, list[dict]] = {}
     compared = 0
     if names is not None:
         by_name = _records_by_name(exports)
-        for name in sorted(set(names) & set(signatures)):
+        for name in sorted(signature_universe(names, exports) & set(signatures)):
             record = (by_name.get(name) or [{}])[0]
             compared += 1
             files.setdefault(str(record.get("file") or ""), []).append({
@@ -297,15 +311,17 @@ def _gap_record(m: dict) -> dict:
 
 def score(inventory: list[dict], names: list[str], exports: list[dict], results: list[dict],
           type_names: list[str] | None = None) -> dict:
-    """The two categories: Signature Accuracy over `names` (the whole surface),
-    Type Coverage over `type_names` when given, else over `names` too."""
+    """The two categories: Signature Accuracy over the signature universe of
+    `names` (the `all` set) and `exports`, Type Coverage over `type_names`
+    when given, else over `names`. A fallback scan's exports_found join the
+    universe, and `names` when no `type_names` is given."""
     by_name = _records_by_name(exports)
     # A fallback scan reports its own names and types.
     fallback_types = {n for r in results for n in r.get("types_found") or []}
     surface = set(names) | {n for r in results for n in r.get("exports_found") or []}
     documented = documented_names(inventory)
     signatures = documented_signatures(inventory)
-    compared = surface & set(signatures)
+    compared = (surface | signature_universe(names, exports)) & set(signatures)
     warnings = []
 
     mismatches = []
@@ -378,7 +394,7 @@ def _cmd_plan(args: argparse.Namespace) -> tuple[dict, int]:
     inventory = load_inventory(args.inventory)
     names, exports = (None, [])
     if args.surface is not None:
-        names, exports, _ = load_surface(args.surface, args.surface_set)
+        _, exports, names = load_surface(args.surface, args.surface_set)
     out = plan(inventory, names, exports)
     if args.output:
         _write_json(args.output, out)
@@ -412,7 +428,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("plan", help="the signature comparisons for the subagents to make")
     p.add_argument("--inventory", required=True, help="the validated inventory file")
     p.add_argument("--surface", help="load-coverage-inputs.py surface output")
-    p.add_argument("--surface-set", default="all", help="the surface name set (default: all)")
+    p.add_argument("--surface-set", default="all",
+                   help="a surface name set, which must exist (default: all); the plan compares the signature "
+                        "universe whichever set it names")
     p.add_argument("--output", help="also write the plan to this file")
     p.set_defaults(func=_cmd_plan)
 

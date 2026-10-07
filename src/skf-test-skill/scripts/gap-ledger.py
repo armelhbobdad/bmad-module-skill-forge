@@ -104,6 +104,9 @@ cites (never read; default `metadata.json`):
             the result's `inputs.brief` (else `skill-brief.yaml`), whose
             remediation recommends `stats.effective_denominator` when
             `guards.umbrella.umbrella` is true, else `scope.tier_a_include`.
+            `guards.staleScope.fires` is one Medium `brief-scope-stale` gap
+            at that brief, whose issue names each `unmatchedInclude` glob
+            and each `restored` name with its file.
   numerator --input verify-declared-numerator.py's result; --metadata.
             `inflated` true is a High `numerator-inflation` gap at `{meta}`
             whose issue lists the `absent` names.
@@ -231,6 +234,7 @@ CATEGORIES: dict[str, tuple[str, str]] = {
     "provenance-unverified": ("Coverage", "a provenance line the line-check rules could not verify"),
     "metadata-drift": ("Coverage", "export counts in the metadata that diverge from each other"),
     "denominator-inflation": ("Coverage", "a scope include union larger than the provenance map"),
+    "brief-scope-stale": ("Coverage", "a scope.include glob in the brief that matches no source file"),
     "numerator-inflation": (
         "Coverage",
         "a documented count equal to the denominator while declared exports are absent from the skill",
@@ -847,7 +851,7 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
 
 
 def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
-    """load-coverage-inputs.py surface's deflation and inflation guards."""
+    """load-coverage-inputs.py surface's deflation, inflation and stale-scope guards."""
     surface = _object(surface, "--input (load-coverage-inputs.py surface)", "guards", "inputs")
     guards = surface["guards"]
     if guards is None:
@@ -883,6 +887,31 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
             issue=f"the `scope.include` union counts {inflation.get('scopeIncludeUnion')} exports, "
                   f"{inflation.get('pct')}% above the {inflation.get('provenanceEntries')} provenance entries, "
                   "and the brief has no `scope.tier_a_include`"))
+    stale = guards.get("staleScope") or {}
+    if stale.get("fires") is True:
+        label = "--input (load-coverage-inputs.py surface): guards.staleScope"
+        globs = _names(stale, "unmatchedInclude", label)
+        restored = sorted({(r["name"], r["file"] if isinstance(r.get("file"), str) else "")
+                           for r in _list(stale, "restored", label)
+                           if isinstance(r, dict) and isinstance(r.get("name"), str) and r["name"]})
+        names = ", ".join(f"`{name}` in `{file}`" if file else f"`{name}`" for name, file in restored)
+        if len(globs) == 1:
+            unmatched = f"the `scope.include` glob {_code(globs)} matches no file in the source tested"
+        else:
+            unmatched = f"the `scope.include` globs {_code(globs)} match no file in the source tested"
+        if not restored:
+            back = "no root export was restored"
+        elif len(restored) == 1:
+            back = f"the `all` set restores 1 root export, defined in a file no include glob covers: {names}"
+        else:
+            back = (f"the `all` set restores {len(restored)} root exports, defined in files no include glob "
+                    f"covers: {names}")
+        records.append(_gap(
+            "Medium", "brief-scope-stale", "stale brief scope: scope.include globs match no source file", brief,
+            f"Edit `scope.include` in `{brief}` by hand so each glob matches the files it meant in this version "
+            "of the source (update-skill does not rewrite an include glob), and add to `scope.exclude` any "
+            "restored file the brief meant to leave out.",
+            issue=f"{unmatched}; {back}"))
     return records
 
 

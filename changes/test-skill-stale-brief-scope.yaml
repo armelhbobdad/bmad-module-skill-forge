@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  At Forge tier and above, where the recipe runner reads the source, Test Skill's standard barrel no longer shrinks when the skill brief is older than the source. When a `scope.include` glob matches no file in the source tested (a module that became a package in a new major version, say), the coverage surface now keeps each root export defined in a file no include glob covers, unless `scope.exclude` or a `scope-expansion` amendment whose latest action is `skipped` or `demoted-include` matches that file, and the gap ledger records one Medium `brief-scope-stale` gap at the brief that names the globs and each restored export with its file. Such exports were reported as stale documentation before. Now they count in the Export Coverage denominator, so Export Coverage can fall and a run that passed can fail. The recipe runner's output also lists the unmatched include globs in `scope.unmatched_include`.
+migration: |
+  Re-run Test Skill at Forge tier on each skill whose brief was written for an older version of its source. On a `brief-scope-stale` gap, edit `scope.include` in the skill brief by hand so each glob matches the files it meant in this version of the source, or add to `scope.exclude` the files the brief meant to leave out: Update Skill does not rewrite an include glob.
+prs: [689]
+issues: [677]

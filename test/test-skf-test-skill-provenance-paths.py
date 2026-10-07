@@ -1078,6 +1078,71 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
         assert gone not in forge, gone
 
 
+def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
+    """#677: the Forge surface call passes the brief, whose scope-expansion amendments the stale-scope guard
+    reads; a Python top nested in another is no barrel; §4 names the guard's gap; the protocol states both
+    rules. The call and §5b's guards append run as written."""
+    command = _command(COVERAGE, "surface --extraction")
+    assert command == ('uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json" '
+                       '--metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] '
+                       '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] --output "{run_dir}/surface.json"')
+    forge = _flow(_slice(_read(COVERAGE), "**Forge Tier (ast-grep available):**", "**Deep Tier"))
+    # an outer package that exports nothing (a stray source-root __init__.py) nests nothing; the nested names
+    # leave the standard barrel and the umbrella ratio, never the scope sets or the signature comparisons
+    assert ("nested in the folder of another package that exports a name is no barrel: its names "
+            "(`excluded.nestedEntries`) leave only the `all` and `root` sets and the umbrella ratio, and `plan` still "
+            "compares their signatures") in forge
+    assert "When a `scope.include` glob matches no file (`guards.staleScope.fires`" in forge
+    assert "are back in it (`guards.staleScope.restored`)" in forge
+    # the report lists every name the surface leaves out of the barrel or puts back in it
+    assert ("List `excluded.outsideScope`, `excluded.nestedEntries` and the restored names in the report"
+            in forge)
+    section4 = _flow(_slice(_read(COVERAGE), "### 4. Category Scores", "### 4b."))
+    assert "`guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief" in section4
+    protocol = _flow(_read(SOURCE_ACCESS))
+    assert ("is not a second package root when the folder of another package root that exports a name holds it, "
+            "unless `scope.include` or `scope.tier_a_include` lists that `__init__.py`: its names stay out of the "
+            "`all` and `root` sets (`excluded.nestedEntries`), while the `scope.include` and `tier_a_include` sets "
+            "still count them and their signatures are still compared") in protocol
+    assert ("unless `scope.exclude` or a `scope-expansion` amendment whose latest action is `skipped` or "
+            "`demoted-include` matches the file") in protocol
+
+    run = tmp_path / "run"
+    run.mkdir()
+    entry = {"language": "python", "subpath": None, "resolution": "file", "in_scope": True}
+    (run / "extract-full.json").write_bytes(json.dumps({
+        "mode": "full", "status": "ok", "files_in_scope": 2, "exports": [],
+        "scope": {"include": ["pkg/__init__.py", "pkg/pipelines.py", "pkg/api/**"], "exclude": [],
+                  "tier_a_include": None, "unmatched_include": ["pkg/pipelines.py"]},
+        "entry_points": {"files": [{**entry, "file": "pkg/__init__.py", "package": "pkg"},
+                                   {**entry, "file": "pkg/api/routers/__init__.py", "package": "pkg/api/routers"}]},
+        "entry_point_diff": {
+            "public": [{"name": n, "entry": e, "via": "re-export", "file": f, "line": 1} for n, e, f in (
+                ("Task", "pkg/__init__.py", "pkg/pipelines/task.py"),
+                ("get_router", "pkg/api/routers/__init__.py", "pkg/api/routers/r.py"),
+                ("run_pipeline", "pkg/__init__.py", "pkg/pipelines/run.py"))],
+            "outside_scope": [{"name": n, "entry": "pkg/__init__.py", "file": f, "line": 1} for n, f in (
+                ("Task", "pkg/pipelines/task.py"), ("run_pipeline", "pkg/pipelines/run.py"))],
+            "extraction_gaps": []},
+        "warnings": ["scope.include pattern 'pkg/pipelines.py' matches no file"]}).encode("utf-8"))
+    _write_tree(tmp_path / "forge-data", {"demo/skill-brief.yaml": (
+        "name: demo\nscope:\n  include: ['pkg/__init__.py', 'pkg/pipelines.py', 'pkg/api/**']\n  amendments:\n"
+        "    - path: pkg/pipelines/task.py\n      action: skipped\n      category: scope-expansion\n")})
+    skill = _write_tree(tmp_path / "skill", {"metadata.json": json.dumps({"skill_type": "single", "exports": []})})
+    values = {"{run_dir}": run.as_posix(), "{forge_data_folder}": (tmp_path / "forge-data").as_posix(),
+              "{skill_name}": "demo", "{resolved_skill_package}": skill.as_posix(),
+              "{ledgerFile}": (tmp_path / "test-findings-20261007T000000Z-abcdef12.json").as_posix()}
+    surface = _exec(_choose(command, keep=("--brief",)), values, tmp_path)
+    assert surface["sets"]["all"] == ["run_pipeline"], "the skipped amendment keeps task.py out"
+    assert [n["names"] for n in surface["excluded"]["nestedEntries"]] == [["get_router"]]
+    assert surface["sets"]["scope.include"] == ["get_router"], "a nested top's names stay in the scope sets"
+    appended = _exec(_command(COVERAGE, "--from guards"), values, tmp_path)
+    assert appended["appended"] == ["GAP-001"]
+    record = json.loads(Path(values["{ledgerFile}"]).read_bytes())["records"][0]
+    assert (record["category"], record["source"]) == ("brief-scope-stale",
+                                                      f"{values['{forge_data_folder}']}/demo/skill-brief.yaml")
+
+
 def test_a_runner_input_error_halts_and_never_takes_the_fallback_scan():
     """#676: exit 2 is an input error (a 1.x brief the runner could not read, say) or a failure the runner did not
     foresee, named on stderr. Every flag of the call is fixed, so it HALTs with that line before the surface is
