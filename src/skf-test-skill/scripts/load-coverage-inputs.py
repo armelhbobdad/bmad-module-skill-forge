@@ -158,17 +158,21 @@ class SchemaError(Exception):
 
 
 _SIBLINGS: dict[str, object] = {}
+SHARED_SCRIPTS = Path(__file__).resolve().parent.parent.parent / "shared" / "scripts"
 
 
-def _sibling(filename: str):
+def _sibling(filename: str, folder: Path | None = None):
     """A script beside this one, loaded once: validate-inventory.py (the doc
-    text) and score-signatures.py (the per-file result schema)."""
+    text) and score-signatures.py (the per-file result schema); or, with
+    `folder`, one in that folder: SHARED_SCRIPTS'
+    skf-resolve-authoritative-files.py (a skill brief's YAML)."""
     module = _SIBLINGS.get(filename)
     if module is None:
-        path = Path(__file__).resolve().parent / filename
+        path = (folder or Path(__file__).resolve().parent) / filename
         spec = importlib.util.spec_from_file_location("skf_" + filename[:-3].replace("-", "_"), path)
         if spec is None or spec.loader is None or not path.is_file():
-            raise InputError(f"{filename} not found beside {Path(__file__).name}")
+            where = f"in {folder}" if folder else f"beside {Path(__file__).name}"
+            raise InputError(f"{filename} not found {where}")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         _SIBLINGS[filename] = module
@@ -364,8 +368,9 @@ def read_brief(path: str) -> dict:
         import yaml  # --brief only; `uv run` installs it from the header
     except ImportError as exc:
         raise InputError("--brief is read with PyYAML: run the script with `uv run`") from exc
+    parse_brief_yaml = _sibling("skf-resolve-authoritative-files.py", SHARED_SCRIPTS).parse_brief_yaml
     try:
-        data = yaml.safe_load(Path(path).read_bytes().decode("utf-8-sig"))
+        data = parse_brief_yaml(Path(path).read_bytes().decode("utf-8-sig"))
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read --brief {path}: {exc}") from exc
     except yaml.YAMLError as exc:

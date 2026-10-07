@@ -109,8 +109,13 @@ import yaml
 
 # skf-classify-changed-files.py loads this file for load_brief,
 # extract_scope, glob_match, scope_match, normalize_rel_path and
-# EXCLUDED_DIR_NAMES, and skf-detect-registry.py for glob_match, load_brief
-# and extract_scope: keep those names and what they take and return.
+# EXCLUDED_DIR_NAMES, skf-detect-registry.py for glob_match, load_brief
+# and extract_scope, skf-extract-public-api.py for glob_match and
+# parse_brief_yaml, and every other script that reads a skill brief
+# (skf-validate-brief-schema.py, skf-provenance-gap-dispatch.py,
+# skf-derive-assembly-shape.py, skf-write-skill-brief.py and skf-test-skill's
+# load-coverage-inputs.py) for parse_brief_yaml: keep those names and what
+# they take and return.
 
 
 # --------------------------------------------------------------------------
@@ -270,13 +275,30 @@ def scope_match(
 # --------------------------------------------------------------------------
 
 
+def parse_brief_yaml(text: str):
+    """The one document a skill brief's YAML text holds, or None when it holds none.
+
+    SKF 1.x closed every brief with a trailing `---`, which YAML reads as a
+    second, empty document, so `yaml.safe_load` refuses such a brief. A
+    document that holds no value (empty, or an explicit null such as `~`) is
+    skipped wherever it stands; more than one document that holds a value is
+    refused with yaml.YAMLError, as is text that is not YAML.
+    """
+    documents = [doc for doc in yaml.safe_load_all(text) if doc is not None]
+    if len(documents) > 1:
+        raise yaml.YAMLError(
+            f"a skill brief is a single document; this text holds {len(documents)}"
+        )
+    return documents[0] if documents else None
+
+
 def load_brief(brief_path: Path) -> dict:
     try:
         text = brief_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ValueError(f"cannot read brief at {brief_path}: {exc}") from exc
     try:
-        brief = yaml.safe_load(text)
+        brief = parse_brief_yaml(text)
     except yaml.YAMLError as exc:
         raise ValueError(
             f"brief at {brief_path} is not valid YAML: {exc}"

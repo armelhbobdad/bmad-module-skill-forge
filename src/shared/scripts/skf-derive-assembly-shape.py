@@ -46,12 +46,15 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+RESOLVER = Path(__file__).resolve().parent / "skf-resolve-authoritative-files.py"
 
 
 def derive_assembly_shape(brief: dict[str, Any]) -> dict[str, Any]:
@@ -71,6 +74,20 @@ def _die(message: str) -> None:
     json.dump({"error": message}, sys.stderr)
     sys.stderr.write("\n")
     sys.exit(2)
+
+
+def _parse_brief_yaml(text: str):
+    """The brief's YAML as skf-resolve-authoritative-files.py (from this
+    folder) reads it: an SKF 1.x brief's trailing `---` is no second document."""
+    spec = importlib.util.spec_from_file_location("skf_resolve_authoritative_files", RESOLVER)
+    if spec is None or spec.loader is None:
+        _die(f"cannot load {RESOLVER.name} beside {Path(__file__).name}")
+    resolver = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(resolver)
+    except (OSError, ImportError, SyntaxError) as exc:
+        _die(f"cannot load {RESOLVER.name} beside {Path(__file__).name}: {exc}")
+    return resolver.parse_brief_yaml(text)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -93,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         text = p.read_text(encoding="utf-8")
 
     try:
-        brief = yaml.safe_load(text)
+        brief = _parse_brief_yaml(text)
     except yaml.YAMLError as exc:
         _die(f"Brief is not valid YAML: {exc}")
     if not isinstance(brief, dict):

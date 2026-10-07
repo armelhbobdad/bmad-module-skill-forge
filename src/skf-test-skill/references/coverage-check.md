@@ -128,6 +128,8 @@ At State 1, run the recipe runner once over the source. Resolve `{extractPublicA
 uv run {extractPublicApiHelper} --mode full --source-root "{source_path}" --brief "{forge_data_folder}/{skill_name}/skill-brief.yaml" --tier {detected_tier} --head-cap 0 --output "{run_dir}/extract-full.json"
 ```
 
+Exit 2 is an input error (a brief the runner cannot read, say) or a failure the runner did not foresee, named in one line on stderr with no JSON: HALT with that line (`halt_reason: "helper-failed"`, phase `coverage-check:surface`). No Fallback Per-File Scan stands in for it: every flag here is fixed, so the error is a defect to surface.
+
 Build the surface from it, with the metadata and, when init.md §2 bound one, the provenance map (the baselines of the §2b candidates and guards; they add no name):
 
 ```bash
@@ -136,7 +138,7 @@ uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json"
 
 The surface holds the names the entry points export, less those defined in a file the brief scopes out (`excluded.outsideScope`, listed in the report); the recipes' internal matches are never part of it. Decide what to do from the JSON, not from the exit code:
 
-- `extraction.fallback.needed` is true, the runner exited 2, or it printed no JSON: load `{coverageTiersFile}` and run its **Fallback Per-File Scan** in place of the rest of this tier.
+- `extraction.fallback.needed` is true, or the runner printed no JSON on an exit other than 2: load `{coverageTiersFile}` and run its **Fallback Per-File Scan** in place of the rest of this tier.
 - `extraction.status` is `incomplete` (exit 1): keep the surface, read by eye only the files `extraction.readByEye` names, save a per-file result for each, and run `surface` again with them.
 - `extractionGaps[]` names exports no recipe found: they are on the surface, and their signature is read by eye at their `file` and `line`.
 
