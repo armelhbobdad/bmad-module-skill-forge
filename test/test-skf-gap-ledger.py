@@ -21,6 +21,20 @@ counts and the Gap Report is rendered from:
     `export`, the refusals (an option or an --input count a kind does not
     read, a result of another shape), a rerun recorded once, and the
     coverage-check §5b and coherence-check §6 calls run as written
+  - documented extras (#678): a stale name with a Python or TS/JS
+    `defined_at`, given a surface built from an extraction that does not
+    list it outside scope, is an Info `observation` asking no change, its
+    issue naming the line that documents it and its remediation saying
+    whether its signature was scored; no surface, a surface without an
+    extraction or `excluded`, a rescope, a dotted name or a `defined_at`
+    that is no Python or TS/JS `file:line` keeps it Medium, a fabricated
+    name stays Critical, a malformed `excluded` is invalid input, the
+    `defined_at` extensions are pinned to the verifier's, and the
+    coverage-check §5b call records one; a homonym (no `defined_at`,
+    several `declared_in` files) is one when the skill's `[AST:]`/`[SRC:]`
+    citations on a line naming it cite exactly one of those files, and
+    stays Medium when they cite two or none, without --skill-dir, or with
+    a `declared_in` that is not a list of several `file:line` items
 """
 
 from __future__ import annotations
@@ -673,6 +687,204 @@ class TestCoverageAdapter:
         assert brief(records) == [("Medium", "stale-documentation", "Stale documentation: ghost", "SKILL.md",
                                    "ghost")]
 
+    # #678: a stale name classify-stale finds declared is a documented extra, given a surface built from an
+    # extraction (the only input that fills `excluded.outsideScope`).
+    EXCLUDED = {"outsideScope": [{"name": "Rescoped", "file": "pkg/old/r.py"}], "nestedEntries": []}
+    EXCLUDED_SURFACE = SURFACE | {"extraction": {"status": "ok"}, "excluded": EXCLUDED}
+
+    @pytest.mark.parametrize("defined_at", ["pkg/tasks/task.py:4", "src/tasks/task.ts:12", "lib/task.MJS:1"])
+    def test_a_declared_stale_name_is_a_documented_extra(self, tmp_path: Path, defined_at: str):
+        skill = tmp_path / "skill"
+        (skill / "references").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(b"# demo\n\nSee references.\n")
+        (skill / "references" / "api.md").write_bytes(b"# API\n\n`Task(fn)` wraps a step.\n")
+        stale = [{"name": "Task", "fabricated": False, "source": None, "defined_at": defined_at,
+                  "reason": "no-entry"}]
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Task"]},
+                                     surface=self.EXCLUDED_SURFACE, stale=stale, skill_dir=str(skill))
+        assert brief([record]) == [("Info", "observation", "Documented extra: Task", defined_at, "Task")]
+        assert record["remediation"] == (
+            f"No change: `Task` is a documented extra, a name the source still declares at `{defined_at}` outside "
+            "the enumerated surface, and its documentation stays. Its documented signature was not checked "
+            "against that declaration.")
+        # the issue names the line that documents it, here in references/ alone
+        assert record["issue"] == ("`references/api.md:3` documents `Task`, which the enumerated source API "
+                                   "surface lacks and the source still declares")
+        # without the skill package, the issue names no file
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Task"]},
+                                     surface=self.EXCLUDED_SURFACE, stale=stale)
+        assert record["issue"].startswith("the skill documents `Task`,")
+        assert mod.CATEGORIES["observation"][1] == "a style suggestion, a documented extra or another " \
+                                                   "non-blocking observation"
+
+    @pytest.mark.parametrize("signatures, said", [
+        ({"missingTypes": [], "comparedNames": ["fetchData"]},
+         "Signature scoring compares its documented signature with the surface's record of it."),
+        # on the surface's records, but the skill documents no signature for it: nothing was compared
+        ({"missingTypes": [], "comparedNames": ["Options"]},
+         "Its documented signature was not checked against that declaration."),
+        ({"missingTypes": []}, "Its documented signature was not checked against that declaration."),
+        (None, "Its documented signature was not checked against that declaration."),
+    ], ids=["compared", "not-compared", "an-older-result", "no-signatures"])
+    def test_the_remediation_says_whether_signature_scoring_compared_it(self, signatures, said):
+        # a nested sub-package's name: out of `all`, on the records
+        stale = [{"name": "fetchData", "fabricated": False, "source": None, "defined_at": "src/fetch.ts:12"}]
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["fetchData"]},
+                                     surface=self.EXCLUDED_SURFACE, signatures=signatures, stale=stale)
+        assert record["category"] == "observation"
+        assert record["remediation"].endswith(said)
+
+    @pytest.mark.parametrize("name, defined_at, surface", [
+        ("Task", "pkg/tasks/task.py:4", None),
+        ("Task", "pkg/tasks/task.py:4", SURFACE),
+        ("Task", "pkg/tasks/task.py:4", SURFACE | {"excluded": EXCLUDED}),
+        ("Task", "pkg/tasks/task.py:4", SURFACE | {"extraction": None, "excluded": EXCLUDED}),
+        ("Task", "pkg/tasks/task.py:4", SURFACE | {"extraction": [], "excluded": EXCLUDED}),
+        ("Task", "pkg/tasks/task.py:4", SURFACE | {"extraction": {"status": "ok"}}),
+        ("Task", "pkg/tasks/task.py:4", EXCLUDED_SURFACE | {"extraction": {"status": "no-ast-grep"}}),
+        ("Task", "pkg/tasks/task.py:4", EXCLUDED_SURFACE | {"extraction": {"status": "ok", "truncated": True}}),
+        ("Task", "pkg/tasks/task.py:4", EXCLUDED_SURFACE | {"extraction": {
+            "status": "ok", "fallback": {"needed": True, "reason": "no file in scope"}}}),
+        ("Rescoped", "pkg/old/r.py:2", EXCLUDED_SURFACE),
+        ("App.update", "pkg/app.py:3", EXCLUDED_SURFACE),
+        ("Task", None, EXCLUDED_SURFACE),
+        ("Task", "", EXCLUDED_SURFACE),
+        ("Task", "pkg/tasks/task.py", EXCLUDED_SURFACE),
+        ("Task", "pkg/tasks/task.py:0", EXCLUDED_SURFACE),
+        ("Task", "src/lib.rs:3", EXCLUDED_SURFACE),
+        ("Task", "pkg/task.pyc:3", EXCLUDED_SURFACE),
+        ("Task", ["pkg/tasks/task.py:4"], EXCLUDED_SURFACE),
+    ], ids=["no-surface", "surface-without-excluded", "no-extraction", "null-extraction", "extraction-not-an-object",
+            "extraction-without-excluded", "no-ast-grep", "truncated", "fallback", "outside-scope", "dotted", "no-defined-at", "empty", "no-line",
+            "line-zero", "other-language", "compiled", "not-a-string"])
+    def test_anything_short_of_that_stays_medium(self, name, defined_at, surface):
+        stale = [{"name": name, "fabricated": False, "source": None, "defined_at": defined_at}]
+        records = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]},
+                                    surface=surface, stale=stale)
+        assert brief(records) == [("Medium", "stale-documentation", f"Stale documentation: {name}", "SKILL.md",
+                                   name)]
+
+    def test_a_fabricated_name_stays_critical_whatever_its_defined_at(self):
+        stale = [{"name": "ghost", "fabricated": True, "source": "src/a.py:3", "defined_at": "src/b.py:1"}]
+        records = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost"]},
+                                    surface=self.EXCLUDED_SURFACE, stale=stale)
+        assert brief(records) == [("Critical", "fabricated-signature", "Fabricated signature: ghost", "src/a.py:3",
+                                   "ghost")]
+
+    # #678: a homonym classify-stale cannot settle is decided by the skill's own citations.
+    HOMONYM = {"name": "Task", "fabricated": False, "source": None, "defined_at": None,
+               "declared_in": ["pkg/models/Task.py:9", "pkg/tasks/task.py:24"], "reason": "no-entry"}
+
+    def _homonym(self, tmp_path: Path, skill_md: str, refs: str | None = None, item: dict | None = None,
+                 name: str = "Task", skill: bool = True) -> dict:
+        skill_dir = tmp_path / "skill"
+        (skill_dir / "references").mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
+        if refs is not None:
+            (skill_dir / "references" / "api.md").write_bytes(refs.encode("utf-8"))
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]},
+                                     surface=self.EXCLUDED_SURFACE, stale=[(item or self.HOMONYM) | {"name": name}],
+                                     skill_dir=str(skill_dir) if skill else None)
+        return record
+
+    @pytest.mark.parametrize("skill_md, refs", [
+        ("# demo\n\n`Task(fn)` wraps a step. `[AST:pkg/tasks/task.py:L24]`\n", None),
+        ("# demo\n\nSee references.\n", "# API\n\n- `Task(fn)` wraps a step `[SRC:./pkg/tasks/task.py:L24-30]`\n"),
+        ("# demo\n\n`Task(fn)` `[AST:pkg/tasks/task.py:L24]` and `[AST:pkg/tasks/__init__.py:L1]`\n", None),
+        ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\nPlain text.\n`Other` `[AST:pkg/models/Task.py:L9]`\n",
+         None),
+        ("# demo\n\n### `Task`\n\n`[AST:pkg/tasks/task.py:L24]`\n", None),
+        ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]` `[AST:pkg/models/Task.py]`\n", None),
+    ], ids=["skill-md", "references-src-range", "a-cited-file-that-declares-nothing", "the-other-on-a-line-without-it",
+            "a-heading-then-its-citation", "a-citation-with-no-line-is-ignored"])
+    def test_a_homonym_the_skill_cites_once_is_a_documented_extra(self, tmp_path: Path, skill_md: str,
+                                                                 refs: str | None):
+        record = self._homonym(tmp_path, skill_md, refs)
+        assert brief([record]) == [("Info", "observation", "Documented extra: Task", "pkg/tasks/task.py:24", "Task")]
+        assert record["issue"].endswith("the source still declares; of the 2 files that declare it, the skill "
+                                        "cites only `pkg/tasks/task.py`")
+
+    def test_a_nested_references_file_counts(self, tmp_path: Path):
+        (tmp_path / "skill" / "references" / "api").mkdir(parents=True)
+        (tmp_path / "skill" / "references" / "api" / "tasks.md").write_bytes(
+            b"# Tasks\n\n`Task(fn)` `[SRC:pkg/tasks/task.py:L24]`\n")
+        record = self._homonym(tmp_path, "# demo\n")
+        assert brief([record]) == [("Info", "observation", "Documented extra: Task", "pkg/tasks/task.py:24", "Task")]
+        assert record["issue"].endswith("the source still declares; of the 2 files that declare it, the skill "
+                                        "cites only `pkg/tasks/task.py`")
+
+    @pytest.mark.parametrize("skill_md, kwargs", [
+        ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]` `[AST:pkg/models/Task.py:L9]`\n", {}),
+        ("# demo\n\n`Task` `[AST:pkg/tasks/__init__.py:L1]`\n", {}),
+        ("# demo\n\n`Task`\nPlain text.\nSee `[AST:pkg/tasks/task.py:L24]`\n", {}),
+        ("# demo\n\n### `Task`\n\n`[AST:pkg/tasks/task.py:L24]` `[AST:pkg/models/Task.py:L9]`\n", {}),
+        ("# demo\n\nSee `[AST:pkg/tasks/Task.py:L3]` and `[AST:pkg/models/Task.py:L9]`\n", {}),
+        ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"skill": False}),
+        ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"item": HOMONYM | {"declared_in": ["pkg/tasks/task.py:24"]}}),
+        ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"item": HOMONYM | {"declared_in": "pkg/tasks/task.py:24"}}),
+        ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"item": HOMONYM | {"declared_in": [
+            "pkg/models/Task.py:9", "pkg/tasks/task.py"]}}),
+        ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"item": HOMONYM | {"declared_in": None}}),
+        ("# demo\n\n`Rescoped` `[AST:pkg/tasks/task.py:L24]`\n", {"name": "Rescoped"}),
+    ], ids=["both-cited", "neither-cited", "cited-two-lines-on", "both-on-the-next-line", "named-only-in-a-citation",
+            "no-skill-dir",
+            "one-file", "not-a-list", "an-item-without-a-line", "no-declared-in", "rescoped"])
+    def test_any_other_homonym_stays_medium(self, tmp_path: Path, skill_md: str, kwargs: dict):
+        record = self._homonym(tmp_path, skill_md, **kwargs)
+        assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+
+    @pytest.mark.parametrize("excluded, message", [
+        (["Rescoped"], "'excluded' must be an object"),
+        ({"outsideScope": "Rescoped"}, "'excluded.outsideScope' must be a list"),
+    ])
+    def test_a_malformed_excluded_is_invalid_input(self, excluded, message):
+        """Read once a stale name that is not fabricated needs it: no stale name, or a fabricated one alone,
+        never reads it."""
+        ghost = {"name": "ghost", "fabricated": True, "source": "src/a.py:3"}
+        for extraction in ({"status": "ok"}, None):
+            surface = self.SURFACE | {"extraction": extraction, "excluded": excluded}
+            with pytest.raises(mod.AdapterError, match=re.escape(message)):
+                mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Task"]},
+                                  surface=surface, stale=[{"name": "Task", "fabricated": False}])
+            assert mod.from_coverage({"branch": "enumerated", "missing": ["fetchData"], "stale": []},
+                                     surface=surface, stale=[])[0]["category"] == "missing-export"
+            [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost"]},
+                                         surface=surface, stale=[ghost])
+            assert record["category"] == "fabricated-signature"
+
+    def test_the_citation_scan_is_the_verifiers(self, tmp_path: Path):
+        """The skill citations the homonym pick reads, and the files it reads them in, are the verifier's."""
+        path = SCRIPT.parents[2] / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
+        text = SCRIPT.read_text(encoding="utf-8")
+        for name in ("_SKILL_CITATION_RE", "skill_markdown_files"):
+            assert f"Keep identical to {name} in skf-verify-provenance-completeness.py." in text, name
+        pin = importlib.util.spec_from_file_location("skf_pin_verify_provenance_citations", path)
+        verifier = importlib.util.module_from_spec(pin)
+        pin.loader.exec_module(verifier)
+        assert (mod._SKILL_CITATION_RE.pattern, mod._SKILL_CITATION_RE.flags) == (
+            verifier._SKILL_CITATION_RE.pattern, verifier._SKILL_CITATION_RE.flags)
+        skill = tmp_path / "skill"
+        for rel in ("SKILL.md", "references/b.md", "references/a.md", "references/deep/c.md", "references/x.txt",
+                    "notes.md"):
+            (skill / rel).parent.mkdir(parents=True, exist_ok=True)
+            (skill / rel).write_bytes(b"# x\n")
+        assert mod.skill_markdown_files(skill) == verifier.skill_markdown_files(skill)
+        assert [p.relative_to(skill).as_posix() for p in mod.skill_markdown_files(skill)] == [
+            "SKILL.md", "references/a.md", "references/b.md", "references/deep/c.md"]
+
+    def test_the_defined_at_extensions_are_the_verifiers(self):
+        """`_DEFINED_AT_RE` takes the files classify-stale reads a `defined_at` in, and no other."""
+        path = SCRIPT.parents[2] / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
+        note = "# Keep identical to PYTHON_EXTENSIONS | TSJS_EXTENSIONS in skf-verify-provenance-completeness.py."
+        assert note in SCRIPT.read_text(encoding="utf-8")
+        pin = importlib.util.spec_from_file_location("skf_pin_verify_provenance", path)
+        verifier = importlib.util.module_from_spec(pin)
+        pin.loader.exec_module(verifier)
+        assert mod._DEFINED_AT_EXTENSIONS == verifier.PYTHON_EXTENSIONS | verifier.TSJS_EXTENSIONS
+        for ext in mod._DEFINED_AT_EXTENSIONS:
+            assert mod._DEFINED_AT_RE.match(f"pkg/m{ext}:7"), ext
+        assert not mod._DEFINED_AT_RE.match("pkg/m.rb:7")
+
     @pytest.mark.parametrize("branch", ["scalar", "stack"])
     def test_a_missing_count_is_one_gap(self, branch: str):
         records = mod.from_coverage({"branch": branch, "denominator": 10, "documented": 7, "missing": [],
@@ -998,17 +1210,20 @@ class TestTheProseCalls:
     def test_coverage_check_records_every_script_gap(self, ledger: Path, tmp_path: Path):
         run_dir, skill = tmp_path / "run", tmp_path / "skill"
         skill.mkdir()
-        (skill / "SKILL.md").write_bytes(b"# demo\n\n`oldName()` still documented.\n")
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n`oldName()` still documented.\n\n`Task(fn)` wraps a step.\n")
         write_json(run_dir / "signature-gaps.json", [record(severity="Critical", category="signature-mismatch",
                                                              title="Signature mismatch: helper", export="helper")])
         write_json(run_dir / "coverage.json", {"branch": "enumerated", "missing": ["Options", "fetchData"],
-                                               "stale": ["oldName", "ghost"]})
-        write_json(run_dir / "surface.json", TestCoverageAdapter.SURFACE | {"guards": {
+                                               "stale": ["oldName", "ghost", "Task"]})
+        write_json(run_dir / "surface.json", TestCoverageAdapter.EXCLUDED_SURFACE | {"guards": {
             "deflation": {"fires": True, "rederived": 9, "pct": 50.0, "effectiveDenominator": 6},
             "inflation": {"fires": False}, "umbrella": {"umbrella": False}}})
         write_json(run_dir / "signatures.json", {"missingTypes": ["Options"]})
         write_json(run_dir / "numerator.json", {"inflated": True, "declared": 4, "verified": 3, "absent": ["x"]})
-        write_json(run_dir / "stale.json", [{"name": "ghost", "fabricated": True, "source": "src/g.ts:2"}])
+        # #678: Task, which the source still declares, is a documented extra
+        write_json(run_dir / "stale.json", [{"name": "ghost", "fabricated": True, "source": "src/g.ts:2"},
+                                            {"name": "Task", "fabricated": False, "source": None,
+                                             "defined_at": "src/task.ts:4"}])
         write_json(run_dir / "metadata-coherence.json", {"findings": [
             {"severity": "Info", "title": "multi-denominator reporting", "detail": "barrel=3"}]})
         write_json(run_dir / "provenance-verify.json", {"stale": [
@@ -1026,9 +1241,13 @@ class TestTheProseCalls:
         assert {(r["severity"], r["category"]) for r in ledger_records(ledger)} == {
             ("Critical", "signature-mismatch"), ("Medium", "missing-type"), ("Medium", "missing-export"),
             ("Medium", "stale-documentation"), ("Critical", "fabricated-signature"), ("Medium", "metadata-drift"),
-            ("High", "numerator-inflation"), ("Info", "multi-denominator"), ("Low", "provenance-line")}
+            ("High", "numerator-inflation"), ("Info", "multi-denominator"), ("Low", "provenance-line"),
+            ("Info", "observation")}
         stale = next(r for r in ledger_records(ledger) if r["category"] == "stale-documentation")
         assert (stale["source"], stale["export"]) == ("SKILL.md:3", "oldName")
+        extra = next(r for r in ledger_records(ledger) if r["category"] == "observation")
+        assert (extra["title"], extra["source"], extra["export"]) == ("Documented extra: Task", "src/task.ts:4", "Task")
+        assert extra["issue"].startswith("`SKILL.md:5` documents `Task`")
 
     def test_coherence_check_records_each_mode(self, ledger: Path, tmp_path: Path):
         run_dir, skill = tmp_path / "run", tmp_path / "skill"

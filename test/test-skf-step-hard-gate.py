@@ -13,8 +13,10 @@ that ledger (#583, #541). These tests pin that wiring and run it:
   after the gate is counted apart from the blocking ones;
 - a stale name is a fabricated signature only when the documented
   classify-stale call finds no such name in the file the skill cites
-  (#583's decision), and each per-export record gap-ledger.py writes from
-  the run files, as the prose calls it, names its export;
+  (#583's decision); one the source still declares outside the surface is
+  a documented extra, an Info `observation` at its declaration, unless a
+  brief scoped it out (#678); and each per-export record gap-ledger.py
+  writes from the run files, as the prose calls it, names its export;
 - a blocked run is not a halt: it writes the Completeness Score section in
   scoring's place and ends through the report step, which gives the report
   its public name only once its checks pass (#587), renders the Gap Report,
@@ -763,7 +765,12 @@ class TestStaleNameLineCheck:
     """#583's decision: a fabricated signature is a documented export absent at the
     source line the skill cites, decided only where ast-grep enumerated the exports.
     A stale name alone is outside the barrel set, which an internal symbol or a
-    stratified tier_a set also is, so §2c checks the cited line with the verifier."""
+    stratified tier_a set also is, so §2c checks the cited line with the verifier.
+    #678: a stale name that is not fabricated and that the source still declares at
+    column 0 (classify-stale's `defined_at`: a cited file, else the one file of the
+    package that declares it) is a documented extra, an Info `observation` at that
+    line, when the surface came from an extraction and does not list it in
+    `excluded.outsideScope`; everything short of that stays a Medium gap."""
 
     CALL = ('uv run {verifyProvenanceCompletenessHelper} classify-stale --names "{run_dir}/coverage.json" '
             '--provenance "{forge_provenance_map}" --source-root "{source_path}" -o "{run_dir}/stale.json"')
@@ -787,23 +794,24 @@ class TestStaleNameLineCheck:
             "does not define it) is a Critical `fabricated-signature` gap at its `source`",
             "is a Medium `stale-documentation` gap",
             "a helper that does not resolve or exits non-zero",
+            "A name with a `defined_at` (the source still declares it there, an import never counting, a module "
+            "so named counting), or whose `declared_in` lists several files of which the skill's `[AST:]`/`[SRC:]` "
+            "citations on lines naming it cite exactly one, is a documented extra: an Info `observation` gap at "
+            "that declaration, when `surface.json` has an `extraction` and its `excluded.outsideScope` does not "
+            "list the name",
+            "(no `defined_at` and no single cited declaring file, one scoped out, no `extraction`, a dotted name,",
         ):
             assert needle in flow, needle
 
-    @pytest.mark.parametrize("name, cited_file, fabricated", [
-        ("ghost_fn", "pkg/core.py", True),
-        ("helper", "pkg/core.py", False),
-        ("ghost_fn", "pkg/gone.py", True),
-    ], ids=["no-such-name", "defined-outside-the-barrel", "file-missing"])
-    def test_the_documented_call_decides(self, tmp_path: pathlib.Path, name: str, cited_file: str,
-                                         fabricated: bool) -> None:
-        (tmp_path / "pkg").mkdir()
-        (tmp_path / "pkg" / "core.py").write_bytes(self.SOURCE.encode("utf-8"))
+    def _classify(self, tmp_path: pathlib.Path, files: dict[str, str], stale: list[str],
+                  entries: list[dict]) -> list[dict]:
+        """The classify-stale call as §2c writes it, over `files` below the source root."""
+        for rel, text in files.items():
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / rel).write_bytes(text.encode("utf-8"))
         run = tmp_path / "run"
-        _write_json(run / "coverage.json", {"branch": "enumerated", "missing": [], "stale": [name]})
-        provenance = _write_json(tmp_path / "provenance-map.json", {"entries": [
-            {"export_name": name, "source_file": cited_file, "source_line": 5}]})
-        # The call as §2c writes it.
+        _write_json(run / "coverage.json", {"branch": "enumerated", "missing": [], "stale": stale})
+        provenance = _write_json(tmp_path / "provenance-map.json", {"entries": entries})
         call = self.CALL.replace("uv run {verifyProvenanceCompletenessHelper} ", "")
         for key, value in {"{run_dir}": run.as_posix(), "{forge_provenance_map}": provenance.as_posix(),
                            "{source_path}": tmp_path.as_posix()}.items():
@@ -811,14 +819,153 @@ class TestStaleNameLineCheck:
         proc = subprocess.run([sys.executable, str(VERIFY_PROVENANCE), *shlex.split(call)],
                               capture_output=True, text=True, encoding="utf-8")
         assert proc.returncode == 0, proc.stderr
-        [out] = json.loads((run / "stale.json").read_bytes())
-        assert out["fabricated"] is fabricated, out
+        return json.loads((run / "stale.json").read_bytes())
+
+    @staticmethod
+    def _surface(*outside: str, extraction: bool = True) -> dict:
+        """The keys of load-coverage-inputs.py surface's result that §5b's coverage call reads: `extraction`
+        is null when no extraction built it, and `excluded.outsideScope` then stays empty."""
+        return {"exports": [], "extraction": {"status": "ok"} if extraction else None,
+                "excluded": {"outsideScope": [{"name": n, "file": "pkg/old.py"} for n in outside],
+                             "nestedEntries": []}}
+
+    @pytest.mark.parametrize("name, cited_file, expected", [
+        ("ghost_fn", "pkg/core.py", ("Critical", "fabricated-signature", "pkg/core.py:5")),
+        ("helper", "pkg/core.py", ("Info", "observation", "pkg/core.py:5")),
+        ("ghost_fn", "pkg/gone.py", ("Critical", "fabricated-signature", "pkg/gone.py:5")),
+        ("os", "pkg/core.py", ("Medium", "stale-documentation", "SKILL.md")),
+    ], ids=["no-such-name", "defined-outside-the-barrel", "file-missing", "imported-only"])
+    def test_the_documented_call_decides(self, tmp_path: pathlib.Path, name: str, cited_file: str,
+                                         expected: tuple[str, str, str]) -> None:
+        [out] = self._classify(tmp_path, {"pkg/core.py": self.SOURCE}, [name],
+                               [{"export_name": name, "source_file": cited_file, "source_line": 5}])
+        assert out["fabricated"] is (expected[0] == "Critical"), out
         # §5b's coverage call turns the result into the gap.
-        [record] = gap_ledger.from_coverage(json.loads((run / "coverage.json").read_bytes()),
-                                            stale=[out], skill_dir=None)
-        expected = ("Critical", "fabricated-signature") if fabricated else ("Medium", "stale-documentation")
-        assert (record["severity"], record["category"]) == expected, record
-        assert record["source"] == (f"{cited_file}:5" if fabricated else "SKILL.md")
+        cov = json.loads((tmp_path / "run" / "coverage.json").read_bytes())
+        [record] = gap_ledger.from_coverage(cov, surface=self._surface(), stale=[out], skill_dir=None)
+        assert (record["severity"], record["category"], record["source"]) == expected, record
+        # without the surface, or with one no extraction built, nothing rules a rescope out: a documented
+        # extra stays Medium (#678)
+        for surface in (None, self._surface(extraction=False)):
+            [record] = gap_ledger.from_coverage(cov, surface=surface, stale=[out], skill_dir=None)
+            assert record["severity"] == ("Critical" if expected[0] == "Critical" else "Medium"), record
+
+    def test_each_row_of_the_documented_extra_matrix(self, tmp_path: pathlib.Path) -> None:
+        """#678's matrix, through the classify-stale call and §5b's coverage call, over a map whose entries
+        are the skill's own (no entry made up for the package root): a name the package declares once, in
+        Python or TS/JS, a module so named and a homonym the skill cites once are an Info `observation` at
+        the declaration; an import, a star import, an indented local, a skipped place, a sibling package, a
+        homonym the skill cites neither of, a re-export, a rescope and a dotted name stay Medium; a
+        fabricated name stays Critical."""
+        files = {
+            "pkg/__init__.py": "from .tasks.task import Task\n",
+            "pkg/tasks/task.py": "class Task:\n    pass\n",
+            "pkg/models/data_point.py": "import uuid\n\n\nclass DataPoint:\n    pass\n",
+            "pkg/web/index.ts": "export function render() {}\n",
+            "pkg/web/thing.ts": "import { render } from './index';\n\nexport class WebThing {}\n",
+            "pkg/mixins.py": ("from .models import *\nfrom pydantic import BaseModel\n\n\n"
+                              "def build():\n    Local = 1\n    return Local\n"),
+            "pkg/tests/fixtures.py": "class InTests:\n    pass\n",
+            "pkg/vendor/v.py": "class Vendored:\n    pass\n",
+            "pkg/_vendor/v.py": "class UnderscoreVendored:\n    pass\n",
+            "pkg/examples/e.py": "class InExamples:\n    pass\n",
+            "pkg/web/esm/thing.js": "export class InEsm {}\n",
+            "pkg/site-packages/dep.py": "class InSitePackages:\n    pass\n",
+            "other/__init__.py": "",
+            "other/o.py": "class Outside:\n    pass\n",
+            "pkg/a/config.py": "class Config:\n    pass\n",
+            "pkg/b/config.py": "Config = dict\n",
+            "pkg/models/job.py": "from .base import Base\n\n\nclass Job(Base):\n    pass\n",
+            "pkg/jobs/job.py": "import asyncio\n\n\nclass Job:\n    pass\n",
+            "pkg/low_level.py": "from .models.data_point import DataPoint\n",
+            "pkg/reexports.py": "from .impl import ReExported as ReExported\n",
+            "pkg/web/legacy.js": "exports.Required = require('./impl');\n",
+            "pkg/old/rescoped.py": "class Rescoped:\n    pass\n",
+        }
+        entries = [
+            {"export_name": "Task", "source_file": "pkg/tasks/task.py", "source_line": 1},
+            {"export_name": "Starred", "source_file": "pkg/mixins.py", "source_line": 1},
+            {"export_name": "Ghost", "source_file": "pkg/tasks/task.py", "source_line": 1},
+            {"export_name": "render", "source_file": "pkg/web/index.ts", "source_line": 1},
+        ]
+        medium = ("Medium", "stale-documentation", "SKILL.md")
+        expected = {
+            "Task": ("Info", "observation", "pkg/tasks/task.py:1"),              # extra with an entry
+            "DataPoint": ("Info", "observation", "pkg/models/data_point.py:4"),  # extra, no entry
+            "WebThing": ("Info", "observation", "pkg/web/thing.ts:3"),           # a TS/JS extra
+            "Starred": medium, "BaseModel": medium, "Local": medium,             # not a declaration
+            "InTests": medium, "Vendored": medium, "UnderscoreVendored": medium,  # a skipped place
+            "InExamples": medium, "InEsm": medium, "InSitePackages": medium,
+            "Outside": medium,                                                   # a sibling package
+            "Config": ("Medium", "stale-documentation", "SKILL.md:3"),           # a homonym, cited neither
+            "Job": ("Info", "observation", "pkg/jobs/job.py:4"),                 # a cited homonym
+            "low_level": ("Info", "observation", "pkg/low_level.py:1"),          # a module
+            "ReExported": medium, "Required": medium,                            # a re-export
+            "Rescoped": medium,                                                  # rescoped
+            "Task.run": medium,                                                  # dotted
+            "Ghost": ("Critical", "fabricated-signature", "pkg/tasks/task.py:1"),  # fabricated
+        }
+        out = self._classify(tmp_path, files, list(expected), entries)
+        cov = json.loads((tmp_path / "run" / "coverage.json").read_bytes())
+        # the skill package: its own citations decide a homonym, on the lines that name it
+        skill = tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n`Config` holds settings. `[AST:pkg/settings.py:L1]`\n\n"
+                                         b"`Job(fn)` wraps a step. `[AST:pkg/jobs/job.py:L4]`\n")
+        records = gap_ledger.from_coverage(cov, surface=self._surface("Rescoped"), stale=out, skill_dir=str(skill))
+        assert {r["export"]: (r["severity"], r["category"], r["source"]) for r in records} == expected
+        assert [r["title"] for r in records if r["category"] == "observation"] == [
+            "Documented extra: Task", "Documented extra: DataPoint", "Documented extra: WebThing",
+            "Documented extra: Job", "Documented extra: low_level"]
+        declared_in = {o["name"]: o["declared_in"] for o in out}
+        assert (declared_in["Config"], declared_in["Job"]) == (["pkg/a/config.py:1", "pkg/b/config.py:1"],
+                                                               ["pkg/jobs/job.py:4", "pkg/models/job.py:4"])
+        defined_at = {o["name"]: o["defined_at"] for o in out}
+        # the rescope is declared, and still Medium; the fabricated name is never looked up
+        assert (defined_at["Rescoped"], defined_at["Ghost"]) == ("pkg/old/rescoped.py:1", None)
+
+    def test_the_cognee_shape_records_documented_extras(self, tmp_path: pathlib.Path) -> None:
+        """#678's acceptance: `Task`, `run_tasks` and `low_level`, documented with no entry, are each one
+        Info `observation` at its declaration, while every entry of the map lies under cognee/api/v1/ (the
+        walk widens to the cognee/ package): `Task` is declared twice in cognee/modules/pipelines/ and the
+        skill cites one of the two, and `low_level` is the one module so named."""
+        files = {
+            "cognee/__init__.py": ("from .api.v1.add import add\nfrom .api.v1.search import search\n"
+                                   "from .modules.pipelines import Task, run_tasks\n"),
+            "cognee/api/__init__.py": "",
+            "cognee/api/v1/__init__.py": "",
+            "cognee/api/v1/add/__init__.py": "from .add import add\n",
+            "cognee/api/v1/add/add.py": "async def add(data):\n    pass\n",
+            "cognee/api/v1/search/__init__.py": "from .search import search\n",
+            "cognee/api/v1/search/search.py": "async def search(query):\n    pass\n",
+            "cognee/api/tests/fakes.py": "class Task:\n    pass\n",  # a test double, never read
+            "cognee/modules/pipelines/__init__.py": ("from .tasks.task import Task\n"
+                                                     "from .operations.run_tasks import run_tasks\n"),
+            "cognee/modules/pipelines/tasks/task.py": "from typing import Any\n\n\nclass Task:\n    pass\n",
+            "cognee/modules/pipelines/models/Task.py": ("from sqlalchemy import Column\n\n\n"
+                                                        "class Task(Base):\n    __tablename__ = 'tasks'\n"),
+            "cognee/low_level.py": "from cognee.infrastructure.engine import Edge\n",
+            "cognee/modules/pipelines/operations/run_tasks.py": ("import asyncio\n\nfrom ..tasks.task import Task\n\n\n"
+                                                                 "async def run_tasks(tasks, data=None):\n    pass\n"),
+            "cognee/tests/unit/test_pipelines.py": "async def run_tasks(tasks):\n    pass\n",
+        }
+        entries = [{"export_name": "add", "source_file": "cognee/api/v1/add/add.py", "source_line": 1},
+                   {"export_name": "search", "source_file": "cognee/api/v1/search/search.py", "source_line": 1}]
+        out = self._classify(tmp_path, files, ["Task", "run_tasks", "low_level"], entries)
+        cov = json.loads((tmp_path / "run" / "coverage.json").read_bytes())
+        skill = tmp_path / "skill"
+        (skill / "references").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(b"# cognee\n\nConstructor: `Task(executable, *args)`. "
+                                         b"`[AST:cognee/modules/pipelines/tasks/task.py:L4]`\n")
+        (skill / "references" / "pipelines.md").write_bytes(b"# Pipelines\n\n`run_tasks(tasks)` runs them.\n\n"
+                                                            b"`cognee.low_level` exposes `DataPoint`.\n")
+        records = gap_ledger.from_coverage(cov, surface=self._surface(), stale=out, skill_dir=str(skill))
+        assert [(r["severity"], r["category"], r["title"], r["source"]) for r in records] == [
+            ("Info", "observation", "Documented extra: Task", "cognee/modules/pipelines/tasks/task.py:4"),
+            ("Info", "observation", "Documented extra: run_tasks",
+             "cognee/modules/pipelines/operations/run_tasks.py:6"),
+            ("Info", "observation", "Documented extra: low_level", "cognee/low_level.py:1")]
+        assert not [r for r in records if r["category"] == "stale-documentation"]
 
 
 # ---------------------------------------------------------------------------

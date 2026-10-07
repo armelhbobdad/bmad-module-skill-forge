@@ -71,7 +71,8 @@ Output (stdout; --output also writes it, --gaps-output writes the records):
   plan:  {"compared": N, "files": [{"file", "checks": [{"name", "line",
           "signatureLine", "documented": {...}}]}], "documentedSignatures": {...}}
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
-          "totalDocumented", "typeCoverage", "documentedTypes", "totalTypes",
+          "totalDocumented", "comparedNames": [the names compared],
+          "typeCoverage", "documentedTypes", "totalTypes",
           "missingTypes": [...], "mismatches": [...], "gapRecords": [...],
           "warnings": [...]}
          or {"valid": false, "violations": [...]} when a result breaks the schema
@@ -369,6 +370,7 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
         "signatureAccuracy": signature_accuracy,
         "matchingSignatures": len(compared) - len(wrong),
         "totalDocumented": len(compared),
+        "comparedNames": sorted(compared),
         "typeCoverage": type_coverage,
         "documentedTypes": len(documented_types),
         "totalTypes": len(types),

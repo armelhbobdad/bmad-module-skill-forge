@@ -85,11 +85,33 @@ cites (never read; default `metadata.json`):
             name the --stale result (classify-stale) marks `fabricated` is a
             Critical `fabricated-signature` gap `Fabricated signature:
             {name}` at its `source` (one with no `source` is INVALID_INPUT,
-            never a lesser gap); any other is a Medium
-            `stale-documentation` gap `Stale documentation: {name}` at the
-            first line of SKILL.md, then of references/*.md in path order,
-            that writes the name (validate-inventory.py's match, with
-            --skill-dir), else `SKILL.md`. Scalar and stack branches: a
+            never a lesser gap). One whose `defined_at` (where the source
+            declares it) is a Python or TS/JS `file:line` is a documented
+            extra when its name has no dot and the --surface result was
+            built from an extraction that read the whole scope (an
+            `extraction` object, not `no-ast-grep`, `truncated` or
+            `fallback.needed`: only such an extraction fills
+            `excluded.outsideScope`, the names a brief scoped out) and its
+            `excluded.outsideScope` list does not list
+            it: an Info `observation` gap `Documented extra: {name}` at
+            `defined_at`. With no `defined_at`, a homonym (its `declared_in`
+            lists several declaring files) is one too, with --skill-dir,
+            when the skill's `[AST:path:L<n>]` and `[SRC:path:L<n>]`
+            citations on the lines of SKILL.md and references/**/*.md that
+            name it (outside the citations), or on the next non-blank line
+            after one, cite exactly one of those files: the gap
+            is at that file's `declared_in` item, and two cited or none
+            leave it Medium. The documented extra's issue names the line
+            that documents it (with --skill-dir) and its remediation asks no
+            change (update-skill never routes it) and says whether signature
+            scoring compared its documented signature (a name the
+            --signatures result lists in `comparedNames`). `excluded` is
+            read once a stale name that is not fabricated needs it, and a
+            malformed one is then INVALID_INPUT. Any other is a Medium `stale-documentation` gap
+            `Stale documentation: {name}` at the first line of SKILL.md,
+            then of references/*.md in path order, that writes the name
+            (validate-inventory.py's match, with --skill-dir), else
+            `SKILL.md`. Scalar and stack branches: a
             `missingCount` above 0 is one Medium `missing-export` gap
             `{missingCount} of {denominator} exports not documented` at
             `{meta}`, except that a scalar count taken from the verified
@@ -189,6 +211,7 @@ import errno
 import importlib.util
 import json
 import os
+import posixpath
 import re
 import secrets
 import sys
@@ -227,7 +250,7 @@ CATEGORIES: dict[str, tuple[str, str]] = {
     "missing-export": ("Coverage", "an exported function or class the skill does not document"),
     "signature-mismatch": ("Coverage", "a documented signature that differs from the source"),
     "fabricated-signature": ("Coverage", "a documented export that is absent at the cited source line"),
-    "stale-documentation": ("Coverage", "documentation for an export the source no longer has"),
+    "stale-documentation": ("Coverage", "documentation for an export the enumerated source surface lacks"),
     "missing-type": ("Coverage", "a type or interface the skill does not document"),
     "provenance-completeness": ("Coverage", "an export the skill documents that the provenance map lacks"),
     "provenance-line": ("Coverage", "a provenance line that is not the definition of its export"),
@@ -256,7 +279,7 @@ CATEGORIES: dict[str, tuple[str, str]] = {
         "a section, code fence, table or usage example in SKILL.md that is missing or wrong",
     ),
     "metadata": ("Structural", "missing optional metadata or examples"),
-    "observation": ("Structural", "a style suggestion or another non-blocking observation"),
+    "observation": ("Structural", "a style suggestion, a documented extra or another non-blocking observation"),
     "discovery": ("Discovery", "a discovery test that misrouted prompts or did not run"),
     "description": ("Discovery", "a description whose triggers need optimizing"),
     "external-validator": ("External", "a skill-check diagnostic or a Tessl Review suggestion"),
@@ -765,6 +788,125 @@ def _documenting_line(skill_dir: Path, name: str) -> str | None:
     return None
 
 
+def _outside_scope(surface: dict | None) -> set[str] | None:
+    """The names a surface result's `excluded.outsideScope` lists (defined in
+    a file the brief scopes out). None with no surface, no such list, or a
+    surface built without an extraction (no `extraction` object) or from
+    one that did not read the whole scope (a `no-ast-grep` status, a
+    `truncated` run, or `fallback.needed`): only an extraction fills that
+    list, so the names a brief scoped out are then unknown."""
+    excluded = (surface or {}).get("excluded")
+    if excluded is None:
+        return None
+    if not isinstance(excluded, dict):
+        raise AdapterError("--surface: 'excluded' must be an object")
+    rows = excluded.get("outsideScope")
+    if rows is None:
+        return None
+    if not isinstance(rows, list):
+        raise AdapterError("--surface: 'excluded.outsideScope' must be a list")
+    extraction = (surface or {}).get("extraction")
+    if not isinstance(extraction, dict):
+        return None
+    fallback = extraction.get("fallback")
+    if (extraction.get("status") == "no-ast-grep" or extraction.get("truncated")
+            or (isinstance(fallback, dict) and fallback.get("needed"))):
+        return None
+    return {row["name"] for row in rows if isinstance(row, dict) and isinstance(row.get("name"), str)}
+
+
+# The extensions classify-stale reads a `defined_at` in.
+# Keep identical to PYTHON_EXTENSIONS | TSJS_EXTENSIONS in skf-verify-provenance-completeness.py.
+_DEFINED_AT_EXTENSIONS = frozenset({".py", ".pyi", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"})
+# classify-stale's `defined_at`: a Python or TS/JS file and a line.
+_DEFINED_AT_RE = re.compile(
+    r"^.+(?:" + "|".join(re.escape(e) for e in sorted(_DEFINED_AT_EXTENSIONS)) + r"):[1-9]\d*$", re.IGNORECASE)
+
+
+# A source citation the skill writes, `[AST:path:L12]`, `[SRC:path:L12-34]` or `[SRC:path:L12-L34]` (one with no
+# `:L<n>` part is ignored). Groups: prefix, path, first line, the `L` of a range's end, the range's end.
+# Keep identical to _SKILL_CITATION_RE in skf-verify-provenance-completeness.py.
+_SKILL_CITATION_RE = re.compile(
+    r"\[(AST|SRC):([^\[\]\n]+?):L(\d+)(?:-(L?)(\d+))?\]"
+)
+# Any bracketed citation (`[AST:...]`, `[SRC:...]`, `[EXT:...]`): a line names a documented name outside them.
+_ANY_CITATION_RE = re.compile(r"\[[A-Z]+:[^\[\]\n]*\]")
+
+
+def _cited_path(path: str) -> str:
+    """A cited or `declared_in` path as both compare: forward slashes, no `./`."""
+    path = path.strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return posixpath.normpath(path) if path else path
+
+
+def skill_markdown_files(skill_dir: Path) -> list[Path]:
+    """`SKILL.md` then every `references/**/*.md`, in a stable order.
+    Keep identical to skill_markdown_files in skf-verify-provenance-completeness.py."""
+    files: list[Path] = []
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.is_file():
+        files.append(skill_md)
+    refs = skill_dir / "references"
+    if refs.is_dir():
+        files.extend(sorted(p for p in refs.rglob("*.md") if p.is_file()))
+    return files
+
+
+def _skill_cited_files(skill_dir: Path, name: str) -> set[str]:
+    """The files the skill's `[AST:]` and `[SRC:]` citations name on a line of
+    SKILL.md or references/**/*.md that writes `name` outside its citations
+    (validate-inventory.py's match), or on the next non-blank line (a
+    heading, then its citation)."""
+    pattern = _sibling("validate-inventory.py").name_pattern(name)
+    cited: set[str] = set()
+    for path in skill_markdown_files(skill_dir):
+        try:
+            text = path.read_bytes().decode("utf-8-sig", errors="replace")
+        except OSError:
+            continue
+        lines = text.split("\n")
+        for number, line in enumerate(lines):
+            if not pattern.search(_ANY_CITATION_RE.sub(" ", line)):
+                continue
+            following = next((ln for ln in lines[number + 1:] if ln.strip()), "")
+            for cited_line in (line, following):
+                cited.update(_cited_path(m.group(2)) for m in _SKILL_CITATION_RE.finditer(cited_line))
+    return cited
+
+
+def _documented_extra_at(name: str, item: dict, outside: set[str] | None,
+                         skill_dir: str | None = None) -> tuple[str, int] | None:
+    """Where the source declares a stale name that is a documented extra, given
+    a surface built from an extraction whose `excluded.outsideScope` does not
+    list the name: (the item's `defined_at`, 0), or, with no `defined_at`,
+    (the one `declared_in` item whose file the skill cites on a line that
+    names it, the number of files `declared_in` lists) when it lists several.
+    None for anything else, which stays a Medium gap: no `defined_at` and no
+    single cited declaring file (two or more cited, none, or no --skill-dir),
+    a `defined_at` or `declared_in` item not a Python or TS/JS `file:line`, a
+    dotted name, no surface or one without an extraction, or a name a brief
+    scoped out."""
+    if outside is None or name in outside or "." in name:
+        return None
+    defined_at = item.get("defined_at")
+    if defined_at is not None:
+        if not isinstance(defined_at, str) or not _DEFINED_AT_RE.match(defined_at):
+            return None
+        return defined_at, 0
+    declared_in = item.get("declared_in")
+    if not skill_dir or not isinstance(declared_in, list) or not all(
+            isinstance(d, str) and _DEFINED_AT_RE.match(d) for d in declared_in):
+        return None
+    by_file = {_cited_path(d.rsplit(":", 1)[0]): d for d in declared_in}
+    if len(by_file) < 2:
+        return None
+    cited = _skill_cited_files(Path(skill_dir), name)
+    chosen = [d for f, d in sorted(by_file.items()) if f in cited]
+    return (chosen[0], len(by_file)) if len(chosen) == 1 else None
+
+
 def _missing_export(name: str, where: str | None, meta: str, kind: str = "export") -> dict:
     if where:
         read = f"read its definition at `{where}`"
@@ -791,12 +933,19 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
     branch = cov["branch"]
     records: list[dict] = []
     if branch == "enumerated":
-        types = set()
+        types: set[str] = set()
+        # the names whose documented signature signature scoring compared
+        scored: set[str] = set()
         if signatures is not None:
-            types = set(_names(_object(signatures, "--signatures (score-signatures.py)", "missingTypes"),
-                               "missingTypes", "--signatures"))
-        where = _surface_sources(_object(surface, "--surface (load-coverage-inputs.py surface)", "exports")
-                                 if surface is not None else None)
+            signatures = _object(signatures, "--signatures (score-signatures.py)", "missingTypes")
+            types = set(_names(signatures, "missingTypes", "--signatures"))
+            scored = set(_names(signatures, "comparedNames", "--signatures"))
+        if surface is not None:
+            surface = _object(surface, "--surface (load-coverage-inputs.py surface)", "exports")
+        where = _surface_sources(surface)
+        # `excluded` is read once a stale name may be a documented extra
+        outside: set[str] | None = None
+        outside_read = False
         for name in _names(cov, "missing", "--input"):
             records.append(_missing_export(name, where.get(name), meta, "type" if name in types else "export"))
         classified: dict[str, dict] = {}
@@ -819,7 +968,28 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
                           "file does not define",
                     export=name))
                 continue
+            if not outside_read:
+                outside, outside_read = _outside_scope(surface), True
+            extra = _documented_extra_at(name, item, outside, skill_dir)
             doc = _documenting_line(Path(skill_dir), name) if skill_dir else None
+            if extra:
+                declared, among = extra
+                # a homonym: the one declaring file the skill's own citations name
+                picked = (f"; of the {among} files that declare it, the skill cites only "
+                          f"`{declared.rsplit(':', 1)[0]}`") if among else ""
+                # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
+                # documented signature of a name on the surface's records (a nested sub-package's) alone.
+                checked = ("Signature scoring compares its documented signature with the surface's record of it."
+                           if name in scored else
+                           "Its documented signature was not checked against that declaration.")
+                records.append(_gap(
+                    "Info", "observation", f"Documented extra: {name}", declared,
+                    f"No change: `{name}` is a documented extra, a name the source still declares at "
+                    f"`{declared}` outside the enumerated surface, and its documentation stays. {checked}",
+                    issue=f"{f'`{doc}`' if doc else 'the skill'} documents `{name}`, which the enumerated source API "
+                          f"surface lacks and the source still declares{picked}",
+                    export=name))
+                continue
             records.append(_gap(
                 "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
                 f"Check `{name}` against the source and update or remove its documentation at "
@@ -1358,10 +1528,11 @@ def _build_parser() -> argparse.ArgumentParser:
                         "(structure takes it more than once)")
     p.add_argument("--from", dest="adapter", choices=tuple(ADAPTER_OPTIONS),
                    help="build the records from the --input result of a script (see the docstring's Adapters)")
-    p.add_argument("--surface", help="coverage: load-coverage-inputs.py surface's result (Sources, kinds)")
+    p.add_argument("--surface", help="coverage: load-coverage-inputs.py surface's result (Sources, kinds, "
+                                     "the names outside scope)")
     p.add_argument("--signatures", help="coverage: score-signatures.py score's result (missingTypes)")
     p.add_argument("--numerator", help="coverage: verify-declared-numerator.py's result (absent names)")
-    p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures)")
+    p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras)")
     p.add_argument("--provenance", help="coverage: the provenance map (an absent name's Source)")
     p.add_argument("--skill-dir", help="coverage: the skill package (a stale name's documenting line)")
     p.add_argument("--metadata", help="the metadata.json path a record cites as its Source (not read)")
