@@ -40,7 +40,26 @@ subcommands, each reading files and writing one JSON object:
                             kind, line and signature line, looked up by the
                             name its defining file gives it (an aliased
                             re-export's `local`) and that file.
-                            extraction_gaps are listed to read by eye.
+                            extraction_gaps are listed to read by eye, and
+                            the runner's warnings join `warnings`. A Python
+                            top __init__.py inside the folder of another top
+                            that exports a public name (a sub-package
+                            behind a folder with no __init__.py) is no
+                            barrel, unless scope.include or tier_a_include
+                            lists its file: its names leave `all`, `root`
+                            and the umbrella ratio and are listed in
+                            `excluded.nestedEntries`, but keep their records
+                            (so the scope.include and tier_a_include sets)
+                            and their outside_scope and extraction_gaps
+                            rows. When the runner lists an
+                            include glob that matches no file
+                            (scope.unmatched_include: a brief older than the
+                            source), each outside_scope name a root entry
+                            point exports is restored, with the file and
+                            line of its outside_scope row, when no include,
+                            exclude or declined scope-expansion amendment
+                            (latest action skipped or demoted-include, from
+                            --brief) matches its file.
               --quick       skf-extract-public-api.py --mode quick output
               --per-file    a subagent's per-file result (exports_found and
                             types_found), schema-checked as
@@ -59,10 +78,11 @@ subcommands, each reading files and writing one JSON object:
             `<prefix>X` for each --fold-prefix when `X` is itself a name)
             unless --keep names the variant as a real export, and
             `canonical` gives the provenance map's fold summary. --brief
-            gives the skill brief's scope and language; an extraction's
-            recorded scope wins over it.
+            gives the skill brief's scope, language and scope-expansion
+            amendments; an extraction's recorded scope wins over its scope.
 
-Name sets (surface `sets`, each sorted): `all` (the union above);
+Name sets (surface `sets`, each sorted): `all` (the union above, less a
+nested Python top's names);
 `scope.include` and `tier_a_include` when the scope has those globs and a
 record names a file: the names whose file (an extraction's definition file,
 the quick output's source_file, a per-file result's file, a provenance
@@ -82,9 +102,13 @@ has no tier_a_include; the inflation guard compares the scope.include set
 with the provenance entry count (--provenance) and fires above
 INFLATION_PCT when the scope has no tier_a_include; the umbrella ratio (an
 extraction only) is the share of the root entry points' names that are
-re-exports, and above UMBRELLA_RATIO the barrel is an umbrella. Globs follow
-skf-extract-public-api.py: `**` spans any number of path segments, none
-included, and `*` and `?` stay inside one.
+re-exports, and above UMBRELLA_RATIO the barrel is an umbrella; the
+stale-scope guard (an extraction with scope.include only) fires when the
+runner lists an include glob that matches no file, and lists those globs
+(`unmatchedInclude`) and the names restored for them, each with its file
+and line (`restored`). Globs follow skf-extract-public-api.py: `**` spans
+any number of path segments, none included, and `*` and `?` stay inside
+one.
 
 Fallback verdict: `extraction.fallback.needed` is true when the extractor
 found no ast-grep (`no-ast-grep`), read no file in scope, read files only
@@ -119,6 +143,7 @@ import argparse
 import importlib.util
 import json
 import math
+import posixpath
 import re
 import sys
 from pathlib import Path
@@ -140,6 +165,8 @@ LOCAL_FORMS = ("AST", "SRC", "from skill")
 FOLD_SUFFIXES = ("_def", "_exact")
 FOLD_PREFIX = "a11y_"
 ROOT_SUBPATHS = (None, ".")
+# The latest action of a scope-expansion amendment that keeps its path out of scope.
+DECLINED_ACTIONS = ("skipped", "demoted-include")
 # The languages skf-extract-public-api.py's recipes read (its LANGUAGE_FAMILIES).
 RECIPE_LANGUAGES = frozenset({"python", "rust", "go", "golang", "typescript", "ts", "tsx", "javascript", "js",
                               "jsx", "vue"})
@@ -363,14 +390,16 @@ def _scope(include, exclude, tier_a_include) -> dict:
 
 
 def read_brief(path: str) -> dict:
-    """A skill brief's scope globs and language, the fields skf-extract-public-api.py reads."""
+    """A skill brief's scope globs and language, the fields skf-extract-public-api.py reads, and the
+    latest action of each scope-expansion amendment by its path (`amendments`), a legacy headless skip
+    read as a deferral as skf-resolve-authoritative-files.py reads it."""
     try:
         import yaml  # --brief only; `uv run` installs it from the header
     except ImportError as exc:
         raise InputError("--brief is read with PyYAML: run the script with `uv run`") from exc
-    parse_brief_yaml = _sibling("skf-resolve-authoritative-files.py", SHARED_SCRIPTS).parse_brief_yaml
+    resolver = _sibling("skf-resolve-authoritative-files.py", SHARED_SCRIPTS)
     try:
-        data = parse_brief_yaml(Path(path).read_bytes().decode("utf-8-sig"))
+        data = resolver.parse_brief_yaml(Path(path).read_bytes().decode("utf-8-sig"))
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read --brief {path}: {exc}") from exc
     except yaml.YAMLError as exc:
@@ -378,8 +407,16 @@ def read_brief(path: str) -> dict:
     if not isinstance(data, dict):
         raise InputError(f"--brief {path} is not a YAML mapping")
     scope = data.get("scope") if isinstance(data.get("scope"), dict) else {}
+    amendments: dict[str, str] = {}
+    for amend in scope.get("amendments") if isinstance(scope.get("amendments"), list) else []:
+        if isinstance(amend, dict) and amend.get("category") == "scope-expansion":
+            amended = _norm(amend["path"]) if isinstance(amend.get("path"), str) else ""
+            action = resolver._amendment_action(amend)
+            if amended and action is not None:
+                amendments[amended] = action
     return {"scope": _scope(scope.get("include"), scope.get("exclude"), scope.get("tier_a_include")),
-            "language": data.get("language") if isinstance(data.get("language"), str) else None}
+            "language": data.get("language") if isinstance(data.get("language"), str) else None,
+            "amendments": amendments}
 
 
 def matching(records: list[dict], globs: list[str], excludes: list[str]) -> list[str]:
@@ -389,37 +426,91 @@ def matching(records: list[dict], globs: list[str], excludes: list[str]) -> list
                    and not any(glob_match(_norm(r["file"]), g) for g in excludes)})
 
 
-def from_extraction(data: dict, language: str | None = None) -> dict:
-    """The public surface of an extraction, less what lies outside scope."""
+def _nested_tops(entry_files: list[dict], named: set[str], exporting: set[str]) -> dict[str, str]:
+    """{top: the outermost top whose folder holds it} for each Python top
+    __init__.py inside the folder of another top that `exporting` lists (one
+    that exports at least one public name), a sub-package behind a folder
+    with no __init__.py, unless `named` lists its file. A top that exports
+    nothing (a stray __init__.py at the source root, say) nests no other."""
+    tops = sorted({e["file"] for e in entry_files
+                   if e.get("language") == "python" and isinstance(e.get("file"), str) and e["file"]})
+    nested = {}
+    for top in tops:
+        folder = posixpath.dirname(top)
+        outer = [o for o in tops if o != top and o in exporting
+                 and (not posixpath.dirname(o) or folder.startswith(posixpath.dirname(o) + "/"))]
+        if outer and _norm(top) not in named:
+            nested[top] = min(outer, key=lambda o: (o.count("/"), o))
+    return nested
+
+
+def from_extraction(data: dict, language: str | None = None, brief: dict | None = None) -> dict:
+    """The public surface of an extraction, less what lies outside scope,
+    plus the root exports a stale scope.include glob left out. A nested
+    Python top's records come apart (`nestedRecords`): they count in the
+    scope sets, not in `all`."""
     if data.get("mode") != "full":
         raise InputError("--extraction is not skf-extract-public-api.py --mode full output")
     diff = data.get("entry_point_diff") if isinstance(data.get("entry_point_diff"), dict) else {}
     public = [p for p in diff.get("public") or [] if isinstance(p, dict) and isinstance(p.get("name"), str)]
     outside = [o for o in diff.get("outside_scope") or [] if isinstance(o, dict)]
     gaps = [g for g in diff.get("extraction_gaps") or [] if isinstance(g, dict)]
+
+    # The scope: the one the extractor recorded, else the brief's.
+    recorded = data.get("scope") if isinstance(data.get("scope"), dict) else {}
+    scope = _scope(recorded.get("include"), recorded.get("exclude"), recorded.get("tier_a_include"))
+    if not any(scope.values()) and brief is not None:
+        scope = brief["scope"]
+
+    entry_points = data.get("entry_points") if isinstance(data.get("entry_points"), dict) else {}
+    entry_files = [e for e in entry_points.get("files") or [] if isinstance(e, dict)]
+    # A Python top nested in another that exports a name is no barrel: its
+    # names leave `all`, `root` and the umbrella ratio, and keep their
+    # records (so the scope sets a specific-modules or stratified brief
+    # counts) and their outside_scope and extraction_gaps rows.
+    nested = _nested_tops(entry_files, set(scope["include"]) | set(scope["tier_a_include"]),
+                          {p.get("entry") for p in public})
+    nested_names = {top: sorted({p["name"] for p in public if p.get("entry") == top}) for top in nested}
+
+    subpath_files = {e.get("file") for e in entry_files
+                     if e.get("subpath") not in ROOT_SUBPATHS and "*" not in str(e.get("subpath"))}
+    root_files = {e.get("file") for e in entry_files if e.get("subpath") in ROOT_SUBPATHS} - set(nested)
+
+    # A scope.include glob that matches no file: the brief predates the
+    # source, so a root export defined in a file no glob covers comes back,
+    # unless the brief excludes or declined that file.
+    unmatched = _globs(recorded.get("unmatched_include"))
+    declined = [path for path, action in ((brief or {}).get("amendments") or {}).items()
+                if action in DECLINED_ACTIONS]
+    restored = [o for o in outside if unmatched and o.get("entry") in root_files
+                and isinstance(o.get("name"), str) and isinstance(o.get("file"), str) and o["file"]
+                and not any(glob_match(_norm(o["file"]), g)
+                            for g in scope["include"] + scope["exclude"] + declined)]
+    restored_at = {(o["name"], o["file"]): o.get("line") for o in restored}
+    outside = [o for o in outside if (o.get("name"), o.get("file")) not in restored_at]
+
     outside_keys = {(o.get("name"), o.get("file")) for o in outside}
     index = {(e.get("export_name"), e.get("source_file")): e
              for e in data.get("exports") or [] if isinstance(e, dict)}
-    records = []
+    records, nested_records = [], []
     for info in public:
         name, file = info["name"], info.get("file")
         if (name, file) in outside_keys:
+            continue
+        if (name, file) in restored_at:
+            # No recipe reads a file out of scope, so its kind is unknown: the
+            # name carries the file and line of its outside_scope row.
+            records.append(_record(name, None, file, restored_at[(name, file)], None, "restored"))
             continue
         # An aliased re-export (`export { Options as Config }`) is recorded
         # under the name its defining file gives it, `local`.
         found = index.get((info.get("local") or name, file)) or index.get((name, file))
         kind = found.get("export_type") if found else None
-        records.append(_record(name, None if kind == "re-export" else kind, file,
-                               found.get("source_line") if found else info.get("line"),
-                               found.get("signature_line") if found else None, "extraction"))
+        (nested_records if info.get("entry") in nested else records).append(
+            _record(name, None if kind == "re-export" else kind, file,
+                    found.get("source_line") if found else info.get("line"),
+                    found.get("signature_line") if found else None, "extraction"))
 
-    scope = data.get("scope") if isinstance(data.get("scope"), dict) else {}
-
-    entry_points = data.get("entry_points") if isinstance(data.get("entry_points"), dict) else {}
-    entry_files = [e for e in entry_points.get("files") or [] if isinstance(e, dict)]
-    subpath_files = {e.get("file") for e in entry_files
-                     if e.get("subpath") not in ROOT_SUBPATHS and "*" not in str(e.get("subpath"))}
-    root_files = {e.get("file") for e in entry_files if e.get("subpath") in ROOT_SUBPATHS}
     root_names = [p for p in public if p.get("entry") in root_files]
     reexported = [p for p in root_names if p.get("via") not in (None, "declaration")]
 
@@ -449,10 +540,15 @@ def from_extraction(data: dict, language: str | None = None) -> dict:
                             if isinstance(e, dict) and e.get("first_file")})
     return {
         "records": records,
+        "nestedRecords": nested_records,
         "sets": sets,
         "outside": [{"name": o.get("name"), "file": o.get("file")} for o in outside],
+        "nested": [{"entry": top, "within": nested[top], "names": nested_names[top]} for top in sorted(nested)],
+        "staleScope": {"unmatchedInclude": unmatched,
+                       "restored": [{"name": o["name"], "file": o["file"], "line": o.get("line")}
+                                    for o in sorted(restored, key=lambda o: (o["name"], o["file"]))]},
         "gaps": [{"name": g.get("name"), "file": g.get("file"), "line": g.get("line")} for g in gaps],
-        "scope": _scope(scope.get("include"), scope.get("exclude"), scope.get("tier_a_include")),
+        "scope": scope,
         "umbrella": {
             "entries": sorted(f for f in root_files if f),
             "names": len(root_names),
@@ -538,7 +634,7 @@ def surface(args: argparse.Namespace) -> dict:
     sets: dict[str, list[str]] = {}
     warnings: list[str] = []
     out: dict = {"candidates": None, "guards": None, "state2": None, "canonical": None,
-                 "extraction": None, "extractionGaps": [], "excluded": {"outsideScope": []}}
+                 "extraction": None, "extractionGaps": [], "excluded": {"outsideScope": [], "nestedEntries": []}}
 
     meta = _object(args.metadata, "--metadata") if args.metadata else None
     provenance = _object(args.provenance, "--provenance") if args.provenance else None
@@ -549,12 +645,14 @@ def surface(args: argparse.Namespace) -> dict:
 
     extracted = None
     if args.extraction:
-        extracted = from_extraction(_object(args.extraction, "--extraction"), language)
+        data = _object(args.extraction, "--extraction")
+        extracted = from_extraction(data, language, brief)
         records += extracted["records"]
         sets.update(extracted["sets"])
         out["extraction"] = extracted["extraction"]
         out["extractionGaps"] = extracted["gaps"]
-        out["excluded"]["outsideScope"] = extracted["outside"]
+        out["excluded"] = {"outsideScope": extracted["outside"], "nestedEntries": extracted["nested"]}
+        warnings += [f"{Path(args.extraction).name}: {w}" for w in data.get("warnings") or [] if isinstance(w, str)]
     for path in args.quick or []:
         data = _object(path, "--quick")
         records += from_quick(data)
@@ -614,8 +712,10 @@ def surface(args: argparse.Namespace) -> dict:
                 "metadataOnly": sorted(set(meta_bases) - seen),
             }
 
-    records.sort(key=lambda r: (r["name"], str(r["file"] or ""), r["origin"]))
     sets["all"] = sorted({r["name"] for r in records})
+    # A nested Python top's records count in the scope sets, never in `all`.
+    records += extracted["nestedRecords"] if extracted is not None else []
+    records.sort(key=lambda r: (r["name"], str(r["file"] or ""), r["origin"]))
 
     # The scope: the one the extractor recorded, else the brief's.
     scope = extracted["scope"] if extracted is not None and any(extracted["scope"].values()) else None
@@ -655,9 +755,15 @@ def surface(args: argparse.Namespace) -> dict:
         if inflation["applicable"]:
             inflation["pct"] = round2((include_union - entry_count) / entry_count * 100)
             inflation["fires"] = inflation["pct"] > INFLATION_PCT
+        stale_scope = {"applicable": extracted is not None and bool(scope["include"]), "fires": False,
+                       "unmatchedInclude": [], "restored": []}
+        if stale_scope["applicable"]:
+            stale_scope.update(extracted["staleScope"])
+            stale_scope["fires"] = bool(stale_scope["unmatchedInclude"])
         out["guards"] = {
             "deflation": deflation,
             "inflation": inflation,
+            "staleScope": stale_scope,
             "umbrella": extracted["umbrella"] if extracted is not None else dict(NO_UMBRELLA),
             "thresholds": {"deflationPct": DEFLATION_PCT, "inflationPct": INFLATION_PCT,
                            "umbrellaRatio": UMBRELLA_RATIO},

@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer counts a Python sub-package inside another package's folder as a barrel of its own. When a folder with no `__init__.py` sits between them (FastAPI `routers/__init__.py` files, say), the inner `__init__.py` was read as a second package root, so its names were reported as missing exports. Its names now stay out of the standard barrel (the `all` and `root` sets) and are listed in `excluded.nestedEntries`, while a `scope.include` or `scope.tier_a_include` denominator still counts them. A name the skill documents from such a sub-package now reads as stale documentation under the standard barrel, while its signature is still checked. Only a package that exports a name holds another, so a stray empty `__init__.py` at the source root changes nothing, and a brief whose `scope.include` or `scope.tier_a_include` lists the inner `__init__.py` keeps it a barrel.
+issues: [677]

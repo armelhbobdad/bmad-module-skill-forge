@@ -4,9 +4,10 @@
 Signature Accuracy and Type Coverage used to be divided by hand from
 unchecked subagent JSON, with `total_types` defined nowhere. The script:
   - plans the comparisons: each documented signature the source surface
-    lists, grouped by file, with its source line and documented signature;
-    without a surface, the signature map coverage-check-tiers.md's fallback
-    per-file scan hands each subagent
+    lists (its `all` set and every name on its export records, so a nested
+    Python top's names keep their checks, #677), grouped by file, with its
+    source line and documented signature; without a surface, the signature
+    map coverage-check-tiers.md's fallback per-file scan hands each subagent
   - schema-checks every subagent result (fence stripped), and refuses one
     that breaks the contract with violations[] and exit 2
   - scores Signature Accuracy (matching over compared, on the whole
@@ -193,6 +194,54 @@ def test_the_surface_set_picks_the_types_type_coverage_counts(tmp_path):
     # root holds Mode and Options (both documented), not Extra and Level.
     assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"]) == (2, 2, 100.0)
     assert (out["matchingSignatures"], out["totalDocumented"]) == (1, 2), "helper is not in root, still compared"
+
+
+def test_a_nested_top_name_off_the_all_set_keeps_its_signature_check(tmp_path):
+    """#677: load-coverage-inputs.py keeps a nested Python top's names out of
+    `all` but on the export records. A documented one is still planned and
+    scored, and its wrong signature is a gap; Type Coverage stays over `all`,
+    so a nested class is no missing type."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "add", "kind": "function", "params": "data", "return_type": "None"},
+        {"name": "get_add_router", "kind": "function", "return_type": "Router"},
+    ], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {
+        "exports": [
+            {"name": "RouterConfig", "kind": "class", "file": "pkg/api/routers/config.py", "line": 1,
+             "signatureLine": "class RouterConfig:", "origin": "extraction"},
+            {"name": "Task", "kind": "class", "file": "pkg/task.py", "line": 1, "signatureLine": "class Task:",
+             "origin": "extraction"},
+            {"name": "add", "kind": "function", "file": "pkg/add.py", "line": 1, "signatureLine": "def add(data):",
+             "origin": "extraction"},
+            {"name": "get_add_router", "kind": "function", "file": "pkg/api/routers/add.py", "line": 3,
+             "signatureLine": "def get_add_router():", "origin": "extraction"},
+        ],
+        "sets": {"all": ["Task", "add"], "root": ["Task", "add"]},
+        "excluded": {"outsideScope": [], "nestedEntries": [
+            {"entry": "pkg/api/routers/__init__.py", "within": "pkg/__init__.py",
+             "names": ["RouterConfig", "get_add_router"]}]},
+    })
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert plan["compared"] == 2
+    assert plan["files"] == [
+        {"file": "pkg/add.py", "checks": [{"name": "add", "line": 1, "signatureLine": "def add(data):",
+                                           "documented": {"params": "data", "return_type": "None"}}]},
+        {"file": "pkg/api/routers/add.py", "checks": [{"name": "get_add_router", "line": 3,
+                                                       "signatureLine": "def get_add_router():",
+                                                       "documented": {"return_type": "Router"}}]},
+    ]
+    mismatch = {"name": "get_add_router", "line": 3, "source_sig": "() -> APIRouter", "documented_sig": "() -> Router",
+                "issue": "wrong return type"}
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "pkg/api/routers/add.py",
+                                                     "signature_mismatches": [mismatch]}))
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"]) == (1, 2)
+    assert [g["export"] for g in out["gapRecords"]] == ["get_add_router"] and out["warnings"] == []
+    assert (out["documentedTypes"], out["totalTypes"], out["missingTypes"]) == (0, 1, ["Task"])
+    # A narrower set changes Type Coverage only: the signatures still compare over the whole universe.
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--surface-set", "root",
+                          "--results", results).stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"], out["totalTypes"]) == (1, 2, 1)
 
 
 def test_nothing_to_compare_scores_100_with_a_warning(tmp_path):

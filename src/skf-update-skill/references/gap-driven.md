@@ -95,7 +95,7 @@ Read the gaps of the test report at `{test_report_path}` and translate them into
 | `metadata-drift`, `metadata` | Divergent export counts in the metadata; missing metadata or examples | metadata update, see rule R4 |
 | any other | any other gap | not routed |
 
-**Not routed:** update-skill has no repair for the other categories. `provenance-unverified` asks for a check by hand, `denominator-inflation` and `multi-denominator` concern the brief's scope and the count design, and `numerator-inflation`, `scripts-assets-provenance`, `observation`, `discovery`, `description` and `external-validator` need a person or another workflow. Such a gap takes no manifest entry (bullet 3 lists it).
+**Not routed:** update-skill has no repair for the other categories. `provenance-unverified` asks for a check by hand, `denominator-inflation`, `brief-scope-stale` and `multi-denominator` concern the brief's scope and the count design, and `numerator-inflation`, `scripts-assets-provenance`, `observation`, `discovery`, `description` and `external-validator` need a person or another workflow. Such a gap takes no manifest entry (bullet 3 lists it).
 
 **Translation rules (referenced by the table above):**
 

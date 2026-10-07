@@ -1434,6 +1434,21 @@ class TestGlobRules:
         assert out["files_in_scope"] == 1
         assert out["scope"]["include"] == ["src/**", "docs/**"] and out["scope"]["exclude"] == ["src/b.ts"]
         assert "scope.include pattern 'docs/**' matches no file" in out["warnings"]
+        # #677: the scope lists the unmatched globs too, for load-coverage-inputs.py surface to read
+        assert out["scope"]["unmatched_include"] == ["docs/**"]
+
+    def test_a_brief_glob_a_new_layout_left_behind_is_unmatched(self, tmp_path, capsys, no_ast_grep) -> None:
+        # #677: cognee 1.0 made pipelines.py a package, so the brief's file glob matches nothing
+        root = _tree(tmp_path / "root", {"cognee/__init__.py": "", "cognee/pipelines/__init__.py": "",
+                                         "cognee/pipelines/run.py": ""})
+        brief = _tree(tmp_path, {"skill-brief.yaml": (
+            "name: cognee\nlanguage: python\nscope:\n  type: public-api\n"
+            "  include: ['cognee/__init__.py', 'cognee/pipelines.py']\n")}) / "skill-brief.yaml"
+        _, out = _full(capsys, root, "--brief", str(brief))
+        assert out["scope"]["unmatched_include"] == ["cognee/pipelines.py"]
+        assert "scope.include pattern 'cognee/pipelines.py' matches no file" in out["warnings"]
+        _, out = _full(capsys, root, "--include", "cognee/**")
+        assert out["scope"]["unmatched_include"] == []
 
 
 class TestFileSelection:
@@ -1522,7 +1537,8 @@ class TestFileSelection:
             "  notes: tiered\n")}) / "skill-brief.yaml"
         _, out = _full(capsys, root, "--brief", str(brief))
         assert out["scope"] == {"include": ["src/**"], "exclude": ["src/gen/**"], "tier_a_include": ["src/core/**"],
-                                "type": "specific-modules", "languages": ["python"], "files_from": None}
+                                "type": "specific-modules", "languages": ["python"], "files_from": None,
+                                "unmatched_include": []}
         assert out["files_in_scope"] == 2
         _, out = _full(capsys, root, "--brief", str(brief), "--include", "src/core/**", "--language", "ts")
         assert out["files_in_scope"] == 0 and out["scope"]["include"] == ["src/core/**"]
