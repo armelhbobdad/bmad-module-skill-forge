@@ -1560,8 +1560,9 @@ def _sibling(filename: str):
     """A helper installed beside this script, loaded once as a module:
     skf-source-tree.py (git without the caller's hooks and git variables,
     and a tool lookup that never takes a shim planted in the current
-    folder), skf-resolve-authoritative-files.py (the brief's glob rules) and
-    skf-detect-workspaces.py (monorepo detection). Raises RunnerError."""
+    folder), skf-resolve-authoritative-files.py (the brief's YAML and glob
+    rules) and skf-detect-workspaces.py (monorepo detection). Raises
+    RunnerError."""
     module = _SIBLINGS.get(filename)
     if module is None:
         path = Path(__file__).resolve().parent / filename
@@ -1856,8 +1857,9 @@ def _read_file_list(path: Path) -> list[str]:
 def _read_brief(path: Path) -> dict:
     """The scope fields and language of a skill brief."""
     yaml = _yaml()
+    parse_brief_yaml = _sibling("skf-resolve-authoritative-files.py").parse_brief_yaml
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = parse_brief_yaml(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as exc:
         raise RunnerError(f"cannot read brief {path}: {exc}") from exc
     except yaml.YAMLError as exc:

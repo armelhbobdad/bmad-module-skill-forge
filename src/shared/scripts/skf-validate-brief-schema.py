@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -62,6 +63,23 @@ from jsonschema import Draft202012Validator
 
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "skill-brief.v1.json"
+RESOLVER_PATH = Path(__file__).resolve().parent / "skf-resolve-authoritative-files.py"
+
+
+def _load_resolver():
+    """skf-resolve-authoritative-files.py from this folder: its
+    parse_brief_yaml reads a brief's YAML, an SKF 1.x brief's trailing `---`
+    included. A missing file raises OSError, which skf-quick-batch.py
+    reports as a validator that cannot be loaded."""
+    spec = importlib.util.spec_from_file_location("skf_resolve_authoritative_files", RESOLVER_PATH)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {RESOLVER_PATH.name} beside {Path(__file__).name}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_RESOLVER = _load_resolver()
 
 
 # --------------------------------------------------------------------------
@@ -77,7 +95,7 @@ def load_schema() -> dict:
 def load_brief_text(text: str) -> tuple[dict | None, str | None]:
     """Parse YAML text. Returns (brief, error_message)."""
     try:
-        brief = yaml.safe_load(text)
+        brief = _RESOLVER.parse_brief_yaml(text)
     except yaml.YAMLError as exc:
         return None, f"Brief is not valid YAML: {exc}"
     if brief is None:

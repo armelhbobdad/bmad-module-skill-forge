@@ -418,6 +418,9 @@ class TestInstalledLayout:
         )
         shutil.copytree(SCRIPT_PATH.parent / "schemas", installed_scripts / "schemas")
         assert (installed_scripts / "schemas" / "skill-brief.v1.json").is_file()
+        # The brief's YAML is read with the resolver's parse_brief_yaml, a sibling too.
+        resolver = SCRIPT_PATH.parent / "skf-resolve-authoritative-files.py"
+        shutil.copyfile(resolver, installed_scripts / resolver.name)
 
         brief_path = tmp_path / "skill-brief.yaml"
         brief_path.write_text(_valid_yaml_text(), encoding="utf-8")

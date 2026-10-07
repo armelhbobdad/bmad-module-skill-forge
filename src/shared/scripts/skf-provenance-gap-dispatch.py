@@ -78,6 +78,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -256,14 +257,37 @@ _DEFERRED = "deferred-headless"
 _LEGACY_HEADLESS_REASON = "headless: no user to prompt"
 
 
+_RESOLVER = None
+
+
+def _resolver():
+    """skf-resolve-authoritative-files.py from this folder, loaded once: its
+    parse_brief_yaml reads a brief's YAML, an SKF 1.x brief's trailing `---`
+    included. Raises ValueError when it cannot be loaded."""
+    global _RESOLVER
+    if _RESOLVER is None:
+        path = Path(__file__).resolve().parent / "skf-resolve-authoritative-files.py"
+        spec = importlib.util.spec_from_file_location("skf_resolve_authoritative_files", path)
+        if spec is None or spec.loader is None:
+            raise ValueError(f"cannot load {path.name} beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except (OSError, ImportError, SyntaxError) as exc:
+            raise ValueError(f"cannot load {path.name} beside {Path(__file__).name}: {exc}") from exc
+        _RESOLVER = module
+    return _RESOLVER
+
+
 def load_brief(brief_path: Path) -> dict:
     """Parse a skill-brief.yaml file. Raises ValueError on load failure."""
     try:
         text = brief_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ValueError(f"cannot read brief at {brief_path}: {exc}") from exc
+    parse_brief_yaml = _resolver().parse_brief_yaml
     try:
-        brief = yaml.safe_load(text)
+        brief = parse_brief_yaml(text)
     except yaml.YAMLError as exc:
         raise ValueError(f"brief at {brief_path} is not valid YAML: {exc}") from exc
     if not isinstance(brief, dict):

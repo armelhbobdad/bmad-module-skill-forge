@@ -1078,6 +1078,25 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
         assert gone not in forge, gone
 
 
+def test_a_runner_input_error_halts_and_never_takes_the_fallback_scan():
+    """#676: exit 2 is an input error (a 1.x brief the runner could not read, say) or a failure the runner did not
+    foresee, named on stderr. Every flag of the call is fixed, so it HALTs with that line before the surface is
+    built; the Fallback Per-File Scan stays for what the JSON says the runner cannot do, and for no JSON on another
+    exit."""
+    raw = _slice(_read(COVERAGE), "**Forge Tier (ast-grep available):**", "**Deep Tier")
+    forge = _flow(raw)
+    halt = ('Exit 2 is an input error (a brief the runner cannot read, say) or a failure the runner did not '
+            'foresee, named in one line on stderr with no JSON: HALT with that line (`halt_reason: "helper-failed"`, '
+            'phase `coverage-check:surface`).')
+    assert halt in forge
+    assert forge.index(halt) < forge.index("Build the surface from it")
+    fallback = [line for line in raw.splitlines() if "run its **Fallback Per-File Scan**" in line]
+    assert fallback == ["- `extraction.fallback.needed` is true, or the runner printed no JSON on an exit other "
+                        "than 2: load `{coverageTiersFile}` and run its **Fallback Per-File Scan** in place of the "
+                        "rest of this tier."]
+    assert "exited 2" not in forge
+
+
 def test_tooling_health_is_tooling_status_only():
     for path in sorted(TEST_SKILL.rglob("*.md")):
         text = _read(path)

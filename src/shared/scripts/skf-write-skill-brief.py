@@ -594,10 +594,11 @@ def render_yaml(brief: dict[str, Any]) -> str:
 
     The step 5 §3 template shows leading and trailing `---` markers, but those were
     wrapping the example YAML for documentation purposes — actual on-disk YAML uses
-    only the leading `---` (or none). A trailing `---` would start a second empty
-    document and break callers that use `yaml.safe_load` (which expects a single
-    document) — and skf-create-skill / audit-skill / update-skill all use
-    `yaml.safe_load`, so consistency with their loaders matters.
+    only the leading `---` (or none). A trailing `---` starts a second, empty
+    document: SKF's own readers skip it (they parse a brief with
+    skf-resolve-authoritative-files.py's parse_brief_yaml, which reads the SKF 1.x
+    briefs that ended so), but other YAML tools that expect a single document,
+    such as `yaml.safe_load`, refuse it, so the writer leaves it out.
     """
     body = yaml.safe_dump(
         brief,
@@ -755,6 +756,23 @@ def _read_json_object(path: Path, flag: str) -> dict[str, Any]:
     return data
 
 
+RESOLVER = Path(__file__).resolve().parent / "skf-resolve-authoritative-files.py"
+
+
+def _parse_brief_yaml(text: str) -> Any:
+    """A brief's YAML as skf-resolve-authoritative-files.py (from this folder)
+    reads it: an SKF 1.x brief's trailing `---` is no second document."""
+    spec = importlib.util.spec_from_file_location("skf_resolve_authoritative_files", RESOLVER)
+    if spec is None or spec.loader is None:
+        _die(f"cannot load {RESOLVER.name}", code=2)
+    resolver = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(resolver)
+    except (OSError, ImportError, SyntaxError) as exc:
+        _die(f"cannot load {RESOLVER.name} beside {Path(__file__).name}: {exc}", code=2)
+    return resolver.parse_brief_yaml(text)
+
+
 def base_context(base_brief: Path, doc_urls_file: Path | None, patch_file: Path | None) -> dict[str, Any]:
     """The write context of the base brief form (see the module docstring)."""
     try:
@@ -762,7 +780,7 @@ def base_context(base_brief: Path, doc_urls_file: Path | None, patch_file: Path 
     except OSError as e:
         _die(f"write: cannot read the base brief {base_brief}: {e}", code=2)
     try:
-        brief = yaml.safe_load(original.decode("utf-8-sig"))
+        brief = _parse_brief_yaml(original.decode("utf-8-sig"))
     except (UnicodeDecodeError, yaml.YAMLError) as e:
         _die(f"write: the base brief {base_brief} is not YAML: {e}")
     if not isinstance(brief, dict):
@@ -895,7 +913,7 @@ def cmd_amend(target: Path) -> int:
     except OSError as e:
         _die(f"amend: cannot read {target}: {e}", code=2)
     try:
-        brief = yaml.safe_load(original.decode("utf-8-sig"))
+        brief = _parse_brief_yaml(original.decode("utf-8-sig"))
     except (UnicodeDecodeError, yaml.YAMLError) as e:
         _die(f"amend: {target} is not a YAML brief: {e}")
     if not isinstance(brief, dict) or not isinstance(brief.get("scope"), dict):
