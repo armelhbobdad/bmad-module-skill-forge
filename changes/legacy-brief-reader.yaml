@@ -2,4 +2,5 @@ type: fixed
 scope: skf-analyze-source, skf-audit-skill, skf-brief-skill, skf-create-skill, skf-quick-skill, skf-test-skill, skf-update-skill
 summary: |
   A `skill-brief.yaml` that SKF 1.x wrote is read again. SKF 1.x closed every brief with a trailing `---`, which YAML reads as a second, empty document, so every script that reads a brief refused it as not valid YAML: Create Skill's brief check halted with `brief-malformed`, and the recipe runner (`skf-extract-public-api.py`) and the scope helpers stopped on it. These scripts now skip a document that holds no value; more than one document that holds a value is refused.
+prs: [688]
 issues: [679]

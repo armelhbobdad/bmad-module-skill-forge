@@ -2,4 +2,5 @@ type: fixed
 scope: skf-test-skill
 summary: |
   When the recipe runner (`skf-extract-public-api.py`) exits 2 in the coverage check, on an input error such as a skill brief it cannot read or on a failure it did not foresee, Test Skill now halts with `helper-failed` and the runner's error line instead of running the slow per-file fallback scan as if the runner could not be used. The fallback scan still runs when the runner's JSON says it cannot do the work (no ast-grep, no files in scope or no recipe for them), or when it prints no JSON on another exit.
+prs: [688]
 issues: [676]
